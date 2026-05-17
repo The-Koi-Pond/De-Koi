@@ -3,26 +3,10 @@
 // ──────────────────────────────────────────────
 
 /** Image file extensions supported by the game-asset pipeline. */
-export const IMAGE_EXTS: ReadonlySet<string> = new Set([
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif",
-  ".webp",
-  ".avif",
-  ".svg",
-]);
+export const IMAGE_EXTS: ReadonlySet<string> = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg"]);
 
 /** Audio file extensions supported by the game-asset pipeline. */
-export const AUDIO_EXTS: ReadonlySet<string> = new Set([
-  ".mp3",
-  ".ogg",
-  ".wav",
-  ".flac",
-  ".m4a",
-  ".aac",
-  ".webm",
-]);
+export const AUDIO_EXTS: ReadonlySet<string> = new Set([".mp3", ".ogg", ".wav", ".flac", ".m4a", ".aac", ".webm"]);
 
 /** Text/code file extensions editable in the in-engine file browser. */
 export const TEXT_EXTS: ReadonlySet<string> = new Set([

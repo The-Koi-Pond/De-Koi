@@ -13,15 +13,7 @@ import { encodeAssetPath } from "./encode-asset-path";
  * @param name - File name (used for extension detection and display)
  * @param onClose - Callback when modal should close
  */
-export function AudioPlayerModal({
-  path,
-  name,
-  onClose,
-}: {
-  path: string;
-  name: string;
-  onClose: () => void;
-}) {
+export function AudioPlayerModal({ path, name, onClose }: { path: string; name: string; onClose: () => void }) {
   const lastDot = name.lastIndexOf(".");
   const ext = lastDot >= 0 ? name.slice(lastDot).toLowerCase() : "";
   const mime = AUDIO_MIME_MAP[ext] || "audio/mpeg";
@@ -50,12 +42,7 @@ export function AudioPlayerModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="mb-4 text-sm font-semibold text-(--foreground)">{name}</h3>
-        <audio
-          controls
-          className="w-full"
-          autoPlay
-          onError={() => setPlayError(true)}
-        >
+        <audio controls className="w-full" autoPlay onError={() => setPlayError(true)}>
           <source src={`/api/game-assets/file/${encodedPath}`} type={mime} />
           Your browser does not support the audio element.
         </audio>

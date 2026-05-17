@@ -685,8 +685,7 @@ export function RegexScriptEditor() {
                   <code className="rounded bg-[var(--secondary)] px-1">***</code>
                 </li>
                 <li>
-                  Capitalize replacement:{" "}
-                  <code className="rounded bg-[var(--secondary)] px-1">\U$1</code>
+                  Capitalize replacement: <code className="rounded bg-[var(--secondary)] px-1">\U$1</code>
                 </li>
               </ul>
               {dbRow && (

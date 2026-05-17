@@ -1,0 +1,78 @@
+name: Build Windows Installer
+
+on:
+  push:
+    tags: ["v*"]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing vX.Y.Z release tag to attach installer to"
+        required: true
+        type: string
+
+jobs:
+  build-windows-installer:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name || github.event.inputs.tag || github.ref }}
+
+      - name: Install NSIS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nsis
+
+      - name: Resolve release tag
+        id: release_tag
+        shell: bash
+        run: |
+          release_tag="${{ github.event.release.tag_name || '' }}"
+          input_tag="${{ github.event.inputs.tag || '' }}"
+          ref_name="${{ github.ref_name }}"
+          tag="${release_tag:-${input_tag:-$ref_name}}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Build installer
+        id: build
+        shell: bash
+        working-directory: win/installer
+        run: |
+          version="$(node -p "require('../../package.json').version")"
+          commit="$(git -C ../.. rev-parse HEAD)"
+          makensis -DRELEASE_COMMIT="$commit" installer.nsi
+          installer="Marinara-Engine-Installer-${version}.exe"
+          if [ ! -s "$installer" ]; then
+            echo "Installer was not produced at win/installer/$installer" >&2
+            exit 1
+          fi
+          echo "installer=win/installer/${installer}" >> "$GITHUB_OUTPUT"
+          echo "name=Marinara-Engine-Installer-${version}.exe" >> "$GITHUB_OUTPUT"
+          ls -lh "$installer"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.build.outputs.name }}
+          path: ${{ steps.build.outputs.installer }}
+
+      - name: Attach installer to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release_tag.outputs.tag }}
+        run: |
+          for i in {1..60}; do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 10
+          done
+          gh release upload "$TAG" "${{ steps.build.outputs.installer }}" --clobber

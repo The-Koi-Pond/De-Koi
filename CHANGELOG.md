@@ -4,6 +4,8 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ## [Unreleased]
 
+## [1.6.0]
+
 ### Added
 
 - Added optional image generation for the Background agent so Roleplay can create and reuse missing scene backgrounds from an agent-selected image connection.
@@ -23,6 +25,13 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Reworked the avatar crop tool into a square-region selector with corner handles + interior pan, so users can pick the exact part of the source image that becomes the circle avatar. Replaces the prior zoom + pan slider on Character avatars and adds the same widget to Personas (previously had no crop UI). The original avatar file is never overwritten — the Roleplay glued side panel still shows the full portrait.
 - Added in-game access to Game Assets from the top-right game controls, including per-game asset selection.
 - Added `%reference_image_name%` placeholder for ComfyUI custom workflows. When the workflow contains this placeholder, Marinara uploads the reference image to ComfyUI's `input/` folder via `/upload/image` and substitutes the returned filename, so vanilla `LoadImage` nodes can use the reference without needing a base64 decode node. The existing `%reference_image%` placeholder still works for workflows that decode base64 themselves (e.g. via `ETN_LoadImageBase64`).
+- Added automated Windows installer builds for tagged GitHub Releases, and hardened release-asset workflows so the `.exe` installer and Android WebView shell APK attach from `v*` tag pushes even when the release itself is created by automation.
+- Added a full-screen Game Assets browser with search, previews, editing, multi-select, and bulk operations.
+- Added TTS playback controls, guided-action Quick Replies, direct swipe-number jumping, and clearer visible agent failure details.
+- Added Game Mode inventory amount controls, drag-swap inventory interactions, tracker card color customization, and visible unread state for background autonomous messages.
+- Added connection folders, per-connection prompt preset overrides, profile import progress feedback, and JSONL chat import into existing chats as new branches.
+- Added tag import controls, bulk tag removal, Grok image generation support, NovelAI prompt controls for selfies and Illustrator, and Conversation-mode function calls.
+- Added Lorebook keyword testing, vectorization exclusions, budget-skip visibility, and stronger regex safety protections.
 
 ### Changed
 
@@ -31,6 +40,9 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Increased ComfyUI image generation polling to 5 minutes by default, matching the shared image request timeout used by Game Mode assets and documenting the image timeout env settings. ([#786](https://github.com/Pasta-Devs/Marinara-Engine/issues/786))
 - Increased the default image generation canvases to `1280x720` for backgrounds, `1024x1024` for portraits, and `896x1152` for selfies so newly generated assets look sharper out of the box. Existing saved image size settings are preserved. ([#913](https://github.com/Pasta-Devs/Marinara-Engine/issues/913))
 - Expanded Android APK disclaimers across GitHub Release notes, release asset naming, install docs, FAQ/troubleshooting, in-app update metadata, APK build output, and the Android shell's connection screen so users know the APK is a WebView shell and still requires the Termux launcher to be running.
+- Improved Game Mode Spotify and narration handling, scene prompts, startup recovery, and asset generation/regeneration flows.
+- Improved Docker runtime config, Docker Lite behavior, sharp handling, Linux sidecar fallback, Termux startup reliability, and the Docker Compose `HOME` default.
+- Added a Termux `--skip-update` startup option and improved startup port-collision handling.
 
 ### Fixed
 
@@ -45,6 +57,15 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Fixed GLM 5.1 via NanoGPT returning thinking-only text in Professor Mari chats by explicitly disabling thinking when reasoning is off and refusing to expose GLM thinking as visible chat output.
 - Fixed app settings reverting after reload when stale server-synced settings overwrote newer browser-local preferences.
 - Game mode now keeps the selected Appearance background when Scene Analysis is off instead of falling back to black.
+- Fixed Game Mode stuck starts, duplicated setup modals, HUD widget setup recovery, provider recovery, thinking-only or empty model replies, and scene intro recovery paths.
+- Fixed Game Mode asset generation prompt review, NPC portrait matching, sprite recovery, Professor-name avatar matching, and command-prompt regeneration replay.
+- Fixed Game Session Log flicker, deletion offsets, manual deletion persistence, and dice-roll dismissal when advancing dialogue.
+- Fixed Game Mode weather, storm ambience, sun overlay behavior, CYOA live updates, skill checks, inventory notifications, combat voice audio, mobile party access, tracker refreshes, and tracker edit persistence.
+- Fixed Conversation disconnection aborts on Docker, markdown block preservation, hidden-message regeneration crashes, Up Arrow recall behavior, role editing, DM schedule inheritance, random connection schedule generation, and connected-chat placeholder branch names.
+- Fixed character avatar uploads preserving unsaved drafts, chat folder click targets, drag reorder behavior, text selection while dragging, folder storage atomicity, and Professor Mari continuation after tool/fetch work.
+- Fixed OpenAI ChatGPT request shape and SSE parsing, compressed provider JSON decoding (`gzip`, raw `gzip`, and Brotli), Gemini gzip decoding, provider identity handling, NovelAI V4 prompt/model handling, ComfyUI numeric workflow placeholders, Horde image endpoints, and Pygmalion avatar content-type fallback.
+- Fixed macro resolution in lorebooks and regex scripts, Lorebook Keeper overwrite/update behavior, depth-zero lorebook injections, Knowledge Retrieval and built-in agent prompt sections, roleplay leakage from Knowledge Retrieval prompts, preset identity sections, and regex lorebook matching ReDoS hardening.
+- Fixed Docker proxy auth behavior and clarified its network scope, and improved file-native backup/self-heal behavior.
 
 ## [1.5.9]
 

@@ -363,7 +363,12 @@ async function importCharacterBuffer(
 
     const avatarB64 = buffer.toString("base64");
     charData._avatarDataUrl = `data:image/png;base64,${avatarB64}`;
-    return importSTCharacter(charData, db, { timestampOverrides, importEmbeddedLorebook, tagImportMode, existingTagKeys });
+    return importSTCharacter(charData, db, {
+      timestampOverrides,
+      importEmbeddedLorebook,
+      tagImportMode,
+      existingTagKeys,
+    });
   }
 
   if (fileName.toLowerCase().endsWith(".charx")) {

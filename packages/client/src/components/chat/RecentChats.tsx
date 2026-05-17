@@ -34,10 +34,7 @@ export function RecentChats() {
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
 
   const charLookup = useMemo(() => {
-    const map = new Map<
-      string,
-      { name: string; avatarUrl: string | null; avatarCrop?: AvatarCropValue | null }
-    >();
+    const map = new Map<string, { name: string; avatarUrl: string | null; avatarCrop?: AvatarCropValue | null }>();
     if (!allCharacters) return map;
     for (const char of allCharacters as Array<{ id: string; data: string; avatarPath: string | null }>) {
       try {
@@ -81,10 +78,7 @@ function RecentChatChip({
   onClick,
 }: {
   chat: Chat;
-  charLookup: Map<
-    string,
-    { name: string; avatarUrl: string | null; avatarCrop?: AvatarCropValue | null }
-  >;
+  charLookup: Map<string, { name: string; avatarUrl: string | null; avatarCrop?: AvatarCropValue | null }>;
   onClick: () => void;
 }) {
   const mode = MODE_BADGE[chat.mode] ?? MODE_BADGE.conversation;

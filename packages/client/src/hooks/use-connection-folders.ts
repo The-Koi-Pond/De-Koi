@@ -22,8 +22,7 @@ export function useConnectionFolders() {
 export function useCreateConnectionFolder() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { name: string; color?: string }) =>
-      api.post<ConnectionFolder>("/connection-folders", data),
+    mutationFn: (data: { name: string; color?: string }) => api.post<ConnectionFolder>("/connection-folders", data),
     onSuccess: () => qc.invalidateQueries({ queryKey: connectionFolderKeys.list() }),
   });
 }
@@ -59,8 +58,7 @@ export function useDeleteConnectionFolder() {
 export function useReorderConnectionFolders() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (orderedIds: string[]) =>
-      api.post("/connection-folders/reorder", { orderedIds }),
+    mutationFn: (orderedIds: string[]) => api.post("/connection-folders/reorder", { orderedIds }),
     onSuccess: () => qc.invalidateQueries({ queryKey: connectionFolderKeys.list() }),
   });
 }

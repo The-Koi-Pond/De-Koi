@@ -357,11 +357,7 @@ function splitCssWhitespace(value: string) {
 
 function isLinearGradientPrelude(value: string) {
   const text = value.trim().toLowerCase();
-  return (
-    text.startsWith("to ") ||
-    text.startsWith("in ") ||
-    /^[-+]?(?:\d+|\d*\.\d+)(?:deg|grad|rad|turn)$/.test(text)
-  );
+  return text.startsWith("to ") || text.startsWith("in ") || /^[-+]?(?:\d+|\d*\.\d+)(?:deg|grad|rad|turn)$/.test(text);
 }
 
 function isGradientPositionHint(value: string) {
@@ -723,10 +719,8 @@ export function getTrackerCardPortraitStageVars({
         base:
           `linear-gradient(180deg, color-mix(in srgb, var(--card) ${100 - plainBoxMix}%, ${box} ${plainBoxMix}%) 0%, ` +
           `color-mix(in srgb, var(--background) ${100 - plainDisplayMix}%, ${displaySolid} ${plainDisplayMix}%) 100%)`,
-        veil:
-          "linear-gradient(180deg, color-mix(in srgb, var(--background) 12%, transparent) 0%, transparent 48%, color-mix(in srgb, var(--background) 48%, transparent) 100%)",
-        light:
-          `radial-gradient(ellipse at 50% 86%, color-mix(in srgb, ${accent} ${Math.round(accentSoftMix * 0.45)}%, transparent) 0%, transparent 46%)`,
+        veil: "linear-gradient(180deg, color-mix(in srgb, var(--background) 12%, transparent) 0%, transparent 48%, color-mix(in srgb, var(--background) 48%, transparent) 100%)",
+        light: `radial-gradient(ellipse at 50% 86%, color-mix(in srgb, ${accent} ${Math.round(accentSoftMix * 0.45)}%, transparent) 0%, transparent 46%)`,
         lightOpacity: "0.22",
         rim:
           `linear-gradient(180deg, color-mix(in srgb, var(--foreground) 5%, transparent) 0%, transparent 20%), ` +

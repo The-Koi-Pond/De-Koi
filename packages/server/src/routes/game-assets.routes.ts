@@ -205,11 +205,12 @@ function prepareAssetTarget(category: string, subcategory: string, filename: str
   const isTextFile = TEXT_EXTS.has(ext);
   const allowedExts = CATEGORY_EXTENSIONS[category];
   if (!isTextFile && !allowedExts?.has(ext)) {
-    const typeLabel = category === "music" || category === "sfx" || category === "ambient"
-      ? "audio files"
-      : category === "sprites" || category === "backgrounds"
-        ? "images"
-        : "files";
+    const typeLabel =
+      category === "music" || category === "sfx" || category === "ambient"
+        ? "audio files"
+        : category === "sprites" || category === "backgrounds"
+          ? "images"
+          : "files";
     const extList = allowedExts ? Array.from(allowedExts).join(", ") : "";
     throw new Error(`Can't upload ${ext} to ${category}. This folder only accepts ${typeLabel} (${extList})`);
   }
@@ -415,7 +416,9 @@ export async function gameAssetsRoutes(app: FastifyInstance) {
       if (writtenSize > maxBytes) {
         const { unlinkSync } = await import("fs");
         unlinkSync(target.targetPath);
-        return reply.status(400).send({ error: `File too large: ${file.filename} is ${(writtenSize / 1024 / 1024).toFixed(1)} MB. Max size: ${maxLabel}.` });
+        return reply.status(400).send({
+          error: `File too large: ${file.filename} is ${(writtenSize / 1024 / 1024).toFixed(1)} MB. Max size: ${maxLabel}.`,
+        });
       }
 
       return finishAssetUpload(category, subcategory, target.safeName);
@@ -445,7 +448,9 @@ export async function gameAssetsRoutes(app: FastifyInstance) {
     const maxLabel = isTextFile ? "10MB" : "50MB";
 
     if (buffer.length > maxBytes) {
-      return reply.status(400).send({ error: `File too large: ${filename} is ${(buffer.length / 1024 / 1024).toFixed(1)} MB. Max size: ${maxLabel}.` });
+      return reply.status(400).send({
+        error: `File too large: ${filename} is ${(buffer.length / 1024 / 1024).toFixed(1)} MB. Max size: ${maxLabel}.`,
+      });
     }
 
     writeFileSync(target.targetPath, buffer);

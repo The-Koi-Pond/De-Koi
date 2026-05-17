@@ -496,8 +496,8 @@ export function LorebookEntryRow({
             isVectorExcluded
               ? "bg-rose-400/10 text-rose-400 ring-rose-400/20"
               : isVectorized
-              ? "bg-emerald-400/10 text-emerald-400 ring-emerald-400/20"
-              : "bg-[var(--background)]/55 text-[var(--muted-foreground)] ring-[var(--border)] hover:text-[var(--foreground)]",
+                ? "bg-emerald-400/10 text-emerald-400 ring-emerald-400/20"
+                : "bg-[var(--background)]/55 text-[var(--muted-foreground)] ring-[var(--border)] hover:text-[var(--foreground)]",
           )}
           title={vectorStatusTitle}
           aria-label={vectorStatusTitle}

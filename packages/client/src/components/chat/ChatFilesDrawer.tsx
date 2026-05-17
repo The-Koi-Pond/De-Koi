@@ -174,13 +174,7 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
             <p className="mt-2 text-center text-[0.625rem] text-[var(--muted-foreground)]/60">
               Adds the file as a new branch in this chat
             </p>
-            <input
-              ref={importInputRef}
-              type="file"
-              accept=".jsonl"
-              onChange={handleImportChat}
-              className="hidden"
-            />
+            <input ref={importInputRef} type="file" accept=".jsonl" onChange={handleImportChat} className="hidden" />
           </div>
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
             <FileText size="2rem" className="text-[var(--muted-foreground)]/40" />
@@ -259,13 +253,7 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
           <p className="mt-2 text-center text-[0.625rem] text-[var(--muted-foreground)]/60">
             Adds the file as a new branch in this chat
           </p>
-          <input
-            ref={importInputRef}
-            type="file"
-            accept=".jsonl"
-            onChange={handleImportChat}
-            className="hidden"
-          />
+          <input ref={importInputRef} type="file" accept=".jsonl" onChange={handleImportChat} className="hidden" />
         </div>
 
         {/* Chat files list */}

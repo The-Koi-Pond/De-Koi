@@ -16,13 +16,7 @@ import { encodeAssetPath } from "./encode-asset-path";
  * @param node - Image file node to preview
  * @param onClose - Callback when modal should close
  */
-export function ImagePreviewModal({
-  node,
-  onClose,
-}: {
-  node: TreeNode;
-  onClose: () => void;
-}) {
+export function ImagePreviewModal({ node, onClose }: { node: TreeNode; onClose: () => void }) {
   const [showInfo, setShowInfo] = useState(false);
   const { data: info } = useGameAssetFileInfo(node.path);
 

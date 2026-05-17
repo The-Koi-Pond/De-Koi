@@ -24,7 +24,10 @@ function normalizedParts(parts: Array<[string, unknown]>): string[] {
   const lines: string[] = [];
   for (const [label, value] of parts) {
     if (Array.isArray(value)) {
-      const text = value.map((entry) => (typeof entry === "string" ? entry.trim() : "")).filter(Boolean).join(", ");
+      const text = value
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter(Boolean)
+        .join(", ");
       if (text) lines.push(`${label}: ${text}`);
       continue;
     }

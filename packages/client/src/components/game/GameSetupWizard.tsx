@@ -193,11 +193,7 @@ function LearnedOptionChips({
                 : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]",
             )}
           >
-            <button
-              type="button"
-              onClick={() => onSelect(option)}
-              className="px-2 py-0.5"
-            >
+            <button type="button" onClick={() => onSelect(option)} className="px-2 py-0.5">
               {option}
             </button>
             {onForget && (

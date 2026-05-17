@@ -568,9 +568,7 @@ export async function runSTBulkImport(
   const selectedPersonas = resolveSelectedItems(scanResult.personas, options.personas);
   const tagImportMode = options.characterTagImportMode ?? "all";
   const existingTagKeys =
-    tagImportMode === "existing" && selectedCharacters.length > 0
-      ? await getExistingCharacterTagKeys(db)
-      : undefined;
+    tagImportMode === "existing" && selectedCharacters.length > 0 ? await getExistingCharacterTagKeys(db) : undefined;
 
   // Import characters
   if (selectedCharacters.length > 0) {

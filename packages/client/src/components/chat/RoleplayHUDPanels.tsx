@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   CalendarDays,
@@ -1100,10 +1109,7 @@ function InlinePreviewPortal({
     const top = Math.round(placeBelow ? rect.bottom + gap : Math.max(margin, rect.top - visibleHeight - gap));
 
     setPosition((current) =>
-      current?.top === top &&
-      current.left === left &&
-      current.maxWidth === maxWidth &&
-      current.maxHeight === maxHeight
+      current?.top === top && current.left === left && current.maxWidth === maxWidth && current.maxHeight === maxHeight
         ? current
         : { top, left, maxWidth, maxHeight },
     );

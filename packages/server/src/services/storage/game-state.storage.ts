@@ -324,15 +324,12 @@ export function createGameStateStorage(db: DB) {
       if (fields.personaStats !== undefined) baseState.personaStats = fields.personaStats as any;
 
       const manualOverrides = manual
-        ? MANUAL_OVERRIDE_FIELDS.reduce<Record<string, string>>(
-            (acc, key) => {
-              const value = fields[key];
-              const text = coerceGameStateTextValue(value);
-              if (text) acc[key] = text;
-              return acc;
-            },
-            {},
-          )
+        ? MANUAL_OVERRIDE_FIELDS.reduce<Record<string, string>>((acc, key) => {
+            const value = fields[key];
+            const text = coerceGameStateTextValue(value);
+            if (text) acc[key] = text;
+            return acc;
+          }, {})
         : {};
       // Manual overrides are one-shot — carry only overrides from this edit.
       await this.create(baseState as any, Object.keys(manualOverrides).length > 0 ? manualOverrides : null);

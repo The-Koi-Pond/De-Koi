@@ -106,12 +106,7 @@ export function parseAvatarCropJson(raw: string | undefined | null): AvatarCrop 
         srcHeight: obj.srcHeight,
       };
     }
-    if (
-      Number.isFinite(obj.zoom) &&
-      Number.isFinite(obj.offsetX) &&
-      Number.isFinite(obj.offsetY) &&
-      obj.zoom > 0
-    ) {
+    if (Number.isFinite(obj.zoom) && Number.isFinite(obj.offsetX) && Number.isFinite(obj.offsetY) && obj.zoom > 0) {
       return {
         zoom: obj.zoom,
         offsetX: obj.offsetX,

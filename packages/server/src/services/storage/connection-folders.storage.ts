@@ -79,10 +79,7 @@ export function createConnectionFoldersStorage(db: DB) {
     },
 
     async moveConnection(connectionId: string, folderId: string | null) {
-      await db
-        .update(apiConnections)
-        .set({ folderId, updatedAt: now() })
-        .where(eq(apiConnections.id, connectionId));
+      await db.update(apiConnections).set({ folderId, updatedAt: now() }).where(eq(apiConnections.id, connectionId));
     },
 
     async reorderConnections(orderedIds: string[], folderId: string | null) {

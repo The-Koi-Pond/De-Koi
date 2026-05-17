@@ -105,7 +105,9 @@ export async function seedDefaultGameAssets(): Promise<void> {
     const copied = copyDirRecursive(BUNDLED_DIR, GAME_ASSETS_DIR);
     writeFileSync(SEED_MARKER, `${bundleHash}\n`, "utf-8");
     if (copied > 0) {
-      logger.info(`[seed] Installed ${copied} default game asset${copied > 1 ? "s" : ""} (music, ambient, SFX, sprites)`);
+      logger.info(
+        `[seed] Installed ${copied} default game asset${copied > 1 ? "s" : ""} (music, ambient, SFX, sprites)`,
+      );
     }
   }
 

@@ -96,7 +96,15 @@ function MainPaneFallback() {
 }
 /** Mounts children once `open` becomes true, then keeps them mounted so state persists.
  *  `overlay` mode uses framer-motion slide-in and never unmounts. */
-function MountOnceWhenOpened({ open, children, overlay }: { open: boolean; children: React.ReactNode; overlay?: boolean }) {
+function MountOnceWhenOpened({
+  open,
+  children,
+  overlay,
+}: {
+  open: boolean;
+  children: React.ReactNode;
+  overlay?: boolean;
+}) {
   const [everOpened, setEverOpened] = useState(false);
   useEffect(() => {
     if (open && !everOpened) setEverOpened(true);
@@ -108,19 +116,18 @@ function MountOnceWhenOpened({ open, children, overlay }: { open: boolean; child
         initial={{ opacity: 0, x: 30 }}
         animate={open ? { opacity: 1, x: 0 } : { opacity: 0, x: 30 }}
         transition={{ duration: 0.2 }}
-        className={cn("absolute inset-0 flex flex-col overflow-hidden bg-[var(--background)]", open ? "z-20" : "z-10 pointer-events-none")}
+        className={cn(
+          "absolute inset-0 flex flex-col overflow-hidden bg-[var(--background)]",
+          open ? "z-20" : "z-10 pointer-events-none",
+        )}
       >
-        <Suspense fallback={<MainPaneFallback />}>
-          {children}
-        </Suspense>
+        <Suspense fallback={<MainPaneFallback />}>{children}</Suspense>
       </motion.div>
     );
   }
   return (
     <div className={open ? "flex flex-1 flex-col overflow-hidden" : "hidden"}>
-      <Suspense fallback={<MainPaneFallback />}>
-        {children}
-      </Suspense>
+      <Suspense fallback={<MainPaneFallback />}>{children}</Suspense>
     </div>
   );
 }
@@ -286,13 +293,7 @@ export function AppShell() {
         lastAutonomousUnreadClearRef.current = clearKey;
       },
     });
-  }, [
-    activeChat?.metadata,
-    activeChatId,
-    clearAutonomousUnread,
-    clearUnread,
-    isClearingAutonomousUnread,
-  ]);
+  }, [activeChat?.metadata, activeChatId, clearAutonomousUnread, clearUnread, isClearingAutonomousUnread]);
 
   const startSidebarResize = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -831,7 +832,9 @@ export function AppShell() {
         />
       )}
 
-      <AnimatePresence initial={false}>{!isMobile && trackerPanelSurfaceAvailable && trackerPanelDesktop("left")}</AnimatePresence>
+      <AnimatePresence initial={false}>
+        {!isMobile && trackerPanelSurfaceAvailable && trackerPanelDesktop("left")}
+      </AnimatePresence>
 
       {/* Center content */}
       <main
@@ -869,7 +872,9 @@ export function AppShell() {
         <ChatNotificationBubbles />
       </main>
 
-      <AnimatePresence initial={false}>{!isMobile && trackerPanelSurfaceAvailable && trackerPanelDesktop("right")}</AnimatePresence>
+      <AnimatePresence initial={false}>
+        {!isMobile && trackerPanelSurfaceAvailable && trackerPanelDesktop("right")}
+      </AnimatePresence>
 
       {/* Mobile tracker panel backdrop */}
       {trackerPanelVisible && (

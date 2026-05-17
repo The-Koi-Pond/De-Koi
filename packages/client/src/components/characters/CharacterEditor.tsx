@@ -228,10 +228,13 @@ export function CharacterEditor() {
     }
   }, [rawCharacter, setDirtyState]);
 
-  const updateField = useCallback(<K extends keyof CharacterData>(key: K, value: CharacterData[K]) => {
-    setFormData((prev) => (prev ? { ...prev, [key]: value } : prev));
-    markDirty();
-  }, [markDirty]);
+  const updateField = useCallback(
+    <K extends keyof CharacterData>(key: K, value: CharacterData[K]) => {
+      setFormData((prev) => (prev ? { ...prev, [key]: value } : prev));
+      markDirty();
+    },
+    [markDirty],
+  );
 
   const setExtensionValue = useCallback((key: string, value: unknown) => {
     setFormData((prev) => {
@@ -627,7 +630,12 @@ export function CharacterEditor() {
         {formData.extensions.fav ? <Star size="1rem" fill="currentColor" /> : <StarOff size="1rem" />}
       </button>
 
-      <button type="button" onClick={() => setExportDialogOpen(true)} className={headerActionButtonClass} title="Export character">
+      <button
+        type="button"
+        onClick={() => setExportDialogOpen(true)}
+        className={headerActionButtonClass}
+        title="Export character"
+      >
         <svg width="1rem" height="1rem" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path
             d="M10 13V3m0 0l-4 4m4-4l4 4"
@@ -1984,7 +1992,11 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
               key={image.id}
               className="group relative overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] transition-all hover:border-[var(--primary)]/30 hover:shadow-md"
             >
-              <button type="button" className="block aspect-square w-full bg-[var(--secondary)]" onClick={() => setLightbox(image)}>
+              <button
+                type="button"
+                className="block aspect-square w-full bg-[var(--secondary)]"
+                onClick={() => setLightbox(image)}
+              >
                 <img
                   src={image.url}
                   alt={image.prompt || characterName || "Character image"}

@@ -159,7 +159,10 @@ function normalizePositiveInteger(value: unknown, fallback: number): number {
 }
 
 export function buildKnowledgeRouterQuery(context: AgentContext): string {
-  const parts = context.recentMessages.slice(-10).map((message) => message.content.trim()).filter(Boolean);
+  const parts = context.recentMessages
+    .slice(-10)
+    .map((message) => message.content.trim())
+    .filter(Boolean);
   if (context.chatSummary?.trim()) parts.unshift(context.chatSummary.trim());
   if (context.gameState) parts.push(JSON.stringify(context.gameState));
   return parts.join("\n\n");
@@ -200,10 +203,12 @@ export async function prepareKnowledgeRouterCandidates(
   options: KnowledgeRouterCandidateOptions = {},
 ): Promise<LorebookEntry[]> {
   if (entries.length === 0) return [];
-  const scanMessages = options.scanMessages ?? context.recentMessages.map((message) => ({
-    role: message.role,
-    content: message.content,
-  }));
+  const scanMessages =
+    options.scanMessages ??
+    context.recentMessages.map((message) => ({
+      role: message.role,
+      content: message.content,
+    }));
   const activatedEntries =
     options.activatedEntries ??
     buildKeywordActivatedRouterEntries(options.keywordScanEntries ?? entries, scanMessages, options.scanOptions);
@@ -211,11 +216,10 @@ export async function prepareKnowledgeRouterCandidates(
     options.activatedEntries && options.keywordScanEntries
       ? buildKeywordActivatedRouterEntries(options.keywordScanEntries, scanMessages, options.scanOptions)
       : [];
-  const fallbackCandidates = mergeKnowledgeRouterCandidates([], [
-    ...activatedEntries,
-    ...keywordScanEntries,
-    ...entries,
-  ]);
+  const fallbackCandidates = mergeKnowledgeRouterCandidates(
+    [],
+    [...activatedEntries, ...keywordScanEntries, ...entries],
+  );
   const query = buildKnowledgeRouterQuery(context);
   let semanticMatches: SemanticLorebookMatch[] | null;
   try {

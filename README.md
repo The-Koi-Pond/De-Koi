@@ -101,7 +101,7 @@
 
 ## Latest Release
 
-Current stable release: **[v1.5.9](https://github.com/Pasta-Devs/Marinara-Engine/releases/tag/v1.5.9)**.
+Current stable release: **[v1.6.0](https://github.com/Pasta-Devs/Marinara-Engine/releases/tag/v1.6.0)**.
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes. Tagged releases use the `vX.Y.Z` format and are published on the [Releases](https://github.com/Pasta-Devs/Marinara-Engine/releases) page. If you download an Android APK from a release, it is an optional WebView shell and still requires Marinara Engine to be running through Termux on the same Android device.
 

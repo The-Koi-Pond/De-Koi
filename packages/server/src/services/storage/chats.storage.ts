@@ -83,9 +83,7 @@ function readUnreadCount(value: unknown): number {
 }
 
 function readCharacterIds(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
-    : [];
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && id.trim().length > 0) : [];
 }
 
 function hasConversationSchedules(value: unknown): value is CharacterSchedules {
