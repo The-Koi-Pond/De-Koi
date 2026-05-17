@@ -141,6 +141,7 @@ import { resolveMemoryRecallEmbeddingSource } from "../services/memory-recall-em
 import { warmLorebookEntryEmbeddings } from "../services/lorebook/embeddings.js";
 import { postToDiscordWebhook } from "../services/discord-webhook.js";
 import {
+  appendGenerationTailMessages,
   findLastIndex,
   appendReadableAttachmentsToContent,
   buildUserMessageRegenerationInstruction,
@@ -5941,15 +5942,26 @@ export async function generateRoutes(app: FastifyInstance) {
           finalMessages.push({ role: "user", content: impersonateInstruction });
         }
 
-        if (!input.impersonate && isGoogleProvider && regenerateUserMessageInstruction && followUpIteration === 0) {
-          finalMessages.push({ role: "user", content: regenerateUserMessageInstruction });
-        }
-
-        if (assistantPrefill.trim() && followUpIteration === 0) {
-          finalMessages.push({ role: "assistant", content: assistantPrefill });
+        const tailMessages = appendGenerationTailMessages(finalMessages, {
+          assistantPrefill,
+          followUpIteration,
+          impersonate: input.impersonate,
+          isGoogleProvider,
+          regenerateUserMessageInstruction,
+        });
+        if (tailMessages.assistantPrefillInjected) {
+          const prefillPosition = tailMessages.googleUserRegenerationInjected
+            ? "before final user message"
+            : "as final assistant message";
           logger.debug(
-            "[generate] Injected assistant prefill (%d chars) as final assistant message",
+            "[generate] Injected assistant prefill (%d chars) %s",
             assistantPrefill.length,
+            prefillPosition,
+          );
+        }
+        if (tailMessages.googleUserRegenerationInjected && assistantPrefill.trim()) {
+          logger.debug(
+            "[generate] Preserved assistant prefill before Gemini user-message regeneration instruction",
           );
         }
 

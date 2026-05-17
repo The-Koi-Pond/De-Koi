@@ -94,6 +94,38 @@ export function buildUserMessageRegenerationInstruction(message: { content?: unk
   ].join("\n");
 }
 
+export function appendGenerationTailMessages(
+  messages: SimpleMessage[],
+  options: {
+    assistantPrefill: string;
+    followUpIteration: number;
+    impersonate: boolean;
+    isGoogleProvider: boolean;
+    regenerateUserMessageInstruction: string | null;
+  },
+): { assistantPrefillInjected: boolean; googleUserRegenerationInjected: boolean } {
+  if (options.followUpIteration !== 0) {
+    return { assistantPrefillInjected: false, googleUserRegenerationInjected: false };
+  }
+
+  const shouldAppendGoogleUserRegeneration =
+    !options.impersonate && options.isGoogleProvider && !!options.regenerateUserMessageInstruction;
+  const assistantPrefill = options.assistantPrefill.trim();
+
+  if (assistantPrefill) {
+    messages.push({ role: "assistant", content: options.assistantPrefill });
+  }
+
+  if (shouldAppendGoogleUserRegeneration) {
+    messages.push({ role: "user", content: options.regenerateUserMessageInstruction! });
+  }
+
+  return {
+    assistantPrefillInjected: !!assistantPrefill,
+    googleUserRegenerationInjected: shouldAppendGoogleUserRegeneration,
+  };
+}
+
 export function shouldPreferLatestVisibleGameState(input: {
   attachments?: unknown[] | null;
   impersonate?: boolean;
