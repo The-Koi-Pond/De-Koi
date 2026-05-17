@@ -264,6 +264,7 @@ function ImageDimensionRow({
           value={width}
           min={64}
           max={4096}
+          commitOnValidChange
           onCommit={(nextWidth) => onCommit(nextWidth, height)}
           className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1 text-xs"
         />
@@ -272,6 +273,7 @@ function ImageDimensionRow({
           value={height}
           min={64}
           max={4096}
+          commitOnValidChange
           onCommit={(nextHeight) => onCommit(width, nextHeight)}
           className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1 text-xs"
         />
@@ -720,6 +722,7 @@ function GeneralSettings() {
           value={messagesPerPage}
           min={0}
           max={500}
+          commitOnValidChange
           onCommit={(nextValue) => setMessagesPerPage(Math.max(0, Math.min(500, nextValue)))}
           className="w-16 rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1 text-xs"
         />
