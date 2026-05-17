@@ -4450,6 +4450,8 @@ export function GameSurface({
     const handler = (e: Event) => {
       const chatId = (e as CustomEvent).detail?.chatId;
       if (chatId !== activeChatId) return;
+      startGameGuardRef.current = false;
+      setStartGameRequested(false);
       setGenerationFailed(true);
     };
     window.addEventListener("marinara:generation-error", handler);
@@ -7549,11 +7551,13 @@ export function GameSurface({
   // Don't auto-dismiss: wait for user to click Continue after typewriter finishes.
 
   const awaitingFirstTurn = sessionStatus === "active" && !introPresented;
+  const initialTurnFailed = generationFailed && !hasEverHadPlayableContent && !isStreaming && !startGame.isPending;
   if (
     (sessionStatus === "ready" && !introPresented) ||
     startGame.isPending ||
     startGameRequested ||
-    awaitingFirstTurn
+    awaitingFirstTurn ||
+    initialTurnFailed
   ) {
     const worldOverview = (chatMeta.gameWorldOverview as string) || null;
     const setupConfig = chatMeta.gameSetupConfig as Record<string, unknown> | undefined;
@@ -7629,18 +7633,24 @@ export function GameSurface({
                     </button>
                   ) : (
                     <>
-                      <div className="flex items-center gap-3 text-sm text-[var(--muted-foreground)] dark:text-white/60">
-                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--muted)]/40 border-t-[var(--foreground)]/70 dark:border-white/20 dark:border-t-white/70" />
-                        <span>
-                          {hasEverHadPlayableContent && !sceneProcessed
-                            ? "Preparing the scene..."
-                            : hasEverHadPlayableContent && pendingAssetGeneration && !assetGenerationFailed
-                              ? "Generating images..."
-                              : hasEverHadPlayableContent && isStreaming
-                                ? "The GM is narrating..."
-                                : "The adventure begins..."}
-                        </span>
-                      </div>
+                      {initialTurnFailed ? (
+                        <div className="max-w-sm text-sm text-[var(--muted-foreground)] dark:text-white/60">
+                          Game generation failed. Choose another GM / Party Model or retry this one.
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-3 text-sm text-[var(--muted-foreground)] dark:text-white/60">
+                          <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--muted)]/40 border-t-[var(--foreground)]/70 dark:border-white/20 dark:border-t-white/70" />
+                          <span>
+                            {hasEverHadPlayableContent && !sceneProcessed
+                              ? "Preparing the scene..."
+                              : hasEverHadPlayableContent && pendingAssetGeneration && !assetGenerationFailed
+                                ? "Generating images..."
+                                : hasEverHadPlayableContent && isStreaming
+                                  ? "The GM is narrating..."
+                                  : "The adventure begins..."}
+                          </span>
+                        </div>
+                      )}
                       {/* Retry only when scene analysis actually failed */}
                       {hasEverHadPlayableContent && !isStreaming && sceneAnalysisFailed && (
                         <div className="flex items-center gap-2">
