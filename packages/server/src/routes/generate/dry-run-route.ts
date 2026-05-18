@@ -41,6 +41,7 @@ import {
   mergeCustomParameters,
   parseExtra,
   parseStoredGenerationParameters,
+  resolveActiveCharacterIds,
   resolveRegenerationGameStateAnchor,
   resolveVisibleGameStateAnchor,
   resolveBaseUrl,
@@ -715,13 +716,17 @@ export async function registerDryRunRoute(app: FastifyInstance) {
     // If provided, we skip preset assembly and build from selected components.
     const promptParts = isRecord(body.promptParts) ? (body.promptParts as Record<string, unknown>) : null;
 
-    const characterIds: string[] = (() => {
+    const allCharacterIds: string[] = (() => {
       try {
         return JSON.parse((chat as any).characterIds as string);
       } catch {
         return [];
       }
     })();
+    const characterIds = resolveActiveCharacterIds(allCharacterIds, chatMeta, {
+      mode: chatMode,
+      allowEmpty: true,
+    });
 
     // Persona resolution (same strategy as generation; read-only)
     let personaId: string | null = null;

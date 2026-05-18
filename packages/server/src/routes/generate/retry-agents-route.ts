@@ -35,6 +35,7 @@ import {
   parseExtra,
   parseGameStateRow,
   preserveTrackerCharacterUiFields,
+  resolveActiveCharacterIds,
   resolveBaseUrl,
   resolveVisibleGameStateAnchor,
 } from "./generate-route-utils.js";
@@ -230,8 +231,12 @@ async function buildRetryAgentContext(args: {
     useLatestGameStateFallback = true,
   } = args;
 
-  const characterIds: string[] =
+  const allCharacterIds: string[] =
     typeof chat.characterIds === "string" ? JSON.parse(chat.characterIds) : (chat.characterIds ?? []);
+  const characterIds = resolveActiveCharacterIds(allCharacterIds, chatMeta, {
+    mode: (chat as any).mode ?? "conversation",
+    allowEmpty: true,
+  });
   const activeLorebookIds: string[] = Array.isArray(chatMeta.activeLorebookIds)
     ? (chatMeta.activeLorebookIds as string[])
     : [];

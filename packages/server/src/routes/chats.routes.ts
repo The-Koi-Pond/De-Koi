@@ -53,6 +53,7 @@ import {
   isManualTrackerCharacterId,
   parseExtra,
   isMessageHiddenFromAI,
+  resolveActiveCharacterIds,
   resolveVisibleGameStateAnchor,
   shouldEnableAgentsForGeneration,
 } from "./generate/generate-route-utils.js";
@@ -472,6 +473,24 @@ export async function chatsRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: "Invalid Discord webhook URL" });
       }
       incoming.discordWebhookUrl = url;
+    }
+    if (incoming.inactiveCharacterIds !== undefined) {
+      if (
+        !Array.isArray(incoming.inactiveCharacterIds) ||
+        !incoming.inactiveCharacterIds.every((id) => typeof id === "string")
+      ) {
+        return reply.status(400).send({ error: "inactiveCharacterIds must be an array of strings" });
+      }
+      const characterIds: string[] =
+        typeof chat.characterIds === "string"
+          ? JSON.parse(chat.characterIds)
+          : Array.isArray(chat.characterIds)
+            ? chat.characterIds
+            : [];
+      const validIds = new Set(characterIds);
+      incoming.inactiveCharacterIds = Array.from(
+        new Set((incoming.inactiveCharacterIds as string[]).filter((id) => validIds.has(id))),
+      );
     }
     if (incoming.conversationSchedulesEnabled === false) {
       await clearConversationScheduleState(chat);
@@ -1416,13 +1435,17 @@ export async function chatsRoutes(app: FastifyInstance) {
             presetStore.listChoiceBlocksForPreset(presetId),
           ]);
 
-          const characterIds: string[] = (() => {
+          const allCharacterIds: string[] = (() => {
             try {
               return JSON.parse(chat.characterIds as string);
             } catch {
               return [];
             }
           })();
+          const characterIds = resolveActiveCharacterIds(allCharacterIds, chatMeta, {
+            mode: (chat.mode as string) ?? "roleplay",
+            allowEmpty: true,
+          });
 
           let personaName = "User";
           let personaId: string | null = null;

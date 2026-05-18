@@ -49,6 +49,8 @@ import {
   Download,
   Star,
   StickyNote,
+  Eye,
+  EyeOff,
   Drama,
   RotateCcw,
   Music2,
@@ -359,6 +361,20 @@ export function ChatSettingsDrawer({
     () => (typeof chat.metadata === "string" ? JSON.parse(chat.metadata) : (chat.metadata ?? {})),
     [chat.metadata],
   );
+  const inactiveCharacterIds = useMemo<string[]>(
+    () =>
+      Array.isArray(metadata.inactiveCharacterIds)
+        ? metadata.inactiveCharacterIds.filter(
+            (id: unknown): id is string => typeof id === "string" && chatCharIds.includes(id),
+          )
+        : [],
+    [chatCharIds, metadata.inactiveCharacterIds],
+  );
+  const activeCharacterIds = useMemo<string[]>(
+    () => chatCharIds.filter((id) => !inactiveCharacterIds.includes(id)),
+    [chatCharIds, inactiveCharacterIds],
+  );
+  const supportsCharacterActivityToggle = chatCharIds.length > 1 && !isGame;
   const isSceneChat = metadata.sceneStatus === "active" || typeof metadata.sceneOriginChatId === "string";
   const hasGeneratedConversationSchedules =
     !!metadata.characterSchedules &&
@@ -744,6 +760,12 @@ export function ChatSettingsDrawer({
           spritePlacements: nextSpritePlacements,
         });
       }
+      if (inactiveCharacterIds.includes(charId)) {
+        updateMeta.mutate({
+          id: chat.id,
+          inactiveCharacterIds: inactiveCharacterIds.filter((id) => id !== charId),
+        });
+      }
     } else {
       current.push(charId);
       updateChat.mutate(
@@ -774,6 +796,24 @@ export function ChatSettingsDrawer({
         },
       );
     }
+  };
+
+  const toggleCharacterActivity = (charId: string) => {
+    if (!supportsCharacterActivityToggle) return;
+    const isInactive = inactiveCharacterIds.includes(charId);
+    if (!isInactive && activeCharacterIds.length <= 1) {
+      void showAlertDialog({
+        title: "Keep one character active",
+        message: "At least one character needs to stay active so the chat has someone to respond.",
+      });
+      return;
+    }
+    updateMeta.mutate({
+      id: chat.id,
+      inactiveCharacterIds: isInactive
+        ? inactiveCharacterIds.filter((id) => id !== charId)
+        : [...inactiveCharacterIds, charId],
+    });
   };
 
   const toggleSprite = (charId: string) => {
@@ -2377,6 +2417,8 @@ export function ChatSettingsDrawer({
                           className={cn(
                             "flex items-center gap-2 rounded-lg bg-[var(--primary)]/10 px-2 py-2 ring-1 ring-[var(--primary)]/30 transition-opacity",
                             dragIdx === i && "opacity-40",
+                            inactiveCharacterIds.includes(c.id) &&
+                              "bg-[var(--secondary)] opacity-70 ring-[var(--border)]",
                           )}
                         >
                           <div
@@ -2417,6 +2459,22 @@ export function ChatSettingsDrawer({
                               )}
                             </div>
                           </button>
+                          {supportsCharacterActivityToggle && (
+                            <button
+                              onClick={() => toggleCharacterActivity(c.id)}
+                              className={cn(
+                                "flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+                                !inactiveCharacterIds.includes(c.id) && "text-[var(--primary)]",
+                              )}
+                              title={inactiveCharacterIds.includes(c.id) ? "Enable in chat" : "Disable in chat"}
+                            >
+                              {inactiveCharacterIds.includes(c.id) ? (
+                                <EyeOff size="0.6875rem" />
+                              ) : (
+                                <Eye size="0.6875rem" />
+                              )}
+                            </button>
+                          )}
                           <button
                             onClick={() => toggleCharacter(c.id)}
                             className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"

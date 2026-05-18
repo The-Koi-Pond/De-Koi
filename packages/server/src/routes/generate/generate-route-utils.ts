@@ -81,6 +81,22 @@ export function isMessageHiddenFromAI(message: { extra?: unknown }): boolean {
   return parseExtra(message.extra).hiddenFromAI === true;
 }
 
+export function resolveActiveCharacterIds(
+  characterIds: string[],
+  metadata: Record<string, unknown>,
+  options: { mode?: string; allowEmpty?: boolean } = {},
+): string[] {
+  if (options.mode === "game") return characterIds;
+
+  const inactiveIds = Array.isArray(metadata.inactiveCharacterIds)
+    ? new Set(metadata.inactiveCharacterIds.filter((id): id is string => typeof id === "string"))
+    : new Set<string>();
+  const activeIds = characterIds.filter((id) => !inactiveIds.has(id));
+
+  if (activeIds.length > 0 || options.allowEmpty) return activeIds;
+  return characterIds;
+}
+
 export function shouldPreferLatestVisibleGameState(input: {
   attachments?: unknown[] | null;
   impersonate?: boolean;

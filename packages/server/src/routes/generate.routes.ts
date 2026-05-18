@@ -151,6 +151,7 @@ import {
   parseStoredGenerationParameters,
   parseGameStateRow,
   preserveTrackerCharacterUiFields,
+  resolveActiveCharacterIds,
   resolveBaseUrl,
   resolveRegenerationGameStateFallbackMessageIds,
   resolveRegenerationGameStateAnchor,
@@ -1206,7 +1207,14 @@ export async function generateRoutes(app: FastifyInstance) {
         msg.content = msg.content.replace(/\n([ \t]*\n){2,}/g, "\n\n");
       }
 
-      const characterIds: string[] = JSON.parse(chat.characterIds as string);
+      const allCharacterIds: string[] = JSON.parse(chat.characterIds as string);
+      const characterIds = resolveActiveCharacterIds(allCharacterIds, chatMeta, {
+        mode: chatMode,
+        allowEmpty: true,
+      });
+      if (allCharacterIds.length > 0 && characterIds.length === 0 && chatMode !== "game") {
+        throw new Error("All characters in this chat are disabled. Enable at least one character before generating.");
+      }
 
       // Resolve persona — prefer per-chat personaId, fall back to globally active persona
       // (Game mode skips the fallback — persona must be explicitly selected in the setup wizard)

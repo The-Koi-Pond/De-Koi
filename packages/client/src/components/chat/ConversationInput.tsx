@@ -244,7 +244,25 @@ export function ConversationInput({
   const pendingAttachmentReads = activeChatId ? (pendingAttachmentReadsByChat[activeChatId] ?? 0) : 0;
   const isReadingAttachments = pendingAttachmentReads > 0;
   const hasPendingAttachments = isReadingAttachments || attachments.length > 0;
-  const requiresManualGuideTarget = groupResponseOrder === "manual" && characterNames.length > 1;
+  const chatMetadata = useMemo(() => parseChatMetadata(activeChat?.metadata), [activeChat?.metadata]);
+  const inactiveCharacterIds = useMemo(
+    () =>
+      new Set(
+        Array.isArray(chatMetadata.inactiveCharacterIds)
+          ? chatMetadata.inactiveCharacterIds.filter((id): id is string => typeof id === "string")
+          : [],
+      ),
+    [chatMetadata.inactiveCharacterIds],
+  );
+  const activeChatCharacters = useMemo(
+    () => chatCharacters?.filter((character) => !inactiveCharacterIds.has(character.id)),
+    [chatCharacters, inactiveCharacterIds],
+  );
+  const activeCharacterNames = useMemo(
+    () => (activeChatCharacters ? activeChatCharacters.map((character) => character.name) : characterNames),
+    [activeChatCharacters, characterNames],
+  );
+  const requiresManualGuideTarget = groupResponseOrder === "manual" && activeCharacterNames.length > 1;
 
   // Read from the existing infinite-message cache so an empty Send can retry
   // after a failed generation without adding a second user message.
@@ -484,10 +502,10 @@ export function ConversationInput({
   /** Extract @mentioned character names from a message string. */
   const extractMentions = useCallback(
     (text: string): string[] => {
-      if (!characterNames.length) return [];
+      if (!activeCharacterNames.length) return [];
       const mentioned: string[] = [];
       // Sort names longest-first so "Mary Jane" matches before "Mary"
-      const sorted = [...characterNames].sort((a, b) => b.length - a.length);
+      const sorted = [...activeCharacterNames].sort((a, b) => b.length - a.length);
       for (const name of sorted) {
         // Match @Name (case-insensitive) — name may contain spaces
         const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -498,7 +516,7 @@ export function ConversationInput({
       }
       return mentioned;
     },
-    [characterNames],
+    [activeCharacterNames],
   );
 
   /** Insert a mention completion into the textarea, replacing the @query. */
@@ -609,7 +627,7 @@ export function ConversationInput({
         generate,
         createMessage: (data) => createMessage.mutate(data),
         invalidate: () => qc.invalidateQueries({ queryKey: chatKeys.all }),
-        characterNames,
+        characterNames: activeCharacterNames,
       };
       const submittedDraft = textareaRef.current?.value ?? "";
       const submittedHeight = textareaRef.current?.style.height ?? "auto";
@@ -729,7 +747,7 @@ export function ConversationInput({
     clearInputDraft,
     createMessage,
     updateMessageExtra,
-    characterNames,
+    activeCharacterNames,
     completions,
     _mentionQuery,
     mentionCompletions,
@@ -758,7 +776,7 @@ export function ConversationInput({
         },
         createMessage: (data) => createMessage.mutate(data),
         invalidate: () => qc.invalidateQueries({ queryKey: chatKeys.all }),
-        characterNames,
+        characterNames: activeCharacterNames,
       };
 
       const previousDraft = textareaRef.current?.value ?? "";
@@ -812,7 +830,7 @@ export function ConversationInput({
     },
     [
       activeChatId,
-      characterNames,
+      activeCharacterNames,
       clearInputDraft,
       completions,
       _mentionQuery,
@@ -1166,10 +1184,10 @@ export function ConversationInput({
     const textBefore = el.value.slice(0, cursor);
     // Find the last @ that isn't preceded by a word character
     const atMatch = textBefore.match(/(?:^|[^a-zA-Z0-9])@([a-zA-Z0-9 ]*)$/);
-    if (atMatch && characterNames.length > 0) {
+    if (atMatch && activeCharacterNames.length > 0) {
       const query = atMatch[1]!.toLowerCase();
       const startPos = cursor - atMatch[1]!.length - 1; // position of the @
-      const matches = characterNames.filter((n) => n.toLowerCase().startsWith(query));
+      const matches = activeCharacterNames.filter((n) => n.toLowerCase().startsWith(query));
       if (matches.length > 0) {
         setMentionQuery(query);
         setMentionCompletions(matches);
@@ -1183,7 +1201,7 @@ export function ConversationInput({
       setMentionQuery(null);
       setMentionCompletions([]);
     }
-  }, [activeChatId, characterNames, clearInputDraft, setInputDraft, syncInputState]);
+  }, [activeChatId, activeCharacterNames, clearInputDraft, setInputDraft, syncInputState]);
 
   useEffect(() => {
     if (hasInput && feedback) setFeedback(null);
@@ -1226,7 +1244,7 @@ export function ConversationInput({
         return;
       }
 
-      if (groupResponseOrder === "manual" && characterNames.length > 1) {
+      if (groupResponseOrder === "manual" && activeCharacterNames.length > 1) {
         createMessage.mutate({ role: "user", content: gifUrl, characterId: null });
         return;
       }
@@ -1238,7 +1256,7 @@ export function ConversationInput({
         ...(gifAttachments ? { attachments: gifAttachments } : {}),
       });
     },
-    [activeChatId, isStreaming, groupResponseOrder, characterNames.length, generate, createMessage],
+    [activeChatId, isStreaming, groupResponseOrder, activeCharacterNames.length, generate, createMessage],
   );
 
   const handleCharacterResponse = useCallback(
@@ -1315,7 +1333,7 @@ export function ConversationInput({
     });
   }, [charPickerOpen]);
 
-  const showCharPicker = groupResponseOrder === "manual" && !!chatCharacters && chatCharacters.length > 1;
+  const showCharPicker = groupResponseOrder === "manual" && !!activeChatCharacters && activeChatCharacters.length > 1;
   const activePersona = resolveActivePersona(
     allPersonas as PersonaStatusRow[] | undefined,
     activeChat as { personaId?: string | null; mode?: string } | undefined,
@@ -1326,17 +1344,6 @@ export function ConversationInput({
     !!activePersona &&
     !!normalizedUserActivity &&
     !savedStatusOptions.some((option) => option.toLowerCase() === normalizedUserActivity.toLowerCase());
-  const chatMetadata = activeChat?.metadata
-    ? typeof activeChat.metadata === "string"
-      ? (() => {
-          try {
-            return JSON.parse(activeChat.metadata) as Record<string, unknown>;
-          } catch {
-            return {};
-          }
-        })()
-      : (activeChat.metadata as Record<string, unknown>)
-    : {};
   const showDraftTranslateButton = chatMetadata.showInputTranslateButton === true;
 
   useEffect(() => {
@@ -1590,13 +1597,13 @@ export function ConversationInput({
           ref={textareaRef}
           placeholder={
             groupResponseOrder === "manual"
-              ? characterNames.length > 0
-                ? `Message freely; @${characterNames[0]} to get a reply`
+              ? activeCharacterNames.length > 0
+                ? `Message freely; @${activeCharacterNames[0]} to get a reply`
                 : "Message freely..."
-              : characterNames.length > 1 && chatName
+              : activeCharacterNames.length > 1 && chatName
                 ? `Message ${chatName}, / for commands`
-                : characterNames.length > 0
-                  ? `Message @${characterNames[0]}, / for commands`
+                : activeCharacterNames.length > 0
+                  ? `Message @${activeCharacterNames[0]}, / for commands`
                   : "Message..."
           }
           rows={1}
@@ -1826,7 +1833,7 @@ export function ConversationInput({
               Trigger Response
             </div>
             <div className="overflow-y-auto p-1">
-              {chatCharacters!.map((char) => (
+              {activeChatCharacters!.map((char) => (
                 <button
                   key={char.id}
                   onClick={() => handleCharacterResponse(char.id)}

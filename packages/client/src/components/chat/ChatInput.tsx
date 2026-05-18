@@ -162,6 +162,24 @@ export const ChatInput = memo(function ChatInput({
   const setCurrentInput = useChatStore((s) => s.setCurrentInput);
   const currentInput = useChatStore((s) => s.currentInput);
   const activeChat = useChatStore((s) => s.activeChat);
+  const chatMetadata = useMemo(() => parseChatMetadata(activeChat?.metadata), [activeChat?.metadata]);
+  const inactiveCharacterIds = useMemo(
+    () =>
+      new Set(
+        Array.isArray(chatMetadata.inactiveCharacterIds)
+          ? chatMetadata.inactiveCharacterIds.filter((id): id is string => typeof id === "string")
+          : [],
+      ),
+    [chatMetadata.inactiveCharacterIds],
+  );
+  const activeChatCharacters = useMemo(
+    () => chatCharacters?.filter((character) => !inactiveCharacterIds.has(character.id)),
+    [chatCharacters, inactiveCharacterIds],
+  );
+  const activeCharacterNames = useMemo(
+    () => (activeChatCharacters ? activeChatCharacters.map((character) => character.name) : characterNames),
+    [activeChatCharacters, characterNames],
+  );
   const { generate } = useGenerate();
   const { applyToUserInput } = useApplyRegex();
   const enterToSend = useUIStore((s) => s.enterToSendRP);
@@ -331,7 +349,7 @@ export const ChatInput = memo(function ChatInput({
   const pendingAttachmentReads = activeChatId ? (pendingAttachmentReadsByChat[activeChatId] ?? 0) : 0;
   const isReadingAttachments = pendingAttachmentReads > 0;
   const hasPendingAttachments = isReadingAttachments || attachments.length > 0;
-  const requiresManualGuideTarget = groupResponseOrder === "manual" && characterNames.length > 1;
+  const requiresManualGuideTarget = groupResponseOrder === "manual" && activeCharacterNames.length > 1;
 
   const removeAttachment = (idx: number) => {
     updateAttachments((prev) => prev.filter((_, i) => i !== idx));
@@ -445,13 +463,13 @@ export const ChatInput = memo(function ChatInput({
       generate,
       createMessage: (data) => createMessage.mutate(data),
       invalidate: () => qc.invalidateQueries({ queryKey: chatKeys.all }),
-      characterNames,
-      characters: chatCharacters,
+      characterNames: activeCharacterNames,
+      characters: activeChatCharacters,
       setSpriteExpression: onExpressionChange
         ? (characterId, expression) => onExpressionChange(characterId, expression, { immediate: true })
         : undefined,
     };
-  }, [activeChatId, mode, generate, createMessage, characterNames, chatCharacters, onExpressionChange, qc]);
+  }, [activeChatId, mode, generate, createMessage, activeCharacterNames, activeChatCharacters, onExpressionChange, qc]);
 
   const handleSend = useCallback(async () => {
     const raw = getValue();
@@ -1095,16 +1113,7 @@ export const ChatInput = memo(function ChatInput({
     });
   }, [charPickerOpen]);
 
-  const showCharPicker = !!chatCharacters && chatCharacters.length > 1 && !!groupResponseOrder;
-  const chatMetadata = useMemo(() => {
-    if (!activeChat?.metadata) return {};
-    if (typeof activeChat.metadata !== "string") return activeChat.metadata as Record<string, unknown>;
-    try {
-      return JSON.parse(activeChat.metadata) as Record<string, unknown>;
-    } catch {
-      return {};
-    }
-  }, [activeChat?.metadata]);
+  const showCharPicker = !!activeChatCharacters && activeChatCharacters.length > 1 && !!groupResponseOrder;
   const showDraftTranslateButton = chatMetadata.showInputTranslateButton === true;
 
   const handleTranslateDraft = useCallback(async () => {
@@ -1276,10 +1285,10 @@ export const ChatInput = memo(function ChatInput({
           onPaste={handlePaste}
           placeholder={
             activeChatId
-              ? characterNames.length > 0
-                ? characterNames.length > 1
-                  ? `Message @${characterNames.join(", @")}, / for commands`
-                  : `Message @${characterNames[0]}, / for commands`
+              ? activeCharacterNames.length > 0
+                ? activeCharacterNames.length > 1
+                  ? `Message @${activeCharacterNames.join(", @")}, / for commands`
+                  : `Message @${activeCharacterNames[0]}, / for commands`
                 : "Type here, / for commands."
               : "Select a chat first"
           }
@@ -1407,7 +1416,7 @@ export const ChatInput = memo(function ChatInput({
               Trigger Response
             </div>
             <div className="overflow-y-auto p-1">
-              {chatCharacters!.map((char) => (
+              {activeChatCharacters!.map((char) => (
                 <button
                   key={char.id}
                   onClick={() => handleCharacterResponse(char.id)}
