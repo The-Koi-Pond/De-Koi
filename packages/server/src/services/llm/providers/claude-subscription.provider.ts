@@ -186,6 +186,7 @@ export class ClaudeSubscriptionProvider extends BaseLLMProvider {
     let outputTokens = 0;
     let cachedTokens = 0;
     let cacheWriteTokens = 0;
+    let emittedText = false;
 
     try {
       const queryHandle = query({ prompt, options: sdkOptions });
@@ -199,6 +200,7 @@ export class ClaudeSubscriptionProvider extends BaseLLMProvider {
           if (event.type === "content_block_delta" && event.delta) {
             if (event.delta.type === "text_delta" && event.delta.text) {
               yield event.delta.text;
+              emittedText = true;
             } else if (event.delta.type === "thinking_delta" && event.delta.thinking && options.onThinking) {
               options.onThinking(event.delta.thinking);
             }
@@ -210,6 +212,7 @@ export class ClaudeSubscriptionProvider extends BaseLLMProvider {
           for (const block of blocks) {
             if (block.type === "text" && block.text) {
               yield block.text;
+              emittedText = true;
             } else if (block.type === "thinking" && block.thinking && options.onThinking) {
               options.onThinking(block.thinking);
             }
@@ -244,6 +247,11 @@ export class ClaudeSubscriptionProvider extends BaseLLMProvider {
                 fastModeState,
                 options.model,
               );
+            }
+            const finalResult = typeof message.result === "string" ? message.result : "";
+            if (!emittedText && finalResult.trim()) {
+              yield finalResult;
+              emittedText = true;
             }
           } else {
             const detail = message.errors?.length ? ` — ${message.errors.join("; ")}` : "";

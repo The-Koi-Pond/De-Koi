@@ -1,0 +1,3 @@
+PASSED result-only success fallback: Hello from the SDK result field.
+PASSED stream delta remains authoritative: Hello from a stream delta.
+PASSED assistant block remains authoritative: Hello from an assistant block.

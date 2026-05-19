@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="210" viewBox="0 0 1240 210">
+  <rect width="1240" height="210" fill="#111827"/>
+  <text x="32" y="36" class="title">Issue 992 Claude Subscription result fallback proof</text>
+  <text x="32" y="74" class="mono">packages\server\node_modules\.bin\tsx.cmd scratch\issue-992-claude-result-repro.ts</text>
+  <text x="32" y="114" class="pass">PASSED result-only success fallback: Hello from the SDK result field.</text>
+  <text x="32" y="146" class="pass">PASSED stream delta remains authoritative: Hello from a stream delta.</text>
+  <text x="32" y="178" class="pass">PASSED assistant block remains authoritative: Hello from an assistant block.</text>
+  <style>
+    .title { fill: #f9fafb; font: 700 20px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .mono { fill: #d1d5db; font: 15px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .pass { fill: #86efac; font: 16px ui-monospace, SFMono-Regular, Consolas, monospace; }
+  </style>
+</svg>
