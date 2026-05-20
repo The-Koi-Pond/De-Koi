@@ -253,6 +253,7 @@ for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
 set NODE_ENV=production
 if not defined PORT set PORT=7860
 if not defined HOST set HOST=0.0.0.0
+if not defined SIDECAR_RUNTIME_INSTALL_ENABLED set SIDECAR_RUNTIME_INSTALL_ENABLED=true
 
 set PROTOCOL=http
 if defined SSL_CERT if defined SSL_KEY set PROTOCOL=https
