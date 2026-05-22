@@ -43,11 +43,13 @@ import {
   MessageCircle,
   Star,
   Wand2,
+  Hash,
   Minus,
 } from "lucide-react";
 import { getCharacterTitle } from "../../lib/character-display";
 import { useUIStore } from "../../stores/ui.store";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
+import { estimateCharacterCardTokens, formatEstimatedTokens } from "../../lib/character-token-count";
 import { ExportFormatDialog, type ExportFormatChoice } from "../ui/ExportFormatDialog";
 
 type CharacterRow = {
@@ -1139,6 +1141,7 @@ export function CharactersPanel() {
           const targetGroup = assigningToGroup ? parsedGroups.find((g) => g.id === assigningToGroup) : null;
           const isInTargetGroup = targetGroup?.memberIds.includes(char.id) ?? false;
           const previewMetadata = getCharacterPreviewMetadata(char);
+          const tokenEstimate = estimateCharacterCardTokens(char.parsed);
 
           return (
             <div
@@ -1249,6 +1252,15 @@ export function CharactersPanel() {
                         ? "In group — click to remove"
                         : "Click to add to group"
                       : previewMetadata}
+                  </div>
+                )}
+                {!assigningToGroup && (
+                  <div
+                    className="flex items-center gap-1 text-[0.625rem] text-[var(--muted-foreground)]"
+                    title="Estimated from character card text fields; actual tokenizer counts vary by model."
+                  >
+                    <Hash size="0.5625rem" />
+                    {formatEstimatedTokens(tokenEstimate)}
                   </div>
                 )}
                 {!assigningToGroup && charTags.length > 0 && (
