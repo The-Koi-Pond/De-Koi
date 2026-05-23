@@ -63,8 +63,10 @@ type PersonaRow = {
 };
 
 type PersonaGroupRow = { id: string; name: string; description: string; personaIds: string };
+type ParsedPersonaGroupRow = PersonaGroupRow & { memberIds: string[]; isSynthetic?: boolean };
 
 type SortOption = "name-asc" | "name-desc" | "newest" | "oldest" | "tokens";
+const UNGROUPED_PERSONA_GROUP_ID = "__ungrouped-personas__";
 
 function estimateTokens(p: PersonaRow): number {
   const text = [p.description, p.personality, p.scenario, p.backstory, p.appearance].join("");
@@ -187,19 +189,40 @@ export function PersonasPanel() {
     return map;
   }, [rawList]);
 
-  const parsedGroups = useMemo(() => {
+  const parsedGroups = useMemo<ParsedPersonaGroupRow[]>(() => {
     if (!personaGroupsRaw) return [];
-    return (personaGroupsRaw as PersonaGroupRow[]).map((g) => ({
-      ...g,
-      memberIds: (() => {
+    const assignedIds = new Set<string>();
+    const realGroups = (personaGroupsRaw as PersonaGroupRow[]).map((g) => {
+      const memberIds = (() => {
         try {
           return JSON.parse(g.personaIds);
         } catch {
           return [];
         }
-      })() as string[],
-    }));
-  }, [personaGroupsRaw]);
+      })() as string[];
+      for (const id of memberIds) assignedIds.add(id);
+      return {
+        ...g,
+        memberIds,
+      };
+    });
+    const ungroupedMemberIds = rawList
+      .filter((persona) => !assignedIds.has(persona.id))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((persona) => persona.id);
+    if (ungroupedMemberIds.length === 0) return realGroups;
+    return [
+      ...realGroups,
+      {
+        id: UNGROUPED_PERSONA_GROUP_ID,
+        name: "Ungrouped",
+        description: "Personas not assigned to any group",
+        personaIds: JSON.stringify(ungroupedMemberIds),
+        memberIds: ungroupedMemberIds,
+        isSynthetic: true,
+      },
+    ];
+  }, [personaGroupsRaw, rawList]);
 
   const handleCreateGroup = useCallback(() => {
     const name = newGroupName.trim();
@@ -588,12 +611,19 @@ export function PersonasPanel() {
             {/* Group rows */}
             {parsedGroups.map((group) => {
               const isExpanded = expandedGroupId === group.id;
+              const isSynthetic = group.isSynthetic === true;
               return (
                 <div key={group.id} className="rounded-xl bg-[var(--secondary)]/60 ring-1 ring-[var(--border)]/50">
                   {/* Group header */}
-                  <div className="flex items-center gap-1.5 px-2.5 py-2">
+                  <div
+                    className="flex cursor-pointer items-center gap-1.5 px-2.5 py-2"
+                    onClick={() => setExpandedGroupId(isExpanded ? null : group.id)}
+                  >
                     <button
-                      onClick={() => setExpandedGroupId(isExpanded ? null : group.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedGroupId(isExpanded ? null : group.id);
+                      }}
                       className="shrink-0 text-[var(--muted-foreground)]"
                     >
                       {isExpanded ? <ChevronDown size="0.75rem" /> : <ChevronRight size="0.75rem" />}
@@ -611,6 +641,7 @@ export function PersonasPanel() {
                             setEditGroupName("");
                           }
                         }}
+                        onClick={(e) => e.stopPropagation()}
                         onBlur={() => handleRenameGroup(group.id)}
                         className="min-w-0 flex-1 bg-transparent text-xs font-medium outline-none"
                       />
@@ -621,54 +652,59 @@ export function PersonasPanel() {
                     )}
 
                     {/* Actions */}
-                    <div className="flex items-center gap-0.5">
-                      <button
-                        onClick={() => {
-                          if (assigningToGroup !== group.id) exitSelectionMode();
-                          setAssigningToGroup(assigningToGroup === group.id ? null : group.id);
-                        }}
-                        className={cn(
-                          "rounded-lg p-1 transition-colors",
-                          assigningToGroup === group.id
-                            ? "bg-[var(--primary)]/15 text-[var(--primary)]"
-                            : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
-                        )}
-                        title="Assign personas"
-                      >
-                        <UserPlus size="0.75rem" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setEditingGroupId(group.id);
-                          setEditGroupName(group.name);
-                        }}
-                        className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-                        title="Rename"
-                      >
-                        <Pencil size="0.75rem" />
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (
-                            !(await showConfirmDialog({
-                              title: "Delete Group",
-                              message: `Delete group "${group.name}"?`,
-                              confirmLabel: "Delete",
-                              tone: "destructive",
-                            }))
-                          ) {
-                            return;
-                          }
-                          deletePGroup.mutate(group.id);
-                          if (expandedGroupId === group.id) setExpandedGroupId(null);
-                          if (assigningToGroup === group.id) setAssigningToGroup(null);
-                        }}
-                        className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
-                        title="Delete group"
-                      >
-                        <Trash2 size="0.75rem" />
-                      </button>
-                    </div>
+                    {!isSynthetic && (
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (assigningToGroup !== group.id) exitSelectionMode();
+                            setAssigningToGroup(assigningToGroup === group.id ? null : group.id);
+                          }}
+                          className={cn(
+                            "rounded-lg p-1 transition-colors",
+                            assigningToGroup === group.id
+                              ? "bg-[var(--primary)]/15 text-[var(--primary)]"
+                              : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+                          )}
+                          title="Assign personas"
+                        >
+                          <UserPlus size="0.75rem" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingGroupId(group.id);
+                            setEditGroupName(group.name);
+                          }}
+                          className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                          title="Rename"
+                        >
+                          <Pencil size="0.75rem" />
+                        </button>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (
+                              !(await showConfirmDialog({
+                                title: "Delete Group",
+                                message: `Delete group "${group.name}"?`,
+                                confirmLabel: "Delete",
+                                tone: "destructive",
+                              }))
+                            ) {
+                              return;
+                            }
+                            deletePGroup.mutate(group.id);
+                            if (expandedGroupId === group.id) setExpandedGroupId(null);
+                            if (assigningToGroup === group.id) setAssigningToGroup(null);
+                          }}
+                          className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+                          title="Delete group"
+                        >
+                          <Trash2 size="0.75rem" />
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Expanded member list */}
@@ -684,7 +720,19 @@ export function PersonasPanel() {
                             const p = personaMap.get(pid);
                             if (!p) return null;
                             return (
-                              <div key={pid} className="flex items-center gap-2 rounded-lg px-1 py-1 text-xs">
+                              <div
+                                key={pid}
+                                onClick={() => openPersonaDetail(pid)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    openPersonaDetail(pid);
+                                  }
+                                }}
+                                role="button"
+                                tabIndex={0}
+                                className="group/member flex cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-xs transition-all hover:bg-[var(--sidebar-accent)]"
+                              >
                                 <div className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
                                   {p.avatarPath ? (
                                     <img
@@ -698,13 +746,18 @@ export function PersonasPanel() {
                                   )}
                                 </div>
                                 <span className="min-w-0 flex-1 truncate">{p.name}</span>
-                                <button
-                                  onClick={() => toggleGroupMember(group.id, pid, group.memberIds)}
-                                  className="rounded p-0.5 text-[var(--muted-foreground)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
-                                  title="Remove from group"
-                                >
-                                  <UserMinus size="0.625rem" />
-                                </button>
+                                {!isSynthetic && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleGroupMember(group.id, pid, group.memberIds);
+                                    }}
+                                    className="rounded p-0.5 text-[var(--muted-foreground)] opacity-0 transition-all hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] group-hover/member:opacity-100 max-md:opacity-100"
+                                    title="Remove from group"
+                                  >
+                                    <UserMinus size="0.625rem" />
+                                  </button>
+                                )}
                               </div>
                             );
                           })}

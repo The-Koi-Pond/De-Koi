@@ -1473,7 +1473,7 @@ function AppearanceSettings() {
       <label className="flex flex-col gap-1">
         <span className="text-xs font-medium inline-flex items-center gap-1">
           Display Size{" "}
-          <HelpTooltip text="Adjusts the base font size across the whole app. Larger sizes improve readability. Default is 17px." />
+          <HelpTooltip text="Adjusts the base font size across the whole app on this device. Larger sizes improve readability. Default is 17px." />
         </span>
         <select
           value={String(fontSize)}
@@ -1492,7 +1492,7 @@ function AppearanceSettings() {
       <label className="flex flex-col gap-1">
         <span className="text-xs font-medium inline-flex items-center gap-1">
           Chat Font Size{" "}
-          <HelpTooltip text="Adjusts the font size of chat messages. Drag the slider to find your preferred reading size. Default is 16px." />
+          <HelpTooltip text="Adjusts the font size of chat messages on this device. Drag the slider to find your preferred reading size. Default is 16px." />
         </span>
         <div className="flex items-center gap-3">
           <input

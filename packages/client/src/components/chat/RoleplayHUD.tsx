@@ -503,15 +503,38 @@ function ActionsGroup({
   const showEcho = enabledAgentTypes.has("echo-chamber");
   const { data: customAgentRuns = [], isLoading: customAgentRunsLoading } = useCustomAgentRuns(chatId, agentsOpen);
 
+  const computeActionsPosition = useCallback(() => {
+    if (!btnRef.current) return null;
+    const rect = btnRef.current.getBoundingClientRect();
+    const dropdownWidth = dropdownRef.current?.offsetWidth ?? ACTIONS_DROPDOWN_WIDTH_PX;
+    const dropdownHeight = dropdownRef.current?.offsetHeight ?? Math.min(320, window.innerHeight - 16);
+    const belowTop = rect.bottom + 4;
+    const aboveTop = rect.top - dropdownHeight - 4;
+    const preferredTop = belowTop + dropdownHeight > window.innerHeight - 8 ? aboveTop : belowTop;
+    const top = Math.max(8, Math.min(preferredTop, window.innerHeight - dropdownHeight - 8));
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - dropdownWidth - 8));
+    return { top, left };
+  }, []);
+
   // Position with fixed layout to avoid overflow clipping
   useLayoutEffect(() => {
-    if (!agentsOpen || !btnRef.current) return;
-    const rect = btnRef.current.getBoundingClientRect();
-    const maxH = 320;
-    const top = rect.bottom + 4 + maxH > window.innerHeight ? rect.top - maxH - 4 : rect.bottom + 4;
-    const left = Math.min(rect.left, window.innerWidth - ACTIONS_DROPDOWN_WIDTH_PX - 8);
-    setPos({ top, left });
-  }, [agentsOpen]);
+    if (!agentsOpen) return;
+    setPos(computeActionsPosition());
+  }, [agentsOpen, computeActionsPosition]);
+
+  useEffect(() => {
+    if (!agentsOpen) return;
+    const update = () => setPos(computeActionsPosition());
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    const observer = new ResizeObserver(update);
+    if (dropdownRef.current) observer.observe(dropdownRef.current);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+      observer.disconnect();
+    };
+  }, [agentsOpen, computeActionsPosition]);
 
   // Close on outside click or Escape
   useEffect(() => {
@@ -543,7 +566,7 @@ function ActionsGroup({
     createPortal(
       <div
         ref={dropdownRef}
-        className="fixed w-72 max-w-[calc(100vw-1rem)] max-h-80 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--popover)] backdrop-blur-xl shadow-xl z-[9999] animate-message-in dark:border-foreground/10 dark:bg-black/80"
+        className="fixed min-h-24 w-72 min-w-64 max-w-[calc(100vw-1rem)] max-h-[calc(100vh-1rem)] resize overflow-auto rounded-xl border border-[var(--border)] bg-[var(--popover)] backdrop-blur-xl shadow-xl z-[9999] animate-message-in dark:border-foreground/10 dark:bg-black/80"
         style={{ top: pos.top, left: pos.left }}
       >
         <Suspense fallback={<DeferredActionsFallback isAgentProcessing={isAgentProcessing} />}>
@@ -783,7 +806,10 @@ function WidgetPopover({
         }
       }
     }
-    return { top, left };
+    return {
+      top: Math.max(8, Math.min(top, window.innerHeight - popoverHeight - 8)),
+      left: Math.max(8, Math.min(left, window.innerWidth - popoverWidth - 8)),
+    };
   }, [anchorRef, placement]);
 
   // Position the popover relative to the anchor element
@@ -798,9 +824,12 @@ function WidgetPopover({
     const update = () => setPos(computePosition());
     window.addEventListener("scroll", update, true);
     window.addEventListener("resize", update);
+    const observer = new ResizeObserver(update);
+    if (ref.current) observer.observe(ref.current);
     return () => {
       window.removeEventListener("scroll", update, true);
       window.removeEventListener("resize", update);
+      observer.disconnect();
     };
   }, [open, computePosition]);
 
@@ -823,8 +852,9 @@ function WidgetPopover({
       ref={ref}
       style={pos ? { position: "fixed", top: pos.top, left: pos.left } : { position: "fixed", top: -9999, left: -9999 }}
       className={cn(
-        "z-[9999] max-w-[calc(100vw-1rem)] animate-message-in rounded-xl border border-[var(--border)] bg-[var(--popover)] backdrop-blur-xl shadow-xl dark:border-foreground/10 dark:bg-black/80",
+        "z-[9999] min-h-24 min-w-60 max-w-[calc(100vw-1rem)] animate-message-in resize overflow-auto rounded-xl border border-[var(--border)] bg-[var(--popover)] backdrop-blur-xl shadow-xl dark:border-foreground/10 dark:bg-black/80",
         className,
+        "!max-h-[calc(100vh-1rem)]",
       )}
     >
       {children}

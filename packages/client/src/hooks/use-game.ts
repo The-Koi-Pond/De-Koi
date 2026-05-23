@@ -12,6 +12,7 @@ import {
   getPendingHudWidgetPersistenceSignature,
   useGameModeStore,
 } from "../stores/game-mode.store";
+import { useGameAssetStore } from "../stores/game-asset.store";
 import { useGameStateStore } from "../stores/game-state.store";
 import { useChatStore } from "../stores/chat.store";
 import { useUIStore } from "../stores/ui.store";
@@ -256,6 +257,7 @@ export function useStartSession() {
       });
     },
     onSuccess: (res, variables) => {
+      useGameAssetStore.getState().resetPlaybackState();
       store.getState().setActiveGame(variables.gameId, res.sessionChat.id, null);
       store.getState().setSessionNumber(res.sessionNumber);
       qc.setQueryData(chatKeys.detail(res.sessionChat.id), res.sessionChat);

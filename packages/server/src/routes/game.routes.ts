@@ -1697,7 +1697,7 @@ function inferKeeperKeys(entryName: string, tag: string): string[] {
   return Array.from(new Set([...words.slice(0, 5), tag].filter(Boolean))).slice(0, 6);
 }
 
-function normalizeGameLorebookKeeperEntries(raw: unknown): GameLorebookKeeperEntry[] {
+export function normalizeGameLorebookKeeperEntries(raw: unknown): GameLorebookKeeperEntry[] {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
   const container = raw as { entries?: unknown; updates?: unknown };
   const rawEntries = Array.isArray(container.entries)
@@ -1710,20 +1710,39 @@ function normalizeGameLorebookKeeperEntries(raw: unknown): GameLorebookKeeperEnt
     .flatMap((entry): GameLorebookKeeperEntry[] => {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
       const source = entry as Record<string, unknown>;
+      const nestedEntry =
+        source.entry && typeof source.entry === "object" && !Array.isArray(source.entry)
+          ? (source.entry as Record<string, unknown>)
+          : {};
       const rawName =
-        typeof source.entryName === "string" ? source.entryName : typeof source.name === "string" ? source.name : "";
-      const content = typeof source.content === "string" ? source.content.trim() : "";
+        typeof source.entryName === "string"
+          ? source.entryName
+          : typeof source.name === "string"
+            ? source.name
+            : typeof nestedEntry.name === "string"
+              ? nestedEntry.name
+              : "";
+      const content =
+        typeof source.content === "string"
+          ? source.content.trim()
+          : typeof nestedEntry.content === "string"
+            ? nestedEntry.content.trim()
+            : "";
       if (!rawName.trim() || !content) return [];
 
       const tag =
         typeof source.tag === "string" && source.tag.trim()
           ? source.tag.trim().replace(/\s+/g, "_").toLowerCase()
+          : typeof nestedEntry.tag === "string" && nestedEntry.tag.trim()
+            ? nestedEntry.tag.trim().replace(/\s+/g, "_").toLowerCase()
           : "game_lore";
       const entryName = truncateKeeperName(rawName);
-      const keys = normalizeKeeperStringList(source.keys, 10);
+      const keys = normalizeKeeperStringList(source.keys ?? nestedEntry.keys, 10);
       const description =
         typeof source.description === "string" && source.description.trim()
           ? source.description.trim()
+          : typeof nestedEntry.description === "string" && nestedEntry.description.trim()
+            ? nestedEntry.description.trim()
           : `Game Lorebook Keeper entry tagged ${tag}.`;
 
       return [
@@ -3602,6 +3621,11 @@ export async function gameRoutes(app: FastifyInstance) {
         gameLastIllustrationTurn: _previousIllustrationTurn,
         gameLastIllustrationSessionNumber: _previousIllustrationSessionNumber,
         gameLastIllustrationTag: _previousIllustrationTag,
+        gameSceneBackground: _previousSceneBackground,
+        gameSceneMusic: _previousSceneMusic,
+        gameSceneAmbient: _previousSceneAmbient,
+        gameRecentMusic: _previousRecentMusic,
+        gameRecentSpotifyTracks: _previousRecentSpotifyTracks,
         ...carryMeta
       } = prevMeta;
 
@@ -3618,6 +3642,11 @@ export async function gameRoutes(app: FastifyInstance) {
         gamePreviousSessionSummaries: summaries,
         gameDialogueChatId: null,
         gameCombatChatId: null,
+        gameSceneBackground: null,
+        gameSceneMusic: null,
+        gameSceneAmbient: null,
+        gameRecentMusic: [],
+        gameRecentSpotifyTracks: [],
         ...(carriedSetupConfig ? { gameSetupConfig: carriedSetupConfig } : {}),
         gamePartyCharacterIds: carriedPartyIds,
         enableAgents: true,

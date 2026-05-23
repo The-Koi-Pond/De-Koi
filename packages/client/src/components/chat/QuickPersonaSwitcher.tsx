@@ -33,6 +33,8 @@ interface ParsedGroup {
   members: Persona[];
 }
 
+const UNGROUPED_PERSONA_GROUP_ID = "__ungrouped-personas__";
+
 export function QuickPersonaSwitcher({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -59,11 +61,7 @@ export function QuickPersonaSwitcher({ className }: { className?: string }) {
   }, [personas]);
 
   // Parse persona groups and resolve members
-  const {
-    groups,
-    groupedPersonaIds: _groupedPersonaIds,
-    ungrouped,
-  } = useMemo(() => {
+  const { groups } = useMemo(() => {
     const groupRows = (rawPersonaGroups ?? []) as PersonaGroupRow[];
     const allGroupedIds = new Set<string>();
     const parsedGroups: ParsedGroup[] = [];
@@ -91,8 +89,16 @@ export function QuickPersonaSwitcher({ className }: { className?: string }) {
     parsedGroups.sort((a, b) => a.name.localeCompare(b.name));
 
     const ungroupedList = personas.filter((p) => !allGroupedIds.has(p.id));
+    if (ungroupedList.length > 0) {
+      parsedGroups.push({
+        id: UNGROUPED_PERSONA_GROUP_ID,
+        name: "Ungrouped",
+        memberIds: ungroupedList.map((p) => p.id),
+        members: ungroupedList,
+      });
+    }
 
-    return { groups: parsedGroups, groupedPersonaIds: allGroupedIds, ungrouped: ungroupedList };
+    return { groups: parsedGroups };
   }, [rawPersonaGroups, personaMap, personas]);
 
   const toggleGroup = useCallback((groupId: string) => {
@@ -307,9 +313,6 @@ export function QuickPersonaSwitcher({ className }: { className?: string }) {
                 </div>
               );
             })}
-
-            {/* Ungrouped personas */}
-            {ungrouped.map((persona) => renderPersonaRow(persona, false))}
 
             {personas.length === 0 && (
               <div className="px-3 py-4 text-center text-[0.6875rem] italic text-[var(--muted-foreground)]">

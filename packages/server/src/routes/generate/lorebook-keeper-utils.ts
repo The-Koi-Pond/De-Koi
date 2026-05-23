@@ -312,6 +312,45 @@ function getExplicitUpdateReplacementContent(update: Record<string, unknown>): s
   return replacement.length > 0 ? replacement : null;
 }
 
+function readNestedEntry(update: Record<string, unknown>): Record<string, unknown> {
+  return update.entry && typeof update.entry === "object" && !Array.isArray(update.entry)
+    ? (update.entry as Record<string, unknown>)
+    : {};
+}
+
+function readKeeperUpdateName(update: Record<string, unknown>): string {
+  const nestedEntry = readNestedEntry(update);
+  const rawName =
+    typeof update.entryName === "string"
+      ? update.entryName
+      : typeof update.name === "string"
+        ? update.name
+        : typeof nestedEntry.name === "string"
+          ? nestedEntry.name
+          : "";
+  return rawName.trim();
+}
+
+function readKeeperUpdateContent(update: Record<string, unknown>): string {
+  const nestedEntry = readNestedEntry(update);
+  return typeof update.content === "string"
+    ? update.content
+    : typeof nestedEntry.content === "string"
+      ? nestedEntry.content
+      : "";
+}
+
+function readKeeperUpdateKeys(update: Record<string, unknown>): string[] {
+  const nestedEntry = readNestedEntry(update);
+  const rawKeys = Array.isArray(update.keys) ? update.keys : Array.isArray(nestedEntry.keys) ? nestedEntry.keys : [];
+  return rawKeys.filter((key): key is string => typeof key === "string");
+}
+
+function readKeeperUpdateTag(update: Record<string, unknown>): string {
+  const nestedEntry = readNestedEntry(update);
+  return typeof update.tag === "string" ? update.tag : typeof nestedEntry.tag === "string" ? nestedEntry.tag : "";
+}
+
 export async function persistLorebookKeeperUpdates(args: {
   lorebooksStore: LorebooksStore;
   chatId: string;
@@ -353,12 +392,12 @@ export async function persistLorebookKeeperUpdates(args: {
   }
 
   for (const update of updates) {
-    const rawName = typeof update.entryName === "string" ? update.entryName.trim() : "";
+    const rawName = readKeeperUpdateName(update);
     if (!rawName) continue;
 
-    const content = typeof update.content === "string" ? update.content : "";
-    const keys = Array.isArray(update.keys) ? update.keys.filter((key): key is string => typeof key === "string") : [];
-    const tag = typeof update.tag === "string" ? update.tag : "";
+    const content = readKeeperUpdateContent(update);
+    const keys = readKeeperUpdateKeys(update);
+    const tag = readKeeperUpdateTag(update);
     const existing = entryByName.get(rawName.toLowerCase());
 
     if (existing && (existing.locked === true || existing.locked === "true")) {

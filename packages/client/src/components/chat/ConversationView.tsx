@@ -125,12 +125,22 @@ function hasNamePrefixFormat(msg: Message, characterMap: CharacterMap, chatChara
 }
 
 function isHiddenFromUser(message: Message) {
+  const extra = getMessageExtraRecord(message);
+  return extra.hiddenFromUser === true;
+}
+
+function getMessageExtraRecord(message: Message): Record<string, unknown> {
   try {
     const extra = typeof message.extra === "string" ? JSON.parse(message.extra) : (message.extra ?? {});
-    return extra.hiddenFromUser === true;
+    return extra && typeof extra === "object" && !Array.isArray(extra) ? (extra as Record<string, unknown>) : {};
   } catch {
-    return false;
+    return {};
   }
+}
+
+function getMessageThinking(message: Message): string | null {
+  const thinking = getMessageExtraRecord(message).thinking;
+  return typeof thinking === "string" && thinking.length > 0 ? thinking : null;
 }
 
 const LIST_LINE_RE = /^\s*(?:[-*+]|\d+\.)\s/;
@@ -571,6 +581,7 @@ export function ConversationView({
         const lines = splitAssistantContentLines(cleaned, charName);
         if (lines.length > 1) {
           const blocks = chunkAssistantMarkdownBlocks(lines);
+          const thinking = getMessageThinking(msg);
 
           blocks.forEach((block, bi) => {
             const isLast = bi === blocks.length - 1;
@@ -583,7 +594,13 @@ export function ConversationView({
                 : {
                     ...msg,
                     content,
-                    extra: { displayText: null, isGenerated: false, tokenCount: null, generationInfo: null },
+                    extra: {
+                      displayText: null,
+                      isGenerated: false,
+                      tokenCount: null,
+                      generationInfo: null,
+                      ...(bi === 0 && thinking ? { thinking } : {}),
+                    },
                   },
               isGrouped: bi === 0 ? grouped : true,
               index: messageOffset + i,

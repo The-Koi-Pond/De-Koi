@@ -82,6 +82,7 @@ import { executeToolCalls, type MetadataPatchInput } from "../services/tools/too
 import { createAgentPipeline, type ResolvedAgent, type AgentInjection } from "../services/agents/agent-pipeline.js";
 import { DATA_DIR } from "../utils/data-dir.js";
 import { executeAgent, normalizeAgentContextSize, resolveAgentResultType } from "../services/agents/agent-executor.js";
+import { matchCustomAgentActivation } from "./generate/agent-activation.js";
 import { listCharacterSprites } from "../services/game/sprite.service.js";
 import { generateChatBackground } from "../services/game/game-asset-generation.js";
 import { sanitizeGameNpcAvatarUrls } from "../services/game/npc-avatar-utils.js";
@@ -888,6 +889,12 @@ function readChatCompletionsReasoningMetadata(value: unknown): Record<string, un
   return Object.keys(metadata).length ? metadata : undefined;
 }
 
+function shouldReplayStoredChatCompletionsReasoning(provider: string, model: string): boolean {
+  if (provider !== "openrouter") return true;
+  const normalizedModel = model.toLowerCase();
+  return !normalizedModel.startsWith("google/gemini") && !normalizedModel.includes("/gemini-");
+}
+
 function isStandaloneCharacterProfileBlock(content: string, characterName: string): boolean {
   const trimmed = content.trim();
   if (!trimmed) return false;
@@ -1227,7 +1234,9 @@ export async function generateRoutes(app: FastifyInstance) {
           providerMetadata.geminiParts = extra.geminiParts;
         }
         const chatCompletionsReasoning =
-          m.role === "assistant" ? readChatCompletionsReasoningMetadata(extra.chatCompletionsReasoning) : undefined;
+          m.role === "assistant" && shouldReplayStoredChatCompletionsReasoning(conn.provider, conn.model)
+            ? readChatCompletionsReasoningMetadata(extra.chatCompletionsReasoning)
+            : undefined;
         if (chatCompletionsReasoning) {
           Object.assign(providerMetadata, chatCompletionsReasoning);
         }
@@ -3421,6 +3430,17 @@ export async function generateRoutes(app: FastifyInstance) {
         for (let index = resolvedAgents.length - 1; index >= 0; index--) {
           const agent = resolvedAgents[index]!;
           if (builtInAgentTypes.has(agent.type)) continue;
+
+          const activation = matchCustomAgentActivation(agent.settings, chatMessages);
+          if (activation.configured && !activation.matched) {
+            logger.debug(
+              "[agents] Skipping custom agent %s because no activation keywords matched in the last %d messages",
+              agent.type,
+              activation.scanDepth,
+            );
+            resolvedAgents.splice(index, 1);
+            continue;
+          }
 
           const runInterval = Number(agent.settings.runInterval ?? 0);
           if (!Number.isFinite(runInterval) || runInterval <= 1) continue;

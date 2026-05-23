@@ -18,7 +18,9 @@ import {
   type SpriteSide,
 } from "@marinara-engine/shared";
 import {
+  BookOpen,
   FolderOpen,
+  FileText,
   Image,
   Loader2,
   MoreHorizontal,
@@ -30,6 +32,7 @@ import {
   ChevronUp,
   ArrowRightLeft,
   FlipHorizontal2,
+  User,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { getConnectedChatDisplayName } from "../../lib/chat-display";
@@ -37,6 +40,8 @@ import { playNotificationPing } from "../../lib/notification-sound";
 import { useUIStore } from "../../stores/ui.store";
 import { useChatStore } from "../../stores/chat.store";
 import { useGameStateStore } from "../../stores/game-state.store";
+import { useLorebooks } from "../../hooks/use-lorebooks";
+import { usePresets } from "../../hooks/use-presets";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInput } from "./ChatInput";
 import { CyoaChoices } from "./CyoaChoices";
@@ -354,6 +359,133 @@ function ToolbarMenu({ children }: { children: ReactNode }) {
           )}
       </div>
     </>
+  );
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
+}
+
+function ActiveContextLinksButton({
+  chat,
+  chatMeta,
+  chatCharIds,
+  characterMap,
+}: {
+  chat: ChatData | null | undefined;
+  chatMeta: Record<string, any>;
+  chatCharIds: string[];
+  characterMap: CharacterMap;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const compact = useUIStore((s) => s.centerCompact);
+  const { data: lorebooks } = useLorebooks();
+  const { data: presets } = usePresets();
+
+  useEffect(() => {
+    if (!open) return;
+    const handle = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open]);
+
+  if (!chat) return null;
+
+  const inactiveCharacterIds = readStringArray(chatMeta.inactiveCharacterIds);
+  const characterIds = chatCharIds.filter((id) => !inactiveCharacterIds.includes(id));
+  const activeLorebookIds = readStringArray(chatMeta.activeLorebookIds);
+  const promptPresetId = typeof chat.promptPresetId === "string" ? chat.promptPresetId : null;
+  const hasLinks = characterIds.length > 0 || activeLorebookIds.length > 0 || !!promptPresetId;
+
+  if (!hasLinks) return null;
+
+  const lorebookNameById = new Map((lorebooks ?? []).map((book) => [book.id, book.name]));
+  const presetName = promptPresetId ? presets?.find((preset) => preset.id === promptPresetId)?.name : null;
+
+  const openCharacter = (id: string) => {
+    useUIStore.getState().openCharacterDetail(id);
+    setOpen(false);
+  };
+  const openLorebook = (id: string) => {
+    useUIStore.getState().openLorebookDetail(id);
+    setOpen(false);
+  };
+  const openPreset = (id: string) => {
+    useUIStore.getState().openPresetDetail(id);
+    setOpen(false);
+  };
+
+  const itemClassName =
+    "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-foreground/80 transition-colors hover:bg-foreground/10 hover:text-foreground";
+  const iconClassName = "shrink-0 text-foreground/55";
+
+  return (
+    <div className="relative" ref={ref} onClick={(event) => event.stopPropagation()}>
+      <button
+        onClick={() => setOpen((prev) => !prev)}
+        className={cn(
+          "flex items-center justify-center rounded-full border backdrop-blur-md transition-all",
+          compact ? "p-1" : "p-1.5",
+          open
+            ? "bg-foreground/15 border-foreground/20 text-foreground/90"
+            : "bg-foreground/5 border-foreground/10 text-foreground/60 hover:bg-foreground/10 hover:text-foreground",
+        )}
+        title="Active Context"
+        aria-label="Active Context"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <BookOpen size="0.875rem" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl border border-[var(--border)] bg-[var(--card)] p-2 shadow-2xl shadow-black/40 animate-message-in"
+        >
+          <div className="px-2 pb-1 text-[0.625rem] font-semibold uppercase text-foreground/45">Active Context</div>
+          <div className="space-y-1">
+            {characterIds.map((id, index) => (
+              <button key={id} type="button" role="menuitem" className={itemClassName} onClick={() => openCharacter(id)}>
+                <User size="0.8125rem" className={iconClassName} />
+                <span className="min-w-0 flex-1 truncate">{characterMap.get(id)?.name ?? `Character ${index + 1}`}</span>
+                <span className="shrink-0 text-[0.625rem] text-foreground/45">Card</span>
+              </button>
+            ))}
+            {activeLorebookIds.map((id, index) => (
+              <button key={id} type="button" role="menuitem" className={itemClassName} onClick={() => openLorebook(id)}>
+                <BookOpen size="0.8125rem" className={iconClassName} />
+                <span className="min-w-0 flex-1 truncate">{lorebookNameById.get(id) ?? `Lorebook ${index + 1}`}</span>
+                <span className="shrink-0 text-[0.625rem] text-foreground/45">Lorebook</span>
+              </button>
+            ))}
+            {promptPresetId && (
+              <button
+                type="button"
+                role="menuitem"
+                className={itemClassName}
+                onClick={() => openPreset(promptPresetId)}
+              >
+                <FileText size="0.8125rem" className={iconClassName} />
+                <span className="min-w-0 flex-1 truncate">{presetName ?? "Prompt preset"}</span>
+                <span className="shrink-0 text-[0.625rem] text-foreground/45">Preset</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -846,6 +978,12 @@ export function ChatRoleplaySurface({
                       }
                       totalMessageCount={totalMessageCount}
                     />
+                    <ActiveContextLinksButton
+                      chat={chat}
+                      chatMeta={chatMeta}
+                      chatCharIds={chatCharIds}
+                      characterMap={characterMap}
+                    />
                     <ActiveWorldInfoButton chatId={chat?.id ?? null} />
                     <AuthorNotesButton chatId={chat?.id ?? null} chatMeta={chatMeta} />
                     <RpToolbarButton
@@ -945,6 +1083,12 @@ export function ChatRoleplaySurface({
                           }
                           totalMessageCount={totalMessageCount}
                         />
+                        <ActiveContextLinksButton
+                          chat={chat}
+                          chatMeta={chatMeta}
+                          chatCharIds={chatCharIds}
+                          characterMap={characterMap}
+                        />
                         <ActiveWorldInfoButton chatId={chat?.id ?? null} />
                         <AuthorNotesButton chatId={chat?.id ?? null} chatMeta={chatMeta} />
                         <RpToolbarButton
@@ -1013,6 +1157,12 @@ export function ChatRoleplaySurface({
                             : null
                         }
                         totalMessageCount={totalMessageCount}
+                      />
+                      <ActiveContextLinksButton
+                        chat={chat}
+                        chatMeta={chatMeta}
+                        chatCharIds={chatCharIds}
+                        characterMap={characterMap}
                       />
                       <ActiveWorldInfoButton chatId={chat?.id ?? null} />
                       <AuthorNotesButton chatId={chat?.id ?? null} chatMeta={chatMeta} />

@@ -8,6 +8,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api-client";
+import { recordUserMessageActivity } from "../lib/user-presence-activity";
 import { useChatStore } from "../stores/chat.store";
 import { useUIStore } from "../stores/ui.store";
 import { useGenerate } from "./use-generate";
@@ -50,14 +51,9 @@ export function useAutonomousMessaging(
   // Record that the user sent a message
   const recordUserActivity = useCallback(async () => {
     if (!chatId) return;
-    try {
-      await api.post("/conversation/activity/user", {
-        chatId,
-        preserveGenerationInProgress: useChatStore.getState().abortControllers.has(chatId),
-      });
-    } catch {
-      // non-critical
-    }
+    await recordUserMessageActivity(chatId, {
+      preserveGenerationInProgress: useChatStore.getState().abortControllers.has(chatId),
+    });
   }, [chatId]);
 
   // Record that an assistant message was received

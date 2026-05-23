@@ -342,17 +342,16 @@ export class OpenAIProvider extends BaseLLMProvider {
     model?: string,
   ): Record<string, unknown> {
     if (!providerMetadata) return {};
+    if (model && !this.shouldReplayChatCompletionsReasoning(model)) return {};
     const metadata = OpenAIProvider.extractReasoningMetadata(providerMetadata);
     if (Array.isArray(metadata.reasoning_details) && metadata.reasoning_details.length) {
       return { reasoning_details: metadata.reasoning_details };
     }
-    if (model && this.supportsOpenRouterUnifiedReasoning(model)) {
-      return {};
-    }
     return metadata;
   }
 
-  private static emitChatCompletionsReasoning(options: ChatOptions, metadata: Record<string, unknown>): void {
+  private emitChatCompletionsReasoning(options: ChatOptions, metadata: Record<string, unknown>): void {
+    if (!this.shouldReplayChatCompletionsReasoning(options.model)) return;
     if (OpenAIProvider.hasReasoningMetadata(metadata)) {
       options.onChatCompletionsReasoning?.(metadata);
     }
@@ -508,13 +507,26 @@ export class OpenAIProvider extends BaseLLMProvider {
   }
 
   private isOpenRouterEndpoint(): boolean {
-    return !this.isGenericCustomProvider() && this.baseUrl.includes("openrouter.ai");
+    return (
+      this.providerKind === "openrouter" ||
+      (!this.isGenericCustomProvider() && this.baseUrl.includes("openrouter.ai"))
+    );
   }
 
   private supportsOpenRouterUnifiedReasoning(model: string): boolean {
     if (!this.isOpenRouterEndpoint()) return false;
     const m = model.toLowerCase();
     return m.includes("claude-3.7") || /claude-(?:opus|sonnet|haiku)-4(?:[.-]|\b)/.test(m);
+  }
+
+  private isOpenRouterGeminiModel(model: string): boolean {
+    if (!this.isOpenRouterEndpoint()) return false;
+    const m = model.toLowerCase();
+    return m.startsWith("google/gemini") || m.includes("/gemini-");
+  }
+
+  private shouldReplayChatCompletionsReasoning(model: string): boolean {
+    return !this.isOpenRouterGeminiModel(model) && !this.supportsOpenRouterUnifiedReasoning(model);
   }
 
   private shouldSendReasoningEffort(model: string, reasoningEffort?: string | null): boolean {
@@ -826,7 +838,7 @@ export class OpenAIProvider extends BaseLLMProvider {
       const msg = choices[0]?.message;
       const refusal = typeof msg?.refusal === "string" && msg.refusal ? msg.refusal : "";
       const reasoningMetadata = OpenAIProvider.extractReasoningMetadata(msg);
-      OpenAIProvider.emitChatCompletionsReasoning(options, reasoningMetadata);
+      this.emitChatCompletionsReasoning(options, reasoningMetadata);
       const reasoning = OpenAIProvider.extractReasoning(msg);
       if (reasoning && options.onThinking) {
         options.onThinking(reasoning);
@@ -876,7 +888,7 @@ export class OpenAIProvider extends BaseLLMProvider {
           const data = OpenAIProvider.extractSseData(trimmed);
           if (data == null) continue;
           if (data === "[DONE]") {
-            OpenAIProvider.emitChatCompletionsReasoning(options, reasoningMetadata);
+            this.emitChatCompletionsReasoning(options, reasoningMetadata);
             if (streamUsage) return streamUsage;
             return;
           }
@@ -924,7 +936,7 @@ export class OpenAIProvider extends BaseLLMProvider {
     } finally {
       if (options.signal) options.signal.removeEventListener("abort", onAbort);
     }
-    OpenAIProvider.emitChatCompletionsReasoning(options, reasoningMetadata);
+    this.emitChatCompletionsReasoning(options, reasoningMetadata);
     if (streamUsage) return streamUsage;
   }
 
@@ -1044,7 +1056,7 @@ export class OpenAIProvider extends BaseLLMProvider {
 
       const choice = choices[0];
       const reasoningMetadata = OpenAIProvider.extractReasoningMetadata(choice?.message);
-      OpenAIProvider.emitChatCompletionsReasoning(options, reasoningMetadata);
+      this.emitChatCompletionsReasoning(options, reasoningMetadata);
       const reasoning = OpenAIProvider.extractReasoning(choice?.message);
       if (reasoning && options.onThinking) {
         options.onThinking(reasoning);
@@ -1200,7 +1212,7 @@ export class OpenAIProvider extends BaseLLMProvider {
       toolCalls.push(toolCallsMap.get(key)!);
     }
 
-    OpenAIProvider.emitChatCompletionsReasoning(options, reasoningMetadata);
+    this.emitChatCompletionsReasoning(options, reasoningMetadata);
 
     return {
       content: content || null,

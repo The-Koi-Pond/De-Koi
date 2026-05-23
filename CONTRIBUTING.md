@@ -140,7 +140,7 @@ All server-side logging goes through a shared [Pino](https://getpino.io/) logger
 
 1. **Open an issue first.** Before writing code, open an issue or check [the tracker](https://github.com/Pasta-Devs/Marinara-Engine/issues) so we can agree on direction, scope, and whether someone else is already on it.
 
-2. **Test it yourself.** A green `pnpm check` is the minimum. Also build the app and container, click through your change, and try the obvious edge cases (light/dark mode, mobile, empty states, error paths). If you touched UI, include before/after screenshots. CodeRabbit won't catch "the button is invisible in light mode" — only you can.
+2. **Test it yourself.** A green `pnpm check` is the minimum. Also build the app and container, click through your change, and try the obvious edge cases (light/dark mode, mobile, empty states, error paths). If you touched UI, include before/after screenshots. Upload or attach temporary PR proof screenshots to GitHub or a gist; do not commit them under `docs/pr-evidence/`. Keep committed images for intentional docs/reference assets such as README screenshots. CodeRabbit won't catch "the button is invisible in light mode" — only you can.
 
 3. **Don't trust AI-checked boxes.** If an AI agent ticked the test-plan checkboxes, treat them as your to-do list, not proof of testing. Verify each item in a real browser before submitting; untick anything you haven't personally confirmed.
 

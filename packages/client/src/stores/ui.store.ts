@@ -650,9 +650,9 @@ function restoreMobileDetailReturnPanel(panel: Panel | null) {
 
 /**
  * Returns the subset of UI state that is synced to the server so it persists
- * across devices and browsers. Excludes legacy migration flags, auto-computed
- * fields (userStatus), and items tracked via their own server resources
- * (custom themes, extensions).
+ * across devices and browsers. Excludes device-local sizing preferences,
+ * legacy migration flags, auto-computed fields (userStatus), and items tracked
+ * via their own server resources (custom themes, extensions).
  */
 export function pickSyncedSettings(state: UIState) {
   return {
@@ -672,9 +672,7 @@ export function pickSyncedSettings(state: UIState) {
     theme: state.theme,
     chatBackground: state.chatBackground,
     chatBackgroundBlur: state.chatBackgroundBlur,
-    fontSize: state.fontSize,
     language: state.language,
-    chatFontSize: state.chatFontSize,
     fontFamily: state.fontFamily,
     enableStreaming: state.enableStreaming,
     streamingSpeed: state.streamingSpeed,

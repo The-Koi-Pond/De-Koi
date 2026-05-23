@@ -43,11 +43,13 @@ import {
   MessageCircle,
   Star,
   Wand2,
+  Hash,
   Minus,
 } from "lucide-react";
 import { getCharacterTitle } from "../../lib/character-display";
 import { useUIStore } from "../../stores/ui.store";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
+import { estimateCharacterCardTokens, formatEstimatedTokens } from "../../lib/character-token-count";
 import { ExportFormatDialog, type ExportFormatChoice } from "../ui/ExportFormatDialog";
 
 type CharacterRow = {
@@ -60,8 +62,10 @@ type CharacterRow = {
 };
 type GroupRow = { id: string; name: string; description: string; characterIds: string; avatarPath: string | null };
 type ParsedCharacterRow = CharacterRow & { parsed: Record<string, any> };
+type ParsedGroupRow = GroupRow & { memberIds: string[]; isSynthetic?: boolean };
 
 type SortOption = "name-asc" | "name-desc" | "newest" | "oldest" | "favorites";
+const UNGROUPED_CHARACTER_GROUP_ID = "__ungrouped-characters__";
 
 function getCharacterTags(char: ParsedCharacterRow): string[] {
   return Array.isArray(char.parsed.tags) ? (char.parsed.tags as string[]).filter(Boolean) : [];
@@ -385,19 +389,41 @@ export function CharactersPanel() {
     }
   }, [filteredCharacters, sort, includedTags]);
 
-  const parsedGroups = useMemo(() => {
+  const parsedGroups = useMemo<ParsedGroupRow[]>(() => {
     if (!groups) return [];
-    return (groups as GroupRow[]).map((g) => ({
-      ...g,
-      memberIds: (() => {
+    const assignedIds = new Set<string>();
+    const realGroups = (groups as GroupRow[]).map((g) => {
+      const memberIds = (() => {
         try {
           return JSON.parse(g.characterIds);
         } catch {
           return [];
         }
-      })() as string[],
-    }));
-  }, [groups]);
+      })() as string[];
+      for (const id of memberIds) assignedIds.add(id);
+      return {
+        ...g,
+        memberIds,
+      };
+    });
+    const ungroupedMemberIds = parsedCharacters
+      .filter((char) => !assignedIds.has(char.id))
+      .sort((a, b) => (a.parsed.name ?? "").localeCompare(b.parsed.name ?? ""))
+      .map((char) => char.id);
+    if (ungroupedMemberIds.length === 0) return realGroups;
+    return [
+      ...realGroups,
+      {
+        id: UNGROUPED_CHARACTER_GROUP_ID,
+        name: "Ungrouped",
+        description: "Characters not assigned to any group",
+        characterIds: JSON.stringify(ungroupedMemberIds),
+        avatarPath: null,
+        memberIds: ungroupedMemberIds,
+        isSynthetic: true,
+      },
+    ];
+  }, [groups, parsedCharacters]);
 
   const toggleCharacter = (charId: string) => {
     if (!activeChat) return;
@@ -899,6 +925,7 @@ export function CharactersPanel() {
               const isExpanded = expandedGroupId === group.id;
               const isEditing = editingGroupId === group.id;
               const isAssigning = assigningToGroup === group.id;
+              const isSynthetic = group.isSynthetic === true;
 
               return (
                 <div
@@ -935,57 +962,63 @@ export function CharactersPanel() {
                         </>
                       )}
                     </div>
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
-                      {activeChat && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            addGroupToChat(group.memberIds);
-                          }}
-                          className="rounded-lg p-1 transition-all hover:bg-[var(--accent)]"
-                          title="Add all to chat"
-                        >
-                          <UserPlus size="0.6875rem" className="text-[var(--primary)]" />
-                        </button>
-                      )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!isAssigning) {
-                            exitSelectionMode();
-                          }
-                          setAssigningToGroup(isAssigning ? null : group.id);
-                        }}
-                        className={cn(
-                          "rounded-lg p-1 transition-all hover:bg-[var(--accent)]",
-                          isAssigning && "bg-[var(--primary)]/15 text-[var(--primary)]",
+                    {(activeChat || !isSynthetic) && (
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
+                        {activeChat && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              addGroupToChat(group.memberIds);
+                            }}
+                            className="rounded-lg p-1 transition-all hover:bg-[var(--accent)]"
+                            title="Add all to chat"
+                          >
+                            <UserPlus size="0.6875rem" className="text-[var(--primary)]" />
+                          </button>
                         )}
-                        title={isAssigning ? "Done assigning" : "Add/remove members"}
-                      >
-                        <Users size="0.6875rem" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingGroupId(group.id);
-                          setEditGroupName(group.name);
-                        }}
-                        className="rounded-lg p-1 transition-all hover:bg-[var(--accent)]"
-                        title="Rename group"
-                      >
-                        <Pencil size="0.6875rem" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteGroup.mutate(group.id);
-                        }}
-                        className="rounded-lg p-1 transition-all hover:bg-[var(--destructive)]/15"
-                        title="Delete group"
-                      >
-                        <Trash2 size="0.6875rem" className="text-[var(--destructive)]" />
-                      </button>
-                    </div>
+                        {!isSynthetic && (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!isAssigning) {
+                                  exitSelectionMode();
+                                }
+                                setAssigningToGroup(isAssigning ? null : group.id);
+                              }}
+                              className={cn(
+                                "rounded-lg p-1 transition-all hover:bg-[var(--accent)]",
+                                isAssigning && "bg-[var(--primary)]/15 text-[var(--primary)]",
+                              )}
+                              title={isAssigning ? "Done assigning" : "Add/remove members"}
+                            >
+                              <Users size="0.6875rem" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingGroupId(group.id);
+                                setEditGroupName(group.name);
+                              }}
+                              className="rounded-lg p-1 transition-all hover:bg-[var(--accent)]"
+                              title="Rename group"
+                            >
+                              <Pencil size="0.6875rem" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteGroup.mutate(group.id);
+                              }}
+                              className="rounded-lg p-1 transition-all hover:bg-[var(--destructive)]/15"
+                              title="Delete group"
+                            >
+                              <Trash2 size="0.6875rem" className="text-[var(--destructive)]" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Expanded: show members */}
@@ -1057,16 +1090,18 @@ export function CharactersPanel() {
                             >
                               <MessageCircle size="0.6875rem" />
                             </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleGroupMember(group.id, memberId, group.memberIds);
-                              }}
-                              className="rounded p-0.5 opacity-0 transition-all hover:bg-[var(--destructive)]/15 group-hover/member:opacity-100"
-                              title="Remove from group"
-                            >
-                              <UserMinus size="0.6875rem" className="text-[var(--destructive)]" />
-                            </button>
+                            {!isSynthetic && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleGroupMember(group.id, memberId, group.memberIds);
+                                }}
+                                className="rounded p-0.5 opacity-0 transition-all hover:bg-[var(--destructive)]/15 group-hover/member:opacity-100"
+                                title="Remove from group"
+                              >
+                                <UserMinus size="0.6875rem" className="text-[var(--destructive)]" />
+                              </button>
+                            )}
                           </div>
                         );
                       })}
@@ -1139,6 +1174,7 @@ export function CharactersPanel() {
           const targetGroup = assigningToGroup ? parsedGroups.find((g) => g.id === assigningToGroup) : null;
           const isInTargetGroup = targetGroup?.memberIds.includes(char.id) ?? false;
           const previewMetadata = getCharacterPreviewMetadata(char);
+          const tokenEstimate = estimateCharacterCardTokens(char.parsed);
 
           return (
             <div
@@ -1249,6 +1285,15 @@ export function CharactersPanel() {
                         ? "In group — click to remove"
                         : "Click to add to group"
                       : previewMetadata}
+                  </div>
+                )}
+                {!assigningToGroup && (
+                  <div
+                    className="flex items-center gap-1 text-[0.625rem] text-[var(--muted-foreground)]"
+                    title="Estimated from character card text fields; actual tokenizer counts vary by model."
+                  >
+                    <Hash size="0.5625rem" />
+                    {formatEstimatedTokens(tokenEstimate)}
                   </div>
                 )}
                 {!assigningToGroup && charTags.length > 0 && (

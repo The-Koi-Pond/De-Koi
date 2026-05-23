@@ -451,18 +451,49 @@ function parseUpdateLorebookBlock(raw: string): UpdateLorebookCommand | null {
       .map((entry): UpdateLorebookEntryCommand | null => {
         if (!entry || typeof entry !== "object") return null;
         const data = entry as Record<string, unknown>;
-        const entryName = typeof data.name === "string" ? data.name.trim() : "";
+        const nestedEntry = data.entry && typeof data.entry === "object" ? (data.entry as Record<string, unknown>) : {};
+        const entryName =
+          typeof data.name === "string"
+            ? data.name.trim()
+            : typeof nestedEntry.name === "string"
+              ? nestedEntry.name.trim()
+              : "";
         if (!entryName) return null;
         return {
           name: entryName,
           matchName: typeof data.matchName === "string" ? data.matchName.trim() : undefined,
-          content: typeof data.content === "string" ? data.content : undefined,
-          description: typeof data.description === "string" ? data.description : undefined,
-          keys: parseUnknownStringList(data.keys),
-          secondaryKeys: parseUnknownStringList(data.secondaryKeys),
-          tag: typeof data.tag === "string" ? data.tag : undefined,
-          constant: typeof data.constant === "boolean" ? data.constant : undefined,
-          selective: typeof data.selective === "boolean" ? data.selective : undefined,
+          content:
+            typeof data.content === "string"
+              ? data.content
+              : typeof nestedEntry.content === "string"
+                ? nestedEntry.content
+                : undefined,
+          description:
+            typeof data.description === "string"
+              ? data.description
+              : typeof nestedEntry.description === "string"
+                ? nestedEntry.description
+                : undefined,
+          keys: parseUnknownStringList(data.keys ?? nestedEntry.keys),
+          secondaryKeys: parseUnknownStringList(data.secondaryKeys ?? nestedEntry.secondaryKeys),
+          tag:
+            typeof data.tag === "string"
+              ? data.tag
+              : typeof nestedEntry.tag === "string"
+                ? nestedEntry.tag
+                : undefined,
+          constant:
+            typeof data.constant === "boolean"
+              ? data.constant
+              : typeof nestedEntry.constant === "boolean"
+                ? nestedEntry.constant
+                : undefined,
+          selective:
+            typeof data.selective === "boolean"
+              ? data.selective
+              : typeof nestedEntry.selective === "boolean"
+                ? nestedEntry.selective
+                : undefined,
         } satisfies UpdateLorebookEntryCommand;
       })
       .filter((entry): entry is UpdateLorebookEntryCommand => entry !== null);

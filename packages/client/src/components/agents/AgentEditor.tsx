@@ -69,8 +69,10 @@ import {
   DEFAULT_AGENT_CONTEXT_SIZE,
   DEFAULT_AGENT_TOOLS,
   DEFAULT_AGENT_MAX_TOKENS,
+  DEFAULT_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH,
   LOCAL_SIDECAR_CONNECTION_ID,
   MAX_AGENT_MAX_TOKENS,
+  MAX_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH,
   MIN_AGENT_MAX_TOKENS,
   getDefaultBuiltInAgentSettings,
   getDefaultAgentPrompt,
@@ -78,6 +80,20 @@ import {
   type AgentResultType,
   type ToolDefinition,
 } from "@marinara-engine/shared";
+
+function parseActivationKeywordsText(value: string): string[] {
+  const seen = new Set<string>();
+  const keywords: string[] = [];
+  for (const line of value.split(/\r?\n|,/)) {
+    const keyword = line.trim();
+    if (!keyword) continue;
+    const dedupeKey = keyword.toLocaleLowerCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    keywords.push(keyword);
+  }
+  return keywords;
+}
 
 function createCustomAgentType(name: string): string {
   const slug =
@@ -206,6 +222,10 @@ export function AgentEditor() {
   const [localContextSize, setLocalContextSize] = useState<number | "">("");
   const [localMaxTokens, setLocalMaxTokens] = useState<number | "">("");
   const [localRunInterval, setLocalRunInterval] = useState<number | "">("");
+  const [localActivationKeywordsText, setLocalActivationKeywordsText] = useState("");
+  const [localActivationScanDepth, setLocalActivationScanDepth] = useState<number | "">(
+    DEFAULT_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH,
+  );
   const [customCadenceInputFocused, setCustomCadenceInputFocused] = useState(false);
   const [localPrompt, setLocalPrompt] = useState("");
   const [localAgentEnabled, setLocalAgentEnabled] = useState(true);
@@ -267,6 +287,14 @@ export function AgentEditor() {
       setLocalRunInterval(
         (settings.runInterval as number | undefined) ?? (defaultSettings.runInterval as number) ?? "",
       );
+      setLocalActivationKeywordsText(
+        Array.isArray(settings.activationKeywords)
+          ? settings.activationKeywords.filter((keyword: unknown) => typeof keyword === "string").join("\n")
+          : "",
+      );
+      setLocalActivationScanDepth(
+        (settings.activationScanDepth as number | undefined) ?? DEFAULT_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH,
+      );
       setLocalInjectAsSection(
         (settings.injectAsSection as boolean | undefined) ?? defaultSettings.injectAsSection === true,
       );
@@ -296,6 +324,8 @@ export function AgentEditor() {
       setLocalContextSize("");
       setLocalMaxTokens((defaultSettings.maxTokens as number) ?? "");
       setLocalRunInterval((defaultSettings.runInterval as number) ?? "");
+      setLocalActivationKeywordsText("");
+      setLocalActivationScanDepth(DEFAULT_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH);
       setLocalInjectAsSection(defaultSettings.injectAsSection === true);
       setLocalEnabledTools(DEFAULT_AGENT_TOOLS[builtIn.id] ?? []);
       setLocalSpotifyClientId("");
@@ -322,6 +352,8 @@ export function AgentEditor() {
       setLocalContextSize("");
       setLocalMaxTokens(DEFAULT_AGENT_MAX_TOKENS);
       setLocalRunInterval(customRunIntervalMeta?.defaultValue ?? "");
+      setLocalActivationKeywordsText("");
+      setLocalActivationScanDepth(DEFAULT_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH);
       setLocalInjectAsSection(false);
       setLocalEnabledTools([]);
       setLocalSpotifyClientId("");
@@ -465,6 +497,14 @@ export function AgentEditor() {
     const isEditingCustomAgent = isCustomAgent || isNewCustomAgent;
     const savedPhase = isEditingCustomAgent && localResultType === "text_rewrite" ? "post_processing" : localPhase;
     const mayIncludeTurnData = isEditingCustomAgent && savedPhase === "post_processing";
+    const activationKeywords = isEditingCustomAgent ? parseActivationKeywordsText(localActivationKeywordsText) : [];
+    const activationScanDepth =
+      localActivationScanDepth === ""
+        ? DEFAULT_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH
+        : Math.max(
+            1,
+            Math.min(MAX_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH, Math.floor(Number(localActivationScanDepth) || 1)),
+          );
 
     // Preserve OAuth fields the form doesn't expose. The server replaces
     // `settings` wholesale, so anything we omit here would be wiped — and the
@@ -489,6 +529,12 @@ export function AgentEditor() {
       settings: {
         ...preservedSpotifyFields,
         ...(isEditingCustomAgent ? { resultType: localResultType } : {}),
+        ...(activationKeywords.length > 0
+          ? {
+              activationKeywords,
+              activationScanDepth,
+            }
+          : {}),
         ...(mayIncludeTurnData && localIncludePreGenInjections ? { includePreGenInjections: true } : {}),
         ...(mayIncludeTurnData && localIncludeParallelResults ? { includeParallelResults: true } : {}),
         ...(localContextSize !== "" ? { contextSize: Number(localContextSize) } : {}),
@@ -552,6 +598,8 @@ export function AgentEditor() {
     localContextSize,
     localMaxTokens,
     localRunInterval,
+    localActivationKeywordsText,
+    localActivationScanDepth,
     localInjectAsSection,
     localEnabledTools,
     localSpotifyClientId,
@@ -1282,6 +1330,63 @@ export function AgentEditor() {
                 </div>
                 <span className="text-[0.6875rem] text-[var(--muted-foreground)]">{customRunIntervalMeta.unit}</span>
               </div>
+            </FieldGroup>
+          )}
+
+          {(isCustomAgent || isNewCustomAgent) && (
+            <FieldGroup
+              label="Activation Keywords"
+              icon={<Activity size="0.875rem" className="text-[var(--primary)]" />}
+              help="When keywords are set, this custom agent is skipped unless at least one keyword appears in the recent chat messages it scans."
+            >
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                <div>
+                  <label className="mb-1 block text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
+                    Keywords
+                  </label>
+                  <textarea
+                    value={localActivationKeywordsText}
+                    onChange={(e) => {
+                      setLocalActivationKeywordsText(e.target.value);
+                      markDirty();
+                    }}
+                    placeholder={"tavern\nsecret door\nmoonlit ritual"}
+                    rows={4}
+                    className="w-full resize-y rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
+                    Scan Depth
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min={1}
+                      max={MAX_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH}
+                      value={localActivationScanDepth}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setLocalActivationScanDepth(
+                          v === ""
+                            ? ""
+                            : Math.max(
+                                1,
+                                Math.min(MAX_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH, parseInt(v, 10) || 1),
+                              ),
+                        );
+                        markDirty();
+                      }}
+                      placeholder={String(DEFAULT_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH)}
+                      className="w-28 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm tabular-nums ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                    />
+                    <span className="text-[0.6875rem] text-[var(--muted-foreground)]">messages</span>
+                  </div>
+                </div>
+              </div>
+              <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
+                Leave keywords empty to run this custom agent on its normal cadence.
+              </p>
             </FieldGroup>
           )}
 
