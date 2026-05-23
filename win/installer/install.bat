@@ -28,22 +28,41 @@ echo  [OK] Installer started successfully
 echo.
 
 :: -- Choose install location --
-set "INSTALL_DIR=%USERPROFILE%\Marinara-Engine"
+set "DEFAULT_INSTALL_DIR=%LOCALAPPDATA%\Marinara-Engine"
+set "LEGACY_LOCALAPPDATA_INSTALL_DIR=%LOCALAPPDATA%\MarinaraEngine"
+set "LEGACY_PROFILE_INSTALL_DIR=%USERPROFILE%\Marinara-Engine"
+set "INSTALL_DIR=%DEFAULT_INSTALL_DIR%"
+call :has_marinara_user_data "%DEFAULT_INSTALL_DIR%"
+if errorlevel 1 (
+    call :has_marinara_user_data "%LEGACY_LOCALAPPDATA_INSTALL_DIR%"
+    if not errorlevel 1 (
+        set "INSTALL_DIR=%LEGACY_LOCALAPPDATA_INSTALL_DIR%"
+    ) else (
+        call :has_marinara_user_data "%LEGACY_PROFILE_INSTALL_DIR%"
+        if not errorlevel 1 set "INSTALL_DIR=%LEGACY_PROFILE_INSTALL_DIR%"
+    )
+)
 set "USER_INPUT="
 set /p "USER_INPUT=  Install location [%INSTALL_DIR%]: "
 if not "%USER_INPUT%"=="" set "INSTALL_DIR=%USER_INPUT%"
-if exist "%INSTALL_DIR%\data\" goto :warn_same_install_dir
-if exist "%INSTALL_DIR%\.git\" goto :warn_same_install_dir
-if exist "%INSTALL_DIR%\start.bat" goto :warn_same_install_dir
+call :is_existing_marinara_install "%INSTALL_DIR%"
+if not errorlevel 1 goto :warn_same_install_dir
 goto :after_same_install_dir_warning
 
 :warn_same_install_dir
 echo.
-echo  [WARN] yo this'll delete your user data
-echo         You are reinstalling Marinara Engine into:
+echo  [WARN] You are reinstalling Marinara Engine into:
 echo         %INSTALL_DIR%
 echo.
-echo         Back up %INSTALL_DIR%\data first if you want to keep it.
+echo         Before continuing, copy the Marinara data folder(s) below to
+echo         a backup location outside this install folder if you want to
+echo         keep chats, characters, images, and settings:
+if exist "%INSTALL_DIR%\packages\server\data\" echo           %INSTALL_DIR%\packages\server\data
+if exist "%INSTALL_DIR%\data\" echo           %INSTALL_DIR%\data
+if not exist "%INSTALL_DIR%\packages\server\data\" if not exist "%INSTALL_DIR%\data\" echo           %INSTALL_DIR%\packages\server\data ^(if you have existing data^)
+echo.
+echo         If a data folder contains marinara-engine.db, copy it together
+echo         with marinara-engine.db-wal and marinara-engine.db-shm if present.
 echo.
 choice /C YN /N /M "  Continue anyway? [Y/N]: "
 if errorlevel 2 (
@@ -356,6 +375,19 @@ if /I "%PNPM_RUNNER%"=="corepack" (
     call pnpm %*
 )
 exit /b %errorlevel%
+
+:has_marinara_user_data
+set "CHECK_DIR=%~1"
+if exist "%CHECK_DIR%\packages\server\data\" exit /b 0
+if exist "%CHECK_DIR%\data\" exit /b 0
+exit /b 1
+
+:is_existing_marinara_install
+set "CHECK_DIR=%~1"
+call :has_marinara_user_data "%CHECK_DIR%"
+if not errorlevel 1 exit /b 0
+if exist "%CHECK_DIR%\package.json" if exist "%CHECK_DIR%\packages\server\package.json" if exist "%CHECK_DIR%\start.bat" exit /b 0
+exit /b 1
 
 :verify_file_hash
 set "HASH_PATH=%~1"

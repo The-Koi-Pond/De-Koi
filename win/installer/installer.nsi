@@ -17,7 +17,7 @@
 !define APP_PUBLISHER "Pasta-Devs"
 !define APP_URL "https://github.com/Pasta-Devs/Marinara-Engine"
 !define REPO_URL "https://github.com/Pasta-Devs/Marinara-Engine.git"
-!define DEFAULT_DIR "$LOCALAPPDATA\MarinaraEngine"
+!define DEFAULT_DIR "$LOCALAPPDATA\Marinara-Engine"
 !define PNPM_VERSION "10.33.2"
 
 ; ── Prerequisite download URLs ──
@@ -46,7 +46,7 @@ ShowInstDetails show
 !define MUI_UNICON "app-icon.ico"
 !define MUI_ABORTWARNING
 !define MUI_ABORTWARNING_TEXT "Are you sure you want to cancel ${APP_NAME} installation?"
-BrandingText "${APP_NAME} v${APP_VERSION} — AI Chat & Roleplay Engine"
+BrandingText "${APP_NAME} v${APP_VERSION} - AI Chat & Roleplay Engine"
 
 ; ── Header image (150x57 banner shown on every page) ──
 ; Uncomment if you create installer/header.bmp:
@@ -69,8 +69,9 @@ Click Next to continue."
 
 ; ── Directory page ──
 !define MUI_DIRECTORYPAGE_TEXT_TOP "\
-Choose where to install ${APP_NAME}. About 500 MB of free space is recommended.$\r$\n$\r$\n\
-Your chats, characters, and data will be stored inside this folder."
+Choose where to install ${APP_NAME}. About 2.5 GB of free space is recommended.$\r$\n$\r$\n\
+Upgrading? Choose the Marinara Engine folder that already has your data. Before reinstalling, back up packages\server\data, or the root data folder for older installs.$\r$\n$\r$\n\
+The installer will download app files and install dependencies."
 
 ; ── Finish page ──
 !define MUI_FINISHPAGE_TITLE "Installation Complete!"
@@ -113,30 +114,79 @@ Var CLONE_DIR_CREATED
 Var STAGE_DIR
 Var STAGE_DIR_CREATED
 Var STAGE_PARENT
+Var USER_DATA_PATHS
 
 Function LaunchApp
   ExecShell "" "$INSTDIR\start.bat"
 FunctionEnd
 
+Function .onInit
+  ; Keep upgrades pointed at data-bearing installs from older defaults and
+  ; entrypoints instead of making them look like fresh installs.
+  StrCpy $0 "0"
+  ${If} ${FileExists} "$INSTDIR\packages\server\data\*.*"
+    StrCpy $0 "1"
+  ${EndIf}
+  ${If} ${FileExists} "$INSTDIR\data\*.*"
+    StrCpy $0 "1"
+  ${EndIf}
+
+  ${If} $0 == "0"
+    ${If} ${FileExists} "$LOCALAPPDATA\Marinara-Engine\packages\server\data\*.*"
+      StrCpy $INSTDIR "$LOCALAPPDATA\Marinara-Engine"
+      Return
+    ${EndIf}
+    ${If} ${FileExists} "$LOCALAPPDATA\Marinara-Engine\data\*.*"
+      StrCpy $INSTDIR "$LOCALAPPDATA\Marinara-Engine"
+      Return
+    ${EndIf}
+    ${If} ${FileExists} "$LOCALAPPDATA\MarinaraEngine\packages\server\data\*.*"
+      StrCpy $INSTDIR "$LOCALAPPDATA\MarinaraEngine"
+      Return
+    ${EndIf}
+    ${If} ${FileExists} "$LOCALAPPDATA\MarinaraEngine\data\*.*"
+      StrCpy $INSTDIR "$LOCALAPPDATA\MarinaraEngine"
+      Return
+    ${EndIf}
+    ${If} ${FileExists} "$PROFILE\Marinara-Engine\packages\server\data\*.*"
+      StrCpy $INSTDIR "$PROFILE\Marinara-Engine"
+      Return
+    ${EndIf}
+    ${If} ${FileExists} "$PROFILE\Marinara-Engine\data\*.*"
+      StrCpy $INSTDIR "$PROFILE\Marinara-Engine"
+    ${EndIf}
+  ${EndIf}
+FunctionEnd
+
 Function WarnSameDirectoryReinstall
   StrCpy $1 "0"
+  StrCpy $USER_DATA_PATHS ""
   ReadRegStr $0 HKCU "Software\${APP_NAME}" "InstallDir"
   ${If} $0 != ""
   ${AndIf} $INSTDIR == $0
     StrCpy $1 "1"
   ${EndIf}
+  ${If} ${FileExists} "$INSTDIR\packages\server\data\*.*"
+    StrCpy $1 "1"
+    StrCpy $USER_DATA_PATHS "$USER_DATA_PATHS$\r$\n$INSTDIR\packages\server\data"
+  ${EndIf}
   ${If} ${FileExists} "$INSTDIR\data\*.*"
     StrCpy $1 "1"
+    StrCpy $USER_DATA_PATHS "$USER_DATA_PATHS$\r$\n$INSTDIR\data"
   ${EndIf}
   ${If} $1 != "1"
     Return
   ${EndIf}
+  ${If} $USER_DATA_PATHS == ""
+    StrCpy $USER_DATA_PATHS "$\r$\n$INSTDIR\packages\server\data (if you have existing data)$\r$\n$INSTDIR\data (older installs, if present)"
+  ${EndIf}
 
   MessageBox MB_YESNO|MB_ICONEXCLAMATION "\
-yo this'll delete your user data$\r$\n$\r$\n\
 You are reinstalling ${APP_NAME} into the same folder:$\r$\n\
 $INSTDIR$\r$\n$\r$\n\
-Back up $INSTDIR\data first if you want to keep it.$\r$\n$\r$\n\
+Before continuing, copy the Marinara data folder(s) below to a backup location outside this install folder if you want to keep chats, characters, images, and settings:$\r$\n\
+$USER_DATA_PATHS$\r$\n$\r$\n\
+If a data folder contains marinara-engine.db, copy it together with marinara-engine.db-wal and marinara-engine.db-shm if present.$\r$\n$\r$\n\
 Continue anyway?" IDYES continueReinstallWarning
   Abort
 
@@ -163,6 +213,11 @@ FunctionEnd
 ; Install Section
 ; ──────────────────────────────────────────────
 Section "Install" SecInstall
+  ; NSIS cannot infer the repository clone and pnpm dependency footprint from
+  ; the tiny embedded installer payload. A local fresh build measured about
+  ; 2.16 GiB, so reserve a 2.5 GiB installer footprint with headroom.
+  AddSize 2621440
+
   SetOutPath "$INSTDIR"
   SetDetailsPrint both
 
@@ -616,7 +671,7 @@ ${APP_URL}"
   DetailPrint ""
   DetailPrint "═══ Step 3/6: Installing dependencies ═══"
   DetailPrint ""
-  DetailPrint "Running pnpm install (this may take 2-5 minutes)..."
+  DetailPrint "Running pnpm install (this may take 2-5 minutes and creates dependency folders)..."
   ${If} $PNPM_RUNNER == "corepack"
     nsExec::ExecToLog 'cmd /c corepack pnpm@${PNPM_VERSION} install'
     Pop $0
