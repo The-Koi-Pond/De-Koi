@@ -279,7 +279,16 @@ pub(crate) async fn professor_mari_prompt(state: &AppState, body: Value) -> AppR
     Ok(json!({
         "content": response.to_string(),
         "createdAt": chrono::Utc::now().to_rfc3339(),
+        "action": read_only_mari_action_contract(),
     }))
+}
+
+fn read_only_mari_action_contract() -> Value {
+    json!({
+        "type": "none",
+        "capability": "read_only",
+        "reason": "Professor Mari v1 can inspect the creative library but cannot create or edit records.",
+    })
 }
 
 fn autoagents_message_to_marinara(message: &ChatMessage) -> marinara_llm::LlmMessage {
