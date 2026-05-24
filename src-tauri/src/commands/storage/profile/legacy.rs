@@ -9,6 +9,7 @@ use super::{finish_profile_import_assets, insert_profile_import_aliases};
 use crate::state::AppState;
 use marinara_core::AppResult;
 use serde_json::{json, Map, Value};
+use std::path::Path;
 
 const LEGACY_PROFILE_TABLES: &[(&str, &str)] = &[
     ("characters", "characters"),
@@ -65,10 +66,14 @@ pub(super) fn import_legacy_profile_tables(
     let files = data.get("fileStorage").and_then(|value| value.get("files"));
     let mut restored_assets = restore_legacy_profile_json_assets(state, files)?;
     let restored_count = restored_assets.restored();
-    let result =
-        import_legacy_profile_tables_with_restored_assets(state, tables, restored_count, || {
-            restored_assets.install()
-        });
+    let staging_root = restored_assets.staging_root().map(Path::to_path_buf);
+    let result = import_legacy_profile_tables_with_restored_assets(
+        state,
+        tables,
+        restored_count,
+        staging_root.as_deref(),
+        || restored_assets.install(),
+    );
     finish_profile_import_assets(restored_assets, result)
 }
 
@@ -76,6 +81,7 @@ pub(super) fn import_legacy_profile_tables_with_restored_assets<F>(
     state: &AppState,
     tables: &Map<String, Value>,
     restored_assets: usize,
+    staging_root: Option<&Path>,
     install_assets: F,
 ) -> AppResult<Value>
 where
@@ -94,7 +100,7 @@ where
             _ => {}
         }
         for row in &mut rows {
-            normalize_legacy_profile_asset_paths(state, row);
+            normalize_legacy_profile_asset_paths(state, staging_root, row);
         }
         imported.insert((*collection).to_string(), json!(rows.len()));
         replacements.push((*collection, rows));

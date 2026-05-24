@@ -53,10 +53,12 @@ pub(super) fn import_profile_zip(state: &AppState, path: &Path) -> AppResult<Val
         let mut restored_assets =
             restore_profile_zip_assets(state, &mut archive, &names, &profile_prefix, files)?;
         let restored_count = restored_assets.restored();
+        let staging_root = restored_assets.staging_root().map(Path::to_path_buf);
         let result = import_legacy_profile_tables_with_restored_assets(
             state,
             tables,
             restored_count,
+            staging_root.as_deref(),
             || restored_assets.install(),
         );
         finish_profile_import_assets(restored_assets, result)
