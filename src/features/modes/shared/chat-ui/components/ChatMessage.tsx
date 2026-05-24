@@ -45,7 +45,11 @@ import { useTranslate } from "../../../../../shared/hooks/use-translate";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { ttsService } from "../../../../../shared/lib/tts-service";
 import { useTTSConfig } from "../../../../../shared/hooks/use-tts";
-import { buildTTSMessageText, resolveTTSVoiceForSpeaker } from "../../../../../shared/lib/tts-dialogue";
+import {
+  buildTTSMessageText,
+  clientSidePlaybackRate,
+  resolveTTSVoiceForSpeaker,
+} from "../../../../../shared/lib/tts-dialogue";
 import { DIALOGUE_QUOTE_PATTERN_SOURCE, HTML_SAFE_DIALOGUE_QUOTE_PATTERN_SOURCE } from "../../../../../shared/lib/dialogue-quotes";
 import DOMPurify from "dompurify";
 import type { CharacterMap, MessageSelectionToggle, PersonaInfo } from "../types";
@@ -767,9 +771,13 @@ export const ChatMessage = memo(function ChatMessage({
       ttsService.stop();
     } else {
       if (!ttsSpeakText) return;
-      void ttsService.speak(ttsSpeakText, message.id, { speaker: ttsSpeakerName, voice: ttsVoice });
+      void ttsService.speak(ttsSpeakText, message.id, {
+        speaker: ttsSpeakerName,
+        voice: ttsVoice,
+        playbackRate: clientSidePlaybackRate(ttsConfig),
+      });
     }
-  }, [message.id, ttsSpeakText, ttsSpeakerName, ttsVoice]);
+  }, [message.id, ttsSpeakText, ttsSpeakerName, ttsVoice, ttsConfig]);
 
   const handlePauseResumeTTS = useCallback(() => {
     if (ttsService.getActiveId() !== message.id) return;

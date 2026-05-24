@@ -13,6 +13,7 @@ export interface TTSSpeakOptions {
   voice?: string;
   signal?: AbortSignal;
   throwOnError?: boolean;
+  playbackRate?: number;
 }
 
 class TTSService {
@@ -108,6 +109,9 @@ class TTSService {
     this.currentObjectUrl = objectUrl;
 
     const audio = new Audio(objectUrl);
+    if (options.playbackRate && options.playbackRate > 0 && options.playbackRate !== 1) {
+      audio.playbackRate = options.playbackRate;
+    }
     this.audio = audio;
 
     audio.onended = () => {

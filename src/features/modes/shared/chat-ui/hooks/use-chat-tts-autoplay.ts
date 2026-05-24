@@ -1,6 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useTTSConfig } from "../../../../../shared/hooks/use-tts";
-import { buildTTSMessageText, resolveTTSVoiceForSpeaker } from "../../../../../shared/lib/tts-dialogue";
+import {
+  buildTTSMessageText,
+  clientSidePlaybackRate,
+  resolveTTSVoiceForSpeaker,
+} from "../../../../../shared/lib/tts-dialogue";
 import { ttsService } from "../../../../../shared/lib/tts-service";
 import type { CharacterMap, MessageWithSwipes } from "../types";
 
@@ -53,6 +57,10 @@ export function useChatTtsAutoplay({ mode, messages, characterMap, isStreaming }
     const voice = resolveTTSVoiceForSpeaker(config, fallbackSpeaker, lastMessage.characterId);
     if (config.source === "elevenlabs" && !voice) return;
 
-    void ttsService.speak(text, lastMessage.id, { speaker: fallbackSpeaker, voice });
+    void ttsService.speak(text, lastMessage.id, {
+      speaker: fallbackSpeaker,
+      voice,
+      playbackRate: clientSidePlaybackRate(config),
+    });
   }, [characterMap, isStreaming]);
 }

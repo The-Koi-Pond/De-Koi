@@ -1,6 +1,15 @@
 import type { TTSConfig } from "../../engine/contracts/types/tts";
 import { DIALOGUE_QUOTE_CAPTURE_GROUP_PATTERN_SOURCE, stripSurroundingDialogueQuotes } from "./dialogue-quotes";
 
+export function clientSidePlaybackRate(cfg: TTSConfig | null | undefined): number {
+  if (!cfg || cfg.source !== "openai") return 1;
+
+  const baseUrl = (cfg.baseUrl || "").toLowerCase();
+  if (baseUrl.includes("api.openai.com")) return 1;
+
+  return Number.isFinite(cfg.speed) && cfg.speed > 0 ? cfg.speed : 1;
+}
+
 export interface TTSUtterance {
   text: string;
   speaker?: string;

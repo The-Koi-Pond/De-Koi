@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { useTTSConfig, useUpdateTTSConfig, useTTSVoices } from "../../../../../shared/hooks/use-tts";
 import { useCharacters } from "../../../../catalog/characters/index";
 import { ttsService } from "../../../../../shared/lib/tts-service";
+import { clientSidePlaybackRate } from "../../../../../shared/lib/tts-dialogue";
 import { parseCharacterDisplayData } from "../../../../../shared/lib/character-display";
 import type { TTSConfig, TTSSource, TTSVoiceAssignment, TTSVoiceMode } from "../../../../../engine/contracts/types/tts";
 import { ELEVENLABS_TTS_LANGUAGE_OPTIONS, TTS_API_KEY_MASK } from "../../../../../engine/contracts/types/tts";
@@ -475,6 +476,7 @@ export function TTSConfigCard() {
         await ttsService.speak("Hello! This is a preview of the text to speech voice.", "tts-preview", {
           throwOnError: true,
           voice: previewVoice,
+          playbackRate: clientSidePlaybackRate(payload),
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "TTS preview failed.";
