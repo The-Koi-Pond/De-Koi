@@ -198,6 +198,7 @@ export function ChatSidebar({
   // Multi-select state
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
+  const [lastActiveChatIdsByGroup, setLastActiveChatIdsByGroup] = useState<Map<string, string>>(() => new Map());
 
   const toggleSelectChat = useCallback((chatId: string) => {
     setSelectedChatIds((prev) => {
@@ -241,6 +242,21 @@ export function ChatSidebar({
       setActiveTag(null);
     }
   }, [activeTag, allTags]);
+
+  // Detect if active chat belongs to a group (so its group row highlights)
+  const activeChat = useMemo(() => chats?.find((c) => c.id === activeChatId), [chats, activeChatId]);
+  const activeGroupId = activeChat?.groupId ?? null;
+
+  useEffect(() => {
+    if (!activeChat?.groupId) return;
+    const groupId = activeChat.groupId;
+    setLastActiveChatIdsByGroup((previous) => {
+      if (previous.get(groupId) === activeChat.id) return previous;
+      const next = new Map(previous);
+      next.set(groupId, activeChat.id);
+      return next;
+    });
+  }, [activeChat?.groupId, activeChat?.id]);
 
   const filtered = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -292,19 +308,28 @@ export function ChatSidebar({
 
     const seenGroups = new Set<string>();
     const result: { chat: (typeof sorted)[number]; branchCount: number }[] = [];
+    const activeFilteredChat = activeChat ? sorted.find((chat) => chat.id === activeChat.id) : undefined;
 
     for (const chat of sorted) {
       if (chat.groupId) {
         if (seenGroups.has(chat.groupId)) continue;
         seenGroups.add(chat.groupId);
-        result.push({ chat, branchCount: totalGroupSizes.get(chat.groupId) ?? 1 });
+        const rememberedChatId = lastActiveChatIdsByGroup.get(chat.groupId);
+        const rememberedChat = rememberedChatId ? sorted.find((item) => item.id === rememberedChatId) : undefined;
+        const representative =
+          activeFilteredChat?.groupId === chat.groupId
+            ? activeFilteredChat
+            : rememberedChat?.groupId === chat.groupId
+              ? rememberedChat
+              : chat;
+        result.push({ chat: representative, branchCount: totalGroupSizes.get(chat.groupId) ?? 1 });
       } else {
         result.push({ chat, branchCount: 1 });
       }
     }
 
     return result;
-  }, [chats, filtered, sort]);
+  }, [activeChat, chats, filtered, lastActiveChatIdsByGroup, sort]);
 
   // ── Folder grouping ──
   const modeFolders = useMemo(() => {
@@ -333,10 +358,6 @@ export function ChatSidebar({
   useEffect(() => {
     setLocalFolderOrder(modeFolders.map((f) => f.id));
   }, [modeFolders]);
-
-  // Detect if active chat belongs to a group (so its group row highlights)
-  const activeChat = chats?.find((c) => c.id === activeChatId);
-  const activeGroupId = activeChat?.groupId ?? null;
 
   useEffect(() => {
     const allChats = chats ?? [];
