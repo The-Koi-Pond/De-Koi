@@ -38,6 +38,7 @@ import { useGameAssetStore } from "../stores/game-asset.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 
 interface GameSetupWizardProps {
+  error?: string | null;
   onComplete: (
     config: GameSetupConfig,
     preferences: string,
@@ -267,7 +268,7 @@ function normalizeGameLanguage(language: string): string {
   return GAME_LANGUAGE_LOOKUP.get(trimmed.toLowerCase()) ?? trimmed;
 }
 
-export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }: GameSetupWizardProps) {
+export function GameSetupWizard({ error, onComplete, onCancel, isLoading, characters }: GameSetupWizardProps) {
   const [step, setStep] = useState(0);
   const [gameName, setGameName] = useState("");
   const [genres, setGenres] = useState<string[]>(["Fantasy"]);
@@ -1658,6 +1659,17 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
           Select a GM model on the &quot;You &amp; Model&quot; step before starting.
         </p>
       )}
+
+      {error ? (
+        <div
+          role="alert"
+          aria-live="polite"
+          className="rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/10 px-3 py-2 text-xs text-[var(--destructive)]"
+        >
+          <p className="font-medium">Game setup failed</p>
+          <p className="mt-1 whitespace-pre-wrap text-[var(--foreground)]/80">{error}</p>
+        </div>
+      ) : null}
 
       {/* Footer */}
       <div className="flex items-center justify-between border-t border-[var(--border)]/30 pt-4">

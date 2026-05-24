@@ -236,6 +236,11 @@ function isTimeoutError(error: unknown): error is TimeoutError {
   return error instanceof TimeoutError;
 }
 
+function getGameSetupFailureMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return message.trim() || "Game setup failed. Check the selected model connection and try again.";
+}
+
 function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: number, onTimeout?: () => void): Promise<T> {
   const controller = new AbortController();
   return new Promise<T>((resolve, reject) => {
@@ -1935,6 +1940,7 @@ export function GameSurface({
   const [viewedMapId, setViewedMapId] = useState<string | null>(null);
   const [startGameRequested, setStartGameRequested] = useState(false);
   const [startSessionRequested, setStartSessionRequested] = useState(false);
+  const [gameSetupFailure, setGameSetupFailure] = useState<string | null>(null);
   const [activeReadable, setActiveReadable] = useState<JournalReadable | null>(null);
   const readableQueueRef = useRef<JournalReadable[]>([]);
   const recentMusicHistoryRef = useRef<string[]>(normalizeRecentMusicHistory(chatMeta.gameRecentMusic));
@@ -4546,6 +4552,7 @@ export function GameSurface({
     gameSetupResetRef.current();
     startGameResetRef.current();
     startSessionResetRef.current();
+    setGameSetupFailure(null);
   }, [activeChatId]);
 
   const handleStartGameNow = useCallback(() => {
@@ -4581,6 +4588,14 @@ export function GameSurface({
     setJsonRepairRequest(request);
     return true;
   }, []);
+
+  const handleGameSetupFailure = useCallback(
+    (error: unknown) => {
+      if (handleJsonRepairError(error)) return;
+      setGameSetupFailure(getGameSetupFailureMessage(error));
+    },
+    [handleJsonRepairError],
+  );
 
   const handleGameDayChange = useCallback(
     async (day: number) => {
@@ -7250,7 +7265,9 @@ export function GameSurface({
     return (
       <>
         <GameSetupWizard
+          error={gameSetupFailure}
           onComplete={(config, preferences, conns, wizardGameName) => {
+            setGameSetupFailure(null);
             if (needsCreation) {
               // Create game structure first, then run setup
               createGame.mutate(
@@ -7270,19 +7287,21 @@ export function GameSurface({
                         preferences,
                         setupConfig: config,
                       },
-                      { onError: handleJsonRepairError },
+                      { onError: handleGameSetupFailure },
                     );
                   },
+                  onError: handleGameSetupFailure,
                 },
               );
             } else {
               gameSetup.mutate(
                 { chatId: activeChatId, connectionId: conns.gmConnectionId, preferences, setupConfig: config },
-                { onError: handleJsonRepairError },
+                { onError: handleGameSetupFailure },
               );
             }
           }}
           onCancel={() => {
+            setGameSetupFailure(null);
             if (needsCreation || sessionStatus === "setup") {
               // Delete the broken/empty game chat
               useChatStore.getState().setActiveChatId(null);
