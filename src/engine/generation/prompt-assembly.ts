@@ -924,7 +924,9 @@ async function loadActivatedLore(
     await Promise.all(
       lorebooks.map(async (book) => {
         const id = readString(book.id);
-        return id ? storage.list<JsonRecord>(`lorebooks/${encodeURIComponent(id)}/entries`) : [];
+        // The refactor storage API has no path-style routes; use the
+        // dedicated capability that filters lorebook-entries by lorebookId.
+        return id ? storage.listLorebookEntries<JsonRecord>(id) : [];
       }),
     )
   ).flat();
