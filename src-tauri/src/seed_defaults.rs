@@ -11,8 +11,8 @@ const PROFESSOR_MARI_ID: &str = "__professor_mari__";
 
 pub fn seed_bundled_defaults(storage: &FileStorage, default_data: &Path) -> AppResult<()> {
     let db_root = default_data.join("db");
-    remove_legacy_professor_mari(storage)?;
     seed_professor_mari_character(storage)?;
+    remove_legacy_professor_mari(storage)?;
     seed_marinara_preset(storage, &db_root)?;
     seed_default_chat_presets(storage)?;
     seed_default_regex_scripts(storage)?;
@@ -337,5 +337,35 @@ mod tests {
                 .and_then(Value::as_bool),
             Some(true)
         );
+    }
+
+    #[test]
+    fn preserves_canonical_professor_mari_while_removing_legacy_id() {
+        let (storage, root) = temp_storage();
+
+        seed_professor_mari_character(&storage).expect("canonical seed should succeed");
+        storage
+            .create(
+                "characters",
+                json!({
+                    "id": "professor-mari",
+                    "data": "{}",
+                    "comment": "",
+                    "avatarPath": Value::Null
+                }),
+            )
+            .expect("legacy row should be inserted");
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        assert!(storage
+            .get("characters", PROFESSOR_MARI_ID)
+            .expect("canonical lookup should succeed")
+            .is_some());
+        assert!(storage
+            .get("characters", "professor-mari")
+            .expect("legacy lookup should succeed")
+            .is_none());
     }
 }
