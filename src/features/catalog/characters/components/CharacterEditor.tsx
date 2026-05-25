@@ -20,6 +20,7 @@ import {
   useUploadCharacterGalleryImage,
   useDeleteCharacterGalleryImage,
   useUploadSprite,
+  useUploadSprites,
   useDeleteSprite,
   useCleanupSavedSprites,
   useRestoreSpriteCleanupPoint,
@@ -2101,6 +2102,7 @@ function SpritesTab({
   const { data: sprites, isLoading } = useCharacterSprites(characterId);
   const { data: spriteCapabilities } = useSpriteCapabilities();
   const uploadSprite = useUploadSprite();
+  const uploadSprites = useUploadSprites();
   const deleteSprite = useDeleteSprite();
   const cleanupSavedSprites = useCleanupSavedSprites();
   const restoreSpriteCleanupPoint = useRestoreSpriteCleanupPoint();
@@ -2204,30 +2206,55 @@ function SpritesTab({
     if (imageFiles.length === 0) return;
 
     setFolderProgress({ done: 0, total: imageFiles.length });
+    try {
+      const uploads: Array<{ expression: string; image: string }> = [];
+      let skipped = 0;
 
-    for (let i = 0; i < imageFiles.length; i++) {
-      const file = imageFiles[i]!;
-      // Derive expression name from filename (strip extension, lowercase, sanitize)
-      const expression = file.name.replace(/\.[^.]+$/, "").trim();
-      const normalized = normalizeExpressionForCategory(expression);
-      if (!normalized) continue;
+      for (let i = 0; i < imageFiles.length; i++) {
+        const file = imageFiles[i]!;
+        // Derive expression name from filename (strip extension, lowercase, sanitize)
+        const expression = file.name.replace(/\.[^.]+$/, "").trim();
+        const normalized = normalizeExpressionForCategory(expression);
+        if (!normalized) {
+          skipped += 1;
+          setFolderProgress({ done: i + 1, total: imageFiles.length });
+          continue;
+        }
 
-      const dataUrl = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(reader.error ?? new Error(`Failed to read ${file.name}`));
+          reader.readAsDataURL(file);
+        }).catch(() => {
+          skipped += 1;
+          return null;
+        });
 
-      try {
-        await uploadSprite.mutateAsync({ characterId, expression: normalized, image: dataUrl });
-      } catch {
-        // Skip failed uploads, continue with the rest
+        if (dataUrl) {
+          uploads.push({ expression: normalized, image: dataUrl });
+        }
+        setFolderProgress({ done: i + 1, total: imageFiles.length });
       }
-      setFolderProgress({ done: i + 1, total: imageFiles.length });
-    }
 
-    setFolderProgress(null);
-    e.target.value = "";
+      if (uploads.length > 0) {
+        const result = await uploadSprites.mutateAsync({ characterId, sprites: uploads });
+        if (result.failed.length > 0 || skipped > 0) {
+          toast.warning(
+            `${result.failed.length + skipped} sprite${result.failed.length + skipped === 1 ? "" : "s"} could not be imported.`,
+          );
+        } else {
+          toast.success(`Imported ${result.imported} sprite${result.imported === 1 ? "" : "s"}.`);
+        }
+      } else if (skipped > 0) {
+        toast.error("No sprites could be imported.");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to import sprites.");
+    } finally {
+      setFolderProgress(null);
+      e.target.value = "";
+    }
   };
 
   const handleDeleteSingleSprite = useCallback(async () => {

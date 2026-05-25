@@ -130,6 +130,17 @@ export interface SpriteInfo {
   url: string;
 }
 
+export interface SpriteUploadItem {
+  expression: string;
+  image: string;
+}
+
+export interface SpriteBulkUploadResult {
+  imported: number;
+  failed: Array<{ expression: string; filename?: string; error: string }>;
+  sprites: SpriteInfo[];
+}
+
 export interface SpriteCleanupResult {
   processed: number;
   failed: Array<{ expression: string; error: string }>;
@@ -184,6 +195,17 @@ export function useUploadSprite() {
       spriteApi.upload<SpriteInfo>(characterId, { expression, image }),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: spriteKeys.list(variables.characterId) });
+    },
+  });
+}
+
+export function useUploadSprites() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ characterId, sprites }: { characterId: string; sprites: SpriteUploadItem[] }) =>
+      spriteApi.bulkUpload<SpriteBulkUploadResult>(characterId, { sprites }),
+    onSuccess: (data, variables) => {
+      qc.setQueryData(spriteKeys.list(variables.characterId), data.sprites);
     },
   });
 }

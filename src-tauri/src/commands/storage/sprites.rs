@@ -303,6 +303,63 @@ pub(crate) fn upload_sprite(state: &AppState, character_id: &str, body: Value) -
     sprite_info_from_path(&path)
 }
 
+pub(crate) fn upload_sprites(state: &AppState, character_id: &str, body: Value) -> AppResult<Value> {
+    validate_safe_segment(character_id, "character ID")?;
+    let uploads = body
+        .get("sprites")
+        .and_then(Value::as_array)
+        .filter(|items| !items.is_empty())
+        .ok_or_else(|| AppError::invalid_input("At least one sprite is required"))?;
+    let dir = sprites_dir(state, character_id);
+    fs::create_dir_all(&dir)?;
+    let mut imported = 0usize;
+    let mut failed = Vec::new();
+
+    for item in uploads {
+        let raw_expression = item.get("expression").and_then(Value::as_str).unwrap_or("");
+        let expression = normalize_sprite_expression(raw_expression);
+        if expression.is_empty() {
+            failed.push(json!({
+                "expression": raw_expression,
+                "error": "Expression label is required"
+            }));
+            continue;
+        }
+        let Some(image) = item.get("image").and_then(Value::as_str) else {
+            failed.push(json!({
+                "expression": expression,
+                "error": "No image data provided"
+            }));
+            continue;
+        };
+        let (bytes, ext) = match decode_image_value(image) {
+            Ok(value) => value,
+            Err(error) => {
+                failed.push(json!({
+                    "expression": expression,
+                    "error": error.message
+                }));
+                continue;
+            }
+        };
+        let filename = format!("{expression}.{ext}");
+        match fs::write(dir.join(&filename), bytes) {
+            Ok(_) => imported += 1,
+            Err(error) => failed.push(json!({
+                "expression": expression,
+                "filename": filename,
+                "error": error.to_string()
+            })),
+        }
+    }
+
+    Ok(json!({
+        "imported": imported,
+        "failed": failed,
+        "sprites": list_sprites(state, character_id)?
+    }))
+}
+
 pub(crate) fn clean_saved_sprites(
     state: &AppState,
     character_id: &str,
@@ -1938,6 +1995,76 @@ fn validate_safe_segment(value: &str, label: &str) -> AppResult<()> {
 
 fn image_error(error: image::ImageError) -> AppError {
     AppError::new("image_processing_error", error.to_string())
+}
+
+#[cfg(test)]
+mod sprite_upload_tests {
+    use super::*;
+    use std::fs;
+
+    fn test_state(label: &str) -> (AppState, PathBuf) {
+        let root = env::temp_dir().join(format!("marinara-sprite-upload-{label}-{}", now_millis()));
+        let data_dir = root.join("data");
+        let state = AppState::from_data_dir_with_resource_dir(data_dir, Vec::new(), None)
+            .expect("test state should initialize");
+        (state, root)
+    }
+
+    #[test]
+    fn bulk_upload_reports_partial_failures_and_returns_refreshed_list() {
+        let (state, root) = test_state("bulk");
+        let result = upload_sprites(
+            &state,
+            "character-1",
+            json!({
+                "sprites": [
+                    { "expression": "Happy Face", "image": "data:image/png;base64,aGVsbG8=" },
+                    { "expression": "missing-image" },
+                    { "expression": "bad-image", "image": "not base64!" }
+                ]
+            }),
+        )
+        .expect("bulk upload should keep partial failures in the result");
+
+        assert_eq!(result.get("imported").and_then(Value::as_u64), Some(1));
+        assert_eq!(
+            result
+                .get("failed")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(2)
+        );
+        let sprites = result
+            .get("sprites")
+            .and_then(Value::as_array)
+            .expect("sprites list should be returned");
+        assert_eq!(sprites.len(), 1);
+        assert_eq!(
+            sprites[0].get("expression").and_then(Value::as_str),
+            Some("happy_face")
+        );
+        assert_eq!(
+            sprites[0].get("filename").and_then(Value::as_str),
+            Some("happy_face.png")
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn bulk_upload_rejects_unsafe_character_id() {
+        let (state, root) = test_state("unsafe-id");
+        let error = upload_sprites(
+            &state,
+            "../character-1",
+            json!({ "sprites": [{ "expression": "happy", "image": "data:image/png;base64,aGVsbG8=" }] }),
+        )
+        .expect_err("unsafe character IDs should be rejected");
+
+        assert_eq!(error.code, "invalid_input");
+
+        let _ = fs::remove_dir_all(root);
+    }
 }
 
 #[cfg(test)]

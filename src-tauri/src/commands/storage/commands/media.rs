@@ -50,6 +50,15 @@ pub fn sprite_upload(
 }
 
 #[tauri::command]
+pub fn sprite_upload_bulk(
+    state: State<'_, AppState>,
+    character_id: String,
+    body: Value,
+) -> Result<Value, AppError> {
+    sprites::upload_sprites(&state, &character_id, body)
+}
+
+#[tauri::command]
 pub fn sprite_delete(
     state: State<'_, AppState>,
     character_id: String,
