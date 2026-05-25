@@ -633,7 +633,7 @@ export function AppShell() {
           : null
     : null;
 
-  useEffect(() => {
+  const syncMobilePanelInert = useCallback(() => {
     if (!isMobile) {
       setInert(sidebarPanelRef.current, false);
       setInert(mobileTrackerPanelRef.current, false);
@@ -648,7 +648,11 @@ export function AppShell() {
     setInert(mobileRightPanelRef.current, activeMobilePanel !== "right");
     setInert(headerRef.current, activeMobilePanel !== null);
     setInert(mainRef.current, activeMobilePanel !== null);
+  }, [activeMobilePanel, isMobile]);
 
+  useEffect(() => {
+    if (!hasCompletedOnboarding) return;
+    syncMobilePanelInert();
     return () => {
       setInert(sidebarPanelRef.current, false);
       setInert(mobileTrackerPanelRef.current, false);
@@ -656,10 +660,10 @@ export function AppShell() {
       setInert(headerRef.current, false);
       setInert(mainRef.current, false);
     };
-  }, [activeMobilePanel, isMobile]);
+  }, [hasCompletedOnboarding, syncMobilePanelInert]);
 
   useEffect(() => {
-    if (!isMobile || !activeMobilePanel) return;
+    if (!hasCompletedOnboarding || !isMobile || !activeMobilePanel) return;
 
     const getPanel = () => {
       if (activeMobilePanel === "right") return mobileRightPanelRef.current;
@@ -729,7 +733,7 @@ export function AppShell() {
         previous.focus();
       }
     };
-  }, [activeMobilePanel, closeRightPanel, isMobile, setSidebarOpen, setTrackerPanelOpen]);
+  }, [activeMobilePanel, closeRightPanel, hasCompletedOnboarding, isMobile, setSidebarOpen, setTrackerPanelOpen]);
 
   const trackerPanelDesktop = (side: "left" | "right") =>
     trackerPanelVisible && trackerPanelSide === side ? (
@@ -820,7 +824,11 @@ export function AppShell() {
           onOpenProfessorMari={() => setProfessorMariOpen(true)}
           onGoHome={() => setProfessorMariOpen(false)}
         />
-        <TopBar />
+        <TopBar
+          professorMariOpen={professorMariOpen}
+          onOpenProfessorMari={() => setProfessorMariOpen(true)}
+          onGoHome={() => setProfessorMariOpen(false)}
+        />
       </header>
 
       <div data-component="AppShellBody" className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -1019,7 +1027,7 @@ export function AppShell() {
       {/* First-time onboarding tutorial */}
       {!hasCompletedOnboarding && (
         <Suspense fallback={null}>
-          <OnboardingTutorial />
+          <OnboardingTutorial onShellInertResync={syncMobilePanelInert} />
         </Suspense>
       )}
       <SpotifyMobileWidget />
