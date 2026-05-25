@@ -2,7 +2,7 @@
 // Full-Page Connection Editor
 // Click a connection → opens this editor (like presets/characters)
 // ──────────────────────────────────────────────
-import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ChangeEvent } from "react";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
   useConnection,
@@ -40,6 +40,7 @@ import {
   ImageIcon,
   RotateCcw,
   SlidersHorizontal,
+  Upload,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
@@ -57,6 +58,7 @@ import { MODEL_LISTS, IMAGE_GENERATION_SOURCES, inferImageSource } from "../../.
 import { PROVIDERS, isTauriRuntimeProvider } from "../../../../engine/contracts/constants/providers";
 import type { APIProvider } from "../../../../engine/contracts/types/connection";
 import type { ImageDefaultsService, ImageGenerationDefaultsProfile } from "../../../../engine/contracts/types/image-generation-defaults";
+import { toast } from "sonner";
 
 /** Links where users can obtain API keys for each provider */
 const API_KEY_LINKS: Partial<Record<APIProvider, { label: string; url: string }>> = {
@@ -164,6 +166,7 @@ export function ConnectionEditor() {
   const modelTriggerRef = useRef<HTMLDivElement>(null);
   const modelSearchInputRef = useRef<HTMLInputElement>(null);
   const comfyWorkflowTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const comfyWorkflowFileInputRef = useRef<HTMLInputElement>(null);
   const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number; maxH: number } | null>(
     null,
   );
@@ -584,6 +587,32 @@ export function ConnectionEditor() {
     ta.focus();
     ta.setSelectionRange(pos, pos);
   }, [comfyWorkflowValidation]);
+
+  const handleImportComfyWorkflowFile = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+
+      const isJsonFile =
+        file.type === "application/json" || file.name.trim().toLowerCase().endsWith(".json");
+      if (!isJsonFile) {
+        toast.error("Choose a .json workflow file.");
+        return;
+      }
+
+      try {
+        const workflowText = await file.text();
+        JSON.parse(workflowText);
+        setLocalComfyuiWorkflow(workflowText);
+        markDirty();
+        toast.success(`Imported ${file.name}`);
+      } catch (error) {
+        toast.error(error instanceof Error ? `Invalid workflow JSON: ${error.message}` : "Invalid workflow JSON.");
+      }
+    },
+    [markDirty],
+  );
 
   const providerDef = PROVIDERS[localProvider];
   const providerEntries = useMemo(
@@ -1206,6 +1235,23 @@ export function ConnectionEditor() {
                   : "Paste a custom ComfyUI workflow JSON (API format). Use placeholders like %prompt%, %negative_prompt%, %width%, %height%, %seed%, %model%, %steps%, %cfg%, %sampler%, %scheduler%, and %denoise%. Leave empty to use the built-in default txt2img workflow."
               }
             >
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <input
+                  ref={comfyWorkflowFileInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={handleImportComfyWorkflowFile}
+                />
+                <button
+                  type="button"
+                  onClick={() => comfyWorkflowFileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)] active:scale-[0.98]"
+                >
+                  <Upload size="0.8125rem" />
+                  Import JSON
+                </button>
+              </div>
               <textarea
                 ref={comfyWorkflowTextareaRef}
                 value={localComfyuiWorkflow}
