@@ -1346,7 +1346,6 @@ export function AgentEditor() {
                         if (!data.authUrl) {
                           throw new Error(data.error ?? "Authorize request did not return an auth URL");
                         }
-                        window.open(data.authUrl, "_blank", "width=500,height=700");
                         // Clear any existing poll before starting a new one
                         if (spotifyPollRef.current) clearInterval(spotifyPollRef.current);
                         if (spotifyTimeoutRef.current) clearTimeout(spotifyTimeoutRef.current);

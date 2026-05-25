@@ -99,7 +99,15 @@ pub async fn spotify_authorize(
     state: State<'_, AppState>,
     input: Value,
 ) -> Result<Value, AppError> {
-    spotify_direct(state, "POST", &["authorize"], input).await
+    let response = spotify_direct(state, "POST", &["authorize"], input).await?;
+    let auth_url = response
+        .get("authUrl")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| AppError::new("spotify_authorize_failed", "Authorize request did not return an auth URL"))?;
+    tauri_plugin_opener::open_url(auth_url, None::<&str>)
+        .map_err(|error| AppError::new("spotify_authorize_open_failed", error.to_string()))?;
+    Ok(response)
 }
 
 #[tauri::command]
