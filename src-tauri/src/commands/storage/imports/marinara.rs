@@ -92,7 +92,11 @@ pub(super) fn import_marinara_file(state: &AppState, body: Value) -> AppResult<V
 }
 
 fn data_string_name(record: &Value) -> Option<String> {
-    record.get("data").and_then(|data| data.get("name")).and_then(Value::as_str).map(ToOwned::to_owned)
+    record
+        .get("data")
+        .and_then(|data| data.get("name"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
 }
 
 fn data_image_string(value: Option<&Value>) -> Option<String> {
@@ -345,7 +349,10 @@ fn import_marinara_character(state: &AppState, data: Value) -> AppResult<Value> 
     remove_fields(&mut source, &["id", "sprites", "gallery", "metadata"]);
     if let Some(object) = source.as_object_mut() {
         if let Some(Value::String(raw)) = object.get("data") {
-            let parsed = serde_json::from_str::<Value>(raw).ok().filter(Value::is_object).unwrap_or_else(|| json!({}));
+            let parsed = serde_json::from_str::<Value>(raw)
+                .ok()
+                .filter(Value::is_object)
+                .unwrap_or_else(|| json!({}));
             object.insert("data".to_string(), parsed);
         }
     }
@@ -431,10 +438,7 @@ fn import_marinara_lorebook(
     // Pre-refactor stored `tags`/`characterIds`/`personaIds` as TEXT columns
     // (JSON-stringified arrays). Refactor expects real arrays — without this
     // normalize step the lorebook editor crashes on `formTags.map is not a function`.
-    normalize_legacy_text_array_fields(
-        &mut lorebook_data,
-        &["tags", "characterIds", "personaIds"],
-    );
+    normalize_legacy_text_array_fields(&mut lorebook_data, &["tags", "characterIds", "personaIds"]);
     // Pre-refactor also stored bool columns as TEXT (`"false"` / `"true"`).
     // Refactor reads these directly, so `lorebook.isGlobal === "false"` is
     // truthy and the editor shows every scoped lorebook as global.

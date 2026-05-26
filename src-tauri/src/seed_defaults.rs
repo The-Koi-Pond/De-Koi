@@ -8,6 +8,8 @@ const MARINARA_PRESET_NAME: &str = "Marinara's Universal Preset";
 const LEGACY_MARINARA_PRESET_NAME: &str = "Default";
 const MARINARA_PRESET_AUTHOR: &str = "Marinara";
 const PROFESSOR_MARI_ID: &str = "__professor_mari__";
+const BUNDLED_MARINARA_PRESET_JSON: &str =
+    include_str!("../resources/default-data/db/default-preset.json");
 
 pub fn seed_bundled_defaults(storage: &FileStorage, default_data: &Path) -> AppResult<()> {
     let db_root = default_data.join("db");
@@ -66,11 +68,13 @@ fn seed_professor_mari_character(storage: &FileStorage) -> AppResult<()> {
 
 fn seed_marinara_preset(storage: &FileStorage, db_root: &Path) -> AppResult<()> {
     let preset_path = db_root.join("default-preset.json");
-    if !preset_path.exists() {
-        return Ok(());
-    }
+    let raw_preset = if preset_path.exists() {
+        std::fs::read_to_string(preset_path)?
+    } else {
+        BUNDLED_MARINARA_PRESET_JSON.to_string()
+    };
 
-    let envelope: Value = serde_json::from_str(&std::fs::read_to_string(preset_path)?)?;
+    let envelope: Value = serde_json::from_str(&raw_preset)?;
     let data = envelope.get("data").cloned().unwrap_or(Value::Null);
     let Some(preset) = data.get("preset").and_then(Value::as_object) else {
         return Ok(());
@@ -367,5 +371,27 @@ mod tests {
             .get("characters", "professor-mari")
             .expect("legacy lookup should succeed")
             .is_none());
+    }
+
+    #[test]
+    fn seeds_marinara_preset_from_embedded_fallback_when_default_data_root_is_missing() {
+        let (storage, root) = temp_storage();
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        let preset = storage
+            .get("prompts", MARINARA_PRESET_ID)
+            .expect("preset lookup should succeed")
+            .expect("Marinara preset should be seeded");
+        assert_eq!(preset["name"], MARINARA_PRESET_NAME);
+        assert_eq!(preset["author"], MARINARA_PRESET_AUTHOR);
+
+        let sections = storage
+            .list("prompt-sections")
+            .expect("prompt sections should list");
+        assert!(sections.iter().any(|section| {
+            section.get("presetId").and_then(Value::as_str) == Some(MARINARA_PRESET_ID)
+        }));
     }
 }

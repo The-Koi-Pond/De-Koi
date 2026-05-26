@@ -1,6 +1,8 @@
 use crate::builtins::is_protected_record;
 use crate::state::AppState;
-use crate::storage_commands::{avatars, chats, generation, images, imports, llm, lorebook_images, shared};
+use crate::storage_commands::{
+    avatars, chats, generation, images, imports, llm, lorebook_images, shared,
+};
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -61,7 +63,9 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "import_marinara" => import_call(state, &args, &["marinara"], "envelope"),
         "import_marinara_file" => import_call(state, &args, &["marinara-file"], "body"),
         "import_st_character" => import_call(state, &args, &["st-character"], "body"),
-        "import_st_character_batch" => import_call(state, &args, &["st-character", "batch"], "body"),
+        "import_st_character_batch" => {
+            import_call(state, &args, &["st-character", "batch"], "body")
+        }
         "import_st_character_inspect" => {
             import_call(state, &args, &["st-character", "inspect"], "body")
         }

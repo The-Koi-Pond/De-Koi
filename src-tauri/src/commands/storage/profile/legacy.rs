@@ -207,10 +207,7 @@ fn add_legacy_lorebook_links(rows: &mut [Value], tables: &Map<String, Value>) {
         // editor crashes on `formTags.map is not a function`, and the junction
         // links computed above would be discarded by `or_insert_with` whenever
         // the row carried a text-encoded `"[]"` placeholder.
-        normalize_legacy_text_array_fields(
-            row,
-            &["tags", "characterIds", "personaIds"],
-        );
+        normalize_legacy_text_array_fields(row, &["tags", "characterIds", "personaIds"]);
         // Pre-refactor also stored bool columns as TEXT (`"false"` / `"true"`).
         // Without coercion, the frontend reads `lorebook.isGlobal === "false"`
         // as truthy and renders every scoped lorebook as global in the editor.

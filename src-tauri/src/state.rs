@@ -3,7 +3,7 @@ use marinara_core::{AppError, AppResult};
 use marinara_storage::FileStorage;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
 use tokio::sync::watch;
@@ -93,13 +93,18 @@ impl AppState {
         backgrounds: &AssetService,
         default_data_roots: Vec<PathBuf>,
     ) -> AppResult<()> {
+        let mut seeded_database_defaults = false;
         for default_data in default_data_roots {
             if !default_data.exists() {
                 continue;
             }
             seed_bundled_defaults(storage, &default_data)?;
+            seeded_database_defaults = true;
             game_assets.seed_missing_from(&default_data.join("game-assets"))?;
             backgrounds.seed_missing_from(&default_data.join("backgrounds"))?;
+        }
+        if !seeded_database_defaults {
+            seed_bundled_defaults(storage, Path::new(""))?;
         }
         Ok(())
     }

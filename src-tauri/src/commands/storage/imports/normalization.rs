@@ -98,7 +98,11 @@ pub(super) fn strip_stale_embedded_lorebook_pointer(data: &mut Value) {
     }
 }
 
-pub(super) fn character_import_extensions(payload: &Value, data: &Value, embedded: Option<&Value>) -> Value {
+pub(super) fn character_import_extensions(
+    payload: &Value,
+    data: &Value,
+    embedded: Option<&Value>,
+) -> Value {
     let mut extensions = data
         .get("extensions")
         .and_then(Value::as_object)
@@ -133,7 +137,11 @@ pub(super) fn character_import_extensions(payload: &Value, data: &Value, embedde
     Value::Object(extensions)
 }
 
-pub(super) fn normalize_character_data(payload: &Value, tag_mode: &str, existing_tags: &[String]) -> Value {
+pub(super) fn normalize_character_data(
+    payload: &Value,
+    tag_mode: &str,
+    existing_tags: &[String],
+) -> Value {
     let data = source_character_data(payload);
     let embedded = embedded_lorebook(payload);
     let mut tags = string_array(data.get("tags"));
@@ -282,7 +290,11 @@ pub(super) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: 
     })
 }
 
-pub(super) fn normalize_imported_lorebook_entry(lorebook_id: &str, entry: &Value, index: usize) -> Value {
+pub(super) fn normalize_imported_lorebook_entry(
+    lorebook_id: &str,
+    entry: &Value,
+    index: usize,
+) -> Value {
     let mut object =
         ensure_object(normalize_lorebook_entry(lorebook_id, entry, index)).unwrap_or_default();
     if let Some(source) = entry.as_object() {

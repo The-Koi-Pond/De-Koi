@@ -303,7 +303,11 @@ pub(crate) fn upload_sprite(state: &AppState, character_id: &str, body: Value) -
     sprite_info_from_path(&path)
 }
 
-pub(crate) fn upload_sprites(state: &AppState, character_id: &str, body: Value) -> AppResult<Value> {
+pub(crate) fn upload_sprites(
+    state: &AppState,
+    character_id: &str,
+    body: Value,
+) -> AppResult<Value> {
     validate_safe_segment(character_id, "character ID")?;
     let uploads = body
         .get("sprites")
@@ -2028,10 +2032,7 @@ mod sprite_upload_tests {
 
         assert_eq!(result.get("imported").and_then(Value::as_u64), Some(1));
         assert_eq!(
-            result
-                .get("failed")
-                .and_then(Value::as_array)
-                .map(Vec::len),
+            result.get("failed").and_then(Value::as_array).map(Vec::len),
             Some(2)
         );
         let sprites = result

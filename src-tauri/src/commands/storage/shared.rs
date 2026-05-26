@@ -132,7 +132,9 @@ pub(crate) fn swipe_index_value(message: &Value) -> i64 {
 pub(crate) fn normalize_character_data_for_storage(data: &Value) -> AppResult<Value> {
     match data {
         Value::Object(_) => Ok(data.clone()),
-        _ => Err(AppError::invalid_input("Character data must be a JSON object")),
+        _ => Err(AppError::invalid_input(
+            "Character data must be a JSON object",
+        )),
     }
 }
 
@@ -142,15 +144,30 @@ pub(crate) fn normalize_update_patch(collection: &str, patch: Value) -> AppResul
     Ok(Value::Object(object))
 }
 
-pub(crate) fn normalize_typed_json_fields(collection: &str, object: &mut Map<String, Value>) -> AppResult<()> {
+pub(crate) fn normalize_typed_json_fields(
+    collection: &str,
+    object: &mut Map<String, Value>,
+) -> AppResult<()> {
     match collection {
         "characters" => {
             if let Some(data) = object.get("data") {
-                object.insert("data".to_string(), normalize_character_data_for_storage(data)?);
+                object.insert(
+                    "data".to_string(),
+                    normalize_character_data_for_storage(data)?,
+                );
             }
         }
         "chats" => {
-            normalize_json_array_fields(object, &["characterIds", "activeLorebookIds", "activeAgentIds", "activeToolIds", "memories"])?;
+            normalize_json_array_fields(
+                object,
+                &[
+                    "characterIds",
+                    "activeLorebookIds",
+                    "activeAgentIds",
+                    "activeToolIds",
+                    "memories",
+                ],
+            )?;
             normalize_nullable_json_object_fields(object, &["metadata", "gameState"])?;
         }
         "messages" => {
@@ -170,7 +187,10 @@ pub(crate) fn normalize_typed_json_fields(collection: &str, object: &mut Map<Str
             normalize_json_array_fields(object, &["keys", "secondaryKeys"])?;
         }
         "connections" => {
-            normalize_nullable_json_object_fields(object, &["defaultParameters", "capabilities", "providerMetadata"])?;
+            normalize_nullable_json_object_fields(
+                object,
+                &["defaultParameters", "capabilities", "providerMetadata"],
+            )?;
         }
         "custom-tools" => {
             normalize_json_object_fields(object, &["parametersSchema"])?;
@@ -188,7 +208,10 @@ pub(crate) fn normalize_typed_json_fields(collection: &str, object: &mut Map<Str
         }
         "prompts" => {
             normalize_json_array_fields(object, &["sectionOrder", "groupOrder", "variableOrder"])?;
-            normalize_json_object_fields(object, &["variableValues", "parameters", "defaultChoices"])?;
+            normalize_json_object_fields(
+                object,
+                &["variableValues", "parameters", "defaultChoices"],
+            )?;
             normalize_json_array_fields(object, &["variableGroups"])?;
         }
         "prompt-sections" => {
@@ -198,7 +221,10 @@ pub(crate) fn normalize_typed_json_fields(collection: &str, object: &mut Map<Str
             normalize_json_array_fields(object, &["options"])?;
         }
         "personas" => {
-            normalize_json_array_fields(object, &["tags", "altDescriptions", "savedStatusOptions"])?;
+            normalize_json_array_fields(
+                object,
+                &["tags", "altDescriptions", "savedStatusOptions"],
+            )?;
             normalize_nullable_json_object_fields(object, &["avatarCrop", "personaStats"])?;
         }
         "agents" => {
@@ -214,7 +240,9 @@ pub(crate) fn normalize_typed_json_fields(collection: &str, object: &mut Map<Str
 
 fn normalize_json_array_fields(object: &mut Map<String, Value>, fields: &[&str]) -> AppResult<()> {
     for field in fields {
-        let Some(value) = object.get(*field) else { continue };
+        let Some(value) = object.get(*field) else {
+            continue;
+        };
         let normalized = normalize_json_field(value, Value::is_array, "array", field)?;
         object.insert((*field).to_string(), normalized);
     }
@@ -240,16 +268,23 @@ fn normalize_nullable_json_array_fields(
 
 fn normalize_json_object_fields(object: &mut Map<String, Value>, fields: &[&str]) -> AppResult<()> {
     for field in fields {
-        let Some(value) = object.get(*field) else { continue };
+        let Some(value) = object.get(*field) else {
+            continue;
+        };
         let normalized = normalize_json_field(value, Value::is_object, "object", field)?;
         object.insert((*field).to_string(), normalized);
     }
     Ok(())
 }
 
-fn normalize_nullable_json_object_fields(object: &mut Map<String, Value>, fields: &[&str]) -> AppResult<()> {
+fn normalize_nullable_json_object_fields(
+    object: &mut Map<String, Value>,
+    fields: &[&str],
+) -> AppResult<()> {
     for field in fields {
-        let Some(value) = object.get(*field) else { continue };
+        let Some(value) = object.get(*field) else {
+            continue;
+        };
         if value.is_null() {
             continue;
         }
@@ -277,13 +312,17 @@ fn normalize_json_field(
             });
         }
         let parsed: Value = serde_json::from_str(raw).map_err(|_| {
-            AppError::invalid_input(format!("{field} must be a JSON {expected}, not a JSON string"))
+            AppError::invalid_input(format!(
+                "{field} must be a JSON {expected}, not a JSON string"
+            ))
         })?;
         if predicate(&parsed) {
             return Ok(parsed);
         }
     }
-    Err(AppError::invalid_input(format!("{field} must be a JSON {expected}")))
+    Err(AppError::invalid_input(format!(
+        "{field} must be a JSON {expected}"
+    )))
 }
 
 pub(crate) fn with_entity_defaults(collection: &str, body: Value) -> AppResult<Value> {
@@ -418,7 +457,9 @@ pub(crate) fn with_entity_defaults(collection: &str, body: Value) -> AppResult<V
             object
                 .entry("altDescriptions".to_string())
                 .or_insert_with(|| json!([]));
-            object.entry("avatarCrop".to_string()).or_insert(Value::Null);
+            object
+                .entry("avatarCrop".to_string())
+                .or_insert(Value::Null);
         }
         "prompts" => {
             normalize_typed_json_fields(collection, &mut object)?;
@@ -483,10 +524,14 @@ mod tests {
         assert_eq!(patch["data"]["tags"], json!(["guide"]));
     }
 
-
     #[test]
     fn character_update_patch_rejects_invalid_data_shape() {
-        for invalid in [json!(true), json!("{\"name\":\"Professor Mari\"}"), json!([]), Value::Null] {
+        for invalid in [
+            json!(true),
+            json!("{\"name\":\"Professor Mari\"}"),
+            json!([]),
+            Value::Null,
+        ] {
             let error = normalize_update_patch("characters", json!({ "data": invalid }))
                 .expect_err("invalid character data should fail");
             assert_eq!(error.code, "invalid_input");
@@ -615,7 +660,11 @@ mod tests {
         for alias in ["1", "yes", "on", "TRUE", "  Yes  "] {
             let mut record = json!({ "flag": alias });
             normalize_legacy_text_bool_fields(&mut record, &["flag"]);
-            assert_eq!(record["flag"], json!(true), "alias {alias:?} should be true");
+            assert_eq!(
+                record["flag"],
+                json!(true),
+                "alias {alias:?} should be true"
+            );
         }
     }
 
@@ -624,7 +673,11 @@ mod tests {
         for alias in ["0", "no", "off", "FALSE", "  No  "] {
             let mut record = json!({ "flag": alias });
             normalize_legacy_text_bool_fields(&mut record, &["flag"]);
-            assert_eq!(record["flag"], json!(false), "alias {alias:?} should be false");
+            assert_eq!(
+                record["flag"],
+                json!(false),
+                "alias {alias:?} should be false"
+            );
         }
     }
 
