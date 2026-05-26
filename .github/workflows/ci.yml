@@ -82,7 +82,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:ui
+      - run: pnpm test:ui:run
       - run: pnpm perf:lighthouse
         continue-on-error: true
       - uses: actions/upload-artifact@v4

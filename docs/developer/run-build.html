@@ -148,6 +148,18 @@ docker run --rm -p 8787:8787 -v marinara-server-data:/data marinara-engine-serve
               <td>Imports, build output, frontend bundling, or production behavior changed.</td>
             </tr>
             <tr>
+              <td><code>pnpm test</code></td>
+              <td>Run focused Vitest coverage. This fails if no tests are collected.</td>
+            </tr>
+            <tr>
+              <td><code>pnpm test:ui</code></td>
+              <td>Build the frontend, start a fresh preview server on port 4175 by default, and run Playwright browser smoke tests. Set <code>PLAYWRIGHT_PORT</code> if that port is occupied.</td>
+            </tr>
+            <tr>
+              <td><code>pnpm test:ui:run</code></td>
+              <td>Start a fresh preview server on the Playwright port and run Playwright only after a build already exists.</td>
+            </tr>
+            <tr>
               <td><code>cargo check --manifest-path src-tauri/Cargo.toml --workspace</code></td>
               <td>Rust commands, capability crates, provider transport, storage, assets, or integrations changed.</td>
             </tr>

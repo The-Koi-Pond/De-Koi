@@ -125,11 +125,20 @@ Use the checks that match the change:
 
 ```sh
 pnpm typecheck
+pnpm test
 pnpm build
 pnpm check:architecture
 pnpm check:docs
 cargo check --manifest-path src-tauri/Cargo.toml --workspace
 ```
+
+Browser smoke tests are self-contained locally:
+
+```sh
+pnpm test:ui
+```
+
+Both browser smoke commands start a fresh preview server on port `4175` by default. Set `PLAYWRIGHT_PORT` if that port is occupied. Use `pnpm test:ui:run` only after `pnpm build` has already produced `dist/`.
 
 The combined check is:
 
