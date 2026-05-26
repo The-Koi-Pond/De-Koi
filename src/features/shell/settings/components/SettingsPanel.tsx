@@ -273,9 +273,6 @@ const GAME_ASSET_CATEGORIES = [
 type GameAssetCategoryId = (typeof GAME_ASSET_CATEGORIES)[number]["id"];
 const GAME_ASSET_CATEGORY_BY_ID = new Map(GAME_ASSET_CATEGORIES.map((category) => [category.id, category]));
 
-// Module-level set survives component remounts (e.g. mobile AnimatePresence unmount/remount)
-const mountedSettingsTabs = new Set<string>();
-
 function ImageDimensionRow({
   label,
   help,
@@ -661,7 +658,8 @@ function TrackerPanelAppearanceDrawer({
 export function SettingsPanel() {
   const settingsTab = useUIStore((s) => s.settingsTab);
   const setSettingsTab = useUIStore((s) => s.setSettingsTab);
-  mountedSettingsTabs.add(settingsTab);
+  const activeTab = TABS.find((tab) => tab.id === settingsTab) ?? TABS[0];
+  const ActiveSettings = SETTINGS_COMPONENTS[activeTab.id];
 
   return (
     <div className="flex h-full flex-col">
@@ -686,21 +684,8 @@ export function SettingsPanel() {
         ))}
       </div>
 
-      <div className="relative min-h-0 flex-1">
-        {TABS.map((tab) => {
-          if (!mountedSettingsTabs.has(tab.id)) return null;
-          const Comp = SETTINGS_COMPONENTS[tab.id];
-          const active = settingsTab === tab.id;
-          return (
-            <div
-              key={tab.id}
-              className="absolute inset-0 overflow-y-auto p-3"
-              style={active ? undefined : { clipPath: "inset(100%)", pointerEvents: "none" }}
-            >
-              <Comp />
-            </div>
-          );
-        })}
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        <ActiveSettings />
       </div>
     </div>
   );

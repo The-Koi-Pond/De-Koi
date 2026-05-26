@@ -59,7 +59,7 @@ export function RightPanel() {
   const close = useUIStore((s) => s.closeRightPanel);
 
   const config = PANEL_CONFIG[panel] ?? { title: "Panel", icon: null, gradient: "from-slate-400 to-slate-500" };
-  const PanelComp = PANELS[panel];
+  const ActivePanel = PANELS[panel];
 
   return (
     <section
@@ -88,15 +88,12 @@ export function RightPanel() {
         </button>
       </div>
 
-      {/* Content */}
-      <div className="relative flex-1 overflow-hidden">
-        {PanelComp && (
-          <div className="absolute inset-0 overflow-y-auto">
-            <Suspense fallback={<PanelFallback />}>
-              <PanelComp />
-            </Suspense>
-          </div>
-        )}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {ActivePanel ? (
+          <Suspense fallback={<PanelFallback />}>
+            <ActivePanel />
+          </Suspense>
+        ) : null}
       </div>
     </section>
   );
