@@ -113,6 +113,16 @@
         <p>Override the bind address and data directory with:</p>
         <pre><code>MARINARA_SERVER_ADDR=0.0.0.0:8787
 MARINARA_DATA_DIR=/path/to/data</code></pre>
+        <p>
+          Non-loopback clients fail closed unless the runtime has explicit
+          access control. Configure <code>BASIC_AUTH_USER</code> and
+          <code>BASIC_AUTH_PASS</code>, <code>IP_ALLOWLIST</code>, or an
+          intentional compatibility opt-in such as
+          <code>ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK=true</code> for trusted
+          LAN/private-network access. Set <code>CORS_ORIGINS</code> or
+          <code>CSRF_TRUSTED_ORIGINS</code> if your desktop client origin is not
+          one of the runtime defaults.
+        </p>
         <div class="callout">
           Remote-capable features must use the shared API HTTP pipeline:
           <code>src/shared/api</code> wrapper, <code>remote-runtime.ts</code>

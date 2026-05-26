@@ -88,6 +88,7 @@ export function isRemoteCommand(command: string): boolean {
 function remoteHeaders(target: RuntimeTarget, extra?: HeadersInit): HeadersInit {
   return {
     ...(target.authorization ? { Authorization: target.authorization } : {}),
+    "X-Marinara-CSRF": "1",
     ...extra,
   };
 }
