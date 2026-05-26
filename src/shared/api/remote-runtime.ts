@@ -89,6 +89,7 @@ function remoteHeaders(target: RuntimeTarget, extra?: HeadersInit): HeadersInit 
   return {
     ...(target.authorization ? { Authorization: target.authorization } : {}),
     ...extra,
+    "X-Marinara-CSRF": "1",
   };
 }
 

@@ -91,6 +91,12 @@ Health check:
 curl http://127.0.0.1:8787/health
 ```
 
+Non-loopback clients fail closed unless you configure access control. Use `BASIC_AUTH_USER` and
+`BASIC_AUTH_PASS`, `IP_ALLOWLIST`, or an explicit opt-in such as
+`ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK=true` for trusted LAN/private-network access.
+Set `CORS_ORIGINS` or `CSRF_TRUSTED_ORIGINS` when the desktop client origin is not one of the
+runtime defaults.
+
 With Docker Compose:
 
 ```sh
