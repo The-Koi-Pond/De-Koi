@@ -179,6 +179,64 @@ fn connection_model(connection: &Value, fallback: &str) -> String {
         .to_string()
 }
 
+fn configured_model(connection: &Value) -> Option<String> {
+    connection
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+pub(crate) fn image_model(connection: &Value, source: &str) -> Option<String> {
+    let source = if source.is_empty() { "openai" } else { source };
+    let model = match source {
+        "pollinations" => None,
+        "stability" => {
+            let base = connection_base_url(connection, "stability");
+            if is_stability_v1_base(&base) {
+                Some(normalize_stability_v1_engine(
+                    connection
+                        .get("model")
+                        .and_then(Value::as_str)
+                        .unwrap_or(""),
+                ))
+            } else {
+                Some(connection_model(connection, "stable-image-core"))
+            }
+        }
+        "automatic1111" | "drawthings" | "horde" | "comfyui" | "runpod_comfyui" => {
+            configured_model(connection)
+        }
+        "novelai" => {
+            let base = connection_base_url(connection, "novelai");
+            if base.to_ascii_lowercase().contains("novelai.net") {
+                Some(connection_model(connection, "nai-diffusion-4-5-full"))
+            } else {
+                Some(connection_model(
+                    connection,
+                    "google/gemini-2.5-flash-image",
+                ))
+            }
+        }
+        "openrouter" | "gemini_image" => Some(connection_model(
+            connection,
+            "google/gemini-2.5-flash-image",
+        )),
+        "xai" => Some(connection_model(connection, "grok-2-image")),
+        "togetherai" => Some(connection_model(
+            connection,
+            "black-forest-labs/FLUX.1-schnell-Free",
+        )),
+        "nanogpt" | "openai" | "blockentropy" => {
+            Some(connection_model(connection, "gpt-image-1"))
+        }
+        _ => configured_model(connection),
+    };
+
+    model.filter(|value| !value.trim().is_empty())
+}
+
 fn connection_api_key(connection: &Value) -> String {
     connection
         .get("apiKey")
