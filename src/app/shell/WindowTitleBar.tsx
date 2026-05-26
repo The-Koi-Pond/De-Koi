@@ -2,6 +2,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Maximize2, Minus, Square, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { cn } from "../../shared/lib/utils";
+import { useChatStore } from "../../shared/stores/chat.store";
+import { useUIStore } from "../../shared/stores/ui.store";
 import { ChatTitleControls } from "./ChatTitleControls";
 import { PanelNavButtons } from "./PanelNavButtons";
 
@@ -40,6 +42,25 @@ export function WindowTitleBar({
   const platform = useMemo(inferDesktopPlatform, []);
   const [isMaximized, setIsMaximized] = useState(false);
   const appWindow = useMemo(() => (isTauriRuntime() ? getCurrentWindow() : null), []);
+  const activeChatId = useChatStore((s) => s.activeChatId);
+  const setActiveChatId = useChatStore((s) => s.setActiveChatId);
+  const closeAllDetails = useUIStore((s) => s.closeAllDetails);
+  const hasOpenSurface = useUIStore((s) =>
+    Boolean(
+      s.characterDetailId ||
+        s.lorebookDetailId ||
+        s.presetDetailId ||
+        s.connectionDetailId ||
+        s.agentDetailId ||
+        s.toolDetailId ||
+        s.personaDetailId ||
+        s.regexDetailId ||
+        s.characterLibraryOpen ||
+        s.botBrowserOpen ||
+        s.gameAssetsBrowserOpen ||
+        s.rightPanelOpen,
+    ),
+  );
 
   const refreshMaximized = useCallback(() => {
     if (!appWindow) return;
@@ -91,6 +112,14 @@ export function WindowTitleBar({
   const toggleMaximizeFromDragRegion = useCallback(() => {
     runWindowAction("maximize");
   }, [runWindowAction]);
+
+  const goHome = useCallback(() => {
+    setActiveChatId(null);
+    closeAllDetails();
+    onGoHome?.();
+  }, [closeAllDetails, onGoHome, setActiveChatId]);
+
+  const isHomeSurface = !professorMariOpen && !activeChatId && !hasOpenSurface;
   const controlActions = platform === "darwin" ? (["close", "minimize", "maximize"] as const) : (["minimize", "maximize", "close"] as const);
   const controls = (
     <div
@@ -145,24 +174,36 @@ export function WindowTitleBar({
         professorMariOpen={professorMariOpen}
         onOpenProfessorMari={onOpenProfessorMari}
         onGoHome={onGoHome}
+        hideHome
       />
       <div
         className="mari-titlebar-content flex h-full min-w-0 flex-1 items-center"
       >
         <div
-          className="mari-title-drag-region flex h-full min-w-0 flex-1 items-center justify-start pl-2 pr-3"
+          className="mari-title-drag-region flex h-full min-w-0 flex-1 items-center justify-start pl-0.5 pr-3"
           onMouseDown={startWindowDrag}
           onDoubleClick={toggleMaximizeFromDragRegion}
         >
-          <div data-tauri-drag-region className="mari-title-brand min-w-0">
-            <span className="mari-title-word mari-title-word-marinara">
-              Marinara
-            </span>
-            <img data-tauri-drag-region className="mari-title-icon" src="/favicon.png" alt="" draggable={false} />
-            <span className="mari-title-word mari-title-word-engine">
-              Engine
-            </span>
-          </div>
+          <button
+            type="button"
+            className={cn(
+              "mari-titlebar-action mari-title-home-button relative rounded-md p-1.5 transition-all duration-200",
+              isHomeSurface
+                ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
+                : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
+            )}
+            onClick={goHome}
+            onMouseDown={(event) => event.stopPropagation()}
+            onDoubleClick={(event) => event.stopPropagation()}
+            title="Home"
+            aria-label="Home"
+            aria-current={isHomeSurface ? "page" : undefined}
+          >
+            <img className="mari-title-icon" src="/favicon.png" alt="" draggable={false} />
+            {isHomeSurface && (
+              <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
+            )}
+          </button>
         </div>
         <div
           className="mari-window-actions flex h-full shrink-0 items-center gap-2"

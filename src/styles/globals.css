@@ -696,12 +696,14 @@ body {
   drop-shadow(0 0 0.28rem currentColor);
 }
 
-.mari-titlebar-action svg {
+.mari-titlebar-action svg,
+.mari-titlebar-action img {
   transform-origin: 50% 56%;
   transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.mari-titlebar-action:hover svg {
+.mari-titlebar-action:hover svg,
+.mari-titlebar-action:hover img {
   transform: translateY(-1px) rotate(-8deg) scale(1.12);
 }
 
@@ -709,8 +711,197 @@ body {
   filter: drop-shadow(0 0 0.12rem currentColor);
 }
 
-.mari-titlebar-action:active svg {
+.mari-titlebar-action:active svg,
+.mari-titlebar-action:active img {
   transform: translateY(0) rotate(-8deg) scale(0.98);
+}
+
+.mari-title-home-button {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  width: 2.125rem;
+  height: 1.875rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.mari-mobile-topbar-button,
+.mari-mobile-topbar-tools {
+  display: inline-flex;
+  min-width: 2.55rem;
+  height: 2.55rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--border) 38%, transparent);
+  border-radius: 0.95rem;
+  background: color-mix(in srgb, var(--card) 78%, var(--background));
+  color: var(--muted-foreground);
+  box-shadow: none;
+  transition:
+    background-color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mari-mobile-topbar-tools {
+  min-width: 4.95rem;
+  padding: 0 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.mari-mobile-topbar-button:hover,
+.mari-mobile-topbar-tools:hover,
+.mari-mobile-topbar-button-active {
+  border-color: color-mix(in srgb, var(--primary) 42%, transparent);
+  background: color-mix(in srgb, var(--primary) 15%, var(--card));
+  color: var(--primary);
+}
+
+.mari-mobile-topbar-button:active,
+.mari-mobile-topbar-tools:active {
+  transform: scale(0.97);
+}
+
+.mari-mobile-topbar-button:focus-visible,
+.mari-mobile-topbar-tools:focus-visible,
+.mari-mobile-tools-item:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 72%, transparent);
+  outline-offset: 2px;
+}
+
+.mari-mobile-topbar-button img {
+  width: 1.8rem;
+  height: 1.8rem;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+.mari-mobile-topbar-button svg,
+.mari-mobile-topbar-tools svg,
+.mari-mobile-tools-item svg {
+  flex: 0 0 auto;
+}
+
+.mari-mobile-topbar-title {
+  display: inline-flex;
+  min-width: 0;
+  height: 2.55rem;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.55rem;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 0.95rem;
+  background: transparent;
+  padding: 0 0.45rem;
+  text-align: left;
+  box-shadow: none;
+  transition:
+    background-color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mari-mobile-topbar-title:hover {
+  border-color: color-mix(in srgb, var(--border) 30%, transparent);
+  background: color-mix(in srgb, var(--card) 54%, transparent);
+}
+
+.mari-mobile-topbar-title:active {
+  transform: scale(0.985);
+}
+
+.mari-mobile-topbar-title:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 72%, transparent);
+  outline-offset: 2px;
+}
+
+.mari-mobile-topbar-home {
+  width: 2.55rem;
+  min-width: 2.55rem;
+  flex: 0 0 2.55rem;
+  margin-right: auto;
+  justify-content: center;
+  border-color: color-mix(in srgb, var(--border) 38%, transparent);
+  background: color-mix(in srgb, var(--card) 78%, var(--background));
+  padding: 0;
+}
+
+.mari-mobile-topbar-home:hover,
+.mari-mobile-topbar-home[aria-current="page"] {
+  border-color: color-mix(in srgb, var(--primary) 36%, transparent);
+  background: color-mix(in srgb, var(--primary) 13%, var(--card));
+}
+
+.mari-mobile-home-mark {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.45rem;
+}
+
+.mari-mobile-home-mark img {
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 0.25rem;
+  filter: drop-shadow(0 0 0.25rem color-mix(in srgb, var(--primary) 24%, transparent));
+}
+
+.mari-mobile-tools-menu {
+  position: absolute;
+  top: calc(100% + 1.05rem);
+  right: 0;
+  z-index: 70;
+  display: grid;
+  width: min(20rem, calc(100vw - 1rem));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  padding: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 1.15rem;
+  background: color-mix(in srgb, var(--card) 96%, var(--background));
+  box-shadow:
+    0 1rem 2.5rem color-mix(in srgb, var(--background) 82%, transparent),
+    inset 0 1px color-mix(in srgb, var(--foreground) 9%, transparent);
+}
+
+.mari-mobile-tools-item {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 2.6rem;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--border) 34%, transparent);
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, var(--secondary) 66%, transparent);
+  color: var(--foreground);
+  padding: 0 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 650;
+  box-shadow: none;
+  transition:
+    background-color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mari-mobile-tools-item:hover,
+.mari-mobile-tools-item-active {
+  border-color: color-mix(in srgb, var(--primary) 36%, transparent);
+  background: color-mix(in srgb, var(--primary) 14%, var(--secondary));
+  color: var(--primary);
+}
+
+.mari-mobile-tools-item:active {
+  transform: scale(0.98);
 }
 
 @media (max-width: 380px) {
@@ -901,6 +1092,12 @@ body {
 
 .mari-title-word-engine {
   color: color-mix(in srgb, var(--y2k-blue) 82%, var(--foreground));
+}
+
+.mari-title-brand-compact .mari-title-icon,
+.mari-title-home-button .mari-title-icon {
+  width: 1.125rem;
+  height: 1.125rem;
 }
 
 @media (max-width: 767px) {

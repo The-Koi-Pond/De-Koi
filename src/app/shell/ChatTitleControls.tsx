@@ -1,4 +1,4 @@
-import { Home, PanelLeft, PanelLeftClose } from "lucide-react";
+import { PanelLeft, PanelLeftClose } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { cn } from "../../shared/lib/utils";
 import { useChatStore } from "../../shared/stores/chat.store";
@@ -14,6 +14,7 @@ export function ChatTitleControls({
   onGoHome,
   className,
   hideProfessorOnNarrow = false,
+  hideHome = false,
   showDivider = true,
 }: {
   professorMariOpen?: boolean;
@@ -21,6 +22,7 @@ export function ChatTitleControls({
   onGoHome?: () => void;
   className?: string;
   hideProfessorOnNarrow?: boolean;
+  hideHome?: boolean;
   showDivider?: boolean;
 }) {
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
@@ -63,17 +65,19 @@ export function ChatTitleControls({
           <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
         )}
       </button>
-      <button
-        type="button"
-        onClick={goHome}
-        onMouseDown={stopChromeDrag}
-        onDoubleClick={stopChromeDrag}
-        className="mari-titlebar-action rounded-md p-1.5 text-[var(--muted-foreground)] transition-all duration-200 hover:text-[var(--primary)]"
-        title="Home"
-        aria-label="Home"
-      >
-        <Home size="0.875rem" />
-      </button>
+      {!hideHome && (
+        <button
+          type="button"
+          onClick={goHome}
+          onMouseDown={stopChromeDrag}
+          onDoubleClick={stopChromeDrag}
+          className="mari-titlebar-action rounded-md p-1.5 text-[var(--muted-foreground)] transition-all duration-200 hover:text-[var(--primary)]"
+          title="Home"
+          aria-label="Home"
+        >
+          <img src="/favicon.png" alt="" className="h-[0.95rem] w-[0.95rem] rounded-[0.2rem] object-cover" draggable={false} />
+        </button>
+      )}
       <button
         type="button"
         onClick={openProfessorMari}

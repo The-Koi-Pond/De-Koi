@@ -25,6 +25,7 @@ import {
   Tag,
   Pencil,
   Download,
+  X,
 } from "lucide-react";
 import {
   useBulkExportChats,
@@ -819,12 +820,12 @@ export function ChatSidebar({
         <div className="absolute inset-x-0 bottom-0 h-px bg-[var(--border)]/30" />
         <h2 className="retro-glow-text truncate text-sm font-bold tracking-tight">✧ Chats</h2>
         <button
-          onClick={handleNewChatFromTab}
-          className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90"
-          title={`New ${activeTab === "conversation" ? "Conversation" : activeTab === "game" ? "Game" : "Roleplay"}`}
-          aria-label={`New ${activeTab === "conversation" ? "Conversation" : activeTab === "game" ? "Game" : "Roleplay"}`}
+          onClick={() => setSidebarOpen(false)}
+          className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90 md:hidden"
+          title="Back to chat"
+          aria-label="Back to chat"
         >
-          <Plus size="1rem" />
+          <X size="1rem" />
         </button>
       </div>
 
@@ -891,6 +892,65 @@ export function ChatSidebar({
               className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
             />
           </div>
+
+          {creatingFolder ? (
+            <div className="flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 py-2 ring-1 ring-[var(--primary)]/20">
+              <FolderPlus size="0.75rem" className="text-[var(--muted-foreground)]" />
+              <input
+                autoFocus
+                placeholder="Folder name..."
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateFolder();
+                  if (e.key === "Escape") {
+                    setCreatingFolder(false);
+                    setNewFolderName("");
+                  }
+                }}
+                onBlur={() => {
+                  if (newFolderName.trim()) handleCreateFolder();
+                  else {
+                    setCreatingFolder(false);
+                    setNewFolderName("");
+                  }
+                }}
+                className="min-w-0 flex-1 bg-transparent text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                onClick={handleNewChatFromTab}
+                className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)]/15 px-2.5 text-[0.72rem] font-semibold text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25 active:scale-[0.98]"
+              >
+                <Plus size="0.8rem" />
+                New {activeTab === "conversation" ? "chat" : activeTab === "game" ? "game" : "RP"}
+              </button>
+              <button
+                onClick={() => setCreatingFolder(true)}
+                className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 text-[0.72rem] font-semibold text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/50 hover:text-[var(--foreground)] active:scale-[0.98]"
+              >
+                <FolderPlus size="0.8rem" />
+                Folder
+              </button>
+            </div>
+          )}
+
+          {displayChats.length > 0 && (
+            <button
+              onClick={() => (multiSelectMode ? exitMultiSelect() : setMultiSelectMode(true))}
+              className={cn(
+                "flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[0.6875rem] font-medium transition-all",
+                multiSelectMode
+                  ? "bg-[var(--primary)]/15 text-[var(--primary)]"
+                  : "bg-[var(--secondary)]/65 text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]",
+              )}
+            >
+              <CheckSquare size="0.75rem" />
+              {multiSelectMode ? "Cancel selection" : "Select chats"}
+            </button>
+          )}
 
           {allTags.length > 0 && (
             <div className="flex max-w-full flex-wrap items-center gap-1">
@@ -1004,58 +1064,6 @@ export function ChatSidebar({
         )}
 
         <div className="stagger-children flex flex-col gap-0.5">
-          {/* New folder */}
-          {creatingFolder ? (
-            <div className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5">
-              <FolderPlus size="0.75rem" className="text-[var(--muted-foreground)]" />
-              <input
-                autoFocus
-                placeholder="Folder name..."
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreateFolder();
-                  if (e.key === "Escape") {
-                    setCreatingFolder(false);
-                    setNewFolderName("");
-                  }
-                }}
-                onBlur={() => {
-                  if (newFolderName.trim()) handleCreateFolder();
-                  else {
-                    setCreatingFolder(false);
-                    setNewFolderName("");
-                  }
-                }}
-                className="flex-1 bg-transparent text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
-              />
-            </div>
-          ) : (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setCreatingFolder(true)}
-                className="flex flex-1 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]"
-              >
-                <FolderPlus size="0.75rem" />
-                New Folder
-              </button>
-              {displayChats.length > 0 && (
-                <button
-                  onClick={() => (multiSelectMode ? exitMultiSelect() : setMultiSelectMode(true))}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] transition-all",
-                    multiSelectMode
-                      ? "bg-[var(--primary)]/15 text-[var(--primary)]"
-                      : "text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]",
-                  )}
-                >
-                  <CheckSquare size="0.75rem" />
-                  {multiSelectMode ? "Cancel" : "Select"}
-                </button>
-              )}
-            </div>
-          )}
-
           {/* Folders (drag-to-reorder) */}
           {localFolderOrder.length > 0 && (
             <Reorder.Group

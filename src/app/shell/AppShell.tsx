@@ -818,7 +818,7 @@ export function AppShell() {
         ref={headerRef}
         data-component="AppChrome"
         aria-hidden={activeMobilePanel ? true : undefined}
-        className="mari-app-chrome relative z-40 flex shrink-0 flex-col overflow-hidden"
+        className="mari-app-chrome relative z-40 flex shrink-0 flex-col overflow-visible"
       >
         <WindowTitleBar
           professorMariOpen={professorMariOpen}
