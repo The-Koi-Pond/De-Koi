@@ -825,6 +825,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   const [step, setStep] = useState(0);
   const currentStep = STEPS[step]!;
   const isLast = step === STEPS.length - 1;
+  const canGoBack = step > 0;
   const [showChoiceModal, setShowChoiceModal] = useState(false);
   // Open in shortcut mode if the chat store flag was set (e.g. via right-click "Quick Start").
   const [shortcutMode, setShortcutMode] = useState(() => {
@@ -1106,6 +1107,12 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
       setLbSearch("");
     }
   }, [isLast, finishWizard, currentStep.key, chat.promptPresetId, presetFull?.choiceBlocks?.length]);
+
+  const previous = useCallback(() => {
+    setStep((s) => Math.max(0, s - 1));
+    setCharSearch("");
+    setLbSearch("");
+  }, []);
 
   // ─── Step content renderers ───────────────────
 
@@ -1647,12 +1654,24 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
 
                 {/* Buttons */}
                 <div className="flex items-center justify-between gap-2">
-                  <button
-                    onClick={onFinish}
-                    className="rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
-                  >
-                    Skip
-                  </button>
+                  <div className="flex items-center gap-1">
+                    {canGoBack && (
+                      <button
+                        onClick={previous}
+                        aria-label="Back"
+                        title="Back"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+                      >
+                        <ArrowLeft size="0.875rem" />
+                      </button>
+                    )}
+                    <button
+                      onClick={onFinish}
+                      className="rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+                    >
+                      Skip
+                    </button>
+                  </div>
                   <button
                     onClick={() => setShortcutMode(true)}
                     title="Apply a saved chat-settings preset and pick a persona + characters in one step"
