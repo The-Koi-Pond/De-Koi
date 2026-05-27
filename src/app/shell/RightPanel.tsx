@@ -48,9 +48,6 @@ const PANELS: Record<string, LazyExoticComponent<ComponentType>> = {
   settings: SettingsPanel,
 };
 
-// Module-level set survives component remounts (e.g. mobile AnimatePresence unmount/remount)
-const mountedPanels = new Set<string>();
-
 function PanelFallback() {
   return (
     <div className="flex h-full items-center justify-center text-sm text-[var(--muted-foreground)]">Loading...</div>
@@ -61,11 +58,8 @@ export function RightPanel() {
   const panel = useUIStore((s) => s.rightPanel);
   const close = useUIStore((s) => s.closeRightPanel);
 
-  // Add synchronously so the current panel is in the set for this render.
-  // Module-level Set is not React state, so mutating it during render is safe.
-  mountedPanels.add(panel);
-
   const config = PANEL_CONFIG[panel] ?? { title: "Panel", icon: null, gradient: "from-slate-400 to-slate-500" };
+  const PanelComp = PANELS[panel];
 
   return (
     <section
@@ -94,23 +88,15 @@ export function RightPanel() {
         </button>
       </div>
 
-      {/* Content — keep visited panels mounted but hidden to avoid re-animation */}
+      {/* Content */}
       <div className="relative flex-1 overflow-hidden">
-        {Object.entries(PANELS).map(([key, PanelComp]) => {
-          if (!mountedPanels.has(key)) return null;
-          const active = key === panel;
-          return (
-            <div
-              key={key}
-              className={`absolute inset-0 overflow-y-auto ${active ? "" : "hidden"}`}
-              aria-hidden={!active}
-            >
-              <Suspense fallback={active ? <PanelFallback /> : null}>
-                <PanelComp />
-              </Suspense>
-            </div>
-          );
-        })}
+        {PanelComp && (
+          <div className="absolute inset-0 overflow-y-auto">
+            <Suspense fallback={<PanelFallback />}>
+              <PanelComp />
+            </Suspense>
+          </div>
+        )}
       </div>
     </section>
   );

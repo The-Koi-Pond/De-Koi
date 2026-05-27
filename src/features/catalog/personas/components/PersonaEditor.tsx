@@ -6,7 +6,7 @@
 // ──────────────────────────────────────────────
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
-import { usePersonas, useUpdatePersona, useUploadPersonaAvatar, useDeletePersona } from "../../characters/index";
+import { usePersona, useUpdatePersona, useUploadPersonaAvatar, useDeletePersona } from "../../characters/index";
 import { useConnections } from "../../connections/index";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
@@ -149,7 +149,7 @@ function parseAvatarCropValue(value: PersonaRow["avatarCrop"]): AvatarCrop | Leg
 export function PersonaEditor() {
   const personaId = useUIStore((s) => s.personaDetailId);
   const closeDetail = useUIStore((s) => s.closePersonaDetail);
-  const { data: allPersonas, isLoading } = usePersonas();
+  const { data: rawPersona, isLoading } = usePersona(personaId);
   const updatePersona = useUpdatePersona();
   const uploadAvatar = useUploadPersonaAvatar();
   const deletePersona = useDeletePersona();
@@ -181,51 +181,50 @@ export function PersonaEditor() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageGenerationAvailable = imageConnections.length > 0;
 
-  // Find the persona from the list
-  const rawPersona = (allPersonas as PersonaRow[] | undefined)?.find((p) => p.id === personaId);
+  const persona = rawPersona as PersonaRow | undefined;
 
   // Parse persona into form data when it first loads (or when switching personas).
   // Important: don't overwrite local unsaved edits if server data refetches (e.g. after avatar upload).
   useEffect(() => {
-    if (!rawPersona) return;
+    if (!persona) return;
 
-    const isSwitchingPersona = loadedPersonaIdRef.current !== rawPersona.id;
+    const isSwitchingPersona = loadedPersonaIdRef.current !== persona.id;
     if (!isSwitchingPersona && dirty) return;
 
-    loadedPersonaIdRef.current = rawPersona.id;
+    loadedPersonaIdRef.current = persona.id;
 
-    const parsedAltDescs: AltDescriptionEntry[] = Array.isArray(rawPersona.altDescriptions) ? rawPersona.altDescriptions : [];
+    const parsedAltDescs: AltDescriptionEntry[] = Array.isArray(persona.altDescriptions) ? persona.altDescriptions : [];
 
-    const parsedAvatarCrop = parseAvatarCropValue(rawPersona.avatarCrop);
+    const parsedAvatarCrop = parseAvatarCropValue(persona.avatarCrop);
 
     const savedTrackerCardColors =
-      typeof rawPersona[TRACKER_CARD_COLOR_PREVIEW_BASE_FIELD] === "string"
-        ? rawPersona[TRACKER_CARD_COLOR_PREVIEW_BASE_FIELD]
-        : rawPersona.trackerCardColors;
+      typeof persona[TRACKER_CARD_COLOR_PREVIEW_BASE_FIELD] === "string"
+        ? persona[TRACKER_CARD_COLOR_PREVIEW_BASE_FIELD]
+        : persona.trackerCardColors;
 
     setFormData({
-      name: rawPersona.name,
-      comment: rawPersona.comment ?? "",
-      description: rawPersona.description,
-      personality: rawPersona.personality ?? "",
-      scenario: rawPersona.scenario ?? "",
-      backstory: rawPersona.backstory ?? "",
-      appearance: rawPersona.appearance ?? "",
-      nameColor: rawPersona.nameColor ?? "",
-      dialogueColor: rawPersona.dialogueColor ?? "",
-      boxColor: rawPersona.boxColor ?? "",
+      name: persona.name,
+      comment: persona.comment ?? "",
+      description: persona.description,
+      personality: persona.personality ?? "",
+      scenario: persona.scenario ?? "",
+      backstory: persona.backstory ?? "",
+      appearance: persona.appearance ?? "",
+      nameColor: persona.nameColor ?? "",
+      dialogueColor: persona.dialogueColor ?? "",
+      boxColor: persona.boxColor ?? "",
       trackerCardColors: parseTrackerCardColorConfig(savedTrackerCardColors),
       personaStats:
-        rawPersona.personaStats && typeof rawPersona.personaStats === "object"
-          ? (rawPersona.personaStats as unknown as PersonaStatsData)
+        persona.personaStats && typeof persona.personaStats === "object"
+          ? (persona.personaStats as unknown as PersonaStatsData)
           : null,
       altDescriptions: parsedAltDescs,
-      tags: Array.isArray(rawPersona.tags) ? rawPersona.tags : [],
+      tags: Array.isArray(persona.tags) ? persona.tags : [],
       avatarCrop: parsedAvatarCrop,
     });
-    setAvatarPreview(rawPersona.avatarPath);
+    setAvatarPreview(persona.avatarPath);
     setDirty(false);
-  }, [rawPersona, dirty]);
+  }, [persona, dirty]);
 
   const updateField = useCallback(<K extends keyof PersonaFormData>(key: K, value: PersonaFormData[K]) => {
     setFormData((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -257,7 +256,7 @@ export function PersonaEditor() {
 
     const uploadToken = generateClientId();
     latestAvatarUploadTokenRef.current = uploadToken;
-    const fallbackAvatarPath = rawPersona?.avatarPath ?? null;
+    const fallbackAvatarPath = persona?.avatarPath ?? null;
     // Capture the saved crop so we can revert if the upload fails. The new image
     // almost certainly has different framing/dimensions, so the old normalized
     // crop coords are meaningless for it — clear immediately on upload start

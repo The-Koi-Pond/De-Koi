@@ -11,7 +11,7 @@ import {
 import { llmApi } from "../../../../shared/api/llm-api";
 import { mariApi, type ProfessorMariPreferences } from "../../../../shared/api/mari-api";
 import { useConnections } from "../../../catalog/connections/index";
-import { usePersonas } from "../../../catalog/characters/index";
+import { usePersonaSummaries } from "../../../catalog/characters/index";
 import { ConversationMessage } from "../../../modes/conversation/message-shell";
 import type { CharacterMap, PersonaInfo } from "../../../modes/shared/chat-ui/types";
 import type { Message } from "../../../../engine/contracts/types/chat";
@@ -100,7 +100,7 @@ function toConversationMessage(message: MariMessage): Message {
 
 export function ProfessorMariSurface() {
   const { data: rawConnections } = useConnections();
-  const { data: rawPersonas } = usePersonas();
+  const { data: rawPersonas } = usePersonaSummaries();
   const convoGradient = useUIStore((s) => s.convoGradient);
   const theme = useUIStore((s) => s.theme);
   const openRightPanel = useUIStore((s) => s.openRightPanel);

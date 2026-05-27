@@ -28,7 +28,7 @@ import {
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useLorebooks, useDeleteLorebook, useUpdateLorebook, useUploadLorebookImage } from "../hooks/use-lorebooks";
-import { useCharacters, usePersonas } from "../../characters/index";
+import { useCharacterSummaries, usePersonaSummaries } from "../../characters/index";
 import type { Lorebook, LorebookCategory } from "../../../../engine/contracts/types/lorebook";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../shared/lib/utils";
@@ -89,8 +89,8 @@ export function LorebooksPanel() {
   const { data: lorebooks, isLoading } = useLorebooks(
     activeCategory === "active" || activeCategory === "all" ? undefined : activeCategory,
   );
-  const { data: rawCharacters } = useCharacters();
-  const { data: rawPersonas } = usePersonas();
+  const { data: rawCharacters } = useCharacterSummaries();
+  const { data: rawPersonas } = usePersonaSummaries();
   const deleteLorebook = useDeleteLorebook();
   const updateLorebook = useUpdateLorebook();
   const uploadLorebookImage = useUploadLorebookImage();
@@ -100,8 +100,8 @@ export function LorebooksPanel() {
   const characterNameById = useMemo(() => {
     const map = new Map<string, string>();
     if (!rawCharacters) return map;
-    for (const c of rawCharacters as Array<{ id: string; data: Record<string, unknown> }>) {
-      const d = c.data;
+    for (const c of rawCharacters) {
+      const d = c.data ?? {};
       map.set(c.id, typeof d?.name === "string" ? d.name : "Unknown");
     }
     return map;
@@ -109,7 +109,7 @@ export function LorebooksPanel() {
   const personaNameById = useMemo(() => {
     const map = new Map<string, string>();
     if (!rawPersonas) return map;
-    for (const p of rawPersonas as Array<{ id: string; name: string; comment?: string | null }>) {
+    for (const p of rawPersonas) {
       map.set(p.id, p.comment ? `${p.name} - ${p.comment}` : p.name || "Unknown");
     }
     return map;

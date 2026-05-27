@@ -715,8 +715,8 @@
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/app/shell/RightPanel.tsx": {
-    "mtime": 1779835633.800041,
-    "ast_hash": "7fe9d7235bfceb747994ac022c7cb536",
+    "mtime": 1779913229.9894319,
+    "ast_hash": "a4df62a8a04fc2d273e6185f42da5922",
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/app/shell/ChatTitleControls.tsx": {
@@ -735,8 +735,8 @@
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/app/shell/ChatSidebar.tsx": {
-    "mtime": 1779907254.1316137,
-    "ast_hash": "7044f5c2d2e0064e6c4e6deb7052a654",
+    "mtime": 1779913209.3283143,
+    "ast_hash": "700c1568237372b1cdcf9c0fe259ab73",
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/app/providers/CustomThemeInjector.tsx": {
@@ -865,8 +865,8 @@
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/modes/shared/chat-ui/components/ChatSetupWizard.tsx": {
-    "mtime": 1779912872.69039,
-    "ast_hash": "01a42d03ba5f64d7409bb129a9e4cbaf",
+    "mtime": 1779914267.9516346,
+    "ast_hash": "ec4ce2e67724ddf9d249de8c27db2b17",
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/modes/shared/chat-ui/components/NewChatConnectionGate.tsx": {
@@ -880,8 +880,8 @@
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/modes/shared/chat-ui/components/QuickSwitcherMobile.tsx": {
-    "mtime": 1779910368.2700918,
-    "ast_hash": "af6dc8ea659a42bb4ebd6285d5f1b069",
+    "mtime": 1779913799.603274,
+    "ast_hash": "b0449278038cc8b920c4fd6f83aca73e",
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/modes/shared/chat-ui/components/SummariesEditorModal.tsx": {
@@ -900,8 +900,8 @@
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/modes/shared/chat-ui/components/QuickPersonaSwitcher.tsx": {
-    "mtime": 1779910359.495883,
-    "ast_hash": "305e7f1de3d32478c8df037aa6206ae3",
+    "mtime": 1779913795.8410854,
+    "ast_hash": "e3b6a87ef4690e039966b62bbb8a670c",
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/modes/shared/chat-ui/components/SummaryPopover.tsx": {
@@ -1505,8 +1505,8 @@
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/modes/router/components/RecentChats.tsx": {
-    "mtime": 1779897785.4785798,
-    "ast_hash": "765286a353c2496c8e02d4e694d242e1",
+    "mtime": 1779913216.4375827,
+    "ast_hash": "8191fdb049a7be7c1b00ad09372d9b2a",
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/modes/router/components/ModeSurface.tsx": {
@@ -1690,8 +1690,8 @@
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/shell/mari/components/ProfessorMariSurface.tsx": {
-    "mtime": 1779876700.1924949,
-    "ast_hash": "dff6916274b444474d9b6558ca72cd51",
+    "mtime": 1779913791.9915915,
+    "ast_hash": "00c9fe08ad4312cd0ace9ed1ceb81d44",
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/catalog/gallery/query-keys.ts": {
@@ -1825,13 +1825,13 @@
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/catalog/personas/components/PersonaEditor.tsx": {
-    "mtime": 1779867918.3424902,
-    "ast_hash": "6756ed50ae0a12baf2754fc8d04eab33",
+    "mtime": 1779913397.4404418,
+    "ast_hash": "fcd50060b1aefec058e04979d9f683f6",
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/catalog/personas/components/PersonasPanel.tsx": {
-    "mtime": 1779835633.8278894,
-    "ast_hash": "5a6d253560d0d237f97adea3fb3c4df1",
+    "mtime": 1779913773.3356652,
+    "ast_hash": "c11908602fe68c4f15c2a8449aca0995",
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/catalog/personas/components/PersonaMakerModal.tsx": {
@@ -1910,13 +1910,13 @@
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/catalog/lorebooks/components/LorebooksPanel.tsx": {
-    "mtime": 1779835633.8267288,
-    "ast_hash": "c09b7ca73180e000afa5f9a4aecef70a",
+    "mtime": 1779913236.7875333,
+    "ast_hash": "cb8747b13c4540d5acc1c5705c83a475",
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/catalog/lorebooks/components/LorebookEditor.tsx": {
-    "mtime": 1779906882.446314,
-    "ast_hash": "0c349eab40e666b44c41ccc480fcc972",
+    "mtime": 1779913258.0060332,
+    "ast_hash": "9e5f67441ca18f5b3ec72ce6d91e35a5",
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/catalog/lorebooks/components/ImportLorebookModal.tsx": {
@@ -2030,8 +2030,8 @@
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/catalog/characters/query-keys.ts": {
-    "mtime": 1779835633.823524,
-    "ast_hash": "524c7ccab911facaa66099c40497f90f",
+    "mtime": 1779913170.4004989,
+    "ast_hash": "38afde2a3cd65f677e362476720e3acc",
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/catalog/characters/index.ts": {
@@ -2085,8 +2085,8 @@
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/catalog/characters/hooks/use-characters.ts": {
-    "mtime": 1779909661.2158122,
-    "ast_hash": "fead79af5d484092cf3fec6073a3c92e",
+    "mtime": 1779914125.4892192,
+    "ast_hash": "ed8b4b519e771eaab0696b00acedc58a",
     "semantic_hash": ""
   },
   "/Users/marysia/Developer/Marinara-Engine/src/features/catalog/characters/lib/import-drop.test.ts": {

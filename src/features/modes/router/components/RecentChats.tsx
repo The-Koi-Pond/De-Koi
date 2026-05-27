@@ -5,7 +5,7 @@
 import { useMemo } from "react";
 import { MessageSquare, BookOpen } from "lucide-react";
 import { useRecentChatSummaries, type ChatListItem } from "../../../catalog/chats/index";
-import { useCharactersByIds } from "../../../catalog/characters/index";
+import { useCharacterSummariesByIds } from "../../../catalog/characters/index";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../../../shared/lib/utils";
 
@@ -32,7 +32,7 @@ export function RecentChats() {
       ),
     [recentChats],
   );
-  const { data: recentCharacters } = useCharactersByIds(recentCharacterIds, recentCharacterIds.length > 0);
+  const { data: recentCharacters } = useCharacterSummariesByIds(recentCharacterIds, recentCharacterIds.length > 0);
 
   const charLookup = useMemo(() => {
     const map = new Map<

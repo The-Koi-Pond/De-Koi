@@ -4,7 +4,6 @@
 import { useState, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import {
-  usePersonas,
   useDeletePersona,
   useActivatePersona,
   useUploadPersonaAvatar,
@@ -15,6 +14,7 @@ import {
   useUpdatePersona,
   useDuplicatePersona,
 } from "../hooks/use-personas";
+import { usePersonaSummaries } from "../../characters/index";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
   Plus,
@@ -49,14 +49,14 @@ type PersonaRow = {
   id: string;
   name: string;
   comment?: string;
-  description: string;
-  personality: string;
-  scenario: string;
-  backstory: string;
-  appearance: string;
+  description?: string;
+  personality?: string;
+  scenario?: string;
+  backstory?: string;
+  appearance?: string;
   avatarPath: string | null;
   isActive: string | boolean;
-  createdAt: string;
+  createdAt?: string;
   tags?: string[];
 };
 
@@ -70,7 +70,7 @@ function estimateTokens(p: PersonaRow): number {
 }
 
 export function PersonasPanel() {
-  const { data: personas, isLoading } = usePersonas();
+  const { data: personas, isLoading } = usePersonaSummaries();
   const deletePersona = useDeletePersona();
   const duplicatePersona = useDuplicatePersona();
   const updatePersona = useUpdatePersona();

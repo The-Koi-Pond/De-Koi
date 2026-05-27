@@ -12,6 +12,53 @@ import type { SpriteCapabilities, SpriteCleanupEngine } from "../../../../shared
 export { characterKeys, spriteKeys } from "../query-keys";
 
 type CharacterListRecord = Record<string, unknown> & { id?: string };
+export type CharacterSummary = {
+  id: string;
+  data?: {
+    name?: string;
+    tags?: unknown[];
+    extensions?: Record<string, unknown>;
+  };
+  comment?: string | null;
+  avatarPath?: string | null;
+};
+
+export type PersonaSummary = {
+  id: string;
+  name?: string;
+  comment?: string | null;
+  description?: string;
+  tags?: string[];
+  avatarPath?: string | null;
+  avatarCrop?: unknown;
+  isActive?: string | boolean;
+  createdAt?: string;
+  nameColor?: string;
+  dialogueColor?: string;
+  boxColor?: string;
+};
+
+const CHARACTER_SUMMARY_OPTIONS = {
+  fields: ["id", "data", "comment", "avatarPath"],
+  fieldSelections: { data: ["name", "tags", "extensions"] },
+};
+
+const PERSONA_SUMMARY_OPTIONS = {
+  fields: [
+    "id",
+    "name",
+    "comment",
+    "description",
+    "tags",
+    "avatarPath",
+    "avatarCrop",
+    "isActive",
+    "createdAt",
+    "nameColor",
+    "dialogueColor",
+    "boxColor",
+  ],
+};
 
 function isCharacterListRecord(value: unknown): value is CharacterListRecord & { id: string } {
   return Boolean(
@@ -68,6 +115,16 @@ export function useCharacters(enabled = true) {
   });
 }
 
+export function useCharacterSummaries(enabled = true) {
+  return useQuery({
+    queryKey: characterKeys.summaries(),
+    queryFn: () => storageApi.list<CharacterSummary>("characters", CHARACTER_SUMMARY_OPTIONS),
+    enabled,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export function useCharacter(id: string | null) {
   return useQuery({
     queryKey: characterKeys.detail(id ?? ""),
@@ -84,6 +141,25 @@ export function useCharactersByIds(ids: string[], enabled = true) {
     queries: uniqueIds.map((id) => ({
       queryKey: characterKeys.detail(id),
       queryFn: () => storageApi.get("characters", id),
+      enabled: enabled && !!id,
+      staleTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+    })),
+  });
+
+  return {
+    data: queries.map((query) => query.data).filter(Boolean),
+    isLoading: queries.some((query) => query.isLoading),
+    isFetching: queries.some((query) => query.isFetching),
+  };
+}
+
+export function useCharacterSummariesByIds(ids: string[], enabled = true) {
+  const uniqueIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  const queries = useQueries({
+    queries: uniqueIds.map((id) => ({
+      queryKey: characterKeys.summaryDetail(id),
+      queryFn: () => storageApi.get<CharacterSummary>("characters", id, CHARACTER_SUMMARY_OPTIONS),
       enabled: enabled && !!id,
       staleTime: 5 * 60_000,
       refetchOnWindowFocus: false,
@@ -398,6 +474,35 @@ export function usePersonas(enabled = true) {
   });
 }
 
+export function usePersonaSummaries(enabled = true) {
+  return useQuery({
+    queryKey: characterKeys.personaSummaries,
+    queryFn: () => storageApi.list<PersonaSummary>("personas", PERSONA_SUMMARY_OPTIONS),
+    enabled,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function usePersonaSummariesByIds(ids: string[], enabled = true) {
+  const uniqueIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  const queries = useQueries({
+    queries: uniqueIds.map((id) => ({
+      queryKey: characterKeys.personaSummaryDetail(id),
+      queryFn: () => storageApi.get<PersonaSummary>("personas", id, PERSONA_SUMMARY_OPTIONS),
+      enabled: enabled && !!id,
+      staleTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+    })),
+  });
+
+  return {
+    data: queries.map((query) => query.data).filter(Boolean),
+    isLoading: queries.some((query) => query.isLoading),
+    isFetching: queries.some((query) => query.isFetching),
+  };
+}
+
 export function usePersona(id: string | null, enabled = true) {
   return useQuery({
     queryKey: characterKeys.personaDetail(id ?? ""),
@@ -450,7 +555,10 @@ export function useCreatePersona() {
       savedStatusOptions?: string[];
       avatarCrop?: unknown;
     }) => storageApi.create("personas", data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.personas }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: characterKeys.personas });
+      qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });
+    },
   });
 }
 
@@ -480,6 +588,7 @@ export function useUpdatePersona() {
       avatarCrop?: unknown;
     }) => storageApi.update("personas", id, data),
     onSuccess: (updatedPersona, variables) => {
+      qc.setQueryData(characterKeys.personaDetail(variables.id), updatedPersona);
       qc.setQueryData<unknown[] | undefined>(characterKeys.personas, (old) => {
         if (!Array.isArray(old)) return old;
         const updatedId = (updatedPersona as { id?: string } | null)?.id ?? variables.id;
@@ -494,6 +603,8 @@ export function useUpdatePersona() {
       });
 
       qc.invalidateQueries({ queryKey: characterKeys.personas });
+      qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });
+      qc.invalidateQueries({ queryKey: characterKeys.personaDetail(variables.id) });
     },
   });
 }
@@ -502,7 +613,12 @@ export function useDeletePersona() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => storageApi.delete("personas", id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.personas }),
+    onSuccess: (_data, id) => {
+      qc.removeQueries({ queryKey: characterKeys.personaDetail(id) });
+      qc.removeQueries({ queryKey: characterKeys.personaSummaryDetail(id) });
+      qc.invalidateQueries({ queryKey: characterKeys.personas });
+      qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });
+    },
   });
 }
 
@@ -510,7 +626,10 @@ export function useDuplicatePersona() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => invokeTauri("storage_duplicate", { entity: "personas", id }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.personas }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: characterKeys.personas });
+      qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });
+    },
   });
 }
 
@@ -518,7 +637,11 @@ export function useActivatePersona() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => invokeTauri("persona_activate", { id }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.personas }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: characterKeys.personas });
+      qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });
+      qc.invalidateQueries({ queryKey: characterKeys.activePersona });
+    },
   });
 }
 
@@ -527,7 +650,12 @@ export function useUploadPersonaAvatar() {
   return useMutation({
     mutationFn: ({ id, avatar, filename }: { id: string; avatar: string; filename?: string }) =>
       invokeTauri("persona_avatar_upload", { id, body: { avatar, filename } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.personas }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: characterKeys.personas });
+      qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });
+      qc.invalidateQueries({ queryKey: characterKeys.personaDetail(variables.id) });
+      qc.invalidateQueries({ queryKey: characterKeys.personaSummaryDetail(variables.id) });
+    },
   });
 }
 

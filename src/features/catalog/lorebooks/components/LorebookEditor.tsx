@@ -35,7 +35,7 @@ import {
   useBulkUnvectorizeLorebookEntries,
   lorebookKeys,
 } from "../hooks/use-lorebooks";
-import { useCharacters, usePersonas } from "../../characters/index";
+import { useCharacterSummaries, usePersonaSummaries } from "../../characters/index";
 import { useConnections } from "../../connections/index";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -303,8 +303,8 @@ export function LorebookEditor() {
   const { data: rawLorebooks } = useLorebooks();
   const { data: rawEntries } = useLorebookEntries(lorebookId);
   const { data: rawFolders } = useLorebookFolders(lorebookId);
-  const { data: rawCharacters } = useCharacters();
-  const { data: rawPersonas } = usePersonas();
+  const { data: rawCharacters } = useCharacterSummaries();
+  const { data: rawPersonas } = usePersonaSummaries();
   const updateLorebook = useUpdateLorebook();
   const deleteLorebook = useDeleteLorebook();
   const createEntry = useCreateLorebookEntry();
@@ -321,8 +321,8 @@ export function LorebookEditor() {
   const folders = useMemo(() => (rawFolders ?? []) as LorebookFolder[], [rawFolders]);
   const characters = useMemo(() => {
     if (!rawCharacters) return [] as Array<{ id: string; name: string; tags: string[] }>;
-    return (rawCharacters as Array<{ id: string; data: Record<string, unknown> }>).map((c) => {
-      const parsed = c.data;
+    return rawCharacters.map((c) => {
+      const parsed = c.data ?? {};
       const tags = Array.isArray(parsed?.tags) ? parsed.tags.map(String).filter(Boolean) : [];
       return { id: c.id, name: typeof parsed?.name === "string" ? parsed.name : "Unknown", tags };
     });
@@ -333,7 +333,7 @@ export function LorebookEditor() {
   );
   const personas = useMemo(() => {
     if (!rawPersonas) return [] as Array<{ id: string; name: string; comment?: string | null }>;
-    return (rawPersonas as Array<{ id: string; name: string; comment?: string | null }>).map((p) => ({
+    return rawPersonas.map((p) => ({
       id: p.id,
       name: p.name || "Unknown",
       comment: p.comment ?? null,

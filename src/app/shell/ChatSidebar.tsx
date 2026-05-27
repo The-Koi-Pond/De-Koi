@@ -44,7 +44,7 @@ import {
   useReorderFolders,
   useMoveChat,
 } from "../../features/catalog/chats/index";
-import { useCharacters } from "../../features/catalog/characters/index";
+import { useCharacterSummaries } from "../../features/catalog/characters/index";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
 import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
@@ -131,7 +131,7 @@ export function ChatSidebar({
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
   const unreadCounts = useChatStore((s) => s.unreadCounts);
   const hydrateUnread = useChatStore((s) => s.hydrateUnread);
-  const { data: allCharacters } = useCharacters();
+  const { data: allCharacters } = useCharacterSummaries();
   const hasAnyDetailOpen = useUIStore((s) => s.hasAnyDetailOpen);
   const editorDirty = useUIStore((s) => s.editorDirty);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
@@ -158,7 +158,7 @@ export function ChatSidebar({
       }
     >();
     if (!allCharacters) return map;
-    for (const char of allCharacters as Array<{ id: string; data: unknown; avatarPath: string | null }>) {
+    for (const char of allCharacters) {
       const record = char.data && typeof char.data === "object" ? (char.data as Record<string, unknown>) : {};
       const extensions =
         record.extensions && typeof record.extensions === "object" ? (record.extensions as Record<string, unknown>) : {};

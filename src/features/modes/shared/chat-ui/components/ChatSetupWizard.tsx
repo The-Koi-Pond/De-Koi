@@ -24,7 +24,7 @@ import {
 import { cn, getAvatarCropStyle, type AvatarCrop } from "../../../../../shared/lib/utils";
 import { useConnections } from "../../../../catalog/connections/index";
 import { usePresets, usePresetFull, useDefaultPreset } from "../../../../catalog/presets/index";
-import { useCharacters, usePersonas } from "../../../../catalog/characters/index";
+import { useCharacterSummaries, usePersonaSummaries } from "../../../../catalog/characters/index";
 import { useLorebooks } from "../../../../catalog/lorebooks/index";
 import { useUpdateChat, useUpdateChatMetadata, useCreateMessage, chatKeys } from "../../../../catalog/chats/index";
 import { useChatPresets, useApplyChatPreset } from "../../../../catalog/chat-presets/index";
@@ -119,6 +119,13 @@ type ConnectionSetupOption = {
   name: string;
   provider?: string;
   defaultParameters?: unknown;
+};
+
+type CharacterSetupOption = {
+  id: string;
+  data: unknown;
+  comment?: string | null;
+  avatarPath: string | null;
 };
 
 function getPersonaTitle(persona: PersonaDisplayInfo): string | null {
@@ -308,8 +315,8 @@ export function ChatSetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardPro
 
 function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardProps) {
   const { data: connections } = useConnections();
-  const { data: allCharacters } = useCharacters();
-  const { data: allPersonas } = usePersonas();
+  const { data: allCharacters } = useCharacterSummaries();
+  const { data: allPersonas } = usePersonaSummaries();
   const updateChat = useUpdateChat();
   const updateMeta = useUpdateChatMetadata();
   const openRightPanel = useUIStore((s) => s.openRightPanel);
@@ -330,8 +337,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
   }, [chat.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const characters = useMemo(
-    () =>
-      (allCharacters ?? []) as Array<{ id: string; data: unknown; comment?: string | null; avatarPath: string | null }>,
+    () => (allCharacters ?? []) as CharacterSetupOption[],
     [allCharacters],
   );
   const personas = (allPersonas ?? []) as Array<{
@@ -860,8 +866,8 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   const { data: connections } = useConnections();
   const { data: presets } = usePresets();
   const { data: defaultPreset } = useDefaultPreset();
-  const { data: allPersonas } = usePersonas();
-  const { data: allCharacters } = useCharacters();
+  const { data: allPersonas } = usePersonaSummaries();
+  const { data: allCharacters } = useCharacterSummaries();
   const { data: lorebooks } = useLorebooks();
 
   // Chat-settings presets for the shortcut view
@@ -877,8 +883,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
     comment?: string | null;
   }>;
   const characters = useMemo(
-    () =>
-      (allCharacters ?? []) as Array<{ id: string; data: unknown; comment?: string | null; avatarPath: string | null }>,
+    () => (allCharacters ?? []) as CharacterSetupOption[],
     [allCharacters],
   );
   const connectionOptions = useMemo(
@@ -1010,38 +1015,47 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
         if (!userEditedName) updateData.name = buildAutoName(current);
         updateChat.mutate(updateData, {
           onSuccess: () => {
-            const char = characters.find((c) => c.id === charId);
-            if (!char) return;
-            const parsed = char.data;
-            const firstMes = (parsed as { first_mes?: string }).first_mes;
-            const altGreetings = (parsed as { alternate_greetings?: string[] }).alternate_greetings ?? [];
-            if (firstMes) {
-              createMessage
-                .mutateAsync({ role: "assistant", content: firstMes, characterId: charId })
-                .then(async (msg) => {
-                  if (msg?.id && altGreetings.length > 0) {
-                    for (const greeting of altGreetings) {
-                      if (greeting.trim()) {
-                        await invokeTauri("chat_message_add_swipe", {
-                          chatId: chat.id,
-                          messageId: msg.id,
-                          body: {
-                            content: greeting,
-                            silent: true,
-                          },
-                        });
+            void storageApi
+              .get<{ data?: unknown }>("characters", charId)
+              .then((char) => {
+                const parsed = char?.data && typeof char.data === "object" ? (char.data as Record<string, unknown>) : {};
+                const firstMes = typeof parsed.first_mes === "string" ? parsed.first_mes : "";
+                const altGreetings = Array.isArray(parsed.alternate_greetings)
+                  ? parsed.alternate_greetings.filter((greeting): greeting is string => typeof greeting === "string")
+                  : [];
+                if (firstMes) {
+                  createMessage
+                    .mutateAsync({ role: "assistant", content: firstMes, characterId: charId })
+                    .then(async (msg) => {
+                      if (msg?.id && altGreetings.length > 0) {
+                        for (const greeting of altGreetings) {
+                          if (greeting.trim()) {
+                            await invokeTauri("chat_message_add_swipe", {
+                              chatId: chat.id,
+                              messageId: msg.id,
+                              body: {
+                                content: greeting,
+                                silent: true,
+                              },
+                            });
+                          }
+                        }
+                        queryClient.invalidateQueries({ queryKey: chatKeys.messages(chat.id) });
                       }
-                    }
-                    queryClient.invalidateQueries({ queryKey: chatKeys.messages(chat.id) });
-                  }
-                })
-                .catch(() => {});
-            }
+                    })
+                    .catch((error) => {
+                      toast.error(error instanceof Error ? error.message : "Failed to add character greeting.");
+                    });
+                }
+              })
+              .catch((error) => {
+                toast.error(error instanceof Error ? error.message : "Failed to load character greeting.");
+              });
           },
         });
       }
     },
-    [chat.id, chatCharIds, characters, createMessage, updateChat, queryClient, userEditedName, buildAutoName],
+    [chat.id, chatCharIds, createMessage, updateChat, queryClient, userEditedName, buildAutoName],
   );
 
   const toggleLorebook = useCallback(
