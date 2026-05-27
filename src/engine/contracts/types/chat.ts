@@ -144,6 +144,8 @@ export interface ChatMetadata {
   activeSummaryPromptTemplateId?: string | null;
   /** Custom tags for organisation */
   tags: string[];
+  /** When true, this chat is pinned to the top of the sidebar for its mode. */
+  pinned?: boolean;
   /** Whether agents are enabled for this chat */
   enableAgents: boolean;
   /** Per-agent enable overrides (agentId → boolean) */
@@ -154,6 +156,8 @@ export interface ChatMetadata {
   lorebookKeeperTargetLorebookId?: string | null;
   /** How many assistant responses behind the latest available one Lorebook Keeper should read from. */
   lorebookKeeperReadBehindMessages?: number;
+  /** When true/omitted, Lorebook Keeper proposals wait for approve/reject instead of writing immediately. */
+  lorebookKeeperReviewRequired?: boolean;
   /** Tool/function IDs scoped to this chat. Non-empty = only these tools are sent; empty = use all enabled tools. */
   activeToolIds: string[];
   /** Per-chat variable selections for preset variables (variableName → value or values) */

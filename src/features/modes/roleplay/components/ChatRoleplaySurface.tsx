@@ -113,8 +113,8 @@ function CrossfadeBackground({
   className?: string;
   blurPx?: number;
 }) {
-  const [resolvedUrl, setResolvedUrl] = useState<string | null>(url);
-  const [bgA, setBgA] = useState<string | null>(url);
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
+  const [bgA, setBgA] = useState<string | null>(null);
   const [bgB, setBgB] = useState<string | null>(null);
   const [aActive, setAActive] = useState(true);
   const activeSlot = useRef<"a" | "b">("a");
@@ -129,6 +129,7 @@ function CrossfadeBackground({
 
   useEffect(() => {
     let cancelled = false;
+    setResolvedUrl(null);
     resolveManagedLocalAssetUrl(url)
       .then((nextUrl) => {
         if (!cancelled) setResolvedUrl(nextUrl);
@@ -705,6 +706,7 @@ export function ChatRoleplaySurface({
   const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
   const chatBackgroundBlur = useUIStore((s) => s.chatBackgroundBlur);
   const isConcludedScene = chatMeta.sceneStatus === "concluded";
+  const [addonsReady, setAddonsReady] = useState(false);
   const messageActions = isConcludedScene
     ? {
         onDelete: undefined,
@@ -756,14 +758,20 @@ export function ChatRoleplaySurface({
   const showSpriteOverlay =
     expressionAgentEnabled && spriteCharacterIds.length > 0 && overlaySpriteDisplayModes.length > 0;
 
+  useEffect(() => {
+    setAddonsReady(false);
+    const id = window.setTimeout(() => setAddonsReady(true), 180);
+    return () => window.clearTimeout(id);
+  }, [activeChatId]);
+
   return (
     <div data-component="ChatArea.Roleplay" className="flex flex-1 overflow-hidden">
       <div className="rpg-chat-area mari-chat-area relative flex flex-1 flex-col overflow-hidden">
         <CrossfadeBackground url={chatBackground} blurPx={chatBackgroundBlur} />
         <div className="rpg-overlay absolute inset-0" />
         <div className="rpg-vignette pointer-events-none absolute inset-0" />
-        {weatherEffects && <WeatherEffectsConnected />}
-        {showSpriteOverlay && (
+        {weatherEffects && addonsReady && <WeatherEffectsConnected />}
+        {showSpriteOverlay && addonsReady && (
           <Suspense fallback={null}>
             <SpriteOverlay
               characterIds={spriteCharacterIds}
@@ -795,7 +803,7 @@ export function ChatRoleplaySurface({
                   paddingRight: "calc(1rem + var(--tracker-panel-hud-clear-right, 0px))",
                 }}
               >
-                {chat && agentsUiEnabled && (
+                {chat && agentsUiEnabled && addonsReady && (
                   <div className="pointer-events-auto flex-1 overflow-x-auto">
                     <Suspense fallback={null}>
                       <RoleplayHUD
@@ -876,7 +884,7 @@ export function ChatRoleplaySurface({
                   centerCompact ? "flex" : "flex md:hidden",
                 )}
               >
-                {chat && agentsUiEnabled && (
+                {chat && agentsUiEnabled && addonsReady && (
                   <div
                     className="flex w-full items-center justify-between pb-1 pt-2"
                     style={{
@@ -1192,10 +1200,11 @@ export function ChatRoleplaySurface({
           </div>
         </div>
 
-        {/* Always mount so stagger timer runs even when panel is hidden */}
-        <Suspense fallback={null}>
-          <EchoChamberPanel hiddenOnMobile={hideEchoChamberOnMobile} />
-        </Suspense>
+        {addonsReady && (
+          <Suspense fallback={null}>
+            <EchoChamberPanel hiddenOnMobile={hideEchoChamberOnMobile} />
+          </Suspense>
+        )}
       </div>
 
       <ChatCommonOverlays

@@ -64,6 +64,7 @@ export function useCharacters(enabled = true) {
     queryFn: () => storageApi.list<unknown>("characters"),
     enabled,
     staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -73,6 +74,7 @@ export function useCharacter(id: string | null) {
     queryFn: () => storageApi.get("characters", id!),
     enabled: !!id,
     staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -84,6 +86,7 @@ export function useCharactersByIds(ids: string[], enabled = true) {
       queryFn: () => storageApi.get("characters", id),
       enabled: enabled && !!id,
       staleTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
     })),
   });
 

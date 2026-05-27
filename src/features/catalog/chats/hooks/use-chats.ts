@@ -145,6 +145,7 @@ const CHAT_SUMMARY_METADATA_FIELDS = [
   "autonomousUnreadCount",
   "branchName",
   "gameId",
+  "pinned",
   "tags",
 ];
 
@@ -167,7 +168,13 @@ export type ChatListItem = Pick<
   metadata: Partial<
     Pick<
       Chat["metadata"],
-      "autonomousUnreadAt" | "autonomousUnreadCharacterIds" | "autonomousUnreadCount" | "branchName" | "gameId" | "tags"
+      | "autonomousUnreadAt"
+      | "autonomousUnreadCharacterIds"
+      | "autonomousUnreadCount"
+      | "branchName"
+      | "gameId"
+      | "pinned"
+      | "tags"
     >
   >;
 };
@@ -178,6 +185,7 @@ export function useChats() {
     queryFn: () => storageApi.list<Chat>("chats"),
     staleTime: 10_000,
     refetchOnMount: false,
+    refetchOnWindowFocus: false,
     refetchOnReconnect: true,
     retry: (failureCount, error) => shouldRetryApiQuery(failureCount, error, { maxRetries: 10 }),
     retryDelay: (attempt, error) => apiQueryRetryDelay(attempt, error, { baseDelayMs: 750, maxDelayMs: 5_000 }),
@@ -194,6 +202,7 @@ export function useChatSummaries() {
       }),
     staleTime: 10_000,
     refetchOnMount: false,
+    refetchOnWindowFocus: false,
     refetchOnReconnect: true,
     retry: (failureCount, error) => shouldRetryApiQuery(failureCount, error, { maxRetries: 10 }),
     retryDelay: (attempt, error) => apiQueryRetryDelay(attempt, error, { baseDelayMs: 750, maxDelayMs: 5_000 }),
@@ -213,6 +222,7 @@ export function useRecentChatSummaries(limit = 3) {
       }),
     staleTime: 10_000,
     refetchOnMount: false,
+    refetchOnWindowFocus: false,
     refetchOnReconnect: true,
   });
 }
@@ -226,6 +236,7 @@ export function useChat(id: string | null) {
     }),
     enabled: !!id,
     staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 

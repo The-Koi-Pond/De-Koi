@@ -17,6 +17,16 @@ type NewChatSetupIntent = {
   shortcutMode: boolean;
 };
 
+/** Read the last active chat so reloads reopen the selected transcript. */
+function loadActiveChatId(): string | null {
+  try {
+    const id = localStorage.getItem(STORAGE_KEY)?.trim();
+    return id || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Read drafts from localStorage so typed input survives reloads, tab closes, and app restarts. */
 function loadDrafts(): Map<string, string> {
   try {
@@ -171,7 +181,7 @@ interface ChatState {
 
 export const useChatStore = create<ChatState>()(
   subscribeWithSelector((set, get) => ({
-    activeChatId: null,
+    activeChatId: loadActiveChatId(),
     activeChat: null,
     messages: [],
     isStreaming: false,

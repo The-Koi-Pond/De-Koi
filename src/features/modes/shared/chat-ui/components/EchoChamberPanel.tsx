@@ -159,7 +159,7 @@ export function EchoChamberPanel({ hiddenOnMobile = false }: EchoChamberPanelPro
   const setEchoLoadedChatId = useAgentStore((s) => s.setEchoLoadedChatId);
 
   useEffect(() => {
-    if (!activeChatId || !echoEnabled) return;
+    if (!echoChamberOpen || !activeChatId || !echoEnabled) return;
     // Already loaded for this chat (survives component remounts)
     if (echoLoadedChatId === activeChatId) return;
 
@@ -198,6 +198,7 @@ export function EchoChamberPanel({ hiddenOnMobile = false }: EchoChamberPanelPro
         /* silently ignore load failures */
       });
   }, [
+    echoChamberOpen,
     activeChatId,
     echoEnabled,
     echoLoadedChatId,

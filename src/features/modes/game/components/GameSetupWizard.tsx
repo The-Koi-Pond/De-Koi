@@ -21,7 +21,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import type { GameSetupConfig, GameGmMode } from "../../../../engine/contracts/types/game";
-import { getCharacterTitle } from "../../../../shared/lib/character-display";
+import { getCharacterTitle, parseCharacterDisplayData } from "../../../../shared/lib/character-display";
 import { spotifyApi } from "../../../../shared/api/integration-utility-api";
 import { cn, getAvatarCropStyle, parseAvatarCropJson, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { Modal } from "../../../../shared/components/ui/Modal";
@@ -32,7 +32,7 @@ import {
   type EditableGenerationParameters,
 } from "../../../../shared/components/ui/GenerationParametersEditor";
 import { useConnections } from "../../../catalog/connections/index";
-import { usePersonas } from "../../../catalog/characters/index";
+import { useCharacters, usePersonas } from "../../../catalog/characters/index";
 import { useLorebooks } from "../../../catalog/lorebooks/index";
 import { useGameAssetStore } from "../stores/game-asset.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -291,7 +291,7 @@ function rememberGameLanguage(language: string): void {
   }
 }
 
-export function GameSetupWizard({ error, onComplete, onCancel, isLoading, characters }: GameSetupWizardProps) {
+export function GameSetupWizard({ error, onComplete, onCancel, isLoading, characters: linkedCharacters }: GameSetupWizardProps) {
   const [step, setStep] = useState(0);
   const [gameName, setGameName] = useState("");
   const [genres, setGenres] = useState<string[]>(["Fantasy"]);
@@ -346,6 +346,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading, charac
 
   const { data: connectionsList } = useConnections();
   const { data: personasList } = usePersonas();
+  const { data: rawCharacters, isLoading: isCharactersLoading } = useCharacters(step === 1);
   const { data: lorebooksList } = useLorebooks();
   const spotifyPlaylistsQuery = useQuery({
     queryKey: ["spotify", "playlists", 50],
@@ -395,6 +396,56 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading, charac
       }>) ?? [],
     [personasList],
   );
+  const characters = useMemo(() => {
+    const fromLibrary = ((rawCharacters ?? []) as Array<{
+      id: string;
+      data: unknown;
+      comment?: string | null;
+      avatarPath?: string | null;
+    }>).map((character) => {
+      const display = parseCharacterDisplayData({
+        data: character.data,
+        comment: character.comment,
+      });
+      const data =
+        character.data && typeof character.data === "object" && !Array.isArray(character.data)
+          ? (character.data as Record<string, unknown>)
+          : {};
+      const extensions =
+        data.extensions && typeof data.extensions === "object" && !Array.isArray(data.extensions)
+          ? (data.extensions as Record<string, unknown>)
+          : {};
+      const rawCrop = extensions.avatarCrop;
+      const avatarCrop =
+        typeof rawCrop === "string"
+          ? parseAvatarCropJson(rawCrop)
+          : rawCrop && typeof rawCrop === "object" && !Array.isArray(rawCrop)
+            ? (rawCrop as AvatarCropValue)
+            : null;
+      return {
+        id: character.id,
+        name: display.name,
+        comment: display.comment,
+        avatarUrl: character.avatarPath ?? null,
+        avatarCrop,
+      };
+    });
+
+    const byId = new Map<string, GameSetupWizardProps["characters"][number]>(
+      fromLibrary.map((character) => [character.id, character]),
+    );
+    for (const character of linkedCharacters) {
+      if (!byId.has(character.id)) {
+        byId.set(character.id, {
+          ...character,
+          comment: character.comment ?? null,
+          avatarUrl: character.avatarUrl ?? null,
+          avatarCrop: character.avatarCrop ?? null,
+        });
+      }
+    }
+    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [linkedCharacters, rawCharacters]);
 
   const lorebooks = useMemo(
     () => (lorebooksList as Array<{ id: string; name: string; enabled?: boolean }>) ?? [],
@@ -951,7 +1002,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading, charac
                     ))}
                     {filteredGmCharacters.length === 0 && (
                       <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
-                        {characters.length === 0 ? "No characters found." : "No matches."}
+                        {isCharactersLoading ? "Loading characters..." : characters.length === 0 ? "No characters found." : "No matches."}
                       </p>
                     )}
                   </div>
@@ -1038,7 +1089,11 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading, charac
                   })}
                   {filteredPartyCharacters.length === 0 && (
                     <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
-                      {characters.length === 0 ? "No characters found. Create characters first." : "No matches."}
+                      {isCharactersLoading
+                        ? "Loading characters..."
+                        : characters.length === 0
+                          ? "No characters found. Create characters first."
+                          : "No matches."}
                     </p>
                   )}
                 </div>

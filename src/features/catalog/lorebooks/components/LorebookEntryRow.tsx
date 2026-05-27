@@ -907,8 +907,7 @@ function toggleStringValue(values: string[] | undefined, value: string) {
 }
 
 function buildEntrySavePayload(form: Partial<LorebookEntry>) {
-  return {
-    name: form.name,
+  const payload: Partial<LorebookEntry> = {
     content: form.content,
     description: form.description,
     keys: form.keys,
@@ -935,6 +934,9 @@ function buildEntrySavePayload(form: Partial<LorebookEntry>) {
     preventRecursion: form.preventRecursion,
     excludeFromVectorization: form.excludeFromVectorization,
   };
+  const name = typeof form.name === "string" ? form.name.trim() : "";
+  if (name) payload.name = name;
+  return payload;
 }
 
 function FilterModeSelect({

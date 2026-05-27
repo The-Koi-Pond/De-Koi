@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useChat,
   useChatMessageCount,
@@ -144,7 +144,6 @@ export function useChatSurfaceData({
     isFetchingNextPage,
     refetch: refetchMessages,
   } = useChatMessages(activeChatId, resolvedMessagePageSize, !!chat);
-  const { data: messageCountData } = useChatMessageCount(chat ? activeChatId : null);
 
   useEffect(() => {
     if (!(chatError instanceof ApiError) || chatError.status !== 404) return;
@@ -177,6 +176,16 @@ export function useChatSurfaceData({
     [msgData],
   );
   const loadedMessageCount = messages?.length ?? 0;
+  const [messageCountEnabledForChatId, setMessageCountEnabledForChatId] = useState<string | null>(null);
+  useEffect(() => {
+    setMessageCountEnabledForChatId(null);
+    if (!chat?.id || !msgData?.pages.length) return;
+    const id = window.setTimeout(() => setMessageCountEnabledForChatId(activeChatId), 350);
+    return () => window.clearTimeout(id);
+  }, [activeChatId, chat?.id, msgData?.pages.length]);
+  const { data: messageCountData } = useChatMessageCount(
+    chat && messageCountEnabledForChatId === activeChatId ? activeChatId : null,
+  );
   const totalMessageCount =
     typeof messageCountData?.count === "number"
       ? Math.max(messageCountData.count, loadedMessageCount)

@@ -535,6 +535,38 @@ function buildSpotifyDjConstraints(chatMode: string, chatMeta: JsonRecord): Reco
   return constraints;
 }
 
+function lorebookKeeperActiveForContext(input: GenerationAgentRuntimeInput): boolean {
+  if (input.agentTypes?.has("lorebook-keeper")) return true;
+  const activeAgentIds = chatActiveAgentIds(input);
+  return activeAgentIds.has("lorebook-keeper");
+}
+
+async function loadLorebookKeeperEntries(
+  storage: StorageGateway,
+  chatMeta: JsonRecord,
+): Promise<Array<{ id: string; name: string; content: string; keys: string[]; locked: boolean }> | null> {
+  const configuredLorebookId = readString(chatMeta.lorebookKeeperTargetLorebookId).trim();
+  const activeLorebookIds = stringSet(chatMeta.activeLorebookIds);
+  let lorebookId = configuredLorebookId || [...activeLorebookIds][0] || "";
+
+  if (!lorebookId) {
+    const lorebook = (await storage.list<JsonRecord>("lorebooks").catch(() => [])).find((row) =>
+      boolish(row.enabled, true),
+    );
+    lorebookId = readString(lorebook?.id).trim();
+  }
+
+  if (!lorebookId) return null;
+  const entries = await storage.list<JsonRecord>("lorebook-entries", { filters: { lorebookId } }).catch(() => []);
+  return entries.map((entry) => ({
+    id: readString(entry.id).trim(),
+    name: readString(entry.name).trim() || "Unnamed",
+    content: readString(entry.content).trim(),
+    keys: Array.isArray(entry.keys) ? entry.keys.map((key) => readString(key).trim()).filter(Boolean) : [],
+    locked: boolish(entry.locked, false),
+  }));
+}
+
 async function buildAgentContext(deps: AgentDeps, input: GenerationAgentRuntimeInput): Promise<AgentContext> {
   const chatId = readString(input.chat.id);
   const chatMode = readString(input.chat.mode || input.chat.chatMode, "roleplay");
@@ -548,6 +580,10 @@ async function buildAgentContext(deps: AgentDeps, input: GenerationAgentRuntimeI
   const secretPlotState = secretPlotStateFromMemory(memory);
   if (secretPlotState) memory._secretPlotState = secretPlotState;
   memory._spotifyDjConstraints = buildSpotifyDjConstraints(chatMode, chatMeta);
+  if (lorebookKeeperActiveForContext(input)) {
+    const existingLorebookEntries = await loadLorebookKeeperEntries(deps.storage, chatMeta);
+    if (existingLorebookEntries) memory._existingLorebookEntries = existingLorebookEntries;
+  }
   return {
     chatId,
     chatMode,

@@ -23,6 +23,23 @@ export interface PendingCardUpdate {
   timestamp: number;
 }
 
+export interface PendingLorebookUpdate {
+  id: string;
+  chatId: string;
+  lorebookId: string;
+  lorebookName: string;
+  action: "create" | "update" | "delete";
+  entryId: string | null;
+  entryName: string;
+  content: string;
+  newFacts: string[];
+  keys: string[];
+  tag: string;
+  reason: string;
+  agentName: string;
+  timestamp: number;
+}
+
 interface AgentState {
   activeAgents: string[];
   lastResults: Map<string, AgentResult>;
@@ -55,6 +72,7 @@ interface AgentState {
   }>;
   cyoaChoicesChatId: string | null;
   pendingCardUpdates: PendingCardUpdate[];
+  pendingLorebookUpdates: PendingLorebookUpdate[];
 
   // Actions
   setActiveAgents: (agents: string[]) => void;
@@ -80,6 +98,9 @@ interface AgentState {
   enqueuePendingCardUpdate: (entry: PendingCardUpdate) => void;
   dismissPendingCardUpdate: (id: string) => void;
   clearPendingCardUpdates: () => void;
+  enqueuePendingLorebookUpdate: (entry: PendingLorebookUpdate) => void;
+  dismissPendingLorebookUpdate: (id: string) => void;
+  clearPendingLorebookUpdates: () => void;
   reset: () => void;
 }
 
@@ -98,6 +119,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   cyoaChoices: [],
   cyoaChoicesChatId: null,
   pendingCardUpdates: [],
+  pendingLorebookUpdates: [],
 
   setActiveAgents: (agents) => set({ activeAgents: agents }),
   setProcessing: (processing) => set({ isProcessing: processing }),
@@ -180,6 +202,11 @@ export const useAgentStore = create<AgentState>((set) => ({
   dismissPendingCardUpdate: (id) =>
     set((s) => ({ pendingCardUpdates: s.pendingCardUpdates.filter((e) => e.id !== id) })),
   clearPendingCardUpdates: () => set({ pendingCardUpdates: [] }),
+  enqueuePendingLorebookUpdate: (entry) =>
+    set((s) => ({ pendingLorebookUpdates: [...s.pendingLorebookUpdates, entry].slice(-50) })),
+  dismissPendingLorebookUpdate: (id) =>
+    set((s) => ({ pendingLorebookUpdates: s.pendingLorebookUpdates.filter((e) => e.id !== id) })),
+  clearPendingLorebookUpdates: () => set({ pendingLorebookUpdates: [] }),
 
   reset: () =>
     set({
@@ -197,5 +224,6 @@ export const useAgentStore = create<AgentState>((set) => ({
       cyoaChoices: [],
       cyoaChoicesChatId: null,
       pendingCardUpdates: [],
+      pendingLorebookUpdates: [],
     }),
 }));

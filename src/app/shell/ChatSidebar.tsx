@@ -26,12 +26,14 @@ import {
   Pencil,
   Download,
   X,
+  Star,
 } from "lucide-react";
 import {
   useBulkExportChats,
   useChatSummaries,
   useDeleteChat,
   useDeleteChatGroup,
+  useUpdateChatMetadata,
   type BulkChatExportFormat,
 } from "../../features/catalog/chats/index";
 import {
@@ -61,6 +63,10 @@ function getChatTags(chat: { metadata?: { tags?: unknown } | null }): string[] {
   return Array.isArray(chat.metadata?.tags)
     ? chat.metadata.tags.filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
     : [];
+}
+
+function isChatPinned(chat: { metadata?: unknown }): boolean {
+  return parseChatMetadata(chat.metadata).pinned === true;
 }
 
 function toSearchText(value: unknown): string {
@@ -119,6 +125,7 @@ export function ChatSidebar({
   const { data: chats, isError: chatsError, isLoading, isFetching, refetch: refetchChats } = useChatSummaries();
   const deleteChat = useDeleteChat();
   const deleteChatGroup = useDeleteChatGroup();
+  const updateChatMetadata = useUpdateChatMetadata();
   const bulkExportChats = useBulkExportChats();
   const activeChatId = useChatStore((s) => s.activeChatId);
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
@@ -326,12 +333,22 @@ export function ChatSidebar({
     return folders.filter((f) => f.mode === activeTab).sort((a, b) => a.sortOrder - b.sortOrder);
   }, [folders, activeTab]);
 
-  const { unfiledChats, folderChatsMap } = useMemo(() => {
-    if (!displayChats.length)
-      return { unfiledChats: displayChats, folderChatsMap: new Map<string, typeof displayChats>() };
+  const { pinnedChats, unfiledChats, folderChatsMap } = useMemo(() => {
+    if (!displayChats.length) {
+      return {
+        pinnedChats: [] as typeof displayChats,
+        unfiledChats: displayChats,
+        folderChatsMap: new Map<string, typeof displayChats>(),
+      };
+    }
+    const pinned: typeof displayChats = [];
     const unfiled: typeof displayChats = [];
     const map = new Map<string, typeof displayChats>();
     for (const entry of displayChats) {
+      if (isChatPinned(entry.chat)) {
+        pinned.push(entry);
+        continue;
+      }
       const fid = entry.chat.folderId;
       if (!fid) {
         unfiled.push(entry);
@@ -340,7 +357,7 @@ export function ChatSidebar({
       if (!map.has(fid)) map.set(fid, []);
       map.get(fid)!.push(entry);
     }
-    return { unfiledChats: unfiled, folderChatsMap: map };
+    return { pinnedChats: pinned, unfiledChats: unfiled, folderChatsMap: map };
   }, [displayChats]);
 
   const [localFolderOrder, setLocalFolderOrder] = useState<string[]>([]);
@@ -561,6 +578,7 @@ export function ChatSidebar({
     const cfg = MODE_CONFIG[chat.mode] ?? MODE_CONFIG.conversation;
     const isActive = activeChatId === chat.id || (chat.groupId != null && chat.groupId === activeGroupId);
     const isSelected = selectedChatIds.has(chat.id);
+    const pinned = isChatPinned(chat);
     return (
       <div
         role="button"
@@ -762,6 +780,27 @@ export function ChatSidebar({
           <span className="shrink-0 text-[0.625rem] text-[var(--muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100 max-md:opacity-100">
             {cfg.shortLabel}
           </span>
+        )}
+
+        {/* Pin chat */}
+        {!multiSelectMode && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              updateChatMetadata.mutate({ id: chat.id, pinned: !pinned });
+            }}
+            disabled={updateChatMetadata.isPending}
+            className={cn(
+              "shrink-0 rounded-md p-1 transition-all hover:bg-[var(--accent)] disabled:opacity-50",
+              pinned
+                ? "text-amber-400 opacity-100"
+                : "text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100 max-md:opacity-100",
+            )}
+            title={pinned ? "Unpin chat" : "Pin chat"}
+            aria-label={pinned ? "Unpin chat" : "Pin chat"}
+          >
+            <Star size="0.75rem" className={pinned ? "fill-current" : ""} />
+          </button>
         )}
 
         {/* Move to folder */}
@@ -1059,6 +1098,17 @@ export function ChatSidebar({
         )}
 
         <div className="stagger-children flex flex-col gap-0.5">
+          {/* Pinned chats */}
+          {pinnedChats.length > 0 && (
+            <div className="mb-1 flex flex-col gap-0.5">
+              <div className="flex items-center gap-1 px-2 py-1 text-[0.5625rem] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                <Star size="0.625rem" className="fill-amber-400 text-amber-400" />
+                Pinned
+              </div>
+              {pinnedChats.map(renderChatRow)}
+            </div>
+          )}
+
           {/* Folders (drag-to-reorder) */}
           {localFolderOrder.length > 0 && (
             <Reorder.Group

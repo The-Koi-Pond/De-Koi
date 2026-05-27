@@ -6,7 +6,7 @@ use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 use std::fmt;
 use std::fs;
-use std::io::{BufReader, ErrorKind, Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -370,6 +370,9 @@ impl FileStorage {
         let path = self.collection_path("messages")?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
             return Ok(0);
+        }
+        if let Some(count) = count_pretty_messages_for_chat(&path, chat_id)? {
+            return Ok(count);
         }
         let file = fs::File::open(path)?;
         let reader = BufReader::new(file);
@@ -1027,6 +1030,30 @@ impl<'de, 'a> Visitor<'de> for MessageCountForChatRowVisitor<'a> {
         }
         Ok(matches_chat)
     }
+}
+
+fn count_pretty_messages_for_chat(path: &Path, chat_id: &str) -> AppResult<Option<usize>> {
+    let encoded_chat_id = serde_json::to_string(chat_id)?;
+    let pretty_field = format!("\"chatId\": {encoded_chat_id}");
+    let compact_field = format!("\"chatId\":{encoded_chat_id}");
+    let file = fs::File::open(path)?;
+    let reader = BufReader::new(file);
+    let mut saw_chat_id_field = false;
+    let mut count = 0;
+
+    for line in reader.lines() {
+        let line = line?;
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("\"chatId\"") {
+            continue;
+        }
+        saw_chat_id_field = true;
+        if trimmed.starts_with(&pretty_field) || trimmed.starts_with(&compact_field) {
+            count += 1;
+        }
+    }
+
+    Ok(saw_chat_id_field.then_some(count))
 }
 
 fn read_pretty_message_page_from_file(

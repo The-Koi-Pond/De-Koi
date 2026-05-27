@@ -556,6 +556,7 @@ export function ChatSettingsDrawer({
     0,
     100,
   );
+  const lorebookKeeperReviewRequired = metadata.lorebookKeeperReviewRequired !== false;
 
   // Build the available tool list: built-in + custom tools from DB
   const availableTools = useMemo(() => {
@@ -3967,6 +3968,36 @@ export function ChatSettingsDrawer({
                           className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)]"
                         />
                       </label>
+
+                      <div className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 sm:col-span-2">
+                        <div className="min-w-0">
+                          <p className="text-[0.6875rem] font-medium text-[var(--foreground)]">Review before saving</p>
+                          <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                            Queue Lorebook Keeper proposals for approve/reject instead of committing them immediately.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateMeta.mutate({
+                              id: chat.id,
+                              lorebookKeeperReviewRequired: !lorebookKeeperReviewRequired,
+                            })
+                          }
+                          className={cn(
+                            "relative h-5 w-9 shrink-0 rounded-full transition-colors",
+                            lorebookKeeperReviewRequired ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
+                          )}
+                          aria-pressed={lorebookKeeperReviewRequired}
+                        >
+                          <span
+                            className={cn(
+                              "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform",
+                              lorebookKeeperReviewRequired && "translate-x-4",
+                            )}
+                          />
+                        </button>
+                      </div>
                     </div>
 
                     <p className="text-[0.625rem] text-[var(--muted-foreground)]">
@@ -6413,27 +6444,22 @@ function Section({
 
   return (
     <div className="border-b border-[var(--border)]">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-[var(--accent)]/50"
-      >
-        {icon && <span className="text-[var(--muted-foreground)]">{icon}</span>}
-        <span className="flex-1 text-xs font-semibold">{label}</span>
-        {count != null && count > 0 && (
-          <span className="rounded-full bg-[var(--primary)]/15 px-1.5 py-0.5 text-[0.625rem] font-medium text-[var(--primary)]">
-            {count}
-          </span>
-        )}
-        {help && (
-          <span onClick={(e) => e.stopPropagation()}>
-            <HelpTooltip text={help} side="left" />
-          </span>
-        )}
-        <ChevronDown
-          size="0.75rem"
-          className={cn("text-[var(--muted-foreground)] transition-transform", open && "rotate-180")}
-        />
-      </button>
+      <div className="flex items-center gap-2 px-4 py-3 transition-colors hover:bg-[var(--accent)]/50">
+        <button type="button" onClick={() => setOpen((o) => !o)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          {icon && <span className="text-[var(--muted-foreground)]">{icon}</span>}
+          <span className="flex-1 truncate text-xs font-semibold">{label}</span>
+          {count != null && count > 0 && (
+            <span className="rounded-full bg-[var(--primary)]/15 px-1.5 py-0.5 text-[0.625rem] font-medium text-[var(--primary)]">
+              {count}
+            </span>
+          )}
+          <ChevronDown
+            size="0.75rem"
+            className={cn("text-[var(--muted-foreground)] transition-transform", open && "rotate-180")}
+          />
+        </button>
+        {help && <HelpTooltip text={help} side="left" />}
+      </div>
       {open && <div className="px-6 py-3">{children}</div>}
     </div>
   );

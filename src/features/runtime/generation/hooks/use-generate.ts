@@ -33,6 +33,12 @@ import { worldStateApi, type WorldStateTarget } from "../../world-state/index";
 import { chatKeys } from "../../../catalog/chats/index";
 import { characterKeys } from "../../../catalog/characters/index";
 import {
+  applyLorebookKeeperUpdate,
+  buildPendingLorebookUpdates,
+  lorebookKeys,
+  lorebookKeeperReviewRequired,
+} from "../../../catalog/lorebooks/index";
+import {
   applyGenerationReplayToRegenerateInput,
   type GenerationReplayInput,
   type GenerationReplay,
@@ -58,6 +64,31 @@ function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
   return String(error ?? "Generation failed");
+}
+
+async function persistGenerationFailureNotice(
+  queryClient: QueryClient,
+  chatId: string,
+  message: string,
+): Promise<void> {
+  const content = `Generation failed: ${message || "Unknown provider error"}\n\nYour message was kept. Fix the connection or provider issue, then retry.`;
+  try {
+    await storageApi.createChatMessage<Message>(chatId, {
+      role: "system",
+      content,
+      characterId: null,
+      extra: {
+        hiddenFromAi: true,
+        hiddenFromAI: true,
+        generationError: true,
+      },
+    });
+    await queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+    await queryClient.invalidateQueries({ queryKey: chatKeys.messageCount(chatId) });
+    await queryClient.invalidateQueries({ queryKey: chatKeys.list() });
+  } catch {
+    // The toast still carries the provider error if persistence itself fails.
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -736,6 +767,28 @@ async function applyAgentResultEffects(
     if (pending.length) useUIStore.getState().openModal("character-card-update");
   }
 
+  if (result.type === "lorebook_update" || result.agentType === "lorebook-keeper") {
+    const pending = await buildPendingLorebookUpdates(queryClient, chatId, agentName, result.data);
+    if (pending.length) {
+      const chat =
+        queryClient.getQueryData<Chat>(chatKeys.detail(chatId)) ??
+        ((await storageApi.get<Chat>("chats", chatId).catch(() => null)) as Chat | null);
+      if (lorebookKeeperReviewRequired(chat)) {
+        for (const entry of pending) agentStore.enqueuePendingLorebookUpdate(entry);
+        useUIStore.getState().openModal("lorebook-keeper-review");
+      } else {
+        let applied = 0;
+        for (const entry of pending) {
+          await applyLorebookKeeperUpdate(entry);
+          applied += 1;
+          await queryClient.invalidateQueries({ queryKey: lorebookKeys.entries(entry.lorebookId) });
+        }
+        await queryClient.invalidateQueries({ queryKey: lorebookKeys.active() });
+        if (applied > 0) toast.success(`Lorebook Keeper applied ${applied} ${applied === 1 ? "update" : "updates"}.`);
+      }
+    }
+  }
+
   if (result.type === "haptic_command" || result.agentType === "haptic") await applyHapticAgentResult(result.data);
   if (result.type === "background_change") applyBackgroundChoice(data.chosen);
   if (result.agentType === "quest") applyQuestUpdates(result.data);
@@ -920,7 +973,9 @@ export async function runGenerationWithUi(
     return received.length > 0;
   } catch (error) {
     if (!(error instanceof DOMException && error.name === "AbortError")) {
-      toast.error(errorMessage(error));
+      const message = errorMessage(error);
+      toast.error(message);
+      await persistGenerationFailureNotice(queryClient, chatId, message);
     }
     throw error;
   } finally {

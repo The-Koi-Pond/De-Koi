@@ -32,6 +32,7 @@ import {
   useUpdateLorebookEntry,
   useReorderLorebookFolders,
   useTransferLorebookEntries,
+  useBulkUnvectorizeLorebookEntries,
   lorebookKeys,
 } from "../hooks/use-lorebooks";
 import { useCharacters, usePersonas } from "../../characters/index";
@@ -59,6 +60,7 @@ import {
   ArrowUpDown,
   Hash,
   Sparkles,
+  Eraser,
   Loader2,
   Check,
   CheckSquare2,
@@ -311,6 +313,7 @@ export function LorebookEditor() {
   const createFolder = useCreateLorebookFolder();
   const reorderFolders = useReorderLorebookFolders();
   const transferEntries = useTransferLorebookEntries();
+  const unvectorizeEntries = useBulkUnvectorizeLorebookEntries();
 
   const lorebook = rawLorebook as Lorebook | undefined;
   const lorebooks = useMemo(() => (rawLorebooks ?? []) as Lorebook[], [rawLorebooks]);
@@ -687,6 +690,35 @@ export function LorebookEditor() {
       transferTargetLorebooks,
     ],
   );
+
+  const handleUnvectorizeSelectedEntries = useCallback(async () => {
+    if (!lorebookId || selectedEntryIds.size === 0) return;
+    const selectedIds = Array.from(selectedEntryIds);
+    const vectorizedSelectedCount = entries.filter(
+      (entry) => selectedEntryIds.has(entry.id) && Array.isArray(entry.embedding) && entry.embedding.length > 0,
+    ).length;
+    if (vectorizedSelectedCount === 0) {
+      toast.info("No selected entries are vectorized.");
+      return;
+    }
+    if (
+      !(await showConfirmDialog({
+        title: "Unvectorize Entries",
+        message: `Clear stored embeddings for ${vectorizedSelectedCount} selected ${
+          vectorizedSelectedCount === 1 ? "entry" : "entries"
+        }? Keyword and regex matching will keep working.`,
+        confirmLabel: "Unvectorize",
+      }))
+    ) {
+      return;
+    }
+    try {
+      const result = await unvectorizeEntries.mutateAsync({ lorebookId, entryIds: selectedIds });
+      toast.success(`Cleared embeddings for ${result.cleared} ${result.cleared === 1 ? "entry" : "entries"}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to clear embeddings.");
+    }
+  }, [entries, lorebookId, selectedEntryIds, unvectorizeEntries]);
 
   // Toggle the inline drawer for an entry. Single-expand keeps the page
   // tidy; users can collapse the open one and click another to jump.
@@ -1710,6 +1742,19 @@ export function LorebookEditor() {
                       Move
                     </button>
                     <button
+                      onClick={() => void handleUnvectorizeSelectedEntries()}
+                      disabled={selectedEntryIds.size === 0 || unvectorizeEntries.isPending}
+                      className="inline-flex items-center gap-1 rounded-lg bg-violet-500/12 px-2.5 py-1.5 text-[0.625rem] font-medium text-violet-300 transition-all hover:bg-violet-500/20 disabled:opacity-40"
+                      title="Clear stored embeddings for selected entries"
+                    >
+                      {unvectorizeEntries.isPending ? (
+                        <Loader2 size="0.6875rem" className="animate-spin" />
+                      ) : (
+                        <Eraser size="0.6875rem" />
+                      )}
+                      Unvectorize
+                    </button>
+                    <button
                       onClick={exitEntrySelectionMode}
                       className="rounded-lg px-2.5 py-1.5 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
                     >
@@ -2050,6 +2095,7 @@ function VectorizeSection({
   hasUnsavedVectorizationToggle: boolean;
 }) {
   const queryClient = useQueryClient();
+  const unvectorizeEntries = useBulkUnvectorizeLorebookEntries();
   const { data: rawConnections } = useConnections();
   const connections = (rawConnections ?? []) as Array<{ id: string; name: string; embeddingModel?: string }>;
   const embeddingConnections = connections.filter((c) => c.embeddingModel);
@@ -2068,6 +2114,13 @@ function VectorizeSection({
   ).length;
   const missingCount = Math.max(0, vectorizableEntryCount - vectorizedCount);
   const allVectorized = vectorizableEntryCount > 0 && missingCount === 0;
+  const vectorizedEntryIds = useMemo(
+    () =>
+      vectorizableEntries
+        .filter((entry) => Array.isArray(entry.embedding) && entry.embedding.length > 0)
+        .map((entry) => entry.id),
+    [vectorizableEntries],
+  );
 
   // Auto-select first embedding connection
   useEffect(() => {
@@ -2102,6 +2155,31 @@ function VectorizeSection({
       setResult({ success: false, message: err instanceof Error ? err.message : "Vectorization failed" });
     } finally {
       setVectorizing(false);
+    }
+  };
+
+  const handleUnvectorizeAll = async () => {
+    if (vectorizedEntryIds.length === 0) return;
+    if (
+      !(await showConfirmDialog({
+        title: "Unvectorize Lorebook",
+        message: `Clear stored embeddings for ${vectorizedEntryIds.length} ${
+          vectorizedEntryIds.length === 1 ? "entry" : "entries"
+        }? Keyword and regex matching will keep working.`,
+        confirmLabel: "Unvectorize",
+      }))
+    ) {
+      return;
+    }
+    setResult(null);
+    try {
+      const data = await unvectorizeEntries.mutateAsync({ lorebookId, entryIds: vectorizedEntryIds });
+      setResult({
+        success: true,
+        message: `Cleared embeddings for ${data.cleared} ${data.cleared === 1 ? "entry" : "entries"}`,
+      });
+    } catch (err) {
+      setResult({ success: false, message: err instanceof Error ? err.message : "Unvectorize failed" });
     }
   };
 
@@ -2156,7 +2234,12 @@ function VectorizeSection({
             </select>
             <button
               onClick={handleVectorize}
-              disabled={vectorizing || hasUnsavedVectorizationToggle || vectorizableEntryCount === 0}
+              disabled={
+                vectorizing ||
+                unvectorizeEntries.isPending ||
+                hasUnsavedVectorizationToggle ||
+                vectorizableEntryCount === 0
+              }
               className="flex items-center gap-1.5 rounded-xl bg-violet-500/15 px-3 py-1.5 text-xs font-medium text-violet-400 ring-1 ring-violet-500/30 transition-all hover:bg-violet-500/25 active:scale-[0.98] disabled:opacity-50"
             >
               {vectorizing ? <Loader2 size="0.75rem" className="animate-spin" /> : <Sparkles size="0.75rem" />}
@@ -2167,6 +2250,23 @@ function VectorizeSection({
                   : allVectorized
                     ? `Re-vectorize ${vectorizableEntryCount} entries`
                     : `Vectorize ${missingCount} missing`}
+            </button>
+            <button
+              onClick={handleUnvectorizeAll}
+              disabled={
+                vectorizing ||
+                unvectorizeEntries.isPending ||
+                hasUnsavedVectorizationToggle ||
+                vectorizedEntryIds.length === 0
+              }
+              className="flex items-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] active:scale-[0.98] disabled:opacity-50"
+            >
+              {unvectorizeEntries.isPending ? (
+                <Loader2 size="0.75rem" className="animate-spin" />
+              ) : (
+                <Eraser size="0.75rem" />
+              )}
+              Unvectorize all
             </button>
           </div>
           {result && (
