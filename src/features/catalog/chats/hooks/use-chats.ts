@@ -14,7 +14,15 @@ import { useChatStore } from "../../../../shared/stores/chat.store";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { apiQueryRetryDelay, shouldRetryApiQuery } from "../../../../shared/api/query-retry";
 import { lorebookKeys } from "../../lorebooks/query-keys";
-import type { Chat, ChatMemoryChunk, ConversationNote, Message, MessageSwipe, DaySummaryEntry, WeekSummaryEntry } from "../../../../engine/contracts/types/chat";
+import type {
+  Chat,
+  ChatMemoryChunk,
+  ConversationNote,
+  Message,
+  MessageSwipe,
+  DaySummaryEntry,
+  WeekSummaryEntry,
+} from "../../../../engine/contracts/types/chat";
 
 export { chatKeys } from "../query-keys";
 
@@ -715,6 +723,57 @@ export function useUpdateMessageExtra(chatId: string | null) {
   });
 }
 
+export function useBulkSetMessagesHiddenFromAI(chatId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ messageIds, hidden }: { messageIds: string[]; hidden: boolean }) => {
+      if (!chatId) throw new Error("Chat was not found.");
+      const uniqueIds = Array.from(new Set(messageIds.filter((id) => id.trim().length > 0)));
+      await Promise.all(
+        uniqueIds.map(async (messageId) => {
+          const message = await storageApi.get<Message>("messages", messageId);
+          if (!message || message.chatId !== chatId) return null;
+          return storageApi.patchChatMessageExtra<Message>(messageId, { hiddenFromAI: hidden, hiddenFromAi: hidden });
+        }),
+      );
+      return { updated: uniqueIds.length };
+    },
+    onMutate: async ({ messageIds, hidden }) => {
+      if (!chatId) return;
+      await qc.cancelQueries({ queryKey: chatKeys.messages(chatId) });
+      const previous = qc.getQueryData<InfiniteData<Message[]>>(chatKeys.messages(chatId));
+      const idSet = new Set(messageIds);
+      qc.setQueryData<InfiniteData<Message[]>>(chatKeys.messages(chatId), (old) => {
+        if (!old?.pages) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) =>
+            page.map((msg) => {
+              if (!idSet.has(msg.id)) return msg;
+              return {
+                ...msg,
+                extra: { ...parseRecord(msg.extra), hiddenFromAI: hidden, hiddenFromAi: hidden } as unknown as Message["extra"],
+              };
+            }),
+          ),
+        };
+      });
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (chatId && context?.previous) {
+        qc.setQueryData(chatKeys.messages(chatId), context.previous);
+      }
+    },
+    onSettled: () => {
+      if (chatId) {
+        qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+        qc.invalidateQueries({ queryKey: lorebookKeys.active(chatId) });
+      }
+    },
+  });
+}
+
 function replaceCachedMessage(
   old: InfiniteData<Message[]> | undefined,
   messageId: string,
@@ -784,6 +843,17 @@ function messageHiddenFromAi(message: Message) {
   return extra.hiddenFromAI === true || extra.hiddenFromAi === true;
 }
 
+export type GenerateSummaryInput = {
+  chatId: string;
+  contextSize?: number;
+  rangeStartIndex?: number;
+  rangeEndIndex?: number;
+};
+
+export type GenerateSummaryResult = {
+  summary: string;
+  messageIds: string[];
+};
 
 function compactTranscript(messages: Message[]) {
   return messages
@@ -805,7 +875,8 @@ async function resolveSummaryConnectionId(chat: Chat): Promise<string> {
   return connectionId;
 }
 
-async function generateLlmChatSummary(chatId: string, contextSize?: number): Promise<{ summary: string }> {
+async function generateLlmChatSummary(input: GenerateSummaryInput): Promise<GenerateSummaryResult> {
+  const { chatId, contextSize, rangeStartIndex, rangeEndIndex } = input;
   const [chat, allMessages] = await Promise.all([
     storageApi.get<Chat>("chats", chatId),
     storageApi.listChatMessages<Message>(chatId),
@@ -813,10 +884,20 @@ async function generateLlmChatSummary(chatId: string, contextSize?: number): Pro
   if (!chat) throw new Error("Chat was not found.");
   const storedContextSize = Number((chat.metadata as { summaryContextSize?: unknown } | null)?.summaryContextSize);
   const limit = Math.max(5, Math.min(200, Math.trunc(contextSize ?? (Number.isFinite(storedContextSize) ? storedContextSize : 50))));
-  const selected = allMessages
-    .filter((message) => !messageHiddenFromAi(message) && !!message.content?.trim())
-    .slice(-limit);
-  if (selected.length === 0) throw new Error("No non-hidden messages available for summary generation.");
+  const hasRange = Number.isInteger(rangeStartIndex) && Number.isInteger(rangeEndIndex);
+  const rangeLow = hasRange ? Math.max(1, Math.min(rangeStartIndex!, rangeEndIndex!)) : null;
+  const rangeHigh = hasRange ? Math.max(rangeStartIndex!, rangeEndIndex!) : null;
+  if (hasRange) {
+    if (!rangeLow || !rangeHigh || rangeHigh > allMessages.length) {
+      throw new Error("Summary range is outside this chat's message history.");
+    }
+    if (rangeHigh - rangeLow + 1 > 200) {
+      throw new Error("Summary ranges cannot include more than 200 messages.");
+    }
+  }
+  const sourceMessages = hasRange ? allMessages.slice(rangeLow! - 1, rangeHigh ?? undefined) : allMessages.slice(-limit);
+  const selected = sourceMessages.filter((message) => !messageHiddenFromAi(message) && !!message.content?.trim());
+  if (selected.length === 0) throw new Error("No non-hidden messages available for the requested summary.");
 
   const connectionId = await resolveSummaryConnectionId(chat);
   const transcript = compactTranscript(selected);
@@ -845,9 +926,11 @@ async function generateLlmChatSummary(chatId: string, contextSize?: number): Pro
     {
       content,
       origin: "manual",
-      sourceMode: "last",
-      title: "Summary of recent messages",
-      messageCount: selected.length,
+      sourceMode: hasRange ? "range" : "last",
+      title: hasRange ? `Summary messages ${rangeLow}-${rangeHigh}` : "Summary of recent messages",
+      messageCount: hasRange ? undefined : selected.length,
+      rangeStartIndex: rangeLow ?? undefined,
+      rangeEndIndex: rangeHigh ?? undefined,
       messageIds: selected.map((message) => message.id),
     },
     {
@@ -862,7 +945,7 @@ async function generateLlmChatSummary(chatId: string, contextSize?: number): Pro
     summaryEntries: appended.entries,
     summaryContextSize: limit,
   });
-  return { summary: appended.summary ?? content };
+  return { summary: appended.summary ?? content, messageIds: selected.map((message) => message.id) };
 }
 
 /** Peek at the assembled prompt for a chat */
@@ -977,8 +1060,7 @@ export function useBranchChat() {
 export function useGenerateSummary() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ chatId, contextSize }: { chatId: string; contextSize?: number }) =>
-      generateLlmChatSummary(chatId, contextSize),
+    mutationFn: (input: GenerateSummaryInput) => generateLlmChatSummary(input),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: chatKeys.detail(vars.chatId) });
     },

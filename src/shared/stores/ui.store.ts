@@ -6,6 +6,7 @@ import { persist } from "zustand/middleware";
 import {
   DEFAULT_GAME_SETUP_LEARNED_OPTIONS,
   DEFAULT_GAME_SETUP_REMEMBERED_TEXT,
+  DEFAULT_SUMMARY_POPOVER_SETTINGS,
   RIGHT_PANEL_WIDTH_MAX,
   RIGHT_PANEL_WIDTH_MIN,
   ROLEPLAY_AVATAR_SCALE_MAX,
@@ -21,6 +22,7 @@ import {
   mobilePanelClosePatch,
   normalizeLearnedGameSetupOption,
   normalizeRememberedGameSetupText,
+  normalizeSummaryPopoverSettings,
   normalizeTrackerPanelSizeProfile,
   normalizeTrackerPanelSectionOrder,
   normalizeTrackerTemperatureUnit,
@@ -77,6 +79,8 @@ export type {
   HudPosition,
   Panel,
   RoleplayAvatarStyle,
+  SummaryPopoverSettings,
+  SummaryPopoverSourceMode,
   TrackerDataPanelSection,
   TrackerPanelCollapsedSections,
   TrackerPanelSectionOrder,
@@ -168,6 +172,7 @@ export const useUIStore = create<UIState>()(
       intuitiveSwipeNavigation: false,
       intuitiveSwipeRerollLatest: false,
       editLastMessageOnArrowUp: true,
+      summaryPopoverSettings: DEFAULT_SUMMARY_POPOVER_SETTINGS,
       narrationFontColor: "",
       narrationOpacity: 80,
       chatFontColor: "",
@@ -424,6 +429,13 @@ export const useUIStore = create<UIState>()(
       setIntuitiveSwipeNavigation: (v) => set({ intuitiveSwipeNavigation: v }),
       setIntuitiveSwipeRerollLatest: (v) => set({ intuitiveSwipeRerollLatest: v }),
       setEditLastMessageOnArrowUp: (v) => set({ editLastMessageOnArrowUp: v }),
+      setSummaryPopoverSettings: (settings) =>
+        set((state) => ({
+          summaryPopoverSettings: normalizeSummaryPopoverSettings({
+            ...state.summaryPopoverSettings,
+            ...settings,
+          }),
+        })),
       setNarrationFontColor: (v) => set({ narrationFontColor: v }),
       setNarrationOpacity: (v) => set({ narrationOpacity: Math.max(0, Math.min(100, v)) }),
       setChatFontColor: (v) => set({ chatFontColor: v }),

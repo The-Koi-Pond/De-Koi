@@ -21,8 +21,9 @@ import {
   X,
   Flag,
   Eye,
+  EyeOff,
+  ChevronRight,
   ScrollText,
-  Circle,
   Brain,
   Languages,
   Volume2,
@@ -75,6 +76,46 @@ const MESSAGE_ACTION_ICON_SIZE = "1em";
 const MESSAGE_SWIPE_ICON_SIZE = "1.15em";
 const normalizeEditableQuotes = (value: string) =>
   value.replace(/["\u201c\u201d\u201e\u201f]/g, '"').replace(/['\u2018\u2019\u201a\u201b]/g, "'");
+
+function HiddenFromAIBadge({
+  roleplay,
+  canCollapse,
+  isExpanded,
+  onToggle,
+}: {
+  roleplay?: boolean;
+  canCollapse: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const className = cn(
+    "inline-flex items-center gap-1 rounded px-1 py-0.5 text-[0.625rem] font-medium text-amber-500/80",
+    roleplay && "text-amber-200/60",
+    canCollapse && "transition-colors hover:bg-amber-500/10 hover:text-amber-400",
+  );
+  if (!canCollapse) {
+    return (
+      <span className={className} title="Hidden from AI">
+        <EyeOff size="0.7rem" />
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+      className={className}
+      title={isExpanded ? "Collapse hidden from AI message" : "Expand hidden from AI message"}
+      aria-label={isExpanded ? "Collapse hidden from AI message" : "Expand hidden from AI message"}
+    >
+      <ChevronRight size="0.7rem" className={cn("transition-transform", isExpanded && "rotate-90")} />
+      <EyeOff size="0.7rem" />
+    </button>
+  );
+}
 
 /** Isolated edit textarea — uncontrolled to avoid React re-renders on every keystroke. */
 const EditTextarea = memo(function EditTextarea({
@@ -683,6 +724,7 @@ export const ChatMessage = memo(function ChatMessage({
     guideGenerations,
     boldDialogue,
     theme,
+    collapseHiddenMessages,
   } = useUIStore(
     useShallow((s) => ({
       chatFontSize: s.chatFontSize,
@@ -698,6 +740,7 @@ export const ChatMessage = memo(function ChatMessage({
       guideGenerations: s.guideGenerations,
       boldDialogue: s.boldDialogue ?? true,
       theme: s.theme,
+      collapseHiddenMessages: s.summaryPopoverSettings.collapseHiddenMessages,
     })),
   );
   const hasInput = useChatStore((s) => s.currentInput.trim().length > 0);
@@ -752,6 +795,7 @@ export const ChatMessage = memo(function ChatMessage({
   const [showThinking, setShowThinking] = useState(false);
   const [showGenerationReplay, setShowGenerationReplay] = useState(false);
   const [showActions, setShowActions] = useState(false);
+  const [manuallyExpandedHidden, setManuallyExpandedHidden] = useState(false);
   const [avatarLightbox, setAvatarLightbox] = useState<string | null>(null);
   const [avatarLightboxPrompt, setAvatarLightboxPrompt] = useState<string | null>(null);
   const scrollRestoreRef = useRef<{ el: HTMLElement; top: number } | null>(null);
@@ -877,9 +921,28 @@ export const ChatMessage = memo(function ChatMessage({
     return typeof message.extra === "string" ? JSON.parse(message.extra) : message.extra;
   }, [message.extra]);
   const isConversationStart = !!extra.isConversationStart;
-  const isHiddenFromAI = extra.hiddenFromAI === true;
+  const isHiddenFromAI = extra.hiddenFromAI === true || extra.hiddenFromAi === true;
   const thinking = extra.thinking as string | undefined;
   const generationReplay = hasGenerationReplayDetails(extra.generationReplay) ? extra.generationReplay : null;
+  const isHiddenExpanded =
+    isHiddenFromAI && (!collapseHiddenMessages || manuallyExpandedHidden || editing || !!isStreaming);
+  const isHiddenCollapsed = isHiddenFromAI && collapseHiddenMessages && !isHiddenExpanded;
+  const hiddenFromAIHeader = isHiddenFromAI ? (
+    <HiddenFromAIBadge
+      roleplay={isRoleplay}
+      canCollapse={collapseHiddenMessages}
+      isExpanded={isHiddenExpanded}
+      onToggle={() => setManuallyExpandedHidden((value) => !value)}
+    />
+  ) : null;
+
+  useEffect(() => {
+    setManuallyExpandedHidden(false);
+  }, [message.id]);
+
+  useEffect(() => {
+    if (!isHiddenFromAI || !collapseHiddenMessages) setManuallyExpandedHidden(false);
+  }, [collapseHiddenMessages, isHiddenFromAI]);
 
   useEffect(() => {
     if (!generationReplay) setShowGenerationReplay(false);
@@ -1284,7 +1347,7 @@ export const ChatMessage = memo(function ChatMessage({
       </div>
     ) : null
   ) : null;
-  const roleplayBubbleContent = editing ? (
+  const roleplayBubbleContent = isHiddenCollapsed ? null : editing ? (
     <EditTextarea
       initialContent={message.content}
       fontSize={chatFontSize}
@@ -1412,15 +1475,18 @@ export const ChatMessage = memo(function ChatMessage({
               )}
               <div className="mb-1 flex items-center gap-2 text-[0.625rem] font-semibold uppercase tracking-widest text-amber-400/70">
                 <span className="h-px flex-1 bg-amber-400/20" />
+                {hiddenFromAIHeader}
                 Narrator
                 <span className="h-px flex-1 bg-amber-400/20" />
               </div>
-              <div
-                className={cn("mari-message-content break-words italic", !isHtmlContent && "whitespace-pre-wrap")}
-                style={messageTextStyle}
-              >
-                {renderedContent}
-              </div>
+              {!isHiddenCollapsed && (
+                <div
+                  className={cn("mari-message-content break-words italic", !isHtmlContent && "whitespace-pre-wrap")}
+                  style={messageTextStyle}
+                >
+                  {renderedContent}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1551,6 +1617,7 @@ export const ChatMessage = memo(function ChatMessage({
             {/* Name + time (only if not grouped) */}
             {!isGrouped && (
               <div className={cn("flex items-baseline gap-2 px-1", isUser && "flex-row-reverse")}>
+                {hiddenFromAIHeader}
                 <span
                   className={cn(
                     "mari-message-name text-[0.75rem] font-bold tracking-tight",
@@ -1690,10 +1757,10 @@ export const ChatMessage = memo(function ChatMessage({
                       />
                     </div>
                   </div>
-                  <div className="min-w-0 flex-1 px-3 py-3">{roleplayBubbleContent}</div>
+                  {roleplayBubbleContent && <div className="min-w-0 flex-1 px-3 py-3">{roleplayBubbleContent}</div>}
                 </div>
               ) : (
-                <div className="px-4 py-3">{roleplayBubbleContent}</div>
+                roleplayBubbleContent ? <div className="px-4 py-3">{roleplayBubbleContent}</div> : null
               )}
             </div>
 
@@ -1784,7 +1851,11 @@ export const ChatMessage = memo(function ChatMessage({
               {onToggleHiddenFromAI && (
                 <ActionBtn
                   icon={
-                    isHiddenFromAI ? <Circle size={MESSAGE_ACTION_ICON_SIZE} /> : <X size={MESSAGE_ACTION_ICON_SIZE} />
+                    isHiddenFromAI ? (
+                      <Eye size={MESSAGE_ACTION_ICON_SIZE} />
+                    ) : (
+                      <EyeOff size={MESSAGE_ACTION_ICON_SIZE} />
+                    )
                   }
                   onClick={() => onToggleHiddenFromAI(message.id, isHiddenFromAI)}
                   title={isHiddenFromAI ? "Unhide from AI" : "Hide from AI"}
@@ -2034,15 +2105,18 @@ export const ChatMessage = memo(function ChatMessage({
         >
           {/* Name — only for first in group */}
           {!isGrouped && !isUser && (
-            <span
-              className={cn(
-                "mari-message-name px-3 text-[0.6875rem] font-semibold",
-                !msgNameColor && !isMergedGroup && "text-[var(--muted-foreground)]",
-              )}
-              style={!isMergedGroup ? nameColorStyle(msgNameColor) : undefined}
-            >
-              {isMergedGroup ? mergedNameElement : displayName}
-            </span>
+            <div className="flex items-center gap-2 px-3">
+              {hiddenFromAIHeader}
+              <span
+                className={cn(
+                  "mari-message-name text-[0.6875rem] font-semibold",
+                  !msgNameColor && !isMergedGroup && "text-[var(--muted-foreground)]",
+                )}
+                style={!isMergedGroup ? nameColorStyle(msgNameColor) : undefined}
+              >
+                {isMergedGroup ? mergedNameElement : displayName}
+              </span>
+            </div>
           )}
 
           {/* Conversation start marker */}
@@ -2071,7 +2145,7 @@ export const ChatMessage = memo(function ChatMessage({
             )}
             style={{ ...messageTextStyle, ...(boxBgColor ? { backgroundColor: boxBgColor } : {}) }}
           >
-            {editing ? (
+            {isHiddenCollapsed ? null : editing ? (
               <EditTextarea
                 initialContent={message.content}
                 fontSize={chatFontSize}

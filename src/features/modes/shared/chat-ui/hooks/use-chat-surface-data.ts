@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import {
   useChat,
+  useChatMessageCount,
   useChatMessages,
   type Chat,
   type ChatMode,
@@ -143,6 +144,7 @@ export function useChatSurfaceData({
     isFetchingNextPage,
     refetch: refetchMessages,
   } = useChatMessages(activeChatId, resolvedMessagePageSize, !!chat);
+  const { data: messageCountData } = useChatMessageCount(chat ? activeChatId : null);
 
   useEffect(() => {
     if (!(chatError instanceof ApiError) || chatError.status !== 404) return;
@@ -174,8 +176,11 @@ export function useChatSurfaceData({
     () => (msgData ? [...msgData.pages].reverse().flat() : undefined),
     [msgData],
   );
-  const totalMessageCount = messages?.length ?? 0;
   const loadedMessageCount = messages?.length ?? 0;
+  const totalMessageCount =
+    typeof messageCountData?.count === "number"
+      ? Math.max(messageCountData.count, loadedMessageCount)
+      : loadedMessageCount;
   const messageOffset = messages ? totalMessageCount - messages.length : 0;
   const messageIdByOrderIndex = useMemo(() => {
     const map = new Map<number, string>();

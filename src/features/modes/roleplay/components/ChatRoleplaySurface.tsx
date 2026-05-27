@@ -328,11 +328,13 @@ function SummaryButton({
   chatId,
   summary,
   summaryContextSize,
+  totalMessageCount,
   onContextSizeChange,
 }: {
   chatId: string | null;
   summary: string | null;
   summaryContextSize: number;
+  totalMessageCount: number;
   onContextSizeChange: (size: number) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -363,6 +365,7 @@ function SummaryButton({
             chatId={chatId}
             summary={summary}
             contextSize={summaryContextSize}
+            totalMessageCount={totalMessageCount}
             onContextSizeChange={onContextSizeChange}
             onClose={() => setOpen(false)}
           />
@@ -787,6 +790,7 @@ export function ChatRoleplaySurface({
                       chatId={chat?.id ?? null}
                       summary={chatMeta.summary ?? null}
                       summaryContextSize={summaryContextSize}
+                      totalMessageCount={totalMessageCount}
                       onContextSizeChange={onSummaryContextSizeChange}
                     />
                     <ActiveWorldInfoButton chatId={chat?.id ?? null} />
@@ -873,6 +877,7 @@ export function ChatRoleplaySurface({
                           chatId={chat?.id ?? null}
                           summary={chatMeta.summary ?? null}
                           summaryContextSize={summaryContextSize}
+                          totalMessageCount={totalMessageCount}
                           onContextSizeChange={onSummaryContextSizeChange}
                         />
                         <ActiveWorldInfoButton chatId={chat?.id ?? null} />
@@ -931,6 +936,7 @@ export function ChatRoleplaySurface({
                         chatId={chat?.id ?? null}
                         summary={chatMeta.summary ?? null}
                         summaryContextSize={summaryContextSize}
+                        totalMessageCount={totalMessageCount}
                         onContextSizeChange={onSummaryContextSizeChange}
                       />
                       <ActiveWorldInfoButton chatId={chat?.id ?? null} />

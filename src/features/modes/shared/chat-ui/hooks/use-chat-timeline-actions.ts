@@ -469,7 +469,7 @@ export function useChatTimelineActions({
 
   const handleToggleHiddenFromAI = useCallback(
     (messageId: string, current: boolean) => {
-      updateMessageExtra.mutate({ messageId, extra: { hiddenFromAI: !current } });
+      updateMessageExtra.mutate({ messageId, extra: { hiddenFromAI: !current, hiddenFromAi: !current } });
     },
     [updateMessageExtra],
   );
