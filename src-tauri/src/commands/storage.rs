@@ -7,9 +7,9 @@ use std::fs;
 use std::time::Duration;
 
 #[path = "storage/admin.rs"]
-mod admin;
+pub(crate) mod admin;
 #[path = "storage/agents.rs"]
-mod agents;
+pub(crate) mod agents;
 #[path = "storage/avatars.rs"]
 pub(crate) mod avatars;
 #[path = "storage/backgrounds.rs"]
@@ -17,51 +17,51 @@ pub(crate) mod backgrounds;
 #[path = "storage/backup.rs"]
 pub(crate) mod backup;
 #[path = "storage/bot_browser.rs"]
-mod bot_browser;
+pub(crate) mod bot_browser;
 #[path = "storage/characters.rs"]
-mod characters;
+pub(crate) mod characters;
 #[path = "storage/chats.rs"]
 pub(crate) mod chats;
 #[path = "storage/custom_tools.rs"]
-mod custom_tools;
+pub(crate) mod custom_tools;
 #[path = "storage/exports.rs"]
-mod exports;
+pub(crate) mod exports;
 #[path = "storage/fonts.rs"]
-mod fonts;
+pub(crate) mod fonts;
 #[path = "storage/game_assets.rs"]
-mod game_assets;
+pub(crate) mod game_assets;
 #[path = "storage/game_state_snapshots.rs"]
-mod game_state_snapshots;
+pub(crate) mod game_state_snapshots;
 #[path = "storage/generation.rs"]
 pub(crate) mod generation;
 #[path = "storage/http.rs"]
-mod http;
+pub(crate) mod http;
 #[path = "storage/images.rs"]
 pub(crate) mod images;
 #[path = "storage/imports.rs"]
 pub(crate) mod imports;
 #[path = "storage/integrations.rs"]
-mod integrations;
+pub(crate) mod integrations;
 #[path = "storage/knowledge.rs"]
-mod knowledge;
+pub(crate) mod knowledge;
 #[path = "storage/llm.rs"]
 pub(crate) mod llm;
 #[path = "storage/lorebook_images.rs"]
 pub(crate) mod lorebook_images;
 #[path = "storage/mari.rs"]
-mod mari;
+pub(crate) mod mari;
 #[path = "storage/media_uploads.rs"]
 mod media_uploads;
 #[path = "storage/profile.rs"]
 pub(crate) mod profile;
 #[path = "storage/prompts.rs"]
-mod prompts;
+pub(crate) mod prompts;
 #[path = "storage/shared.rs"]
 pub(crate) mod shared;
 #[path = "storage/sprites.rs"]
 pub(crate) mod sprites;
 #[path = "storage/translation.rs"]
-mod translation;
+pub(crate) mod translation;
 
 #[path = "storage/commands/agents.rs"]
 pub mod agent_commands;
