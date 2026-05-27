@@ -10,6 +10,7 @@ import { resolveMacros, type MacroContext } from "../shared/macros/macro-engine"
 import { normalizeUserTimeZone } from "../shared/time/timezone";
 import type { GameActiveState, GameCampaignPlan, GameMap, GameNpc, HudWidget, SessionSummary } from "../contracts/types/game";
 import { buildGmFormatReminder, buildGmSystemPrompt, type GmPromptContext } from "../modes/game/prompts/gm-prompts";
+import { activeCharacterIds } from "./active-characters";
 import { buildGenerationPromptPresetCandidates } from "./prompt-preset-selection";
 import {
   bySortOrder,
@@ -174,7 +175,7 @@ function isRpgStats(value: unknown): GenerationPersonaContext["rpgStats"] | unde
 }
 
 async function loadCharacters(storage: StorageGateway, chat: JsonRecord): Promise<GenerationCharacterContext[]> {
-  const ids = stringArray(chat.characterIds);
+  const ids = activeCharacterIds(chat);
   const rows = await Promise.all(ids.map((id) => storage.get<JsonRecord>("characters", id)));
   return rows.filter(isRecord).map(loadCharacterContext);
 }

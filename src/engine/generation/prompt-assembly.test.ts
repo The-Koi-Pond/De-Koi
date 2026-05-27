@@ -352,6 +352,40 @@ describe("assembleGenerationPrompt lorebook game-state gates", () => {
   });
 });
 
+describe("assembleGenerationPrompt inactive chat characters", () => {
+  it("excludes inactive chat characters from character prompt context", async () => {
+    const assembly = await assembleGenerationPrompt(
+      storageWithCharacters([
+        {
+          id: "char-active",
+          data: { name: "Aster", description: "ACTIVE CARD SHOULD APPEAR" },
+        },
+        {
+          id: "char-inactive",
+          data: { name: "Briar", description: "INACTIVE CARD SHOULD NOT APPEAR" },
+        },
+      ]),
+      {
+        chat: {
+          id: "group-chat",
+          mode: "roleplay",
+          characterIds: ["char-active", "char-inactive"],
+          metadata: { inactiveCharacterIds: ["char-inactive"] },
+        },
+        storedMessages: [{ role: "user", content: "Who is here?", contextKind: "history" }],
+        connection: {},
+        request: { ...request, promptPresetId: "" },
+        latestUserInput: "Who is here?",
+      },
+    );
+
+    const prompt = assembly.messages.map((message) => message.content).join("\n\n");
+    expect(assembly.characters.map((character) => character.id)).toEqual(["char-active"]);
+    expect(prompt).toContain("ACTIVE CARD SHOULD APPEAR");
+    expect(prompt).not.toContain("INACTIVE CARD SHOULD NOT APPEAR");
+  });
+});
+
 describe("assembleGenerationPrompt conversation scene awareness gates", () => {
   it("does not inject prior scene summaries when conversation cross-chat awareness and memory recall are off", async () => {
     const assembly = await assembleGenerationPrompt(storageWithSections([]), {

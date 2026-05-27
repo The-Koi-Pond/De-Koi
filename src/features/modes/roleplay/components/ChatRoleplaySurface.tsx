@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useMemo,
   type ComponentProps,
   type ReactNode,
   type RefObject,
@@ -596,7 +597,6 @@ export function ChatRoleplaySurface({
   enabledAgentTypes,
   chatCharIds,
   characterMap,
-  characterNames,
   personaInfo,
   messages,
   msgPayload,
@@ -705,6 +705,18 @@ export function ChatRoleplaySurface({
       };
   const hideEchoChamberOnMobile =
     sidebarOpen || rightPanelOpen || settingsOpen || filesOpen || galleryOpen || wizardOpen;
+  const inactiveCharacterIdSet = useMemo(
+    () => new Set(Array.isArray(chatMeta.inactiveCharacterIds) ? chatMeta.inactiveCharacterIds : []),
+    [chatMeta.inactiveCharacterIds],
+  );
+  const activeChatCharIds = useMemo(
+    () => chatCharIds.filter((id) => !inactiveCharacterIdSet.has(id)),
+    [chatCharIds, inactiveCharacterIdSet],
+  );
+  const activeCharacterNames = useMemo(
+    () => activeChatCharIds.map((id) => characterMap.get(id)?.name).filter((name): name is string => !!name),
+    [activeChatCharIds, characterMap],
+  );
 
   return (
     <div data-component="ChatArea.Roleplay" className="flex flex-1 overflow-hidden">
@@ -1110,13 +1122,13 @@ export function ChatRoleplaySurface({
                   <ChatInput
                     key={activeChatId}
                     mode={isRoleplay ? "roleplay" : "conversation"}
-                    characterNames={characterNames}
+                    characterNames={activeCharacterNames}
                     groupResponseOrder={
-                      chatCharIds.length > 1 && groupChatMode === "individual"
+                      activeChatCharIds.length > 1 && groupChatMode === "individual"
                         ? (chatMeta.groupResponseOrder ?? "sequential")
                         : undefined
                     }
-                    chatCharacters={chatCharIds
+                    chatCharacters={activeChatCharIds
                       .filter((id) => characterMap.has(id))
                       .map((id) => {
                         const info = characterMap.get(id)!;

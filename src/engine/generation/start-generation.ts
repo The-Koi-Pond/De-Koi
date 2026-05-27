@@ -5,6 +5,7 @@ import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
 import type { GenerationGuideSource } from "../shared/text/generation-guide";
+import { activeCharacterIds, assertChatHasActiveCharacters, assertRequestedCharacterIsActive } from "./active-characters";
 import { createGenerationAgentRuntime } from "./agent-runner";
 import { persistConnectedCommandTags } from "./connected-commands";
 import { llmParameters, loadChatMessages, requireRecord, resolveGenerationConnection } from "./context";
@@ -103,12 +104,14 @@ function inputAttachments(input: StartGenerationInput): PromptAttachment[] {
   return Array.isArray(input.attachments) ? input.attachments.filter(isRecord).map((attachment) => attachment as PromptAttachment) : [];
 }
 
-function assertChatCanGenerate(chat: JsonRecord) {
+function assertChatCanGenerate(chat: JsonRecord, input?: { forCharacterId?: unknown }) {
   const mode = readString(chat.mode || chat.chatMode);
   const metadata = parseRecord(chat.metadata);
   if (mode === "roleplay" && metadata.sceneStatus === "concluded") {
     throw new Error("This scene is concluded. Convert or reopen it before sending new messages.");
   }
+  assertChatHasActiveCharacters(chat);
+  assertRequestedCharacterIsActive(chat, input?.forCharacterId);
 }
 
 function imageAttachmentNotes(attachments: PromptAttachment[]): string {
@@ -385,7 +388,7 @@ async function saveAssistantMessage(args: {
   }
 
   const requestedCharacterId = readString(args.input.forCharacterId).trim();
-  const chatCharacterIdList = stringArray(args.chat.characterIds);
+  const chatCharacterIdList = activeCharacterIds(args.chat);
   const chatCharacterIds = new Set(chatCharacterIdList);
   const characterId =
     requestedCharacterId && (chatCharacterIds.size === 0 || chatCharacterIds.has(requestedCharacterId))
@@ -714,8 +717,8 @@ export async function* startGeneration(
   const chatId = readString(input.chatId).trim();
   if (!chatId) throw new Error("chatId is required");
   const chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
-  assertChatCanGenerate(chat);
   input = await inputWithStoredGenerationReplay(deps.storage, chatId, input);
+  assertChatCanGenerate(chat, input);
 
   yield { type: "phase", data: "Saving message..." };
   const preparedUserInput = await prepareUserInput(deps.storage, input);
