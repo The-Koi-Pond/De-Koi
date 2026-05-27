@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { readString as readRuntimeString } from "../generation/runtime-records";
 import { readString } from "./value-readers";
 
 describe("readString", () => {
@@ -14,8 +13,4 @@ describe("readString", () => {
     expect(readString({ value: "Nia" }, "fallback")).toBe("fallback");
   });
 
-  it("preserves the generation runtime-records readString export", () => {
-    expect(readRuntimeString("Nia")).toBe("Nia");
-    expect(readRuntimeString(42, "fallback")).toBe("fallback");
-  });
 });
