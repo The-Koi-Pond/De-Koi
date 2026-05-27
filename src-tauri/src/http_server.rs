@@ -1,6 +1,6 @@
 use crate::http_dispatch::{dispatch, InvokeRequest};
 use crate::state::AppState;
-use crate::storage_commands::{llm, lorebook_images};
+use crate::storage_commands::{fonts, llm, lorebook_images};
 use axum::body::Body;
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
@@ -133,6 +133,7 @@ async fn managed_asset(
 fn managed_asset_path(state: &AppState, kind: &str, path: &str) -> Result<PathBuf, AppError> {
     match kind {
         "background" => Ok(PathBuf::from(state.backgrounds.absolute_path_string(path)?)),
+        "font" => fonts::font_file_path(state, path),
         "game" => Ok(PathBuf::from(state.game_assets.absolute_path_string(path)?)),
         "lorebook" => {
             let response = lorebook_images::lorebook_image_file_path(state, path)?;
@@ -162,7 +163,11 @@ fn content_type_for_path(path: &FsPath) -> &'static str {
         "webp" => "image/webp",
         "mp3" => "audio/mpeg",
         "ogg" => "audio/ogg",
+        "otf" => "font/otf",
+        "ttf" => "font/ttf",
         "wav" => "audio/wav",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
         "webm" => "video/webm",
         _ => "application/octet-stream",
     }

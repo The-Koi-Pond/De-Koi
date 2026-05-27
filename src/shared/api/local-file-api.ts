@@ -66,7 +66,10 @@ export function filePathToAssetUrl(path: string | null | undefined): string {
   }
 }
 
-function remoteManagedAssetUrl(kind: "background" | "game" | "lorebook", path: string | null | undefined): string | null {
+function remoteManagedAssetUrl(
+  kind: "background" | "font" | "game" | "lorebook",
+  path: string | null | undefined,
+): string | null {
   const target = remoteRuntimeTarget();
   if (!target || !path?.trim()) return null;
   const encodedPath = path
@@ -88,6 +91,12 @@ export function backgroundFileUrlFromPath(filename: string, absolutePath?: strin
   const remoteUrl = remoteManagedAssetUrl("background", filename);
   if (remoteUrl) return remoteUrl;
   return absolutePath ? filePathToAssetUrl(absolutePath) : userBackgroundUrl(filename);
+}
+
+export function fontFileUrlFromPath(filename: string, absolutePath?: string | null): string {
+  const remoteUrl = remoteManagedAssetUrl("font", filename);
+  if (remoteUrl) return remoteUrl;
+  return absolutePath ? filePathToAssetUrl(absolutePath) : "";
 }
 
 export async function resolveGameAssetFileUrl(path: string): Promise<string> {

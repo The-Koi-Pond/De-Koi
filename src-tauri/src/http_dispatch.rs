@@ -275,14 +275,8 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "tts_voices" => integrations::tts_call(state, "GET", &["voices"], Value::Null).await,
         "tts_speak" => integrations::tts_call(state, "POST", &["speak"], optional_value(&args, "input")).await,
         "translate_text_command" => translation::translate_text(state, optional_value(&args, "input")).await,
-        "haptic_status" => integrations::haptic_call(&["status"], Value::Null).await,
-        "haptic_connect" => integrations::haptic_call(&["connect"], optional_value(&args, "body")).await,
-        "haptic_disconnect" => integrations::haptic_call(&["disconnect"], Value::Null).await,
-        "haptic_start_scan" => integrations::haptic_call(&["scan", "start"], Value::Null).await,
-        "haptic_stop_scan" => integrations::haptic_call(&["scan", "stop"], Value::Null).await,
-        "haptic_command" => integrations::haptic_call(&["command"], optional_value(&args, "command")).await,
-        "haptic_stop_all" => integrations::haptic_call(&["stop-all"], Value::Null).await,
         "spotify_status" => spotify_direct(state, "POST", &["status"], optional_value(&args, "body")).await,
+        "spotify_authorize" => spotify_direct(state, "POST", &["authorize"], optional_value(&args, "input")).await,
         "spotify_exchange" => {
             spotify_direct(
                 state,
@@ -354,7 +348,7 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             state,
             &["list-directory"],
             json!({
-                "path": required_string(&args, "path")?,
+                "path": optional_string(&args, "path").unwrap_or_default(),
                 "pickerSelected": optional_bool(&args, "pickerSelected").unwrap_or(false),
             }),
         ),
@@ -1027,12 +1021,21 @@ mod tests {
     use std::collections::BTreeSet;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    const DESKTOP_ONLY_COMMANDS: &[&str] = &[
+    // Commands that stay out of /api/invoke because they require the client shell,
+    // local filesystem paths, Tauri IPC channels, or user-machine devices.
+    const NON_REMOTE_COMMANDS: &[&str] = &[
         "fonts_open_folder",
         "game_assets_open_folder",
+        "haptic_command",
+        "haptic_connect",
+        "haptic_disconnect",
+        "haptic_start_scan",
+        "haptic_status",
+        "haptic_stop_all",
+        "haptic_stop_scan",
         "import_st_bulk_run_events",
         "llm_stream_channel",
-        "spotify_authorize",
+        "profile_import_file",
     ];
 
     fn test_state(label: &str) -> AppState {
@@ -1103,9 +1106,9 @@ mod tests {
     }
 
     #[test]
-    fn remote_runtime_command_surfaces_match_desktop_minus_documented_desktop_only() {
+    fn remote_runtime_command_surfaces_match_desktop_minus_documented_non_remote_commands() {
         let mut expected_remote = desktop_commands();
-        for command in DESKTOP_ONLY_COMMANDS {
+        for command in NON_REMOTE_COMMANDS {
             assert!(
                 expected_remote.remove(*command),
                 "{command} should still exist in the desktop command surface"
