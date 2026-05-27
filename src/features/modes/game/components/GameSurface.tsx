@@ -153,6 +153,10 @@ type GameAssetGenerationPayload = {
     portrait?: { width: number; height: number };
     selfie?: { width: number; height: number };
   };
+  imagePromptSettings?: {
+    includeAppearances?: boolean;
+    format?: "descriptive" | "tags";
+  };
   promptOverrides?: GameImagePromptOverride[];
 };
 
@@ -3891,6 +3895,10 @@ export function GameSurface({
         ...assetPayload,
         debugMode: useUIStore.getState().debugMode,
         imageSizes: getConfiguredGameAssetImageSizes(),
+        imagePromptSettings: {
+          includeAppearances: useUIStore.getState().imagePromptIncludeAppearances,
+          format: useUIStore.getState().imagePromptFormat,
+        },
       };
 
       if (options?.allowPromptReview !== false && useUIStore.getState().reviewImagePromptsBeforeSend) {

@@ -103,6 +103,11 @@ export interface GameAssetGenerationResult {
   generatedNpcAvatars: Array<{ name: string; avatarUrl: string }>;
 }
 
+type ImagePromptSettings = {
+  includeAppearances?: boolean;
+  format?: "descriptive" | "tags";
+};
+
 export type GameAssetGenerationPayload = {
   chatId: string;
   backgroundTag?: string;
@@ -112,6 +117,7 @@ export type GameAssetGenerationPayload = {
   imageConnectionId?: string | null;
   artStylePrompt?: string | null;
   imageSizes?: Record<string, { width?: number; height?: number }>;
+  imagePromptSettings?: ImagePromptSettings;
   promptOverrides?: PromptOverride[];
   [key: string]: unknown;
 };
@@ -668,13 +674,79 @@ function imageSize(payload: Record<string, unknown>, bucket: string, axis: "widt
   return Number.isFinite(value) && value >= 128 && value <= 2048 ? value : fallback;
 }
 
-function sceneAssetPrompt(kind: string, label: string, detail: string, artStyle: string): string {
+function imagePromptSettings(payload: Record<string, unknown>): ImagePromptSettings {
+  const raw = asRecord(payload.imagePromptSettings);
+  return {
+    includeAppearances: raw.includeAppearances !== false,
+    format: raw.format === "tags" ? "tags" : "descriptive",
+  };
+}
+
+function joinedImageTags(parts: string[]): string {
+  const seen = new Set<string>();
+  return parts
+    .flatMap((part) => part.split(/[,.]/))
+    .map((part) => part.trim())
+    .filter((part) => {
+      const key = part.toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join(", ");
+}
+
+function sceneAssetPrompt(
+  kind: string,
+  label: string,
+  detail: string,
+  artStyle: string,
+  settings: ImagePromptSettings,
+): string {
   const style = artStyle.trim() || "polished fantasy visual novel art, cinematic lighting, high detail";
+  if (settings.format === "tags") {
+    const detailPart = kind === "portrait" && settings.includeAppearances === false ? "" : detail;
+    if (kind === "background") {
+      return joinedImageTags([
+        "wide establishing background",
+        label,
+        detail,
+        style,
+        "no characters",
+        "no text",
+        "immersive environment art",
+      ]);
+    }
+    if (kind === "illustration") {
+      return joinedImageTags([
+        "cinematic scene illustration",
+        label,
+        detail,
+        style,
+        "dynamic composition",
+        "no text",
+        "high detail",
+      ]);
+    }
+    return joinedImageTags([
+      "portrait",
+      label,
+      detailPart,
+      style,
+      "centered bust portrait",
+      "expressive face",
+      "clean readable silhouette",
+      "no text",
+    ]);
+  }
   if (kind === "background") {
     return `Wide establishing background of ${label}. ${detail}. ${style}. No characters, no text, immersive environment art.`;
   }
   if (kind === "illustration") {
     return `Cinematic scene illustration: ${label}. ${detail}. ${style}. Dynamic composition, no text, high detail.`;
+  }
+  if (settings.includeAppearances === false) {
+    return `Portrait of ${label}. ${style}. Centered bust portrait, expressive face, clean readable silhouette, no text.`;
   }
   return `Portrait of ${label}. ${detail}. ${style}. Centered bust portrait, expressive face, clean readable silhouette, no text.`;
 }
@@ -1570,6 +1642,7 @@ export const gameApi = {
       (typeof record.artStylePrompt === "string" && record.artStylePrompt) ||
       (typeof setup.artStylePrompt === "string" && setup.artStylePrompt) ||
       "";
+    const promptSettings = imagePromptSettings(record);
     const items: GameImagePromptReviewItem[] = [];
     if (typeof record.backgroundTag === "string" && record.backgroundTag.trim()) {
       const id = imageReviewId("background", record.backgroundTag);
@@ -1577,7 +1650,9 @@ export const gameApi = {
         id,
         kind: "background",
         title: `Background: ${record.backgroundTag}`,
-        prompt: promptOverride(record, id) ?? sceneAssetPrompt("background", record.backgroundTag, record.backgroundTag, artStyle),
+        prompt:
+          promptOverride(record, id) ??
+          sceneAssetPrompt("background", record.backgroundTag, record.backgroundTag, artStyle, promptSettings),
         width: imageSize(record, "background", "width", 1280),
         height: imageSize(record, "background", "height", 720),
       });
@@ -1594,7 +1669,9 @@ export const gameApi = {
         id,
         kind: "illustration",
         title: `Illustration: ${label}`,
-        prompt: promptOverride(record, id) ?? sceneAssetPrompt("illustration", label, String(illustration.prompt ?? label), artStyle),
+        prompt:
+          promptOverride(record, id) ??
+          sceneAssetPrompt("illustration", label, String(illustration.prompt ?? label), artStyle, promptSettings),
         width: imageSize(record, "background", "width", 1280),
         height: imageSize(record, "background", "height", 720),
       });
@@ -1612,7 +1689,7 @@ export const gameApi = {
         id,
         kind: "portrait",
         title: `Portrait: ${name}`,
-        prompt: promptOverride(record, id) ?? sceneAssetPrompt("portrait", name, detail, artStyle),
+        prompt: promptOverride(record, id) ?? sceneAssetPrompt("portrait", name, detail, artStyle, promptSettings),
         width: imageSize(record, "portrait", "width", 768),
         height: imageSize(record, "portrait", "height", 1024),
       });
