@@ -3034,7 +3034,6 @@ dependencies = [
  "image",
  "marinara-core",
  "marinara-security",
- "marinara-storage",
  "serde_json",
 ]
 
@@ -3063,7 +3062,6 @@ dependencies = [
  "log",
  "marinara-assets",
  "marinara-core",
- "marinara-integrations",
  "marinara-llm",
  "marinara-security",
  "marinara-storage",

@@ -61,10 +61,10 @@ jobs:
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings
       - run: cargo nextest run --manifest-path src-tauri/Cargo.toml --workspace
       - name: Rust dependency policy report
-        run: cargo deny --manifest-path src-tauri/Cargo.toml check
+        run: cargo deny --manifest-path src-tauri/Cargo.toml check --config deny.toml
         continue-on-error: true
       - name: Unused Rust dependency report
-        run: cargo machete --manifest-path src-tauri/Cargo.toml
+        run: cargo machete src-tauri
         continue-on-error: true
 
   smoke:
