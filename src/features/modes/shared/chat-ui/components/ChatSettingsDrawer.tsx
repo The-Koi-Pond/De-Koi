@@ -397,6 +397,18 @@ export function ChatSettingsDrawer({
       ? Math.max(0, Math.floor(metadata.lorebookTokenBudget))
       : LIMITS.DEFAULT_LOREBOOK_TOKEN_BUDGET;
   const activeAgentIds = useMemo<string[]>(() => metadata.activeAgentIds ?? [], [metadata.activeAgentIds]);
+  const inactiveCharacterIds = useMemo<string[]>(
+    () =>
+      Array.isArray(metadata.inactiveCharacterIds)
+        ? metadata.inactiveCharacterIds.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
+        : [],
+    [metadata.inactiveCharacterIds],
+  );
+  const inactiveCharacterIdSet = useMemo(() => new Set(inactiveCharacterIds), [inactiveCharacterIds]);
+  const activeChatCharacterCount = useMemo(
+    () => chatCharIds.filter((id) => !inactiveCharacterIdSet.has(id)).length,
+    [chatCharIds, inactiveCharacterIdSet],
+  );
   const activeToolIds: string[] = metadata.activeToolIds ?? [];
   const gameLorebookKeeperLorebook = gameLorebookKeeperLorebookId
     ? ((lorebooks ?? []) as Array<{ id: string; name: string }>).find(
@@ -705,6 +717,10 @@ export function ChatSettingsDrawer({
           onSuccess: () => syncGamePartyMetadata(current),
         },
       );
+      const nextInactiveCharacterIds = inactiveCharacterIds.filter((id) => id !== charId);
+      if (nextInactiveCharacterIds.length !== inactiveCharacterIds.length) {
+        updateMeta.mutate({ id: chat.id, inactiveCharacterIds: nextInactiveCharacterIds });
+      }
       if (spriteCharacterIds.includes(charId)) {
         const nextSpritePlacements = { ...normalizeSpritePlacements(metadata.spritePlacements) };
         delete nextSpritePlacements[charId];
@@ -740,6 +756,18 @@ export function ChatSettingsDrawer({
         },
       );
     }
+  };
+
+  const toggleCharacterGenerationActive = (charId: string) => {
+    const isInactive = inactiveCharacterIdSet.has(charId);
+    if (!isInactive && activeChatCharacterCount <= 1) {
+      toast.info("At least one character must stay active.");
+      return;
+    }
+    const next = isInactive
+      ? inactiveCharacterIds.filter((id) => id !== charId)
+      : Array.from(new Set([...inactiveCharacterIds, charId]));
+    updateMeta.mutate({ id: chat.id, inactiveCharacterIds: next });
   };
 
   const toggleSprite = (charId: string) => {
@@ -2333,6 +2361,8 @@ export function ChatSettingsDrawer({
                     if (!c) return null;
                     const name = charName(c);
                     const title = charTitle(c);
+                    const isInactive = inactiveCharacterIdSet.has(c.id);
+                    const canDeactivate = !isInactive && activeChatCharacterCount <= 1;
                     return (
                       <div key={c.id}>
                         {dropIdx === i && dragIdx !== null && dragIdx !== i && (
@@ -2347,7 +2377,10 @@ export function ChatSettingsDrawer({
                           }}
                           onDragEnd={handleCharDragEnd}
                           className={cn(
-                            "flex items-center gap-2 rounded-lg bg-[var(--primary)]/10 px-2 py-2 ring-1 ring-[var(--primary)]/30 transition-opacity",
+                            "flex items-center gap-2 rounded-lg px-2 py-2 ring-1 transition-opacity",
+                            isInactive
+                              ? "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-[var(--border)]"
+                              : "bg-[var(--primary)]/10 ring-[var(--primary)]/30",
                             dragIdx === i && "opacity-40",
                           )}
                         >
@@ -2388,6 +2421,27 @@ export function ChatSettingsDrawer({
                                 </span>
                               )}
                             </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleCharacterGenerationActive(c.id)}
+                            disabled={canDeactivate}
+                            className={cn(
+                              "rounded-md px-2 py-1 text-[0.625rem] font-medium transition-colors",
+                              isInactive
+                                ? "bg-[var(--muted)] text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                                : "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15",
+                              canDeactivate && "cursor-not-allowed opacity-50",
+                            )}
+                            title={
+                              isInactive
+                                ? "Mark active for generation"
+                                : canDeactivate
+                                  ? "At least one character must stay active"
+                                  : "Mark inactive for generation"
+                            }
+                          >
+                            {isInactive ? "Inactive" : "Active"}
                           </button>
                           <button
                             onClick={() => toggleCharacter(c.id)}

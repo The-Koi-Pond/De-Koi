@@ -132,6 +132,20 @@ describe("startGeneration concluded roleplay guard", () => {
     await expect(retryGenerationAgents(deps, { chatId: "chat-1" })).rejects.toThrow("This scene is concluded.");
   });
 
+  it("rejects manual replies for inactive group characters before saving user messages", async () => {
+    const { deps, createChatMessage } = depsForChat({
+      id: "chat-1",
+      mode: "roleplay",
+      characterIds: ["char-active", "char-muted"],
+      metadata: { inactiveCharacterIds: ["char-muted"] },
+    });
+
+    const stream = startGeneration(deps, { chatId: "chat-1", forCharacterId: "char-muted" });
+
+    await expect(stream.next()).rejects.toThrow("This character is inactive");
+    expect(createChatMessage).not.toHaveBeenCalled();
+  });
+
   it("does not block non-roleplay chats that have concluded scene metadata", async () => {
     const { deps } = depsForChat({
       id: "chat-1",
