@@ -1,6 +1,7 @@
 import type { LlmChunk, LlmRequest } from "../../engine/capabilities/llm";
 import { useUIStore } from "../stores/ui.store";
 import { ApiError, parseRetryAfterMs } from "./api-errors";
+import { ignoreLlmStreamCancelFailure } from "./llm-cancel-logging";
 
 const REMOTE_COMMANDS = new Set([
   "load_url_binary",
@@ -171,7 +172,7 @@ const REMOTE_COMMANDS = new Set([
   "update_apply",
 ]);
 
-type RuntimeTarget = {
+export type RuntimeTarget = {
   baseUrl: string;
   authorization?: string;
 };
@@ -266,10 +267,9 @@ function parseSseData(buffer: string): { events: string[]; rest: string } {
 export async function* streamRemoteLlm(
   streamId: string,
   request: LlmRequest,
+  target: RuntimeTarget,
   signal?: AbortSignal,
 ): AsyncGenerator<LlmChunk> {
-  const target = remoteRuntimeTarget();
-  if (!target) throw new ApiError("Remote runtime URL is not configured", 400);
   const response = await fetch(`${target.baseUrl}/api/llm/stream`, {
     method: "POST",
     headers: remoteHeaders(target, { "content-type": "application/json", accept: "text/event-stream" }),
@@ -300,11 +300,17 @@ export async function* streamRemoteLlm(
   }
 }
 
-export async function cancelRemoteLlmStream(streamId: string): Promise<void> {
-  const target = remoteRuntimeTarget();
+export async function cancelRemoteLlmStream(streamId: string, target: RuntimeTarget | null): Promise<void> {
   if (!target) return;
-  await fetch(`${target.baseUrl}/api/llm/stream/${encodeURIComponent(streamId)}/cancel`, {
-    method: "POST",
-    headers: remoteHeaders(target),
-  }).catch(() => undefined);
+  await ignoreLlmStreamCancelFailure(
+    "remote",
+    streamId,
+    (async () => {
+      const response = await fetch(`${target.baseUrl}/api/llm/stream/${encodeURIComponent(streamId)}/cancel`, {
+        method: "POST",
+        headers: remoteHeaders(target),
+      });
+      if (!response.ok) throw await readRemoteError(response);
+    })(),
+  );
 }
