@@ -5,6 +5,7 @@ interface SwipeJumpControlProps {
   activeSwipeIndex: number;
   swipeCount: number;
   onSetActiveSwipe: (index: number) => void;
+  onCreateNextSwipe?: () => void;
   className?: string;
   buttonClassName?: string;
   iconSize?: string;
@@ -14,6 +15,7 @@ export function SwipeJumpControl({
   activeSwipeIndex,
   swipeCount,
   onSetActiveSwipe,
+  onCreateNextSwipe,
   className,
   buttonClassName,
   iconSize = "0.75rem",
@@ -26,6 +28,8 @@ export function SwipeJumpControl({
       onSetActiveSwipe(nextIndex);
     }
   };
+  const isLastSwipe = activeSwipeIndex >= swipeCount - 1;
+  const canCreateNextSwipe = Boolean(onCreateNextSwipe);
 
   return (
     <div className={cn("mari-message-swipes flex items-center gap-1.5", className)}>
@@ -56,11 +60,15 @@ export function SwipeJumpControl({
         className={buttonClassName}
         onClick={(event) => {
           event.stopPropagation();
+          if (isLastSwipe) {
+            onCreateNextSwipe?.();
+            return;
+          }
           setActiveIndex(activeSwipeIndex + 1);
         }}
-        disabled={activeSwipeIndex >= swipeCount - 1}
-        aria-label="Next retry"
-        title="Next retry"
+        disabled={isLastSwipe && !canCreateNextSwipe}
+        aria-label={isLastSwipe && canCreateNextSwipe ? "Generate next retry" : "Next retry"}
+        title={isLastSwipe && canCreateNextSwipe ? "Generate next retry" : "Next retry"}
       >
         <ChevronRight size={iconSize} />
       </button>

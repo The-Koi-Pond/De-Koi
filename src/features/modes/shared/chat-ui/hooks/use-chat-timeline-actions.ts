@@ -399,33 +399,19 @@ export function useChatTimelineActions({
   const handleSetActiveSwipe = useCallback(
     (messageId: string, index: number) => {
       const actionId = ++swipeActionSeq.current;
+      const mutation = setActiveSwipe.mutateAsync({ messageId, index });
+      const trackedMutation = mutation.then(
+        () => undefined,
+        () => undefined,
+      );
+      pendingSwipeMutationsRef.current.set(messageId, trackedMutation);
       void (async () => {
         beginRefreshingTimeline();
         try {
-          if (
-            !(await flushTrackerPatchesForTimelineAction(
-              actionId,
-              "Could not save tracker changes before switching swipes.",
-            ))
-          ) {
-            return;
-          }
-          if (swipeActionSeq.current !== actionId) return;
-          const previousMutation = pendingSwipeMutationsRef.current.get(messageId);
-          if (previousMutation) {
-            try {
-              await previousMutation;
-            } catch {
-              /* The active mutation below reports its own failure if needed. */
-            }
-          }
-          if (swipeActionSeq.current !== actionId) return;
-          const mutation = setActiveSwipe.mutateAsync({ messageId, index });
-          const trackedMutation = mutation.then(
-            () => undefined,
-            () => undefined,
+          const trackerPatchesSaved = await flushTrackerPatchesForTimelineAction(
+            actionId,
+            "Could not save tracker changes before switching swipes.",
           );
-          pendingSwipeMutationsRef.current.set(messageId, trackedMutation);
           try {
             await mutation;
           } finally {
@@ -434,6 +420,7 @@ export function useChatTimelineActions({
             }
           }
           if (swipeActionSeq.current !== actionId) return;
+          if (!trackerPatchesSaved) return;
           await refreshVisibleWorldState({ messageId, swipeIndex: index });
         } catch {
           if (swipeActionSeq.current !== actionId) return;

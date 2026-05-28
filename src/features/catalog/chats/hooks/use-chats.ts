@@ -946,6 +946,29 @@ function replaceCachedMessage(
   return changed ? { ...old, pages } : old;
 }
 
+function messageWithOptimisticActiveSwipe(message: Message, requestedIndex: number): Message {
+  const rawSwipes = (message as Message & { swipes?: unknown }).swipes;
+  const swipes = Array.isArray(rawSwipes) ? rawSwipes : [];
+  const swipeCount =
+    typeof message.swipeCount === "number" && Number.isFinite(message.swipeCount) && message.swipeCount > 0
+      ? Math.floor(message.swipeCount)
+      : swipes.length;
+  const normalizedRequestedIndex = Number.isFinite(requestedIndex) ? Math.floor(requestedIndex) : 0;
+  const activeSwipeIndex = Math.min(Math.max(normalizedRequestedIndex, 0), Math.max(swipeCount - 1, 0));
+  const swipe = swipes[activeSwipeIndex];
+  const swipeContent =
+    swipe && typeof swipe === "object" && !Array.isArray(swipe) && typeof (swipe as { content?: unknown }).content === "string"
+      ? (swipe as { content: string }).content
+      : null;
+
+  return {
+    ...message,
+    activeSwipeIndex,
+    swipeCount: swipeCount || message.swipeCount,
+    content: swipeContent ?? message.content,
+  };
+}
+
 function downloadTextFile(contents: string, filename: string, type: string) {
   const blob = new Blob([contents], { type });
   downloadBlobFile(blob, filename);
@@ -1238,17 +1261,19 @@ export function useSetActiveSwipe(chatId: string | null) {
   return useMutation({
     mutationFn: ({ messageId, index }: { messageId: string; index: number }) =>
       invokeTauri<Message | null>("chat_message_set_active_swipe", { chatId, messageId, index }),
-    onMutate: async ({ messageId, index }) => {
+    onMutate: ({ messageId, index }) => {
       if (!chatId) return;
-      await qc.cancelQueries({ queryKey: chatKeys.messages(chatId), exact: true });
+      void qc.cancelQueries({ queryKey: chatKeys.messages(chatId), exact: true });
       const previous = qc.getQueryData<InfiniteData<Message[]>>(chatKeys.messages(chatId));
       qc.setQueryData<InfiniteData<Message[]>>(chatKeys.messages(chatId), (old) =>
-        replaceCachedMessage(old, messageId, (msg) => ({ ...msg, activeSwipeIndex: index })),
+        replaceCachedMessage(old, messageId, (msg) => messageWithOptimisticActiveSwipe(msg, index)),
       );
       return { previous };
     },
-    onSuccess: (updated, { messageId }) => {
+    onSuccess: (updated, { messageId, index }) => {
       if (!chatId) return;
+      const current = findCachedMessage(qc.getQueryData<InfiniteData<Message[]>>(chatKeys.messages(chatId)), messageId);
+      if (current && current.activeSwipeIndex !== index) return;
       if (!updated) {
         qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
         qc.invalidateQueries({ queryKey: lorebookKeys.active(chatId) });
@@ -1259,8 +1284,10 @@ export function useSetActiveSwipe(chatId: string | null) {
       );
       qc.invalidateQueries({ queryKey: lorebookKeys.active(chatId) });
     },
-    onError: (_err, _vars, context) => {
+    onError: (_err, { messageId, index }, context) => {
       if (chatId && context?.previous) {
+        const current = findCachedMessage(qc.getQueryData<InfiniteData<Message[]>>(chatKeys.messages(chatId)), messageId);
+        if (current && current.activeSwipeIndex !== index) return;
         qc.setQueryData(chatKeys.messages(chatId), context.previous);
       }
     },

@@ -1879,6 +1879,7 @@ export const ChatMessage = memo(function ChatMessage({
                 activeSwipeIndex={message.activeSwipeIndex}
                 swipeCount={swipeCount}
                 onSetActiveSwipe={(index) => onSetActiveSwipe?.(message.id, index)}
+                onCreateNextSwipe={onRegenerate ? () => onRegenerate(message.id) : undefined}
                 className="px-1 text-[0.75rem] text-white/40"
                 buttonClassName="rounded-md p-[0.25em] transition-colors hover:bg-white/10 disabled:opacity-30"
                 iconSize={MESSAGE_SWIPE_ICON_SIZE}
@@ -2319,6 +2320,7 @@ export const ChatMessage = memo(function ChatMessage({
               activeSwipeIndex={message.activeSwipeIndex}
               swipeCount={swipeCount}
               onSetActiveSwipe={(index) => onSetActiveSwipe?.(message.id, index)}
+              onCreateNextSwipe={onRegenerate ? () => onRegenerate(message.id) : undefined}
               className="px-2 text-[0.75rem] text-[var(--muted-foreground)]"
               buttonClassName="rounded p-[0.25em] transition-colors hover:bg-[var(--accent)] disabled:opacity-30"
               iconSize={MESSAGE_SWIPE_ICON_SIZE}
