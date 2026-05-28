@@ -4384,14 +4384,18 @@ export function GameSurface({
 
   const retryGeneration = useCallback(() => {
     setGenerationFailed(false);
-    generateGameTurn({ chatId: activeChatId, connectionId: null, kind: "turn" });
+    void generateGameTurn({ chatId: activeChatId, connectionId: null, kind: "turn" }).catch(() => {
+      // Generation UI already shows the recoverable error state.
+    });
   }, [activeChatId, generateGameTurn]);
 
   const generateInitialGameTurn = useCallback(() => {
-    generateGameTurn({
+    void generateGameTurn({
       chatId: activeChatId,
       connectionId: null,
       kind: "start",
+    }).catch(() => {
+      // Generation UI already shows the recoverable error state.
     });
   }, [activeChatId, generateGameTurn]);
 
@@ -4552,12 +4556,17 @@ export function GameSurface({
   const sendMessage = useCallback(
     (message: string, attachments?: Array<{ type: string; data: string }>) => {
       if ((chatMeta.gameSessionStatus as string) === "concluded") return;
-      generateGameTurn({
+      const trimmedMessage = message.trim();
+      const hasAttachments = !!attachments?.length;
+      if (!trimmedMessage && !hasAttachments) return;
+      void generateGameTurn({
         chatId: activeChatId,
         connectionId: null,
         kind: "turn",
-        userMessage: formatTextQuotes(message, quoteFormat),
-        ...(attachments?.length ? { attachments } : {}),
+        userMessage: formatTextQuotes(trimmedMessage, quoteFormat),
+        ...(hasAttachments ? { attachments } : {}),
+      }).catch(() => {
+        // Generation UI already shows the recoverable error state.
       });
     },
     [activeChatId, chatMeta.gameSessionStatus, generateGameTurn, quoteFormat],
@@ -8653,12 +8662,16 @@ export function GameSurface({
               />
 
               {/* Gallery drawer */}
-              <ChatGalleryDrawer
-                chat={chat}
-                open={galleryOpen}
-                onClose={() => setGalleryOpen(false)}
-                onIllustrate={() => retryAgents(activeChatId, ["illustrator"])}
-              />
+              <Suspense fallback={null}>
+                {galleryOpen && (
+                  <ChatGalleryDrawer
+                    chat={chat}
+                    open={galleryOpen}
+                    onClose={() => setGalleryOpen(false)}
+                    onIllustrate={() => retryAgents(activeChatId, ["illustrator"])}
+                  />
+                )}
+              </Suspense>
 
               {/* Inventory overlay */}
               <GameInventory
