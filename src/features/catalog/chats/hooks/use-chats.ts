@@ -1279,13 +1279,11 @@ export function useSetActiveSwipe(chatId: string | null) {
       if (current && current.activeSwipeIndex !== index) return;
       if (!updated) {
         qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
-        qc.invalidateQueries({ queryKey: lorebookKeys.active(chatId) });
         return;
       }
       qc.setQueryData<InfiniteData<Message[]>>(chatKeys.messages(chatId), (old) =>
         replaceCachedMessage(old, messageId, (msg) => ({ ...msg, ...updated })),
       );
-      qc.invalidateQueries({ queryKey: lorebookKeys.active(chatId) });
     },
     onError: (_err, { messageId, index }, context) => {
       if (chatId && context?.previous) {

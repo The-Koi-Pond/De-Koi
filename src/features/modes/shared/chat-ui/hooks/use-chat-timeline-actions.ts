@@ -40,6 +40,14 @@ function readMessageExtra(message: MessageWithSwipes): Record<string, any> {
     : {};
 }
 
+function useLatestRef<T>(value: T) {
+  const ref = useRef(value);
+  useEffect(() => {
+    ref.current = value;
+  }, [value]);
+  return ref;
+}
+
 export function useChatTimelineActions({
   activeChatId,
   messages,
@@ -64,6 +72,11 @@ export function useChatTimelineActions({
   const branchChat = useBranchChat();
   const setActiveSwipe = useSetActiveSwipe(activeChatId);
   const { generate, retryAgents } = useGenerate();
+  const updateMessageRef = useLatestRef(updateMessage);
+  const updateMessageExtraRef = useLatestRef(updateMessageExtra);
+  const setActiveSwipeRef = useLatestRef(setActiveSwipe);
+  const peekPromptRef = useLatestRef(peekPrompt);
+  const branchChatRef = useLatestRef(branchChat);
 
   const swipeActionSeq = useRef(0);
   const peekPromptActionSeq = useRef(0);
@@ -399,7 +412,7 @@ export function useChatTimelineActions({
   const handleSetActiveSwipe = useCallback(
     (messageId: string, index: number) => {
       const actionId = ++swipeActionSeq.current;
-      const mutation = setActiveSwipe.mutateAsync({ messageId, index });
+      const mutation = setActiveSwipeRef.current.mutateAsync({ messageId, index });
       const trackedMutation = mutation.then(
         () => undefined,
         () => undefined,
@@ -419,12 +432,12 @@ export function useChatTimelineActions({
         }
       })();
     },
-    [setActiveSwipe],
+    [setActiveSwipeRef],
   );
 
   const handleEdit = useCallback(
     (messageId: string, content: string) => {
-      updateMessage.mutate(
+      updateMessageRef.current.mutate(
         { messageId, content },
         {
           onError: (error) => {
@@ -434,26 +447,26 @@ export function useChatTimelineActions({
       );
       return Promise.resolve();
     },
-    [updateMessage],
+    [updateMessageRef],
   );
 
   const handleToggleConversationStart = useCallback(
     (messageId: string, current: boolean) => {
-      updateMessageExtra.mutate({ messageId, extra: { isConversationStart: !current } });
+      updateMessageExtraRef.current.mutate({ messageId, extra: { isConversationStart: !current } });
     },
-    [updateMessageExtra],
+    [updateMessageExtraRef],
   );
 
   const handleToggleHiddenFromAI = useCallback(
     (messageId: string, current: boolean) => {
-      updateMessageExtra.mutate({ messageId, extra: { hiddenFromAI: !current, hiddenFromAi: !current } });
+      updateMessageExtraRef.current.mutate({ messageId, extra: { hiddenFromAI: !current, hiddenFromAi: !current } });
     },
-    [updateMessageExtra],
+    [updateMessageExtraRef],
   );
 
   const handleBranch = useCallback(
     (messageId: string) => {
-      branchChat.mutate(
+      branchChatRef.current.mutate(
         { chatId: activeChatId, upToMessageId: messageId },
         {
           onSuccess: (newChat) => {
@@ -462,13 +475,13 @@ export function useChatTimelineActions({
         },
       );
     },
-    [activeChatId, branchChat],
+    [activeChatId, branchChatRef],
   );
 
   const handlePeekPrompt = useCallback((options?: PeekPromptOptions) => {
     const actionId = ++peekPromptActionSeq.current;
     setPeekPromptData({ messages: [], parameters: null, generationInfo: null, loading: true });
-    peekPrompt.mutate(
+    peekPromptRef.current.mutate(
       { chatId: activeChatId, forCharacterId: options?.forCharacterId ?? null },
       {
         onSuccess: (data) => {
@@ -485,7 +498,7 @@ export function useChatTimelineActions({
         },
       },
     );
-  }, [activeChatId, peekPrompt]);
+  }, [activeChatId, peekPromptRef]);
 
   const closePeekPrompt = useCallback(() => {
     peekPromptActionSeq.current++;

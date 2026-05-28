@@ -1,16 +1,16 @@
 # Graph Report - Marinara-Engine  (2026-05-28)
 
 ## Corpus Check
-- 848 files · ~2,814,499 words
+- 848 files · ~2,814,621 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 10267 nodes · 22240 edges · 455 communities (419 shown, 36 thin omitted)
+- 10271 nodes · 22305 edges · 463 communities (430 shown, 33 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 269 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `3f2babca`
+- Built from commit: `5ab69eec`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -160,6 +160,7 @@
 - [[_COMMUNITY_Community 144|Community 144]]
 - [[_COMMUNITY_Community 145|Community 145]]
 - [[_COMMUNITY_Community 146|Community 146]]
+- [[_COMMUNITY_Community 147|Community 147]]
 - [[_COMMUNITY_Community 148|Community 148]]
 - [[_COMMUNITY_Community 149|Community 149]]
 - [[_COMMUNITY_Community 150|Community 150]]
@@ -432,6 +433,14 @@
 - [[_COMMUNITY_Community 434|Community 434]]
 - [[_COMMUNITY_Community 435|Community 435]]
 - [[_COMMUNITY_Community 436|Community 436]]
+- [[_COMMUNITY_Community 455|Community 455]]
+- [[_COMMUNITY_Community 456|Community 456]]
+- [[_COMMUNITY_Community 457|Community 457]]
+- [[_COMMUNITY_Community 458|Community 458]]
+- [[_COMMUNITY_Community 459|Community 459]]
+- [[_COMMUNITY_Community 460|Community 460]]
+- [[_COMMUNITY_Community 461|Community 461]]
+- [[_COMMUNITY_Community 462|Community 462]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `vocab` - 455 edges
@@ -450,70 +459,70 @@
   src/engine/generation/tools-runtime.ts → scripts/run-vite.mjs
 - `today_label()` --calls--> `now_iso()`  [INFERRED]
   src-tauri/src/commands/storage/integrations/spotify.rs → src-tauri/crates/core/src/lib.rs
-- `import_persona_avatar_file()` --calls--> `modified_at()`  [INFERRED]
-  src-tauri/src/commands/storage/imports/bulk_imports.rs → src-tauri/src/commands/storage/imports/access.rs
+- `merge_object_field()` --calls--> `now_iso()`  [INFERRED]
+  src-tauri/crates/storage/src/lib.rs → src-tauri/crates/core/src/lib.rs
+- `activate_persona()` --calls--> `get_required()`  [INFERRED]
+  src-tauri/src/commands/storage/characters.rs → src-tauri/src/commands/storage/shared.rs
 - `translateDraftText()` --calls--> `translateText()`  [INFERRED]
   src/shared/lib/draft-translation.ts → src/shared/lib/translate-text.ts
-- `ensure_url_allowed()` --calls--> `is_allowed_outbound_url()`  [INFERRED]
-  src-tauri/crates/llm/src/lib.rs → src-tauri/crates/security/src/lib.rs
 
-## Communities (455 total, 36 thin omitted)
+## Communities (463 total, 33 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.00
 Nodes (455): vocab, [CLS], [MASK], [PAD], [SEP], [UNK], [unused0], [unused1] (+447 more)
 
 ### Community 1 - "Community 1"
-Cohesion: 0.02
-Nodes (129): characterKeys, spriteKeys, BotBrowserPanel(), CharacterCardUpdateModal(), Props, AltDescriptionEntry, CharacterDescriptionTab(), CharacterEditor() (+121 more)
+Cohesion: 0.03
+Nodes (79): spriteKeys, AltDescriptionEntry, CharacterDescriptionTab(), CharacterGalleryTab(), CharacterVersionHistoryPanel(), DEFAULT_EXPRESSIONS, DEFAULT_RPG_STATS, formatVersionTimestamp() (+71 more)
 
 ### Community 2 - "Community 2"
 Cohesion: 0.02
-Nodes (123): ELEMENT_COLORS, ELEMENT_EMOJI, GameElementReaction(), GameElementReactionProps, ReactionDisplay, GameQteOverlay(), GameQteOverlayProps, QteAction (+115 more)
+Nodes (88): ELEMENT_COLORS, ELEMENT_EMOJI, GameElementReaction(), GameElementReactionProps, ReactionDisplay, addInventoryUnit(), applyCombatStatusTagsToCombatants(), BACKGROUND_FALLBACK_IGNORED_WORDS (+80 more)
 
 ### Community 3 - "Community 3"
-Cohesion: 0.02
-Nodes (94): chatKeys, ActiveLorebookView, AgentAddPreview, AgentCategorySection(), AvailableAgent, ChatSettingsDrawer(), ConversationNotesSection(), DrawerPersona (+86 more)
+Cohesion: 0.03
+Nodes (102): chatPresetKeys, ActiveLorebookView, AgentAddPreview, AgentCategorySection(), AvailableAgent, ChatSettingsDrawer(), ConversationNotesSection(), DrawerPersona (+94 more)
 
 ### Community 4 - "Community 4"
 Cohesion: 0.03
-Nodes (85): llmApi, recordAssistantActivity(), useAutonomousMessaging(), RawCharacter, RawChat, ExpressionAvatarResolver, MessageSelectionToggle, PeekPromptData (+77 more)
+Nodes (67): MessageSelectionToggle, MessageWithSwipes, PeekPromptData, PeekPromptOptions, ActiveWorldInfoButton(), ActiveWorldInfoButtonProps, ActiveWorldInfoModal(), ButtonClassNameInput (+59 more)
 
 ### Community 5 - "Community 5"
-Cohesion: 0.03
-Nodes (104): JsonRepairRequest, applyGameJsonRepair(), applyJournalEntry(), asRecord(), assetTagFromPath(), base64File(), ChatMessage, chatMeta() (+96 more)
+Cohesion: 0.05
+Nodes (47): applyGameJsonRepair(), asRecord(), assetTagFromPath(), base64File(), ChatMessage, chatMeta(), defaultGameMap(), discordWebhookUrl() (+39 more)
 
 ### Community 6 - "Community 6"
 Cohesion: 0.04
-Nodes (93): MessageWithSwipes, ChatBranchSelector(), ChatBranchSelectorProps, ChatFilesDrawer(), ChatFilesDrawerProps, ChatNotificationBubbles(), AuthorNotesPanel(), AuthorNotesButton() (+85 more)
+Nodes (62): useBackgroundAutonomousPolling(), AgentInjectionReviewModal(), AgentInjectionReviewModalProps, ChatNotificationBubbles(), NotificationBubble(), ChatRoleplaySurface(), ConversationModeRoute(), ConversationModeRouteProps (+54 more)
 
 ### Community 7 - "Community 7"
 Cohesion: 0.04
-Nodes (117): ParsedCharacter, buildAgentContext(), illustratorRunCountsTowardInterval(), loadLorebookKeeperEntries(), resultText(), appendGameCardFields(), assembleGenerationPrompt(), buildConnectedConversationBlocks() (+109 more)
+Nodes (95): resultText(), StoredGenerationParameters, appendGameCardFields(), assembleGenerationPrompt(), buildConnectedConversationBlocks(), buildGamePromptMessages(), buildMemoryRecallBlock(), buildRoleplayScenePromptBlock() (+87 more)
 
 ### Community 8 - "Community 8"
-Cohesion: 0.04
-Nodes (99): CombatEndScreen(), CombatLog(), EncounterConfig(), EncounterErrorBoundary, EncounterModal(), EncounterModalInner(), EnemyCard(), HPBar() (+91 more)
+Cohesion: 0.08
+Nodes (50): boolish(), buildActionPrompt(), buildEncounterContext(), buildInitPrompt(), buildPersonaContext(), buildSummaryPrompt(), completeJsonObject(), createChatMessage() (+42 more)
 
 ### Community 9 - "Community 9"
-Cohesion: 0.04
-Nodes (85): chatPresetKeys, NotificationBubble(), ALL_STEPS, CharacterAvatarImage(), CharacterSetupOption, ConnectionSetupOption, formatPersonaLabel(), getCharacterAvatarCrop() (+77 more)
+Cohesion: 0.05
+Nodes (57): RoleplaySetupWizard(), GamePartySidebar(), PartyChatMessage, CharacterAvatar(), parseAvatarCropValue(), ModeHomeSurface(), QuickStartMode, ConversationModeRoute (+49 more)
 
 ### Community 10 - "Community 10"
-Cohesion: 0.04
-Nodes (76): exportApi, CharacterMakerModal(), ConnectionRow, GeneratedData, Props, ConversationQuickSetup(), GameSetupWizard(), CATEGORY_OPTIONS (+68 more)
+Cohesion: 0.08
+Nodes (28): LorebookTab(), CATEGORY_OPTIONS, EntrySortKey, LinkedResourceItem, LorebookEditor(), readBoolFlag(), SORT_OPTIONS, TabId (+20 more)
 
 ### Community 11 - "Community 11"
 Cohesion: 0.03
-Nodes (79): useApplyRegex(), Attachment, ChatInput, getFileExtension(), inferAttachmentType(), isSupportedChatAttachment(), TEXT_ATTACHMENT_EXTENSIONS, renderWithSpeakerTags() (+71 more)
+Nodes (62): useApplyRegex(), RawCharacter, Attachment, ChatInput, ChatInputProps, getFileExtension(), inferAttachmentType(), isSupportedChatAttachment() (+54 more)
 
 ### Community 12 - "Community 12"
 Cohesion: 0.05
-Nodes (76): CharacterTrackerAvatar(), CharacterTrackerCard(), CompactThoughtBubble(), COMPACT_CHARACTER_FIELD_TONE_CLASSES, CompactCharacterField(), CompactCharacterFieldTone, CharacterTrackerPanel(), CustomTrackerPanel() (+68 more)
+Nodes (90): CharacterTrackerAvatar(), CharacterTrackerCard(), CompactThoughtBubble(), COMPACT_CHARACTER_FIELD_TONE_CLASSES, CompactCharacterField(), CompactCharacterFieldTone, CharacterTrackerPanel(), CustomTrackerPanel() (+82 more)
 
 ### Community 13 - "Community 13"
 Cohesion: 0.04
-Nodes (93): EngineEventHandler, EventGateway, activeCharacterIds(), assertChatHasActiveCharacters(), assertRequestedCharacterIsActive(), inactiveCharacterIds(), extractImageAttachmentDataUrls(), resolveRegenerationGameStateAnchor() (+85 more)
+Nodes (94): EngineEventHandler, EventGateway, activeCharacterIds(), assertChatHasActiveCharacters(), assertRequestedCharacterIsActive(), inactiveCharacterIds(), extractImageAttachmentDataUrls(), PromptAttachment (+86 more)
 
 ### Community 14 - "Community 14"
 Cohesion: 0.06
@@ -521,7 +530,7 @@ Nodes (96): bearer(), chat_completions_url(), closest_stability_aspect_ratio(), 
 
 ### Community 15 - "Community 15"
 Cohesion: 0.03
-Nodes (76): CustomToolsGateway, DiscordGateway, HapticGateway, ImageGenerationGateway, IntegrationGateway, SpotifyGateway, LlmEmbeddingRequest, LlmGateway (+68 more)
+Nodes (80): CustomToolsGateway, DiscordGateway, HapticGateway, ImageGenerationGateway, IntegrationGateway, SpotifyGateway, LlmEmbeddingRequest, LlmGateway (+72 more)
 
 ### Community 16 - "Community 16"
 Cohesion: 0.06
@@ -532,16 +541,16 @@ Cohesion: 0.06
 Nodes (84): background_remover_runtime_dir(), background_remover_status(), BackgroundRemoverCommand, build_sprite_plan(), builtin_fallback_reports_builtin_source(), bulk_upload_rejects_unsafe_character_id(), bulk_upload_reports_partial_failures_and_returns_refreshed_list(), bundled_background_remover_roots() (+76 more)
 
 ### Community 18 - "Community 18"
-Cohesion: 0.05
-Nodes (77): ActivationScanMessage, AgentActivationMatch, matchCustomAgentActivation(), LlmToolDefinition, normalizeCustomAgentActivationKeywords(), normalizeCustomAgentActivationScanDepth(), keywords, activationScanMessages() (+69 more)
+Cohesion: 0.04
+Nodes (91): AgentToolContext, baseContext, calls, configs, provider, loadAgentMemory(), parseMaybeJson(), persistSecretPlotAgentMemory() (+83 more)
 
 ### Community 19 - "Community 19"
-Cohesion: 0.04
-Nodes (50): AgentDebugPanel(), AgentThoughtBubbles(), CharacterData, CharacterRow, BotBrowserView(), WeatherEffectsConnected(), ConnectionRow(), ContinuityIssueChecklist() (+42 more)
+Cohesion: 0.07
+Nodes (33): AgentDebugPanel(), CORNERS, EchoChamberPanel(), EchoChamberPanelProps, EchoMessage, NAME_COLORS, normalizeEchoMessages(), readRecord() (+25 more)
 
 ### Community 20 - "Community 20"
-Cohesion: 0.03
-Nodes (52): importApi, storageApi, AgentInjectionReviewModal(), AgentInjectionReviewModalProps, CreateConnectionModal(), Props, Props, CreatePersonaModal() (+44 more)
+Cohesion: 0.04
+Nodes (65): importApi, integrationGateway, llmApi, asRecord(), chatMessageDefaults(), normalizeArrayField(), normalizeMessageWrite(), normalizeObjectField() (+57 more)
 
 ### Community 21 - "Community 21"
 Cohesion: 0.05
@@ -552,120 +561,120 @@ Cohesion: 0.06
 Nodes (70): access_token(), agent_settings(), authorize(), build_dj_mari_context(), handle_callback_request(), parse_query(), percent_decode_component(), run_callback_listener() (+62 more)
 
 ### Community 23 - "Community 23"
-Cohesion: 0.04
-Nodes (63): appendReadableAttachmentsToContent(), base64ToBytes(), buildReadableAttachmentBlocks(), canUseManualTrackerNameFallback(), decodeDataUrlText(), estimateDataUrlBytes(), findLastIndex(), getAttachmentFilename() (+55 more)
+Cohesion: 0.08
+Nodes (33): appendReadableAttachmentsToContent(), base64ToBytes(), buildReadableAttachmentBlocks(), canUseManualTrackerNameFallback(), decodeDataUrlText(), estimateDataUrlBytes(), findLastIndex(), getAttachmentFilename() (+25 more)
 
 ### Community 24 - "Community 24"
 Cohesion: 0.04
-Nodes (58): applySegmentEditOverlay(), buildTruncationLines(), buildVoiceLineSegmentCacheKey(), buildVoiceLineTextCacheKey(), effectDisplayLength(), EMPTY_GAME_SIDE_LINES, estimateMessageTokenCount(), estimateTextTokenCount() (+50 more)
+Nodes (53): buildTruncationLines(), buildVoiceLineSegmentCacheKey(), buildVoiceLineTextCacheKey(), CroppedAvatar(), effectDisplayLength(), EMPTY_GAME_SIDE_LINES, estimateMessageTokenCount(), estimateTextTokenCount() (+45 more)
 
 ### Community 25 - "Community 25"
-Cohesion: 0.06
-Nodes (66): resolveLiveTestMacros(), appendActiveAltDescriptions(), buildMessageMacroContext(), createInputMacroResolverForChat(), createMessageMacroResolver(), findCharacterByName(), getChatCharacterIds(), getRecord() (+58 more)
+Cohesion: 0.08
+Nodes (47): CharacterFieldMacroName, CharacterMacroProfile, compareConditionValues(), evaluateCondition(), expandBracketedCharacterBlocks(), findBalancedMacroEnd(), findConditionalEnd(), findConditionalStart() (+39 more)
 
 ### Community 26 - "Community 26"
 Cohesion: 0.04
-Nodes (54): CharacterAvatarImage(), resolveAvatarCrop(), CharacterData, CharacterLibraryDetailCard(), CharacterRow, getCharacterMeta(), getCharacterSections(), getCharacterSummary() (+46 more)
+Nodes (57): AdvancedParametersSection(), ALL_STEPS, CharacterAvatarImage(), CharacterSetupOption, ConnectionSetupOption, ConversationQuickSetup(), formatPersonaLabel(), getCharacterAvatarCrop() (+49 more)
 
 ### Community 27 - "Community 27"
 Cohesion: 0.08
 Nodes (64): apply_message_pagination(), args_object(), avatar_generation_command(), background_upload(), bot_browser_get(), bot_browser_post(), bot_browser_route(), character_gallery_upload() (+56 more)
 
 ### Community 28 - "Community 28"
-Cohesion: 0.05
-Nodes (47): ChatGalleryDrawer, ChatCommonOverlaysProps, ChatData, ChatFilesDrawer, ChatGalleryDrawer, ChatSettingsDrawer, ChatSetupWizard, DeleteDialogProps (+39 more)
+Cohesion: 0.07
+Nodes (28): galleryApi, ChatGalleryDrawer, ChatGallery(), ChatGalleryProps, formatImageMeta(), ChatGalleryDrawerProps, ImagePromptPanel(), ImagePromptPanelProps (+20 more)
 
 ### Community 29 - "Community 29"
-Cohesion: 0.04
-Nodes (52): backgroundsApi, fontsApi, UpdateApplyResponse, UpdateCheckResponse, updatesApi, AdvancedSettings(), BackgroundLibraryItem, BackgroundPicker() (+44 more)
+Cohesion: 0.05
+Nodes (46): backgroundsApi, fontsApi, UpdateApplyResponse, UpdateCheckResponse, updatesApi, AdvancedSettings(), BackgroundLibraryItem, BackgroundPicker() (+38 more)
 
 ### Community 30 - "Community 30"
-Cohesion: 0.06
-Nodes (58): delete_swipe(), message_swipes(), character_update_patch_preserves_object_data(), character_update_patch_rejects_invalid_data_shape(), collapse_excess_blank_lines(), decode_uploaded_files(), decode_uploaded_image_file(), decode_uploaded_image_file_rejects_declared_oversized_upload() (+50 more)
+Cohesion: 0.07
+Nodes (57): character_update_patch_preserves_object_data(), character_update_patch_rejects_invalid_data_shape(), collapse_excess_blank_lines(), decode_uploaded_image_file(), decode_uploaded_image_file_rejects_declared_oversized_upload(), decode_uploaded_image_file_rejects_non_image_content_type(), duplicate_record(), find_by_field() (+49 more)
 
 ### Community 31 - "Community 31"
-Cohesion: 0.07
-Nodes (55): TrackerPanelModel, normalizeQuoteFormat(), QuoteFormat, normalizeTemperatureUnit(), TEMPERATURE_UNITS, TemperatureUnit, APP_LANGUAGE_OPTIONS, AppLanguage (+47 more)
+Cohesion: 0.08
+Nodes (50): normalizeQuoteFormat(), QuoteFormat, normalizeTemperatureUnit(), TEMPERATURE_UNITS, TemperatureUnit, APP_LANGUAGE_OPTIONS, AppLanguage, clampImageDimension() (+42 more)
 
 ### Community 32 - "Community 32"
-Cohesion: 0.06
-Nodes (43): SessionSummaryResponse, buildCurrentSecretsDraft(), CurrentSessionSecretDraft, CurrentSessionSecrets, formatJsonDraft(), formatListDraft(), GameSessionHistory(), GameSessionHistoryProps (+35 more)
+Cohesion: 0.10
+Nodes (32): CurrentSessionSecrets, buildCampaignPlanLines(), buildCampaignProgressionPrompt(), buildCompactInventoryLine(), buildGmFormatReminder(), buildGmSystemPrompt(), buildLatestSessionContinuityLines(), buildMapStateLines() (+24 more)
 
 ### Community 33 - "Community 33"
-Cohesion: 0.05
-Nodes (49): gameApi, payloads, previousChat, storageApiMock, GameCheckpoints(), GameCheckpointsProps, TRIGGER_ICONS, TRIGGER_LABELS (+41 more)
+Cohesion: 0.07
+Nodes (33): gameApi, payloads, previousChat, storageApiMock, GameCombatUIProps, GameSetupWizardProps, generatePartyTurn(), PartyTurnInput (+25 more)
 
 ### Community 34 - "Community 34"
-Cohesion: 0.07
-Nodes (51): activeCharacterId(), appendMissingPositiveTags(), applyScheduleUpdate(), buildSelfiePrompt(), characterDataFromCreate(), characterDataPatch(), ConnectedCommandEvent, connectedNoteStorageChatId() (+43 more)
+Cohesion: 0.06
+Nodes (57): activeCharacterId(), appendMissingPositiveTags(), applyScheduleUpdate(), buildSelfiePrompt(), characterDataFromCreate(), characterDataPatch(), ConnectedCommandEvent, ConnectedCommandResult (+49 more)
 
 ### Community 35 - "Community 35"
-Cohesion: 0.05
-Nodes (47): ConnectedCommandResult, allEntries, batchSizes, CharacterMakerData, CharacterOrPersonaMakerInput, entries, LorebookMakerData, LorebookMakerEntry (+39 more)
+Cohesion: 0.08
+Nodes (28): allEntries, batchSizes, CharacterMakerData, CharacterOrPersonaMakerInput, entries, LorebookMakerData, LorebookMakerEntry, LorebookMakerInput (+20 more)
 
 ### Community 36 - "Community 36"
-Cohesion: 0.11
-Nodes (33): CharactersTrackerSection(), CustomTrackerSection(), InlineEdit(), InlinePreviewPosition, InventoryTrackerSection(), LabeledEdit(), PersonaStatusField(), TrackerSectionRefresh() (+25 more)
+Cohesion: 0.10
+Nodes (37): CharactersTrackerSection(), CustomTrackerSection(), InlineEdit(), InlinePreviewPosition, InventoryTrackerSection(), LabeledEdit(), PersonaStatusField(), TrackerSectionRefresh() (+29 more)
 
 ### Community 37 - "Community 37"
 Cohesion: 0.06
 Nodes (46): asRecord(), mariApi, normalizeCompaction(), normalizeMariMessages(), normalizePreferences(), ProfessorMariPreferences, ProfessorMariSettingsRecord, readSettingsValue() (+38 more)
 
 ### Community 38 - "Community 38"
-Cohesion: 0.06
-Nodes (41): build_system_prompt(), build_task_prompt(), create_marinara_custom_agent(), create_marinara_extension(), CreateMarinaraCustomAgentArgs, CreateMarinaraCustomAgentTool, CreateMarinaraExtensionArgs, CreateMarinaraExtensionTool (+33 more)
+Cohesion: 0.08
+Nodes (25): build_system_prompt(), build_task_prompt(), create_marinara_custom_agent(), CreateMarinaraCustomAgentArgs, CreateMarinaraExtensionArgs, creative_library_snapshot(), EditMarinaraCodeFileArgs, ensure_connection_supports_native_tools() (+17 more)
 
 ### Community 39 - "Community 39"
 Cohesion: 0.05
-Nodes (40): activeTauriStreamIds, cancelActiveTauriStreams(), cancelArgs, cancelCall, controller, fetchMock, first, invokeMock (+32 more)
+Nodes (41): activeTauriStreamIds, cancelActiveTauriStreams(), cancelArgs, cancelCall, controller, fetchMock, first, invokeMock (+33 more)
 
 ### Community 40 - "Community 40"
-Cohesion: 0.10
-Nodes (43): file_stem(), parse_json_text(), block_collection_writes(), bool_option(), build_sillytavern_fixture(), BulkImportProgress, BulkImportProgress<'a>, bump_imported() (+35 more)
+Cohesion: 0.09
+Nodes (44): file_stem(), modified_at(), block_collection_writes(), bool_option(), build_sillytavern_fixture(), BulkImportProgress, BulkImportProgress<'a>, bump_imported() (+36 more)
 
 ### Community 41 - "Community 41"
 Cohesion: 0.09
-Nodes (41): most_used_character(), avatar_data_url(), binary_download(), build_png_chunk(), character_card_png(), character_data_value(), character_export_envelope(), compatible_character_export() (+33 more)
+Nodes (42): most_used_character(), avatar_data_url(), binary_download(), build_png_chunk(), character_card_png(), character_data_value(), character_export_envelope(), compatible_character_export() (+34 more)
 
 ### Community 42 - "Community 42"
 Cohesion: 0.06
 Nodes (41): ACTION_MENU, ActionNarration(), buildCombatVoiceLineKey(), COMBAT_SFX, CombatantCard(), CombatantSpriteVisual(), CombatImpactTone, combatItemTargetsAllies() (+33 more)
 
 ### Community 43 - "Community 43"
-Cohesion: 0.08
-Nodes (47): is_protected_record(), new_id(), activate_persona(), restore_character_version(), active_swipe_index(), branch_chat(), bulk_delete_messages(), chat_array_field() (+39 more)
+Cohesion: 0.12
+Nodes (46): is_protected_record(), new_id(), now_iso(), active_swipe_index(), active_swipe_update_response(), branch_chat(), bulk_delete_messages(), chat_array_field() (+38 more)
 
 ### Community 44 - "Community 44"
-Cohesion: 0.11
-Nodes (47): TrackerSnapshotMessageRebase, abandonRoleplayScene(), analyzeScene(), appendSceneMemory(), buildForkContinuityMessage(), buildSceneConversationContext(), characterData(), cleanOriginScenePointers() (+39 more)
+Cohesion: 0.13
+Nodes (40): TrackerSnapshotMessageRebase, abandonRoleplayScene(), analyzeScene(), appendSceneMemory(), buildForkContinuityMessage(), buildSceneConversationContext(), characterData(), cleanOriginScenePointers() (+32 more)
 
 ### Community 45 - "Community 45"
-Cohesion: 0.09
-Nodes (20): assert_inside_dir(), assert_relative_safe_path(), AssetService, canonicalize_existing_prefix(), copy_missing(), ensure_text_asset_path(), ensure_upload_extension(), folder_description() (+12 more)
+Cohesion: 0.19
+Nodes (4): AssetService, copy_missing(), ensure_text_asset_path(), unique_target_path()
 
 ### Community 46 - "Community 46"
-Cohesion: 0.06
-Nodes (33): useBackgroundAutonomousPolling(), folderKeys, useChatFolders(), useCreateFolder(), useDeleteFolder(), useMoveChat(), useReorderFolders(), useUpdateFolder() (+25 more)
+Cohesion: 0.08
+Nodes (35): chatKeys, ChatBranchSelector(), ChatBranchSelectorProps, ChatFilesDrawer(), AuthorNotesPanel(), AppearanceSettings(), clampSummaryCount(), parsePositiveInteger() (+27 more)
 
 ### Community 47 - "Community 47"
 Cohesion: 0.10
-Nodes (43): applyAgentResultEffects(), applyAssistantAction(), applyBackgroundChoice(), applyHapticAgentResult(), applyQuestUpdates(), applyTrackerResultToGameState(), assertChatCanGenerate(), buildPendingCardUpdates() (+35 more)
+Nodes (42): applyAgentResultEffects(), applyAssistantAction(), applyBackgroundChoice(), applyHapticAgentResult(), applyQuestUpdates(), applyTrackerResultToGameState(), assertChatCanGenerate(), buildPendingCardUpdates() (+34 more)
 
 ### Community 48 - "Community 48"
 Cohesion: 0.12
-Nodes (36): CombinedWorldPanel, CombinedWorldWidget(), visibleText(), getWorldAmbienceStyle(), getWorldDashboardGridClass(), getWorldTileTextNeed(), WorldDashboardGridClassOptions, WorldDateTile() (+28 more)
+Nodes (33): CombinedWorldPanel, CombinedWorldWidget(), getWorldAmbienceStyle(), getWorldDashboardGridClass(), getWorldTileTextNeed(), WorldDashboardGridClassOptions, WorldDateTile(), WorldTimeTile() (+25 more)
 
 ### Community 49 - "Community 49"
-Cohesion: 0.04
-Nodes (45): added_tokens, id, ids, tokens, decoder, cleanup, prefix, type (+37 more)
+Cohesion: 0.06
+Nodes (32): added_tokens, decoder, cleanup, prefix, type, model, continuing_subword_prefix, max_input_chars_per_word (+24 more)
 
 ### Community 50 - "Community 50"
-Cohesion: 0.07
-Nodes (35): stripAvatarPathsReplacer(), Props, buildCatalog(), buildKeywordActivatedRouterEntries(), buildKnowledgeRouterQuery(), CatalogItem, executeKnowledgeRouter(), formatCatalogForPrompt() (+27 more)
+Cohesion: 0.10
+Nodes (24): stripAvatarPathsReplacer(), buildCatalog(), buildKeywordActivatedRouterEntries(), buildKnowledgeRouterQuery(), CatalogItem, executeKnowledgeRouter(), formatCatalogForPrompt(), KnowledgeRouterCandidateOptions (+16 more)
 
 ### Community 51 - "Community 51"
-Cohesion: 0.13
-Nodes (35): RoleplayHUDProps, useIsDesktopHudLayout(), CombinedPlayerPanelProps, CombinedPlayerPanel, CombinedPlayerWidget(), CharactersPanel, CharactersWidget(), CustomTrackerPanel (+27 more)
+Cohesion: 0.08
+Nodes (49): agentApi, WeatherEffectsConnected(), RoleplayHUD(), RoleplayHUDProps, useIsDesktopHudLayout(), CombinedPlayerPanelProps, CombinedPlayerPanel, CombinedPlayerWidget() (+41 more)
 
 ### Community 52 - "Community 52"
 Cohesion: 0.06
@@ -673,23 +682,23 @@ Nodes (29): ChatGptAuth, check_claude_subscription_available(), check_openai_cha
 
 ### Community 53 - "Community 53"
 Cohesion: 0.05
-Nodes (33): SpriteCleanupResult, ImageGenerationConnectionOption, SpriteCapabilities, SpriteCleanupEngine, ImagePromptReviewItem, ALL_EXPRESSIONS, ALL_FULL_BODY_POSES, buildSliceBoundaries() (+25 more)
+Nodes (42): ImageGenerationConnectionOption, AvatarGenerationModal(), AvatarGenerationModalProps, AvatarGenerationResponse, ImagePromptReviewHost(), PromptReviewRequest, PromptReviewState, requestImagePromptReview() (+34 more)
 
 ### Community 54 - "Community 54"
-Cohesion: 0.06
-Nodes (34): assetsApi, BulkOperationResult, gameAssetCommands, GameAssetFileInfo, gameAssetsApi, uploadGameAsset(), FilePayloadOptions, fileToUploadPayload() (+26 more)
+Cohesion: 0.14
+Nodes (14): assetsApi, BulkOperationResult, gameAssetCommands, GameAssetFileInfo, uploadGameAsset(), FilePayloadOptions, fileToUploadPayload(), formDataToJson() (+6 more)
 
 ### Community 55 - "Community 55"
 Cohesion: 0.11
 Nodes (42): createAgentRuntimeDebug(), getDefaultAgentPrompt(), AGENT_RESULT_TYPE_MAP, AGENT_RESULT_TYPES, agentResponseIsJson(), applyProviderMaxTokensOverride(), buildAgentExtras(), buildAgentMessages() (+34 more)
 
 ### Community 56 - "Community 56"
-Cohesion: 0.08
-Nodes (36): ExpressionPanel(), ExpressionPanelProps, ExpressionSprite(), BOUNCE, CharacterExpressionState, CharacterSprite(), CROSSFADE, detectExpression() (+28 more)
+Cohesion: 0.05
+Nodes (39): AgentThoughtBubbles(), PersonaPicker(), SetupGenerationParametersPanel(), ContinuityIssueChecklist(), ContinuityIssueChecklistProps, ExpressionPanel(), ExpressionSprite(), DialogueMessage (+31 more)
 
 ### Community 57 - "Community 57"
-Cohesion: 0.10
-Nodes (42): applyMaterialBrightnessToColor(), applyMaterialBrightnessToLinearGradientStop(), applyOpacityToLinearGradientStop(), applyTrackerCardMaterialBrightness(), applyTrackerCardPaintOpacity(), getFallbackAwarePaintOpacity(), getMaterialBrightnessAdjustment(), getMaterialPolarityMix() (+34 more)
+Cohesion: 0.08
+Nodes (47): TrackerProfilePalette, TrackerProfileStyle, applyMaterialBrightnessToColor(), applyMaterialBrightnessToLinearGradientStop(), applyOpacityToLinearGradientStop(), applyTrackerCardMaterialBrightness(), applyTrackerCardPaintOpacity(), getFallbackAwarePaintOpacity() (+39 more)
 
 ### Community 58 - "Community 58"
 Cohesion: 0.12
@@ -700,20 +709,20 @@ Cohesion: 0.05
 Nodes (38): LlmChunk, allMessages, assistantCall, callIds, capPhase, CollectedEvent, connection, controller (+30 more)
 
 ### Community 60 - "Community 60"
-Cohesion: 0.13
-Nodes (6): count_pretty_messages_for_chat(), FileStorage, parse_collection_rows(), record_id(), row_matches_filters(), selected_nested_fields()
+Cohesion: 0.15
+Nodes (3): FileStorage, row_matches_filters(), selected_nested_fields()
 
 ### Community 61 - "Community 61"
 Cohesion: 0.09
 Nodes (33): declaredVariables(), promptOverridesApi, readPromptOverride(), StoredPromptOverride, buildConversationSelfiePromptContext(), CONVERSATION_SELFIE_PROMPT_OVERRIDE, CONVERSATION_SELFIE_PROMPT_TEMPLATE, ConversationSelfiePromptContext (+25 more)
 
 ### Community 62 - "Community 62"
-Cohesion: 0.08
-Nodes (35): AgentExecConfig, AgentToolContext, baseContext, calls, configs, provider, ResolvedAgentsResult, ExecuteMainToolCallArgs (+27 more)
+Cohesion: 0.70
+Nodes (4): AgentExecConfig, chunkText(), estimateTokens(), executeKnowledgeRetrieval()
 
 ### Community 63 - "Community 63"
-Cohesion: 0.09
-Nodes (13): AssetMap, assetTagToPath(), audioManager, AudioSessionType, clampUnit(), GameAudioManager, LoopingAudioLayer, NavigatorWithAudioSession (+5 more)
+Cohesion: 0.08
+Nodes (15): gameAssetFileUrlFromPath(), backgroundAssetUrl(), AssetMap, assetTagToPath(), audioManager, AudioSessionType, clampUnit(), GameAudioManager (+7 more)
 
 ### Community 64 - "Community 64"
 Cohesion: 0.08
@@ -740,8 +749,8 @@ Cohesion: 0.05
 Nodes (37): AssistantCommand, CharacterCommand, CREATE_CHARACTER_RE, CREATE_CHAT_RE, CREATE_LOREBOOK_RE, CREATE_PERSONA_RE, CreateCharacterCommand, CreateChatCommand (+29 more)
 
 ### Community 70 - "Community 70"
-Cohesion: 0.08
-Nodes (32): activeListeners, isStreamingTTSActive(), stopStreamingTTS(), StreamingTTSActiveListener, StreamingTTSSession, subscribeStreamingTTSActive(), baseConfig, config (+24 more)
+Cohesion: 0.11
+Nodes (24): activeListeners, isStreamingTTSActive(), stopStreamingTTS(), StreamingTTSActiveListener, StreamingTTSSession, subscribeStreamingTTSActive(), ABBREVIATIONS, ChunkerState (+16 more)
 
 ### Community 71 - "Community 71"
 Cohesion: 0.12
@@ -760,24 +769,24 @@ Cohesion: 0.10
 Nodes (28): alt_descriptions(), bool_field(), character_import_extensions(), embedded_lorebook(), ImportStringFallback, lorebook_entries(), lorebook_entry_count(), normalize_character_data() (+20 more)
 
 ### Community 75 - "Community 75"
-Cohesion: 0.10
-Nodes (34): createManualCharacterStat(), createManualInventoryItem(), createManualPresentCharacter(), createManualQuest(), createManualQuestObjective(), getAppendedListItem(), getLatestListIndexByKey(), getRemovedListIndex() (+26 more)
+Cohesion: 0.11
+Nodes (32): getCharacterFeatureKey(), createManualCharacterStat(), createManualInventoryItem(), createManualPresentCharacter(), createManualQuest(), createManualQuestObjective(), getAppendedListItem(), getLatestListIndexByKey() (+24 more)
 
 ### Community 76 - "Community 76"
-Cohesion: 0.08
-Nodes (34): apply_message_page(), cleanup_pending_collection_temps(), cleanup_pending_collection_transaction_files(), collection_transaction_path(), FindRowByIdRowVisitor, FindRowByIdSeed, FindRowByIdVisitor, is_top_level_message_record_end() (+26 more)
+Cohesion: 0.07
+Nodes (39): apply_message_page(), cleanup_pending_collection_temps(), cleanup_pending_collection_transaction_files(), collection_transaction_path(), count_pretty_messages_for_chat(), FindRowByIdRowVisitor, FindRowByIdSeed, FindRowByIdVisitor (+31 more)
 
 ### Community 77 - "Community 77"
-Cohesion: 0.11
-Nodes (33): applyNamedStatus(), AttackResult, chooseAutoSkill(), CombatantStats, CombatRoundResult, InitiativeEntry, normalizeCombatName(), resolveAttack() (+25 more)
+Cohesion: 0.10
+Nodes (35): applyNamedStatus(), AttackResult, chooseAutoSkill(), CombatantStats, CombatRoundResult, InitiativeEntry, normalizeCombatName(), PlayerAction (+27 more)
 
 ### Community 78 - "Community 78"
-Cohesion: 0.10
-Nodes (33): readNonNegativeInteger(), applyQuestUpdatesToPlayerStats(), clonePlayerStats(), copyTrackerSnapshotsForRebasedMessages(), createTrackerSnapshotReadContext(), firstString(), gameStatePatchFromAgentResult(), getTrackerSnapshotForTarget() (+25 more)
+Cohesion: 0.07
+Nodes (49): resolveRegenerationGameStateAnchor(), resolveRegenerationGameStateFallbackMessageIds(), resolveVisibleGameStateAnchor(), shouldPreferLatestVisibleGameState(), readNonNegativeInteger(), readNumber(), commitVisibleTrackerSnapshotSafely(), generationMessageLoadOptions() (+41 more)
 
 ### Community 79 - "Community 79"
-Cohesion: 0.07
-Nodes (16): MACRO_REFERENCE, MARKER_LABELS, PresetEditor(), ROLE_COLORS, ROLE_ICONS, TabId, TABS, VariableCard() (+8 more)
+Cohesion: 0.06
+Nodes (18): MACRO_REFERENCE, MARKER_LABELS, PresetEditor(), ROLE_COLORS, ROLE_ICONS, TabId, TABS, VariableCard() (+10 more)
 
 ### Community 80 - "Community 80"
 Cohesion: 0.09
@@ -785,35 +794,35 @@ Nodes (20): spotify_access_token(), spotify_authorize(), spotify_devices(), spot
 
 ### Community 81 - "Community 81"
 Cohesion: 0.07
-Nodes (25): AnimatedText(), GameChoiceCards(), GameChoiceCardsProps, GameStateIndicator(), GameStateIndicatorProps, STATE_CONFIG, GameTransitionManager(), TransitionManagerProps (+17 more)
+Nodes (17): SessionSummaryResponse, AnimatedText(), GameChoiceCards(), GameChoiceCardsProps, buildCurrentSecretsDraft(), CurrentSessionSecretDraft, formatJsonDraft(), formatListDraft() (+9 more)
 
 ### Community 82 - "Community 82"
 Cohesion: 0.06
-Nodes (25): ALL_PROVIDERS, attachEmbeddedLorebookToCharacterJson(), BrowseCard, BrowserPersist, CardDetail, chartavernProvider, CHUB_SORT_PRESETS, chubProvider (+17 more)
+Nodes (26): ALL_PROVIDERS, attachEmbeddedLorebookToCharacterJson(), BotBrowserView(), BrowseCard, BrowserPersist, CardDetail, chartavernProvider, CHUB_SORT_PRESETS (+18 more)
 
 ### Community 83 - "Community 83"
-Cohesion: 0.09
-Nodes (28): KEYS, useTTSConfig(), useTTSVoices(), useUpdateTTSConfig(), CharacterOption, ELEVENLABS_DEFAULT_FEMALE_VOICE_NAMES, ELEVENLABS_DEFAULT_MALE_VOICE_NAMES, ELEVENLABS_TTS_MODELS (+20 more)
+Cohesion: 0.08
+Nodes (30): UseStreamingTTSOptions, KEYS, useTTSConfig(), useTTSVoices(), useUpdateTTSConfig(), CharacterOption, ELEVENLABS_DEFAULT_FEMALE_VOICE_NAMES, ELEVENLABS_DEFAULT_MALE_VOICE_NAMES (+22 more)
 
 ### Community 84 - "Community 84"
-Cohesion: 0.09
-Nodes (23): ConnectionRecord, useMagicRewrite(), ConversationLocalNotificationOptions, getBrowserNotificationPermission(), getLocalNotificationPermission(), getTauriNotificationApi(), isAppFocusedForNotifications(), isTauriRuntime() (+15 more)
+Cohesion: 0.20
+Nodes (15): ConversationLocalNotificationOptions, getBrowserNotificationPermission(), getLocalNotificationPermission(), getTauriNotificationApi(), isAppFocusedForNotifications(), isTauriRuntime(), LocalNotificationPermission, requestBrowserNotificationPermission() (+7 more)
 
 ### Community 85 - "Community 85"
 Cohesion: 0.12
 Nodes (26): create_connection(), create_entry(), create_lorebook(), embed_google(), embed_ollama(), embed_openai_compatible(), embed_text(), embedding_base_url() (+18 more)
 
 ### Community 86 - "Community 86"
-Cohesion: 0.12
-Nodes (30): applyMapUpdateCommand(), applyMapUpdateCommandsToMeta(), buildNodeId(), CENTER_NODE_POSITIONS, chooseNodePosition(), edgeExists(), emptyNodeMap(), ensureGameMapId() (+22 more)
+Cohesion: 0.11
+Nodes (32): MapEdge, MapNode, applyMapUpdateCommand(), applyMapUpdateCommandsToMeta(), buildNodeId(), CENTER_NODE_POSITIONS, chooseNodePosition(), edgeExists() (+24 more)
 
 ### Community 87 - "Community 87"
-Cohesion: 0.09
-Nodes (20): ActionsGroupProps, AgentsMenuTab, CustomAgentRunItem(), formatRunTime(), getEditableMode(), getRunPreview(), RoleplayHUDActionsMenuProps, SecretPlotPanel (+12 more)
+Cohesion: 0.07
+Nodes (26): ActionsGroup(), ActionsGroupProps, RoleplayHUDActionsMenu, AgentsMenuTab, CustomAgentRunItem(), formatRunTime(), getEditableMode(), getRunPreview() (+18 more)
 
 ### Community 88 - "Community 88"
-Cohesion: 0.10
-Nodes (28): gameTrackerApi, GameTrackerSnapshot, GameTrackerSnapshotInput, roleplayTrackerApi, RoleplayTrackerSnapshot, RoleplayTrackerSnapshotInput, TrackerSnapshot, trackerSnapshotApi (+20 more)
+Cohesion: 0.06
+Nodes (58): gameTrackerApi, GameTrackerSnapshot, GameTrackerSnapshotInput, roleplayTrackerApi, RoleplayTrackerSnapshot, RoleplayTrackerSnapshotInput, TrackerSnapshot, trackerSnapshotApi (+50 more)
 
 ### Community 89 - "Community 89"
 Cohesion: 0.07
@@ -824,40 +833,40 @@ Cohesion: 0.14
 Nodes (32): add_legacy_chat_memories(), add_legacy_connected_notes(), add_legacy_lorebook_links(), add_legacy_message_swipes(), diagnostic_string(), import_legacy_profile_tables_with_restored_assets(), legacy_app_settings_blank_key_does_not_create_ui_id(), legacy_app_settings_key_rows_import_as_settings_ids() (+24 more)
 
 ### Community 93 - "Community 93"
-Cohesion: 0.12
-Nodes (28): brushActionLabels, BrushGesture, BrushStrokeBuildInput, checkerboardStyle, clamp(), clampZoom(), cleanupToolToBrushMode(), colorComponentToHex() (+20 more)
+Cohesion: 0.15
+Nodes (23): brushActionLabels, BrushGesture, BrushStrokeBuildInput, checkerboardStyle, clamp(), clampZoom(), cleanupToolToBrushMode(), colorComponentToHex() (+15 more)
 
 ### Community 94 - "Community 94"
-Cohesion: 0.12
-Nodes (27): agentApi, base64ToBlob(), DownloadPayload, downloadPayloadFromApiValue(), jsonBlob(), triggerDownload(), download(), exportDownload() (+19 more)
+Cohesion: 0.08
+Nodes (38): base64ToBlob(), DownloadPayload, downloadPayloadFromApiValue(), jsonBlob(), triggerDownload(), download(), exportApi, exportDownload() (+30 more)
 
 ### Community 95 - "Community 95"
 Cohesion: 0.12
-Nodes (29): getTrackerProfilePalette(), cleanTrackerCardColorConfig(), getBoolean(), getClampedFinishValue(), getClampedPortraitFocusYValue(), getClampedPortraitZoomValue(), getString(), getTrackerCardFinish() (+21 more)
+Nodes (30): ColorsTab(), getTrackerProfilePalette(), cleanTrackerCardColorConfig(), getBoolean(), getClampedFinishValue(), getClampedPortraitFocusYValue(), getClampedPortraitZoomValue(), getString() (+22 more)
 
 ### Community 96 - "Community 96"
-Cohesion: 0.12
-Nodes (28): COMFYUI_SAMPLER_OPTIONS, COMFYUI_SCHEDULER_OPTIONS, DEFAULT_AUTOMATIC1111_DEFAULTS, DEFAULT_COMFYUI_DEFAULTS, DEFAULT_NOVELAI_DEFAULTS, IMAGE_DEFAULTS_SERVICES, IMAGE_GENERATION_DEFAULTS_VERSION, isRecord() (+20 more)
+Cohesion: 0.11
+Nodes (30): COMFYUI_SAMPLER_OPTIONS, COMFYUI_SCHEDULER_OPTIONS, DEFAULT_AUTOMATIC1111_DEFAULTS, DEFAULT_COMFYUI_DEFAULTS, DEFAULT_NOVELAI_DEFAULTS, IMAGE_DEFAULTS_SERVICES, IMAGE_GENERATION_DEFAULTS_VERSION, imageSourceToDefaultsService() (+22 more)
 
 ### Community 97 - "Community 97"
-Cohesion: 0.09
-Nodes (29): ambientStormAudioScore(), GAME_STATES, inferLocationKindFromBackground(), inferMusicIntensity(), INTENSITY_RANK, LOCATION_AMBIENT, LOCATION_KIND_SET, MUSIC_GENRE_SET (+21 more)
+Cohesion: 0.04
+Nodes (63): GameStateIndicator(), GameStateIndicatorProps, STATE_CONFIG, backgroundOptionKey(), buildBackgroundOptions(), buildSceneAnalyzerUserPrompt(), compactImagePromptInstructions(), SceneAnalyzerContext (+55 more)
 
 ### Community 98 - "Community 98"
-Cohesion: 0.07
-Nodes (28): AgentData, EditAgentModal(), PHASE_OPTIONS, Props, AgentCostInput, AgentLoadCost, approximateTokens(), estimateAgentLoadCost() (+20 more)
+Cohesion: 0.10
+Nodes (22): AgentCostInput, AgentLoadCost, approximateTokens(), estimateAgentLoadCost(), NO_EXTRA_CALL_AGENT_TYPES, AgentCategory, AgentConfig, AgentPhase (+14 more)
 
 ### Community 99 - "Community 99"
-Cohesion: 0.12
-Nodes (27): connection_base_url(), connection_models(), connection_models_keep_provider_success_distinct_from_fallback(), connection_models_marks_fallback_when_provider_lookup_fails(), embedding_inputs(), fetch_image_models(), fetch_ollama_models(), fetch_provider_models() (+19 more)
+Cohesion: 0.08
+Nodes (51): stored_generation_parameters(), test_connection(), test_message(), build_horde_url(), check_bearer_get(), check_connection_without_generation(), check_image_generation_connection(), check_openrouter_key() (+43 more)
 
 ### Community 100 - "Community 100"
-Cohesion: 0.13
-Nodes (30): buildPayload(), cloneQueuedPatch(), createEmptyGameState(), createEmptyPlayerStats(), discardPendingGameStatePatch(), durablePatches, flushGameStatePatch(), flushGameStatePatchOnUnload() (+22 more)
+Cohesion: 0.07
+Nodes (37): GameCheckpoints(), GameCheckpointsProps, TRIGGER_ICONS, TRIGGER_LABELS, GameSurface(), normalizeRecentMusicHistory(), normalizeRecentSpotifyTrackHistory(), gameKeys (+29 more)
 
 ### Community 101 - "Community 101"
-Cohesion: 0.13
-Nodes (28): applyGroupSelection(), checkTiming(), cloneTimingState(), cosineSimilarity(), EntryTimingState, evaluateConditions(), evaluateSchedule(), GameStateForScanning (+20 more)
+Cohesion: 0.11
+Nodes (30): applyGroupSelection(), checkTiming(), cloneTimingState(), cosineSimilarity(), EntryTimingState, evaluateConditions(), evaluateSchedule(), GameStateForScanning (+22 more)
 
 ### Community 102 - "Community 102"
 Cohesion: 0.08
@@ -868,20 +877,20 @@ Cohesion: 0.14
 Nodes (16): Any, bool, HomeAssistant, int, object, str, _is_enabled(), MarinaraCoordinator (+8 more)
 
 ### Community 104 - "Community 104"
-Cohesion: 0.09
-Nodes (18): CompactSelect(), ENTRY_STATUS_ORDER, EntryStatus, FILTER_MODE_LABEL, GENERATION_TRIGGER_OPTIONS, getNextStatus(), MATCHING_SOURCE_OPTIONS, STATUS_DESCRIPTION (+10 more)
+Cohesion: 0.08
+Nodes (22): CompactSelect(), deriveStatus(), ENTRY_STATUS_ORDER, EntryStatus, ExpandedDrawer(), FILTER_MODE_LABEL, GENERATION_TRIGGER_OPTIONS, getNextStatus() (+14 more)
 
 ### Community 105 - "Community 105"
-Cohesion: 0.14
-Nodes (25): imported_avatar_reference(), remove_avatar_file(), update_character_avatar(), update_npc_avatar(), get_required_lorebook(), lorebook_image_file_path(), remove_lorebook_image_file(), update_lorebook_image() (+17 more)
+Cohesion: 0.12
+Nodes (28): import_image_filename(), restore_character_gallery(), restore_sprites(), imported_avatar_reference(), remove_avatar_file(), update_character_avatar(), update_npc_avatar(), get_required_lorebook() (+20 more)
 
 ### Community 106 - "Community 106"
-Cohesion: 0.12
-Nodes (24): base64ToBlob(), base64ToBytes(), binaryFailureMessage(), bytesToArrayBuffer(), isUrlBinaryResponse(), optionalString(), invokeMock, urlBinaryApi (+16 more)
+Cohesion: 0.13
+Nodes (23): base64ToBlob(), base64ToBytes(), binaryFailureMessage(), bytesToArrayBuffer(), isUrlBinaryResponse(), optionalString(), urlBinaryApi, UrlBinaryResponse (+15 more)
 
 ### Community 107 - "Community 107"
-Cohesion: 0.10
-Nodes (23): buildScheduleContinuityContext(), CharacterMemoryEntry, CharacterSchedules, DAYS, DaySchedule, formatSummaryEntry(), generateCharacterSchedule(), GenerateConversationSchedulesInput (+15 more)
+Cohesion: 0.09
+Nodes (35): areConversationSchedulesEnabled(), buildScheduleContinuityContext(), CharacterMemoryEntry, CharacterSchedules, createScheduleProvider(), DAYS, DaySchedule, formatSummaryEntry() (+27 more)
 
 ### Community 108 - "Community 108"
 Cohesion: 0.10
@@ -900,16 +909,16 @@ Cohesion: 0.15
 Nodes (26): stripSurroundingDialogueQuotes(), buildTTSMessageText(), buildTTSVoiceRequests(), cleanTTSInputText(), dedupeUtterances(), extractDialogueUtterances(), extractSpeakerTaggedUtterances(), inferTTSNpcVoiceGender() (+18 more)
 
 ### Community 112 - "Community 112"
-Cohesion: 0.16
-Nodes (26): CharacterRow, getCharacterChatColors(), getCharacterExtensions(), getPersonaChatColors(), getStringValue(), getTargetSavedConfig(), isRecord(), mergeTrackerCardPortraitFields() (+18 more)
+Cohesion: 0.09
+Nodes (40): CharacterRow, getCharacterChatColors(), getCharacterExtensions(), getPersonaChatColors(), getStringValue(), getTargetSavedConfig(), isRecord(), mergeTrackerCardPortraitFields() (+32 more)
 
 ### Community 113 - "Community 113"
 Cohesion: 0.13
 Nodes (25): formatSkillCheckResultSummary(), getSkillCheckOutcomeKey(), getSkillCheckOutcomeLabel(), serializeResolvedSkillCheckTag(), serializeSkillCheckAttribute(), applyAllSegmentEdits(), applySegmentEdits(), hasQuotes() (+17 more)
 
 ### Community 114 - "Community 114"
-Cohesion: 0.13
-Nodes (17): AssetGrid(), AssetGridProps, listGridCols(), CATEGORY_ICONS, DEFAULT_DESCRIPTIONS, FolderTree(), FolderTreeProps, ImageInfoPopover() (+9 more)
+Cohesion: 0.15
+Nodes (13): gameAssetsApi, AssetGrid(), AssetGridProps, listGridCols(), CATEGORY_ICONS, DEFAULT_DESCRIPTIONS, FolderTree(), FolderTreeProps (+5 more)
 
 ### Community 115 - "Community 115"
 Cohesion: 0.07
@@ -924,32 +933,32 @@ Cohesion: 0.13
 Nodes (26): appendChatSummaryEntryToMetadata(), ChatSummaryEntryInput, ChatSummaryEntryNormalizeOptions, compileChatSummaryEntries(), createChatSummaryEntry(), defaultNow(), estimateChatSummaryTokens(), fallbackId() (+18 more)
 
 ### Community 118 - "Community 118"
-Cohesion: 0.08
-Nodes (15): storageCommandsApi, createPromptNested(), listPromptNested(), PRESET_SUMMARY_OPTIONS, presetOrderQueues, promptNestedEntity, PromptNestedKind, promptOrderField (+7 more)
+Cohesion: 0.06
+Nodes (32): storageCommandsApi, PresetRow, PresetsPanel(), createPromptNested(), listPromptNested(), PRESET_SUMMARY_OPTIONS, presetOrderQueues, promptNestedEntity (+24 more)
 
 ### Community 119 - "Community 119"
-Cohesion: 0.17
-Nodes (21): ActionDropdown(), GameAssetsBrowserView(), PROTECTED_PATHS, Toolbar(), countItems(), gameAssetKeys, useCopyGameAsset(), useCopyGameAssetsBulk() (+13 more)
+Cohesion: 0.14
+Nodes (25): ActionDropdown(), FileEditorModal(), FileEditorModalProps, GameAssetsBrowserView(), PROTECTED_PATHS, countItems(), gameAssetKeys, useCopyGameAsset() (+17 more)
 
 ### Community 120 - "Community 120"
-Cohesion: 0.12
-Nodes (21): buildChatTranscriptZipFiles(), BulkChatExportFormat, chatExportFilename(), ChatTranscriptExportFormat, formatChatJsonl(), formatChatText(), getChatNameForExport(), chats (+13 more)
+Cohesion: 0.04
+Nodes (58): fallbackChat(), GameConversationView(), GameConversationViewProps, RegenerateOptions, TRACKER_AGENT_IDS, useChatTimelineActions(), UseChatTimelineActionsOptions, useLatestRef() (+50 more)
 
 ### Community 121 - "Community 121"
-Cohesion: 0.15
-Nodes (25): buildDayBuckets(), chunkTranscriptLines(), cleanJsonishResponse(), coerceSummaryEntry(), ConversationSummaryBackfillResult, ConversationSummaryDayBucket, ConversationSummaryMessage, dailySummarySystemPrompt() (+17 more)
+Cohesion: 0.14
+Nodes (26): buildDayBuckets(), chunkTranscriptLines(), cleanJsonishResponse(), coerceSummaryEntry(), ConversationSummaryBackfillResult, ConversationSummaryDayBucket, ConversationSummaryMessage, dailySummarySystemPrompt() (+18 more)
 
 ### Community 122 - "Community 122"
-Cohesion: 0.16
-Nodes (23): addAliasCandidate(), addAliasPayloadCandidates(), addCandidate(), addCommentAliasCandidates(), addParentheticalAliases(), CharacterDisplayInfo, CharacterLookupAliasCandidate, CharacterLookupAliasKind (+15 more)
+Cohesion: 0.27
+Nodes (14): addAliasCandidate(), addAliasPayloadCandidates(), addCandidate(), addCommentAliasCandidates(), addParentheticalAliases(), CharacterLookupAliasCandidate, CharacterLookupAliasKind, cleanDisplayText() (+6 more)
 
 ### Community 123 - "Community 123"
-Cohesion: 0.18
-Nodes (20): backgroundFileUrlFromPath(), canConvertFileSrc(), decodeLocalAssetPath(), encodeLocalAssetPath(), filePathToAssetUrl(), fontFileUrlFromPath(), gameAssetFileUrlFromPath(), gameAssetUrl() (+12 more)
+Cohesion: 0.16
+Nodes (21): backgroundFileUrlFromPath(), canConvertFileSrc(), decodeLocalAssetPath(), encodeLocalAssetPath(), filePathToAssetUrl(), fontFileUrlFromPath(), gameAssetUrl(), hasScheme() (+13 more)
 
 ### Community 124 - "Community 124"
-Cohesion: 0.13
-Nodes (21): ClientSession, Any, ConfigEntry, int, object, str, FlowResult, async_get_options_flow() (+13 more)
+Cohesion: 0.08
+Nodes (30): ClientSession, Any, ConfigEntry, int, object, str, FlowResult, async_get_options_flow() (+22 more)
 
 ### Community 125 - "Community 125"
 Cohesion: 0.08
@@ -960,16 +969,16 @@ Cohesion: 0.08
 Nodes (24): coreClaim, manualBlockers, pr, automatedReview, checks, evidencePublished, url, reproduction (+16 more)
 
 ### Community 127 - "Community 127"
-Cohesion: 0.11
-Nodes (16): AgentCadenceStatus, CachedInjection, ContextInjectionPanel(), INJECTION_LABEL, NON_REROLLABLE_INJECTION_AGENTS, normalizeDirectorInterval(), builtInAgentFallback(), builtInAgentMeta() (+8 more)
+Cohesion: 0.16
+Nodes (7): AgentCadenceStatus, CachedInjection, ContextInjectionPanel(), INJECTION_LABEL, NON_REROLLABLE_INJECTION_AGENTS, normalizeDirectorInterval(), useUpdateAgentByType()
 
 ### Community 128 - "Community 128"
 Cohesion: 0.12
-Nodes (19): ExtensionsSettings(), extensionKeys, useCreateExtension(), useDeleteExtension(), useExtensions(), useUpdateExtension(), useThemes(), buildExtensionModuleSource() (+11 more)
+Nodes (18): ExtensionsSettings(), extensionKeys, useCreateExtension(), useDeleteExtension(), useExtensions(), useUpdateExtension(), buildExtensionModuleSource(), CustomThemeInjector() (+10 more)
 
 ### Community 129 - "Community 129"
-Cohesion: 0.17
-Nodes (18): StorageEntity, StorageListOptions, ActiveLorebookScanResult, scanActiveLorebookEntries(), llmParameters(), loadChatMessages(), requireRecord(), resolveGenerationConnection() (+10 more)
+Cohesion: 0.23
+Nodes (16): ActiveLorebookScanResult, scanActiveLorebookEntries(), llmParameters(), loadChatMessages(), requireRecord(), resolveGenerationConnection(), nullableNumber(), previewGenerationPrompt() (+8 more)
 
 ### Community 130 - "Community 130"
 Cohesion: 0.08
@@ -980,16 +989,16 @@ Cohesion: 0.16
 Nodes (21): restore_legacy_profile_json_assets(), restore_profile_assets(), restore_profile_json_assets(), import_legacy_profile_tables(), export_profile(), finish_profile_import_assets(), import_profile(), import_profile_collections() (+13 more)
 
 ### Community 132 - "Community 132"
-Cohesion: 0.12
-Nodes (15): knowledgeSourcesApi, AgentEditor(), CUSTOM_AGENT_RESULT_TYPE_OPTIONS, CustomAgentResultType, getDisplayedSpotifyRedirectUri(), PHASE_META, ToolCard(), useCreateAgent() (+7 more)
+Cohesion: 0.09
+Nodes (26): knowledgeSourcesApi, AgentEditor(), CUSTOM_AGENT_RESULT_TYPE_OPTIONS, CustomAgentResultType, getDisplayedSpotifyRedirectUri(), PHASE_META, ToolCard(), builtInAgentFallback() (+18 more)
 
 ### Community 133 - "Community 133"
-Cohesion: 0.17
-Nodes (16): AgentsPanel(), PanelSection(), PLACEMENT_META, RegexScriptEditor(), useDeleteAgent(), useCustomTools(), useDeleteCustomTool(), regexKeys (+8 more)
+Cohesion: 0.16
+Nodes (16): AgentsPanel(), PanelSection(), PLACEMENT_META, RegexScriptEditor(), resolveLiveTestMacros(), useDeleteCustomTool(), regexKeys, RegexScriptRow (+8 more)
 
 ### Community 134 - "Community 134"
-Cohesion: 0.14
-Nodes (20): FeaturedCharacterPortrait(), PersonaPortraitStage(), getCharacterPortraitFallback(), FEATURED_PORTRAIT_DEFAULT_FOCUS_X, FEATURED_PORTRAIT_DEFAULT_FOCUS_Y, TrackerPortraitStageBackdrop(), clampNumber(), getPersonaInitial() (+12 more)
+Cohesion: 0.05
+Nodes (49): BotBrowserPanel(), CharacterData, CharacterRow, CharacterAvatarImage(), resolveAvatarCrop(), CharacterCardUpdateModal(), Props, CharacterEditor() (+41 more)
 
 ### Community 135 - "Community 135"
 Cohesion: 0.16
@@ -1017,11 +1026,11 @@ Nodes (18): BrushCleanupControls(), BrushCleanupControlsProps, brushHardnessTitl
 
 ### Community 141 - "Community 141"
 Cohesion: 0.09
-Nodes (21): AI21_MODELS, ANTHROPIC_MODELS, CLAUDE_SUBSCRIPTION_MODELS, COHERE_MODELS, DEEPSEEK_MODELS, GOOGLE_MODELS, GROQ_MODELS, IMAGE_GEN_MODELS (+13 more)
+Nodes (20): AI21_MODELS, ANTHROPIC_MODELS, CLAUDE_SUBSCRIPTION_MODELS, COHERE_MODELS, DEEPSEEK_MODELS, GOOGLE_MODELS, GROQ_MODELS, IMAGE_GEN_MODELS (+12 more)
 
 ### Community 142 - "Community 142"
-Cohesion: 0.12
-Nodes (20): DEFAULT_GENERATION_PARAMS, LIMITS, MAX_FILE_SIZES, base, finalMessage, gatedEntry, history, joined (+12 more)
+Cohesion: 0.07
+Nodes (36): DEFAULT_GENERATION_PARAMS, LIMITS, MAX_FILE_SIZES, applyGenerationReplayToRegenerateInput(), asGuideSource(), asNonEmptyString(), asTrimmedNonEmptyString(), buildGenerationReplay() (+28 more)
 
 ### Community 143 - "Community 143"
 Cohesion: 0.15
@@ -1039,20 +1048,24 @@ Nodes (21): compilerOptions, allowImportingTsExtensions, isolatedModules, jsx, l
 Cohesion: 0.09
 Nodes (21): architectures, attention_probs_dropout_prob, classifier_dropout, gradient_checkpointing, hidden_act, hidden_dropout_prob, hidden_size, initializer_range (+13 more)
 
+### Community 147 - "Community 147"
+Cohesion: 0.17
+Nodes (21): chat_autonomous_unread_clear(), chat_autonomous_unread_mark(), chat_branch(), chat_connect(), chat_disconnect(), chat_group_delete(), chat_memories_clear(), chat_memories_export() (+13 more)
+
 ### Community 148 - "Community 148"
-Cohesion: 0.12
-Nodes (14): API_KEY_LINKS, buildImageDefaultParameters(), getStoredImageGenerationDefaults(), ImageGenerationDefaultsPanel(), ModelLookupResponse, parseDefaultParametersRoot(), RemoteModel, TestResultCard() (+6 more)
+Cohesion: 0.10
+Nodes (22): API_KEY_LINKS, buildImageDefaultParameters(), ConnectionEditor(), formatContext(), getStoredImageGenerationDefaults(), ImageGenerationDefaultsPanel(), ModelLookupResponse, parseDefaultParametersRoot() (+14 more)
 
 ### Community 149 - "Community 149"
-Cohesion: 0.15
-Nodes (18): ConnectionFolderRow(), ConnectionRowData, ConnectionsPanel(), DEFAULT_COLOR, PROVIDER_COLORS, connectionFolderKeys, useConnectionFolders(), useCreateConnectionFolder() (+10 more)
+Cohesion: 0.21
+Nodes (15): ConnectionFolderRow(), ConnectionRow(), ConnectionRowData, ConnectionsPanel(), DEFAULT_COLOR, PROVIDER_COLORS, connectionFolderKeys, useConnectionFolders() (+7 more)
 
 ### Community 150 - "Community 150"
-Cohesion: 0.12
-Nodes (15): npcAvatarApi, SectionsTab(), coerceGameStateTextFields(), coerceGameStateTextValue(), coerceGameStateTextValueInner(), GAME_STATE_TEXT_FIELDS, GAME_STATE_TEXT_OBJECT_KEYS, GameStateTextField (+7 more)
+Cohesion: 0.15
+Nodes (13): npcAvatarApi, SectionsTab(), QuestTrackerPanel(), SectionIconButton(), TrackerSectionList(), useAgentConfigs(), useUpdateAgent(), useTrackerCharacterAvatarActions() (+5 more)
 
 ### Community 151 - "Community 151"
-Cohesion: 0.23
+Cohesion: 0.25
 Nodes (17): corrupt_collection_and_backup_are_preserved_and_recreated_empty(), corrupt_collection_recovers_from_valid_backup(), count_messages_for_chat_counts_matching_rows_without_projection(), delete_where_removes_all_matching_rows(), get_consumes_remaining_rows_after_match(), list_message_ids_for_chat_projects_ids_without_content(), list_messages_for_chat_page_respects_before_cursor(), list_messages_for_chat_page_returns_latest_matching_messages() (+9 more)
 
 ### Community 152 - "Community 152"
@@ -1064,12 +1077,12 @@ Cohesion: 0.09
 Nodes (21): app, security, windows, enable, scope, build, beforeBuildCommand, beforeDevCommand (+13 more)
 
 ### Community 154 - "Community 154"
-Cohesion: 0.17
-Nodes (17): asRecord(), chatMessageDefaults(), normalizeArrayField(), normalizeMessageWrite(), normalizeObjectField(), normalizeStorageReadResult(), normalizeStorageRecord(), normalizeStorageWrite() (+9 more)
+Cohesion: 0.13
+Nodes (29): LlmToolDefinition, AGENT_ONLY_TOOL_NAMES, buildMainToolDefinitions(), BUILT_IN_TOOL_MAP, builtInToolDefinition(), chatActiveToolIdsFor(), chatToolsEnabledFor(), customToolDefinition() (+21 more)
 
 ### Community 155 - "Community 155"
-Cohesion: 0.27
-Nodes (19): apply_import_timestamps(), array_from_envelope(), created_record_id(), data_image_string(), data_string_name(), hydrate_metadata_timestamps(), import_image_filename(), import_marinara_character() (+11 more)
+Cohesion: 0.28
+Nodes (18): apply_import_timestamps(), array_from_envelope(), created_record_id(), data_image_string(), data_string_name(), hydrate_metadata_timestamps(), import_marinara_character(), import_marinara_envelope() (+10 more)
 
 ### Community 156 - "Community 156"
 Cohesion: 0.22
@@ -1092,32 +1105,32 @@ Cohesion: 0.10
 Nodes (19): activationConditionSchema, CreateLorebookEntryInput, createLorebookEntrySchema, CreateLorebookFolderInput, createLorebookFolderSchema, CreateLorebookInput, createLorebookSchema, lorebookCategorySchema (+11 more)
 
 ### Community 161 - "Community 161"
-Cohesion: 0.11
-Nodes (15): isTtsSpeakResponse(), optionalString(), controller, invokeMock, request, voices, ttsApi, ttsFailureMessage() (+7 more)
+Cohesion: 0.08
+Nodes (22): connectionsUtilityApi, gifsApi, GifSearchResponse, GifSearchResult, spotifyApi, SpotifyAuthorizeResponse, SpotifyExchangeResponse, SpotifyStatus (+14 more)
 
 ### Community 162 - "Community 162"
-Cohesion: 0.16
-Nodes (18): clampPercent(), getCharacterAmbienceStyle(), getCharacterProfileColors(), getSolidCssColor(), getStrengthAdjustedProfileColor(), getStringValue(), opacityWeight(), scalePercent() (+10 more)
+Cohesion: 0.07
+Nodes (37): clampPercent(), getCharacterAmbienceStyle(), getCharacterProfileColors(), getSolidCssColor(), getStrengthAdjustedProfileColor(), getStringValue(), opacityWeight(), scalePercent() (+29 more)
 
 ### Community 163 - "Community 163"
 Cohesion: 0.15
 Nodes (18): CharacterSheetCard, createDraft(), DEFAULT_ATTRIBUTES, DraftListField, GameCardDraft, GameCharacterSheet(), GameCharacterSheetGameCard, GameCharacterSheetProps (+10 more)
 
 ### Community 164 - "Community 164"
-Cohesion: 0.18
-Nodes (17): ActiveDialogResolver, dismissActiveDialog(), openDialog(), resolveActiveDialog(), resolveFallback(), showAlertDialog(), showPromptDialog(), AlertDialogState (+9 more)
+Cohesion: 0.09
+Nodes (24): CreateGameResponse, PartyCardResponse, StartSessionResponse, UpdateCampaignProgressionResponse, ChatFilesDrawerProps, ChatSettingsDrawerProps, ChatSetupWizardProps, AutoSizingTextarea() (+16 more)
 
 ### Community 165 - "Community 165"
 Cohesion: 0.17
 Nodes (9): invalid_profile_asset_payload_does_not_clear_existing_assets(), path_exists_no_follow(), profile_asset_restore_replaces_managed_asset_dirs(), profile_asset_restore_rolls_back_when_import_fails_later(), ProfileAssetTransaction, remove_path_if_exists(), restore_profile_json_assets_in_root(), RestoredProfileAssets (+1 more)
 
 ### Community 166 - "Community 166"
-Cohesion: 0.11
-Nodes (17): activityStates, AutonomousCheckResult, AutonomousClientPresenceStatus, BusyDelayResult, characterTalkativeness(), ChatActivityState, clampPercent(), clearGenerationInProgress() (+9 more)
+Cohesion: 0.10
+Nodes (33): activityStates, AutonomousCheckResult, AutonomousClientPresenceStatus, BusyDelayResult, characterSchedules(), characterTalkativeness(), ChatActivityState, chatCharacterIds() (+25 more)
 
 ### Community 167 - "Community 167"
-Cohesion: 0.11
-Nodes (7): COMMANDS, findSceneCharacter(), MACRO_HELP_TEXT, matchSpriteExpression(), normalizeLookup(), SlashCommandResult, buildNarratorInstructionMessage()
+Cohesion: 0.07
+Nodes (26): choiceOptionSchema, CreateChoiceBlockInput, createChoiceBlockSchema, CreatePromptGroupInput, createPromptGroupSchema, CreatePromptPresetInput, createPromptPresetSchema, CreatePromptSectionInput (+18 more)
 
 ### Community 168 - "Community 168"
 Cohesion: 0.15
@@ -1136,20 +1149,20 @@ Cohesion: 0.11
 Nodes (17): allHtml, assetRefs, baseRequiredDocs, description, expectedLinks, expectedSkillFiles, forbiddenGuidance, frontmatter (+9 more)
 
 ### Community 172 - "Community 172"
-Cohesion: 0.16
-Nodes (16): bestMatch(), capCombinedDirections(), EXPRESSION_MAP, logger, postProcessSceneResult(), postProcessSegment(), sanitizeIllustration(), sanitizeSpotifyTrack() (+8 more)
+Cohesion: 0.10
+Nodes (14): memoryToDraft(), normalizeFulfilledDirections(), normalizeSceneDirections(), SceneDir, SecretPlotDraft, SecretPlotPanel(), ConnectionRecord, useMagicRewrite() (+6 more)
 
 ### Community 173 - "Community 173"
 Cohesion: 0.23
 Nodes (16): backup_dir_for_name(), backup_entry(), backups_root(), copy_dir_contents(), create_backup(), create_list_download_delete_managed_backup(), delete_backup(), download_backup() (+8 more)
 
 ### Community 175 - "Community 175"
-Cohesion: 0.29
-Nodes (14): clamp(), colorDistanceSquared(), Rgb, buildEdgeBand(), buildSelectedEdgeDistance(), clearSelection(), expandSelection(), visitNeighbors() (+6 more)
+Cohesion: 0.35
+Nodes (12): colorDistanceSquared(), Rgb, buildEdgeBand(), buildSelectedEdgeDistance(), clearSelection(), expandSelection(), visitNeighbors(), addSelectedSoftHalo() (+4 more)
 
 ### Community 176 - "Community 176"
-Cohesion: 0.17
-Nodes (15): ConnectionEditor(), formatContext(), connectionKeys, ConnectionProvider, ConnectionRow, ConnectionTestResult, imageSourceToDefaultsService(), isImageDefaultsService() (+7 more)
+Cohesion: 0.10
+Nodes (16): asRecord(), CategoryKey, ImportProgress, ImportResult, normalizeImportProgress(), normalizeImportResult(), Phase, Props (+8 more)
 
 ### Community 177 - "Community 177"
 Cohesion: 0.14
@@ -1160,36 +1173,36 @@ Cohesion: 0.12
 Nodes (9): computeTooltipStyle(), FOCUSABLE_SELECTOR, InertSnapshot, OnboardingTutorial(), OnboardingTutorialInner(), OnboardingTutorialProps, Rect, STEPS (+1 more)
 
 ### Community 179 - "Community 179"
-Cohesion: 0.15
-Nodes (11): ActiveWorldInfoButton(), ActiveWorldInfoButtonProps, ActiveWorldInfoModal(), ButtonClassNameInput, WorldInfoPanel, BudgetSkippedEntryRow(), formatBudgetCap(), formatBudgetName() (+3 more)
+Cohesion: 0.16
+Nodes (13): useCharactersByIds(), CharacterRow, collectGameCharacterIds(), extractMessageCharacterIds(), isLegacyGenerationFailureNotice(), normalizeIds(), parseMessageExtra(), PersonaFallback (+5 more)
 
 ### Community 180 - "Community 180"
 Cohesion: 0.17
 Nodes (11): ButtonEntity, AddEntitiesCallback, ConfigEntry, HomeAssistant, MarinaraCoordinator, async_setup_entry(), MarinaraAbortButton, MarinaraSyncToolsButton (+3 more)
 
 ### Community 181 - "Community 181"
-Cohesion: 0.12
-Nodes (14): AgentRuntimeDebugEntry, AgentRuntimeDebugLogger, ConsoleLevel, isAgentRuntimeDebugEnabled(), baseContext, consoleDebug, logger, sink (+6 more)
+Cohesion: 0.18
+Nodes (8): AgentRuntimeDebugEntry, AgentRuntimeDebugLogger, ConsoleLevel, isAgentRuntimeDebugEnabled(), baseContext, consoleDebug, logger, sink
 
 ### Community 182 - "Community 182"
-Cohesion: 0.15
-Nodes (14): ApplyRegexOptions, applyScripts(), ParsedRegexScript, parseJsonArray(), parseScript(), RegexPlacement, resolveText(), CASE_COMMANDS (+6 more)
+Cohesion: 0.09
+Nodes (28): ApplyRegexOptions, applyScripts(), ParsedRegexScript, parseJsonArray(), parseScript(), RegexPlacement, resolveText(), ApplyRegexScriptOptions (+20 more)
 
 ### Community 183 - "Community 183"
 Cohesion: 0.17
 Nodes (11): input, invokeMock, TranslateTextInput, TranslateTextResponse, translationApi, TranslationProvider, useTranslate(), translateText() (+3 more)
 
 ### Community 184 - "Community 184"
-Cohesion: 0.20
-Nodes (11): backup_path_for(), is_pretty_top_level_record_end(), looks_nul_filled(), parse_collection_file(), preserve_corrupt_file(), pretty_message_record_matches_chat(), refresh_collection_backup(), storage_transaction_id() (+3 more)
+Cohesion: 0.16
+Nodes (9): backup_path_for(), is_pretty_top_level_record_end(), looks_nul_filled(), preserve_corrupt_file(), pretty_message_record_matches_chat(), refresh_collection_backup(), sync_file(), unique_sibling_path() (+1 more)
 
 ### Community 185 - "Community 185"
 Cohesion: 0.23
 Nodes (13): css_descriptor(), download_google_font(), fetch_google_font_faces(), font_file(), font_file_path(), FontFace, fonts_call(), fonts_root() (+5 more)
 
 ### Community 186 - "Community 186"
-Cohesion: 0.23
-Nodes (15): agent_cadence_status(), agent_config_id(), agent_memory(), clear_agent_memory(), clear_agent_runs_and_memory_for_chat(), find_agent_config(), get_or_create_agent_config(), parse_settings() (+7 more)
+Cohesion: 0.25
+Nodes (14): agent_cadence_status(), agent_config_id(), agent_memory(), clear_agent_memory(), clear_agent_runs_and_memory_for_chat(), find_agent_config(), get_or_create_agent_config(), parse_settings() (+6 more)
 
 ### Community 187 - "Community 187"
 Cohesion: 0.15
@@ -1208,12 +1221,12 @@ Cohesion: 0.12
 Nodes (15): Active Slice: Agent End-To-End Parity, Completed Slice: Agent Activation Fallbacks, Completed Slice: Agent Custom Tool Execution, Completed Slice: Bounded Generation History Load, Completed Slice: Connected Conversation Notes And Influences, Completed Slice: Professor Mari Loading And Generation Parameters, Completed Slice: Prompt Preset Parameters And Variables, Completed Slice: Secret Plot Memory (+7 more)
 
 ### Community 191 - "Community 191"
-Cohesion: 0.19
-Nodes (12): vmRegexExecutor(), KeywordMatchOptions, literalMatch(), RegexExecutor, testKeyword(), consumeQuantifier(), DEFAULTS, findCharClassClose() (+4 more)
+Cohesion: 0.12
+Nodes (20): ActivationScanMessage, AgentActivationMatch, matchCustomAgentActivation(), normalizeCustomAgentActivationKeywords(), normalizeCustomAgentActivationScanDepth(), keywords, vmRegexExecutor(), KeywordMatchOptions (+12 more)
 
 ### Community 192 - "Community 192"
-Cohesion: 0.26
-Nodes (15): parse_object(), import_marinara_file(), extract_chara_from_png(), extract_charx(), image_mime_from_path(), import_payload(), parse_chara_text(), parse_character_file() (+7 more)
+Cohesion: 0.25
+Nodes (15): parse_json_text(), parse_object(), import_marinara_file(), extract_chara_from_png(), extract_charx(), image_mime_from_path(), import_payload(), parse_chara_text() (+7 more)
 
 ### Community 193 - "Community 193"
 Cohesion: 0.20
@@ -1224,36 +1237,36 @@ Cohesion: 0.12
 Nodes (12): cacheFile, cacheSource, detectFile, detectSource, extractFile, extractSource, output, packageDir (+4 more)
 
 ### Community 196 - "Community 196"
-Cohesion: 0.16
-Nodes (12): PreviewBackgroundPicker(), PreviewBackgroundPickerProps, PreviewBackground, previewBackgroundOptions, previewBackgroundStyles, SpriteCleanupCanvasStage(), SpriteCleanupCanvasStageProps, SpriteCleanupControls() (+4 more)
+Cohesion: 0.17
+Nodes (11): PreviewBackgroundPicker(), PreviewBackgroundPickerProps, PreviewBackground, previewBackgroundOptions, previewBackgroundStyles, SpriteCleanupCanvasStage(), SpriteCleanupCanvasStageProps, SpriteCleanupControls() (+3 more)
 
 ### Community 197 - "Community 197"
 Cohesion: 0.18
 Nodes (14): ExternalThoughtBubble(), FLOATING_THOUGHT_BUBBLE_TRANSITION, getFloatingThoughtBubbleMotion(), getInlineThoughtBubbleMotion(), getThoughtBubbleSize(), getThoughtPreviewClampClass(), getThoughtTextFit(), INLINE_THOUGHT_BUBBLE_TRANSITION (+6 more)
 
 ### Community 198 - "Community 198"
-Cohesion: 0.26
-Nodes (14): appendLoreFacts(), applyLorebookKeeperUpdate(), asRecord(), buildPendingLorebookUpdates(), chatForUpdate(), entryDefaults(), findExistingEntry(), lorebooksForUpdate() (+6 more)
+Cohesion: 0.14
+Nodes (23): arrayValue(), clamp(), deterministicRange(), fallbackActionResult(), isCombatResult(), numberValue(), optionalNumber(), playerActionsFromParty() (+15 more)
 
 ### Community 199 - "Community 199"
-Cohesion: 0.13
-Nodes (12): previewCharacters, queryClient, savedCharacters, target, targets, LegacyPersonaAvatarCrop, Persona, PersonaAvatarCrop (+4 more)
+Cohesion: 0.10
+Nodes (21): ParsedCharacter, DescriptionExtension, getCharacterDescriptionWithExtensions(), parseDescriptionExtensions(), Character, CharacterBook, CharacterBookEntry, CharacterCardV2 (+13 more)
 
 ### Community 200 - "Community 200"
 Cohesion: 0.14
 Nodes (13): BASE_TEMP, Biome, BIOME_WEATHER, DESCRIPTIONS, generateWeather(), inferBiome(), pick(), Season (+5 more)
 
 ### Community 201 - "Community 201"
-Cohesion: 0.30
-Nodes (14): canonical_allowed_roots(), canonical_directory(), cleanup_folder_tokens(), directory_listing(), FolderTokenEntry, has_configured_import_roots(), home_dir(), is_allowed_import_root() (+6 more)
+Cohesion: 0.33
+Nodes (13): canonical_allowed_roots(), canonical_directory(), cleanup_folder_tokens(), directory_listing(), FolderTokenEntry, has_configured_import_roots(), home_dir(), is_allowed_import_root() (+5 more)
 
 ### Community 202 - "Community 202"
 Cohesion: 0.13
 Nodes (14): 1. Run The Docs, 2. Teach The Repo In One Pass, 3. Run The App, 4. First Manual Testing Pass, 5. Bug Report Shape, 6. Fixing Mode, code:text (pnpm docs:dev), code:text (http://127.0.0.1:4174/) (+6 more)
 
 ### Community 203 - "Community 203"
-Cohesion: 0.24
-Nodes (15): characterSchedules(), chatCharacterIds(), chatMessages(), checkAutonomousMessaging(), checkCharacterExchange(), checkConversationAutonomous(), checkConversationCharacterExchange(), getConversationBusyDelay() (+7 more)
+Cohesion: 0.14
+Nodes (15): CombatEndScreen(), CombatLog(), EncounterConfig(), EncounterErrorBoundary, EncounterModal(), EncounterModalInner(), EnemyCard(), HPBar() (+7 more)
 
 ### Community 204 - "Community 204"
 Cohesion: 0.15
@@ -1261,31 +1274,31 @@ Nodes (11): DropDataTransferLike, DroppedCharacterImportFiles, DroppedEntryLike,
 
 ### Community 205 - "Community 205"
 Cohesion: 0.18
-Nodes (11): EXEC_TYPES, ExecType, ParamDef, ToolEditor(), CustomToolCapabilities, CustomToolRow, isCustomToolSelectable(), toolKeys (+3 more)
+Nodes (10): EXEC_TYPES, ExecType, ParamDef, ToolEditor(), CustomToolCapabilities, CustomToolRow, isCustomToolSelectable(), toolKeys (+2 more)
 
 ### Community 206 - "Community 206"
-Cohesion: 0.17
-Nodes (12): AnimatedTextProps, animateTextHtml(), applyTextEffects(), EFFECT_CLASS, EFFECT_RULES, EffectRule, TextEffect, wrapCharactersForWave() (+4 more)
+Cohesion: 0.25
+Nodes (10): AnimatedTextProps, animateTextHtml(), applyTextEffects(), EFFECT_CLASS, EFFECT_RULES, EffectRule, TextEffect, wrapCharactersForWave() (+2 more)
 
-### Community 208 - "Community 208"
-Cohesion: 0.22
-Nodes (4): AppError, ensure_object(), merge_object_field(), now_iso()
+### Community 207 - "Community 207"
+Cohesion: 0.12
+Nodes (10): baseConfig, config, Harness(), MockAudio, useStreamingTTS(), StateListener, TTSService, TTSSpeakOptions (+2 more)
 
 ### Community 209 - "Community 209"
-Cohesion: 0.29
-Nodes (15): build_horde_url(), check_bearer_get(), check_connection_without_generation(), check_image_generation_connection(), check_openrouter_key(), check_openrouter_key_for_base(), check_optional_bearer_get(), connection_api_key() (+7 more)
+Cohesion: 0.18
+Nodes (18): ActiveDialogResolver, dismissActiveDialog(), openDialog(), resolveActiveDialog(), resolveFallback(), showAlertDialog(), showConfirmDialog(), showPromptDialog() (+10 more)
 
 ### Community 210 - "Community 210"
-Cohesion: 0.22
-Nodes (11): AudioPlayerModal(), FileIcon(), isAudio(), isEditableText(), isImage(), AUDIO_EXTS, AUDIO_MIME_MAP, GAME_ASSET_MIME_MAP (+3 more)
+Cohesion: 0.26
+Nodes (10): FileIcon(), isAudio(), isEditableText(), isImage(), AUDIO_EXTS, AUDIO_MIME_MAP, GAME_ASSET_MIME_MAP, IMAGE_EXTS (+2 more)
 
 ### Community 211 - "Community 211"
 Cohesion: 0.15
 Nodes (6): CelestialBody, extractHour(), parseTime(), Particle, WeatherEffects(), WeatherEffectsProps
 
 ### Community 212 - "Community 212"
-Cohesion: 0.22
-Nodes (13): ApplyRegexScriptOptions, applyRegexScriptsToPromptMessages(), applyRegexScriptsToPromptText(), depthValue(), isEnabled(), isPromptOnly(), parsePlacement(), parseTrimStrings() (+5 more)
+Cohesion: 0.13
+Nodes (16): create_marinara_extension(), CreateMarinaraCustomAgentTool, CreateMarinaraExtensionTool, edit_marinara_code_file(), EditMarinaraCodeFileTool, is_code_text_path(), is_skipped_relative_path(), mari_tool_error() (+8 more)
 
 ### Community 213 - "Community 213"
 Cohesion: 0.14
@@ -1296,20 +1309,20 @@ Cohesion: 0.14
 Nodes (13): clean_up_tokenization_spaces, cls_token, do_basic_tokenize, do_lower_case, mask_token, model_max_length, never_split, pad_token (+5 more)
 
 ### Community 215 - "Community 215"
-Cohesion: 0.18
-Nodes (13): LocationKind, MusicGenre, MusicIntensity, GeneratedSceneIllustration, SceneAbandonRequest, SceneAbandonResponse, SceneAnalysis, SceneConcludeRequest (+5 more)
+Cohesion: 0.09
+Nodes (28): CreateCall, input, JsonRecord, metadata, payloads, RecordingStorage, storage, UpdateCall (+20 more)
 
 ### Community 216 - "Community 216"
-Cohesion: 0.15
-Nodes (3): project_nested_value(), project_row(), ProjectedNestedVisitor<'a>
+Cohesion: 0.11
+Nodes (5): project_nested_value(), project_row(), ProjectedNestedVisitor<'a>, ProjectedRowVisitor<'a>, record_id()
 
 ### Community 217 - "Community 217"
 Cohesion: 0.35
 Nodes (13): background_item(), background_tags(), backgrounds_call(), delete_background(), find_background_meta(), list_backgrounds(), patch_background_tags(), rename_background() (+5 more)
 
 ### Community 218 - "Community 218"
-Cohesion: 0.21
-Nodes (7): MessageContent(), FileEditorModal(), FileEditorModalProps, useGameAssetFileContent(), ListItem, renderCodeBlock(), renderMarkdownBlocks()
+Cohesion: 0.07
+Nodes (25): ExpressionAvatarResolver, ActionBtn(), CHAT_HTML_ALLOWED_ATTR, CHAT_HTML_ALLOWED_TAGS, ChatMessage, ChatMessageProps, collectInlineMarkdownRanges(), EditTextarea (+17 more)
 
 ### Community 220 - "Community 220"
 Cohesion: 0.15
@@ -1320,8 +1333,8 @@ Cohesion: 0.19
 Nodes (10): CLOSE_THINKING_TAG_RE, createInlineThinkingStreamParser(), extractLeadingThinkingBlocks(), InlineThinkingPart, LeadingThinkingExtraction, OPEN_THINKING_TAG_RE, collect(), THINKING_TAG_NAMES (+2 more)
 
 ### Community 222 - "Community 222"
-Cohesion: 0.15
-Nodes (12): BUILTIN_MARKERS, ChoiceBlock, ChoiceOption, InjectionPosition, MarkerConfig, MarkerType, PromptGroup, PromptPreset (+4 more)
+Cohesion: 0.14
+Nodes (17): applyJournalEntry(), GameJournalResponse, normalizeJournalEntry(), addCombatEntry(), addEventEntry(), addInventoryEntry(), addLocationEntry(), addNoteEntry() (+9 more)
 
 ### Community 223 - "Community 223"
 Cohesion: 0.15
@@ -1336,8 +1349,8 @@ Cohesion: 0.26
 Nodes (10): AssetManifestMap, buildMissingSceneAssetGenerationPayload(), getMissingBackgroundTag(), MissingSceneAssetGenerationInput, MissingSceneAssetGenerationPayload, normalizeSceneAssetNameForGeneration(), SceneAssetNpcAvatarCandidate, bestMatch() (+2 more)
 
 ### Community 226 - "Community 226"
-Cohesion: 0.27
-Nodes (9): loadAgentMemory(), parseMaybeJson(), persistSecretPlotAgentMemory(), secretPlotStateFromMemory(), setAgentMemoryValue(), normalizeSecretPlotSceneDirections(), normalizeStringArray(), SecretPlotDirection (+1 more)
+Cohesion: 0.18
+Nodes (10): folder_description(), image_dimensions_for(), is_native_asset_folder(), path_extension(), rejects_paths_that_escape_root_through_symlinked_directory(), should_skip_asset_entry(), sort_asset_rows(), symlink_dir() (+2 more)
 
 ### Community 227 - "Community 227"
 Cohesion: 0.27
@@ -1352,8 +1365,8 @@ Cohesion: 0.17
 Nodes (11): Architecture Sources, Automation Helpers, Branches And PR Targets, Changelog And Release Notes, Issue Intake Extras, Issue Templates And Labels, Marinara Overrides For Workflow Pack Assumptions, PR Template (+3 more)
 
 ### Community 230 - "Community 230"
-Cohesion: 0.23
-Nodes (12): createSchedulelessAutonomySchedule(), areConversationSchedulesEnabled(), createScheduleProvider(), generateConversationSchedules(), getEnabledConversationSchedules(), getMonday(), hasSchedules(), loadOtherConversationSchedules() (+4 more)
+Cohesion: 0.20
+Nodes (17): appendActiveAltDescriptions(), buildMessageMacroContext(), createInputMacroResolverForChat(), createMessageMacroResolver(), findCharacterByName(), getChatCharacterIds(), getRecord(), getString() (+9 more)
 
 ### Community 231 - "Community 231"
 Cohesion: 0.30
@@ -1364,8 +1377,8 @@ Cohesion: 0.18
 Nodes (10): Bugfix Lane, code:text (Done: <result or root cause>.), Done Report Shape, Feature Lane, Issue Filing Lane, Marinara Agent Workflow Overlay, Priority, Review And PR Lane (+2 more)
 
 ### Community 233 - "Community 233"
-Cohesion: 0.22
-Nodes (9): ActiveEffect, backgroundBlurStyle(), buildVisualStyle(), COLOR_GRADE_PRESETS, CrossfadeBackground(), DirectionEngine(), DirectionEngineProps, DirectionCommand (+1 more)
+Cohesion: 0.28
+Nodes (7): ActiveEffect, backgroundBlurStyle(), buildVisualStyle(), COLOR_GRADE_PRESETS, CrossfadeBackground(), DirectionEngine(), DirectionEngineProps
 
 ### Community 234 - "Community 234"
 Cohesion: 0.18
@@ -1381,7 +1394,7 @@ Nodes (10): Actual behavior, Additional context, Environment, Expected behavior,
 
 ### Community 237 - "Community 237"
 Cohesion: 0.18
-Nodes (8): CreateCall, input, JsonRecord, metadata, payloads, RecordingStorage, storage, UpdateCall
+Nodes (13): PersonaGroupRow, PersonaRow, SortOption, useActivatePersona(), useCreatePersonaGroup(), useDeletePersona(), useDeletePersonaGroup(), useDuplicatePersona() (+5 more)
 
 ### Community 238 - "Community 238"
 Cohesion: 0.25
@@ -1396,8 +1409,8 @@ Cohesion: 0.18
 Nodes (10): app, security, windows, enable, scope, identifier, productName, $schema (+2 more)
 
 ### Community 241 - "Community 241"
-Cohesion: 0.27
-Nodes (9): stored_generation_parameters(), test_connection(), test_message(), llm_connection_from_value(), translate_text(), translate_with_ai(), translate_with_deepl(), translate_with_deeplx() (+1 more)
+Cohesion: 0.17
+Nodes (13): CreateConnectionModal(), Props, MODEL_LISTS, isTauriRuntimeProvider(), ProviderDefinition, PROVIDERS, TAURI_RUNTIME_PROVIDERS, useCreateConnection() (+5 more)
 
 ### Community 242 - "Community 242"
 Cohesion: 0.29
@@ -1405,7 +1418,7 @@ Nodes (8): ACTION_MODIFIERS, applyReputationChange(), detectMilestone(), getRepu
 
 ### Community 243 - "Community 243"
 Cohesion: 0.20
-Nodes (9): codeowners, dependencies, documentation, domain, iot_class, issue_tracker, name, requirements (+1 more)
+Nodes (15): buildDisplaySections(), ChatHistoryBlock, ChatHistoryEntry, ChatHistoryMessage(), ChatHistorySection(), CollapsibleBlock(), DisplaySection, estimateTokens() (+7 more)
 
 ### Community 244 - "Community 244"
 Cohesion: 0.33
@@ -1428,12 +1441,12 @@ Cohesion: 0.29
 Nodes (10): applyCommonCharacterFields(), parseBooleanParam(), parseCharacterCommands(), parseLorebookBlock(), parseLorebookEntriesParam(), parseNumberParam(), parseStringList(), parseUnknownStringList() (+2 more)
 
 ### Community 249 - "Community 249"
-Cohesion: 0.29
-Nodes (10): backfillConversationSummaries(), createSummaryProvider(), extractName(), loadCharacterNames(), loadPersonaName(), loadScopedMessages(), numberValue(), parseRecord() (+2 more)
+Cohesion: 0.33
+Nodes (9): backfillConversationSummaries(), createSummaryProvider(), extractName(), loadCharacterNames(), loadPersonaName(), loadScopedMessages(), numberValue(), parseRecord() (+1 more)
 
 ### Community 250 - "Community 250"
-Cohesion: 0.31
-Nodes (9): profileApi, estimateProfileImportRemainingSeconds(), formatProfileImportDuration(), formatProfileImportSkippedStats(), formatProfileImportStats(), getProfileImportPercent(), ProfileImportProgressState, ProfileImportSection() (+1 more)
+Cohesion: 0.19
+Nodes (12): PersonaFormData, PersonaRow, crop, AvatarCrop, isLegacyAvatarCrop(), LegacyAvatarCrop, AvatarCropWidget(), AvatarCropWidgetProps (+4 more)
 
 ### Community 251 - "Community 251"
 Cohesion: 0.20
@@ -1448,8 +1461,8 @@ Cohesion: 0.25
 Nodes (6): computeTooltipStyle(), GameTutorial(), GameTutorialProps, GameTutorialStep, Rect, STEPS
 
 ### Community 254 - "Community 254"
-Cohesion: 0.31
-Nodes (8): ActivatedEntry, applyTokenBudget(), buildWorldInfoBlocks(), getDepthInjectedEntries(), injectAtDepth(), processActivatedEntries(), PromptMessage, LorebookRole
+Cohesion: 0.16
+Nodes (14): applyTokenBudget(), buildWorldInfoBlocks(), getDepthInjectedEntries(), processActivatedEntries(), PromptMessage, ActivationCondition, LorebookCategory, LorebookEntryTimingState (+6 more)
 
 ### Community 255 - "Community 255"
 Cohesion: 0.22
@@ -1464,24 +1477,24 @@ Cohesion: 0.22
 Nodes (8): background_color, description, display, icons, name, short_name, start_url, theme_color
 
 ### Community 258 - "Community 258"
-Cohesion: 0.44
-Nodes (8): applyBrushLine(), applyBrushStamp(), blendPixelToward(), brushFalloff(), BrushStampSourceOptions, compositeSourceOver(), writeRgbaIfChanged(), clampUnit()
+Cohesion: 0.38
+Nodes (9): applyBrushLine(), applyBrushStamp(), blendPixelToward(), brushFalloff(), BrushStampSourceOptions, compositeSourceOver(), writeRgbaIfChanged(), clamp() (+1 more)
 
 ### Community 259 - "Community 259"
 Cohesion: 0.25
 Nodes (7): DANGER_HINTS, ENVIRONMENTAL_HINTS, generatePerceptionHints(), passivePerception(), PerceptionContext, PerceptionHint, SOCIAL_HINTS
 
 ### Community 260 - "Community 260"
-Cohesion: 0.44
-Nodes (8): buildCharacterNameVariants(), characterNamesMatch(), findNamedEntry(), getCharacterNameTokens(), includesWholeVariant(), isSubsetMatch(), NAME_STOP_WORDS, normalizeCharacterName()
+Cohesion: 0.23
+Nodes (14): applySegmentEditOverlay(), humanizeName(), normalizeInlineVnDialogueLines(), parseNarrationSegments(), splitInlineDialogue(), buildCharacterNameVariants(), characterNamesMatch(), findNamedEntry() (+6 more)
 
 ### Community 262 - "Community 262"
 Cohesion: 0.22
 Nodes (8): code:text (Status: <phase>. Proof: <best evidence or "not yet">. Blocke), code:text (Done: <result or root cause>. Files: <paths + tiny summaries), code:text (Verdict: <ship|needs work|blocked>. Findings: <none or bulle), code:text (Debt: <none|quadrant + follow-up>.), code:text (Mud risk: <none|label + containment/follow-up>.), code:text (PR: <url or not opened>. Checks: <passed|failed|pending|not ), code:text (Decision: <one thing needed>. Autonomous next: <safe step or), Status Snippets
 
 ### Community 263 - "Community 263"
-Cohesion: 0.36
-Nodes (7): promptPresetCandidates(), asNonEmptyString(), buildGenerationPromptPresetCandidates(), PromptPresetCandidate, PromptPresetCandidateSource, pushUnique(), supportsConnectionPromptPresetOverride()
+Cohesion: 0.15
+Nodes (13): id, ids, tokens, post_processor, pair, single, special_tokens, type (+5 more)
 
 ### Community 264 - "Community 264"
 Cohesion: 0.25
@@ -1532,8 +1545,8 @@ Cohesion: 0.29
 Nodes (6): Adding Your Own Assets, Ambient Sounds, Character Sprites, Game Assets Credits, Music, Sound Effects
 
 ### Community 276 - "Community 276"
-Cohesion: 0.38
-Nodes (6): child, findModernNode(), readNodeVersion(), repoRoot, supportsVite(), viteBin
+Cohesion: 0.32
+Nodes (7): child, findModernNode(), readNodeVersion(), repoRoot, runner, supportsVite(), viteBin
 
 ### Community 277 - "Community 277"
 Cohesion: 0.57
@@ -1860,8 +1873,8 @@ Cohesion: 0.33
 Nodes (5): description, identifier, permissions, $schema, windows
 
 ### Community 359 - "Community 359"
-Cohesion: 0.33
-Nodes (5): GameInventory(), GameInventoryProps, InventoryItem, InventorySlot(), InventorySlotProps
+Cohesion: 0.24
+Nodes (10): GenerationReplay, GenerationReplayDetailsModal(), GUIDE_SOURCE_LABELS, guideLabel(), GuideSource, hasGenerationReplayDetails(), storedText(), visibleGenerationGuide() (+2 more)
 
 ### Community 361 - "Community 361"
 Cohesion: 0.67
@@ -1892,8 +1905,8 @@ Cohesion: 0.33
 Nodes (5): VNChoice, VNScene, VNSprite, VNSpritePosition, VNTransition
 
 ### Community 368 - "Community 368"
-Cohesion: 0.33
-Nodes (5): Preset, PresetFull, PresetGroup, PresetSection, WrapFormat
+Cohesion: 0.16
+Nodes (11): ChoiceOption, ChoiceSelectionModal(), ChoiceSelectionModalProps, VariableData, usePresetFull(), useUpdatePreset(), Preset, PresetFull (+3 more)
 
 ### Community 369 - "Community 369"
 Cohesion: 0.33
@@ -1936,16 +1949,16 @@ Cohesion: 0.40
 Nodes (4): AppSettingsResponse, appSettingsResponseSchema, AppSettingsUpdateInput, appSettingsUpdateSchema
 
 ### Community 381 - "Community 381"
-Cohesion: 0.40
-Nodes (4): Lorebook, LorebookCategory, LorebookEntry, LorebookFolder
+Cohesion: 0.19
+Nodes (11): parseJsonArray(), parseJsonObject(), buildCharacterContext(), buildGameStateContext(), fallbackEnemy(), fallbackInitState(), mapAttributeRowsToRpg(), parseRpgStats() (+3 more)
 
 ### Community 382 - "Community 382"
 Cohesion: 0.50
 Nodes (3): openai_chat_stream_accumulates_tool_call_deltas(), OpenAiToolCallAccumulator, process_openai_sse_block()
 
 ### Community 383 - "Community 383"
-Cohesion: 0.60
-Nodes (3): ACTIVITY_EVENTS, Harness(), useIdleDetection()
+Cohesion: 0.20
+Nodes (9): moraleMetadataPatch(), syncMoraleWidgets(), applyMoraleEvent(), drift(), EVENT_MODIFIERS, getMoraleTier(), MoraleEvent, MoraleState (+1 more)
 
 ### Community 384 - "Community 384"
 Cohesion: 0.60
@@ -1971,6 +1984,10 @@ Nodes (3): child, env, tauriArgs
 Cohesion: 0.50
 Nodes (3): apiProviderSchema, CreateConnectionInput, createConnectionSchema
 
+### Community 394 - "Community 394"
+Cohesion: 0.24
+Nodes (10): ACTION_DURATIONS, addMinutes(), advanceTime(), createInitialTime(), formatGameTime(), GameTime, getTimeOfDay(), setTimeOfDay() (+2 more)
+
 ### Community 395 - "Community 395"
 Cohesion: 0.83
 Nodes (3): center_main_window_on_primary_monitor(), open_main_window_devtools_if_requested(), run()
@@ -1983,25 +2000,65 @@ Nodes (3): Avoid, Core Loop, Investigation Workflow Card
 Cohesion: 0.67
 Nodes (3): CardTile(), DetailView(), fmtNum()
 
+### Community 404 - "Community 404"
+Cohesion: 0.22
+Nodes (8): ATTRIBUTE_NAME_MAP, d20(), getGoverningAttribute(), resolveSkillCheck(), SKILL_ATTRIBUTE_MAP, SkillCheckInput, SkillCheckResult, RPGAttributes
+
+### Community 414 - "Community 414"
+Cohesion: 0.31
+Nodes (6): BudgetSkippedEntryRow(), formatBudgetCap(), formatBudgetName(), WorldInfoPanel(), BudgetSkippedLorebookEntry, useActiveLorebookEntries()
+
+### Community 455 - "Community 455"
+Cohesion: 0.50
+Nodes (5): ImageInfoPopover(), ImagePreviewModal(), useGameAssetFileInfo(), formatBytes(), formatDate()
+
+### Community 456 - "Community 456"
+Cohesion: 0.46
+Nodes (6): estimatedMessageTokens(), estimatedTokens(), firstHistoryIndex(), fitMessagesToContextWindow(), historyCount(), truncateOldestHistory()
+
+### Community 457 - "Community 457"
+Cohesion: 0.32
+Nodes (6): assert_inside_dir(), assert_relative_safe_path(), canonicalize_existing_prefix(), ensure_upload_extension(), sanitize_filename(), validate_collection_name()
+
+### Community 458 - "Community 458"
+Cohesion: 0.25
+Nodes (7): BrushStrokeBaseOptions, NeighborMode, PaintBrushOptions, SoftBrushStrokeOptions, TargetCleanBrushOptions, WandCleanupOptions, WandResult
+
+### Community 459 - "Community 459"
+Cohesion: 0.40
+Nodes (5): JsonRepairRequest, extractJsonCandidate(), GameJsonRepairModal(), GameJsonRepairModalProps, validateJson()
+
+### Community 460 - "Community 460"
+Cohesion: 0.60
+Nodes (4): buildLatestSessionContinuity(), buildRecapPrompt(), buildSessionCarryoverContext(), normalizeRecapBeat()
+
+### Community 461 - "Community 461"
+Cohesion: 0.50
+Nodes (3): activate_persona(), restore_character_version(), normalize_character_data_for_storage()
+
+### Community 462 - "Community 462"
+Cohesion: 0.67
+Nodes (3): GAME_STATES, isValidTransition(), validateTransition()
+
 ## Knowledge Gaps
-- **3177 isolated node(s):** `composite`, `skipLibCheck`, `module`, `moduleResolution`, `allowSyntheticDefaultImports` (+3172 more)
+- **3175 isolated node(s):** `composite`, `skipLibCheck`, `module`, `moduleResolution`, `allowSyntheticDefaultImports` (+3170 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **36 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **33 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `cn()` connect `Community 19` to `Community 1`, `Community 2`, `Community 3`, `Community 132`, `Community 133`, `Community 6`, `Community 4`, `Community 8`, `Community 9`, `Community 10`, `Community 11`, `Community 12`, `Community 5`, `Community 134`, `Community 394`, `Community 143`, `Community 148`, `Community 149`, `Community 150`, `Community 20`, `Community 24`, `Community 26`, `Community 28`, `Community 29`, `Community 33`, `Community 163`, `Community 36`, `Community 42`, `Community 46`, `Community 176`, `Community 48`, `Community 179`, `Community 51`, `Community 53`, `Community 56`, `Community 61`, `Community 64`, `Community 68`, `Community 197`, `Community 72`, `Community 73`, `Community 205`, `Community 206`, `Community 79`, `Community 81`, `Community 82`, `Community 83`, `Community 84`, `Community 218`, `Community 95`, `Community 102`, `Community 359`, `Community 104`, `Community 108`, `Community 114`, `Community 119`, `Community 250`, `Community 127`?**
-  _High betweenness centrality (0.042) - this node is a cross-community bridge._
-- **Why does `useUIStore` connect `Community 6` to `Community 1`, `Community 2`, `Community 3`, `Community 132`, `Community 133`, `Community 4`, `Community 9`, `Community 10`, `Community 11`, `Community 19`, `Community 20`, `Community 149`, `Community 148`, `Community 24`, `Community 152`, `Community 26`, `Community 29`, `Community 31`, `Community 33`, `Community 39`, `Community 167`, `Community 46`, `Community 47`, `Community 176`, `Community 178`, `Community 179`, `Community 51`, `Community 53`, `Community 56`, `Community 205`, `Community 79`, `Community 82`, `Community 84`, `Community 89`, `Community 223`, `Community 102`, `Community 112`, `Community 119`, `Community 383`?**
-  _High betweenness centrality (0.025) - this node is a cross-community bridge._
-- **Why does `storageApi` connect `Community 20` to `Community 128`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 133`, `Community 5`, `Community 8`, `Community 9`, `Community 10`, `Community 19`, `Community 149`, `Community 154`, `Community 28`, `Community 29`, `Community 35`, `Community 37`, `Community 167`, `Community 44`, `Community 46`, `Community 47`, `Community 176`, `Community 54`, `Community 183`, `Community 61`, `Community 198`, `Community 205`, `Community 79`, `Community 84`, `Community 87`, `Community 88`, `Community 94`, `Community 98`, `Community 118`?**
+- **Why does `cn()` connect `Community 56` to `Community 1`, `Community 2`, `Community 3`, `Community 132`, `Community 4`, `Community 133`, `Community 134`, `Community 6`, `Community 9`, `Community 10`, `Community 11`, `Community 12`, `Community 143`, `Community 19`, `Community 148`, `Community 149`, `Community 150`, `Community 20`, `Community 24`, `Community 26`, `Community 28`, `Community 29`, `Community 162`, `Community 163`, `Community 36`, `Community 164`, `Community 42`, `Community 172`, `Community 46`, `Community 48`, `Community 176`, `Community 51`, `Community 53`, `Community 61`, `Community 64`, `Community 68`, `Community 197`, `Community 455`, `Community 72`, `Community 73`, `Community 203`, `Community 459`, `Community 205`, `Community 79`, `Community 81`, `Community 82`, `Community 83`, `Community 87`, `Community 218`, `Community 94`, `Community 95`, `Community 97`, `Community 100`, `Community 102`, `Community 104`, `Community 108`, `Community 237`, `Community 368`, `Community 241`, `Community 114`, `Community 243`, `Community 118`, `Community 119`, `Community 127`?**
+  _High betweenness centrality (0.041) - this node is a cross-community bridge._
+- **Why does `useUIStore` connect `Community 6` to `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 133`, `Community 132`, `Community 134`, `Community 9`, `Community 10`, `Community 11`, `Community 19`, `Community 148`, `Community 149`, `Community 20`, `Community 24`, `Community 152`, `Community 26`, `Community 29`, `Community 31`, `Community 33`, `Community 162`, `Community 39`, `Community 46`, `Community 47`, `Community 178`, `Community 51`, `Community 53`, `Community 205`, `Community 79`, `Community 82`, `Community 84`, `Community 87`, `Community 89`, `Community 218`, `Community 223`, `Community 100`, `Community 102`, `Community 237`, `Community 112`, `Community 241`, `Community 118`, `Community 119`, `Community 120`, `Community 123`?**
+  _High betweenness centrality (0.021) - this node is a cross-community bridge._
+- **Why does `storageApi` connect `Community 20` to `Community 128`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 133`, `Community 5`, `Community 8`, `Community 9`, `Community 10`, `Community 11`, `Community 15`, `Community 19`, `Community 148`, `Community 149`, `Community 26`, `Community 28`, `Community 29`, `Community 162`, `Community 37`, `Community 172`, `Community 46`, `Community 47`, `Community 183`, `Community 61`, `Community 205`, `Community 79`, `Community 87`, `Community 215`, `Community 88`, `Community 218`, `Community 94`, `Community 237`, `Community 118`, `Community 120`?**
   _High betweenness centrality (0.010) - this node is a cross-community bridge._
 - **What connects `composite`, `skipLibCheck`, `module` to the rest of the system?**
-  _3210 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _3208 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
   _Cohesion score 0.004395604395604396 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
-  _Cohesion score 0.02063983488132095 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.02981162981162981 - nodes in this community are weakly interconnected._
 - **Should `Community 2` be split into smaller, more focused modules?**
-  _Cohesion score 0.018726070309780716 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.023415977961432508 - nodes in this community are weakly interconnected._

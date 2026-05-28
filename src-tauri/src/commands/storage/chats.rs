@@ -172,6 +172,16 @@ fn active_swipe_index(message: &Value) -> i64 {
     swipe_index_value(message)
 }
 
+fn active_swipe_update_response(message: &Value) -> Value {
+    let mut response = Map::new();
+    for field in ["id", "content", "activeSwipeIndex", "swipeCount", "updatedAt"] {
+        if let Some(value) = message.get(field) {
+            response.insert(field.to_string(), value.clone());
+        }
+    }
+    Value::Object(response)
+}
+
 fn merge_chat_metadata(
     state: &AppState,
     chat_id: &str,
@@ -262,18 +272,20 @@ pub(crate) fn set_active_swipe(
             }
         })
     else {
-        return state.storage.patch(
+        let updated = state.storage.patch(
             "messages",
             message_id,
             json!({ "activeSwipeIndex": requested_index }),
-        );
+        )?;
+        return Ok(active_swipe_update_response(&updated));
     };
     object.insert("activeSwipeIndex".to_string(), json!(active_index));
     object.insert("swipeCount".to_string(), json!(swipe_count));
     if let Some(content) = active_content {
         object.insert("content".to_string(), content);
     }
-    state.storage.patch("messages", message_id, message)
+    let updated = state.storage.patch("messages", message_id, message)?;
+    Ok(active_swipe_update_response(&updated))
 }
 
 pub(crate) fn delete_swipe(

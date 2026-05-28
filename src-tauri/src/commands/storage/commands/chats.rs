@@ -136,13 +136,18 @@ pub fn chat_message_add_swipe(
 }
 
 #[tauri::command]
-pub fn chat_message_set_active_swipe(
+pub async fn chat_message_set_active_swipe(
     state: State<'_, AppState>,
     chat_id: String,
     message_id: String,
     index: i64,
 ) -> Result<Value, AppError> {
-    chats::set_active_swipe(&state, &chat_id, &message_id, json!({ "index": index }))
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        chats::set_active_swipe(&state, &chat_id, &message_id, json!({ "index": index }))
+    })
+    .await
+    .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
 #[tauri::command]

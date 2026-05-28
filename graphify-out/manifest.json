@@ -475,8 +475,8 @@
     "semantic_hash": ""
   },
   "src-tauri/src/commands/storage/chats.rs": {
-    "mtime": 1779961269.190236,
-    "ast_hash": "9576ae3b6263f1a21140af95ff708ce7",
+    "mtime": 1779983097.8257117,
+    "ast_hash": "aa7b13b9d82bb7d04c88c1f524f65877",
     "semantic_hash": ""
   },
   "src-tauri/src/commands/storage/shared.rs": {
@@ -655,8 +655,8 @@
     "semantic_hash": ""
   },
   "src-tauri/src/commands/storage/commands/chats.rs": {
-    "mtime": 1779905726.6061022,
-    "ast_hash": "f742cdec7b33f450b98dee6f930584d5",
+    "mtime": 1779983104.0253253,
+    "ast_hash": "864d0c403c3c48517ba88fa7e5a2a346",
     "semantic_hash": ""
   },
   "skills/marinara-agent-workflow/references/templates/bugfix-verification.template.json": {
@@ -1015,8 +1015,8 @@
     "semantic_hash": ""
   },
   "src/features/modes/shared/chat-ui/hooks/use-chat-timeline-actions.ts": {
-    "mtime": 1779982244.6517913,
-    "ast_hash": "ca70276b08a08c2e83a64bc58b9ea402",
+    "mtime": 1779983035.528843,
+    "ast_hash": "978ef2d7f348d3425c4effdc062dda8b",
     "semantic_hash": ""
   },
   "src/features/modes/shared/chat-ui/hooks/use-chat-surface-data.ts": {
@@ -1335,8 +1335,8 @@
     "semantic_hash": ""
   },
   "src/features/modes/roleplay/components/RoleplayModeRoute.tsx": {
-    "mtime": 1779982244.6516213,
-    "ast_hash": "3a94e68185c4d4cceade2eaf66a6a365",
+    "mtime": 1779982745.5102787,
+    "ast_hash": "46f5e2156981de7464c72ad8960247e5",
     "semantic_hash": ""
   },
   "src/features/modes/roleplay/components/RoleplayHUDActionsMenu.tsx": {
@@ -1995,8 +1995,8 @@
     "semantic_hash": ""
   },
   "src/features/catalog/chats/hooks/use-chats.ts": {
-    "mtime": 1779982244.6513898,
-    "ast_hash": "2b5f6d6c2cc5af1c725460266aca53a5",
+    "mtime": 1779982667.5830343,
+    "ast_hash": "ae8d2b1c1ecfb4362c3b1053d1268de5",
     "semantic_hash": ""
   },
   "src/features/catalog/chats/hooks/use-chat-folders.ts": {
