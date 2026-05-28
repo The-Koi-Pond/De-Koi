@@ -406,37 +406,20 @@ export function useChatTimelineActions({
       );
       pendingSwipeMutationsRef.current.set(messageId, trackedMutation);
       void (async () => {
-        beginRefreshingTimeline();
         try {
-          const trackerPatchesSaved = await flushTrackerPatchesForTimelineAction(
-            actionId,
-            "Could not save tracker changes before switching swipes.",
-          );
-          try {
-            await mutation;
-          } finally {
-            if (pendingSwipeMutationsRef.current.get(messageId) === trackedMutation) {
-              pendingSwipeMutationsRef.current.delete(messageId);
-            }
+          await mutation;
+        } catch (error) {
+          if (swipeActionSeq.current === actionId) {
+            toast.error(error instanceof Error ? error.message : "Could not switch swipes.");
           }
-          if (swipeActionSeq.current !== actionId) return;
-          if (!trackerPatchesSaved) return;
-          await refreshVisibleWorldState({ messageId, swipeIndex: index });
-        } catch {
-          if (swipeActionSeq.current !== actionId) return;
-          toast.error("Could not switch swipes.");
         } finally {
-          clearRefreshingTimeline(actionId);
+          if (pendingSwipeMutationsRef.current.get(messageId) === trackedMutation) {
+            pendingSwipeMutationsRef.current.delete(messageId);
+          }
         }
       })();
     },
-    [
-      beginRefreshingTimeline,
-      clearRefreshingTimeline,
-      flushTrackerPatchesForTimelineAction,
-      refreshVisibleWorldState,
-      setActiveSwipe,
-    ],
+    [setActiveSwipe],
   );
 
   const handleEdit = useCallback(

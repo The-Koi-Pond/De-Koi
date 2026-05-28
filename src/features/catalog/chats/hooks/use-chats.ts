@@ -935,15 +935,18 @@ function replaceCachedMessage(
   updater: (message: Message) => Message,
 ): InfiniteData<Message[]> | undefined {
   if (!old?.pages) return old;
-  let changed = false;
-  const pages = old.pages.map((page) =>
-    page.map((msg) => {
-      if (msg.id !== messageId) return msg;
-      changed = true;
-      return updater(msg);
-    }),
-  );
-  return changed ? { ...old, pages } : old;
+  for (let pageIndex = 0; pageIndex < old.pages.length; pageIndex += 1) {
+    const page = old.pages[pageIndex];
+    if (!page) continue;
+    const messageIndex = page.findIndex((msg) => msg.id === messageId);
+    if (messageIndex < 0) continue;
+    const nextPage = page.slice();
+    nextPage[messageIndex] = updater(page[messageIndex]!);
+    const pages = old.pages.slice();
+    pages[pageIndex] = nextPage;
+    return { ...old, pages };
+  }
+  return old;
 }
 
 function messageWithOptimisticActiveSwipe(message: Message, requestedIndex: number): Message {
