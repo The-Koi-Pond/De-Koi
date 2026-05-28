@@ -103,6 +103,10 @@ cacheSource = replaceRequired(
             _stat_index = {}
 `,
 );
+cacheSource = cacheSource.replace(
+  /def _stat_key\(path: Path, root: Path\) -> str:\n[\s\S]*?\n\n\ndef file_hash\(path: Path, root: Path = Path\("\."\)\) -> str:\n/,
+  `def file_hash(path: Path, root: Path = Path(".")) -> str:\n`,
+);
 cacheSource = replaceRequired(
   cacheSource,
   cacheFile,
@@ -116,6 +120,36 @@ cacheSource = replaceRequired(
         return path.resolve().as_posix()
 
 
+_TEXT_HASH_SUFFIXES = {
+    ".css",
+    ".gradle",
+    ".html",
+    ".js",
+    ".json",
+    ".jsx",
+    ".kt",
+    ".kts",
+    ".md",
+    ".mjs",
+    ".py",
+    ".rs",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
+
+
+def _stable_hash_content(path: Path, raw: bytes) -> bytes:
+    """Return cache hash bytes that are stable across LF/CRLF checkouts."""
+    content = _body_content(raw) if path.suffix.lower() == ".md" else raw
+    if path.suffix.lower() in _TEXT_HASH_SUFFIXES:
+        content = content.replace(b"\\r\\n", b"\\n")
+    return content
+
+
 def file_hash(path: Path, root: Path = Path(".")) -> str:
 `,
 );
@@ -123,12 +157,86 @@ cacheSource = cacheSource
   .replace("    abs_key = str(p.resolve())", "    stat_key = _stat_key(p, root)")
   .replace("        entry = _stat_index.get(abs_key)", "        entry = _stat_index.get(stat_key)")
   .replace(
+    `    raw = p.read_bytes()
+    content = _body_content(raw) if p.suffix.lower() == ".md" else raw
+`,
+    `    raw = p.read_bytes()
+    content = _stable_hash_content(p, raw)
+    stable_size = len(content)
+`,
+  )
+  .replace(
     '        _stat_index[abs_key] = {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "hash": digest}',
     '        _stat_index[stat_key] = {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "hash": digest}',
   );
+cacheSource = cacheSource.replace(
+  `    if st is not None:
+        previous = _stat_index.get(stat_key, {})
+        next_entry = {
+            "size": stable_size,
+            "mtime_ns": previous.get("mtime_ns", st.st_mtime_ns) if previous.get("hash") == digest else st.st_mtime_ns,
+            "hash": digest,
+        }
+        if previous != next_entry:
+            _stat_index[stat_key] = next_entry
+            _stat_index_dirty = True
+`,
+  `    if st is not None:
+        _stat_index[stat_key] = {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "hash": digest}
+        _stat_index_dirty = True
+`,
+);
+cacheSource = replaceRequired(
+  cacheSource,
+  cacheFile,
+  `    if st is not None:
+        _stat_index[stat_key] = {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "hash": digest}
+        _stat_index_dirty = True
+`,
+  `    if st is not None:
+        previous = _stat_index.get(stat_key, {})
+        if previous.get("hash") == digest:
+            next_entry = previous
+        else:
+            next_entry = {
+                "size": stable_size,
+                "mtime_ns": st.st_mtime_ns,
+                "hash": digest,
+            }
+        if previous != next_entry:
+            _stat_index[stat_key] = next_entry
+            _stat_index_dirty = True
+`,
+);
 writeFileSync(cacheFile, cacheSource);
 
 let detectSource = readFileSync(detectFile, "utf8");
+detectSource = detectSource.replace(
+  /def _md5_file\(path: Path\) -> str:\n[\s\S]*?\n\n\ndef load_manifest\(manifest_path: str = _MANIFEST_PATH\) -> dict:\n/,
+  `def _md5_file(path: Path) -> str:
+    """Stable MD5 of file contents for change detection.
+
+    Git stores text files with LF line endings, while Windows checkouts can
+    materialize them as CRLF. Normalize known text sources before hashing so
+    manifest churn does not depend on checkout platform.
+    """
+    import hashlib as _hl
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return ""
+    try:
+        file_type = classify_file(path)
+    except Exception:
+        file_type = None
+    if file_type in {FileType.CODE, FileType.DOCUMENT} or path.suffix.lower() == ".svg":
+        data = data.replace(b"\\r\\n", b"\\n")
+    return _hl.md5(data, usedforsecurity=False).hexdigest()
+
+
+def load_manifest(manifest_path: str = _MANIFEST_PATH) -> dict:
+`,
+);
 detectSource = replaceRequired(
   detectSource,
   detectFile,
@@ -213,6 +321,39 @@ detectSource = replaceRequired(
 `,
 );
 detectSource = detectSource.replace("            manifest[f] = entry", "            manifest[key] = entry");
+detectSource = replaceRequired(
+  detectSource,
+  detectFile,
+  `            entry: dict = {"mtime": mtime}
+            if kind in ("ast", "both"):
+                entry["ast_hash"] = h
+            else:
+                entry["ast_hash"] = prev.get("ast_hash", "")
+            if kind in ("semantic", "both"):
+                entry["semantic_hash"] = h
+            else:
+                # Preserve semantic_hash only when content is unchanged
+                entry["semantic_hash"] = prev.get("semantic_hash", "") if h == prev.get("ast_hash", "") else ""
+            manifest[key] = entry
+`,
+  `            previous_hashes = {
+                value
+                for value in (prev.get("ast_hash", ""), prev.get("semantic_hash", ""))
+                if value
+            }
+            entry: dict = {"mtime": prev.get("mtime", mtime) if h in previous_hashes else mtime}
+            if kind in ("ast", "both"):
+                entry["ast_hash"] = h
+            else:
+                entry["ast_hash"] = prev.get("ast_hash", "")
+            if kind in ("semantic", "both"):
+                entry["semantic_hash"] = h
+            else:
+                # Preserve semantic_hash only when content is unchanged
+                entry["semantic_hash"] = prev.get("semantic_hash", "") if h == prev.get("ast_hash", "") else ""
+            manifest[key] = entry
+`,
+);
 detectSource = replaceRequired(
   detectSource,
   detectFile,
@@ -361,7 +502,7 @@ writeFileSync(extractFile, extractSource);
 
 let watchSource = readFileSync(watchFile, "utf8");
 watchSource = watchSource.replace(
-  /def _graph_item_json_key\(item: dict\) -> str:\n[\s\S]*?\n\n\ndef _canonical_graph_for_compare\(graph_data: dict\) -> dict:\n/,
+  /(?:def _preserve_existing_node_communities\([^]*?\n\n\n)?def _graph_item_json_key\(item: dict\) -> str:\n[\s\S]*?\n\n\ndef _canonical_graph_for_compare\(graph_data: dict\) -> dict:\n/,
   "def _canonical_graph_for_compare(graph_data: dict) -> dict:\n",
 );
 watchSource = replaceRequired(
@@ -369,7 +510,39 @@ watchSource = replaceRequired(
   watchFile,
   `def _canonical_graph_for_compare(graph_data: dict) -> dict:
 `,
-  `def _graph_item_json_key(item: dict) -> str:
+  `def _preserve_existing_node_communities(
+    communities: dict[int, list[str]],
+    previous_node_community: dict[str, int],
+) -> dict[int, list[str]]:
+    """Keep unchanged nodes in their prior community IDs for stable graph diffs."""
+    if not communities or not previous_node_community:
+        return communities
+
+    current_node_community = {
+        str(node): cid
+        for cid, nodes in communities.items()
+        for node in nodes
+    }
+    stabilized: dict[int, list[str]] = {}
+    assigned: set[str] = set()
+
+    for node, old_cid in previous_node_community.items():
+        if node in current_node_community:
+            stabilized.setdefault(old_cid, []).append(node)
+            assigned.add(node)
+
+    for node, cid in current_node_community.items():
+        if node not in assigned:
+            stabilized.setdefault(cid, []).append(node)
+
+    return {
+        cid: sorted(nodes)
+        for cid, nodes in sorted(stabilized.items())
+        if nodes
+    }
+
+
+def _graph_item_json_key(item: dict) -> str:
     return json.dumps(item, sort_keys=True, ensure_ascii=False, default=str)
 
 
@@ -413,13 +586,21 @@ def _order_graph_like_existing(candidate: dict, existing: dict) -> dict:
     for key in ("links", "edges"):
         if not isinstance(candidate.get(key), list):
             continue
-        existing_edge_order = {
-            _graph_edge_order_key(item): index
-            for index, item in enumerate(existing.get(key, []))
-            if isinstance(item, dict)
-        }
+        existing_edge_order = {}
+        existing_edges_by_key = {}
+        for index, item in enumerate(existing.get(key, [])):
+            if not isinstance(item, dict):
+                continue
+            edge_key = _graph_edge_order_key(item)
+            existing_edge_order.setdefault(edge_key, index)
+            existing_edges_by_key.setdefault(edge_key, []).append(item)
+        candidate_edges = []
+        for item in candidate[key]:
+            edge_key = _graph_edge_order_key(item)
+            bucket = existing_edges_by_key.get(edge_key)
+            candidate_edges.append(bucket.pop(0) if bucket else item)
         ordered[key] = sorted(
-            candidate[key],
+            candidate_edges,
             key=lambda item: (
                 existing_edge_order.get(_graph_edge_order_key(item), len(existing_edge_order)),
                 _graph_edge_order_key(item),
@@ -468,6 +649,16 @@ watchSource = watchSource.replace(
   '(out / ".graphify_root").write_text(str(watch_root), encoding="utf-8")',
   '(out / ".graphify_root").write_text(_root_marker(watch_path, watch_root), encoding="utf-8")',
 );
+watchSource = replaceRequired(
+  watchSource,
+  watchFile,
+  `def _json_text(data: dict) -> str:
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\\n"
+`,
+  `def _json_text(data: dict) -> str:
+    return json.dumps(data, indent=2, ensure_ascii=True) + "\\n"
+`,
+);
 watchSource = watchSource.replace(
   `        candidate_graph_data = json.loads(graph_tmp.read_text(encoding="utf-8"))
         same_graph = False
@@ -477,6 +668,23 @@ watchSource = watchSource.replace(
             candidate_graph_data = _order_graph_like_existing(candidate_graph_data, existing_graph_data)
             graph_tmp.write_text(_json_text(candidate_graph_data), encoding="utf-8")
         same_graph = False
+`,
+);
+watchSource = replaceRequired(
+  watchSource,
+  watchFile,
+  `        communities = cluster(G)
+        previous_node_community = _node_community_map(existing_graph_data)
+        if previous_node_community:
+            communities = remap_communities_to_previous(communities, previous_node_community)
+        cohesion = score_all(G, communities)
+`,
+  `        communities = cluster(G)
+        previous_node_community = _node_community_map(existing_graph_data)
+        if previous_node_community:
+            communities = remap_communities_to_previous(communities, previous_node_community)
+            communities = _preserve_existing_node_communities(communities, previous_node_community)
+        cohesion = score_all(G, communities)
 `,
 );
 writeFileSync(watchFile, watchSource);
@@ -505,15 +713,37 @@ try {
       [
         "import json, os",
         "from pathlib import Path",
+        "from graphify.cache import _flush_stat_index, file_hash",
         "from graphify.detect import save_manifest",
         "from graphify.extract import extract",
-        "from graphify.watch import _root_marker",
+        "from graphify.watch import _json_text, _order_graph_like_existing, _preserve_existing_node_communities, _root_marker",
         "root = Path(os.environ['TEST_ROOT'])",
         "result = extract([root / 'src' / 'http.py'], cache_root=root, parallel=False)",
         "out = root / 'graphify-out' / 'graph.json'",
         "out.parent.mkdir(parents=True, exist_ok=True)",
         "out.write_text(json.dumps(result), encoding='utf-8')",
+        "cache_key = root / 'src' / 'http.py'",
+        "first_cache_hash = file_hash(cache_key, root)",
+        "_flush_stat_index()",
+        "first_stat_index = json.loads((root / 'graphify-out' / 'cache' / 'stat-index.json').read_text(encoding='utf-8'))",
         "save_manifest({'code': [str(root / 'src' / 'http.py')]}, manifest_path=str(root / 'graphify-out' / 'manifest.json'), kind='ast')",
+        "first_manifest = json.loads((root / 'graphify-out' / 'manifest.json').read_text(encoding='utf-8'))",
+        "(root / 'src' / 'http.py').write_bytes(b'from .const import NAME\\r\\n\\r\\nclass Fixture:\\r\\n    def method(self):\\r\\n        return NAME\\r\\n')",
+        "second_cache_hash = file_hash(cache_key, root)",
+        "_flush_stat_index()",
+        "second_stat_index = json.loads((root / 'graphify-out' / 'cache' / 'stat-index.json').read_text(encoding='utf-8'))",
+        "save_manifest({'code': [str(root / 'src' / 'http.py')]}, manifest_path=str(root / 'graphify-out' / 'manifest.json'), kind='ast')",
+        "second_manifest = json.loads((root / 'graphify-out' / 'manifest.json').read_text(encoding='utf-8'))",
+        "entry_key = 'src/http.py'",
+        "assert first_cache_hash == second_cache_hash",
+        "assert first_stat_index[entry_key] == second_stat_index[entry_key]",
+        "assert first_manifest[entry_key]['ast_hash'] == second_manifest[entry_key]['ast_hash']",
+        "assert first_manifest[entry_key]['mtime'] == second_manifest[entry_key]['mtime']",
+        "stable = _preserve_existing_node_communities({2: ['new', 'old'], 3: ['other']}, {'old': 1, 'other': 4})",
+        "assert stable == {1: ['old'], 2: ['new'], 4: ['other']}",
+        "ordered_edges = _order_graph_like_existing({'links': [{'confidence_score': 1.0, 'source': 'a', 'target': 'b', 'relation': 'r'}]}, {'links': [{'relation': 'r', 'source': 'a', 'target': 'b', 'confidence_score': 1.0}]})",
+        "assert list(ordered_edges['links'][0].keys()) == ['relation', 'source', 'target', 'confidence_score']",
+        "assert '\\\\u2014' in _json_text({'label': 'A ' + chr(0x2014) + ' B'})",
         "assert _root_marker(root, root) == '.'",
       ].join("; "),
     ],
