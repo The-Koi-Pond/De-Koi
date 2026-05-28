@@ -1225,13 +1225,13 @@
     "semantic_hash": ""
   },
   "src/features/catalog/characters/components/ImportCharacterModal.tsx": {
-    "mtime": 1779897785.4763708,
-    "ast_hash": "9b533b4c42cdfcb05191a200143c1d0d",
+    "mtime": 1779993271.8512778,
+    "ast_hash": "6125e45a2a1c07d89e470993b984725b",
     "semantic_hash": ""
   },
   "src/features/catalog/characters/hooks/use-characters.ts": {
-    "mtime": 1779918956.0835876,
-    "ast_hash": "7ede4be0c03636d8bbcb6f13e3624612",
+    "mtime": 1779993271.852787,
+    "ast_hash": "545a29a8c0ed968eb2429ba884fd7981",
     "semantic_hash": ""
   },
   "src/features/catalog/characters/hooks/use-start-chat-from-character.ts": {
@@ -1560,18 +1560,18 @@
     "semantic_hash": ""
   },
   "src/features/modes/conversation/components/ConversationView.tsx": {
-    "mtime": 1779961269.1981788,
-    "ast_hash": "0720ddf303b67f0ffdd6e24f4f9e4b7d",
+    "mtime": 1779993271.8542967,
+    "ast_hash": "a497aa7f9b159ac29d26a7d4e951de70",
     "semantic_hash": ""
   },
   "src/features/modes/conversation/hooks/autonomous/use-autonomous-messaging.ts": {
-    "mtime": 1779835633.8307524,
-    "ast_hash": "f8176945db4bdcdf7ff419b3bec2ef96",
+    "mtime": 1779993271.8559089,
+    "ast_hash": "34f36877de61c787015516f273778d5f",
     "semantic_hash": ""
   },
   "src/features/modes/conversation/hooks/autonomous/use-background-autonomous.ts": {
-    "mtime": 1779835633.8308425,
-    "ast_hash": "21c6f7bcf31ed5f4f5ea6a2eddbddbea",
+    "mtime": 1779993271.8559089,
+    "ast_hash": "582c3089b0602f21705cec190a87f9ed",
     "semantic_hash": ""
   },
   "src/features/modes/game/index.ts": {
@@ -2690,8 +2690,8 @@
     "semantic_hash": ""
   },
   "src/features/shell/bot-browser/components/BotBrowserView.tsx": {
-    "mtime": 1779835633.8605547,
-    "ast_hash": "373d6c682af31dc37b78f86aa0f404ca",
+    "mtime": 1779993271.86196,
+    "ast_hash": "10c54f659dd931af4b7e43474e4ac438",
     "semantic_hash": ""
   },
   "src/features/shell/connections/shell.ts": {
@@ -2720,8 +2720,8 @@
     "semantic_hash": ""
   },
   "src/features/shell/imports/components/STBulkImportModal.tsx": {
-    "mtime": 1779891173.0271719,
-    "ast_hash": "931f3851fc3313e930404b389c66eb9f",
+    "mtime": 1779993271.8634777,
+    "ast_hash": "56412db5f1d0078f3ba4ec9509945657",
     "semantic_hash": ""
   },
   "src/features/shell/mari/shell.ts": {
@@ -2730,8 +2730,8 @@
     "semantic_hash": ""
   },
   "src/features/shell/mari/components/ProfessorMariSurface.tsx": {
-    "mtime": 1779913791.9915915,
-    "ast_hash": "00c9fe08ad4312cd0ace9ed1ceb81d44",
+    "mtime": 1779991063.786102,
+    "ast_hash": "98db877d7f192ed58fe6839713c4d6e7",
     "semantic_hash": ""
   },
   "src/features/shell/notifications/shell.ts": {
@@ -3845,8 +3845,8 @@
     "semantic_hash": ""
   },
   "src-tauri/src/commands/storage/mari.rs": {
-    "mtime": 1779835633.7688687,
-    "ast_hash": "f7e41b00c67f01e6faf6e87ee0bfd241",
+    "mtime": 1779992407.7066295,
+    "ast_hash": "7e3b379b166c63c9d7f484c45dfec42e",
     "semantic_hash": ""
   },
   "src-tauri/src/commands/storage/media_uploads.rs": {
@@ -5792,6 +5792,21 @@
   "src/features/runtime/generation/hooks/use-generate.test.ts": {
     "mtime": 1779988674.1587288,
     "ast_hash": "cd267a1e2e8da2d4fe5e9d73ffa99078",
+    "semantic_hash": ""
+  },
+  "src/features/catalog/characters/hooks/use-characters.test.ts": {
+    "mtime": 1779993271.852787,
+    "ast_hash": "91486ca185890b165a469fa585b4af3e",
+    "semantic_hash": ""
+  },
+  "pr-evidence/issue-1466/after-created-character-visible.png": {
+    "mtime": 1779993271.843602,
+    "ast_hash": "b91cff0a4e6b525ebc2cd027dd3f2783",
+    "semantic_hash": ""
+  },
+  "pr-evidence/issue-1466/before-picker-empty.png": {
+    "mtime": 1779993271.845116,
+    "ast_hash": "c70f4da3ba6263ac3fb6bc4bb036396d",
     "semantic_hash": ""
   }
 }
