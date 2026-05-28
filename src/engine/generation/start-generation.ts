@@ -1,4 +1,5 @@
 import { BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS, type AgentContext, type AgentResult } from "../contracts/types/agent";
+import type { GenerationPromptSnapshot, GenerationPromptSnapshotMessage } from "../contracts/types/chat";
 import type { GameState } from "../contracts/types/game-state";
 import type { EventGateway } from "../capabilities/events";
 import type { IntegrationGateway } from "../capabilities/integrations";
@@ -7,7 +8,11 @@ import type { StorageGateway } from "../capabilities/storage";
 import type { GenerationGuideSource } from "../shared/text/generation-guide";
 import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
-import { activeCharacterIds, assertChatHasActiveCharacters, assertRequestedCharacterIsActive } from "./active-characters";
+import {
+  activeCharacterIds,
+  assertChatHasActiveCharacters,
+  assertRequestedCharacterIsActive,
+} from "./active-characters";
 import { persistSecretPlotAgentMemory } from "./agent-memory-runtime";
 import { createGenerationAgentRuntime } from "./agent-runner";
 import { consumePendingConnectedInfluences, persistConnectedCommandTags } from "./connected-commands";
@@ -124,6 +129,8 @@ const DEFAULT_LOREBOOK_KEEPER_RUN_INTERVAL = BUILT_IN_AGENT_RUN_INTERVAL_DEFAULT
 const CONTINUE_ASSISTANT_RESPONSE_INSTRUCTION =
   "[Generation instruction: continue from the latest assistant message. Do not repeat or summarize the previous response; pick up naturally from where it stopped.]";
 
+type MainGenerationPromptSnapshot = Pick<GenerationPromptSnapshot, "messages" | "parameters" | "tools">;
+
 function abortGenerationError(): Error {
   return Object.assign(new Error("The operation was aborted."), { name: "AbortError" });
 }
@@ -151,7 +158,9 @@ function generationEmbeddingSource(llm: LlmGateway, connection: JsonRecord) {
 }
 
 function inputAttachments(input: StartGenerationInput): PromptAttachment[] {
-  return Array.isArray(input.attachments) ? input.attachments.filter(isRecord).map((attachment) => attachment as PromptAttachment) : [];
+  return Array.isArray(input.attachments)
+    ? input.attachments.filter(isRecord).map((attachment) => attachment as PromptAttachment)
+    : [];
 }
 
 function assertChatCanGenerate(chat: JsonRecord, input?: { forCharacterId?: unknown }) {
@@ -496,10 +505,12 @@ async function inputWithStoredGenerationReplay(
 function requestMessages(input: StartGenerationInput): LlmMessage[] | null {
   if (!Array.isArray(input.messages) || input.messages.length === 0) return null;
   return input.messages
-    .map((message): LlmMessage => ({
-      role: message.role === "system" || message.role === "assistant" ? message.role : "user",
-      content: readString(message.content).trim(),
-    }))
+    .map(
+      (message): LlmMessage => ({
+        role: message.role === "system" || message.role === "assistant" ? message.role : "user",
+        content: readString(message.content).trim(),
+      }),
+    )
     .filter((message) => message.content.length > 0);
 }
 
@@ -557,7 +568,8 @@ function directiveMessages(
   }
 
   const forCharacterId = readString(input.forCharacterId).trim();
-  const isNonConversationGroup = readString(chat.mode || chat.chatMode) !== "conversation" && stringArray(chat.characterIds).length > 1;
+  const isNonConversationGroup =
+    readString(chat.mode || chat.chatMode) !== "conversation" && stringArray(chat.characterIds).length > 1;
   const addGroupTurnPrompt = !isNonConversationGroup || parseRecord(chat.metadata).groupTurnPromptEnabled !== false;
   if (forCharacterId && addGroupTurnPrompt) {
     const character = characters.find((candidate) => candidate.id === forCharacterId);
@@ -592,7 +604,10 @@ function visibleTranscript(messages: JsonRecord[]): string {
     .join("\n");
 }
 
-function messagesBeforeRegenerationTarget(storedMessages: JsonRecord[], regenerateMessageId: string | null | undefined): JsonRecord[] {
+function messagesBeforeRegenerationTarget(
+  storedMessages: JsonRecord[],
+  regenerateMessageId: string | null | undefined,
+): JsonRecord[] {
   const targetId = readString(regenerateMessageId).trim();
   if (!targetId) return storedMessages;
   const targetIndex = storedMessages.findIndex((message) => readString(message.id) === targetId);
@@ -712,6 +727,100 @@ async function persistTrackerSnapshotSafely(
   }
 }
 
+function cloneSerializableValue<T>(value: T): T {
+  try {
+    return JSON.parse(JSON.stringify(value)) as T;
+  } catch {
+    return value;
+  }
+}
+
+function clonePromptMessage(message: LlmMessage): GenerationPromptSnapshotMessage {
+  const snapshot = cloneSerializableValue(message) as GenerationPromptSnapshotMessage;
+  snapshot.role = message.role;
+  snapshot.content = readString(message.content);
+  if (message.name) snapshot.name = message.name;
+  if (message.images?.length) snapshot.images = [...message.images];
+  if (message.tool_call_id) snapshot.tool_call_id = message.tool_call_id;
+  if (message.tool_calls != null) snapshot.tool_calls = cloneSerializableValue(message.tool_calls);
+  return snapshot;
+}
+
+function nullableNumber(value: unknown): number | null {
+  const parsed = readNumber(value, NaN);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function usageNumber(usage: unknown, keys: string[]): number | null {
+  const record = parseRecord(usage);
+  for (const key of keys) {
+    const parsed = nullableNumber(record[key]);
+    if (parsed != null) return parsed;
+  }
+  return null;
+}
+
+function buildSavedGenerationPromptSnapshot(args: {
+  connection: JsonRecord;
+  promptSnapshot?: MainGenerationPromptSnapshot | null;
+  usage?: unknown;
+}): GenerationPromptSnapshot | null {
+  if (!args.promptSnapshot?.messages?.length) return null;
+  const parameters = cloneSerializableValue(args.promptSnapshot.parameters ?? {});
+  const tools = Array.isArray(args.promptSnapshot.tools) ? cloneSerializableValue(args.promptSnapshot.tools) : null;
+  return {
+    messages: args.promptSnapshot.messages.map(clonePromptMessage),
+    parameters: isRecord(parameters) ? parameters : {},
+    ...(tools?.length ? { tools } : {}),
+    generationInfo: {
+      model: readString(args.connection.model) || undefined,
+      provider: readString(args.connection.provider) || undefined,
+      temperature: nullableNumber(args.promptSnapshot.parameters.temperature),
+      maxTokens: nullableNumber(args.promptSnapshot.parameters.maxTokens ?? args.promptSnapshot.parameters.max_tokens),
+      showThoughts:
+        typeof args.promptSnapshot.parameters.showThoughts === "boolean"
+          ? args.promptSnapshot.parameters.showThoughts
+          : null,
+      reasoningEffort:
+        typeof args.promptSnapshot.parameters.reasoningEffort === "string"
+          ? args.promptSnapshot.parameters.reasoningEffort
+          : null,
+      verbosity:
+        typeof args.promptSnapshot.parameters.verbosity === "string" ? args.promptSnapshot.parameters.verbosity : null,
+      serviceTier:
+        typeof args.promptSnapshot.parameters.serviceTier === "string"
+          ? args.promptSnapshot.parameters.serviceTier
+          : null,
+      assistantPrefill:
+        typeof args.promptSnapshot.parameters.assistantPrefill === "string"
+          ? args.promptSnapshot.parameters.assistantPrefill
+          : null,
+      tokensPrompt: usageNumber(args.usage, ["promptTokens", "prompt_tokens", "inputTokens", "input_tokens"]),
+      tokensCompletion: usageNumber(args.usage, [
+        "completionTokens",
+        "completion_tokens",
+        "outputTokens",
+        "output_tokens",
+      ]),
+      tokensCachedPrompt: usageNumber(args.usage, [
+        "cachedPromptTokens",
+        "cached_prompt_tokens",
+        "cacheReadInputTokens",
+        "cache_read_input_tokens",
+      ]),
+      tokensCacheWritePrompt: usageNumber(args.usage, [
+        "cacheWritePromptTokens",
+        "cache_write_prompt_tokens",
+        "cacheCreationInputTokens",
+        "cache_creation_input_tokens",
+      ]),
+      durationMs: usageNumber(args.usage, ["durationMs", "duration_ms"]),
+      finishReason: readString(parseRecord(args.usage).finishReason ?? parseRecord(args.usage).finish_reason) || null,
+    },
+    createdAt: nowIso(),
+  };
+}
+
 async function saveAssistantMessage(args: {
   storage: StorageGateway;
   chat: JsonRecord;
@@ -724,11 +833,17 @@ async function saveAssistantMessage(args: {
   chatSummaryFingerprint: string | null;
   attachments?: JsonRecord[];
   usage?: unknown;
+  promptSnapshot?: MainGenerationPromptSnapshot | null;
 }): Promise<unknown | null> {
   const regenerateMessageId = readString(args.input.regenerateMessageId).trim();
   const generationReplay = buildGenerationReplay(args.input);
   const content = collapseExcessBlankLines(args.content);
   const thinking = collapseExcessBlankLines(readString(args.thinking).trim());
+  const promptSnapshot = buildSavedGenerationPromptSnapshot({
+    connection: args.connection,
+    promptSnapshot: args.promptSnapshot,
+    usage: args.usage,
+  });
 
   if (args.input.impersonate === true) {
     if (regenerateMessageId) {
@@ -740,6 +855,7 @@ async function saveAssistantMessage(args: {
         thinking: thinking || undefined,
         generationReplay,
         chatSummaryFingerprint: args.chatSummaryFingerprint,
+        promptSnapshot,
       });
     }
 
@@ -751,6 +867,12 @@ async function saveAssistantMessage(args: {
         isGenerated: true,
         ...(thinking ? { thinking } : {}),
         ...(generationReplay ? { generationReplay } : {}),
+        ...(promptSnapshot
+          ? {
+              generationPromptSnapshot: promptSnapshot,
+              generationPromptSnapshotsBySwipe: { "0": promptSnapshot },
+            }
+          : {}),
         chatSummaryFingerprint: args.chatSummaryFingerprint,
       },
     });
@@ -765,6 +887,7 @@ async function saveAssistantMessage(args: {
       thinking: thinking || undefined,
       generationReplay,
       chatSummaryFingerprint: args.chatSummaryFingerprint,
+      promptSnapshot,
     });
   }
 
@@ -776,7 +899,7 @@ async function saveAssistantMessage(args: {
       ? requestedCharacterId
       : chatCharacterIdList.length === 1
         ? chatCharacterIdList[0]!
-      : null;
+        : null;
 
   return args.storage.createChatMessage(args.input.chatId, {
     role: "assistant",
@@ -786,6 +909,12 @@ async function saveAssistantMessage(args: {
       ...(args.attachments?.length ? { attachments: args.attachments } : {}),
       ...(thinking ? { thinking } : {}),
       ...(generationReplay ? { generationReplay } : {}),
+      ...(promptSnapshot
+        ? {
+            generationPromptSnapshot: promptSnapshot,
+            generationPromptSnapshotsBySwipe: { "0": promptSnapshot },
+          }
+        : {}),
       chatSummaryFingerprint: args.chatSummaryFingerprint,
     },
     generationInfo: {
@@ -806,22 +935,50 @@ async function saveRegeneratedMessage(args: {
   thinking?: string | null;
   generationReplay: GenerationReplay | null;
   chatSummaryFingerprint: string | null;
+  promptSnapshot: GenerationPromptSnapshot | null;
 }): Promise<unknown | null> {
-  await args.storage.addChatMessageSwipe(args.chatId, args.messageId, collapseExcessBlankLines(args.content));
-  const extraPatch = generationReplayExtraPatch(args.generationReplay, args.chatSummaryFingerprint, args.thinking);
+  const updated = await args.storage.addChatMessageSwipe(
+    args.chatId,
+    args.messageId,
+    collapseExcessBlankLines(args.content),
+  );
+  const updatedRecord = isRecord(updated) ? updated : {};
+  const activeSwipeIndex = Math.max(0, Math.trunc(readNumber(updatedRecord.activeSwipeIndex, 0)));
+  const extraPatch = generationReplayExtraPatch({
+    generationReplay: args.generationReplay,
+    chatSummaryFingerprint: args.chatSummaryFingerprint,
+    thinking: args.thinking,
+    promptSnapshot: args.promptSnapshot,
+    activeSwipeIndex,
+    existingExtra: parseRecord(updatedRecord.extra),
+  });
   return args.storage.patchChatMessageExtra(args.messageId, extraPatch);
 }
 
-function generationReplayExtraPatch(
-  generationReplay: GenerationReplay | null,
-  chatSummaryFingerprint: string | null,
-  thinking?: string | null,
-): Record<string, unknown> {
+function generationReplayExtraPatch(args: {
+  generationReplay: GenerationReplay | null;
+  chatSummaryFingerprint: string | null;
+  thinking?: string | null;
+  promptSnapshot?: GenerationPromptSnapshot | null;
+  activeSwipeIndex?: number | null;
+  existingExtra?: JsonRecord | null;
+}): Record<string, unknown> {
   const extraPatch: Record<string, unknown> = {};
-  if (generationReplay) extraPatch.generationReplay = generationReplay;
-  extraPatch.chatSummaryFingerprint = chatSummaryFingerprint;
-  const trimmedThinking = collapseExcessBlankLines(readString(thinking).trim());
+  if (args.generationReplay) extraPatch.generationReplay = args.generationReplay;
+  extraPatch.chatSummaryFingerprint = args.chatSummaryFingerprint;
+  const trimmedThinking = collapseExcessBlankLines(readString(args.thinking).trim());
   if (trimmedThinking) extraPatch.thinking = trimmedThinking;
+  if (args.promptSnapshot) {
+    const activeSwipeIndex =
+      typeof args.activeSwipeIndex === "number" && Number.isFinite(args.activeSwipeIndex)
+        ? Math.max(0, Math.trunc(args.activeSwipeIndex))
+        : 0;
+    extraPatch.generationPromptSnapshot = args.promptSnapshot;
+    extraPatch.generationPromptSnapshotsBySwipe = {
+      ...parseRecord(args.existingExtra?.generationPromptSnapshotsBySwipe),
+      [String(activeSwipeIndex)]: args.promptSnapshot,
+    };
+  }
   return extraPatch;
 }
 
@@ -879,7 +1036,11 @@ function lorebookKeeperRunInterval(agent: JsonRecord | null): number {
 }
 
 function chatActiveAgentIds(chat: JsonRecord): Set<string> {
-  return new Set(stringArray(parseRecord(chat.metadata).activeAgentIds).map((id) => id.trim()).filter(Boolean));
+  return new Set(
+    stringArray(parseRecord(chat.metadata).activeAgentIds)
+      .map((id) => id.trim())
+      .filter(Boolean),
+  );
 }
 
 function chatHasLorebookKeeperEnabled(chat: JsonRecord, agent: JsonRecord): boolean {
@@ -1006,10 +1167,7 @@ async function runGenerationAgentsForTarget(args: {
       preferLatestVisible: true,
       visibleAnchor: targetTrackerTarget,
       excludeMessageId: targetTrackerTarget?.messageId ?? null,
-      fallbackTargets: resolveRegenerationGameStateFallbackMessageIds(
-        storedMessages,
-        targetTrackerTarget?.messageId,
-      ),
+      fallbackTargets: resolveRegenerationGameStateFallbackMessageIds(storedMessages, targetTrackerTarget?.messageId),
     },
     trackerReadContext,
   );
@@ -1019,7 +1177,8 @@ async function runGenerationAgentsForTarget(args: {
     targetTrackerTarget,
     trackerReadContext,
   );
-  const chatForAgents = targetSnapshot ?? retryBaseline ? { ...chat, gameState: targetSnapshot ?? retryBaseline } : chat;
+  const chatForAgents =
+    (targetSnapshot ?? retryBaseline) ? { ...chat, gameState: targetSnapshot ?? retryBaseline } : chat;
   const contextMessages = messagesBeforeTarget(storedMessages, target);
   const assembly = await assembleGenerationPrompt(deps.storage, {
     chat: chatForAgents,
@@ -1254,7 +1413,12 @@ export async function* startGeneration(
     const baseMessages: LlmMessage[] = [...prompt, generationGuide(input)].filter(
       (message): message is LlmMessage => !!message,
     );
-    const { content: streamedContent, thinking: streamedThinking, usage } = yield* streamMainGenerationLoop({
+    const {
+      content: streamedContent,
+      thinking: streamedThinking,
+      usage,
+      promptSnapshot,
+    } = yield* streamMainGenerationLoop({
       deps,
       connection,
       input,
@@ -1315,6 +1479,7 @@ export async function* startGeneration(
           chatSummaryFingerprint: assembly.chatSummaryFingerprint,
           attachments: [...connected.assistantAttachments, ...illustration.attachments],
           usage,
+          promptSnapshot,
         });
     if (saved && input.impersonate !== true) {
       await mirrorSavedAssistantMessageToDiscord({
@@ -1353,7 +1518,10 @@ export async function* startGeneration(
   }
 
   prompt = withImageAttachments(
-    [...(prompt ?? []), ...directiveMessages(input, chat, assembly.characters, preparedUserInput, { continueAssistantResponse })],
+    [
+      ...(prompt ?? []),
+      ...directiveMessages(input, chat, assembly.characters, preparedUserInput, { continueAssistantResponse }),
+    ],
     preparedUserInput.images,
   );
   yield { type: "phase", data: "Calling model..." };
@@ -1370,7 +1538,12 @@ export async function* startGeneration(
   const baseMessagesDirect: LlmMessage[] = [...(prompt ?? []), generationGuide(input)].filter(
     (message): message is LlmMessage => !!message,
   );
-  const { content: streamedContentDirect, thinking: streamedThinkingDirect, usage } = yield* streamMainGenerationLoop({
+  const {
+    content: streamedContentDirect,
+    thinking: streamedThinkingDirect,
+    usage,
+    promptSnapshot: promptSnapshotDirect,
+  } = yield* streamMainGenerationLoop({
     deps,
     connection,
     input,
@@ -1410,6 +1583,7 @@ export async function* startGeneration(
         chatSummaryFingerprint: assembly.chatSummaryFingerprint,
         attachments: connected.assistantAttachments,
         usage,
+        promptSnapshot: promptSnapshotDirect,
       });
   if (saved && input.impersonate !== true) {
     await mirrorSavedAssistantMessageToDiscord({
@@ -1498,12 +1672,16 @@ async function* streamMainGenerationLoop(args: {
   mainTools: MainToolDefinitions | null;
   toolRuntimeInput: ToolRuntimeInput;
   signal: AbortSignal | undefined;
-}): AsyncGenerator<GenerationEvent, { content: string; thinking: string; usage: unknown }> {
+}): AsyncGenerator<
+  GenerationEvent,
+  { content: string; thinking: string; usage: unknown; promptSnapshot: MainGenerationPromptSnapshot | null }
+> {
   const { deps, connection, input, chat, parameters, baseMessages, mainTools, toolRuntimeInput, signal } = args;
   let content = "";
   let thinking = "";
   const usages: unknown[] = [];
   const conversation: LlmMessage[] = [...baseMessages];
+  let promptSnapshot: MainGenerationPromptSnapshot | null = null;
   let iteration = 0;
 
   while (true) {
@@ -1525,13 +1703,22 @@ async function* streamMainGenerationLoop(args: {
       }
     };
 
+    const requestMessages = fitMessagesToContextWindow(conversation, parameters);
+    const requestParameters = runtimeLlmParameters(connection, input, chat, parameters);
+    const requestTools = mainTools?.toolDefs;
+    promptSnapshot = {
+      messages: requestMessages.map(clonePromptMessage),
+      parameters: cloneSerializableValue(requestParameters),
+      ...(requestTools?.length ? { tools: cloneSerializableValue(requestTools) } : {}),
+    };
+
     for await (const chunk of deps.llm.stream(
       {
         connectionId: readString(connection.id) || input.connectionId,
         model: readString(connection.model) || undefined,
-        messages: fitMessagesToContextWindow(conversation, parameters),
-        parameters: runtimeLlmParameters(connection, input, chat, parameters),
-        tools: mainTools?.toolDefs,
+        messages: requestMessages,
+        parameters: requestParameters,
+        tools: requestTools,
       },
       signal,
     )) {
@@ -1610,7 +1797,7 @@ async function* streamMainGenerationLoop(args: {
     }
   }
 
-  return { content, thinking, usage: mergeUsages(usages) };
+  return { content, thinking, usage: mergeUsages(usages), promptSnapshot };
 }
 
 /**

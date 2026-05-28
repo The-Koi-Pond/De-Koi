@@ -423,6 +423,10 @@ export interface MessageExtra {
     impersonateBlockAgents?: boolean;
     impersonatePromptTemplate?: string | null;
   } | null;
+  /** Exact main-generation LLM request saved for Peek Prompt on the active response. */
+  generationPromptSnapshot?: GenerationPromptSnapshot | null;
+  /** Exact main-generation LLM requests keyed by swipe index for regenerated alternatives. */
+  generationPromptSnapshotsBySwipe?: Record<string, GenerationPromptSnapshot>;
 }
 
 /** Metadata about how a message was generated. */
@@ -436,6 +440,42 @@ export interface GenerationInfo {
   tokensCacheWritePrompt?: number | null;
   durationMs: number | null;
   finishReason: string | null;
+}
+
+export interface GenerationPromptSnapshotMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  name?: string;
+  images?: string[];
+  tool_call_id?: string;
+  tool_calls?: unknown;
+  [key: string]: unknown;
+}
+
+export interface GenerationPromptSnapshotInfo {
+  model?: string;
+  provider?: string;
+  temperature?: number | null;
+  maxTokens?: number | null;
+  showThoughts?: boolean | null;
+  reasoningEffort?: string | null;
+  verbosity?: string | null;
+  serviceTier?: string | null;
+  assistantPrefill?: string | null;
+  tokensPrompt?: number | null;
+  tokensCompletion?: number | null;
+  tokensCachedPrompt?: number | null;
+  tokensCacheWritePrompt?: number | null;
+  durationMs?: number | null;
+  finishReason?: string | null;
+}
+
+export interface GenerationPromptSnapshot {
+  messages: GenerationPromptSnapshotMessage[];
+  parameters: Record<string, unknown>;
+  tools?: unknown[] | null;
+  generationInfo?: GenerationPromptSnapshotInfo | null;
+  createdAt?: string;
 }
 
 /** A swipe (alternate response) for a message. */

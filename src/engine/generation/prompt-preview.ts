@@ -11,6 +11,7 @@ export interface PromptPreviewInput {
   choices?: Record<string, string> | null;
   forCharacterId?: string | null;
   parameters?: Record<string, unknown> | null;
+  beforeMessageId?: string | null;
 }
 
 export interface PromptPreviewResult {
@@ -52,6 +53,11 @@ export async function previewGenerationPrompt(
   const chat = requireRecord(await storage.get("chats", input.chatId), "Chat");
   const connection = await resolveGenerationConnection(storage, chat, input);
   const storedMessages = await loadChatMessages(storage, input.chatId, promptPreviewMessageLoadOptions(chat));
+  const beforeMessageId = readString(input.beforeMessageId).trim();
+  const messageIndex = beforeMessageId
+    ? storedMessages.findIndex((message) => readString(message.id).trim() === beforeMessageId)
+    : -1;
+  const previewMessages = messageIndex >= 0 ? storedMessages.slice(0, messageIndex) : storedMessages;
   const request = {
     promptPresetId: input.presetId ?? (readString(chat.promptPresetId) || null),
     forCharacterId: input.forCharacterId ?? null,
@@ -73,7 +79,7 @@ export async function previewGenerationPrompt(
   };
   const assembly = await assembleGenerationPrompt(storage, {
     chat: previewChat,
-    storedMessages,
+    storedMessages: previewMessages,
     connection,
     request,
     latestUserInput: "",
