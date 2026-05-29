@@ -9,7 +9,6 @@ import { storageApi } from "../../../../shared/api/storage-api";
 
 export const agentKeys = {
   all: ["agents"] as const,
-  detail: (id: string) => ["agents", id] as const,
   customRuns: (chatId: string) => ["agents", "runs", "custom", chatId] as const,
 };
 
@@ -50,15 +49,6 @@ export function useAgentConfigs(enabled = true) {
     queryKey: agentKeys.all,
     queryFn: () => storageApi.list<AgentConfigRow>("agents"),
     enabled,
-    staleTime: 5 * 60_000,
-  });
-}
-
-export function useAgentConfig(id: string | null) {
-  return useQuery({
-    queryKey: agentKeys.detail(id ?? ""),
-    queryFn: () => storageApi.get<AgentConfigRow>("agents", id!),
-    enabled: !!id,
     staleTime: 5 * 60_000,
   });
 }
@@ -113,16 +103,6 @@ export function useUpdateAgentRunData() {
       storageApi.update("agent-runs", id, { resultData }),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: agentKeys.customRuns(variables.chatId) });
-    },
-  });
-}
-
-export function useToggleAgent() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (agentType: string) => agentApi.toggleByType(agentType),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: agentKeys.all });
     },
   });
 }

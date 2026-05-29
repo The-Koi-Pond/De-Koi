@@ -4,15 +4,6 @@ import { personaApi } from "../../../../shared/api/persona-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 
-export function usePersonas() {
-  return useQuery({
-    queryKey: personaKeys.list,
-    queryFn: () => storageApi.list<unknown>("personas"),
-    staleTime: 5 * 60_000,
-    refetchOnWindowFocus: false,
-  });
-}
-
 export function useUpdatePersona() {
   const qc = useQueryClient();
   return useMutation({

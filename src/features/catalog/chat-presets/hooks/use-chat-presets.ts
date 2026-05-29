@@ -3,10 +3,7 @@
 // ──────────────────────────────────────────────
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { chatPresetKeys } from "../query-keys";
-import {
-  chatPresetSettingsSchema,
-  createChatPresetSchema,
-} from "../../../../engine/contracts/schemas/chat-preset.schema";
+import { chatPresetSettingsSchema } from "../../../../engine/contracts/schemas/chat-preset.schema";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 import { chatKeys } from "../../chats/query-keys";
@@ -64,43 +61,6 @@ export function useChatPresets(mode?: ChatMode | null) {
     },
     staleTime: 60_000,
     refetchOnWindowFocus: false,
-  });
-}
-
-export function useActiveChatPreset(mode: ChatMode | null) {
-  return useQuery({
-    queryKey: mode ? chatPresetKeys.active(mode) : chatPresetKeys.all,
-    queryFn: async () => {
-      const presets = await storageApi.list<ChatPreset>("chat-presets");
-      return (
-        presets.find(
-          (preset) =>
-            preset.mode === mode &&
-            ((preset as ChatPreset & { isActive?: boolean; active?: boolean }).isActive ||
-              (preset as ChatPreset & { isActive?: boolean; active?: boolean }).active),
-        ) ??
-        presets.find((preset) => preset.mode === mode) ??
-        null
-      );
-    },
-    enabled: !!mode,
-    staleTime: 60_000,
-    refetchOnWindowFocus: false,
-  });
-}
-
-export function useCreateChatPreset() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: { name: string; mode: ChatMode; settings?: ChatPresetSettings }) =>
-      storageApi.create<ChatPreset>(
-        "chat-presets",
-        createChatPresetSchema.parse({
-          ...data,
-          settings: sanitizeChatPresetSettings(data.settings),
-        }),
-      ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: chatPresetKeys.all }),
   });
 }
 

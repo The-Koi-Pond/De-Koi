@@ -7,7 +7,6 @@ import { storageApi } from "../../../../shared/api/storage-api";
 
 const regexKeys = {
   all: ["regex-scripts"] as const,
-  detail: (id: string) => ["regex-scripts", id] as const,
 };
 
 export interface RegexScriptRow {
@@ -33,14 +32,6 @@ export function useRegexScripts() {
   return useQuery({
     queryKey: regexKeys.all,
     queryFn: () => storageApi.list<RegexScriptRow>("regex-scripts"),
-  });
-}
-
-export function useRegexScript(id: string | null) {
-  return useQuery({
-    queryKey: regexKeys.detail(id ?? ""),
-    queryFn: () => storageApi.get<RegexScriptRow>("regex-scripts", id!),
-    enabled: !!id,
   });
 }
 

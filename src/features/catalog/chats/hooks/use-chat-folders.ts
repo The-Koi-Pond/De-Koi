@@ -76,17 +76,3 @@ export function useMoveChat() {
     onSuccess: () => qc.invalidateQueries({ queryKey: chatKeys.list() }),
   });
 }
-
-export function useReorderChats() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: { orderedChatIds: string[]; folderId: string | null }) => {
-      await Promise.all(
-        data.orderedChatIds.map((id, index) =>
-          storageApi.update("chats", id, { sortOrder: index, order: index, folderId: data.folderId }),
-        ),
-      );
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: chatKeys.list() }),
-  });
-}
