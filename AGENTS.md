@@ -7,12 +7,6 @@
 - Chat, roleplay, and game remain separate mode owners.
 - Fix root causes; do not add fake success, silent catches, broad fallbacks, or UI-only guards over broken contracts.
 
-## Graphify
-
-- Read `GRAPHIFY.md` for the `refactor` branch's persistent Graphify install, usage, report-reading, and map-refresh instructions.
-- Keep Graphify installed and run `graphify update .` from the repository root after every code change.
-- Treat `graphify.scope.json` as the canonical positive source scope for Graphify output. `.graphifyignore` is only defense-in-depth; run `pnpm check:graphify-scope` when Graphify output changes or scope is in doubt.
-
 ## Verification
 
 Run checks that match the change:

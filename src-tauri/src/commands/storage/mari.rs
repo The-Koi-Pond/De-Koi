@@ -47,7 +47,6 @@ const CODE_SEARCH_SKIP_DIRS: &[&str] = &[
     "build",
     "coverage",
     "dist",
-    "graphify-out",
     "node_modules",
     "target",
 ];
@@ -1492,16 +1491,6 @@ mod tests {
         assert!(!prompt.contains(marker));
         assert!(prompt.matches("File:").count() <= MARI_ATTACHMENT_MAX_COUNT);
         assert!(prompt.contains("additional attachment(s) omitted"));
-    }
-
-    #[test]
-    fn professor_mari_code_tools_skip_generated_graphify_output() {
-        assert!(is_skipped_relative_path(Path::new(
-            "graphify-out/graph.json"
-        )));
-        assert!(is_skipped_relative_path(Path::new(
-            "graphify-out/cache/chunk.json"
-        )));
     }
 
     #[test]
