@@ -19,6 +19,7 @@ import { cn } from "../../../../shared/lib/utils";
 import { useExtensions, useCreateExtension, useDeleteExtension, useUpdateExtension } from "../hooks/use-extensions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { gameAssetsApi } from "../../../../shared/api/assets-api";
+import { openExternalUrl } from "../../../../shared/api/external-link-api";
 import { importApi } from "../../../../shared/api/import-api";
 import { backupApi, profileApi, type ManagedBackup } from "../../../../shared/api/profile-api";
 import { updatesApi, type UpdateCheckResponse } from "../../../../shared/api/updates-api";
@@ -3367,8 +3368,14 @@ function AdvancedSettings() {
     setOpeningUpdate(true);
     try {
       const result = await updatesApi.apply(updateInfo);
-      window.open(result.releaseUrl, "_blank", "noopener,noreferrer");
-      toast.info(result.message);
+      try {
+        await openExternalUrl(result.releaseUrl);
+        toast.info(result.message);
+      } catch (openErr) {
+        toast.error(openErr instanceof Error ? openErr.message : "Failed to open update", {
+          description: result.message,
+        });
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to open update");
     } finally {
