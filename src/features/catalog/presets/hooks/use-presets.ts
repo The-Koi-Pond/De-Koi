@@ -2,24 +2,20 @@
 // React Query: Preset, Group, Section & Choice hooks
 // ──────────────────────────────────────────────
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { previewGenerationPrompt } from "../../../../engine/generation/prompt-preview";
 import { boolish } from "../../../../engine/generation/runtime-records";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
-import type { PromptPreset, PromptGroup, PromptSection, ChoiceBlock, GenerationParameters, ChatMLMessage } from "../../../../engine/contracts/types/prompt";
+import type { PromptPreset, PromptGroup, PromptSection, ChoiceBlock } from "../../../../engine/contracts/types/prompt";
 
 // ── Query Keys ──
 
 export const presetKeys = {
   all: ["presets"] as const,
   list: () => [...presetKeys.all, "list"] as const,
-  detail: (id: string) => [...presetKeys.all, "detail", id] as const,
   full: (id: string) => [...presetKeys.all, "full", id] as const,
   sections: (presetId: string) => [...presetKeys.all, "sections", presetId] as const,
   groups: (presetId: string) => [...presetKeys.all, "groups", presetId] as const,
   choiceBlocks: (presetId: string) => [...presetKeys.all, "choices", presetId] as const,
-  sectionChoice: (sectionId: string) => [...presetKeys.all, "section-choice", sectionId] as const,
-  preview: (presetId: string) => [...presetKeys.all, "preview", presetId] as const,
   default: () => [...presetKeys.all, "default"] as const,
 };
 
@@ -155,16 +151,6 @@ export function usePresetSummaries() {
   });
 }
 
-export function usePreset(id: string | null) {
-  return useQuery({
-    queryKey: presetKeys.detail(id ?? ""),
-    queryFn: () => storageApi.get<PromptPreset>("prompts", id!),
-    enabled: !!id,
-    staleTime: 5 * 60_000,
-    refetchOnWindowFocus: false,
-  });
-}
-
 /** Fetch preset + all sections, groups, choice blocks in one call. */
 export function usePresetFull(id: string | null) {
   return useQuery({
@@ -198,16 +184,6 @@ export function useDefaultPreset() {
   });
 }
 
-export function useCreatePreset() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: Record<string, unknown>) => storageApi.create<PromptPreset>("prompts", data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: presetKeys.list() });
-    },
-  });
-}
-
 export function useUpdatePreset() {
   const qc = useQueryClient();
   return useMutation({
@@ -215,7 +191,6 @@ export function useUpdatePreset() {
       storageApi.update<PromptPreset>("prompts", id, data),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: presetKeys.list() });
-      qc.invalidateQueries({ queryKey: presetKeys.detail(variables.id) });
       qc.invalidateQueries({ queryKey: presetKeys.full(variables.id) });
     },
   });
@@ -270,14 +245,6 @@ export function useSetDefaultPreset() {
 //  Groups
 // ═══════════════════════════════════════════════
 
-export function usePresetGroups(presetId: string | null) {
-  return useQuery({
-    queryKey: presetKeys.groups(presetId ?? ""),
-    queryFn: () => listPromptNested<PromptGroup>(presetId!, "groups"),
-    enabled: !!presetId,
-  });
-}
-
 export function useCreateGroup() {
   const qc = useQueryClient();
   return useMutation({
@@ -316,29 +283,9 @@ export function useDeleteGroup() {
   });
 }
 
-export function useReorderGroups() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ presetId, groupIds }: { presetId: string; groupIds: string[] }) =>
-      reorderPromptNested<PromptGroup>(presetId, "groups", groupIds),
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: presetKeys.groups(variables.presetId) });
-      qc.invalidateQueries({ queryKey: presetKeys.full(variables.presetId) });
-    },
-  });
-}
-
 // ═══════════════════════════════════════════════
 //  Sections
 // ═══════════════════════════════════════════════
-
-export function usePresetSections(presetId: string | null) {
-  return useQuery({
-    queryKey: presetKeys.sections(presetId ?? ""),
-    queryFn: () => listPromptNested<PromptSection>(presetId!, "sections"),
-    enabled: !!presetId,
-  });
-}
 
 export function useCreateSection() {
   const qc = useQueryClient();
@@ -407,14 +354,6 @@ export function useReorderSections() {
 //  Preset Variables (Choice Blocks)
 // ═══════════════════════════════════════════════
 
-export function usePresetVariables(presetId: string | null) {
-  return useQuery({
-    queryKey: presetKeys.choiceBlocks(presetId ?? ""),
-    queryFn: () => listPromptNested<ChoiceBlock>(presetId!, "variables"),
-    enabled: !!presetId,
-  });
-}
-
 export function useCreateVariable() {
   const qc = useQueryClient();
   return useMutation({
@@ -481,28 +420,5 @@ export function useReorderVariables() {
       qc.invalidateQueries({ queryKey: presetKeys.choiceBlocks(presetId) });
       qc.invalidateQueries({ queryKey: presetKeys.full(presetId) });
     },
-  });
-}
-
-// ═══════════════════════════════════════════════
-//  Preview
-// ═══════════════════════════════════════════════
-
-export function usePreviewPreset() {
-  return useMutation({
-    mutationFn: ({
-      presetId,
-      chatId,
-      choices,
-    }: {
-      presetId: string;
-      chatId: string;
-      choices?: Record<string, string>;
-    }) =>
-      previewGenerationPrompt(storageApi, { presetId, chatId, choices }) as Promise<{
-        messages: ChatMLMessage[];
-        parameters: GenerationParameters;
-        messageCount: number;
-      }>,
   });
 }
