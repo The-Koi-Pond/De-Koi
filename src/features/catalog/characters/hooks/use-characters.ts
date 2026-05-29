@@ -3,9 +3,11 @@
 // ──────────────────────────────────────────────
 import { useQuery, useQueries, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { characterKeys, spriteKeys } from "../query-keys";
+import { characterApi } from "../../../../shared/api/character-api";
 import { storageApi } from "../../../../shared/api/storage-api";
-import { invokeTauri } from "../../../../shared/api/tauri-client";
+import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 import { galleryApi, spriteApi } from "../../../../shared/api/image-generation-api";
+import { personaApi } from "../../../../shared/api/persona-api";
 import type { CharacterCardVersion } from "../../../../engine/contracts/types/character";
 import type { SpriteCapabilities, SpriteCleanupEngine } from "../../../../shared/types/sprite-capabilities";
 
@@ -275,8 +277,7 @@ export function useCharacterVersions(id: string | null) {
 export function useRestoreCharacterVersion() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, versionId }: { id: string; versionId: string }) =>
-      invokeTauri("character_restore_version", { characterId: id, versionId }),
+    mutationFn: ({ id, versionId }: { id: string; versionId: string }) => characterApi.restoreVersion(id, versionId),
     onSuccess: (_data, variables) => {
       invalidateCharacterRecordQueries(qc, variables.id, { includeVersions: true });
     },
@@ -297,8 +298,7 @@ export function useDeleteCharacterVersion() {
 export function useUploadAvatar() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, avatar }: { id: string; avatar: string }) =>
-      invokeTauri("character_avatar_upload", { id, body: { avatar } }),
+    mutationFn: ({ id, avatar }: { id: string; avatar: string }) => characterApi.uploadAvatar(id, avatar),
     onSuccess: (_data, variables) => {
       invalidateCharacterRecordQueries(qc, variables.id);
     },
@@ -329,7 +329,7 @@ export function useDeleteCharacter() {
 export function useDuplicateCharacter() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => invokeTauri("storage_duplicate", { entity: "characters", id }),
+    mutationFn: (id: string) => storageCommandsApi.duplicate("characters", id),
     onSuccess: (character) => {
       refreshCharacterCollectionAfterMutation(qc, character);
     },
@@ -680,7 +680,7 @@ export function useDeletePersona() {
 export function useDuplicatePersona() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => invokeTauri("storage_duplicate", { entity: "personas", id }),
+    mutationFn: (id: string) => storageCommandsApi.duplicate("personas", id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: characterKeys.personas });
       qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });
@@ -691,7 +691,7 @@ export function useDuplicatePersona() {
 export function useActivatePersona() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => invokeTauri("persona_activate", { id }),
+    mutationFn: (id: string) => personaApi.activate(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: characterKeys.personas });
       qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });
@@ -704,7 +704,7 @@ export function useUploadPersonaAvatar() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, avatar, filename }: { id: string; avatar: string; filename?: string }) =>
-      invokeTauri("persona_avatar_upload", { id, body: { avatar, filename } }),
+      personaApi.uploadAvatar(id, avatar, filename),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: characterKeys.personas });
       qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });

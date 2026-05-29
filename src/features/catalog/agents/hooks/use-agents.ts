@@ -3,8 +3,8 @@
 // ──────────────────────────────────────────────
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BUILT_IN_AGENTS } from "../../../../engine/contracts/types/agent";
+import { agentApi } from "../../../../shared/api/agent-api";
 import { storageApi } from "../../../../shared/api/storage-api";
-import { invokeTauri } from "../../../../shared/api/tauri-client";
 
 export const agentKeys = {
   all: ["agents"] as const,
@@ -88,7 +88,7 @@ export function useUpdateAgentByType() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ agentType, ...data }: { agentType: string } & Record<string, unknown>) =>
-      invokeTauri("agent_patch_by_type", { agentType, patch: data }),
+      agentApi.patchByType(agentType, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: agentKeys.all });
     },
@@ -119,7 +119,7 @@ export function useUpdateAgentRunData() {
 export function useToggleAgent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (agentType: string) => invokeTauri("agent_toggle_by_type", { agentType }),
+    mutationFn: (agentType: string) => agentApi.toggleByType(agentType),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: agentKeys.all });
     },

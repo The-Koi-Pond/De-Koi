@@ -12,7 +12,7 @@ import type { EchoChamberSide } from "../../../../../shared/stores/ui.store";
 import { useAgentConfigs } from "../../../../catalog/agents/index";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { useChat } from "../../../../catalog/chats/index";
-import { invokeTauri } from "../../../../../shared/api/tauri-client";
+import { agentApi } from "../../../../../shared/api/agent-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { cn } from "../../../../../shared/lib/utils";
 
@@ -234,7 +234,7 @@ export function EchoChamberPanel({ hiddenOnMobile = false }: EchoChamberPanelPro
     for (const msg of echoMessages) {
       const characterName = readText(msg.characterName);
       if (!characterName || map.has(characterName)) continue;
-        let hash = 0;
+      let hash = 0;
       for (let i = 0; i < characterName.length; i++) hash = characterName.charCodeAt(i) + ((hash << 5) - hash);
       map.set(characterName, NAME_COLORS[Math.abs(hash) % NAME_COLORS.length]!);
     }
@@ -331,7 +331,7 @@ export function EchoChamberPanel({ hiddenOnMobile = false }: EchoChamberPanelPro
                 setEchoVisibleCount(0);
                 setEchoBaseline(0);
                 try {
-                  await invokeTauri("agent_echo_messages_clear", { chatId: activeChatId });
+                  await agentApi.clearEchoMessages(activeChatId);
                 } catch {
                   /* best-effort */
                 }

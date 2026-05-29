@@ -82,7 +82,7 @@ import { cn, generateClientId, getAvatarCropStyle, type AvatarCrop } from "../..
 import { extractColorsFromImage } from "../../../../shared/lib/avatar-color-extraction";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 import { exportApi } from "../../../../shared/api/export-api";
-import { invokeTauri } from "../../../../shared/api/tauri-client";
+import { characterApi } from "../../../../shared/api/character-api";
 import { ColorPicker } from "../../../../shared/components/ui/ColorPicker";
 import { TrackerCardColorControls } from "../../../../shared/components/ui/TrackerCardColorControls";
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
@@ -3209,12 +3209,7 @@ function LorebookTab({ characterId, formData }: { characterId: string | null; fo
     if (!characterId) return;
     setImporting(true);
     try {
-      const result = await invokeTauri<{
-        success: boolean;
-        lorebookId: string;
-        entriesImported: number;
-        reimported?: boolean;
-      }>("character_embedded_lorebook_import", { id: characterId });
+      const result = await characterApi.importEmbeddedLorebook(characterId);
       qc.invalidateQueries({ queryKey: lorebookKeys.all });
       if (result.lorebookId) {
         qc.invalidateQueries({ queryKey: ["characters", "detail", characterId] });

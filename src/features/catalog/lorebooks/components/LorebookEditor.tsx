@@ -74,8 +74,13 @@ import {
 import { cn } from "../../../../shared/lib/utils";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 import { exportApi } from "../../../../shared/api/export-api";
-import { invokeTauri } from "../../../../shared/api/tauri-client";
-import type { Lorebook, LorebookEntry, LorebookFolder, LorebookCategory } from "../../../../engine/contracts/types/lorebook";
+import { lorebookCommandApi } from "../../../../shared/api/lorebook-command-api";
+import type {
+  Lorebook,
+  LorebookEntry,
+  LorebookFolder,
+  LorebookCategory,
+} from "../../../../engine/contracts/types/lorebook";
 import { testPrimaryKeys, testSecondaryKeys } from "../../../../engine/shared/regex/lorebook-keyword-matching";
 import { LorebookEntryRow } from "./LorebookEntryRow";
 import { LorebookFolderRow } from "./LorebookFolderRow";
@@ -1577,9 +1582,9 @@ export function LorebookEditor() {
                     <div className="space-y-2 border-t border-[var(--border)] px-3 py-3">
                       <p className="text-[0.6875rem] text-[var(--muted-foreground)]">
                         Paste sample chat text and entries whose keys would trigger get an emerald accent and a
-                        &quot;Would activate&quot; chip. Constant entries are flagged separately because they
-                        activate regardless of text. Out of scope: timing, probability, character/persona filters,
-                        and semantic matching.
+                        &quot;Would activate&quot; chip. Constant entries are flagged separately because they activate
+                        regardless of text. Out of scope: timing, probability, character/persona filters, and semantic
+                        matching.
                       </p>
                       <div className="relative">
                         <textarea
@@ -2135,13 +2140,10 @@ function VectorizeSection({
     setResult(null);
     try {
       const conn = embeddingConnections.find((c) => c.id === selectedConnectionId);
-      const res = await invokeTauri("lorebook_vectorize", {
-        id: lorebookId,
-        body: {
-          connectionId: selectedConnectionId,
-          model: conn?.embeddingModel ?? "",
-          onlyMissing: !allVectorized,
-        },
+      const res = await lorebookCommandApi.vectorize(lorebookId, {
+        connectionId: selectedConnectionId,
+        model: conn?.embeddingModel ?? "",
+        onlyMissing: !allVectorized,
       });
       const data = res as { vectorized: number; total?: number; skipped?: number };
       await queryClient.invalidateQueries({ queryKey: lorebookKeys.entries(lorebookId) });

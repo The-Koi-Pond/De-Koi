@@ -18,9 +18,9 @@ import {
 import { boolish } from "../../../../engine/generation/runtime-records";
 import { backfillConversationSummaries } from "../../../../engine/modes/chat/core/summaries/auto-summary.service";
 import { appendChatSummaryEntryToMetadata } from "../../../../engine/shared/text/chat-summary-entries";
+import { chatCommandApi } from "../../../../shared/api/chat-command-api";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
-import { invokeTauri } from "../../../../shared/api/tauri-client";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { apiQueryRetryDelay, shouldRetryApiQuery } from "../../../../shared/api/query-retry";
@@ -358,7 +358,7 @@ export function useChatMessages(
 export function useChatMessageCount(chatId: string | null) {
   return useQuery({
     queryKey: chatKeys.messageCount(chatId ?? ""),
-    queryFn: () => invokeTauri<{ count: number }>("chat_message_count", { chatId }),
+    queryFn: () => chatCommandApi.messageCount(chatId),
     enabled: !!chatId,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
@@ -368,7 +368,7 @@ export function useChatMessageCount(chatId: string | null) {
 export function useChatMemories(chatId: string | null, enabled = true) {
   return useQuery({
     queryKey: chatKeys.memories(chatId ?? ""),
-    queryFn: () => invokeTauri<ChatMemoryChunk[]>("chat_memories_list", { chatId }),
+    queryFn: () => chatCommandApi.memoriesList<ChatMemoryChunk[]>(chatId),
     enabled: !!chatId && enabled,
     staleTime: 10_000,
   });
@@ -377,7 +377,7 @@ export function useChatMemories(chatId: string | null, enabled = true) {
 export function useDeleteChatMemory(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (memoryId: string) => invokeTauri("chat_memory_delete", { chatId, memoryId }),
+    mutationFn: (memoryId: string) => chatCommandApi.memoryDelete(chatId, memoryId),
     onSuccess: () => {
       if (chatId) qc.invalidateQueries({ queryKey: chatKeys.memories(chatId) });
     },
@@ -387,7 +387,7 @@ export function useDeleteChatMemory(chatId: string | null) {
 export function useClearChatMemories(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => invokeTauri("chat_memories_clear", { chatId }),
+    mutationFn: () => chatCommandApi.memoriesClear(chatId),
     onSuccess: () => {
       if (chatId) qc.invalidateQueries({ queryKey: chatKeys.memories(chatId) });
     },
@@ -397,7 +397,7 @@ export function useClearChatMemories(chatId: string | null) {
 export function useRefreshChatMemories(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => invokeTauri<{ rebuilt: number }>("chat_memories_refresh", { chatId }),
+    mutationFn: () => chatCommandApi.memoriesRefresh<{ rebuilt: number }>(chatId),
     onSuccess: () => {
       if (chatId) qc.invalidateQueries({ queryKey: chatKeys.memories(chatId) });
     },
@@ -408,7 +408,7 @@ export function useExportChatMemories(chatId: string | null) {
   return useMutation({
     mutationFn: async () => {
       if (!chatId) throw new Error("No chat selected.");
-      const payload = await invokeTauri("chat_memories_export", { chatId });
+      const payload = await chatCommandApi.memoriesExport(chatId);
       downloadTextFile(
         JSON.stringify(payload, null, 2),
         "memory-recall.marinara.json",
@@ -430,7 +430,7 @@ export function useImportChatMemories(chatId: string | null) {
       if (!chatId) throw new Error("No chat selected.");
       const text = await file.text();
       const payload = JSON.parse(text) as unknown;
-      return invokeTauri<ChatMemoryRecallImportResult>("chat_memories_import", { chatId, body: payload });
+      return chatCommandApi.memoriesImport<ChatMemoryRecallImportResult>(chatId, payload);
     },
     onSuccess: () => {
       if (chatId) qc.invalidateQueries({ queryKey: chatKeys.memories(chatId) });
@@ -441,7 +441,7 @@ export function useImportChatMemories(chatId: string | null) {
 export function useChatNotes(chatId: string | null) {
   return useQuery({
     queryKey: chatKeys.notes(chatId ?? ""),
-    queryFn: () => invokeTauri<ConversationNote[]>("chat_notes_list", { chatId }),
+    queryFn: () => chatCommandApi.notesList<ConversationNote[]>(chatId),
     enabled: !!chatId,
     staleTime: 10_000,
   });
@@ -450,7 +450,7 @@ export function useChatNotes(chatId: string | null) {
 export function useDeleteChatNote(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (noteId: string) => invokeTauri("chat_note_delete", { chatId, noteId }),
+    mutationFn: (noteId: string) => chatCommandApi.noteDelete(chatId, noteId),
     onSuccess: () => {
       if (chatId) qc.invalidateQueries({ queryKey: chatKeys.notes(chatId) });
     },
@@ -460,7 +460,7 @@ export function useDeleteChatNote(chatId: string | null) {
 export function useClearChatNotes(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => invokeTauri("chat_notes_clear", { chatId }),
+    mutationFn: () => chatCommandApi.notesClear(chatId),
     onSuccess: () => {
       if (chatId) qc.invalidateQueries({ queryKey: chatKeys.notes(chatId) });
     },
@@ -566,7 +566,7 @@ export function useDeleteChat() {
 export function useDeleteChatGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (groupId: string) => invokeTauri("chat_group_delete", { groupId }),
+    mutationFn: (groupId: string) => chatCommandApi.groupDelete(groupId),
     onMutate: async (groupId) => {
       await qc.cancelQueries({ queryKey: chatKeys.list() });
       const previous = qc.getQueryData<Chat[]>(chatKeys.list());
@@ -690,7 +690,7 @@ export function useMarkAutonomousUnread() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ chatId, characterId, count }: { chatId: string; characterId?: string | null; count?: number }) =>
-      invokeTauri<Chat>("chat_autonomous_unread_mark", { chatId, body: { characterId: characterId ?? null, count } }),
+      chatCommandApi.markAutonomousUnread<Chat>(chatId, { characterId: characterId ?? null, count }),
     onSuccess: (data, vars) => {
       if (data) {
         qc.setQueryData(chatKeys.detail(vars.chatId), data);
@@ -703,7 +703,7 @@ export function useMarkAutonomousUnread() {
 export function useClearAutonomousUnread() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (chatId: string) => invokeTauri<Chat>("chat_autonomous_unread_clear", { chatId }),
+    mutationFn: (chatId: string) => chatCommandApi.clearAutonomousUnread<Chat>(chatId),
     onSuccess: (data, chatId) => {
       if (data) {
         qc.setQueryData(chatKeys.detail(chatId), data);
@@ -776,7 +776,7 @@ export function useDeleteMessage(chatId: string | null) {
 export function useDeleteMessages(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (messageIds: string[]) => invokeTauri("chat_messages_bulk_delete", { chatId, messageIds }),
+    mutationFn: (messageIds: string[]) => chatCommandApi.bulkDeleteMessages(chatId, messageIds),
     onSuccess: () => {
       if (chatId) {
         qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
@@ -1264,7 +1264,7 @@ export function useBranchChat() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ chatId, upToMessageId }: { chatId: string; upToMessageId?: string }) =>
-      invokeTauri<Chat>("chat_branch", { chatId, upToMessageId: upToMessageId ?? null }),
+      chatCommandApi.branch<Chat>(chatId, upToMessageId),
     onSuccess: (newChat, { chatId }) => {
       qc.invalidateQueries({ queryKey: chatKeys.list() });
       qc.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
@@ -1295,7 +1295,7 @@ export function useGenerateSummary() {
 export function useSwipes(chatId: string | null, messageId: string | null) {
   return useQuery({
     queryKey: [...chatKeys.all, "swipes", messageId ?? ""],
-    queryFn: () => invokeTauri<MessageSwipe[]>("chat_message_swipes", { chatId, messageId }),
+    queryFn: () => chatCommandApi.swipes<MessageSwipe[]>(chatId, messageId),
     enabled: !!chatId && !!messageId,
   });
 }
@@ -1305,7 +1305,7 @@ export function useSetActiveSwipe(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ messageId, index }: { messageId: string; index: number }) =>
-      invokeTauri<Message | null>("chat_message_set_active_swipe", { chatId, messageId, index }),
+      chatCommandApi.setActiveSwipe<Message | null>(chatId, messageId, index),
     onMutate: ({ messageId, index }) => {
       if (!chatId) return;
       void qc.cancelQueries({ queryKey: chatKeys.messages(chatId), exact: true });
@@ -1345,7 +1345,7 @@ export function useDeleteSwipe(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ messageId, index }: { messageId: string; index: number }) =>
-      invokeTauri<Message>("chat_message_delete_swipe", { chatId, messageId, index: String(index) }),
+      chatCommandApi.deleteSwipe<Message>(chatId, messageId, index),
     onSuccess: (_data, { messageId }) => {
       if (!chatId) return;
       qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
@@ -1360,7 +1360,7 @@ export function useConnectChat() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ chatId, targetChatId }: { chatId: string; targetChatId: string }) =>
-      invokeTauri<{ connected: boolean }>("chat_connect", { chatId, targetChatId }),
+      chatCommandApi.connect<{ connected: boolean }>(chatId, targetChatId),
     onSuccess: (_data, { chatId, targetChatId }) => {
       qc.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
       qc.invalidateQueries({ queryKey: chatKeys.detail(targetChatId) });
@@ -1373,7 +1373,7 @@ export function useConnectChat() {
 export function useDisconnectChat() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (chatId: string) => invokeTauri<{ disconnected: boolean }>("chat_disconnect", { chatId }),
+    mutationFn: (chatId: string) => chatCommandApi.disconnect<{ disconnected: boolean }>(chatId),
     onSuccess: (_data, chatId) => {
       qc.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
       qc.invalidateQueries({ queryKey: chatKeys.list() });

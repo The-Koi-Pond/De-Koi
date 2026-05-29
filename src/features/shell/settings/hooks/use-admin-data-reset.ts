@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { invokeTauri } from "../../../../shared/api/tauri-client";
+import { adminApi } from "../../../../shared/api/admin-api";
 import { useAgentStore } from "../../../../shared/stores/agent.store";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useEncounterStore } from "../../../../shared/stores/encounter.store";
@@ -33,7 +33,7 @@ async function resetClientAfterExpunge(qc: ReturnType<typeof useQueryClient>) {
 export function useExpungeData() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (scopes: ExpungeScope[]) => invokeTauri<{ success: boolean }>("admin_expunge_command", { scopes }),
+    mutationFn: (scopes: ExpungeScope[]) => adminApi.expunge(scopes),
     onSuccess: async () => {
       await resetClientAfterExpunge(qc);
     },
@@ -43,7 +43,7 @@ export function useExpungeData() {
 export function useClearAllData() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => invokeTauri<{ success: boolean }>("admin_clear_all_command"),
+    mutationFn: () => adminApi.clearAll(),
     onSuccess: async () => {
       await resetClientAfterExpunge(qc);
     },

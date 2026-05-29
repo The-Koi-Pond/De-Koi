@@ -1,5 +1,5 @@
+import { botBrowserCommandApi } from "../../../../shared/api/bot-browser-command-api";
 import { importApi } from "../../../../shared/api/import-api";
-import { invokeTauri } from "../../../../shared/api/tauri-client";
 import { loadUrlBlob } from "../../../../shared/lib/url-blob";
 
 const TAURI_ASSET_PREFIX = "tauri-api:";
@@ -39,9 +39,11 @@ function binaryStringToBlob(binary: string, mimeType: string): Blob {
 }
 
 function payloadToBlob(payload: BinaryPayload, fallbackMimeType: string): Blob {
-  const value = typeof payload === "string" ? payload : payload.base64 ?? payload.data ?? payload.body ?? "";
+  const value = typeof payload === "string" ? payload : (payload.base64 ?? payload.data ?? payload.body ?? "");
   const mimeType =
-    typeof payload === "string" ? fallbackMimeType : payload.mimeType ?? payload.contentType ?? payload.type ?? fallbackMimeType;
+    typeof payload === "string"
+      ? fallbackMimeType
+      : (payload.mimeType ?? payload.contentType ?? payload.type ?? fallbackMimeType);
 
   if (typeof value === "string" && value.startsWith("data:")) {
     const [header, data = ""] = value.split(",", 2);
@@ -62,12 +64,12 @@ export function botBrowserAssetUrl(path: string): string {
 
 export async function botBrowserGet<T = unknown>(path: string, init?: RequestInit): Promise<T> {
   if (init?.signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
-  return invokeTauri<T>("bot_browser_get", { path: normalizeBotBrowserPath(path) });
+  return botBrowserCommandApi.get<T>(normalizeBotBrowserPath(path));
 }
 
 export async function botBrowserPost<T = unknown>(path: string, body?: unknown, init?: RequestInit): Promise<T> {
   if (init?.signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
-  return invokeTauri<T>("bot_browser_post", { path: normalizeBotBrowserPath(path), body: body ?? null });
+  return botBrowserCommandApi.post<T>(normalizeBotBrowserPath(path), body);
 }
 
 export async function botBrowserBlob(path: string, fallbackMimeType = "image/png", init?: RequestInit): Promise<Blob> {

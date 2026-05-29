@@ -3,8 +3,8 @@
 // ──────────────────────────────────────────────
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { chatPresetKeys } from "../query-keys";
-import { invokeTauri } from "../../../../shared/api/tauri-client";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 import { chatKeys } from "../../chats/query-keys";
 import type { Chat, ChatMode } from "../../../../engine/contracts/types/chat";
 import {
@@ -101,14 +101,10 @@ export function useUpdateChatPreset() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...data }: { id: string; name?: string; settings?: ChatPresetSettings }) =>
-      storageApi.update<ChatPreset>(
-        "chat-presets",
-        id,
-        {
-          ...data,
-          ...(data.settings ? { settings: sanitizeChatPresetSettings(data.settings) } : {}),
-        } as Record<string, unknown>,
-      ),
+      storageApi.update<ChatPreset>("chat-presets", id, {
+        ...data,
+        ...(data.settings ? { settings: sanitizeChatPresetSettings(data.settings) } : {}),
+      } as Record<string, unknown>),
     onSuccess: () => qc.invalidateQueries({ queryKey: chatPresetKeys.all }),
   });
 }
@@ -128,7 +124,7 @@ export function useDuplicateChatPreset() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, name }: { id: string; name?: string }) => {
-      const duplicated = await invokeTauri<ChatPreset>("storage_duplicate", { entity: "chat-presets", id });
+      const duplicated = await storageCommandsApi.duplicate<ChatPreset>("chat-presets", id);
       return name?.trim()
         ? storageApi.update<ChatPreset>("chat-presets", duplicated.id, { name: name.trim() })
         : duplicated;
@@ -156,7 +152,8 @@ export function useDeleteChatPreset() {
 export function useImportChatPreset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (envelope: unknown) => storageApi.create<ChatPreset>("chat-presets", envelope as Record<string, unknown>),
+    mutationFn: (envelope: unknown) =>
+      storageApi.create<ChatPreset>("chat-presets", envelope as Record<string, unknown>),
     onSuccess: () => qc.invalidateQueries({ queryKey: chatPresetKeys.all }),
   });
 }

@@ -16,10 +16,10 @@ import {
   getConversationBusyDelay,
   recordAssistantActivity,
 } from "../../../../../engine/modes/chat/autonomous/autonomous.service";
+import { chatCommandApi } from "../../../../../shared/api/chat-command-api";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { integrationGateway } from "../../../../../shared/api/integration-gateway";
-import { invokeTauri } from "../../../../../shared/api/tauri-client";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { showConversationLocalNotification } from "../../../../../shared/lib/local-notifications";
@@ -153,10 +153,8 @@ export function useBackgroundAutonomousPolling() {
                 // message isn't there even though it was saved.
                 qc.resetQueries({ queryKey: chatKeys.messages(chat.id) });
                 invalidateCharacterCollectionQueries(qc);
-                void invokeTauri<Chat>("chat_autonomous_unread_mark", {
-                  chatId: chat.id,
-                  body: { characterId },
-                })
+                void chatCommandApi
+                  .markAutonomousUnread<Chat>(chat.id, { characterId })
                   .then((updatedChat) => {
                     qc.setQueryData(chatKeys.detail(chat.id), updatedChat);
                     qc.invalidateQueries({ queryKey: chatKeys.list() });

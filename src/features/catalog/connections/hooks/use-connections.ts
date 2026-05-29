@@ -3,8 +3,9 @@
 // ──────────────────────────────────────────────
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { connectionKeys } from "../query-keys";
+import { connectionCommandApi } from "../../../../shared/api/connection-command-api";
 import { storageApi } from "../../../../shared/api/storage-api";
-import { invokeTauri } from "../../../../shared/api/tauri-client";
+import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 import type { ConnectionRow, ConnectionTestResult } from "../types";
 
 export { connectionKeys } from "../query-keys";
@@ -68,7 +69,7 @@ export function useUpdateConnection() {
 export function useDuplicateConnection() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => invokeTauri<ConnectionRow>("storage_duplicate", { entity: "connections", id }),
+    mutationFn: (id: string) => storageCommandsApi.duplicate<ConnectionRow>("connections", id),
     onSuccess: () => qc.invalidateQueries({ queryKey: connectionKeys.list() }),
   });
 }
@@ -83,48 +84,47 @@ export function useDeleteConnection() {
 
 export function useTestConnection() {
   return useMutation({
-    mutationFn: (id: string) => invokeTauri<ConnectionTestResult>("connection_test", { id }),
+    mutationFn: (id: string) => connectionCommandApi.test<ConnectionTestResult>(id),
   });
 }
 
 export function useTestMessage() {
   return useMutation({
     mutationFn: (id: string) =>
-      invokeTauri<{ success: boolean; response: string; latencyMs: number }>("connection_test_message", { id }),
+      connectionCommandApi.testMessage<{ success: boolean; response: string; latencyMs: number }>(id),
   });
 }
 
 export function useTestImageGeneration() {
   return useMutation({
     mutationFn: (id: string) =>
-      invokeTauri<{
+      connectionCommandApi.testImage<{
         success: boolean;
         base64: string | null;
         mimeType: string | null;
         latencyMs: number;
         prompt: string;
         error?: string;
-      }>("connection_test_image", { id }),
+      }>(id),
   });
 }
 
 export function useDiagnoseClaudeSubscription() {
   return useMutation({
-    mutationFn: (id: string) =>
-      invokeTauri<ClaudeSubscriptionDiagnosis>("connection_diagnose_claude_subscription", { id }),
+    mutationFn: (id: string) => connectionCommandApi.diagnoseClaudeSubscription<ClaudeSubscriptionDiagnosis>(id),
   });
 }
 
 export function useFetchModels() {
   return useMutation({
     mutationFn: (id: string) =>
-      invokeTauri<{
+      connectionCommandApi.models<{
         models: Array<{ id: string; name: string; fallback?: boolean; fromProvider?: boolean; providerError?: string }>;
         fromProvider: boolean;
         fallback?: boolean;
         providerError?: string;
         providerErrorCode?: string;
-      }>("connection_models", { id }),
+      }>(id),
   });
 }
 
@@ -132,7 +132,7 @@ export function useSaveConnectionDefaults() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, params }: { id: string; params: Record<string, unknown> | null }) =>
-      invokeTauri("connection_save_default_parameters", { id, params }),
+      connectionCommandApi.saveDefaultParameters(id, params),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: connectionKeys.list() });
       qc.invalidateQueries({ queryKey: connectionKeys.detail(variables.id) });

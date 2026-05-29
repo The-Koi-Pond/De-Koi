@@ -2,8 +2,8 @@
 // Hooks: Custom Tools (React Query)
 // ──────────────────────────────────────────────
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { customToolApi } from "../../../../shared/api/custom-tool-api";
 import { storageApi } from "../../../../shared/api/storage-api";
-import { invokeTauri } from "../../../../shared/api/tauri-client";
 
 export interface CustomToolRow {
   id: string;
@@ -30,7 +30,8 @@ export function isCustomToolSelectable(tool: CustomToolRow, _capabilities?: Cust
   if (!enabled) return false;
   if (tool.executionType === "static") return !!tool.staticResult?.trim();
   if (tool.executionType === "webhook") return !!tool.webhookUrl?.trim();
-  if (tool.executionType === "script") return _capabilities?.scriptExecutionEnabled === true && !!tool.scriptBody?.trim();
+  if (tool.executionType === "script")
+    return _capabilities?.scriptExecutionEnabled === true && !!tool.scriptBody?.trim();
   return false;
 }
 
@@ -58,7 +59,7 @@ export function useCustomTool(id: string | null) {
 export function useCustomToolCapabilities() {
   return useQuery({
     queryKey: toolKeys.capabilities,
-    queryFn: () => invokeTauri<CustomToolCapabilities>("custom_tool_capabilities"),
+    queryFn: () => customToolApi.capabilities<CustomToolCapabilities>(),
   });
 }
 

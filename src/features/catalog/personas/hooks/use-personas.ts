@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { personaKeys } from "../query-keys";
+import { personaApi } from "../../../../shared/api/persona-api";
 import { storageApi } from "../../../../shared/api/storage-api";
-import { invokeTauri } from "../../../../shared/api/tauri-client";
+import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 
 export { personaKeys } from "../query-keys";
-
 
 export function usePersonas() {
   return useQuery({
@@ -51,7 +51,7 @@ export function useDeletePersona() {
 export function useDuplicatePersona() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => invokeTauri("storage_duplicate", { entity: "personas", id }),
+    mutationFn: (id: string) => storageCommandsApi.duplicate("personas", id),
     onSuccess: () => qc.invalidateQueries({ queryKey: personaKeys.list }),
   });
 }
@@ -59,7 +59,7 @@ export function useDuplicatePersona() {
 export function useActivatePersona() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => invokeTauri("persona_activate", { id }),
+    mutationFn: (id: string) => personaApi.activate(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: personaKeys.list }),
   });
 }
@@ -68,7 +68,7 @@ export function useUploadPersonaAvatar() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, avatar, filename }: { id: string; avatar: string; filename?: string }) =>
-      invokeTauri("persona_avatar_upload", { id, body: { avatar, filename } }),
+      personaApi.uploadAvatar(id, avatar, filename),
     onSuccess: () => qc.invalidateQueries({ queryKey: personaKeys.list }),
   });
 }

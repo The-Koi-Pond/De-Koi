@@ -105,9 +105,9 @@ import {
   chatKeys,
 } from "../../../../catalog/chats/index";
 import { generateConversationSchedules as runGenerateConversationSchedules } from "../../../../../engine/modes/chat/schedules/schedule.service";
+import { agentApi } from "../../../../../shared/api/agent-api";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
-import { invokeTauri } from "../../../../../shared/api/tauri-client";
 import { spotifyApi } from "../../../../../shared/api/integration-utility-api";
 import { spriteApi } from "../../../../../shared/api/image-generation-api";
 import { exportApi } from "../../../../../shared/api/export-api";
@@ -1069,10 +1069,7 @@ function ChatSettingsDrawerInner({
     if (wasRemoving && agentId === "secret-plot-driver") {
       let shouldWarn: boolean;
       try {
-        const res = await invokeTauri<{ memory: Record<string, unknown> }>("agent_memory_get", {
-          agentType: agentId,
-          chatId: chat.id,
-        });
+        const res = await agentApi.getMemory(agentId, chat.id);
         shouldWarn = hasSecretPlotMemory(res.memory);
       } catch {
         shouldWarn = true;
@@ -1103,7 +1100,7 @@ function ChatSettingsDrawerInner({
             metadataSaved = true;
             // When removing an agent that stores persistent memory, clean it up after metadata is saved.
             if (isRemoving && agentId === "secret-plot-driver") {
-              await invokeTauri("agent_memory_clear", { agentType: agentId, chatId: chat.id });
+              await agentApi.clearMemory(agentId, chat.id);
             }
           },
         },
