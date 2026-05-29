@@ -508,6 +508,96 @@ const CHAT_HTML_ALLOWED_ATTR = [
 
 const CHAT_STYLE_BLOCK_RE = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
 const CSS_SELECTOR_RE = /(^|[{}])\s*([^@{}][^{]*)\{/g;
+const STYLE_ATTR_RE = /\sstyle=(["'])([\s\S]*?)\1/gi;
+
+const CHAT_CSS_LAYOUT_ESCAPE_PROPERTIES = new Set([
+  "all",
+  "animation",
+  "animation-delay",
+  "animation-direction",
+  "animation-duration",
+  "animation-fill-mode",
+  "animation-iteration-count",
+  "animation-name",
+  "animation-play-state",
+  "animation-timing-function",
+  "backdrop-filter",
+  "bottom",
+  "clip-path",
+  "contain",
+  "content",
+  "filter",
+  "inset",
+  "inset-block",
+  "inset-block-end",
+  "inset-block-start",
+  "inset-inline",
+  "inset-inline-end",
+  "inset-inline-start",
+  "left",
+  "perspective",
+  "position",
+  "right",
+  "rotate",
+  "scale",
+  "top",
+  "transform",
+  "transform-origin",
+  "translate",
+  "z-index",
+]);
+
+const CHAT_CSS_SIZE_PROPERTIES = new Set(["height", "max-height", "max-width", "min-height", "min-width", "width"]);
+const CHAT_CSS_VIEWPORT_UNIT_RE =
+  /(?:^|[-\s(:])(?:\d+(?:\.\d+)?|calc\()[^;)]*(?:dvh|dvw|lvh|lvw|svh|svw|vh|vmax|vmin|vw)\b/i;
+const CHAT_CSS_RUNAWAY_PX_RE = /(?:^|[-\s(:])\d{5,}px\b/i;
+
+function normalizeCssProperty(property: string): string {
+  return property
+    .trim()
+    .toLowerCase()
+    .replace(/^-\w+-/, "");
+}
+
+function isRunawaySizeValue(value: string): boolean {
+  return CHAT_CSS_VIEWPORT_UNIT_RE.test(value) || CHAT_CSS_RUNAWAY_PX_RE.test(value);
+}
+
+export function sanitizeChatStyleDeclarations(style: string): string {
+  return style
+    .split(";")
+    .map((declaration) => {
+      const separatorIndex = declaration.indexOf(":");
+      if (separatorIndex <= 0) return "";
+      const property = declaration.slice(0, separatorIndex).trim();
+      const normalizedProperty = normalizeCssProperty(property);
+      if (!normalizedProperty || CHAT_CSS_LAYOUT_ESCAPE_PROPERTIES.has(normalizedProperty)) return "";
+      const value = declaration
+        .slice(separatorIndex + 1)
+        .replace(/!important/gi, "")
+        .trim();
+      if (!value) return "";
+      if (CHAT_CSS_SIZE_PROPERTIES.has(normalizedProperty) && isRunawaySizeValue(value)) return "";
+      if (/url\s*\(\s*(['"]?)(?!data:image\/|https?:\/\/)[^)]+\)/i.test(value)) return "";
+      return `${property}: ${value}`;
+    })
+    .filter(Boolean)
+    .join("; ");
+}
+
+function sanitizeChatCssDeclarationBlocks(css: string): string {
+  return css.replace(/\{([^{}]*)\}/g, (_match, declarations: string) => {
+    const sanitized = sanitizeChatStyleDeclarations(declarations);
+    return sanitized ? `{${sanitized}}` : "{}";
+  });
+}
+
+function sanitizeInlineStyleAttributes(html: string): string {
+  return html.replace(STYLE_ATTR_RE, (_match, quote: string, style: string) => {
+    const sanitized = sanitizeChatStyleDeclarations(style);
+    return sanitized ? ` style=${quote}${sanitized}${quote}` : "";
+  });
+}
 
 function sanitizeChatHtml(html: string, options: { allowStyle?: boolean } = {}) {
   const allowedAttr = options.allowStyle
@@ -532,19 +622,21 @@ function extractChatStyleBlocks(html: string): { html: string; css: string } {
   return { html: withoutStyles, css: cssBlocks.join("\n") };
 }
 
-function sanitizeChatCss(css: string): string {
-  return css
-    .replace(/<\/?style\b[^>]*>/gi, "")
-    .replace(/@import\s+[^;]+;?/gi, "")
-    .replace(/@namespace\s+[^;]+;?/gi, "")
-    .replace(/expression\s*\([^)]*\)/gi, "")
-    .replace(/javascript\s*:/gi, "")
-    .replace(/vbscript\s*:/gi, "")
-    .replace(/behavior\s*:/gi, "x-behavior:")
-    .replace(/-moz-binding\s*:/gi, "x-moz-binding:")
-    .replace(/url\s*\(\s*(['"]?)(?!data:image\/|https?:\/\/)[^)]+\)/gi, "none")
-    .replace(/<\/style/gi, "<\\/style")
-    .trim();
+export function sanitizeChatCss(css: string): string {
+  return sanitizeChatCssDeclarationBlocks(
+    css
+      .replace(/<\/?style\b[^>]*>/gi, "")
+      .replace(/@import\s+[^;]+;?/gi, "")
+      .replace(/@namespace\s+[^;]+;?/gi, "")
+      .replace(/expression\s*\([^)]*\)/gi, "")
+      .replace(/javascript\s*:/gi, "")
+      .replace(/vbscript\s*:/gi, "")
+      .replace(/behavior\s*:/gi, "x-behavior:")
+      .replace(/-moz-binding\s*:/gi, "x-moz-binding:")
+      .replace(/url\s*\(\s*(['"]?)(?!data:image\/|https?:\/\/)[^)]+\)/gi, "none")
+      .replace(/!important/gi, "")
+      .replace(/<\/style/gi, "<\\/style"),
+  ).trim();
 }
 
 function scopeChatCss(css: string, scopeSelector: string): string {
@@ -678,11 +770,17 @@ function renderContent(
 
   // Apply markdown-style bold/italic in HTML path
   const withMarkdown = applyInlineMarkdownHTML(withHr);
-  const finalHtml = sanitizeChatHtml(withMarkdown, { allowStyle: true });
+  const finalHtml = sanitizeInlineStyleAttributes(sanitizeChatHtml(withMarkdown, { allowStyle: true }));
   const scopedCss = scopeChatCss(rawStyleBlocks, `.${htmlScopeClass}`);
   const html = scopedCss ? `<style>${scopedCss}</style>${finalHtml}` : finalHtml;
 
-  return <div className={cn("overflow-hidden", htmlScopeClass)} dangerouslySetInnerHTML={{ __html: html }} />;
+  return (
+    <div
+      className={cn("max-w-full overflow-hidden", htmlScopeClass)}
+      style={{ contain: "layout paint" }}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
 }
 
 /** Build style object for name color (supports gradients). */

@@ -26,11 +26,7 @@ import { ApiError } from "../../../../shared/api/api-errors";
 import { visualAssetsApi } from "../../../../shared/api/visual-assets-api";
 import { requestImagePromptReview } from "../../../../shared/components/ui/ImagePromptReviewHost";
 import { useAgentStore, type PendingCardUpdate } from "../../../../shared/stores/agent.store";
-import {
-  formatAgentFailuresToast,
-  toAgentFailure,
-  type AgentFailure,
-} from "../../../../shared/lib/agent-failures";
+import { formatAgentFailuresToast, toAgentFailure, type AgentFailure } from "../../../../shared/lib/agent-failures";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useGameStateStore } from "../../world-state/index";
@@ -1099,13 +1095,13 @@ export async function runGenerationWithUi(
     });
   };
 
-  const stopGenerationUi = () => {
-    cancelTypewriterFrame();
-    pendingReveal = "";
-    typewriterActive = false;
-    resolveAllRevealWaiters();
+  let foregroundGenerationReleased = false;
+
+  const releaseForegroundGenerationUi = () => {
+    if (foregroundGenerationReleased) return;
     const state = useChatStore.getState();
     if (!ownsChatController()) return;
+    foregroundGenerationReleased = true;
     state.setAbortController(chatId, null);
     state.setMariPhase(chatId, "idle");
     if (state.streamingChatId === chatId) {
@@ -1120,6 +1116,14 @@ export async function runGenerationWithUi(
     }
   };
 
+  const stopGenerationUi = () => {
+    cancelTypewriterFrame();
+    pendingReveal = "";
+    typewriterActive = false;
+    resolveAllRevealWaiters();
+    releaseForegroundGenerationUi();
+  };
+
   controller.signal.addEventListener("abort", stopGenerationUi, { once: true });
 
   try {
@@ -1127,15 +1131,15 @@ export async function runGenerationWithUi(
     await options.beforeStart?.(args, controller.signal);
     if (controller.signal.aborted) throw new DOMException("The operation was aborted.", "AbortError");
     for await (const event of streamFactory(args, controller.signal)) {
-      if (!ownsChatController()) break;
+      if (!foregroundGenerationReleased && !ownsChatController()) break;
       switch (event.type) {
         case "phase":
-          if (typeof event.data === "string") {
+          if (!foregroundGenerationReleased && typeof event.data === "string") {
             useChatStore.getState().setGenerationPhase(event.data);
           }
           break;
         case "thinking":
-          if (typeof event.data === "string") {
+          if (!foregroundGenerationReleased && typeof event.data === "string") {
             if (!receivedThinking) {
               receivedThinking = true;
               const state = useChatStore.getState();
@@ -1148,7 +1152,7 @@ export async function runGenerationWithUi(
           break;
         case "token":
         case "delta":
-          if (typeof event.data === "string") {
+          if (!foregroundGenerationReleased && typeof event.data === "string") {
             received += event.data;
             enqueueVisibleStreamText(event.data);
           }
@@ -1156,8 +1160,11 @@ export async function runGenerationWithUi(
         case "message":
         case "user_message":
           if (event.data && typeof event.data === "object") {
+            if (event.type === "user_message") await flushVisibleStreamText();
             upsertCachedMessage(queryClient, chatId, event.data);
             scheduleChatQueryRefresh(queryClient, chatId);
+            releaseForegroundGenerationUi();
+            drainAgentResultEffects();
           }
           break;
         case "assistant_message":
@@ -1167,6 +1174,8 @@ export async function runGenerationWithUi(
             scheduleChatQueryRefresh(queryClient, chatId);
             const trackerTarget = trackerTargetFromMessagePayload(event.data);
             runDeferredGenerationWork("game state refresh", () => refreshGameStateFromStorage(chatId, trackerTarget));
+            releaseForegroundGenerationUi();
+            drainAgentResultEffects();
           }
           break;
         case "agent_result":
@@ -1218,6 +1227,7 @@ export async function runGenerationWithUi(
         }
         case "illustration": {
           toast("Illustration generated.");
+          scheduleChatQueryRefresh(queryClient, chatId);
           runDeferredGenerationWork("gallery refresh", () =>
             queryClient.invalidateQueries({ queryKey: ["gallery", "images", chatId] }),
           );
@@ -1271,26 +1281,33 @@ export function useGenerate() {
       image: {
         generate: async <T = unknown>(input: Record<string, unknown>) => {
           const kind = readString(input.kind).trim();
-          if (kind !== "selfie" || !useUIStore.getState().reviewImagePromptsBeforeSend) {
+          const reviewKind = kind === "selfie" || kind === "illustration" ? kind : null;
+          if (!reviewKind || !useUIStore.getState().reviewImagePromptsBeforeSend) {
             return integrationGateway.image.generate<T>(input);
           }
 
           const prompt = readString(input.prompt).trim();
           if (!prompt) return integrationGateway.image.generate<T>(input);
 
-          const id = readString(input.reviewId).trim() || `selfie-${Date.now()}`;
+          const id = readString(input.reviewId).trim() || `${reviewKind}-${Date.now()}`;
           const overrides = await requestImagePromptReview([
             {
               id,
-              kind: "selfie",
-              title: readString(input.reviewTitle).trim() || "Conversation selfie",
+              kind: reviewKind,
+              title:
+                readString(input.reviewTitle).trim() ||
+                (reviewKind === "illustration" ? "Scene illustration" : "Conversation selfie"),
               prompt,
               negativePrompt: readString(input.negativePrompt).trim(),
               width: readPositiveNumber(input.width, 512),
               height: readPositiveNumber(input.height, 768),
             },
           ]);
-          if (!overrides) throw new Error("Selfie generation cancelled.");
+          if (!overrides) {
+            throw new Error(
+              reviewKind === "illustration" ? "Illustration generation cancelled." : "Selfie generation cancelled.",
+            );
+          }
 
           const override = overrides.find((item) => item.id === id) ?? overrides[0];
           return integrationGateway.image.generate<T>({

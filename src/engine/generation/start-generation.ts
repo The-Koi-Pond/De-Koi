@@ -390,7 +390,234 @@ function illustrationSize(value: unknown): { width: number; height: number } {
   };
 }
 
-function illustratorPromptData(result: AgentResult): { prompt: string; reason: string } | null {
+type IllustrationPromptData = {
+  agentId: string;
+  prompt: string;
+  reason: string;
+  negativePrompt: string;
+  characterNames: string[];
+};
+
+type IllustrationImageSettings = {
+  connectionId: string;
+  positivePrompt: string;
+  negativePrompt: string;
+  useAvatarReferences: boolean;
+};
+
+type IllustrationReferenceSubject = {
+  id: string;
+  name: string;
+  appearance: string;
+  avatar: string;
+};
+
+type IllustrationReferenceData = {
+  referenceImages: string[];
+  appearanceNotes: string[];
+};
+
+function promptContainsTag(prompt: string, tag: string): boolean {
+  const normalizedPrompt = prompt.toLowerCase();
+  const normalizedTag = tag.toLowerCase();
+  if (!normalizedTag) return true;
+  if (normalizedPrompt.includes(normalizedTag)) return true;
+  const compactTag = normalizedTag.replace(/\s+/g, " ");
+  const compactPrompt = normalizedPrompt.replace(/[{}()[\]"']/g, " ").replace(/\s+/g, " ");
+  return compactPrompt.includes(compactTag);
+}
+
+function appendMissingPositiveTags(prompt: string, positive: string): string {
+  const basePrompt = prompt.trim();
+  const tags = positive
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+  if (!basePrompt || tags.length === 0) return basePrompt;
+
+  const missing = tags.filter((tag) => !promptContainsTag(basePrompt, tag));
+  return missing.length > 0 ? `${basePrompt}, ${missing.join(", ")}` : basePrompt;
+}
+
+function combinedPromptParts(parts: string[]): string {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const part of parts) {
+    const text = part.trim();
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(text);
+  }
+  return result.join(", ");
+}
+
+function usableReferenceImage(value: unknown): string {
+  const text = readString(value).trim();
+  if (!text) return "";
+  if (text.startsWith("data:image/")) return text;
+  if (/^[A-Za-z0-9+/=\s]+$/.test(text) && text.replace(/\s+/g, "").length > 80) return text;
+  return "";
+}
+
+function compactAppearance(value: unknown, limit = 360): string {
+  const text = collapseExcessBlankLines(readString(value)).replace(/\s+/g, " ").trim();
+  return text.length > limit ? `${text.slice(0, limit - 3).trimEnd()}...` : text;
+}
+
+function recordName(record: JsonRecord): string {
+  const data = parseRecord(record.data);
+  return readString(data.name).trim() || readString(record.name).trim();
+}
+
+function recordAppearance(record: JsonRecord): string {
+  const data = parseRecord(record.data);
+  const extensions = parseRecord(data.extensions);
+  return compactAppearance(
+    readString(extensions.appearance).trim() ||
+      readString(data.appearance).trim() ||
+      readString(data.description).trim() ||
+      readString(record.description).trim(),
+  );
+}
+
+function recordAvatar(record: JsonRecord): string {
+  const data = parseRecord(record.data);
+  return usableReferenceImage(
+    record.avatarPath ?? record.avatar ?? record.avatarUrl ?? data.avatarPath ?? data.avatar ?? data.avatarUrl,
+  );
+}
+
+function matchesIllustrationSubject(subject: IllustrationReferenceSubject, item: IllustrationPromptData): boolean {
+  const name = subject.name.trim().toLowerCase();
+  if (!name) return false;
+  const requestedNames = item.characterNames.map((entry) => entry.trim().toLowerCase()).filter(Boolean);
+  if (requestedNames.length > 0) {
+    return requestedNames.some(
+      (requested) => requested === name || requested.includes(name) || name.includes(requested),
+    );
+  }
+  const prompt = item.prompt.toLowerCase();
+  if (prompt.includes(name)) return true;
+  return name
+    .split(/\s+/)
+    .filter((part) => part.length > 2)
+    .some((part) => prompt.includes(part));
+}
+
+function fullBodySpriteReference(sprites: Array<Record<string, unknown>>): string {
+  const fullBody = sprites.filter((sprite) => readString(sprite.expression).trim().toLowerCase().startsWith("full_"));
+  const preferred =
+    fullBody.find((sprite) =>
+      ["full_idle", "full_neutral", "full_default"].includes(readString(sprite.expression).trim().toLowerCase()),
+    ) ?? fullBody[0];
+  return usableReferenceImage(preferred?.url ?? preferred?.image ?? preferred?.base64);
+}
+
+async function defaultIllustratorImageConnectionId(storage: StorageGateway): Promise<string> {
+  const connections = await storage.list<JsonRecord>("connections").catch(() => []);
+  const connection = connections.find(
+    (item) => readString(item.provider).trim() === "image_generation" && boolish(item.defaultForAgents, false),
+  );
+  return readString(connection?.id).trim();
+}
+
+async function illustratorAgentSettings(storage: StorageGateway, agentId: string): Promise<JsonRecord> {
+  const direct = agentId ? await storage.get<JsonRecord>("agents", agentId).catch(() => null) : null;
+  if (isRecord(direct)) return parseRecord(direct.settings);
+  const agents = await storage.list<JsonRecord>("agents").catch(() => []);
+  const agent = agents.find(
+    (item) => readString(item.id).trim() === agentId || readString(item.type).trim() === "illustrator",
+  );
+  return isRecord(agent) ? parseRecord(agent.settings) : {};
+}
+
+async function illustrationImageSettings(args: {
+  storage: StorageGateway;
+  chat: JsonRecord;
+  item: IllustrationPromptData;
+}): Promise<IllustrationImageSettings> {
+  const meta = parseRecord(args.chat.metadata);
+  const settings = await illustratorAgentSettings(args.storage, args.item.agentId);
+  const connectionId =
+    readString(settings.imageConnectionId).trim() ||
+    readString(meta.illustrationImageConnectionId).trim() ||
+    readString(meta.imageGenConnectionId).trim() ||
+    (await defaultIllustratorImageConnectionId(args.storage));
+  return {
+    connectionId,
+    positivePrompt:
+      readString(settings.imagePositivePrompt).trim() || readString(meta.illustrationPositivePrompt).trim(),
+    negativePrompt: combinedPromptParts([
+      args.item.negativePrompt,
+      readString(settings.imageNegativePrompt).trim(),
+      readString(meta.illustrationNegativePrompt).trim(),
+      readString(meta.selfieNegativePrompt).trim(),
+    ]),
+    useAvatarReferences:
+      boolish(settings.useAvatarReferences, false) || boolish(meta.illustrationUseAvatarReferences, false),
+  };
+}
+
+async function loadIllustrationReferenceSubjects(
+  storage: StorageGateway,
+  chat: JsonRecord,
+): Promise<IllustrationReferenceSubject[]> {
+  const characterRows = await Promise.all(
+    activeCharacterIds(chat).map((id) => storage.get<JsonRecord>("characters", id).catch(() => null)),
+  );
+  const subjects = characterRows.filter(isRecord).map((row) => ({
+    id: readString(row.id).trim(),
+    name: recordName(row),
+    appearance: recordAppearance(row),
+    avatar: recordAvatar(row),
+  }));
+  const personaId = readString(chat.personaId).trim();
+  const persona = personaId ? await storage.get<JsonRecord>("personas", personaId).catch(() => null) : null;
+  if (isRecord(persona)) {
+    subjects.push({
+      id: personaId || readString(persona.id).trim(),
+      name: recordName(persona),
+      appearance: recordAppearance(persona),
+      avatar: recordAvatar(persona),
+    });
+  }
+  return subjects.filter((subject) => subject.id && subject.name);
+}
+
+async function illustrationReferenceData(args: {
+  storage: StorageGateway;
+  visuals?: VisualAssetGateway;
+  chat: JsonRecord;
+  item: IllustrationPromptData;
+  includeAppearances: boolean;
+  useAvatarReferences: boolean;
+}): Promise<IllustrationReferenceData> {
+  const subjects = (await loadIllustrationReferenceSubjects(args.storage, args.chat)).filter((subject) =>
+    matchesIllustrationSubject(subject, args.item),
+  );
+  const referenceImages: string[] = [];
+  const appearanceNotes: string[] = [];
+  for (const subject of subjects) {
+    if (args.includeAppearances && subject.appearance) {
+      appearanceNotes.push(`${subject.name}: ${subject.appearance}`);
+    }
+    if (!args.useAvatarReferences) continue;
+    const sprites = args.visuals ? await args.visuals.listSprites(subject.id).catch(() => []) : [];
+    const spriteReference = fullBodySpriteReference(sprites as Array<Record<string, unknown>>);
+    const reference = spriteReference || subject.avatar;
+    if (reference) referenceImages.push(reference);
+  }
+  return { referenceImages, appearanceNotes };
+}
+
+function appendAppearanceNotes(prompt: string, notes: string[]): string {
+  if (notes.length === 0) return prompt.trim();
+  return `${prompt.trim()}\n\nVisible character appearance notes:\n${notes.map((note) => `- ${note}`).join("\n")}`;
+}
+
+function illustratorPromptData(result: AgentResult): IllustrationPromptData | null {
   if (result.agentType !== "illustrator" && result.type !== "image_prompt") return null;
   if (!result.success) return null;
   const data = parseRecord(result.data);
@@ -398,8 +625,11 @@ function illustratorPromptData(result: AgentResult): { prompt: string; reason: s
   const prompt = readString(data.prompt ?? data.imagePrompt ?? data.positivePrompt).trim();
   if (!prompt) return null;
   return {
+    agentId: result.agentId,
     prompt,
     reason: readString(data.reason).trim(),
+    negativePrompt: readString(data.negativePrompt ?? data.negative_prompt).trim(),
+    characterNames: stringArray(data.characters ?? data.characterNames ?? data.visibleCharacters),
   };
 }
 
@@ -407,35 +637,46 @@ async function generateIllustrationAttachments(args: {
   deps: GenerationEngineDeps;
   chat: JsonRecord;
   results: AgentResult[];
+  imagePromptSettings?: StartGenerationInput["imagePromptSettings"];
   signal?: AbortSignal;
 }): Promise<{ attachments: JsonRecord[]; events: GenerationEvent[] }> {
   const attachments: JsonRecord[] = [];
   const events: GenerationEvent[] = [];
   const meta = parseRecord(args.chat.metadata);
-  const connectionId = readString(meta.imageGenConnectionId).trim();
-  const prompts = args.results
-    .map(illustratorPromptData)
-    .filter((value): value is { prompt: string; reason: string } => !!value);
+  const prompts = args.results.map(illustratorPromptData).filter((value): value is IllustrationPromptData => !!value);
   if (prompts.length === 0) return { attachments, events };
 
-  if (!connectionId) {
-    events.push({
-      type: "illustration_error",
-      data: { error: "No image generation connection configured for this chat." },
-    });
-    return { attachments, events };
-  }
   if (!args.deps.integrations?.image) {
     events.push({ type: "illustration_error", data: { error: "Image generation is not available." } });
     return { attachments, events };
   }
 
   const size = illustrationSize(meta.illustrationResolution ?? meta.selfieResolution);
-  const negativePrompt = readString(meta.illustrationNegativePrompt ?? meta.selfieNegativePrompt).trim();
+  const includeAppearances = args.imagePromptSettings?.includeAppearances !== false;
   for (let index = 0; index < prompts.length; index += 1) {
     throwIfAborted(args.signal);
     const item = prompts[index]!;
     try {
+      const settings = await illustrationImageSettings({ storage: args.deps.storage, chat: args.chat, item });
+      if (!settings.connectionId) {
+        events.push({
+          type: "illustration_error",
+          data: { error: "No image generation connection configured for the Illustrator agent." },
+        });
+        continue;
+      }
+      const referenceData = await illustrationReferenceData({
+        storage: args.deps.storage,
+        visuals: args.deps.visuals,
+        chat: args.chat,
+        item,
+        includeAppearances,
+        useAvatarReferences: settings.useAvatarReferences,
+      });
+      const prompt = appendAppearanceNotes(
+        appendMissingPositiveTags(item.prompt, settings.positivePrompt),
+        referenceData.appearanceNotes,
+      );
       const image = await args.deps.integrations.image.generate<{
         base64?: string;
         mimeType?: string;
@@ -443,14 +684,15 @@ async function generateIllustrationAttachments(args: {
         provider?: string;
         model?: string;
       }>({
-        connectionId,
+        connectionId: settings.connectionId,
         kind: "illustration",
         reviewId: `illustration:${readString(args.chat.id)}:${index}`,
         reviewTitle: "Scene illustration",
-        prompt: item.prompt,
-        negativePrompt: negativePrompt || undefined,
+        prompt,
+        negativePrompt: settings.negativePrompt || undefined,
         width: size.width,
         height: size.height,
+        ...(referenceData.referenceImages.length > 0 ? { referenceImages: referenceData.referenceImages } : {}),
       });
       throwIfAborted(args.signal);
       const mimeType = image.mimeType || "image/png";
@@ -464,17 +706,20 @@ async function generateIllustrationAttachments(args: {
         filePath: filename,
         filename,
         url: imageUrl,
-        prompt: item.prompt,
+        prompt,
         provider: image.provider ?? "image_generation",
         model: image.model ?? null,
         width: size.width,
         height: size.height,
+        kind: "illustration",
+        characters: item.characterNames,
+        referenceImageCount: referenceData.referenceImages.length,
       });
       const attachment = {
         type: "image",
         url: imageUrl,
         filename,
-        prompt: item.prompt,
+        prompt,
         galleryId: readString(gallery.id) || null,
       };
       attachments.push(attachment);
@@ -482,7 +727,7 @@ async function generateIllustrationAttachments(args: {
         type: "illustration",
         data: {
           imageUrl,
-          prompt: item.prompt,
+          prompt,
           reason: item.reason,
           galleryId: readString(gallery.id) || null,
         },
@@ -1429,6 +1674,51 @@ function messageId(saved: unknown): string | null {
   return isRecord(saved) ? readString(saved.id) || null : null;
 }
 
+function savedMessageExtra(saved: unknown): JsonRecord {
+  return isRecord(saved) ? parseRecord(saved.extra) : {};
+}
+
+function savedMessageAttachments(saved: unknown): JsonRecord[] {
+  const attachments = savedMessageExtra(saved).attachments;
+  if (!Array.isArray(attachments)) return [];
+  return attachments.filter((attachment): attachment is JsonRecord => isRecord(attachment));
+}
+
+async function patchSavedMessageAgentExtra(args: {
+  storage: StorageGateway;
+  saved: unknown;
+  results: AgentResult[];
+  contextInjections?: AgentInjectionOverride[] | null;
+  spriteExpressions?: Record<string, string> | null;
+}): Promise<unknown | null> {
+  const id = messageId(args.saved);
+  if (!id) return null;
+  const existingExtra = savedMessageExtra(args.saved);
+  const extraPatch = agentExtraFromResults({
+    results: args.results,
+    contextInjections: args.contextInjections,
+    existingExtra,
+    mergeContextInjectionUpdates: true,
+  });
+  if (args.spriteExpressions && Object.keys(args.spriteExpressions).length > 0) {
+    extraPatch.spriteExpressions = args.spriteExpressions;
+  }
+  if (Object.keys(extraPatch).length === 0) return null;
+  return args.storage.patchChatMessageExtra(id, extraPatch);
+}
+
+async function appendSavedMessageAttachments(args: {
+  storage: StorageGateway;
+  saved: unknown;
+  attachments: JsonRecord[];
+}): Promise<unknown | null> {
+  const id = messageId(args.saved);
+  if (!id || args.attachments.length === 0) return null;
+  return args.storage.patchChatMessageExtra(id, {
+    attachments: [...savedMessageAttachments(args.saved), ...args.attachments],
+  });
+}
+
 async function persistAgentMessageExtraForTarget(
   storage: StorageGateway,
   target: JsonRecord | null,
@@ -1928,27 +2218,8 @@ export async function* startGeneration(
     throwIfAborted(signal);
     let content = streamedContent;
 
-    const parallelResults = await parallelAgents;
-    throwIfAborted(signal);
-    const postResults = runtime ? await runtime.runPost(content) : [];
-    throwIfAborted(signal);
-    const emittedAgentResults = uniqueAgentResults([...parallelResults, ...postResults, ...agentEvents]);
-    for (const result of emittedAgentResults) {
-      yield { type: "agent_result", data: result };
-    }
-    agentEvents.length = 0;
-    const allAgentResults = uniqueAgentResults([...(runtime?.preResults ?? []), ...emittedAgentResults]);
-    const spriteExpressions = spriteExpressionsFromAgentResults(allAgentResults);
-    const hasIllustrationRequest = emittedAgentResults.some((result) => illustratorPromptData(result) !== null);
-    if (hasIllustrationRequest) yield { type: "phase", data: "Generating illustration..." };
-    const illustration = await generateIllustrationAttachments({
-      deps,
-      chat,
-      results: emittedAgentResults,
-      signal,
-    });
-    throwIfAborted(signal);
-    for (const event of illustration.events) yield event;
+    const preSaveAgentResults = uniqueAgentResults(runtime?.preResults ?? []);
+    const preSaveSpriteExpressions = spriteExpressionsFromAgentResults(preSaveAgentResults);
     content = await applyRuntimeRegexScripts(deps.storage, "ai_output", content);
     throwIfAborted(signal);
     const connected = await persistConnectedCommandTags(
@@ -1971,15 +2242,16 @@ export async function* startGeneration(
           connection,
           content: connected.displayContent,
           thinking: streamedThinking,
-          agentResults: allAgentResults,
+          agentResults: preSaveAgentResults,
           noteCount: connected.createdNotes.length + connected.executedCommands.length,
           chatSummaryFingerprint: assembly.chatSummaryFingerprint,
-          attachments: [...connected.assistantAttachments, ...illustration.attachments],
+          attachments: connected.assistantAttachments,
           usage,
           promptSnapshot,
-          spriteExpressions,
+          spriteExpressions: preSaveSpriteExpressions,
           contextInjections: runtime?.preInjections ?? null,
         });
+    let latestSaved = saved;
     if (saved && input.impersonate !== true) {
       await mirrorSavedAssistantMessageToDiscord({
         deps,
@@ -1989,13 +2261,65 @@ export async function* startGeneration(
         content: connected.displayContent,
         characters: assembly.characters,
       });
-      await persistTrackerSnapshotSafely(deps.storage, chatId, saved, allAgentResults, generationTrackerBaseline);
     }
     if (saved) yield { type: savedGenerationEventType(input), data: saved };
     throwIfAborted(signal);
+
+    const parallelResults = await parallelAgents;
+    throwIfAborted(signal);
+    const postResults = runtime ? await runtime.runPost(content) : [];
+    throwIfAborted(signal);
+    const emittedAgentResults = uniqueAgentResults([...parallelResults, ...postResults, ...agentEvents]);
+    for (const result of emittedAgentResults) {
+      yield { type: "agent_result", data: result };
+    }
+    agentEvents.length = 0;
+    const allAgentResults = uniqueAgentResults([...preSaveAgentResults, ...emittedAgentResults]);
+    const spriteExpressions = spriteExpressionsFromAgentResults(allAgentResults);
+    if (saved) {
+      const patched = await patchSavedMessageAgentExtra({
+        storage: deps.storage,
+        saved: latestSaved,
+        results: allAgentResults,
+        contextInjections: runtime?.preInjections ?? null,
+        spriteExpressions,
+      });
+      if (patched) {
+        latestSaved = patched;
+        yield { type: savedGenerationEventType(input), data: patched };
+      }
+    }
+
+    const hasIllustrationRequest = emittedAgentResults.some((result) => illustratorPromptData(result) !== null);
+    if (saved && hasIllustrationRequest) {
+      yield { type: "phase", data: "Generating illustration..." };
+      const illustration = await generateIllustrationAttachments({
+        deps,
+        chat,
+        results: emittedAgentResults,
+        imagePromptSettings: input.imagePromptSettings,
+        signal,
+      });
+      throwIfAborted(signal);
+      for (const event of illustration.events) yield event;
+      const patched = await appendSavedMessageAttachments({
+        storage: deps.storage,
+        saved: latestSaved,
+        attachments: illustration.attachments,
+      });
+      if (patched) {
+        latestSaved = patched;
+        yield { type: savedGenerationEventType(input), data: patched };
+      }
+    }
+    throwIfAborted(signal);
+    if (saved && input.impersonate !== true) {
+      await persistTrackerSnapshotSafely(deps.storage, chatId, latestSaved, allAgentResults, generationTrackerBaseline);
+    }
+    throwIfAborted(signal);
     await persistSecretPlotAgentMemorySafely(deps.storage, chatId, allAgentResults);
     throwIfAborted(signal);
-    await persistAgentResults(deps.storage, chatId, messageId(saved), allAgentResults);
+    await persistAgentResults(deps.storage, chatId, messageId(latestSaved), allAgentResults);
     throwIfAborted(signal);
     if (saved && input.impersonate !== true) {
       const autoLorebookResults = await runLorebookKeeperBackfill(

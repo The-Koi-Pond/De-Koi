@@ -211,4 +211,47 @@ describe("runGenerationWithUi", () => {
     });
     expect(worldStateApiMock.patch).not.toHaveBeenCalled();
   });
+
+  it("releases foreground generation after the saved assistant message while background events continue", async () => {
+    const queryClient = queryClientWithChat();
+    let resolveAfterAssistantHandled: () => void = () => undefined;
+    let resolveBackground: () => void = () => undefined;
+    const afterAssistantHandled = new Promise<void>((resolve) => {
+      resolveAfterAssistantHandled = resolve;
+    });
+    const backgroundGate = new Promise<void>((resolve) => {
+      resolveBackground = resolve;
+    });
+
+    const streamFactory = vi.fn<TestStreamFactory>(async function* () {
+      yield { type: "token", data: "Hello" };
+      yield {
+        type: "assistant_message",
+        data: {
+          id: "message-1",
+          chatId: "chat-1",
+          role: "assistant",
+          content: "Hello",
+          extra: {},
+        },
+      };
+      resolveAfterAssistantHandled();
+      await backgroundGate;
+      yield { type: "illustration", data: { galleryId: "gallery-1" } };
+      yield { type: "done" };
+    });
+
+    const generation = runGenerationWithUi(queryClient, { chatId: "chat-1" }, streamFactory);
+    await afterAssistantHandled;
+
+    const state = useChatStore.getState();
+    expect(state.abortControllers.has("chat-1")).toBe(false);
+    expect(state.isStreaming).toBe(false);
+    expect(state.streamingChatId).toBe(null);
+    expect(state.streamBuffer).toBe("Hello");
+    expect(useAgentStore.getState().isProcessing).toBe(false);
+
+    resolveBackground();
+    await expect(generation).resolves.toBe(true);
+  });
 });

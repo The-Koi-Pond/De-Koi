@@ -238,7 +238,9 @@ function getTrackerTemperatureUnitOption(unit: TrackerTemperatureUnit) {
 
 function getNextTrackerTemperatureUnit(unit: TrackerTemperatureUnit): TrackerTemperatureUnit {
   const currentIndex = TRACKER_TEMPERATURE_UNIT_OPTIONS.findIndex((option) => option.id === unit);
-  return TRACKER_TEMPERATURE_UNIT_OPTIONS[(currentIndex + 1) % TRACKER_TEMPERATURE_UNIT_OPTIONS.length]?.id ?? "celsius";
+  return (
+    TRACKER_TEMPERATURE_UNIT_OPTIONS[(currentIndex + 1) % TRACKER_TEMPERATURE_UNIT_OPTIONS.length]?.id ?? "celsius"
+  );
 }
 
 const TRACKER_THOUGHT_BUBBLE_DISPLAY_OPTIONS: Array<{
@@ -683,9 +685,7 @@ function TrackerPanelAppearanceDrawer({
                 key={option.id}
                 className={cn(
                   "relative z-10 text-center transition-colors",
-                  trackerTemperatureUnit === option.id
-                    ? "text-[var(--foreground)]"
-                    : "text-[var(--muted-foreground)]",
+                  trackerTemperatureUnit === option.id ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]",
                 )}
               >
                 {option.label}
@@ -1156,7 +1156,7 @@ function GeneralSettings() {
             label="Expose image prompts before sending"
             checked={reviewImagePromptsBeforeSend}
             onChange={setReviewImagePromptsBeforeSend}
-            help="Shows generated image prompts for review before sending Game assets, character or persona avatars, sprites, and chat selfies to the image provider."
+            help="Shows generated image prompts for review before sending Game assets, character or persona avatars, sprites, chat selfies, and Roleplay Illustrator images to the image provider."
           />
           <ToggleSetting
             label="Include card appearances"

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DiscordGateway } from "../capabilities/integrations";
+import type { DiscordGateway, IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
+import type { VisualAssetGateway } from "../capabilities/visual-assets";
 import { fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { retryGenerationAgents, startGeneration, type GenerationEngineDeps } from "./start-generation";
 
@@ -44,6 +45,9 @@ function generationDepsForChat(
     promptSections?: Record<string, unknown>[];
     promptVariables?: Record<string, unknown>[];
     completeResponse?: string;
+    streamResponses?: string[];
+    integrations?: Partial<IntegrationGateway>;
+    visuals?: VisualAssetGateway;
   } = {},
 ) {
   const chat = {
@@ -70,18 +74,23 @@ function generationDepsForChat(
   const streamedRequests: unknown[] = [];
   const completedRequests: unknown[] = [];
   const stream: LlmGateway["stream"] = vi.fn(async function* (request) {
+    const response = options.streamResponses?.[streamedRequests.length] ?? "Done.";
     streamedRequests.push(request);
-    yield { type: "token" as const, text: "Done." };
+    yield { type: "token" as const, text: response };
   });
   const complete: LlmGateway["complete"] = vi.fn(async (request) => {
     completedRequests.push(request);
     return options.completeResponse ?? '{"characterIds":[]}';
   });
   const createChatMessage = vi.fn(async (_chatId: string, value: Record<string, unknown>) => {
-    if (value.role === "user") {
-      return options.savedUserMessage ?? { id: "user-1", chatId: "chat-1", ...value };
+    const saved =
+      value.role === "user"
+        ? (options.savedUserMessage ?? { id: "user-1", chatId: "chat-1", ...value })
+        : { id: "assistant-2", chatId: "chat-1", ...value };
+    if (saved && typeof saved === "object" && "id" in saved) {
+      messagesById.set(String(saved.id), saved as Record<string, unknown>);
     }
-    return { id: "assistant-2", chatId: "chat-1", ...value };
+    return saved;
   });
   const addChatMessageSwipe = vi.fn(
     async (
@@ -100,13 +109,17 @@ function generationDepsForChat(
       extra: options?.activate === false ? messagesById.get(messageId)?.extra : options?.extra,
     }),
   );
-  const patchChatMessageExtra = vi.fn(async (messageId: string, patch: Record<string, unknown>) => ({
-    ...messagesById.get(messageId),
-    extra: {
-      ...((messagesById.get(messageId)?.extra as Record<string, unknown> | undefined) ?? {}),
-      ...patch,
-    },
-  }));
+  const patchChatMessageExtra = vi.fn(async (messageId: string, patch: Record<string, unknown>) => {
+    const updated = {
+      ...messagesById.get(messageId),
+      extra: {
+        ...((messagesById.get(messageId)?.extra as Record<string, unknown> | undefined) ?? {}),
+        ...patch,
+      },
+    };
+    messagesById.set(messageId, updated);
+    return updated;
+  });
   const storage = {
     get: vi.fn(async (entity: string, id: string) => {
       if (entity === "chats" && id === "chat-1") return chat;
@@ -132,7 +145,10 @@ function generationDepsForChat(
       }
       return [];
     }),
-    create: vi.fn(async (_entity: string, value: Record<string, unknown>) => value),
+    create: vi.fn(async (entity: string, value: Record<string, unknown>) => ({
+      id: entity === "gallery" ? "gallery-1" : `${entity}-1`,
+      ...value,
+    })),
     createChatMessage,
     addChatMessageSwipe,
     patchChatMessageExtra,
@@ -144,7 +160,8 @@ function generationDepsForChat(
   const deps: GenerationEngineDeps = {
     storage,
     llm: { stream, complete } as Partial<LlmGateway> as LlmGateway,
-    integrations: {} as GenerationEngineDeps["integrations"],
+    integrations: (options.integrations ?? {}) as GenerationEngineDeps["integrations"],
+    visuals: options.visuals,
   };
   return {
     deps,
@@ -1235,6 +1252,153 @@ describe("startGeneration automatic Illustrator cadence", () => {
 
     expect(streamedRequests).toHaveLength(2);
   });
+
+  it("uses Illustrator image settings and reference images when creating roleplay illustrations", async () => {
+    const imageRequests: Record<string, unknown>[] = [];
+    const imageGenerate: IntegrationGateway["image"]["generate"] = async <T = unknown>(
+      input: Record<string, unknown>,
+    ): Promise<T> => {
+      imageRequests.push(input);
+      return {
+        base64: "generated-image",
+        mimeType: "image/png",
+        provider: "test-image-provider",
+        model: "test-image-model",
+      } as T;
+    };
+    const visuals: VisualAssetGateway = {
+      listSprites: vi.fn(async (characterId: string) =>
+        characterId === "char-dottore"
+          ? [
+              { expression: "neutral", url: "data:image/png;base64,portrait-sprite" },
+              { expression: "full_idle", url: "data:image/png;base64,full-body-sprite" },
+            ]
+          : [],
+      ),
+      listBackgrounds: vi.fn(async () => []),
+    };
+    const illustratorResponse = JSON.stringify({
+      shouldGenerate: true,
+      reason: "Important visual beat",
+      prompt: "Dottore and Mari in a moonlit laboratory confrontation",
+      negativePrompt: "low detail",
+    });
+    const { deps, createChatMessage, patchChatMessageExtra } = generationDepsForChat({
+      chatPatch: {
+        mode: "roleplay",
+        characterIds: ["char-dottore"],
+        personaId: "persona-mari",
+      },
+      chatMetadata: {
+        enableAgents: true,
+        illustrationResolution: "768x1024",
+      },
+      characters: [
+        {
+          id: "char-dottore",
+          name: "Il Dottore",
+          avatarPath: "data:image/png;base64,dottore-avatar",
+          data: {
+            name: "Il Dottore",
+            appearance: "blue hair, red eyes, white coat, black mask",
+          },
+        },
+      ],
+      personas: [
+        {
+          id: "persona-mari",
+          name: "Mari",
+          avatarPath: "data:image/png;base64,mari-avatar",
+          data: {
+            name: "Mari",
+            appearance: "brown hair, silver glasses, lab dress",
+          },
+        },
+      ],
+      agents: [
+        {
+          id: "illustrator-agent",
+          type: "illustrator",
+          name: "Illustrator",
+          enabled: true,
+          phase: "post_processing",
+          connectionId: null,
+          model: "agent-model",
+          promptTemplate: "Return JSON.",
+          settings: {
+            runInterval: 1,
+            imageConnectionId: "image-conn",
+            imagePositivePrompt: "painterly, dramatic lighting",
+            imageNegativePrompt: "bad anatomy",
+            useAvatarReferences: true,
+          },
+        },
+      ],
+      streamResponses: ["Done.", illustratorResponse],
+      integrations: {
+        image: { generate: imageGenerate },
+      },
+      visuals,
+    });
+
+    const events = await collectGeneration(
+      startGeneration(deps, {
+        chatId: "chat-1",
+        userMessage: "continue",
+        imagePromptSettings: { includeAppearances: true },
+      }),
+    );
+
+    expect(imageRequests).toHaveLength(1);
+    const imageRequest = imageRequests[0];
+    expect(imageRequest).toMatchObject({
+      connectionId: "image-conn",
+      kind: "illustration",
+      width: 768,
+      height: 1024,
+      negativePrompt: "low detail, bad anatomy",
+      referenceImages: ["data:image/png;base64,full-body-sprite", "data:image/png;base64,mari-avatar"],
+    });
+    expect(String(imageRequest.prompt)).toContain("Dottore and Mari");
+    expect(String(imageRequest.prompt)).toContain("Il Dottore: blue hair");
+    expect(String(imageRequest.prompt)).toContain("Mari: brown hair");
+    expect(String(imageRequest.prompt)).toContain("painterly");
+
+    const assistantSave = createChatMessage.mock.calls.find(([, value]) => value.role === "assistant");
+    expect((assistantSave?.[1] as { extra?: { attachments?: unknown[] } } | undefined)?.extra?.attachments).toBe(
+      undefined,
+    );
+    expect(patchChatMessageExtra).toHaveBeenCalledWith(
+      "assistant-2",
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({
+            type: "image",
+            url: "data:image/png;base64,generated-image",
+            galleryId: "gallery-1",
+            prompt: imageRequest.prompt,
+          }),
+        ],
+      }),
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "illustration",
+          data: expect.objectContaining({ galleryId: "gallery-1", prompt: imageRequest.prompt }),
+        }),
+      ]),
+    );
+    expect(deps.storage.create).toHaveBeenCalledWith(
+      "gallery",
+      expect.objectContaining({
+        chatId: "chat-1",
+        kind: "illustration",
+        prompt: imageRequest.prompt,
+        referenceImageCount: 2,
+      }),
+    );
+  });
 });
 
 describe("startGeneration automatic custom agent cadence", () => {
@@ -1485,7 +1649,7 @@ describe("startGeneration agent runtime parity", () => {
 
   it("does not duplicate parallel agent results from callback and return paths", async () => {
     const events: unknown[] = [];
-    const { deps, createChatMessage } = generationDepsForChat({
+    const { deps } = generationDepsForChat({
       chatMetadata: { enableAgents: true },
       agents: [
         {
@@ -1508,12 +1672,6 @@ describe("startGeneration agent runtime parity", () => {
 
     const agentEvents = events.filter((event) => (event as { type?: string }).type === "agent_result");
     expect(agentEvents).toHaveLength(1);
-    const assistantCreate = createChatMessage.mock.calls.find(
-      (call) => (call[1] as { role?: unknown }).role === "assistant",
-    );
-    expect(assistantCreate?.[1]).toMatchObject({
-      generationInfo: { agentResults: 1 },
-    });
     expect(deps.storage.create).toHaveBeenCalledWith(
       "agent-runs",
       expect.objectContaining({
@@ -1526,7 +1684,7 @@ describe("startGeneration agent runtime parity", () => {
   });
 
   it("stores expression agent choices on generated assistant message metadata", async () => {
-    const { deps, createChatMessage } = generationDepsForChat({
+    const { deps, patchChatMessageExtra } = generationDepsForChat({
       chatPatch: { mode: "roleplay", characterIds: ["char-dottore"] },
       chatMetadata: { enableAgents: true },
       characters: [{ id: "char-dottore", data: { name: "Dottore", description: "Fatui scientist." } }],
@@ -1565,21 +1723,68 @@ describe("startGeneration agent runtime parity", () => {
 
     await drainGeneration(startGeneration(deps, { chatId: "chat-1", userMessage: "hello" }));
 
-    const assistantCreate = createChatMessage.mock.calls.find(
-      (call) => (call[1] as { role?: unknown }).role === "assistant",
-    );
-    expect(assistantCreate?.[1]).toMatchObject({
-      extra: {
+    expect(patchChatMessageExtra).toHaveBeenCalledWith(
+      "assistant-2",
+      expect.objectContaining({
         spriteExpressions: {
           "char-dottore": "smirk",
           Dottore: "smirk",
         },
-      },
+      }),
+    );
+  });
+
+  it("saves the assistant message before waiting for post-processing agents", async () => {
+    const { deps, createChatMessage, patchChatMessageExtra } = generationDepsForChat({
+      chatPatch: { mode: "roleplay" },
+      chatMetadata: { enableAgents: true },
+      agents: [
+        {
+          id: "cyoa",
+          type: "cyoa",
+          name: "CYOA Choices",
+          enabled: true,
+          phase: "post_processing",
+          connectionId: null,
+          model: "agent-model",
+          promptTemplate: "Offer choices.",
+          settings: {},
+        },
+      ],
     });
+    const callOrder: string[] = [];
+    let turn = 0;
+    deps.llm = {
+      ...deps.llm,
+      stream: vi.fn(async function* () {
+        if (turn === 0) {
+          turn += 1;
+          yield { type: "token" as const, text: "Assistant reply." };
+          return;
+        }
+        callOrder.push("post-agent-started");
+        turn += 1;
+        yield { type: "token" as const, text: JSON.stringify({ choices: [{ label: "Look", text: "I look." }] }) };
+      }),
+    };
+    createChatMessage.mockImplementation(async (_chatId: string, value: Record<string, unknown>) => {
+      callOrder.push(`save-${String(value.role)}`);
+      return { id: value.role === "assistant" ? "assistant-2" : "user-1", chatId: "chat-1", ...value };
+    });
+
+    await drainGeneration(startGeneration(deps, { chatId: "chat-1", userMessage: "hello" }));
+
+    expect(callOrder).toEqual(["save-user", "save-assistant", "post-agent-started"]);
+    expect(patchChatMessageExtra).toHaveBeenCalledWith(
+      "assistant-2",
+      expect.objectContaining({
+        cyoaChoices: [{ label: "Look", text: "I look." }],
+      }),
+    );
   });
 
   it("persists CYOA choices and pre-generation injections on generated assistant message metadata", async () => {
-    const { deps, createChatMessage } = generationDepsForChat({
+    const { deps, createChatMessage, patchChatMessageExtra } = generationDepsForChat({
       chatPatch: { mode: "roleplay" },
       chatMetadata: { enableAgents: true },
       agents: [
@@ -1635,12 +1840,20 @@ describe("startGeneration agent runtime parity", () => {
         contextInjections: [
           { agentType: "prose-guardian", agentName: "Prose Guardian", text: "Vary sentence rhythm." },
         ],
+      },
+    });
+    expect(patchChatMessageExtra).toHaveBeenCalledWith(
+      "assistant-2",
+      expect.objectContaining({
+        contextInjections: [
+          { agentType: "prose-guardian", agentName: "Prose Guardian", text: "Vary sentence rhythm." },
+        ],
         cyoaChoices: [
           { label: "Press forward", text: "I step closer and press for the truth." },
           { label: "Hold back", text: "I stay quiet and watch for another clue." },
         ],
-      },
-    });
+      }),
+    );
   });
 
   it("stores regenerated CYOA choices and injections on the new assistant swipe", async () => {
@@ -1700,7 +1913,6 @@ describe("startGeneration agent runtime parity", () => {
           contextInjections: [
             { agentType: "prose-guardian", agentName: "Prose Guardian", text: "Make the next swipe sharper." },
           ],
-          cyoaChoices: [{ label: "Demand answers", text: "I demand answers immediately." }],
         }),
       }),
     );
