@@ -3142,27 +3142,6 @@ summary[class*="cursor-pointer"],
   animation: party-pulse 2s ease-in-out infinite;
 }
 
-/* Dialogue overlay entrance */
-@keyframes dialogue-slide-up {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.game-dialogue-enter {
-  animation: dialogue-slide-up 0.3s ease-out;
-}
-
-/* NPC tracker hover glow */
-.game-npc-item:hover {
-  background: var(--surface-hover);
-  transition: background 0.15s ease;
-}
-
 /* Game session banner gradient */
 .game-session-banner {
   background: linear-gradient(to right, var(--surface), transparent);
@@ -3204,20 +3183,6 @@ summary[class*="cursor-pointer"],
 
 /* Game mode responsive — mobile */
 @media (max-width: 768px) {
-  .game-party-sidebar {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    max-height: 50vh;
-    border-radius: 1rem 1rem 0 0;
-    z-index: 50;
-    transform: translateY(100%);
-    transition: transform 0.3s ease;
-  }
-  .game-party-sidebar.expanded {
-    transform: translateY(0);
-  }
   .game-map-container {
     max-height: 200px;
     overflow: auto;
