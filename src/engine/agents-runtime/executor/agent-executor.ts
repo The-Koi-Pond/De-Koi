@@ -3,21 +3,21 @@
 // ──────────────────────────────────────────────
 import type {
   BaseLLMProvider,
+  ChatCompleteOptions,
   ChatMessage,
   LLMToolCall,
   LLMToolDefinition,
 } from "../../generation-core/llm/base-provider.js";
 import type { AgentResult, AgentContext, AgentResultType } from "../../contracts/types/agent";
 import { getDefaultAgentPrompt } from "../../contracts/constants/agent-prompts";
-import { DEFAULT_AGENT_CONTEXT_SIZE, DEFAULT_AGENT_MAX_TOKENS, MAX_AGENT_MAX_TOKENS, MIN_AGENT_MAX_TOKENS } from "../../contracts/types/agent";
-const isDebugAgentsEnabled = () => false;
-const logger = {
-  debug: (..._args: unknown[]) => {},
-  info: (..._args: unknown[]) => {},
-  warn: (..._args: unknown[]) => {},
-  error: (..._args: unknown[]) => {},
-  isLevelEnabled: (_level: string) => false,
-};
+import {
+  DEFAULT_AGENT_CONTEXT_SIZE,
+  DEFAULT_AGENT_MAX_TOKENS,
+  MAX_AGENT_MAX_TOKENS,
+  MIN_AGENT_MAX_TOKENS,
+} from "../../contracts/types/agent";
+import { createAgentRuntimeDebug, type AgentRuntimeDebugEntry } from "../debug.js";
+import { stripAvatarPathsReplacer } from "../strip-avatar-paths";
 
 const MAX_AGENT_CONTEXT_MESSAGES = 200;
 const EXPRESSION_AGENT_RECENT_CONTEXT_MESSAGES = 2;
@@ -97,13 +97,34 @@ export function formatToolPayloadForLog(payload: string, maxLength = 400): strin
   }
 }
 
-function normalizeAgentMaxTokens(value: unknown, fallback = DEFAULT_AGENT_MAX_TOKENS): number {
+export function normalizeAgentMaxTokens(value: unknown, fallback = DEFAULT_AGENT_MAX_TOKENS): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   return Math.max(MIN_AGENT_MAX_TOKENS, Math.min(MAX_AGENT_MAX_TOKENS, Math.trunc(value)));
 }
 
 function applyProviderMaxTokensOverride(provider: BaseLLMProvider, maxTokens: number): number {
   return provider.maxTokensOverrideValue !== null ? Math.min(maxTokens, provider.maxTokensOverrideValue) : maxTokens;
+}
+
+function agentTemperature(config: Pick<AgentExecConfig, "settings">): number | undefined {
+  const value = config.settings.temperature;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function batchAgentTemperature(configs: Array<Pick<AgentExecConfig, "settings">>): number | undefined {
+  const temperatures = configs.map(agentTemperature).filter((value): value is number => typeof value === "number");
+  return temperatures.length > 0 ? Math.min(...temperatures) : undefined;
+}
+
+function buildChatCompleteOptions(options: ChatCompleteOptions): ChatCompleteOptions {
+  const { model, temperature, maxTokens, stream, onToken, signal, ...extra } = options;
+  const normalized: ChatCompleteOptions = { model, ...extra };
+  if (typeof temperature === "number") normalized.temperature = temperature;
+  if (typeof maxTokens === "number") normalized.maxTokens = maxTokens;
+  if (typeof stream === "boolean") normalized.stream = stream;
+  if (onToken) normalized.onToken = onToken;
+  if (signal) normalized.signal = signal;
+  return normalized;
 }
 
 /**
@@ -118,6 +139,8 @@ export async function executeAgent(
   toolContext?: AgentToolContext,
 ): Promise<AgentResult> {
   const startTime = Date.now();
+  const logger = createAgentRuntimeDebug(context);
+  const emit = (entry: AgentRuntimeDebugEntry) => logger.emit(entry);
 
   try {
     const template = config.promptTemplate || getDefaultAgentPrompt(config.type);
@@ -134,8 +157,7 @@ export async function executeAgent(
             ? buildGameSpotifyAgentMessages(template, context)
             : buildStandardAgentMessages(config, template, context);
 
-    // Agents use lower temperature for reliability
-    const temperature = (config.settings.temperature as number) ?? 0.3;
+    const temperature = agentTemperature(config);
     const maxTokens = applyProviderMaxTokensOverride(provider, normalizeAgentMaxTokens(config.settings.maxTokens));
     const streamResponses = context.streaming !== false;
 
@@ -151,40 +173,70 @@ export async function executeAgent(
         toolContext,
         streamResponses,
         startTime,
+        context,
         context.signal,
       );
     }
 
     // Call LLM (streaming to avoid proxy timeouts, no tools)
     logger.info(`[agent] ${config.type} (${config.name}) — ${model}`);
+    emit({
+      level: "info",
+      phase: config.phase,
+      message: "agent-start",
+      args: [config.type, config.name, model],
+    });
     for (const msg of messages) {
       logger.debug(`[agent] [${msg.role}] ${msg.content}`);
+      emit({ level: "debug", phase: config.phase, message: "prompt-message", args: [msg.role, msg.content] });
     }
-    logger.debug(`[agent] ═══ END PROMPT — temperature=${temperature} maxTokens=${maxTokens} ═══\n`);
+    logger.debug(`[agent] ═══ END PROMPT — temperature=${temperature ?? "connection"} maxTokens=${maxTokens} ═══\n`);
+    emit({ level: "debug", phase: config.phase, message: "prompt-end", args: [temperature, maxTokens] });
 
     let responseText = "";
-    const result = await provider.chatComplete(messages, {
-      model,
-      temperature,
-      maxTokens,
-      stream: streamResponses,
-      onToken: streamResponses
-        ? (chunk) => {
-            responseText += chunk;
-          }
-        : undefined,
-      signal: context.signal,
-    });
+    const result = await provider.chatComplete(
+      messages,
+      buildChatCompleteOptions({
+        model,
+        temperature,
+        maxTokens,
+        stream: streamResponses,
+        onToken: streamResponses
+          ? (chunk) => {
+              responseText += chunk;
+            }
+          : undefined,
+        signal: context.signal,
+      }),
+    );
 
     if (!responseText && result.content) responseText = result.content;
     responseText = responseText.trim();
     const durationMs = Date.now() - startTime;
+    if (!responseText) {
+      return makeError(config, `${config.name} returned an empty response.`, startTime);
+    }
 
     logger.info(`[agent] ${config.type} done (${responseText.length} chars, ${durationMs}ms)`);
     logger.debug(`[agent] ${config.type} raw response: ${responseText.slice(0, 500)}`);
+    emit({
+      level: "info",
+      phase: config.phase,
+      message: "agent-complete",
+      args: [config.type, responseText.length, durationMs],
+    });
+    emit({
+      level: "debug",
+      phase: config.phase,
+      message: "raw-response",
+      args: [config.type, responseText.slice(0, 500)],
+    });
 
     // Parse the result based on agent type
     const parsed = parseAgentResponse(config, responseText);
+    if (parsed.error) {
+      return makeError(config, formatAgentParseError(config, parsed.error), startTime);
+    }
 
     return {
       agentId: config.id,
@@ -210,34 +262,46 @@ async function executeAgentWithTools(
   initialMessages: ChatMessage[],
   provider: BaseLLMProvider,
   model: string,
-  temperature: number,
+  temperature: number | undefined,
   maxTokens: number,
   toolContext: AgentToolContext,
   streamResponses: boolean,
   startTime: number,
+  context: AgentContext,
   signal?: AbortSignal,
 ): Promise<AgentResult> {
   const MAX_TOOL_ROUNDS = 5;
   const loopMessages = [...initialMessages];
   let totalTokens = 0;
-  const debugAgentsEnabled = isDebugAgentsEnabled() && logger.isLevelEnabled("debug");
+  const logger = createAgentRuntimeDebug(context);
+  const debugAgentsEnabled = logger.isLevelEnabled("debug");
+  const emit = (entry: AgentRuntimeDebugEntry) => logger.emit(entry);
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const result = await provider.chatComplete(loopMessages, {
-      model,
-      temperature,
-      maxTokens,
-      stream: streamResponses,
-      tools: toolContext.tools,
-      signal,
-    });
+    const result = await provider.chatComplete(
+      loopMessages,
+      buildChatCompleteOptions({
+        model,
+        temperature,
+        maxTokens,
+        stream: streamResponses,
+        tools: toolContext.tools,
+        signal,
+      }),
+    );
 
     totalTokens += result.usage?.totalTokens ?? 0;
 
     // No tool calls → final response
     if (!result.toolCalls || result.toolCalls.length === 0) {
       const responseText = result.content?.trim() ?? "";
+      if (!responseText) {
+        return makeError(config, `${config.name} returned an empty response.`, startTime);
+      }
       const parsed = parseAgentResponse(config, responseText);
+      if (parsed.error) {
+        return makeError(config, formatAgentParseError(config, parsed.error), startTime);
+      }
       return {
         agentId: config.id,
         agentType: config.type,
@@ -261,6 +325,12 @@ async function executeAgentWithTools(
     // Execute each tool call and append results
     for (const tc of result.toolCalls) {
       logger.info("[agent-tools] %s calling: %s", config.type, tc.function.name);
+      emit({
+        level: "info",
+        phase: config.phase,
+        message: "tool-call",
+        toolCall: { name: tc.function.name, arguments: formatToolPayloadForLog(tc.function.arguments), allowed: true },
+      });
       if (debugAgentsEnabled) {
         logger.debug("[agent-tools] %s args: %s", config.type, formatToolPayloadForLog(tc.function.arguments));
       }
@@ -272,6 +342,12 @@ async function executeAgentWithTools(
         throw err;
       }
       logger.info("[agent-tools] %s %s completed", config.type, tc.function.name);
+      emit({
+        level: "info",
+        phase: config.phase,
+        message: "tool-result",
+        toolResult: { name: tc.function.name, result: formatToolPayloadForLog(toolResult), success: true },
+      });
       if (debugAgentsEnabled) {
         logger.debug("[agent-tools] %s result: %s", config.type, formatToolPayloadForLog(toolResult));
       }
@@ -284,16 +360,25 @@ async function executeAgentWithTools(
   }
 
   // Exhausted tool rounds — make one final call without tools to get JSON response
-  const finalResult = await provider.chatComplete(loopMessages, {
-    model,
-    temperature,
-    maxTokens,
-    stream: streamResponses,
-    signal,
-  });
+  const finalResult = await provider.chatComplete(
+    loopMessages,
+    buildChatCompleteOptions({
+      model,
+      temperature,
+      maxTokens,
+      stream: streamResponses,
+      signal,
+    }),
+  );
   totalTokens += finalResult.usage?.totalTokens ?? 0;
   const responseText = finalResult.content?.trim() ?? "";
+  if (!responseText) {
+    return makeError(config, `${config.name} returned an empty response.`, startTime);
+  }
   const parsed = parseAgentResponse(config, responseText);
+  if (parsed.error) {
+    return makeError(config, formatAgentParseError(config, parsed.error), startTime);
+  }
   return {
     agentId: config.id,
     agentType: config.type,
@@ -325,6 +410,8 @@ export async function executeAgentBatch(
   model: string,
 ): Promise<AgentResult[]> {
   if (configs.length === 0) return [];
+  const logger = createAgentRuntimeDebug(context);
+  const emit = (entry: AgentRuntimeDebugEntry) => logger.emit(entry);
   const isolatedConfigs = configs.filter(shouldRunAgentIndividually);
   if (isolatedConfigs.length === configs.length) {
     logger.info(
@@ -381,12 +468,14 @@ export async function executeAgentBatch(
     const systemPrompt = buildBatchSystemPrompt(configs, context);
     // Batch uses the max contextSize among its members
     const batchContextSize = Math.max(...configs.map((c) => normalizeAgentContextSize(c.settings.contextSize)));
-    const messages = buildAgentMessages(systemPrompt, context, "__batch__", batchContextSize);
+    const messages = buildAgentMessages(systemPrompt, context, "__batch__", batchContextSize, {
+      finalInstruction: buildBatchFinalInstruction(configs),
+    });
 
     // Each agent reserves its own configured output budget. The context fitter
     // may still reduce this further if the prompt needs more room.
     const perAgentTokens = configs.map((c) => normalizeAgentMaxTokens(c.settings.maxTokens));
-    const temperature = Math.min(...configs.map((c) => (c.settings.temperature as number) ?? 0.3));
+    const temperature = batchAgentTemperature(configs);
     const rawBatchMaxTokens = Math.min(
       perAgentTokens.reduce((sum, tokens) => sum + tokens, 0),
       MAX_AGENT_MAX_TOKENS,
@@ -396,28 +485,57 @@ export async function executeAgentBatch(
     logger.info(
       `[agent-batch] maxTokens: ${batchMaxTokens} (sum=${rawBatchMaxTokens} from [${perAgentTokens.join(", ")}]${provider.maxTokensOverrideValue !== null ? `, capped at ${provider.maxTokensOverrideValue}` : ""})`,
     );
+    emit({
+      level: "info",
+      phase: configs[0]!.phase,
+      message: "batch-start",
+      agents: configs.map((c) => ({
+        type: c.type,
+        name: c.name,
+        model,
+        maxTokens: normalizeAgentMaxTokens(c.settings.maxTokens),
+      })),
+      batchMaxTokens,
+    });
 
     logger.debug(`\n[agent-batch] ═══ BATCH PROMPT — [${configs.map((c) => c.type).join(", ")}] — ${model} ═══`);
     for (const msg of messages) {
       logger.debug(`[agent-batch] [${msg.role}] ${msg.content}`);
+      emit({
+        level: "debug",
+        phase: configs[0]!.phase,
+        message: "batch-prompt-message",
+        args: [msg.role, msg.content],
+      });
     }
-    logger.debug(`[agent-batch] ═══ END BATCH PROMPT — temperature=${temperature} maxTokens=${batchMaxTokens} ═══\n`);
+    logger.debug(
+      `[agent-batch] ═══ END BATCH PROMPT — temperature=${temperature ?? "connection"} maxTokens=${batchMaxTokens} ═══\n`,
+    );
+    emit({
+      level: "debug",
+      phase: configs[0]!.phase,
+      message: "batch-prompt-end",
+      args: [temperature, batchMaxTokens],
+    });
 
     // Use streaming (onToken) to keep the connection alive — avoids proxy
     // timeouts (e.g. Cloudflare 524) on large batch responses.
     let responseText = "";
-    const result = await provider.chatComplete(messages, {
-      model,
-      temperature,
-      maxTokens: batchMaxTokens,
-      stream: streamResponses,
-      onToken: streamResponses
-        ? (chunk) => {
-            responseText += chunk;
-          }
-        : undefined,
-      signal: context.signal,
-    });
+    const result = await provider.chatComplete(
+      messages,
+      buildChatCompleteOptions({
+        model,
+        temperature,
+        maxTokens: batchMaxTokens,
+        stream: streamResponses,
+        onToken: streamResponses
+          ? (chunk) => {
+              responseText += chunk;
+            }
+          : undefined,
+        signal: context.signal,
+      }),
+    );
 
     // chatComplete also accumulates content, but streaming via onToken is
     // the primary path — use whichever is populated.
@@ -428,6 +546,13 @@ export async function executeAgentBatch(
 
     logger.info(`[agent-batch] Got response (${responseText.length} chars, ${durationMs}ms, ${totalTokens} tokens)`);
     logger.debug(`[agent-batch] ${responseText}`);
+    emit({
+      level: "info",
+      phase: configs[0]!.phase,
+      message: "batch-response",
+      args: [responseText.length, durationMs, totalTokens],
+    });
+    emit({ level: "debug", phase: configs[0]!.phase, message: "batch-raw-response", args: [responseText] });
 
     // Parse the batched response into individual results
     const { parsed, failed } = parseBatchResponse(configs, responseText, durationMs, totalTokens);
@@ -533,6 +658,14 @@ function buildBatchSystemPrompt(configs: AgentExecConfig[], context: AgentContex
   return parts.join("\n");
 }
 
+function buildBatchFinalInstruction(configs: AgentExecConfig[]): string {
+  return [
+    "Now return the requested outputs.",
+    `Output all ${configs.length} result blocks using the exact agent IDs: ${configs.map((config) => config.type).join(", ")}.`,
+    "Use the required formats from the system instructions. JSON agents must return valid JSON without markdown fences. Do not add text outside the result blocks.",
+  ].join("\n");
+}
+
 /**
  * Parse a batched LLM response into individual AgentResults.
  * Looks for <result agent="type">...</result> blocks.
@@ -581,6 +714,10 @@ function parseBatchResponse(
 
     if (matchedOutput !== null) {
       const parsedResult = parseAgentResponse(config, matchedOutput);
+      if (parsedResult.error) {
+        failed.push(config);
+        continue;
+      }
       parsed.push({
         agentId: config.id,
         agentType: config.type,
@@ -606,6 +743,25 @@ function escapeRegex(str: string): string {
 
 // ── Helpers ──
 
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function xmlText(tag: string, value: unknown): string | null {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text ? `<${tag}>${escapeXml(text)}</${tag}>` : null;
+}
+
+function pushXmlText(parts: string[], tag: string, value: unknown): void {
+  const line = xmlText(tag, value);
+  if (line) parts.push(line);
+}
+
 function makeError(config: AgentExecConfig, error: string, startTime: number): AgentResult {
   return {
     agentId: config.id,
@@ -619,10 +775,14 @@ function makeError(config: AgentExecConfig, error: string, startTime: number): A
   };
 }
 
+function formatAgentParseError(config: Pick<AgentExecConfig, "name">, error: string): string {
+  return `${config.name} returned malformed JSON: ${error}`;
+}
+
 function shouldRunAgentIndividually(config: Pick<AgentExecConfig, "type">): boolean {
   // These agents either need compact prompts or carry large private extras that
   // must not be merged into unrelated batched agent requests.
-  return config.type === "expression" || config.type === "lorebook-keeper";
+  return config.type === "lorebook-keeper";
 }
 
 function buildStandardAgentMessages(config: AgentExecConfig, template: string, context: AgentContext): ChatMessage[] {
@@ -879,6 +1039,7 @@ function buildAgentMessages(
   context: AgentContext,
   agentType: string,
   contextSize = 5,
+  options: { finalInstruction?: string } = {},
 ): ChatMessage[] {
   // ── 1. System message — already contains <role>, <lore>, <agents>, and extras ──
   const messages: ChatMessage[] = [{ role: "system", content: systemPrompt }];
@@ -926,7 +1087,7 @@ function buildAgentMessages(
         if (gs.playerStats) trackerSummary.playerStats = gs.playerStats;
         if (gs.personaStats?.length) trackerSummary.personaStats = gs.personaStats;
         if (Object.keys(trackerSummary).length > 0) {
-          content += `\n\n<committed_tracker_state>\n${JSON.stringify(trackerSummary)}\n</committed_tracker_state>`;
+          content += `\n\n<committed_tracker_state>\n${JSON.stringify(trackerSummary, stripAvatarPathsReplacer)}\n</committed_tracker_state>`;
         }
       }
 
@@ -967,9 +1128,11 @@ function buildAgentMessages(
     finalParts.push(`</agent_results>`);
   }
 
-  if (finalParts.length > 0) {
-    finalParts.push("\nNow return the requested format(s).");
-    const finalContent = finalParts.join("\n");
+  const finalInstruction =
+    options.finalInstruction ?? (finalParts.length > 0 ? "Now return the requested format(s)." : "");
+  if (finalParts.length > 0 || finalInstruction) {
+    if (finalInstruction) finalParts.push(`\n${finalInstruction}`);
+    const finalContent = finalParts.join("\n").trim();
     const last = messages[messages.length - 1]!;
     if (last.role === "user") {
       messages[messages.length - 1] = { ...last, content: last.content + "\n\n" + finalContent };
@@ -993,35 +1156,52 @@ function buildLoreBlock(context: AgentContext): string {
   if (context.characters.length > 0) {
     parts.push(`<characters>`);
     for (const char of context.characters) {
-      parts.push(`- ${char.name}: ${char.description.slice(0, 2000)}`);
+      parts.push(`<character id="${escapeXml(char.id)}" name="${escapeXml(char.name)}">`);
+      pushXmlText(parts, "name", char.name);
+      pushXmlText(parts, "description", char.description);
+      pushXmlText(parts, "personality", char.personality);
+      pushXmlText(parts, "backstory", char.backstory);
+      pushXmlText(parts, "appearance", char.appearance);
+      pushXmlText(parts, "scenario", char.scenario);
+      pushXmlText(parts, "first_mes", char.firstMes);
+      pushXmlText(parts, "mes_example", char.mesExample);
+      pushXmlText(parts, "creator_notes", char.creatorNotes);
+      pushXmlText(parts, "system_prompt", char.systemPrompt);
+      pushXmlText(parts, "post_history_instructions", char.postHistoryInstructions);
+      parts.push(`</character>`);
     }
     parts.push(`</characters>`);
   }
 
   if (context.persona) {
-    parts.push(`<user_persona>`);
-    parts.push(`Name: ${context.persona.name}`);
-    if (context.persona.description) parts.push(`Description: ${context.persona.description.slice(0, 2000)}`);
-    if (context.persona.personality) parts.push(`Personality: ${context.persona.personality}`);
-    if (context.persona.backstory) parts.push(`Backstory: ${context.persona.backstory}`);
-    if (context.persona.appearance) parts.push(`Appearance: ${context.persona.appearance}`);
-    if (context.persona.scenario) parts.push(`Scenario: ${context.persona.scenario}`);
+    parts.push(`<user_persona name="${escapeXml(context.persona.name)}">`);
+    pushXmlText(parts, "name", context.persona.name);
+    pushXmlText(parts, "description", context.persona.description);
+    pushXmlText(parts, "personality", context.persona.personality);
+    pushXmlText(parts, "backstory", context.persona.backstory);
+    pushXmlText(parts, "appearance", context.persona.appearance);
+    pushXmlText(parts, "scenario", context.persona.scenario);
     if (context.persona.personaStats?.enabled && context.persona.personaStats.bars.length > 0) {
-      parts.push(`Configured persona stat bars:`);
+      parts.push(`<persona_stats>`);
       for (const bar of context.persona.personaStats.bars) {
-        parts.push(`- ${bar.name}: ${bar.value}/${bar.max}`);
+        parts.push(
+          `<stat name="${escapeXml(bar.name)}" value="${bar.value}" max="${bar.max}" color="${escapeXml(bar.color)}" />`,
+        );
       }
+      parts.push(`</persona_stats>`);
     }
     if (context.persona.rpgStats?.enabled) {
       const rpg = context.persona.rpgStats;
-      parts.push(`RPG Stats:`);
-      parts.push(`- Max HP: ${rpg.hp.max}`);
+      parts.push(`<rpg_stats>`);
+      parts.push(`<hp value="${rpg.hp.value}" max="${rpg.hp.max}" />`);
       if (rpg.attributes.length > 0) {
-        parts.push(`Attributes:`);
+        parts.push(`<attributes>`);
         for (const attr of rpg.attributes) {
-          parts.push(`- ${attr.name}: ${attr.value}`);
+          parts.push(`<attribute name="${escapeXml(attr.name)}" value="${attr.value}" />`);
         }
+        parts.push(`</attributes>`);
       }
+      parts.push(`</rpg_stats>`);
     }
     parts.push(`</user_persona>`);
   }
@@ -1055,13 +1235,6 @@ function buildAvailableSpritesBlock(context: AgentContext): string {
 function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): string {
   const parts: string[] = [];
 
-  const escapeXml = (value: string) =>
-    value
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&apos;");
   // Card Evolution Auditor needs the FULL character card (not just description)
   // so it can emit exact-match oldText edits. Gated on agent type because
   // forwarding every field would bloat context for agents that don't need it.
@@ -1087,7 +1260,7 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
 
   if (context.gameState) {
     parts.push(`<current_game_state>`);
-    parts.push(JSON.stringify(context.gameState));
+    parts.push(JSON.stringify(context.gameState, stripAvatarPathsReplacer));
     parts.push(`</current_game_state>`);
   }
 
@@ -1379,6 +1552,7 @@ function parseAgentResponse(
 ): {
   type: AgentResultType;
   data: unknown;
+  error: string | null;
 } {
   const resultType = resolveAgentResultType(config);
 
@@ -1386,15 +1560,39 @@ function parseAgentResponse(
     try {
       const jsonStr = extractJson(responseText);
       const data = JSON.parse(jsonStr);
-      return { type: resultType, data };
-    } catch {
-      return { type: resultType, data: { raw: responseText, parseError: true } };
+      return { type: resultType, data, error: null };
+    } catch (error) {
+      const fallback = coerceMalformedJsonAgentResponse(config.type, responseText);
+      if (fallback !== null) {
+        return { type: resultType, data: fallback, error: null };
+      }
+      return { type: resultType, data: null, error: extractErrorMessage(error, "Invalid JSON response") };
     }
   }
 
   // Text-based agents (prose-guardian, director). Sanitize before injection so
   // leaked tracker/roleplay content can't reach the main prompt.
-  return { type: resultType, data: { text: sanitizeTextAgentResponse(config.type, responseText) } };
+  return { type: resultType, data: { text: sanitizeTextAgentResponse(config.type, responseText) }, error: null };
+}
+
+function coerceMalformedJsonAgentResponse(agentType: string, responseText: string): unknown | null {
+  if (agentType !== "echo-chamber") return null;
+  const lines = responseText
+    .replace(/```[\s\S]*?```/g, "")
+    .split(/\n+/)
+    .map((line) => line.replace(/^[-*•\d.)\s]+/, "").trim())
+    .filter(Boolean)
+    .slice(0, 10);
+  const reactions = lines
+    .map((line, index) => {
+      const [maybeName, ...rest] = line.split(":");
+      const reaction = rest.length > 0 ? rest.join(":").trim() : line;
+      const characterName =
+        rest.length > 0 && maybeName.trim().length <= 40 ? maybeName.trim() : `viewer_${index + 1}`;
+      return reaction ? { characterName, reaction } : null;
+    })
+    .filter((entry): entry is { characterName: string; reaction: string } => entry !== null);
+  return reactions.length > 0 ? { reactions } : null;
 }
 
 /** Extract JSON from a response that may contain markdown fences. */

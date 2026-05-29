@@ -1,3 +1,7 @@
+import { readString } from "../shared/value-readers";
+
+export { readString };
+
 export type JsonRecord = Record<string, unknown>;
 
 export function isRecord(value: unknown): value is JsonRecord {
@@ -31,10 +35,6 @@ export function parseArray(value: unknown): unknown[] {
 
 export function stringArray(value: unknown): string[] {
   return parseArray(value).filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
-}
-
-export function readString(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
 }
 
 export function readNumber(value: unknown, fallback = 0): number {

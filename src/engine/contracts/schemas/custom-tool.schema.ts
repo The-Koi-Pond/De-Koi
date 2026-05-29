@@ -3,7 +3,9 @@
 // ──────────────────────────────────────────────
 import { z } from "zod";
 
-export const toolExecutionTypeSchema = z.enum(["webhook", "static"]);
+// Script tools execute in the TypeScript runtime; Rust preserves the row shape
+// and handles static/webhook tools.
+export const toolExecutionTypeSchema = z.enum(["webhook", "static", "script"]);
 
 export const createCustomToolSchema = z.object({
   name: z
@@ -16,6 +18,7 @@ export const createCustomToolSchema = z.object({
   executionType: toolExecutionTypeSchema.default("static"),
   webhookUrl: z.string().url().nullable().default(null),
   staticResult: z.string().nullable().default(null),
+  scriptBody: z.string().nullable().default(null),
   enabled: z.boolean().default(true),
 });
 

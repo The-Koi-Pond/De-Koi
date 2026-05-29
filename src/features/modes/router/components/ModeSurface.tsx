@@ -43,10 +43,7 @@ export function ModeSurface() {
       ) : chatMode === "conversation" ? (
         <ConversationModeRoute activeChatId={activeChatId} />
       ) : (
-        <RoleplayModeRoute
-          activeChatId={activeChatId}
-          fallbackChatMode={chatMode === "visual_novel" ? "visual_novel" : "roleplay"}
-        />
+        <RoleplayModeRoute activeChatId={activeChatId} fallbackChatMode="roleplay" />
       )}
     </Suspense>
   );

@@ -4,7 +4,6 @@ import { APP_VERSION } from "../../../../engine/contracts/constants/defaults";
 import { useConnections } from "../../../catalog/connections/index";
 import { useCreateChat } from "../../../catalog/chats/index";
 import { NewChatConnectionGate } from "../../shared/chat-ui/index";
-import { usePageActivity } from "../../../../shared/hooks/use-page-activity";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { cn } from "../../../../shared/lib/utils";
 import { useChatStore } from "../../../../shared/stores/chat.store";
@@ -15,7 +14,6 @@ import { RecentChats } from "./RecentChats";
 type QuickStartMode = "conversation" | "roleplay" | "game";
 
 export function ModeHomeSurface() {
-  const isPageActive = usePageActivity();
   const { data: connections } = useConnections();
   const createChat = useCreateChat();
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
@@ -32,7 +30,7 @@ export function ModeHomeSurface() {
 
       const label = mode === "conversation" ? "Conversation" : mode === "game" ? "Game" : "Roleplay";
       createChat.mutate(
-        { name: `New ${label}`, mode, characterIds: [] },
+        { name: `New ${label}`, mode, characterIds: [], connectionId: connectionRows[0]!.id },
         {
           onSuccess: (chat) => {
             useChatStore.getState().setActiveChatId(chat.id);
@@ -45,7 +43,7 @@ export function ModeHomeSurface() {
     [connections, createChat],
   );
 
-  const showEmptyStateEffects = isPageActive;
+  const showEmptyStateEffects = true;
 
   return (
     <>
@@ -176,7 +174,7 @@ export function ModeHomeSurface() {
             </div>
 
             <p className="max-w-[42rem] px-1 text-center text-[0.625rem] leading-snug text-[var(--muted-foreground)]/40 sm:max-w-[46rem]">
-              Special thanks to Xel, Jorge, Cha1latte, Javedz678, Teuku, Shadota, Romu, Mm14141, MagicGoddess, John,
+              Special thanks to Deci, Xel, Jorge, Cha1latte, Javedz678, Teuku, Shadota, Romu, Mm14141, MagicGoddess, John,
               Pwildani, Romu, Felor, MuniMuni, Guybrush01, Joshellis625, LukaTheHero, Coxde, JorgeLTE, Seele The Seal
               King, Loungemeister, Kale, Tabris, GREGOR OVECH, Coins, Tacoman, Jorge, Promansis, Kitsumiro, Sheep,
               Pod042, Prolix, PlutoMayhem, Mezzeh, Kuc0, Exalted, Yang Best Girl, MidnightSleeper, Geechan,

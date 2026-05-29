@@ -2,8 +2,61 @@
 // Zustand Store: Agent Slice
 // ──────────────────────────────────────────────
 import { create } from "zustand";
-import type { AgentResult, CharacterCardFieldUpdate } from "../../engine/contracts/types/agent";
+import type { AgentDebugEntry, AgentResult, CharacterCardFieldUpdate } from "../../engine/contracts/types/agent";
 import type { AgentFailure } from "../lib/agent-failures";
+
+const MAX_DEBUG_STRING_LENGTH = 1_500;
+const MAX_DEBUG_ARRAY_ITEMS = 20;
+const MAX_DEBUG_OBJECT_KEYS = 40;
+const MAX_DEBUG_LOG_ENTRIES = 80;
+
+function truncateDebugString(value: string): string {
+  if (value.length <= MAX_DEBUG_STRING_LENGTH) return value;
+  return `${value.slice(0, MAX_DEBUG_STRING_LENGTH)}\n\n[debug output truncated: ${value.length - MAX_DEBUG_STRING_LENGTH} more characters]`;
+}
+
+function compactDebugValue(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") return truncateDebugString(value);
+  if (typeof value !== "object" || value === null) return value;
+  if (depth >= 3) return "[debug output truncated: nested value]";
+  if (Array.isArray(value)) {
+    const compacted = value.slice(0, MAX_DEBUG_ARRAY_ITEMS).map((item) => compactDebugValue(item, depth + 1));
+    if (value.length > MAX_DEBUG_ARRAY_ITEMS) {
+      compacted.push(`[debug output truncated: ${value.length - MAX_DEBUG_ARRAY_ITEMS} more items]`);
+    }
+    return compacted;
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  const compacted: Record<string, unknown> = {};
+  for (const [key, item] of entries.slice(0, MAX_DEBUG_OBJECT_KEYS)) {
+    compacted[key] = compactDebugValue(item, depth + 1);
+  }
+  if (entries.length > MAX_DEBUG_OBJECT_KEYS) {
+    compacted.__truncated = `${entries.length - MAX_DEBUG_OBJECT_KEYS} more keys`;
+  }
+  return compacted;
+}
+
+function compactDebugEntry(entry: Omit<AgentDebugEntry, "timestamp"> & { timestamp?: number }): AgentDebugEntry {
+  return {
+    ...entry,
+    timestamp: entry.timestamp ?? Date.now(),
+    args: entry.args?.map((arg) => compactDebugValue(arg)),
+    results: entry.results?.map((result) => compactDebugValue(result) as AgentResult),
+    toolCall: entry.toolCall
+      ? {
+          ...entry.toolCall,
+          arguments: truncateDebugString(entry.toolCall.arguments),
+        }
+      : undefined,
+    toolResult: entry.toolResult
+      ? {
+          ...entry.toolResult,
+          result: truncateDebugString(entry.toolResult.result),
+        }
+      : undefined,
+  };
+}
 
 /**
  * A character_card_update result awaiting user confirmation.
@@ -23,26 +76,20 @@ export interface PendingCardUpdate {
   timestamp: number;
 }
 
-export interface AgentDebugEntry {
-  phase: string;
-  agents?: Array<{
-    type: string;
-    name: string;
-    model: string;
-    maxTokens: number;
-  }>;
-  results?: AgentResult[];
-  toolCall?: {
-    name: string;
-    arguments: string;
-    allowed: boolean;
-  };
-  toolResult?: {
-    name: string;
-    result: string;
-    success: boolean;
-  };
-  batchMaxTokens?: number;
+export interface PendingLorebookUpdate {
+  id: string;
+  chatId: string;
+  lorebookId: string;
+  lorebookName: string;
+  action: "create" | "update" | "delete";
+  entryId: string | null;
+  entryName: string;
+  content: string;
+  newFacts: string[];
+  keys: string[];
+  tag: string;
+  reason: string;
+  agentName: string;
   timestamp: number;
 }
 
@@ -78,15 +125,18 @@ interface AgentState {
   }>;
   cyoaChoicesChatId: string | null;
   pendingCardUpdates: PendingCardUpdate[];
+  pendingLorebookUpdates: PendingLorebookUpdate[];
 
   // Actions
   setActiveAgents: (agents: string[]) => void;
   setProcessing: (processing: boolean) => void;
   addResult: (agentId: string, result: AgentResult) => void;
   addDebugEntry: (entry: Omit<AgentDebugEntry, "timestamp"> & { timestamp?: number }) => void;
+  addDebugEntries: (entries: Array<Omit<AgentDebugEntry, "timestamp"> & { timestamp?: number }>) => void;
   clearDebugLog: () => void;
   setFailedAgentTypes: (types: string[]) => void;
   setFailedAgentFailures: (failures: AgentFailure[]) => void;
+  addFailedAgentFailure: (failure: AgentFailure) => void;
   clearFailedAgentTypes: () => void;
   addThoughtBubble: (agentId: string, agentName: string, content: string) => void;
   dismissThoughtBubble: (index: number) => void;
@@ -102,6 +152,9 @@ interface AgentState {
   enqueuePendingCardUpdate: (entry: PendingCardUpdate) => void;
   dismissPendingCardUpdate: (id: string) => void;
   clearPendingCardUpdates: () => void;
+  enqueuePendingLorebookUpdate: (entry: PendingLorebookUpdate) => void;
+  dismissPendingLorebookUpdate: (id: string) => void;
+  clearPendingLorebookUpdates: () => void;
   reset: () => void;
 }
 
@@ -120,6 +173,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   cyoaChoices: [],
   cyoaChoicesChatId: null,
   pendingCardUpdates: [],
+  pendingLorebookUpdates: [],
 
   setActiveAgents: (agents) => set({ activeAgents: agents }),
   setProcessing: (processing) => set({ isProcessing: processing }),
@@ -127,7 +181,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   addResult: (agentId, result) =>
     set((s) => {
       const results = new Map(s.lastResults);
-      results.set(agentId, result);
+      results.set(agentId, compactDebugValue(result) as AgentResult);
       // Cap at 50 entries — evict oldest
       if (results.size > 50) {
         const first = results.keys().next().value;
@@ -138,10 +192,15 @@ export const useAgentStore = create<AgentState>((set) => ({
 
   addDebugEntry: (entry) =>
     set((s) => ({
-      debugLog: [...s.debugLog, { ...entry, timestamp: entry.timestamp ?? Date.now() }].slice(-100),
+      debugLog: [...s.debugLog, compactDebugEntry(entry)].slice(-MAX_DEBUG_LOG_ENTRIES),
     })),
 
-  clearDebugLog: () => set({ debugLog: [] }),
+  addDebugEntries: (entries) =>
+    set((s) => ({
+      debugLog: [...s.debugLog, ...entries.map(compactDebugEntry)].slice(-MAX_DEBUG_LOG_ENTRIES),
+    })),
+
+  clearDebugLog: () => set({ debugLog: [], lastResults: new Map() }),
 
   setFailedAgentTypes: (types) =>
     set({
@@ -157,6 +216,15 @@ export const useAgentStore = create<AgentState>((set) => ({
     set({
       failedAgentTypes: failures.map((failure) => failure.agentType),
       failedAgentFailures: failures,
+    }),
+  addFailedAgentFailure: (failure) =>
+    set((s) => {
+      const withoutSameType = s.failedAgentFailures.filter((f) => f.agentType !== failure.agentType);
+      const failures = [...withoutSameType, failure];
+      return {
+        failedAgentFailures: failures,
+        failedAgentTypes: failures.map((f) => f.agentType),
+      };
     }),
   clearFailedAgentTypes: () => set({ failedAgentTypes: [], failedAgentFailures: [] }),
 
@@ -193,6 +261,11 @@ export const useAgentStore = create<AgentState>((set) => ({
   dismissPendingCardUpdate: (id) =>
     set((s) => ({ pendingCardUpdates: s.pendingCardUpdates.filter((e) => e.id !== id) })),
   clearPendingCardUpdates: () => set({ pendingCardUpdates: [] }),
+  enqueuePendingLorebookUpdate: (entry) =>
+    set((s) => ({ pendingLorebookUpdates: [...s.pendingLorebookUpdates, entry].slice(-50) })),
+  dismissPendingLorebookUpdate: (id) =>
+    set((s) => ({ pendingLorebookUpdates: s.pendingLorebookUpdates.filter((e) => e.id !== id) })),
+  clearPendingLorebookUpdates: () => set({ pendingLorebookUpdates: [] }),
 
   reset: () =>
     set({
@@ -210,5 +283,6 @@ export const useAgentStore = create<AgentState>((set) => ({
       cyoaChoices: [],
       cyoaChoicesChatId: null,
       pendingCardUpdates: [],
+      pendingLorebookUpdates: [],
     }),
 }));

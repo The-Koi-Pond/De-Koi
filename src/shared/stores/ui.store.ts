@@ -3,15 +3,19 @@
 // --------------------------------------------------
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { normalizeQuoteFormat } from "../lib/dialogue-quotes";
 import {
   DEFAULT_GAME_SETUP_LEARNED_OPTIONS,
   DEFAULT_GAME_SETUP_REMEMBERED_TEXT,
+  DEFAULT_SUMMARY_POPOVER_SETTINGS,
   RIGHT_PANEL_WIDTH_MAX,
+  RIGHT_PANEL_WIDTH_DEFAULT,
   RIGHT_PANEL_WIDTH_MIN,
   ROLEPLAY_AVATAR_SCALE_MAX,
   ROLEPLAY_AVATAR_SCALE_MIN,
   ROLEPLAY_SPRITE_SCALE_MAX,
   ROLEPLAY_SPRITE_SCALE_MIN,
+  SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
   TRACKER_DATA_PANEL_SECTIONS,
@@ -21,6 +25,7 @@ import {
   mobilePanelClosePatch,
   normalizeLearnedGameSetupOption,
   normalizeRememberedGameSetupText,
+  normalizeSummaryPopoverSettings,
   normalizeTrackerPanelSizeProfile,
   normalizeTrackerPanelSectionOrder,
   normalizeTrackerTemperatureUnit,
@@ -33,7 +38,9 @@ import type {
   FontSize,
   GameDialogueDisplayMode,
   HudPosition,
+  ImagePromptFormat,
   Panel,
+  QuoteFormat,
   RoleplayAvatarStyle,
   TrackerPanelSizeProfile,
   TrackerPanelSide,
@@ -75,8 +82,12 @@ export type {
   GameSetupLearnedOptions,
   GameSetupRememberedText,
   HudPosition,
+  ImagePromptFormat,
   Panel,
+  QuoteFormat,
   RoleplayAvatarStyle,
+  SummaryPopoverSettings,
+  SummaryPopoverSourceMode,
   TrackerDataPanelSection,
   TrackerPanelCollapsedSections,
   TrackerPanelSectionOrder,
@@ -92,9 +103,9 @@ export const useUIStore = create<UIState>()(
   persist(
     (set, get) => ({
       sidebarOpen: true,
-      sidebarWidth: 280,
+      sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
       rightPanelOpen: false,
-      rightPanelWidth: 320,
+      rightPanelWidth: RIGHT_PANEL_WIDTH_DEFAULT,
       rightPanel: "chat" as Panel,
       trackerPanelEnabled: true,
       trackerPanelOpen: false,
@@ -111,6 +122,7 @@ export const useUIStore = create<UIState>()(
       modal: null,
       theme: "dark" as const,
       chatBackground: null,
+      chatBackgroundBlur: 0,
       characterDetailId: null,
       lorebookDetailId: null,
       presetDetailId: null,
@@ -138,6 +150,8 @@ export const useUIStore = create<UIState>()(
       gameTextSpeed: 50,
       gameAutoPlayDelay: 3000,
       reviewImagePromptsBeforeSend: false,
+      imagePromptIncludeAppearances: true,
+      imagePromptFormat: "descriptive" as ImagePromptFormat,
       imageBackgroundWidth: 1280,
       imageBackgroundHeight: 720,
       imagePortraitWidth: 1024,
@@ -158,15 +172,19 @@ export const useUIStore = create<UIState>()(
       confirmBeforeDelete: true,
       messagesPerPage: 20,
       boldDialogue: true,
+      quoteFormat: "straight" as QuoteFormat,
       trimIncompleteModelOutput: false,
       speechToTextEnabled: false,
       spotifyPlayerEnabled: false,
+      chibiProfessorMariEnabled: true,
       remoteRuntimeUrl: "",
       spotifyMobileWidgetCollapsed: true,
       spotifyMobileWidgetPosition: { x: 16, y: 96 },
       intuitiveSwipeNavigation: false,
       intuitiveSwipeRerollLatest: false,
       editLastMessageOnArrowUp: true,
+      editMessagesOnDoubleClick: true,
+      summaryPopoverSettings: DEFAULT_SUMMARY_POPOVER_SETTINGS,
       narrationFontColor: "",
       narrationOpacity: 80,
       chatFontColor: "",
@@ -185,6 +203,7 @@ export const useUIStore = create<UIState>()(
       },
       convoNotificationSound: true,
       rpNotificationSound: true,
+      conversationBrowserNotifications: false,
       customConversationPrompt: null,
       scheduleGenerationPreferences: "",
       learnedGameSetupOptions: DEFAULT_GAME_SETUP_LEARNED_OPTIONS,
@@ -278,6 +297,8 @@ export const useUIStore = create<UIState>()(
       closeModal: () => set({ modal: null }),
       setTheme: (theme) => set({ theme }),
       setChatBackground: (url) => set({ chatBackground: url }),
+      setChatBackgroundBlur: (v) =>
+        set({ chatBackgroundBlur: Math.max(0, Math.min(24, Math.round(Number.isFinite(v) ? v : 0))) }),
       openCharacterDetail: (id) =>
         set(openDetailRouteState({ characterDetailId: id })),
       closeCharacterDetail: () => set({ characterDetailId: null, editorDirty: false }),
@@ -377,6 +398,8 @@ export const useUIStore = create<UIState>()(
       setGameTextSpeed: (v) => set({ gameTextSpeed: Math.max(1, Math.min(100, v)) }),
       setGameAutoPlayDelay: (v) => set({ gameAutoPlayDelay: Math.max(200, Math.min(10000, Math.round(v))) }),
       setReviewImagePromptsBeforeSend: (v) => set({ reviewImagePromptsBeforeSend: v }),
+      setImagePromptIncludeAppearances: (v) => set({ imagePromptIncludeAppearances: v }),
+      setImagePromptFormat: (format) => set({ imagePromptFormat: format }),
       setImageBackgroundDimensions: (width, height) =>
         set({
           imageBackgroundWidth: clampImageDimension(width),
@@ -406,9 +429,11 @@ export const useUIStore = create<UIState>()(
       setConfirmBeforeDelete: (v) => set({ confirmBeforeDelete: v }),
       setMessagesPerPage: (n) => set({ messagesPerPage: n }),
       setBoldDialogue: (v) => set({ boldDialogue: v }),
+      setQuoteFormat: (v) => set({ quoteFormat: normalizeQuoteFormat(v) }),
       setTrimIncompleteModelOutput: (v) => set({ trimIncompleteModelOutput: v }),
       setSpeechToTextEnabled: (v) => set({ speechToTextEnabled: v }),
       setSpotifyPlayerEnabled: (v) => set({ spotifyPlayerEnabled: v }),
+      setChibiProfessorMariEnabled: (v) => set({ chibiProfessorMariEnabled: v }),
       setRemoteRuntimeUrl: (v) => set({ remoteRuntimeUrl: v.trim() }),
       setSpotifyMobileWidgetCollapsed: (v) => set({ spotifyMobileWidgetCollapsed: v }),
       setSpotifyMobileWidgetPosition: (position) =>
@@ -421,6 +446,14 @@ export const useUIStore = create<UIState>()(
       setIntuitiveSwipeNavigation: (v) => set({ intuitiveSwipeNavigation: v }),
       setIntuitiveSwipeRerollLatest: (v) => set({ intuitiveSwipeRerollLatest: v }),
       setEditLastMessageOnArrowUp: (v) => set({ editLastMessageOnArrowUp: v }),
+      setEditMessagesOnDoubleClick: (v) => set({ editMessagesOnDoubleClick: v }),
+      setSummaryPopoverSettings: (settings) =>
+        set((state) => ({
+          summaryPopoverSettings: normalizeSummaryPopoverSettings({
+            ...state.summaryPopoverSettings,
+            ...settings,
+          }),
+        })),
       setNarrationFontColor: (v) => set({ narrationFontColor: v }),
       setNarrationOpacity: (v) => set({ narrationOpacity: Math.max(0, Math.min(100, v)) }),
       setChatFontColor: (v) => set({ chatFontColor: v }),
@@ -445,6 +478,7 @@ export const useUIStore = create<UIState>()(
         })),
       setConvoNotificationSound: (v) => set({ convoNotificationSound: v }),
       setRpNotificationSound: (v) => set({ rpNotificationSound: v }),
+      setConversationBrowserNotifications: (v) => set({ conversationBrowserNotifications: v }),
       setCustomConversationPrompt: (v) => set({ customConversationPrompt: v }),
       setScheduleGenerationPreferences: (v) => set({ scheduleGenerationPreferences: v }),
       rememberGameSetupOptions: (options, text) =>
@@ -500,8 +534,19 @@ export const useUIStore = create<UIState>()(
       dismissLinkApiBanner: () => set({ linkApiBannerDismissed: true }),
       toggleEchoChamber: () => set((s) => ({ echoChamberOpen: !s.echoChamberOpen })),
       setEchoChamberSide: (side) => set({ echoChamberSide: side }),
-      setUserStatus: (status) => set({ userStatus: status }),
-      setUserStatusManual: (status) => set({ userStatusManual: status, userStatus: status }),
+      setUserStatus: (status) =>
+        set((state) => {
+          if (state.userStatusManual === "dnd") {
+            return state.userStatus === "dnd" ? state : { userStatus: "dnd" };
+          }
+          const nextStatus = status === "dnd" ? "active" : status;
+          return state.userStatus === nextStatus ? state : { userStatus: nextStatus };
+        }),
+      setUserStatusManual: (status) =>
+        set({
+          userStatusManual: status === "dnd" ? "dnd" : "active",
+          userStatus: status,
+        }),
       setUserActivity: (activity) => set({ userActivity: activity.slice(0, 120) }),
     }),
     {

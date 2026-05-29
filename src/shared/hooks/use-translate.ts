@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
-import { invokeTauri } from "../api/tauri-client";
 import { storageApi } from "../api/storage-api";
+import { translationApi } from "../api/translation-api";
 import { useTranslationStore } from "../stores/translation.store";
 
 async function patchMessageExtra(messageId: string, patch: Record<string, unknown>) {
@@ -41,15 +41,13 @@ export function useTranslate() {
       }
       setTranslating(messageId, true);
       try {
-        const result = await invokeTauri<{ translatedText: string }>("translate_text_command", {
-          input: {
-            text: content,
-            provider: config.provider,
-            targetLanguage: config.targetLanguage,
-            connectionId: config.connectionId,
-            deeplApiKey: config.deeplApiKey,
-            deeplxUrl: config.deeplxUrl,
-          },
+        const result = await translationApi.translateText({
+          text: content,
+          provider: config.provider,
+          targetLanguage: config.targetLanguage,
+          connectionId: config.connectionId,
+          deeplApiKey: config.deeplApiKey,
+          deeplxUrl: config.deeplxUrl,
         });
         setTranslation(messageId, result.translatedText);
         if (chatId) {

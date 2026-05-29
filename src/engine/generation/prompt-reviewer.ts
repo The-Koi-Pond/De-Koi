@@ -1,5 +1,6 @@
 import type { LlmGateway } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
+import { readString as stringValue } from "../shared/value-readers";
 
 export type PromptReviewInput = {
   presetId: string;
@@ -135,10 +136,6 @@ async function assemblePromptReviewView(storage: StorageGateway, presetId: strin
 function orderValue(section: JsonRecord): number {
   const value = section.sortOrder ?? section.order ?? section.injectionOrder;
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function stringValue(value: unknown): string {
-  return typeof value === "string" ? value : "";
 }
 
 function isRecord(value: unknown): value is JsonRecord {

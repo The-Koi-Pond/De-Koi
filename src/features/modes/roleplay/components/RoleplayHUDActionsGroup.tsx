@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MessageCircle, Sparkles, Trash2 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
@@ -74,8 +74,7 @@ export function ActionsGroup({
   const showEcho = enabledAgentTypes.has("echo-chamber");
   const { data: customAgentRuns = [], isLoading: customAgentRunsLoading } = useCustomAgentRuns(chatId, agentsOpen);
 
-  // Position with fixed layout to avoid overflow clipping
-  useLayoutEffect(() => {
+  const updatePosition = useCallback(() => {
     if (!agentsOpen || !btnRef.current) return;
     const rect = btnRef.current.getBoundingClientRect();
     const maxH = 320;
@@ -87,6 +86,28 @@ export function ActionsGroup({
     const left = Math.min(Math.max(rect.left, padding), maxLeft);
     setPos({ top, left });
   }, [agentsOpen]);
+
+  // Position with fixed layout to avoid overflow clipping.
+  useLayoutEffect(updatePosition, [updatePosition]);
+
+  useEffect(() => {
+    if (!agentsOpen) return;
+    let frame = 0;
+    const scheduleUpdate = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        updatePosition();
+      });
+    };
+    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("scroll", scheduleUpdate, true);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", scheduleUpdate);
+      window.removeEventListener("scroll", scheduleUpdate, true);
+    };
+  }, [agentsOpen, updatePosition]);
 
   // Close on outside click or Escape
   useEffect(() => {
@@ -157,7 +178,7 @@ export function ActionsGroup({
         ref={btnRef}
         onClick={() => setAgentsOpen(!agentsOpen)}
         className={cn(
-          "flex items-center gap-1.5 md:gap-1 rounded-lg border border-[var(--border)] bg-[var(--card)]/80 backdrop-blur-md px-2 py-1.5 md:px-2 md:py-2 md:h-10 transition-all hover:bg-[var(--card)] dark:border-foreground/10 dark:bg-black/40 dark:hover:bg-black/60 cursor-pointer select-none",
+          "group flex items-center gap-1.5 md:gap-1 rounded-lg border border-[var(--border)] bg-[var(--card)]/80 backdrop-blur-md px-2 py-1.5 md:px-2 md:py-2 md:h-10 transition-all hover:bg-[var(--card)] dark:border-foreground/10 dark:bg-black/40 dark:hover:bg-black/60 cursor-pointer select-none",
           agentsOpen && "bg-[var(--card)] border-[var(--border)] dark:bg-black/60 dark:border-foreground/20",
         )}
         title="Agents & Actions"
@@ -165,18 +186,29 @@ export function ActionsGroup({
         <Sparkles
           size="0.875rem"
           strokeWidth={2.5}
-          className={cn("text-purple-400/70 shrink-0", isAgentProcessing && "animate-pulse")}
+          className={cn(
+            "shrink-0 transition-colors group-hover:text-foreground/75",
+            agentsOpen || isAgentProcessing ? "text-foreground/75" : "text-foreground/55",
+            isAgentProcessing && "animate-pulse",
+          )}
         />
         {showEcho && (
           <MessageCircle
             size="0.8125rem"
             strokeWidth={2.5}
-            className={cn(echoChamberOpen ? "text-purple-400" : "text-purple-400/50", "shrink-0")}
+            className={cn(
+              "shrink-0 transition-colors group-hover:text-foreground/70",
+              echoChamberOpen ? "text-foreground/75" : "text-foreground/45",
+            )}
           />
         )}
-        <Trash2 size="0.8125rem" strokeWidth={2.5} className="text-purple-400/50 shrink-0" />
+        <Trash2
+          size="0.8125rem"
+          strokeWidth={2.5}
+          className="shrink-0 text-foreground/45 transition-colors group-hover:text-foreground/70"
+        />
         {badgeCount > 0 && (
-          <span className="hidden md:flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-purple-500/80 px-1 text-[0.5rem] font-bold text-foreground">
+          <span className="hidden md:flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-foreground/15 px-1 text-[0.5rem] font-bold text-foreground/80 ring-1 ring-foreground/10">
             {badgeCount}
           </span>
         )}

@@ -3,7 +3,7 @@ import { generationParametersSchema } from "../contracts/schemas/prompt.schema";
 import type { GameState } from "../contracts/types/game-state";
 import type { GenerationParameters } from "../contracts/types/prompt";
 import { wrapContent } from "../generation-core/prompt/format-engine.js";
-import { readNonNegativeInteger } from "./runtime-records";
+import { parseRecord, readNonNegativeInteger, readString } from "./runtime-records";
 
 export type SimpleMessage = { role: "system" | "user" | "assistant"; content: string };
 export type StoredGenerationParameters = Partial<GenerationParameters>;
@@ -320,12 +320,15 @@ export function parseStoredGenerationParameters(raw: unknown): StoredGenerationP
   }
   if (
     source.reasoningEffort === null ||
-    ["low", "medium", "high", "maximum"].includes(String(source.reasoningEffort))
+    ["low", "medium", "high", "xhigh", "maximum"].includes(String(source.reasoningEffort))
   ) {
     out.reasoningEffort = source.reasoningEffort as StoredGenerationParameters["reasoningEffort"];
   }
   if (source.verbosity === null || ["low", "medium", "high"].includes(String(source.verbosity))) {
     out.verbosity = source.verbosity as StoredGenerationParameters["verbosity"];
+  }
+  if (source.serviceTier === null || ["flex", "priority"].includes(String(source.serviceTier))) {
+    out.serviceTier = source.serviceTier as StoredGenerationParameters["serviceTier"];
   }
   if (typeof source.assistantPrefill === "string") out.assistantPrefill = source.assistantPrefill;
   if (isPlainRecord(source.customParameters)) {
@@ -345,6 +348,41 @@ export function parseStoredGenerationParameters(raw: unknown): StoredGenerationP
     out.stopSequences = source.stopSequences;
   }
   return Object.keys(out).length > 0 ? out : null;
+}
+
+export function mergeStoredGenerationParameters(...sources: Array<unknown>): StoredGenerationParameters | null {
+  const merged: StoredGenerationParameters = {};
+
+  for (const source of sources) {
+    const parsed = parseStoredGenerationParameters(source);
+    if (!parsed) continue;
+    const { customParameters, ...rest } = parsed;
+    Object.assign(merged, rest);
+    if (customParameters) {
+      merged.customParameters = mergeCustomParameters(merged.customParameters, customParameters);
+    }
+  }
+
+  return Object.keys(merged).length > 0 ? merged : null;
+}
+
+export function generationParameterSources(
+  connection: Record<string, unknown> | null | undefined,
+  input: Record<string, unknown> | null | undefined,
+  chat?: Record<string, unknown> | null,
+  promptPresetParameters?: unknown,
+): unknown[] {
+  const meta = parseRecord(chat?.metadata);
+  const mode = readString(chat?.mode || chat?.chatMode);
+  const setupConfig = parseRecord(meta.gameSetupConfig);
+  return [
+    connection?.defaultParameters,
+    promptPresetParameters,
+    mode === "game" ? setupConfig.generationParameters : null,
+    mode === "game" ? meta.gameGenerationParameters : null,
+    meta.chatParameters,
+    input?.parameters,
+  ];
 }
 
 /**
@@ -478,10 +516,11 @@ export function parseGameStateRow(row: Record<string, unknown>): GameState {
     location: row.location as string | null,
     weather: row.weather as string | null,
     temperature: row.temperature as string | null,
-    presentCharacters: JSON.parse((row.presentCharacters as string) ?? "[]"),
-    recentEvents: JSON.parse((row.recentEvents as string) ?? "[]"),
-    playerStats: row.playerStats ? JSON.parse(row.playerStats as string) : null,
-    personaStats: row.personaStats ? JSON.parse(row.personaStats as string) : null,
+    presentCharacters: Array.isArray(row.presentCharacters) ? row.presentCharacters : [],
+    recentEvents: Array.isArray(row.recentEvents) ? row.recentEvents : [],
+    playerStats:
+      row.playerStats && typeof row.playerStats === "object" ? (row.playerStats as GameState["playerStats"]) : null,
+    personaStats: Array.isArray(row.personaStats) ? (row.personaStats as GameState["personaStats"]) : null,
     createdAt: row.createdAt as string,
   };
 }

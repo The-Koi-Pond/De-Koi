@@ -28,7 +28,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useGenerate } from "../../../runtime/generation/index";
 import { useApplyRegex } from "../../../catalog/agents/regex-application";
 import { useCreateMessage, useDeleteMessage, useUpdateMessageExtra, useChat, chatKeys } from "../../../catalog/chats/index";
-import { characterKeys, usePersonas, useUpdatePersona } from "../../../catalog/characters/index";
+import { characterKeys, useActivePersona, usePersona, useUpdatePersona } from "../../../catalog/characters/index";
 import {
   matchSlashCommand,
   getSlashCompletions,
@@ -37,14 +37,26 @@ import {
 } from "../../../../shared/lib/slash-commands";
 import { createInputMacroResolverForChat, isPromptPreviewMacro } from "../../../../shared/lib/chat-macros";
 import { parseChatMetadata } from "../../../../shared/lib/chat-display";
+import { formatTextQuotes } from "../../../../shared/lib/dialogue-quotes";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { loadUrlBlob } from "../../../../shared/lib/url-blob";
 import { translateDraftText } from "../../../../shared/lib/draft-translation";
-import { QuickConnectionSwitcher, QuickPersonaSwitcher, QuickSwitcherMobile } from "../../shared/chat-ui";
+import {
+  CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS,
+  CHAT_INPUT_ICON_BUTTON_CLASS,
+  CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
+  CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
+  CHAT_INPUT_ICON_BUTTON_READY_CLASS,
+  QuickConnectionSwitcher,
+  QuickPersonaSwitcher,
+  QuickReplyMenu,
+  QuickSwitcherMobile,
+  SlashCommandFeedback,
+  type QuickReplyAction,
+} from "../../shared/chat-ui";
 import { EmojiPicker } from "../../../../shared/components/ui/EmojiPicker";
 import { GifPicker } from "../../../../shared/components/ui/GifPicker";
 import { SpeechToTextButton } from "../../../../shared/components/ui/SpeechToTextButton";
-import { QuickReplyMenu, SlashCommandFeedback, type QuickReplyAction } from "../../shared/chat-ui";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { buildGuidedGenerationInstructionMessage } from "../../../../engine/shared/text/generation-guide";
 
@@ -133,17 +145,6 @@ function parseSavedStatusOptions(value: PersonaStatusRow["savedStatusOptions"]):
     byKey.set(normalized.toLowerCase(), normalized);
   }
   return [...byKey.values()].slice(0, SAVED_STATUS_LIMIT);
-}
-
-function resolveActivePersona(
-  personas: PersonaStatusRow[] | undefined,
-  chat: { personaId?: string | null; mode?: string } | undefined | null,
-) {
-  if (!personas) return undefined;
-  const chatPersonaId = chat?.personaId ?? null;
-  if (chatPersonaId) return personas.find((p) => p.id === chatPersonaId);
-  if (chat?.mode === "game") return undefined;
-  return personas.find((p) => p.isActive === "true" || p.isActive === true);
 }
 
 function readFileAsDataUrl(file: Blob): Promise<string> {
@@ -271,12 +272,16 @@ export function ConversationInput({
   const showQuickReplyGuide = useUIStore((s) => s.showQuickReplyGuide);
   const showQuickReplyImpersonate = useUIStore((s) => s.showQuickReplyImpersonate);
   const speechToTextEnabled = useUIStore((s) => s.speechToTextEnabled);
+  const quoteFormat = useUIStore((s) => s.quoteFormat);
   const userActivity = useUIStore((s) => s.userActivity);
   const setUserActivity = useUIStore((s) => s.setUserActivity);
   const createMessage = useCreateMessage(activeChatId);
   const deleteMessage = useDeleteMessage(activeChatId);
   const updateMessageExtra = useUpdateMessageExtra(activeChatId);
-  const { data: allPersonas } = usePersonas();
+  const activeChatPersonaId =
+    typeof activeChat?.personaId === "string" && activeChat.personaId.trim() ? activeChat.personaId.trim() : null;
+  const { data: chatPersona } = usePersona(activeChatPersonaId, !!activeChatPersonaId);
+  const { data: fallbackPersona } = useActivePersona(!activeChatPersonaId && activeChat?.mode !== "game");
   const updatePersona = useUpdatePersona();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -571,7 +576,7 @@ export function ConversationInput({
       toast.info("Still reading attached files. Send will be ready in a moment.");
       return;
     }
-    const raw = textareaRef.current?.value.trim() ?? "";
+    const raw = formatTextQuotes(textareaRef.current?.value.trim() ?? "", quoteFormat);
     if (!raw && attachments.length === 0) {
       if (canRetry) {
         try {
@@ -755,13 +760,17 @@ export function ConversationInput({
       return;
     }
 
-    await generate({
-      chatId: activeChatId,
-      connectionId: null,
-      userMessage: message,
-      ...(pendingAttachments.length ? { attachments: pendingAttachments } : {}),
-      ...(mentioned.length ? { mentionedCharacterNames: mentioned } : {}),
-    });
+    try {
+      await generate({
+        chatId: activeChatId,
+        connectionId: null,
+        userMessage: message,
+        ...(pendingAttachments.length ? { attachments: pendingAttachments } : {}),
+        ...(mentioned.length ? { mentionedCharacterNames: mentioned } : {}),
+      });
+    } catch {
+      // useGenerate owns provider-failure UI feedback; aborts are an expected Stop generating path.
+    }
   }, [
     activeChatId,
     attachments,
@@ -785,6 +794,7 @@ export function ConversationInput({
     replaceAttachments,
     updateAttachments,
     onPeekPrompt,
+    quoteFormat,
   ]);
 
   const runQuickSlashCommand = useCallback(
@@ -876,10 +886,10 @@ export function ConversationInput({
       toast.info("Clear or send attachments before using quick impersonate.");
       return;
     }
-    const text = textareaRef.current?.value?.trim() ?? "";
+    const text = formatTextQuotes(textareaRef.current?.value?.trim() ?? "", quoteFormat);
     if (!text) return;
     await runQuickSlashCommand(`/impersonate ${text}`, "Impersonate failed");
-  }, [activeChatId, isStreaming, hasPendingAttachments, runQuickSlashCommand]);
+  }, [activeChatId, isStreaming, hasPendingAttachments, quoteFormat, runQuickSlashCommand]);
 
   const handlePostOnlyButton = useCallback(async () => {
     if (!activeChatId || isStreaming) return;
@@ -888,7 +898,7 @@ export function ConversationInput({
       toast.info("Still reading attached files. Post will be ready in a moment.");
       return;
     }
-    const raw = textareaRef.current?.value.trim() ?? "";
+    const raw = formatTextQuotes(textareaRef.current?.value.trim() ?? "", quoteFormat);
     const hasText = raw.length > 0;
     const hasFiles = attachments.length > 0;
     if (!hasText && !hasFiles) return;
@@ -1005,6 +1015,7 @@ export function ConversationInput({
     createMessage,
     deleteMessage,
     updateMessageExtra,
+    quoteFormat,
   ]);
 
   const handleGuidedGenerationButton = useCallback(async () => {
@@ -1017,10 +1028,10 @@ export function ConversationInput({
       toast.info("Clear or send attachments before using guided generation.");
       return;
     }
-    const text = textareaRef.current?.value?.trim() ?? "";
+    const text = formatTextQuotes(textareaRef.current?.value?.trim() ?? "", quoteFormat);
     if (!text) return;
     await runQuickSlashCommand(`/guided ${text}`, "Guided generation failed");
-  }, [activeChatId, isStreaming, requiresManualGuideTarget, hasPendingAttachments, runQuickSlashCommand]);
+  }, [activeChatId, isStreaming, requiresManualGuideTarget, hasPendingAttachments, quoteFormat, runQuickSlashCommand]);
 
   const quickReplyActions = useMemo<QuickReplyAction[]>(() => {
     const actions: QuickReplyAction[] = [];
@@ -1175,6 +1186,15 @@ export function ConversationInput({
   const handleInput = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
+    const raw = el.value;
+    const fixed = formatTextQuotes(raw, quoteFormat);
+    if (fixed !== raw) {
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      const direction = el.selectionDirection;
+      el.value = fixed;
+      el.setSelectionRange(start, end, direction);
+    }
     // Debounced resize to reduce layout reflows during fast typing
     if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
     resizeTimerRef.current = setTimeout(() => {
@@ -1182,12 +1202,12 @@ export function ConversationInput({
       el.style.height = "auto";
       el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
     }, 150);
-    syncInputState(el.value);
+    syncInputState(fixed);
 
     if (activeChatId) {
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
       const chatId = activeChatId;
-      const draft = el.value;
+      const draft = fixed;
       draftTimerRef.current = setTimeout(() => {
         if (draft.trim()) {
           setInputDraft(chatId, draft);
@@ -1198,8 +1218,8 @@ export function ConversationInput({
     }
 
     // Slash completions
-    if (el.value.startsWith("/")) {
-      const results = getSlashCompletions(el.value);
+    if (fixed.startsWith("/")) {
+      const results = getSlashCompletions(fixed);
       setCompletions(results);
       setSelectedCompletion(0);
     } else {
@@ -1208,7 +1228,7 @@ export function ConversationInput({
 
     // @mention detection — look backwards from cursor for an @ trigger
     const cursor = el.selectionStart;
-    const textBefore = el.value.slice(0, cursor);
+    const textBefore = fixed.slice(0, cursor);
     // Find the last @ that isn't preceded by a word character
     const atMatch = textBefore.match(/(?:^|[^a-zA-Z0-9])@([a-zA-Z0-9 ]*)$/);
     if (atMatch && characterNames.length > 0) {
@@ -1228,7 +1248,7 @@ export function ConversationInput({
       setMentionQuery(null);
       setMentionCompletions([]);
     }
-  }, [activeChatId, characterNames, clearInputDraft, setInputDraft, syncInputState]);
+  }, [activeChatId, characterNames, clearInputDraft, quoteFormat, setInputDraft, syncInputState]);
 
   useEffect(() => {
     if (hasInput && feedback) setFeedback(null);
@@ -1360,10 +1380,7 @@ export function ConversationInput({
   }, [charPickerOpen]);
 
   const showCharPicker = groupResponseOrder === "manual" && !!chatCharacters && chatCharacters.length > 1;
-  const activePersona = resolveActivePersona(
-    allPersonas as PersonaStatusRow[] | undefined,
-    activeChat as { personaId?: string | null; mode?: string } | undefined,
-  );
+  const activePersona = (chatPersona ?? fallbackPersona) as PersonaStatusRow | undefined;
   const savedStatusOptions = parseSavedStatusOptions(activePersona?.savedStatusOptions);
   const normalizedUserActivity = normalizeSavedStatus(userActivity);
   const canSaveCurrentStatus =
@@ -1407,16 +1424,17 @@ export function ConversationInput({
     try {
       const translated = await translateDraftText(raw);
       if (!translated || !textareaRef.current) return;
-      textareaRef.current.value = translated;
+      const formatted = formatTextQuotes(translated, quoteFormat);
+      textareaRef.current.value = formatted;
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
-      syncInputState(translated);
-      setInputDraft(activeChatId, translated);
+      syncInputState(formatted);
+      setInputDraft(activeChatId, formatted);
       textareaRef.current.focus();
     } finally {
       setIsTranslatingDraft(false);
     }
-  }, [activeChatId, isTranslatingDraft, setInputDraft, syncInputState]);
+  }, [activeChatId, isTranslatingDraft, quoteFormat, setInputDraft, syncInputState]);
 
   const persistSavedStatusOptions = useCallback(
     async (nextOptions: string[]) => {
@@ -1426,7 +1444,7 @@ export function ConversationInput({
       }
       await updatePersona.mutateAsync({
         id: activePersona.id,
-        savedStatusOptions: JSON.stringify(nextOptions.slice(0, SAVED_STATUS_LIMIT)),
+        savedStatusOptions: nextOptions.slice(0, SAVED_STATUS_LIMIT),
       });
     },
     [activePersona, updatePersona],
@@ -1469,7 +1487,7 @@ export function ConversationInput({
       const after = el.value.slice(end);
       const prefix = before && !/\s$/.test(before) ? " " : "";
       const suffix = after && !/^\s/.test(after) ? " " : "";
-      const nextValue = `${before}${prefix}${transcript}${suffix}${after}`;
+      const nextValue = formatTextQuotes(`${before}${prefix}${transcript}${suffix}${after}`, quoteFormat);
       const nextCursor = before.length + prefix.length + transcript.length;
 
       el.value = nextValue;
@@ -1480,7 +1498,7 @@ export function ConversationInput({
       if (activeChatId) setInputDraft(activeChatId, nextValue);
       el.focus();
     },
-    [activeChatId, setInputDraft, syncInputState],
+    [activeChatId, quoteFormat, setInputDraft, syncInputState],
   );
 
   const statusDotClass = (status?: string) =>
@@ -1493,6 +1511,19 @@ export function ConversationInput({
           : "bg-green-500";
   const statusLabel = (status?: string) =>
     status === "offline" ? "Offline" : status === "dnd" ? "Busy" : status === "idle" ? "Away" : null;
+  const renderAttachButton = () => (
+    <button
+      onClick={() => fileInputRef.current?.click()}
+      className={cn(
+        CHAT_INPUT_ICON_BUTTON_CLASS,
+        attachments.length ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS : CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
+      )}
+      title="Attach file"
+      aria-label="Attach file"
+    >
+      <Plus size="1rem" />
+    </button>
+  );
 
   return (
     <div className="relative px-3 pb-3">
@@ -1595,11 +1626,10 @@ export function ConversationInput({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
-          "relative flex items-center gap-1.5 rounded-2xl border-2 px-2.5 py-2.5 transition-all duration-200 sm:gap-2 sm:px-4 bg-[var(--card)] dark:bg-black/40",
+          "relative flex flex-wrap items-center gap-1.5 gap-y-2 rounded-2xl border-2 px-2.5 py-2.5 transition-all duration-200 sm:flex-nowrap sm:gap-2 sm:px-4 bg-[var(--card)] dark:bg-black/40",
           isDragging ? "border-blue-400/50 bg-blue-500/10 shadow-lg shadow-blue-500/10" : "border-[var(--border)]",
         )}
       >
-        {/* Attach button */}
         <input
           ref={fileInputRef}
           type="file"
@@ -1611,19 +1641,12 @@ export function ConversationInput({
             e.target.value = "";
           }}
         />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="rounded-lg p-1.5 text-foreground/40 transition-all hover:bg-foreground/10 hover:text-foreground/70 active:scale-90"
-          title="Attach file"
-        >
-          <Plus size="1rem" />
-        </button>
 
         {/* Quick Switchers — desktop: inline, mobile: chevron */}
-        <QuickConnectionSwitcher className="hidden sm:flex" />
-        <QuickPersonaSwitcher className="hidden sm:flex" />
-        <div className="sm:hidden">
-          <QuickSwitcherMobile />
+        <div className="hidden items-center gap-1.5 sm:flex">
+          {renderAttachButton()}
+          <QuickConnectionSwitcher />
+          <QuickPersonaSwitcher />
         </div>
 
         {/* Textarea */}
@@ -1645,11 +1668,16 @@ export function ConversationInput({
           onInput={handleInput}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          className="max-h-[12.5rem] min-w-0 flex-1 resize-none bg-transparent py-0 text-[1rem] leading-normal text-[var(--foreground)] outline-none placeholder:text-foreground/30"
+          className="max-h-[12.5rem] min-w-0 basis-full resize-none bg-transparent py-0 text-[1rem] leading-normal text-[var(--foreground)] outline-none placeholder:text-foreground/30 sm:flex-1 sm:basis-auto"
         />
 
+        <div className="flex items-center gap-1.5 sm:hidden">
+          {renderAttachButton()}
+          <QuickSwitcherMobile />
+        </div>
+
         {/* Right actions */}
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:ml-0">
           <div className="relative">
             <button
               ref={gifButtonRef}
@@ -1658,10 +1686,8 @@ export function ConversationInput({
                 setEmojiOpen(false);
               }}
               className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
-                gifOpen
-                  ? "text-foreground bg-foreground/10"
-                  : "text-foreground/70 hover:bg-foreground/10 hover:text-foreground",
+                CHAT_INPUT_ICON_BUTTON_CLASS,
+                gifOpen ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS : CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
               )}
               title="GIF"
             >
@@ -1684,10 +1710,8 @@ export function ConversationInput({
                 setGifOpen(false);
               }}
               className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
-                emojiOpen
-                  ? "text-foreground bg-foreground/10"
-                  : "text-foreground/70 hover:bg-foreground/10 hover:text-foreground",
+                CHAT_INPUT_ICON_BUTTON_CLASS,
+                emojiOpen ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS : CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
               )}
               title="Emoji"
             >
@@ -1707,12 +1731,12 @@ export function ConversationInput({
               ref={charPickerBtnRef}
               onClick={() => setCharPickerOpen((v) => !v)}
               className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+                CHAT_INPUT_ICON_BUTTON_CLASS,
                 guideGenerations && hasInput
-                  ? "text-[var(--primary)] bg-[var(--primary)]/15 ring-1 ring-[var(--primary)]/30 hover:bg-[var(--primary)]/20"
+                  ? `${CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS} ring-1 ring-foreground/20`
                   : charPickerOpen
-                    ? "text-foreground bg-foreground/10"
-                    : "text-foreground/70 hover:bg-foreground/10 hover:text-foreground",
+                    ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS
+                    : CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
               )}
               title={
                 guideGenerations && hasInput ? "Trigger character response (guided)" : "Trigger character response"
@@ -1728,10 +1752,10 @@ export function ConversationInput({
               onClick={() => void handleTranslateDraft()}
               disabled={!activeChatId || !hasInput || isTranslatingDraft}
               className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+                CHAT_INPUT_ICON_BUTTON_CLASS,
                 hasInput && !isTranslatingDraft
-                  ? "text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
-                  : "text-foreground/25",
+                  ? CHAT_INPUT_ICON_BUTTON_IDLE_CLASS
+                  : CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
               )}
               title="Translate draft"
             >
@@ -1743,7 +1767,7 @@ export function ConversationInput({
             <SpeechToTextButton
               disabled={!activeChatId}
               onTranscript={handleSpeechTranscript}
-              className="rounded-full"
+              className={CHAT_INPUT_ICON_BUTTON_CLASS}
               iconSize={16}
             />
           )}
@@ -1754,12 +1778,12 @@ export function ConversationInput({
             onClick={() => setStatusMenuOpen((v) => !v)}
             disabled={!activePersona}
             className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+              CHAT_INPUT_ICON_BUTTON_CLASS,
               statusMenuOpen
-                ? "text-foreground bg-foreground/10"
+                ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS
                 : activePersona
-                  ? "text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
-                  : "text-foreground/25",
+                  ? CHAT_INPUT_ICON_BUTTON_IDLE_CLASS
+                  : CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
             )}
             title={activePersona ? "Saved persona statuses" : "Choose a persona to save statuses"}
           >
@@ -1778,12 +1802,12 @@ export function ConversationInput({
             disabled={!isActuallyGenerating && (isReadingAttachments || !activeChatId || !canSubmit)}
             aria-label={sendButtonTitle}
             className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200",
+              CHAT_INPUT_ICON_BUTTON_CLASS,
               isActuallyGenerating
-                ? "text-foreground hover:opacity-80"
+                ? CHAT_INPUT_ICON_BUTTON_READY_CLASS
                 : canSubmit && !isReadingAttachments
-                  ? "text-foreground hover:text-foreground/80 active:scale-90"
-                  : "text-foreground/20",
+                  ? CHAT_INPUT_ICON_BUTTON_READY_CLASS
+                  : CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
             )}
             title={sendButtonTitle}
           >

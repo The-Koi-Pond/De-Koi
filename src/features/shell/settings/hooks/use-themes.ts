@@ -19,10 +19,9 @@ export function useThemes() {
   return useQuery({
     queryKey: themeKeys.list(),
     queryFn: () => storageApi.list<Theme>("themes"),
-    staleTime: 0,
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
-    refetchInterval: () => (document.hidden ? false : 15_000),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 
@@ -60,20 +59,53 @@ export function useDeleteTheme() {
 export function useSetActiveTheme() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string | null) => {
+    mutationFn: async (id: string | null): Promise<Theme | null> => {
       const themes = await storageApi.list<Theme>("themes");
       let selected: Theme | null = null;
       await Promise.all(
-        themes.map(async (theme) => {
+        themes.flatMap((theme) => {
           const isActive = !!id && theme.id === id;
-          const updated = await storageApi.update<Theme>("themes", theme.id, { isActive, active: isActive });
-          if (isActive) selected = updated;
+          const currentlyActive = !!(theme.isActive || theme.active);
+          if (currentlyActive === isActive) {
+            if (isActive) selected = theme;
+            return [];
+          }
+          return storageApi.update<Theme>("themes", theme.id, { isActive, active: isActive }).then((updated) => {
+            if (isActive) selected = updated;
+          });
         }),
       );
       return selected;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: themeKeys.all });
+    onMutate: (id) => {
+      const previous = qc.getQueryData<Theme[]>(themeKeys.list());
+      if (previous) {
+        qc.setQueryData<Theme[]>(
+          themeKeys.list(),
+          previous.map((theme) => {
+            const isActive = !!id && theme.id === id;
+            return { ...theme, isActive, active: isActive };
+          }),
+        );
+      }
+      return { previous };
+    },
+    onError: (_error, _id, context) => {
+      if (context?.previous) {
+        qc.setQueryData(themeKeys.list(), context.previous);
+      }
+    },
+    onSuccess: (selected, id) => {
+      qc.setQueryData<Theme[] | undefined>(themeKeys.list(), (themes) =>
+        themes?.map((theme) => {
+          const isActive = !!id && theme.id === id;
+          if (selected && theme.id === selected.id) {
+            return { ...theme, ...selected, isActive: true, active: true };
+          }
+          return { ...theme, isActive, active: isActive };
+        }),
+      );
+      void qc.invalidateQueries({ queryKey: themeKeys.all });
     },
   });
 }

@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useQueries } from "@tanstack/react-query";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useEncounterStore } from "../../../../shared/stores/encounter.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { spriteApi } from "../../../../shared/api/image-generation-api";
+import { spriteKeys, type SpriteInfo } from "../../../catalog/characters/index";
 import {
+  type ExpressionAvatarResolver,
+  type MessageWithSwipes,
   NewChatConnectionGate,
   useChatMetadataSync,
   useChatOverlays,
@@ -21,8 +26,40 @@ import { ChatRoleplaySurface } from "./ChatRoleplaySurface";
 
 type RoleplayModeRouteProps = {
   activeChatId: string;
-  fallbackChatMode?: "roleplay" | "visual_novel";
+  fallbackChatMode?: "roleplay";
 };
+
+const SPRITE_OVERLAY_MESSAGE_SCAN_LIMIT = 40;
+
+function parseMessageExtraRecord(value: unknown): Record<string, unknown> {
+  if (!value) return {};
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  return typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function normalizeMessageSpriteExpressions(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const expressions: Record<string, string> = {};
+  for (const [key, expression] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof expression !== "string") continue;
+    const trimmed = expression.trim();
+    if (key && trimmed) expressions[key] = trimmed;
+  }
+  return expressions;
+}
+
+function resolveExpressionAvatarSpriteUrl(sprites: Map<string, string> | undefined, expression: string): string | null {
+  const normalizedExpression = expression.trim().toLowerCase();
+  if (!normalizedExpression) return null;
+  return sprites?.get(normalizedExpression) ?? null;
+}
 
 export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" }: RoleplayModeRouteProps) {
   const messagesPerPage = useUIStore((state) => state.messagesPerPage);
@@ -45,11 +82,12 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
 
   const enabledAgentTypes = useMemo(() => {
     const set = new Set<string>();
-    if (!data.chatMeta.enableAgents) return set;
     const activeAgentIds: string[] = Array.isArray(data.chatMeta.activeAgentIds) ? data.chatMeta.activeAgentIds : [];
+    if (!data.chatMeta.enableAgents && activeAgentIds.length === 0) return set;
     for (const id of activeAgentIds) set.add(id);
     return set;
   }, [data.chatMeta.activeAgentIds, data.chatMeta.enableAgents]);
+  const agentsUiEnabled = Boolean(data.chatMeta.enableAgents) || enabledAgentTypes.size > 0;
   const expressionAgentEnabled = enabledAgentTypes.has("expression");
   const combatAgentEnabled = enabledAgentTypes.has("combat");
   const timeline = useChatTimelineActions({
@@ -57,7 +95,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
     messages: data.messages,
     messageIdByOrderIndex: data.messageIdByOrderIndex,
     enabledAgentTypes,
-    refreshWorldStateOnTimelineChange: Boolean(data.chatMeta.enableAgents),
+    refreshWorldStateOnTimelineChange: agentsUiEnabled,
   });
   const spriteState = useSpriteMetadataState({ chat: data.chat, chatMeta: data.chatMeta, messages: data.messages });
   const { startEncounter } = useEncounter();
@@ -109,7 +147,8 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
     onRegenerate: timeline.handleRegenerate,
   });
   useChatTtsAutoplay({
-    mode: data.chatMode === "visual_novel" ? "visual_novel" : "roleplay",
+    chatId: activeChatId,
+    mode: "roleplay",
     messages: data.messages,
     characterMap: data.characterMap,
     isStreaming: timeline.isStreaming,
@@ -124,13 +163,70 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
 
   const groupChatMode: string | undefined =
     data.chatCharIds.length > 1 ? (data.chatMeta.groupChatMode ?? "merged") : undefined;
-  const msgPayload = (data.messages ?? []).map((message) => ({
-    role: message.role,
-    characterId: message.characterId,
-    content: message.content,
-  }));
+  const msgPayload = useMemo(() => {
+    const messages = data.messages ?? [];
+    const start = Math.max(0, messages.length - SPRITE_OVERLAY_MESSAGE_SCAN_LIMIT);
+    return messages.slice(start).map((message) => ({
+      role: message.role,
+      characterId: message.characterId,
+      content: message.content,
+    }));
+  }, [data.messages]);
   const isSceneChat = data.chatMeta.sceneStatus === "active" || Boolean(data.chatMeta.sceneOriginChatId);
-  const isRoleplay = data.chatMode === "roleplay" || data.chatMode === "visual_novel";
+  const isRoleplay = data.chatMode === "roleplay";
+  const expressionAvatarsEnabled =
+    isRoleplay && data.chatMeta.expressionAvatarsEnabled === true && expressionAgentEnabled && data.chatCharIds.length > 0;
+  const expressionAvatarCharacterIds = useMemo(() => {
+    const configuredIds =
+      spriteState.spriteCharacterIds.length > 0
+        ? spriteState.spriteCharacterIds.filter((id) => data.chatCharIds.includes(id))
+        : data.chatCharIds;
+    return Array.from(new Set(configuredIds.filter((id) => typeof id === "string" && id.trim())));
+  }, [data.chatCharIds, spriteState.spriteCharacterIds]);
+  const expressionAvatarCharacterIdsKey = expressionAvatarCharacterIds.join("\u0000");
+  const expressionAvatarSpriteQueries = useQueries({
+    queries: expressionAvatarCharacterIds.map((characterId) => ({
+      queryKey: spriteKeys.list(characterId),
+      queryFn: () => spriteApi.list<SpriteInfo[]>(characterId),
+      enabled: expressionAvatarsEnabled,
+      staleTime: 5 * 60_000,
+    })),
+  });
+  const expressionAvatarSpriteDataVersion = useMemo(
+    () =>
+      expressionAvatarSpriteQueries
+        .map((query, index) => `${expressionAvatarCharacterIds[index] ?? ""}:${query.dataUpdatedAt}`)
+        .join("\u0000"),
+    [expressionAvatarCharacterIdsKey, expressionAvatarSpriteQueries],
+  );
+  const expressionAvatarSpriteMap = useMemo(() => {
+    const map = new Map<string, Map<string, string>>();
+    if (!expressionAvatarsEnabled) return map;
+    for (let index = 0; index < expressionAvatarCharacterIds.length; index += 1) {
+      const characterId = expressionAvatarCharacterIds[index]!;
+      const sprites = expressionAvatarSpriteQueries[index]?.data;
+      if (!Array.isArray(sprites) || sprites.length === 0) continue;
+      const byExpression = new Map<string, string>();
+      for (const sprite of sprites) {
+        const expression = sprite.expression.trim().toLowerCase();
+        if (!expression || expression.startsWith("full_")) continue;
+        byExpression.set(expression, sprite.url);
+      }
+      if (byExpression.size > 0) map.set(characterId, byExpression);
+    }
+    return map;
+  }, [expressionAvatarCharacterIdsKey, expressionAvatarSpriteDataVersion, expressionAvatarsEnabled]);
+  const expressionAvatarResolver = useMemo<ExpressionAvatarResolver | undefined>(() => {
+    if (!expressionAvatarsEnabled) return undefined;
+    return (message: MessageWithSwipes, characterId: string) => {
+      const extra = parseMessageExtraRecord(message.extra);
+      const expressions = normalizeMessageSpriteExpressions(extra.spriteExpressions);
+      const characterName = data.characterMap.get(characterId)?.name;
+      const expression = expressions[characterId] ?? (characterName ? expressions[characterName] : undefined);
+      if (!expression) return null;
+      return resolveExpressionAvatarSpriteUrl(expressionAvatarSpriteMap.get(characterId), expression);
+    };
+  }, [data.characterMap, expressionAvatarSpriteMap, expressionAvatarsEnabled]);
 
   const handleCloneSceneFromHere = useCallback(
     (messageId: string) => {
@@ -152,7 +248,10 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         centerCompact={centerCompact}
         chatBackground={chatBackground}
         weatherEffects={weatherEffects}
+        agentsUiEnabled={agentsUiEnabled}
         expressionAgentEnabled={expressionAgentEnabled}
+        expressionAvatarsEnabled={expressionAvatarsEnabled}
+        expressionAvatarResolver={expressionAvatarResolver}
         combatAgentEnabled={combatAgentEnabled}
         encounterActive={encounterActive}
         spritePosition={spriteState.spritePosition}
@@ -162,7 +261,6 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         spritePlacements={spriteState.spritePlacements}
         spriteScale={spriteState.spriteScale}
         spriteOpacity={spriteState.spriteOpacity}
-        hasCustomSpritePlacements={spriteState.hasCustomSpritePlacements}
         spriteArrangeMode={overlays.spriteArrangeMode}
         enabledAgentTypes={enabledAgentTypes}
         chatCharIds={data.chatCharIds}
@@ -227,7 +325,6 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         onResetSpritePlacements={spriteState.handleResetSpritePlacements}
         onSpriteSideChange={spriteState.handleSetSpritePosition}
         onToggleSpriteArrange={overlays.toggleSpriteArrange}
-        onToggleSpritePosition={spriteState.handleToggleSpritePosition}
         onExpressionChange={spriteState.handleExpressionChange}
         onSpritePlacementChange={spriteState.handleSpritePlacementChange}
         onDeleteConfirm={timeline.handleDeleteConfirm}

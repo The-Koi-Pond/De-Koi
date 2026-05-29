@@ -4,7 +4,7 @@ import { useAgentStore } from "../../shared/stores/agent.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 import { cn } from "../../shared/lib/utils";
 
-const RIGHT_PANEL_BUTTONS = [
+export const RIGHT_PANEL_BUTTONS = [
   { panel: "bot-browser" as const, icon: Bot, label: "Browser", activeClass: "text-cyan-500", hoverClass: "hover:text-cyan-300", underlineClass: "from-cyan-500 to-blue-500" },
   { panel: "characters" as const, icon: Users, label: "Characters", activeClass: "text-rose-500", hoverClass: "hover:text-rose-300", underlineClass: "from-pink-500 to-rose-500" },
   { panel: "lorebooks" as const, icon: BookOpen, label: "Lorebooks", activeClass: "text-amber-500", hoverClass: "hover:text-amber-300", underlineClass: "from-amber-500 to-orange-500" },

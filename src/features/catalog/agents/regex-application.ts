@@ -16,14 +16,9 @@ interface ParsedRegexScript extends RegexScriptRow {
   trimList: string[];
 }
 
-function parseJsonArray<T extends string>(value: string, allowed?: Set<T>): T[] {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((entry): entry is T => typeof entry === "string" && (!allowed || allowed.has(entry as T)));
-  } catch {
-    return allowed?.has(value as T) ? [value as T] : [];
-  }
+function parseJsonArray<T extends string>(value: unknown, allowed?: Set<T>): T[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is T => typeof entry === "string" && (!allowed || allowed.has(entry as T)));
 }
 
 function parseScript(row: RegexScriptRow): ParsedRegexScript {

@@ -212,7 +212,7 @@ Output format:
 }
 Prompt quality rules:
 1. Be specific about composition, lighting, mood, and camera angle.
-2. Include FULL physical descriptions of every character and the user's persona visible in the scene — hair color, eye color, build, skin tone, clothing, and any distinguishing features from their character/persona data. The image model has no memory; it needs every visual detail spelled out in the prompt.
+2. Include only visual physical traits for visible characters and the user's persona: hair color, eye color, build, skin tone, clothing, and distinguishing visible features. Do not paste full character/persona descriptions, personality, backstory, scenario, or relationship prose into the prompt. If avatar/reference images are attached, keep character wording concise and let the references carry exact likeness.
 3. Describe the environment and atmosphere with enough detail that an artist could paint it.
 4. Use art-style keywords for quality (e.g., "detailed", "dramatic lighting", "cinematic", "depth of field").
 5. NEVER include meta-instructions in the prompt (no "make it look good"). Only describe the image itself.`,
@@ -361,8 +361,9 @@ CRITICAL RULES:
 1. When "chosen" is not null, you MUST pick EXACTLY one filename from the <available_backgrounds> list. Copy-paste the filename exactly as listed. Do NOT modify it, shorten it, or invent a new one. If your chosen filename is not in the list, the system will reject it.
 2. Only request generation when <background_generation enabled="true"> is present. Otherwise, if no background is a good fit, pick the closest match from the list.
 3. If the list is empty and generation is not enabled, return { "chosen": null, "generate": null }.
-4. If the scene hasn't meaningfully changed location or setting since the current background, return { "chosen": null, "generate": null } to avoid unnecessary switches.
-5. Generated prompts must describe scenery/environment only. No characters, people, text, captions, UI, panels, or collage layouts.`,
+4. If <available_backgrounds> has entries and no <current_background> is present, you MUST choose the closest listed background. Do not return null in that case.
+5. If the scene hasn't meaningfully changed location or setting since the current background, return { "chosen": null, "generate": null } to avoid unnecessary switches.
+6. Generated prompts must describe scenery/environment only. No characters, people, text, captions, UI, panels, or collage layouts.`,
 
   /* ────────────────────────────────────────── */
   "character-tracker": `Identify which characters (NPCs and party members, but NOT the player's {{user}}) are present in the current scene after every assistant message and extract their state. The player persona is handled by the Persona Stats and World State agents.

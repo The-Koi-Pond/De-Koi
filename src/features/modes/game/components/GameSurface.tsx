@@ -46,6 +46,7 @@ import {
   useUpdateChatMetadata,
   useUpdateMessage,
 } from "../../../catalog/chats/index";
+import { galleryKeys } from "../../../catalog/gallery/query-keys";
 import { useConnections } from "../../../catalog/connections/index";
 import { useGameGeneration } from "../hooks/use-game-generation";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -57,7 +58,8 @@ import { spotifyApi } from "../../../../shared/api/integration-utility-api";
 import { gameAssetFileUrlFromPath, userBackgroundUrl } from "../../../../shared/api/local-file-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
-import { cn, type AvatarCrop, type AvatarCropValue } from "../../../../shared/lib/utils";
+import { formatTextQuotes } from "../../../../shared/lib/dialogue-quotes";
+import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { audioManager } from "../lib/game-audio";
 import {
@@ -91,6 +93,10 @@ import type { PartyDialogueLine, CombatSummary, GameMap, GameActiveState, DiceRo
 import type { GameState } from "../../../../engine/contracts/types/game-state";
 import type { SceneAnalysis, SceneIllustrationRequest, SceneSegmentEffect, SceneSpotifyTrackCandidate, SceneSpotifyTrackSelection } from "../../../../engine/contracts/types/scene";
 import { scoreMusic, scoreAmbient } from "../../../../engine/shared/scoring/music-score";
+import {
+  applyMapUpdateCommandsToMeta,
+  parseMapUpdateCommands,
+} from "../../../../engine/modes/game/world/map-position.service";
 import { GameNarration } from "./GameNarration";
 import { formatNarration } from "../lib/game-narration-format";
 import { GameInput } from "./GameInput";
@@ -147,6 +153,10 @@ type GameAssetGenerationPayload = {
     portrait?: { width: number; height: number };
     selfie?: { width: number; height: number };
   };
+  imagePromptSettings?: {
+    includeAppearances?: boolean;
+    format?: "descriptive" | "tags";
+  };
   promptOverrides?: GameImagePromptOverride[];
 };
 
@@ -155,6 +165,7 @@ type GameAssetGenerationResult = {
   fallbackBackground?: string | null;
   generatedIllustration: { tag: string; segment?: number } | null;
   generatedNpcAvatars: Array<{ name: string; avatarUrl: string }>;
+  sessionChat?: Chat;
 };
 
 type GameAssetGenerationOptions = {
@@ -1008,6 +1019,13 @@ function removeInventoryUnit<T extends { name: string; quantity: number }>(items
   return removed ? updated : items;
 }
 
+function removeInventoryStack<T extends { name: string; quantity: number }>(items: T[], itemName: string): T[] {
+  const normalizedName = itemName.trim().toLowerCase();
+  if (!normalizedName) return items;
+  const updated = items.filter((item) => item.name.trim().toLowerCase() !== normalizedName);
+  return updated.length === items.length ? items : updated;
+}
+
 function addInventoryUnit<T extends { name: string; quantity: number }>(items: T[], itemName: string): T[] {
   const name = normalizeInventoryName(itemName);
   if (!name) return items;
@@ -1653,6 +1671,8 @@ export function GameSurface({
   const gameMiddleMouseNav = useUIStore((s) => s.gameMiddleMouseNav);
   const messagesPerPage = useUIStore((s) => s.messagesPerPage);
   const openGameAssetsBrowser = useUIStore((s) => s.openGameAssetsBrowser);
+  const quoteFormat = useUIStore((s) => s.quoteFormat);
+  const chatBackgroundBlur = useUIStore((s) => s.chatBackgroundBlur);
   const gameSnapshot = useGameStateStore((s) => (s.current?.chatId === activeChatId ? s.current : null));
   const { patchField: patchVisibleGameStateField, flushPatch: flushVisibleGameStatePatch } = useGameStatePatcher(
     activeChatId,
@@ -1775,21 +1795,33 @@ export function GameSurface({
 
   // Keep the journal in step when game state reports a new location.
   const lastJournaledLocationRef = useRef<string | null>(null);
+  const queryClient = useQueryClient();
+  const publishSessionChat = useCallback(
+    (sessionChat: Chat | null | undefined) => {
+      if (!sessionChat?.id) return;
+      queryClient.setQueryData(chatKeys.detail(sessionChat.id), sessionChat);
+      if (useChatStore.getState().activeChatId === sessionChat.id) {
+        useChatStore.getState().setActiveChat(sessionChat);
+      }
+    },
+    [queryClient],
+  );
+
   useEffect(() => {
     const loc = gameSnapshot?.location;
     if (!loc || loc === lastJournaledLocationRef.current) return;
     lastJournaledLocationRef.current = loc;
-    gameApi
+    void gameApi
       .addJournalEntry({
         chatId: activeChatId,
         type: "location",
         data: { location: loc, description: `The party is at ${loc}.` },
       })
+      .then((res) => publishSessionChat(res.sessionChat))
       .catch(() => {});
-  }, [activeChatId, gameSnapshot?.location]);
+  }, [activeChatId, gameSnapshot?.location, publishSessionChat]);
 
   // Asset store
-  const queryClient = useQueryClient();
   const syncHudWidgetsToChatCache = useCallback(
     (widgets: HudWidget[]) => {
       const detailKey = chatKeys.detail(activeChatId);
@@ -2023,7 +2055,7 @@ export function GameSurface({
     (readable: JournalReadable) => {
       if (!activeChatId) return;
 
-      gameApi
+      void gameApi
         .addJournalEntry({
           chatId: activeChatId,
           type: "note",
@@ -2035,9 +2067,10 @@ export function GameSurface({
             sourceSegmentIndex: readable.sourceSegmentIndex,
           },
         })
+        .then((res) => publishSessionChat(res.sessionChat))
         .catch(() => {});
     },
-    [activeChatId],
+    [activeChatId, publishSessionChat],
   );
 
   // Handle readable segments from GameNarration: queue them and show one at a time
@@ -2267,10 +2300,14 @@ export function GameSurface({
         }
       }
 
+      const inventoryPersist =
+        updated !== previousInventory
+          ? persistGameMetadata(activeChatId, { gameInventory: updated }, chatMeta).catch(() => null)
+          : Promise.resolve(null);
+
       if (updated !== previousInventory) {
         inventoryItemsRef.current = updated;
         setInventoryItems(updated);
-        persistGameMetadata(activeChatId, { gameInventory: updated }, chatMeta).catch(() => {});
       }
 
       if (currentGameState?.chatId === activeChatId && currentPlayerStats && nextPlayerStats !== currentPlayerStats) {
@@ -2279,18 +2316,26 @@ export function GameSurface({
         });
       }
 
-      for (const entry of journalEntries) {
-        gameApi
-          .addJournalEntry({
-            chatId: activeChatId,
-            type: "item",
-            data: {
-              item: entry.item,
-              action: entry.action,
-              quantity: 1,
-            },
-          })
-          .catch(() => {});
+      if (journalEntries.length > 0) {
+        void (async () => {
+          await inventoryPersist;
+          for (const entry of journalEntries) {
+            try {
+              const res = await gameApi.addJournalEntry({
+                chatId: activeChatId,
+                type: "item",
+                data: {
+                  item: entry.item,
+                  action: entry.action,
+                  quantity: 1,
+                },
+              });
+              publishSessionChat(res.sessionChat);
+            } catch {
+              // Best-effort journal write; keep inventory updates responsive.
+            }
+          }
+        })();
       }
 
       if (notifications.length > 0) {
@@ -2299,7 +2344,7 @@ export function GameSurface({
         notificationTimerRef.current = setTimeout(() => setInventoryNotifications([]), 4000);
       }
     },
-    [activeChatId, patchVisibleGameState],
+    [activeChatId, patchVisibleGameState, publishSessionChat],
   );
 
   const playDirections = useCallback((directions: DirectionCommand[]) => {
@@ -2554,7 +2599,7 @@ export function GameSurface({
       string,
       {
         url: string;
-        crop?: AvatarCrop | null;
+        crop?: AvatarCropValue | null;
         nameColor?: string;
         dialogueColor?: string;
       }
@@ -3450,6 +3495,27 @@ export function GameSurface({
     );
 
     const tags = parseGmTags(msg.content);
+    const mapUpdateCommands = parseMapUpdateCommands(msg.content);
+    if (mapUpdateCommands.length > 0) {
+      const nextMeta = applyMapUpdateCommandsToMeta(chatMeta, mapUpdateCommands);
+      if (nextMeta !== chatMeta) {
+        const nextMaps = Array.isArray(nextMeta.gameMaps) ? (nextMeta.gameMaps as GameMap[]) : [];
+        const nextActiveMapId = typeof nextMeta.activeGameMapId === "string" ? nextMeta.activeGameMapId : null;
+        if (nextMaps.length > 0) {
+          useGameModeStore.getState().setMaps(nextMaps, nextActiveMapId);
+        }
+        updateChatMetadata
+          .mutateAsync({
+            id: activeChatId,
+            gameMap: nextMeta.gameMap,
+            gameMaps: nextMeta.gameMaps,
+            activeGameMapId: nextMeta.activeGameMapId,
+          })
+          .catch((error) => {
+            console.warn("Failed to persist map update commands", error);
+          });
+      }
+    }
     const directAddressMode = latestAssistantDirectAddressMode;
     const suppressInteractiveCommands = interruptedInteractiveCommandKeysRef.current.has(
       interactiveCommandKey(activeChatId, msg.id),
@@ -3793,7 +3859,7 @@ export function GameSurface({
 
   const installGeneratedIllustration = useCallback(
     async (illustration: { tag: string; segment?: number }) => {
-      void queryClient.invalidateQueries({ queryKey: ["gallery", activeChatId] });
+      void queryClient.invalidateQueries({ queryKey: galleryKeys.images(activeChatId) });
       await fetchManifest();
       if (illustration.segment !== undefined && illustration.segment > 0) {
         setPendingSegmentEffects((previous) => {
@@ -3855,6 +3921,10 @@ export function GameSurface({
         ...assetPayload,
         debugMode: useUIStore.getState().debugMode,
         imageSizes: getConfiguredGameAssetImageSizes(),
+        imagePromptSettings: {
+          includeAppearances: useUIStore.getState().imagePromptIncludeAppearances,
+          format: useUIStore.getState().imagePromptFormat,
+        },
       };
 
       if (options?.allowPromptReview !== false && useUIStore.getState().reviewImagePromptsBeforeSend) {
@@ -3915,6 +3985,7 @@ export function GameSurface({
 
   const applyGeneratedAssets = useCallback(
     async (res: GameAssetGenerationResult) => {
+      publishSessionChat(res.sessionChat);
       const nextBackground = res.generatedBackground ?? res.fallbackBackground;
       if (nextBackground) {
         await fetchManifest();
@@ -3928,7 +3999,7 @@ export function GameSurface({
         clearFailedNpcAvatars(res.generatedNpcAvatars.map((avatar) => avatar.name));
       }
     },
-    [clearFailedNpcAvatars, fetchManifest, installGeneratedIllustration],
+    [clearFailedNpcAvatars, fetchManifest, installGeneratedIllustration, publishSessionChat],
   );
 
   async function applySceneResult(result: SceneAnalysis, msg: { id: string }) {
@@ -4340,14 +4411,18 @@ export function GameSurface({
 
   const retryGeneration = useCallback(() => {
     setGenerationFailed(false);
-    generateGameTurn({ chatId: activeChatId, connectionId: null, kind: "turn" });
+    void generateGameTurn({ chatId: activeChatId, connectionId: null, kind: "turn" }).catch(() => {
+      // Generation UI already shows the recoverable error state.
+    });
   }, [activeChatId, generateGameTurn]);
 
   const generateInitialGameTurn = useCallback(() => {
-    generateGameTurn({
+    void generateGameTurn({
       chatId: activeChatId,
       connectionId: null,
       kind: "start",
+    }).catch(() => {
+      // Generation UI already shows the recoverable error state.
     });
   }, [activeChatId, generateGameTurn]);
 
@@ -4508,15 +4583,20 @@ export function GameSurface({
   const sendMessage = useCallback(
     (message: string, attachments?: Array<{ type: string; data: string }>) => {
       if ((chatMeta.gameSessionStatus as string) === "concluded") return;
-      generateGameTurn({
+      const trimmedMessage = message.trim();
+      const hasAttachments = !!attachments?.length;
+      if (!trimmedMessage && !hasAttachments) return;
+      void generateGameTurn({
         chatId: activeChatId,
         connectionId: null,
         kind: "turn",
-        userMessage: message,
-        ...(attachments?.length ? { attachments } : {}),
+        userMessage: formatTextQuotes(trimmedMessage, quoteFormat),
+        ...(hasAttachments ? { attachments } : {}),
+      }).catch(() => {
+        // Generation UI already shows the recoverable error state.
       });
     },
-    [activeChatId, chatMeta.gameSessionStatus, generateGameTurn],
+    [activeChatId, chatMeta.gameSessionStatus, generateGameTurn, quoteFormat],
   );
 
   // Game mutations
@@ -4546,6 +4626,40 @@ export function GameSurface({
   gameSetupResetRef.current = gameSetup.reset;
   startGameResetRef.current = startGame.reset;
   startSessionResetRef.current = startSession.reset;
+
+  const handleMapChange = useCallback(
+    async (updatedMap: GameMap) => {
+      if (!activeChatId) return;
+
+      const updatedMapId = getGameMapId(updatedMap);
+      const viewedId = effectiveViewedMapId ?? updatedMapId;
+      const sourceMaps = availableMaps.length > 0 ? availableMaps : [updatedMap];
+      let replaced = false;
+      const nextMaps = sourceMaps.map((map, index) => {
+        const mapId = getGameMapId(map, index);
+        if (!replaced && (map === viewedMap || mapId === viewedId || mapId === updatedMapId)) {
+          replaced = true;
+          return updatedMap;
+        }
+        return map;
+      });
+      if (!replaced) nextMaps.push(updatedMap);
+
+      const nextActiveMapId = activeMapId ?? updatedMapId ?? getGameMapId(nextMaps[0] ?? null);
+      const nextActiveMap =
+        nextMaps.find((map, index) => getGameMapId(map, index) === nextActiveMapId) ?? nextMaps[0] ?? null;
+
+      await updateChatMetadata.mutateAsync({
+        id: activeChatId,
+        gameMap: nextActiveMap,
+        gameMaps: nextMaps,
+        activeGameMapId: nextActiveMapId,
+      });
+      useGameModeStore.getState().setMaps(nextMaps, nextActiveMapId);
+      toast.success("Map location updated.");
+    },
+    [activeChatId, activeMapId, availableMaps, effectiveViewedMapId, updateChatMetadata, viewedMap],
+  );
 
   useEffect(() => {
     createGameResetRef.current();
@@ -4988,12 +5102,13 @@ export function GameSurface({
 
         setInventoryItems(updatedInventory);
 
-        gameApi
+        void gameApi
           .addJournalEntry({
             chatId: activeChatId,
             type: "item",
             data: { item: itemName, action: "removed", quantity: 1 },
           })
+          .then((res) => publishSessionChat(res.sessionChat))
           .catch(() => {});
 
         setInventoryNotifications([`You removed ${itemName}.`]);
@@ -5008,7 +5123,72 @@ export function GameSurface({
         toast.error(message);
       }
     },
-    [activeChatId, inventoryItems, patchVisibleGameState, updateChatMetadata],
+    [activeChatId, inventoryItems, patchVisibleGameState, publishSessionChat, updateChatMetadata],
+  );
+
+  const handleClearInventoryItem = useCallback(
+    async (itemName: string) => {
+      if (!activeChatId) return;
+
+      const updatedInventory = removeInventoryStack(inventoryItems, itemName);
+      if (updatedInventory === inventoryItems) {
+        toast.error(`${itemName} is no longer in your inventory.`);
+        return;
+      }
+
+      const removedQuantity =
+        inventoryItems.find((item) => item.name.trim().toLowerCase() === itemName.trim().toLowerCase())?.quantity ?? 1;
+      const currentGameState = useGameStateStore.getState().current;
+      const currentPlayerStats = currentGameState?.chatId === activeChatId ? currentGameState.playerStats : null;
+      const nextPlayerStats = currentPlayerStats
+        ? (() => {
+            const updatedDetailedInventory = removeInventoryStack(currentPlayerStats.inventory, itemName);
+            return updatedDetailedInventory === currentPlayerStats.inventory
+              ? currentPlayerStats
+              : { ...currentPlayerStats, inventory: updatedDetailedInventory };
+          })()
+        : null;
+      const shouldPatchGameState =
+        Boolean(currentGameState?.chatId === activeChatId) &&
+        Boolean(currentPlayerStats) &&
+        nextPlayerStats !== currentPlayerStats;
+      let patchedGameState = false;
+
+      try {
+        if (shouldPatchGameState && nextPlayerStats) {
+          patchedGameState = true;
+          await patchVisibleGameState("playerStats", nextPlayerStats);
+        }
+
+        await updateChatMetadata.mutateAsync({
+          id: activeChatId,
+          gameInventory: updatedInventory,
+        });
+
+        setInventoryItems(updatedInventory);
+
+        void gameApi
+          .addJournalEntry({
+            chatId: activeChatId,
+            type: "item",
+            data: { item: itemName, action: "removed", quantity: removedQuantity },
+          })
+          .then((res) => publishSessionChat(res.sessionChat))
+          .catch(() => {});
+
+        setInventoryNotifications([`You removed ${itemName}.`]);
+        if (notificationTimerRef.current) clearTimeout(notificationTimerRef.current);
+        notificationTimerRef.current = setTimeout(() => setInventoryNotifications([]), 4000);
+        toast.success(`Removed ${itemName} from inventory.`);
+      } catch (error) {
+        if (patchedGameState && currentPlayerStats) {
+          await patchVisibleGameState("playerStats", currentPlayerStats).catch(() => {});
+        }
+        const message = error instanceof Error ? error.message : `Failed to remove ${itemName} from inventory.`;
+        toast.error(message);
+      }
+    },
+    [activeChatId, inventoryItems, patchVisibleGameState, publishSessionChat, updateChatMetadata],
   );
 
   const handleUseCombatInventoryItem = useCallback(
@@ -5051,12 +5231,13 @@ export function GameSurface({
 
         setInventoryItems(updatedInventory);
 
-        gameApi
+        void gameApi
           .addJournalEntry({
             chatId: activeChatId,
             type: "item",
             data: { item: normalizedItemName, action: "used", quantity: 1 },
           })
+          .then((res) => publishSessionChat(res.sessionChat))
           .catch(() => {});
 
         setInventoryNotifications([`You used ${normalizedItemName}.`]);
@@ -5071,7 +5252,7 @@ export function GameSurface({
         toast.error(message);
       }
     },
-    [activeChatId, inventoryItems, patchVisibleGameState, updateChatMetadata],
+    [activeChatId, inventoryItems, patchVisibleGameState, publishSessionChat, updateChatMetadata],
   );
 
   const handleRenameInventoryItem = useCallback(
@@ -6890,7 +7071,7 @@ export function GameSurface({
       journalDescLines.push(`Party status: ${partyStatus.join("; ")}`);
       if (lootText) journalDescLines.push(`Loot: ${lootText}`);
 
-      gameApi
+      void gameApi
         .addJournalEntry({
           chatId: activeChatId,
           type: "combat",
@@ -6899,9 +7080,10 @@ export function GameSurface({
             outcome: outcome === "flee" ? "fled" : outcome,
           },
         })
+        .then((res) => publishSessionChat(res.sessionChat))
         .catch(() => {});
     },
-    [sendMessage, activeChatId, clearCombatSnapshot, transitionGameState],
+    [sendMessage, activeChatId, clearCombatSnapshot, publishSessionChat, transitionGameState],
   );
 
   // Toggle audio mute
@@ -7310,7 +7492,6 @@ export function GameSurface({
             useGameModeStore.getState().setSetupActive(false);
           }}
           isLoading={createGame.isPending || gameSetup.isPending}
-          characters={characters}
         />
         <GameJsonRepairModal
           request={jsonRepairRequest}
@@ -7496,6 +7677,7 @@ export function GameSurface({
         <DirectionEngine
           directions={activeDirections}
           backgroundUrl={displayedBackground ?? undefined}
+          backgroundBlurPx={chatBackgroundBlur}
           onPlayingChange={(playing) => {
             setDirectionsPlaying(playing);
             // When intro cinematic finishes, clear the flag
@@ -7957,6 +8139,7 @@ export function GameSurface({
                       activeMapId={activeMapId}
                       viewedMapId={effectiveViewedMapId}
                       onViewedMapChange={handleViewedMapChange}
+                      onMapChange={handleMapChange}
                       onMove={handleMapMove}
                       selectedPosition={viewedMapIsActive ? (pendingMapMove?.position ?? null) : null}
                       onGenerateMap={handleGenerateMap}
@@ -7976,6 +8159,7 @@ export function GameSurface({
                       activeMapId={activeMapId}
                       viewedMapId={effectiveViewedMapId}
                       onViewedMapChange={handleViewedMapChange}
+                      onMapChange={handleMapChange}
                       onMove={handleMapMove}
                       selectedPosition={viewedMapIsActive ? (pendingMapMove?.position ?? null) : null}
                       onGenerateMap={handleGenerateMap}
@@ -8509,12 +8693,16 @@ export function GameSurface({
               />
 
               {/* Gallery drawer */}
-              <ChatGalleryDrawer
-                chat={chat}
-                open={galleryOpen}
-                onClose={() => setGalleryOpen(false)}
-                onIllustrate={() => retryAgents(activeChatId, ["illustrator"])}
-              />
+              <Suspense fallback={null}>
+                {galleryOpen && (
+                  <ChatGalleryDrawer
+                    chat={chat}
+                    open={galleryOpen}
+                    onClose={() => setGalleryOpen(false)}
+                    onIllustrate={() => retryAgents(activeChatId, ["illustrator"])}
+                  />
+                )}
+              </Suspense>
 
               {/* Inventory overlay */}
               <GameInventory
@@ -8524,6 +8712,7 @@ export function GameSurface({
                 onAddItem={handleAddInventoryItem}
                 onRenameItem={handleRenameInventoryItem}
                 onRemoveItem={handleRemoveInventoryItem}
+                onClearItem={handleClearInventoryItem}
                 onIncrementItem={handleIncrementInventoryItem}
                 onReorderItem={handleReorderInventoryItem}
                 canInteract={sessionInteractive && narrationDone && !isStreaming}

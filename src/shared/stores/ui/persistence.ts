@@ -1,18 +1,33 @@
 import { createJSONStorage } from "zustand/middleware";
+import { normalizeQuoteFormat } from "../../lib/dialogue-quotes";
 import {
+  RIGHT_PANEL_WIDTH_DEFAULT,
+  RIGHT_PANEL_WIDTH_MAX,
+  RIGHT_PANEL_WIDTH_MIN,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
   normalizeTrackerPanelSectionOrder,
   normalizeTrackerPanelSizeProfile,
+  normalizeSummaryPopoverSettings,
   normalizeTrackerTemperatureUnit,
   normalizeTrackerThoughtBubbleDisplay,
 } from "./model";
 import type { UIState } from "./model";
 
 export const UI_STORE_NAME = "marinara-engine-ui-tauri";
-export const UI_STORE_VERSION = 2;
+export const UI_STORE_VERSION = 5;
+
+const LEGACY_SIDEBAR_WIDTH_DEFAULT = 280;
 
 type PersistedUiState = Partial<UIState> & {
   trackerPanelWidth?: unknown;
 };
+
+function normalizePersistedWidth(value: unknown, fallback: number, min: number, max: number): number {
+  const width = typeof value === "number" && Number.isFinite(value) ? Math.round(value) : fallback;
+  return Math.max(min, Math.min(max, width));
+}
 
 export function createDebouncedUiStorage() {
   return createJSONStorage(() => {
@@ -70,6 +85,7 @@ export function partializeUiState(state: UIState) {
     trackerPanelSectionOrder: state.trackerPanelSectionOrder,
     theme: state.theme,
     chatBackground: state.chatBackground,
+    chatBackgroundBlur: state.chatBackgroundBlur,
     fontSize: state.fontSize,
     language: state.language,
     chatFontSize: state.chatFontSize,
@@ -83,6 +99,8 @@ export function partializeUiState(state: UIState) {
     gameTextSpeed: state.gameTextSpeed,
     gameAutoPlayDelay: state.gameAutoPlayDelay,
     reviewImagePromptsBeforeSend: state.reviewImagePromptsBeforeSend,
+    imagePromptIncludeAppearances: state.imagePromptIncludeAppearances,
+    imagePromptFormat: state.imagePromptFormat,
     imageBackgroundWidth: state.imageBackgroundWidth,
     imageBackgroundHeight: state.imageBackgroundHeight,
     imagePortraitWidth: state.imagePortraitWidth,
@@ -102,15 +120,19 @@ export function partializeUiState(state: UIState) {
     confirmBeforeDelete: state.confirmBeforeDelete,
     messagesPerPage: state.messagesPerPage,
     boldDialogue: state.boldDialogue,
+    quoteFormat: state.quoteFormat,
     trimIncompleteModelOutput: state.trimIncompleteModelOutput,
     speechToTextEnabled: state.speechToTextEnabled,
     spotifyPlayerEnabled: state.spotifyPlayerEnabled,
+    chibiProfessorMariEnabled: state.chibiProfessorMariEnabled,
     remoteRuntimeUrl: state.remoteRuntimeUrl,
     spotifyMobileWidgetCollapsed: state.spotifyMobileWidgetCollapsed,
     spotifyMobileWidgetPosition: state.spotifyMobileWidgetPosition,
     intuitiveSwipeNavigation: state.intuitiveSwipeNavigation,
     intuitiveSwipeRerollLatest: state.intuitiveSwipeRerollLatest,
     editLastMessageOnArrowUp: state.editLastMessageOnArrowUp,
+    editMessagesOnDoubleClick: state.editMessagesOnDoubleClick,
+    summaryPopoverSettings: state.summaryPopoverSettings,
     narrationFontColor: state.narrationFontColor,
     narrationOpacity: state.narrationOpacity,
     chatFontColor: state.chatFontColor,
@@ -133,11 +155,11 @@ export function partializeUiState(state: UIState) {
     gameTutorialDisabled: state.gameTutorialDisabled,
     linkApiBannerDismissed: state.linkApiBannerDismissed,
     echoChamberSide: state.echoChamberSide,
-    userStatusManual: state.userStatusManual,
-    userStatus: state.userStatus,
+    userStatusManual: state.userStatusManual === "dnd" ? "dnd" : "active",
     userActivity: state.userActivity,
     convoNotificationSound: state.convoNotificationSound,
     rpNotificationSound: state.rpNotificationSound,
+    conversationBrowserNotifications: state.conversationBrowserNotifications,
     customConversationPrompt: state.customConversationPrompt,
     scheduleGenerationPreferences: state.scheduleGenerationPreferences,
     impersonatePromptTemplate: state.impersonatePromptTemplate,
@@ -158,6 +180,18 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
       : {};
 
   const legacyWidth = persisted.trackerPanelWidth;
+  persisted.sidebarWidth = normalizePersistedWidth(
+    persisted.sidebarWidth === LEGACY_SIDEBAR_WIDTH_DEFAULT ? SIDEBAR_WIDTH_DEFAULT : persisted.sidebarWidth,
+    SIDEBAR_WIDTH_DEFAULT,
+    SIDEBAR_WIDTH_MIN,
+    SIDEBAR_WIDTH_MAX,
+  );
+  persisted.rightPanelWidth = normalizePersistedWidth(
+    persisted.rightPanelWidth,
+    RIGHT_PANEL_WIDTH_DEFAULT,
+    RIGHT_PANEL_WIDTH_MIN,
+    RIGHT_PANEL_WIDTH_MAX,
+  );
   persisted.trackerPanelThoughtBubbleDisplay = normalizeTrackerThoughtBubbleDisplay(
     persisted.trackerPanelThoughtBubbleDisplay,
   );
@@ -169,6 +203,13 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
   );
   persisted.trackerTemperatureUnit = normalizeTrackerTemperatureUnit(persisted.trackerTemperatureUnit);
   persisted.trackerPanelSectionOrder = normalizeTrackerPanelSectionOrder(persisted.trackerPanelSectionOrder);
+  persisted.summaryPopoverSettings = normalizeSummaryPopoverSettings(persisted.summaryPopoverSettings);
+  persisted.quoteFormat = normalizeQuoteFormat(persisted.quoteFormat);
+  persisted.editMessagesOnDoubleClick = persisted.editMessagesOnDoubleClick !== false;
+  persisted.imagePromptIncludeAppearances = persisted.imagePromptIncludeAppearances !== false;
+  persisted.imagePromptFormat = persisted.imagePromptFormat === "tags" ? "tags" : "descriptive";
+  persisted.userStatusManual = persisted.userStatusManual === "dnd" ? "dnd" : "active";
+  persisted.userStatus = persisted.userStatusManual === "dnd" ? "dnd" : "active";
   delete persisted.trackerPanelWidth;
 
   return persisted;

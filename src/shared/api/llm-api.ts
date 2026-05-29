@@ -1,5 +1,6 @@
 import type { LlmChunk, LlmGateway, LlmRequest } from "../../engine/capabilities/llm";
 import { Channel } from "@tauri-apps/api/core";
+import { ignoreLlmStreamCancelFailure } from "./llm-cancel-logging";
 import { invokeTauri } from "./tauri-client";
 import { cancelRemoteLlmStream, remoteRuntimeTarget, streamRemoteLlm } from "./remote-runtime";
 
@@ -8,24 +9,59 @@ function createStreamId(): string {
   return `llm-stream-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+const activeTauriStreamIds = new Set<string>();
+let unloadCancellationInstalled = false;
+
+function cancelActiveTauriStreams() {
+  for (const streamId of activeTauriStreamIds) {
+    void ignoreLlmStreamCancelFailure("tauri", streamId, invokeTauri("llm_stream_cancel", { streamId }));
+  }
+}
+
+function installUnloadCancellation() {
+  if (unloadCancellationInstalled || typeof window === "undefined") return;
+  unloadCancellationInstalled = true;
+  window.addEventListener("pagehide", cancelActiveTauriStreams);
+  window.addEventListener("beforeunload", cancelActiveTauriStreams);
+}
+
 export const llmApi: LlmGateway = {
   complete: (request: LlmRequest) =>
     invokeTauri("llm_complete", {
       request,
     }),
+  embed: async (request) => {
+    const body = {
+      input: request.texts,
+      connectionId: request.connectionId ?? null,
+      model: request.model ?? null,
+    };
+    const response = await invokeTauri<{ data?: Array<{ embedding?: unknown }> }>("llm_embed", {
+      body,
+    });
+    const vectors = response.data?.map((item) =>
+      Array.isArray(item.embedding)
+        ? item.embedding.filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+        : [],
+    );
+    return vectors?.every((vector) => vector.length > 0) ? vectors : null;
+  },
   stream: async function* (request: LlmRequest, signal?: AbortSignal): AsyncGenerator<LlmChunk> {
     const streamId = createStreamId();
-    if (remoteRuntimeTarget()) {
-      const abort = () => void cancelRemoteLlmStream(streamId);
+    const remoteTarget = remoteRuntimeTarget();
+    if (remoteTarget) {
+      const abort = () => void cancelRemoteLlmStream(streamId, remoteTarget);
       if (signal?.aborted) abort();
       signal?.addEventListener("abort", abort, { once: true });
       try {
-        yield* streamRemoteLlm(streamId, request, signal);
+        yield* streamRemoteLlm(streamId, request, remoteTarget, signal);
       } finally {
         signal?.removeEventListener("abort", abort);
       }
       return;
     }
+    installUnloadCancellation();
+    activeTauriStreamIds.add(streamId);
     const queue: LlmChunk[] = [];
     let completed = false;
     let failure: unknown = null;
@@ -37,7 +73,7 @@ export const llmApi: LlmGateway = {
     };
     const abort = () => {
       failure = new DOMException("The operation was aborted.", "AbortError");
-      void invokeTauri("llm_stream_cancel", { streamId }).catch(() => undefined);
+      void ignoreLlmStreamCancelFailure("tauri", streamId, invokeTauri("llm_stream_cancel", { streamId }));
       notify();
     };
 
@@ -79,6 +115,7 @@ export const llmApi: LlmGateway = {
       if (failure) throw failure;
     } finally {
       signal?.removeEventListener("abort", abort);
+      activeTauriStreamIds.delete(streamId);
     }
   },
   listModels: (connectionId?: string | null) =>

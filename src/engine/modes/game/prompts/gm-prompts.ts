@@ -755,6 +755,7 @@ export function buildGmFormatReminder(
     ...(ctx.map?.type === "node"
       ? [
           `- [map_update: new_location="Location Name" connected_to="Previous Location Name" node_emoji="emoji"] - only when the party arrives at an entirely new location on the current node map.`,
+          `- [map_update: map_name="Building or Dungeon Name" new_location="Room Name" connected_to="Previous Room" node_emoji="emoji"] - when entering an indoor building, dungeon, cave, ship, or other layered area. Use a separate map_name so rooms do not clutter the outdoor/world map.`,
         ]
       : []),
     `- [inventory: action="add|remove" item="Item A, Item B" count="3"] - every real item gain or loss, keep names short and use count/quantity for stacked items.`,

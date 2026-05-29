@@ -27,13 +27,6 @@ export const CHAT_MODES: Record<ChatMode, ChatModeDefinition> = {
     icon: "🎭",
     defaultAgents: ["world-state", "prose-guardian", "continuity", "expression"],
   },
-  visual_novel: {
-    id: "visual_novel",
-    name: "Visual Novel",
-    description: "Visual novel experience with backgrounds, sprites, text boxes, and choices.",
-    icon: "🎮",
-    defaultAgents: ["world-state", "prose-guardian", "expression"],
-  },
   game: {
     id: "game",
     name: "Game",

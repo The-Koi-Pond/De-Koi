@@ -1,12 +1,21 @@
 use super::super::{
     game_state_snapshots,
-    shared::{materialize_message_swipe_fields, non_negative_i64_value},
+    new_id, now_iso,
+    shared::{
+        materialize_message_swipe_fields, non_negative_i64_value,
+        normalize_legacy_text_array_fields, normalize_legacy_text_bool_fields,
+        normalize_typed_json_fields, string_array_from_value,
+    },
 };
 use super::assets::{normalize_legacy_profile_asset_paths, restore_legacy_profile_json_assets};
-use super::{finish_profile_import_assets, insert_profile_import_aliases};
+use super::{
+    finish_profile_import_assets, insert_profile_import_aliases, normalize_profile_prompt_overrides,
+};
 use crate::state::AppState;
 use marinara_core::AppResult;
 use serde_json::{json, Map, Value};
+use std::collections::HashMap;
+use std::path::Path;
 
 const LEGACY_PROFILE_TABLES: &[(&str, &str)] = &[
     ("characters", "characters"),
@@ -21,6 +30,7 @@ const LEGACY_PROFILE_TABLES: &[(&str, &str)] = &[
     ("prompt_groups", "prompt-groups"),
     ("prompt_sections", "prompt-sections"),
     ("choice_blocks", "prompt-variables"),
+    ("prompt_overrides", "prompt-overrides"),
     ("chat_presets", "chat-presets"),
     ("agent_configs", "agents"),
     ("agent_runs", "agent-runs"),
@@ -63,10 +73,14 @@ pub(super) fn import_legacy_profile_tables(
     let files = data.get("fileStorage").and_then(|value| value.get("files"));
     let mut restored_assets = restore_legacy_profile_json_assets(state, files)?;
     let restored_count = restored_assets.restored();
-    let result =
-        import_legacy_profile_tables_with_restored_assets(state, tables, restored_count, || {
-            restored_assets.install()
-        });
+    let staging_root = restored_assets.staging_root().map(Path::to_path_buf);
+    let result = import_legacy_profile_tables_with_restored_assets(
+        state,
+        tables,
+        restored_count,
+        staging_root.as_deref(),
+        || restored_assets.install(),
+    );
     finish_profile_import_assets(restored_assets, result)
 }
 
@@ -74,6 +88,7 @@ pub(super) fn import_legacy_profile_tables_with_restored_assets<F>(
     state: &AppState,
     tables: &Map<String, Value>,
     restored_assets: usize,
+    staging_root: Option<&Path>,
     install_assets: F,
 ) -> AppResult<Value>
 where
@@ -81,18 +96,31 @@ where
 {
     let mut imported = Map::new();
     let mut replacements = Vec::new();
+    let mut unsupported_prompt_overrides = 0usize;
+    let mut imported_conversation_notes = 0usize;
+    let mut imported_ooc_influences = 0usize;
     for (table, collection) in LEGACY_PROFILE_TABLES {
         let mut rows = table_rows(tables, table);
         match *collection {
             "app-settings" => normalize_legacy_app_settings(&mut rows),
+            "characters" => normalize_legacy_character_data(&mut rows),
+            "prompt-overrides" => {
+                unsupported_prompt_overrides = normalize_profile_prompt_overrides(&mut rows)
+            }
             "lorebooks" => add_legacy_lorebook_links(&mut rows, tables),
-            "chats" => add_legacy_chat_memories(&mut rows, tables),
+            "chats" => {
+                add_legacy_chat_memories(&mut rows, tables);
+                let counts = add_legacy_connected_notes(&mut rows, tables);
+                imported_conversation_notes = counts.notes;
+                imported_ooc_influences = counts.influences;
+            }
             "messages" => add_legacy_message_swipes(&mut rows, tables),
             "game-state-snapshots" => normalize_legacy_game_state_snapshots(&mut rows),
             _ => {}
         }
+        normalize_legacy_profile_json_fields(collection, &mut rows)?;
         for row in &mut rows {
-            normalize_legacy_profile_asset_paths(state, row);
+            normalize_legacy_profile_asset_paths(state, staging_root, row);
         }
         imported.insert((*collection).to_string(), json!(rows.len()));
         replacements.push((*collection, rows));
@@ -101,6 +129,21 @@ where
         .storage
         .replace_all_many_and_then(replacements, install_assets)?;
     imported.insert("files".to_string(), json!(restored_assets));
+    if unsupported_prompt_overrides > 0 {
+        imported.insert(
+            "unsupportedPromptOverrides".to_string(),
+            json!(unsupported_prompt_overrides),
+        );
+    }
+    if imported_conversation_notes > 0 {
+        imported.insert(
+            "conversation-notes".to_string(),
+            json!(imported_conversation_notes),
+        );
+    }
+    if imported_ooc_influences > 0 {
+        imported.insert("ooc-influences".to_string(), json!(imported_ooc_influences));
+    }
     insert_profile_import_aliases(&mut imported);
     Ok(json!({ "success": true, "imported": imported }))
 }
@@ -111,6 +154,40 @@ fn table_rows(tables: &Map<String, Value>, table: &str) -> Vec<Value> {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default()
+}
+
+fn normalize_legacy_profile_json_fields(collection: &str, rows: &mut [Value]) -> AppResult<()> {
+    if collection == "characters" {
+        normalize_legacy_character_data(rows);
+        return Ok(());
+    }
+    for row in rows {
+        if let Some(object) = row.as_object_mut() {
+            normalize_typed_json_fields(collection, object)?;
+        }
+    }
+    Ok(())
+}
+
+fn normalize_legacy_character_data(rows: &mut [Value]) {
+    for row in rows {
+        let Some(object) = row.as_object_mut() else {
+            continue;
+        };
+        match object.get("data") {
+            Some(Value::Object(_)) => {}
+            Some(Value::String(raw)) => {
+                let parsed = serde_json::from_str::<Value>(raw)
+                    .ok()
+                    .filter(Value::is_object)
+                    .unwrap_or_else(|| json!({}));
+                object.insert("data".to_string(), parsed);
+            }
+            Some(_) | None => {
+                object.insert("data".to_string(), json!({}));
+            }
+        }
+    }
 }
 
 fn normalize_legacy_app_settings(rows: &mut [Value]) {
@@ -138,29 +215,57 @@ fn add_legacy_lorebook_links(rows: &mut [Value], tables: &Map<String, Value>) {
         let Some(lorebook_id) = object.get("id").and_then(Value::as_str) else {
             continue;
         };
-        let mut character_ids =
+        let mut linked_character_ids =
             linked_ids(&character_links, "lorebookId", lorebook_id, "characterId");
-        let mut persona_ids = linked_ids(&persona_links, "lorebookId", lorebook_id, "personaId");
+        let mut linked_persona_ids =
+            linked_ids(&persona_links, "lorebookId", lorebook_id, "personaId");
         if let Some(character_id) = object
             .get("characterId")
             .and_then(Value::as_str)
             .filter(|value| !value.trim().is_empty())
         {
-            push_unique(&mut character_ids, character_id);
+            push_unique(&mut linked_character_ids, character_id);
         }
         if let Some(persona_id) = object
             .get("personaId")
             .and_then(Value::as_str)
             .filter(|value| !value.trim().is_empty())
         {
-            push_unique(&mut persona_ids, persona_id);
+            push_unique(&mut linked_persona_ids, persona_id);
         }
-        object
-            .entry("characterIds".to_string())
-            .or_insert_with(|| json!(character_ids));
-        object
-            .entry("personaIds".to_string())
-            .or_insert_with(|| json!(persona_ids));
+        // Normalize first - pre-refactor stored `tags`/`characterIds`/`personaIds`
+        // as TEXT columns (JSON-stringified arrays). Without this the lorebook
+        // editor crashes on `formTags.map is not a function`, and the junction
+        // links computed above would be discarded by `or_insert_with` whenever
+        // the row carried a text-encoded `"[]"` placeholder.
+        normalize_legacy_text_array_fields(row, &["tags", "characterIds", "personaIds"]);
+        // Pre-refactor also stored bool columns as TEXT (`"false"` / `"true"`).
+        // Without coercion, the frontend reads `lorebook.isGlobal === "false"`
+        // as truthy and renders every scoped lorebook as global in the editor.
+        normalize_legacy_text_bool_fields(
+            row,
+            &[
+                "isGlobal",
+                "enabled",
+                "recursiveScanning",
+                "excludeFromVectorization",
+            ],
+        );
+        let Some(object) = row.as_object_mut() else {
+            continue;
+        };
+        // Then union the (now array-shaped) row values with the link-table
+        // results so neither source is dropped.
+        let mut merged_character_ids = string_array_from_value(object.get("characterIds"));
+        for id in linked_character_ids {
+            push_unique(&mut merged_character_ids, &id);
+        }
+        object.insert("characterIds".to_string(), json!(merged_character_ids));
+        let mut merged_persona_ids = string_array_from_value(object.get("personaIds"));
+        for id in linked_persona_ids {
+            push_unique(&mut merged_persona_ids, &id);
+        }
+        object.insert("personaIds".to_string(), json!(merged_persona_ids));
     }
 }
 
@@ -183,6 +288,20 @@ fn add_legacy_chat_memories(rows: &mut [Value], tables: &Map<String, Value>) {
     if memory_chunks.is_empty() {
         return;
     }
+    let mut memories_by_chat: HashMap<String, Vec<Value>> = HashMap::new();
+    for chunk in memory_chunks {
+        let Some(chat_id) = chunk
+            .get("chatId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+        else {
+            continue;
+        };
+        memories_by_chat
+            .entry(chat_id.to_string())
+            .or_default()
+            .push(normalize_legacy_memory_chunk(chunk));
+    }
     for row in rows {
         let Some(object) = row.as_object_mut() else {
             continue;
@@ -190,15 +309,10 @@ fn add_legacy_chat_memories(rows: &mut [Value], tables: &Map<String, Value>) {
         let Some(chat_id) = object.get("id").and_then(Value::as_str) else {
             continue;
         };
-        let memories = memory_chunks
-            .iter()
-            .filter(|chunk| chunk.get("chatId").and_then(Value::as_str) == Some(chat_id))
-            .cloned()
-            .map(normalize_legacy_memory_chunk)
-            .collect::<Vec<_>>();
-        if !memories.is_empty() {
-            object.insert("memories".to_string(), Value::Array(memories));
-        }
+        let Some(memories) = memories_by_chat.remove(chat_id) else {
+            continue;
+        };
+        object.insert("memories".to_string(), Value::Array(memories));
     }
 }
 
@@ -225,10 +339,132 @@ fn normalize_legacy_memory_chunk(mut chunk: Value) -> Value {
     chunk
 }
 
+#[derive(Default)]
+struct LegacyConnectedNoteCounts {
+    notes: usize,
+    influences: usize,
+}
+
+fn add_legacy_connected_notes(
+    rows: &mut [Value],
+    tables: &Map<String, Value>,
+) -> LegacyConnectedNoteCounts {
+    let mut counts = LegacyConnectedNoteCounts::default();
+    let mut notes_by_chat: HashMap<String, Vec<Value>> = HashMap::new();
+    for row in table_rows(tables, "conversation_notes") {
+        if let Some((target_chat_id, note)) = normalize_legacy_connected_note(row, "note") {
+            counts.notes += 1;
+            notes_by_chat.entry(target_chat_id).or_default().push(note);
+        }
+    }
+    for row in table_rows(tables, "ooc_influences") {
+        if let Some((target_chat_id, note)) = normalize_legacy_connected_note(row, "influence") {
+            counts.influences += 1;
+            notes_by_chat.entry(target_chat_id).or_default().push(note);
+        }
+    }
+    if notes_by_chat.is_empty() {
+        return counts;
+    }
+    for row in rows {
+        let Some(object) = row.as_object_mut() else {
+            continue;
+        };
+        let Some(chat_id) = object.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(mut imported_notes) = notes_by_chat.remove(chat_id) else {
+            continue;
+        };
+        let mut notes = object
+            .get("notes")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        notes.append(&mut imported_notes);
+        object.insert("notes".to_string(), Value::Array(notes));
+    }
+    counts
+}
+
+fn normalize_legacy_connected_note(row: Value, note_type: &str) -> Option<(String, Value)> {
+    let object = row.as_object()?;
+    let target_chat_id = legacy_string(object, &["targetChatId", "target_chat_id"])?;
+    let content = legacy_string(object, &["content"])?;
+    let source_chat_id = legacy_string(object, &["sourceChatId", "source_chat_id"]);
+    let anchor_message_id = legacy_string(object, &["anchorMessageId", "anchor_message_id"]);
+    let mut note = Map::new();
+    note.insert(
+        "id".to_string(),
+        Value::String(legacy_string(object, &["id"]).unwrap_or_else(new_id)),
+    );
+    note.insert("type".to_string(), Value::String(note_type.to_string()));
+    note.insert("content".to_string(), Value::String(content));
+    note.insert(
+        "sourceChatId".to_string(),
+        source_chat_id.map(Value::String).unwrap_or(Value::Null),
+    );
+    note.insert("targetChatId".to_string(), Value::String(target_chat_id.clone()));
+    note.insert(
+        "anchorMessageId".to_string(),
+        anchor_message_id.map(Value::String).unwrap_or(Value::Null),
+    );
+    note.insert(
+        "createdAt".to_string(),
+        Value::String(legacy_string(object, &["createdAt", "created_at"]).unwrap_or_else(now_iso)),
+    );
+    if note_type == "influence" {
+        note.insert(
+            "consumed".to_string(),
+            Value::Bool(legacy_bool(object.get("consumed"), false)),
+        );
+    }
+    Some((target_chat_id, Value::Object(note)))
+}
+
+fn legacy_string(object: &Map<String, Value>, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| object.get(*key))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn legacy_bool(value: Option<&Value>, fallback: bool) -> bool {
+    match value {
+        Some(Value::Bool(value)) => *value,
+        Some(Value::Number(value)) => value.as_i64().map(|number| number != 0).unwrap_or(fallback),
+        Some(Value::String(value)) => match value.trim().to_ascii_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => true,
+            "false" | "0" | "no" | "off" => false,
+            _ => fallback,
+        },
+        _ => fallback,
+    }
+}
+
 fn add_legacy_message_swipes(rows: &mut [Value], tables: &Map<String, Value>) {
     let swipes = table_rows(tables, "message_swipes");
     if swipes.is_empty() {
         return;
+    }
+    let mut swipes_by_message: HashMap<String, Vec<Value>> = HashMap::new();
+    for swipe in swipes {
+        let Some(message_id) = swipe
+            .get("messageId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+        else {
+            continue;
+        };
+        swipes_by_message
+            .entry(message_id.to_string())
+            .or_default()
+            .push(swipe);
+    }
+    for message_swipes in swipes_by_message.values_mut() {
+        message_swipes.sort_by_key(|swipe| swipe.get("index").and_then(Value::as_i64).unwrap_or(0));
     }
     for row in rows {
         let Some(object) = row.as_object_mut() else {
@@ -237,15 +473,9 @@ fn add_legacy_message_swipes(rows: &mut [Value], tables: &Map<String, Value>) {
         let Some(message_id) = object.get("id").and_then(Value::as_str) else {
             continue;
         };
-        let mut message_swipes = swipes
-            .iter()
-            .filter(|swipe| swipe.get("messageId").and_then(Value::as_str) == Some(message_id))
-            .cloned()
-            .collect::<Vec<_>>();
-        if message_swipes.is_empty() {
+        let Some(message_swipes) = swipes_by_message.remove(message_id) else {
             continue;
-        }
-        message_swipes.sort_by_key(|swipe| swipe.get("index").and_then(Value::as_i64).unwrap_or(0));
+        };
         object.insert("swipes".to_string(), Value::Array(message_swipes));
         materialize_message_swipe_fields(row);
     }
@@ -363,7 +593,7 @@ mod tests {
             ]),
         );
 
-        import_legacy_profile_tables_with_restored_assets(&state, &tables, 0, || Ok(()))
+        import_legacy_profile_tables_with_restored_assets(&state, &tables, 0, None, || Ok(()))
             .expect("legacy profile import should succeed");
 
         let ui = state
@@ -390,7 +620,7 @@ mod tests {
             ]),
         );
 
-        import_legacy_profile_tables_with_restored_assets(&state, &tables, 0, || Ok(()))
+        import_legacy_profile_tables_with_restored_assets(&state, &tables, 0, None, || Ok(()))
             .expect("legacy profile import should preserve malformed rows without matching ui");
 
         assert!(state
@@ -398,6 +628,124 @@ mod tests {
             .get("app-settings", "ui")
             .expect("ui settings lookup should not fail")
             .is_none());
+    }
+
+    #[test]
+    fn legacy_prompt_overrides_import_only_supported_registered_keys() {
+        let state = test_state("prompt-overrides-supported");
+        let mut tables = Map::new();
+        tables.insert(
+            "prompt_overrides".to_string(),
+            json!([
+                {
+                    "key": "conversation.selfie",
+                    "template": "Selfie ${charName}",
+                    "enabled": "true"
+                },
+                {
+                    "key": "conversation.selfie",
+                    "template": "Duplicate ${charName}",
+                    "enabled": "true"
+                },
+                {
+                    "key": "game.background",
+                    "template": "Background ${location}",
+                    "enabled": "true"
+                }
+            ]),
+        );
+
+        let result =
+            import_legacy_profile_tables_with_restored_assets(&state, &tables, 0, None, || Ok(()))
+                .expect("legacy profile import should keep supported prompt overrides");
+
+        let rows = state
+            .storage
+            .list("prompt-overrides")
+            .expect("prompt overrides should be readable");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], "conversation.selfie");
+        assert_eq!(rows[0]["key"], "conversation.selfie");
+        assert_eq!(rows[0]["template"], "Selfie ${charName}");
+        assert_eq!(rows[0]["enabled"], true);
+        assert!(state
+            .storage
+            .get("prompt-overrides", "game.background")
+            .expect("unsupported prompt override lookup should not fail")
+            .is_none());
+        assert_eq!(result["imported"]["unsupportedPromptOverrides"], 2);
+    }
+
+    #[test]
+    fn legacy_connected_notes_import_onto_target_chat_notes() {
+        let state = test_state("connected-notes");
+        let mut tables = Map::new();
+        tables.insert(
+            "chats".to_string(),
+            json!([
+                {
+                    "id": "conversation-1",
+                    "name": "OOC",
+                    "mode": "conversation",
+                    "connectedChatId": "roleplay-1"
+                },
+                {
+                    "id": "roleplay-1",
+                    "name": "Scene",
+                    "mode": "roleplay",
+                    "connectedChatId": "conversation-1"
+                }
+            ]),
+        );
+        tables.insert(
+            "conversation_notes".to_string(),
+            json!([
+                {
+                    "id": "note-1",
+                    "source_chat_id": "conversation-1",
+                    "target_chat_id": "roleplay-1",
+                    "content": "Remember the locked door.",
+                    "anchor_message_id": "message-1",
+                    "created_at": "2026-05-20T12:00:00Z"
+                }
+            ]),
+        );
+        tables.insert(
+            "ooc_influences".to_string(),
+            json!([
+                {
+                    "id": "influence-1",
+                    "source_chat_id": "conversation-1",
+                    "target_chat_id": "roleplay-1",
+                    "content": "Trigger the alarm next turn.",
+                    "consumed": "false",
+                    "created_at": "2026-05-20T12:01:00Z"
+                }
+            ]),
+        );
+
+        let result =
+            import_legacy_profile_tables_with_restored_assets(&state, &tables, 0, None, || Ok(()))
+                .expect("legacy profile import should carry connected notes");
+
+        let roleplay = state
+            .storage
+            .get("chats", "roleplay-1")
+            .expect("chat lookup should not fail")
+            .expect("roleplay chat should import");
+        let notes = roleplay["notes"]
+            .as_array()
+            .expect("connected notes should live on target chat");
+        assert_eq!(notes.len(), 2);
+        assert_eq!(notes[0]["type"], "note");
+        assert_eq!(notes[0]["content"], "Remember the locked door.");
+        assert_eq!(notes[0]["sourceChatId"], "conversation-1");
+        assert_eq!(notes[0]["targetChatId"], "roleplay-1");
+        assert_eq!(notes[1]["type"], "influence");
+        assert_eq!(notes[1]["content"], "Trigger the alarm next turn.");
+        assert_eq!(notes[1]["consumed"], false);
+        assert_eq!(result["imported"]["conversation-notes"], 1);
+        assert_eq!(result["imported"]["ooc-influences"], 1);
     }
 
     #[test]
@@ -483,5 +831,112 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["id"], "snapshot-1");
         assert_eq!(rows[0]["chatId"], "chat-1");
+    }
+
+    #[test]
+    fn legacy_chat_import_preserves_folder_assignment() {
+        let state = test_state("chat-folder-id");
+        let mut tables = Map::new();
+        tables.insert(
+            "chat_folders".to_string(),
+            json!([
+                {
+                    "id": "folder-1",
+                    "name": "My Folder",
+                    "mode": "conversation",
+                    "color": "#abc",
+                    "sortOrder": 0,
+                    "collapsed": false
+                }
+            ]),
+        );
+        tables.insert(
+            "chats".to_string(),
+            json!([
+                {
+                    "id": "chat-1",
+                    "name": "Imported Chat",
+                    "mode": "conversation",
+                    "characterIds": [],
+                    "groupId": null,
+                    "personaId": null,
+                    "promptPresetId": null,
+                    "connectionId": null,
+                    "connectedChatId": null,
+                    "folderId": "folder-1",
+                    "sortOrder": 0,
+                    "metadata": {}
+                }
+            ]),
+        );
+
+        import_legacy_profile_tables_with_restored_assets(&state, &tables, 0, None, || Ok(()))
+            .expect("legacy profile import should succeed");
+
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat lookup should not fail")
+            .expect("imported chat should be addressable by id");
+        assert_eq!(chat["folderId"], "folder-1");
+
+        let folder = state
+            .storage
+            .get("chat-folders", "folder-1")
+            .expect("chat-folders lookup should not fail")
+            .expect("imported folder should be addressable by id");
+        assert_eq!(folder["id"], "folder-1");
+        assert_eq!(folder["name"], "My Folder");
+    }
+
+    #[test]
+    fn legacy_connection_import_preserves_folder_assignment() {
+        let state = test_state("connection-folder-id");
+        let mut tables = Map::new();
+        tables.insert(
+            "api_connection_folders".to_string(),
+            json!([
+                {
+                    "id": "folder-1",
+                    "name": "Provider Folder",
+                    "color": "#22c55e",
+                    "sortOrder": 3,
+                    "collapsed": true
+                }
+            ]),
+        );
+        tables.insert(
+            "api_connections".to_string(),
+            json!([
+                {
+                    "id": "conn-1",
+                    "name": "Imported Provider",
+                    "provider": "openai",
+                    "model": "gpt-4.1",
+                    "folderId": "folder-1",
+                    "sortOrder": 9
+                }
+            ]),
+        );
+
+        import_legacy_profile_tables_with_restored_assets(&state, &tables, 0, None, || Ok(()))
+            .expect("legacy profile import should succeed");
+
+        let connection = state
+            .storage
+            .get("connections", "conn-1")
+            .expect("connection lookup should not fail")
+            .expect("imported connection should be addressable by id");
+        assert_eq!(connection["folderId"], "folder-1");
+        assert_eq!(connection["sortOrder"], 9);
+
+        let folder = state
+            .storage
+            .get("connection-folders", "folder-1")
+            .expect("connection-folders lookup should not fail")
+            .expect("imported folder should be addressable by id");
+        assert_eq!(folder["id"], "folder-1");
+        assert_eq!(folder["name"], "Provider Folder");
+        assert_eq!(folder["collapsed"], true);
     }
 }

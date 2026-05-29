@@ -1,0 +1,13 @@
+dist
+node_modules
+src-tauri/target
+graphify-out
+coverage
+playwright-report
+test-results
+public
+pr-evidence
+
+.env
+.marinara-legacy-profile-import.json
+pnpm-lock.yaml

@@ -14,4 +14,6 @@ export interface Theme {
   updatedAt: string;
   /** Whether this is the globally active custom theme. */
   isActive: boolean;
+  /** Legacy active flag used by older imports/storage rows. */
+  active?: boolean;
 }

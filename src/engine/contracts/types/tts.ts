@@ -12,6 +12,9 @@ export type TTSDialogueScope = z.infer<typeof ttsDialogueScopeSchema>;
 export const ttsVoiceModeSchema = z.enum(["single", "per-character"]);
 export type TTSVoiceMode = z.infer<typeof ttsVoiceModeSchema>;
 
+export const ttsAudioFormatSchema = z.enum(["mp3", "wav"]);
+export type TTSAudioFormat = z.infer<typeof ttsAudioFormatSchema>;
+
 export const ttsVoiceAssignmentSchema = z.object({
   characterId: z.string().default(""),
   characterName: z.string().default(""),
@@ -104,7 +107,10 @@ export const ttsConfigSchema = z.object({
   /** Plain text on write; masked "••••••" on read when a key is saved */
   apiKey: z.string().default(""),
   voice: z.string().default("alloy"),
+  narratorVoiceEnabled: z.boolean().default(false),
+  narratorVoice: z.string().default(""),
   model: z.string().default("tts-1"),
+  audioFormat: ttsAudioFormatSchema.default("mp3"),
   /** 0.25 – 4.0 */
   speed: z.number().min(0.25).max(4.0).default(1.0),
   /** ElevenLabs only: 0.0 = more expressive/creative, 1.0 = more stable/robust */
@@ -119,6 +125,7 @@ export const ttsConfigSchema = z.object({
   autoplayRP: z.boolean().default(false),
   autoplayConvo: z.boolean().default(false),
   autoplayGame: z.boolean().default(false),
+  autoplayStreaming: z.boolean().default(false),
   dialogueOnly: z.boolean().default(false),
   dialogueScope: ttsDialogueScopeSchema.default("all"),
   dialogueCharacterName: z.string().default(""),
@@ -142,5 +149,11 @@ export interface TTSVoicesResponse {
   }>;
   /** True when the list came from the provider; false = local fallback or no provider voices */
   fromProvider: boolean;
+  /** True when Marinara is showing a local fallback voice catalog. */
+  fallback?: boolean;
+  /** Present when a live provider lookup failed and Marinara returned fallback voices. */
+  providerError?: string;
+  /** Machine-readable error classification when providerError is present. */
+  providerErrorCode?: string;
   source: TTSSource;
 }

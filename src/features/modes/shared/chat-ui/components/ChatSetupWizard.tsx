@@ -24,7 +24,7 @@ import {
 import { cn, getAvatarCropStyle, type AvatarCrop } from "../../../../../shared/lib/utils";
 import { useConnections } from "../../../../catalog/connections/index";
 import { usePresets, usePresetFull, useDefaultPreset } from "../../../../catalog/presets/index";
-import { useCharacters, usePersonas } from "../../../../catalog/characters/index";
+import { useCharacterSummaries, usePersonaSummaries } from "../../../../catalog/characters/index";
 import { useLorebooks } from "../../../../catalog/lorebooks/index";
 import { useUpdateChat, useUpdateChatMetadata, useCreateMessage, chatKeys } from "../../../../catalog/chats/index";
 import { useChatPresets, useApplyChatPreset } from "../../../../catalog/chat-presets/index";
@@ -33,7 +33,6 @@ import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { generateConversationSchedules } from "../../../../../engine/modes/chat/schedules/schedule.service";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
-import { invokeTauri } from "../../../../../shared/api/tauri-client";
 import { filterLanguageGenerationConnections } from "../../../../../shared/lib/connection-filters";
 import { getCharacterTitle, parseCharacterDisplayData } from "../../../../../shared/lib/character-display";
 import { ChoiceSelectionModal } from "../../../../catalog/presets/index";
@@ -99,6 +98,7 @@ const ALL_STEPS: WizardStep[] = [
 interface ChatSetupWizardProps {
   chat: Chat;
   onFinish: () => void;
+  onCancel?: () => void;
 }
 
 interface PersonaDisplayInfo {
@@ -120,6 +120,13 @@ type ConnectionSetupOption = {
   defaultParameters?: unknown;
 };
 
+type CharacterSetupOption = {
+  id: string;
+  data: unknown;
+  comment?: string | null;
+  avatarPath: string | null;
+};
+
 function getPersonaTitle(persona: PersonaDisplayInfo): string | null {
   const title = persona.comment?.trim();
   return title ? title : null;
@@ -131,14 +138,8 @@ function formatPersonaLabel(persona: PersonaDisplayInfo): string {
 }
 
 function getCharacterAvatarCrop(character: { data: unknown }): AvatarCrop | null {
-  try {
-    const parsed = typeof character.data === "string" ? JSON.parse(character.data) : character.data;
-    return (parsed as { extensions?: { avatarCrop?: AvatarCrop | null } } | null)?.extensions?.avatarCrop ?? null;
-  } catch {
-    return null;
-  }
+  return (character.data as { extensions?: { avatarCrop?: AvatarCrop | null } } | null)?.extensions?.avatarCrop ?? null;
 }
-
 function CharacterAvatarImage({
   character,
   src,
@@ -249,11 +250,13 @@ function SetupGenerationParametersPanel({
   value,
   onEnabledChange,
   onChange,
+  showOpenRouterServiceTier,
 }: {
   enabled: boolean;
   value: EditableGenerationParameters;
   onEnabledChange: (enabled: boolean) => void;
   onChange: (next: EditableGenerationParameters) => void;
+  showOpenRouterServiceTier: boolean;
 }) {
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
@@ -279,18 +282,22 @@ function SetupGenerationParametersPanel({
       </button>
       {enabled && (
         <div className="mt-3 border-t border-[var(--border)] pt-3">
-          <GenerationParametersFields value={value} onChange={onChange} />
+          <GenerationParametersFields
+            value={value}
+            onChange={onChange}
+            showOpenRouterServiceTier={showOpenRouterServiceTier}
+          />
         </div>
       )}
     </div>
   );
 }
 
-export function ChatSetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
+export function ChatSetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps) {
   const chatMode = (chat as unknown as { mode?: string }).mode ?? "roleplay";
 
   if (chatMode === "conversation") {
-    return <ConversationQuickSetup chat={chat} onFinish={onFinish} />;
+    return <ConversationQuickSetup chat={chat} onFinish={onFinish} onCancel={onCancel} />;
   }
 
   // Game mode has its own wizard in GameSurface — skip the roleplay wizard
@@ -305,15 +312,15 @@ export function ChatSetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
 // Conversation Quick Setup — Discord-style "New DM" picker
 // ──────────────────────────────────────────────
 
-function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
+function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardProps) {
   const { data: connections } = useConnections();
-  const { data: allCharacters } = useCharacters();
-  const { data: allPersonas } = usePersonas();
+  const { data: allCharacters } = useCharacterSummaries();
+  const { data: allPersonas } = usePersonaSummaries();
   const updateChat = useUpdateChat();
   const updateMeta = useUpdateChatMetadata();
   const openRightPanel = useUIStore((s) => s.openRightPanel);
   const [scheduleState, setScheduleState] = useState<"idle" | "generating" | "done">("idle");
-  const [autonomousEnabled, setAutonomousEnabled] = useState(true);
+  const [autonomousEnabled, setAutonomousEnabled] = useState(false);
   const [generateSchedule, setGenerateSchedule] = useState(false);
 
   // Track whether the user has manually edited the chat name.
@@ -329,8 +336,7 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
   }, [chat.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const characters = useMemo(
-    () =>
-      (allCharacters ?? []) as Array<{ id: string; data: string; comment?: string | null; avatarPath: string | null }>,
+    () => (allCharacters ?? []) as CharacterSetupOption[],
     [allCharacters],
   );
   const personas = (allPersonas ?? []) as Array<{
@@ -371,7 +377,7 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
   }, [metadata.chatParameters]);
 
   const chatCharIds: string[] = useMemo(() => {
-    return typeof chat.characterIds === "string" ? JSON.parse(chat.characterIds) : (chat.characterIds ?? []);
+    return chat.characterIds ?? [];
   }, [chat.characterIds]);
 
   const [search, setSearch] = useState("");
@@ -385,7 +391,7 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
   }, [characters]);
 
   const getCharacterInfo = useCallback(
-    (c: { id?: string; data: string; comment?: string | null }) => {
+    (c: { id?: string; data: unknown; comment?: string | null }) => {
       if (c.id && charInfoMap.has(c.id)) return charInfoMap.get(c.id)!;
       return parseCharacterDisplayData(c);
     },
@@ -393,7 +399,7 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
   );
 
   const charName = useCallback(
-    (c: { id?: string; data: string; comment?: string | null }) => getCharacterInfo(c).name,
+    (c: { id?: string; data: unknown; comment?: string | null }) => getCharacterInfo(c).name,
     [getCharacterInfo],
   );
 
@@ -436,6 +442,11 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
     },
     [chat.id, updateChat],
   );
+
+  useEffect(() => {
+    if (chat.connectionId || connectionOptions.length === 0 || updateChat.isPending) return;
+    updateChat.mutate({ id: chat.id, connectionId: connectionOptions[0]!.id });
+  }, [chat.connectionId, chat.id, connectionOptions, updateChat]);
 
   const setPersona = useCallback(
     (personaId: string | null) => {
@@ -499,7 +510,7 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
 
   return (
     <>
-      <div className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[3px]" onClick={onFinish} />
+      <div className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[3px]" onClick={onCancel ?? onFinish} />
 
       <div className="absolute inset-0 z-50 flex items-center justify-center p-3 pointer-events-none max-md:pt-[max(0.75rem,env(safe-area-inset-top))] max-md:pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4">
         <motion.div
@@ -515,7 +526,7 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
               <h3 className="text-sm font-semibold text-[var(--foreground)]">New Conversation</h3>
             </div>
             <button
-              onClick={onFinish}
+              onClick={onCancel ?? onFinish}
               className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
             >
               <X size="0.875rem" />
@@ -579,6 +590,7 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
                 value={generationParameters}
                 onEnabledChange={setCustomizeParameters}
                 onChange={setGenerationParameters}
+                showOpenRouterServiceTier={selectedConnection?.provider === "openrouter"}
               />
             </div>
 
@@ -831,6 +843,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   const [step, setStep] = useState(0);
   const currentStep = STEPS[step]!;
   const isLast = step === STEPS.length - 1;
+  const canGoBack = step > 0;
   const [showChoiceModal, setShowChoiceModal] = useState(false);
   // Open in shortcut mode if the chat store flag was set (e.g. via right-click "Quick Start").
   const [shortcutMode, setShortcutMode] = useState(() => {
@@ -852,14 +865,12 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   const { data: connections } = useConnections();
   const { data: presets } = usePresets();
   const { data: defaultPreset } = useDefaultPreset();
-  const { data: allPersonas } = usePersonas();
-  const { data: allCharacters } = useCharacters();
+  const { data: allPersonas } = usePersonaSummaries();
+  const { data: allCharacters } = useCharacterSummaries();
   const { data: lorebooks } = useLorebooks();
 
   // Chat-settings presets for the shortcut view
-  const chatPresetMode = (
-    (chat as unknown as { mode?: string }).mode === "visual_novel" ? "roleplay" : "roleplay"
-  ) as ChatMode;
+  const chatPresetMode = "roleplay" as ChatMode;
   const { data: chatPresetsData } = useChatPresets(chatPresetMode);
   const chatPresetList = useMemo(() => (chatPresetsData ?? []) as ChatPreset[], [chatPresetsData]);
   const applyChatPreset = useApplyChatPreset();
@@ -871,8 +882,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
     comment?: string | null;
   }>;
   const characters = useMemo(
-    () =>
-      (allCharacters ?? []) as Array<{ id: string; data: string; comment?: string | null; avatarPath: string | null }>,
+    () => (allCharacters ?? []) as CharacterSetupOption[],
     [allCharacters],
   );
   const connectionOptions = useMemo(
@@ -908,7 +918,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   }, [metadata.chatParameters]);
 
   const chatCharIds: string[] = useMemo(() => {
-    return typeof chat.characterIds === "string" ? JSON.parse(chat.characterIds) : (chat.characterIds ?? []);
+    return chat.characterIds ?? [];
   }, [chat.characterIds]);
 
   const activeLorebookIds: string[] = useMemo(() => metadata.activeLorebookIds ?? [], [metadata.activeLorebookIds]);
@@ -923,7 +933,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   }, [characters]);
 
   const charName = useCallback(
-    (c: { id?: string; data: string; comment?: string | null }) => {
+    (c: { id?: string; data: unknown; comment?: string | null }) => {
       if (c.id && charInfoMap.has(c.id)) return charInfoMap.get(c.id)!.name;
       return parseCharacterDisplayData(c).name;
     },
@@ -931,7 +941,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   );
 
   const charTitle = useCallback(
-    (c: { id?: string; data: string; comment?: string | null }) => {
+    (c: { id?: string; data: unknown; comment?: string | null }) => {
       if (c.id && charInfoMap.has(c.id)) return getCharacterTitle(charInfoMap.get(c.id)!);
       return getCharacterTitle(parseCharacterDisplayData(c));
     },
@@ -1004,42 +1014,40 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
         if (!userEditedName) updateData.name = buildAutoName(current);
         updateChat.mutate(updateData, {
           onSuccess: () => {
-            const char = characters.find((c) => c.id === charId);
-            if (!char) return;
-            try {
-              const parsed = typeof char.data === "string" ? JSON.parse(char.data) : char.data;
-              const firstMes = (parsed as { first_mes?: string }).first_mes;
-              const altGreetings = (parsed as { alternate_greetings?: string[] }).alternate_greetings ?? [];
-              if (firstMes) {
-                createMessage
-                  .mutateAsync({ role: "assistant", content: firstMes, characterId: charId })
-                  .then(async (msg) => {
-                    if (msg?.id && altGreetings.length > 0) {
-                      for (const greeting of altGreetings) {
-                        if (greeting.trim()) {
-                          await invokeTauri("chat_message_add_swipe", {
-                            chatId: chat.id,
-                            messageId: msg.id,
-                            body: {
-                            content: greeting,
-                            silent: true,
-                            },
-                          });
+            void storageApi
+              .get<{ data?: unknown }>("characters", charId)
+              .then((char) => {
+                const parsed = char?.data && typeof char.data === "object" ? (char.data as Record<string, unknown>) : {};
+                const firstMes = typeof parsed.first_mes === "string" ? parsed.first_mes : "";
+                const altGreetings = Array.isArray(parsed.alternate_greetings)
+                  ? parsed.alternate_greetings.filter((greeting): greeting is string => typeof greeting === "string")
+                  : [];
+                if (firstMes) {
+                  createMessage
+                    .mutateAsync({ role: "assistant", content: firstMes, characterId: charId })
+                    .then(async (msg) => {
+                      if (msg?.id && altGreetings.length > 0) {
+                        for (const greeting of altGreetings) {
+                          if (greeting.trim()) {
+                            await storageApi.addChatMessageSwipe(chat.id, msg.id, greeting, { activate: false });
+                          }
                         }
+                        queryClient.invalidateQueries({ queryKey: chatKeys.messages(chat.id) });
                       }
-                      queryClient.invalidateQueries({ queryKey: chatKeys.messages(chat.id) });
-                    }
-                  })
-                  .catch(() => {});
-              }
-            } catch {
-              /* ignore */
-            }
+                    })
+                    .catch((error) => {
+                      toast.error(error instanceof Error ? error.message : "Failed to add character greeting.");
+                    });
+                }
+              })
+              .catch((error) => {
+                toast.error(error instanceof Error ? error.message : "Failed to load character greeting.");
+              });
           },
         });
       }
     },
-    [chat.id, chatCharIds, characters, createMessage, updateChat, queryClient, userEditedName, buildAutoName],
+    [chat.id, chatCharIds, createMessage, updateChat, queryClient, userEditedName, buildAutoName],
   );
 
   const toggleLorebook = useCallback(
@@ -1117,6 +1125,12 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
     }
   }, [isLast, finishWizard, currentStep.key, chat.promptPresetId, presetFull?.choiceBlocks?.length]);
 
+  const previous = useCallback(() => {
+    setStep((s) => Math.max(0, s - 1));
+    setCharSearch("");
+    setLbSearch("");
+  }, []);
+
   // ─── Step content renderers ───────────────────
 
   function renderConnection() {
@@ -1152,6 +1166,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
           value={generationParameters}
           onEnabledChange={setCustomizeParameters}
           onChange={setGenerationParameters}
+          showOpenRouterServiceTier={selectedConnection?.provider === "openrouter"}
         />
       </div>
     );
@@ -1657,12 +1672,24 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
 
                 {/* Buttons */}
                 <div className="flex items-center justify-between gap-2">
-                  <button
-                    onClick={onFinish}
-                    className="rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
-                  >
-                    Skip
-                  </button>
+                  <div className="flex items-center gap-1">
+                    {canGoBack && (
+                      <button
+                        onClick={previous}
+                        aria-label="Back"
+                        title="Back"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+                      >
+                        <ArrowLeft size="0.875rem" />
+                      </button>
+                    )}
+                    <button
+                      onClick={onFinish}
+                      className="rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+                    >
+                      Skip
+                    </button>
+                  </div>
                   <button
                     onClick={() => setShortcutMode(true)}
                     title="Apply a saved chat-settings preset and pick a persona + characters in one step"

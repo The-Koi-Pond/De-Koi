@@ -12,6 +12,7 @@ export default tseslint.config(
   {
     ignores: [
       "dist/**",
+      "packages/*/dist/**",
       "node_modules/**",
       "src-tauri/**",
       "docs/**",

@@ -7,10 +7,14 @@ const MARINARA_PRESET_ID: &str = "7huDl_SOx3a5EZtMeKqSR";
 const MARINARA_PRESET_NAME: &str = "Marinara's Universal Preset";
 const LEGACY_MARINARA_PRESET_NAME: &str = "Default";
 const MARINARA_PRESET_AUTHOR: &str = "Marinara";
+const PROFESSOR_MARI_ID: &str = "__professor_mari__";
+const LEGACY_CLEANUP_MAX_COLLECTION_BYTES: u64 = 4 * 1024 * 1024;
+const BUNDLED_MARINARA_PRESET_JSON: &str =
+    include_str!("../resources/default-data/db/default-preset.json");
 
 pub fn seed_bundled_defaults(storage: &FileStorage, default_data: &Path) -> AppResult<()> {
     let db_root = default_data.join("db");
-    remove_legacy_professor_mari(storage)?;
+    remove_professor_mari_character_records(storage)?;
     seed_marinara_preset(storage, &db_root)?;
     seed_default_chat_presets(storage)?;
     seed_default_regex_scripts(storage)?;
@@ -20,11 +24,13 @@ pub fn seed_bundled_defaults(storage: &FileStorage, default_data: &Path) -> AppR
 
 fn seed_marinara_preset(storage: &FileStorage, db_root: &Path) -> AppResult<()> {
     let preset_path = db_root.join("default-preset.json");
-    if !preset_path.exists() {
-        return Ok(());
-    }
+    let raw_preset = if preset_path.exists() {
+        std::fs::read_to_string(preset_path)?
+    } else {
+        BUNDLED_MARINARA_PRESET_JSON.to_string()
+    };
 
-    let envelope: Value = serde_json::from_str(&std::fs::read_to_string(preset_path)?)?;
+    let envelope: Value = serde_json::from_str(&raw_preset)?;
     let data = envelope.get("data").cloned().unwrap_or(Value::Null);
     let Some(preset) = data.get("preset").and_then(Value::as_object) else {
         return Ok(());
@@ -47,25 +53,41 @@ fn seed_marinara_preset(storage: &FileStorage, db_root: &Path) -> AppResult<()> 
     Ok(())
 }
 
-fn remove_legacy_professor_mari(storage: &FileStorage) -> AppResult<()> {
-    for id in ["__professor_mari__", "professor-mari"] {
-        if storage.get("characters", id)?.is_some() {
-            storage.delete("characters", id)?;
-        }
+fn remove_professor_mari_character_records(storage: &FileStorage) -> AppResult<()> {
+    delete_legacy_record_if_small(storage, "characters", PROFESSOR_MARI_ID)?;
+    delete_legacy_record_if_small(storage, "characters", "professor-mari")?;
+    delete_legacy_record_if_small(storage, "chats", "__professor_mari_chat__")?;
+    delete_legacy_record_if_small(storage, "messages", "professor-mari-welcome")?;
+    delete_legacy_record_if_small(storage, "app-settings", "professor-mari-assistant-prompt")?;
+    Ok(())
+}
+
+fn delete_legacy_record_if_small(
+    storage: &FileStorage,
+    collection: &str,
+    id: &str,
+) -> AppResult<()> {
+    if !collection_is_small_enough_for_startup_cleanup(storage, collection)? {
+        return Ok(());
     }
-    if storage.get("chats", "__professor_mari_chat__")?.is_some() {
-        storage.delete("chats", "__professor_mari_chat__")?;
-    }
-    if storage.get("messages", "professor-mari-welcome")?.is_some() {
-        storage.delete("messages", "professor-mari-welcome")?;
-    }
-    if storage
-        .get("app-settings", "professor-mari-assistant-prompt")?
-        .is_some()
-    {
-        storage.delete("app-settings", "professor-mari-assistant-prompt")?;
+    if storage.get(collection, id)?.is_some() {
+        storage.delete(collection, id)?;
     }
     Ok(())
+}
+
+fn collection_is_small_enough_for_startup_cleanup(
+    storage: &FileStorage,
+    collection: &str,
+) -> AppResult<bool> {
+    let path = storage
+        .root()
+        .join("collections")
+        .join(format!("{collection}.json"));
+    if !path.exists() {
+        return Ok(true);
+    }
+    Ok(std::fs::metadata(path)?.len() <= LEGACY_CLEANUP_MAX_COLLECTION_BYTES)
 }
 
 fn rename_legacy_default_preset(storage: &FileStorage) -> AppResult<()> {
@@ -108,7 +130,7 @@ fn seed_related_prompt_rows_if_missing(
 }
 
 fn seed_default_chat_presets(storage: &FileStorage) -> AppResult<()> {
-    for mode in ["conversation", "roleplay", "visual_novel"] {
+    for mode in ["conversation", "roleplay", "game"] {
         let id = format!("default-chat-preset-{mode}");
         if storage.get("chat-presets", &id)?.is_none() {
             let has_mode_rows = storage
@@ -243,5 +265,106 @@ fn is_truthy(value: Option<&Value>) -> bool {
         Some(Value::Bool(value)) => *value,
         Some(Value::String(value)) => value == "true",
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempRoot(PathBuf);
+
+    impl Drop for TempRoot {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn temp_storage() -> (FileStorage, TempRoot) {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("marinara-seed-test-{suffix}"));
+        let storage = FileStorage::new(root.join("data")).expect("storage should initialize");
+        (storage, TempRoot(root))
+    }
+
+    #[test]
+    fn removes_professor_mari_character_seed() {
+        let (storage, root) = temp_storage();
+        storage
+            .create(
+                "characters",
+                json!({
+                    "id": PROFESSOR_MARI_ID,
+                    "data": {
+                        "name": "Professor Mari",
+                        "extensions": {
+                            "isBuiltInAssistant": true
+                        }
+                    },
+                    "comment": "Built-in guide",
+                    "avatarPath": Value::Null
+                }),
+            )
+            .expect("canonical row should be inserted");
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        assert!(storage
+            .get("characters", PROFESSOR_MARI_ID)
+            .expect("canonical lookup should succeed")
+            .is_none());
+    }
+
+    #[test]
+    fn removes_legacy_professor_mari_records() {
+        let (storage, root) = temp_storage();
+
+        storage
+            .create(
+                "characters",
+                json!({
+                    "id": "professor-mari",
+                    "data": "{}",
+                    "comment": "",
+                    "avatarPath": Value::Null
+                }),
+            )
+            .expect("legacy row should be inserted");
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        assert!(storage
+            .get("characters", "professor-mari")
+            .expect("legacy lookup should succeed")
+            .is_none());
+    }
+
+    #[test]
+    fn seeds_marinara_preset_from_embedded_fallback_when_default_data_root_is_missing() {
+        let (storage, root) = temp_storage();
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        let preset = storage
+            .get("prompts", MARINARA_PRESET_ID)
+            .expect("preset lookup should succeed")
+            .expect("Marinara preset should be seeded");
+        assert_eq!(preset["name"], MARINARA_PRESET_NAME);
+        assert_eq!(preset["author"], MARINARA_PRESET_AUTHOR);
+
+        let sections = storage
+            .list("prompt-sections")
+            .expect("prompt sections should list");
+        assert!(sections.iter().any(|section| {
+            section.get("presetId").and_then(Value::as_str) == Some(MARINARA_PRESET_ID)
+        }));
     }
 }

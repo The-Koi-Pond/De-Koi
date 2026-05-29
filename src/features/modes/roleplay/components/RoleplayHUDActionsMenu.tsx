@@ -163,8 +163,8 @@ export function RoleplayHUDActionsMenu({
         <>
           {isAgentProcessing && (
             <div className="flex items-center gap-2 border-b border-white/5 px-3 py-2">
-              <Sparkles size="0.75rem" className="text-purple-400 animate-pulse" />
-              <span className="text-[0.625rem] text-purple-300/80">Agents thinking...</span>
+              <Sparkles size="0.75rem" className="animate-pulse text-foreground/65" />
+              <span className="text-[0.625rem] text-foreground/65">Agents thinking...</span>
             </div>
           )}
           {!hasAnyActivity && (
@@ -196,7 +196,7 @@ export function RoleplayHUDActionsMenu({
                       <X size="0.625rem" />
                     </button>
                     <div className="pr-4">
-                      <span className="font-semibold text-purple-300">{bubble.agentName}</span>
+                      <span className="font-semibold text-foreground/75">{bubble.agentName}</span>
                       <p className="mt-0.5 whitespace-pre-wrap text-white/50 leading-relaxed">{bubble.content}</p>
                     </div>
                   </div>
@@ -281,12 +281,15 @@ export function RoleplayHUDActionsMenu({
               onClick={toggleEchoChamber}
               className="flex w-full items-center gap-2 px-3 py-2 text-[0.625rem] transition-colors hover:bg-white/5"
             >
-              <MessageCircle size="0.75rem" className={echoChamberOpen ? "text-purple-400" : "text-purple-400/60"} />
-              <span className={echoChamberOpen ? "text-purple-300 font-medium" : "text-white/60"}>
+              <MessageCircle
+                size="0.75rem"
+                className={echoChamberOpen ? "text-foreground/75" : "text-foreground/50"}
+              />
+              <span className={echoChamberOpen ? "font-medium text-foreground/75" : "text-foreground/55"}>
                 Echo Chamber {echoChamberOpen ? "On" : "Off"}
               </span>
               {echoMessageCount > 0 && (
-                <span className="ml-auto flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-purple-500/80 px-1 text-[0.5rem] font-bold text-white">
+                <span className="ml-auto flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-foreground/15 px-1 text-[0.5rem] font-bold text-foreground/80 ring-1 ring-foreground/10">
                   {echoMessageCount}
                 </span>
               )}
@@ -300,7 +303,7 @@ export function RoleplayHUDActionsMenu({
               }}
               className="flex w-full items-center gap-2 px-3 py-2 text-[0.625rem] text-white/60 transition-colors hover:bg-red-500/10 hover:text-red-300"
             >
-              <Trash2 size="0.75rem" className="text-purple-400/60" />
+              <Trash2 size="0.75rem" className="text-foreground/45" />
               <span>Clear Trackers</span>
             </button>
           )}
@@ -311,7 +314,7 @@ export function RoleplayHUDActionsMenu({
                 onClose();
               }}
               disabled={isGenerationBusy}
-              className="flex w-full items-center gap-2 px-3 py-2 text-[0.625rem] font-medium text-purple-300 transition-colors hover:bg-purple-500/10 disabled:opacity-50"
+              className="flex w-full items-center gap-2 px-3 py-2 text-[0.625rem] font-medium text-foreground/60 transition-colors hover:bg-white/5 hover:text-foreground/75 disabled:opacity-50"
             >
               <RefreshCw size="0.6875rem" className={isGenerationBusy ? "animate-spin" : ""} />
               {isGenerationBusy ? "Running..." : "Re-run Trackers"}

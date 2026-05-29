@@ -10,20 +10,74 @@ pub(crate) mod storage_commands;
 
 use tauri::Manager;
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn center_main_window_on_primary_monitor(app: &tauri::App) {
+    use tauri::{PhysicalPosition, Position};
+
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if window.is_maximized().unwrap_or(false) || window.is_fullscreen().unwrap_or(false) {
+        return;
+    }
+    let Ok(Some(monitor)) = window.primary_monitor() else {
+        return;
+    };
+    let Ok(window_size) = window.outer_size() else {
+        return;
+    };
+
+    let monitor_position = monitor.position();
+    let monitor_size = monitor.size();
+    let x =
+        monitor_position.x + ((monitor_size.width as i32 - window_size.width as i32) / 2).max(0);
+    let y =
+        monitor_position.y + ((monitor_size.height as i32 - window_size.height as i32) / 2).max(0);
+    if let Err(error) = window.set_position(Position::Physical(PhysicalPosition { x, y })) {
+        eprintln!("failed to center main window on primary monitor: {error}");
+    }
+}
+
+#[cfg(all(debug_assertions, not(any(target_os = "android", target_os = "ios"))))]
+fn open_main_window_devtools_if_requested(app: &tauri::App) {
+    if std::env::var("MARINARA_TAURI_AUTO_DEVTOOLS").as_deref() != Ok("1") {
+        return;
+    }
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    window.open_devtools();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let builder = builder.plugin(tauri_plugin_window_state::Builder::new().build());
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::new()
+            .with_state_flags(
+                tauri_plugin_window_state::StateFlags::SIZE
+                    | tauri_plugin_window_state::StateFlags::MAXIMIZED
+                    | tauri_plugin_window_state::StateFlags::VISIBLE
+                    | tauri_plugin_window_state::StateFlags::DECORATIONS
+                    | tauri_plugin_window_state::StateFlags::FULLSCREEN,
+            )
+            .build(),
+    );
 
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let state = app::build_state(app.handle())
                 .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
             app.manage(state);
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            center_main_window_on_primary_monitor(app);
+            #[cfg(all(debug_assertions, not(any(target_os = "android", target_os = "ios"))))]
+            open_main_window_devtools_if_requested(app);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -31,6 +85,10 @@ pub fn run() {
             storage_commands::profile_commands::profile_export,
             storage_commands::profile_commands::profile_import,
             storage_commands::profile_commands::profile_import_file,
+            storage_commands::backup_commands::backup_create,
+            storage_commands::backup_commands::backup_list,
+            storage_commands::backup_commands::backup_delete,
+            storage_commands::backup_commands::backup_download,
             storage_commands::profile_commands::prompt_export,
             storage_commands::profile_commands::prompts_export_bulk,
             storage_commands::profile_commands::character_export,
@@ -81,6 +139,7 @@ pub fn run() {
             storage_commands::integration_commands::tts_voices,
             storage_commands::integration_commands::tts_speak,
             storage_commands::integration_commands::translate_text_command,
+            storage_commands::integration_commands::discord_webhook_send,
             storage_commands::integration_commands::haptic_status,
             storage_commands::integration_commands::haptic_connect,
             storage_commands::integration_commands::haptic_disconnect,
@@ -152,6 +211,7 @@ pub fn run() {
             storage_commands::chat_commands::chat_autonomous_unread_mark,
             storage_commands::chat_commands::chat_autonomous_unread_clear,
             storage_commands::chat_commands::chat_messages_bulk_delete,
+            storage_commands::chat_commands::chat_message_count,
             storage_commands::chat_commands::chat_branch,
             storage_commands::chat_commands::chat_message_swipes,
             storage_commands::chat_commands::chat_message_add_swipe,
@@ -173,6 +233,7 @@ pub fn run() {
             storage_commands::media_commands::sprite_cleanup,
             storage_commands::media_commands::sprite_list,
             storage_commands::media_commands::sprite_upload,
+            storage_commands::media_commands::sprite_upload_bulk,
             storage_commands::media_commands::sprite_delete,
             storage_commands::media_commands::sprite_cleanup_saved,
             storage_commands::media_commands::sprite_cleanup_restore,
@@ -193,10 +254,13 @@ pub fn run() {
             storage_commands::media_commands::npc_avatar_upload,
             storage_commands::media_commands::lorebook_image_upload,
             storage_commands::media_commands::llm_complete,
+            storage_commands::media_commands::llm_embed,
             storage_commands::media_commands::llm_stream_channel,
             storage_commands::media_commands::llm_stream_cancel,
             storage_commands::media_commands::llm_list_models,
             storage_commands::mari_commands::professor_mari_prompt,
+            storage_commands::update_commands::update_check,
+            storage_commands::update_commands::update_apply,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

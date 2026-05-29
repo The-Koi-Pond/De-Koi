@@ -21,7 +21,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import type { GameSetupConfig, GameGmMode } from "../../../../engine/contracts/types/game";
-import { getCharacterTitle } from "../../../../shared/lib/character-display";
+import { getCharacterTitle, parseCharacterDisplayData } from "../../../../shared/lib/character-display";
 import { spotifyApi } from "../../../../shared/api/integration-utility-api";
 import { cn, getAvatarCropStyle, parseAvatarCropJson, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { Modal } from "../../../../shared/components/ui/Modal";
@@ -32,7 +32,7 @@ import {
   type EditableGenerationParameters,
 } from "../../../../shared/components/ui/GenerationParametersEditor";
 import { useConnections } from "../../../catalog/connections/index";
-import { usePersonas } from "../../../catalog/characters/index";
+import { useCharacterSummaries, usePersonas, type CharacterSummary } from "../../../catalog/characters/index";
 import { useLorebooks } from "../../../catalog/lorebooks/index";
 import { useGameAssetStore } from "../stores/game-asset.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -47,18 +47,29 @@ interface GameSetupWizardProps {
   ) => void;
   onCancel: () => void;
   isLoading: boolean;
-  characters: Array<{
-    id: string;
-    name: string;
-    comment?: string | null;
-    avatarUrl?: string | null;
-    avatarCrop?: AvatarCropValue | null;
-  }>;
 }
 
 interface PersonaDisplayInfo {
   name: string;
   comment?: string | null;
+}
+
+type SetupCharacterInfo = {
+  id: string;
+  name: string;
+  comment?: string | null;
+  avatarUrl?: string | null;
+  avatarCrop?: AvatarCropValue | null;
+};
+
+function parseAvatarCropValue(raw: unknown): AvatarCropValue | null {
+  if (typeof raw === "string") {
+    return parseAvatarCropJson(raw);
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  return parseAvatarCropJson(JSON.stringify(raw));
 }
 
 function CharacterAvatar({
@@ -262,13 +273,36 @@ const GAME_LANGUAGE_LOOKUP = new Map(
   }),
 );
 
+const GAME_SETUP_LANGUAGE_STORAGE_KEY = "marinara-game-setup-language";
+
 function normalizeGameLanguage(language: string): string {
   const trimmed = language.trim();
   if (!trimmed) return "";
   return GAME_LANGUAGE_LOOKUP.get(trimmed.toLowerCase()) ?? trimmed;
 }
 
-export function GameSetupWizard({ error, onComplete, onCancel, isLoading, characters }: GameSetupWizardProps) {
+function readRememberedGameLanguage(): string {
+  if (typeof window === "undefined") return "English";
+  try {
+    const stored = window.localStorage.getItem(GAME_SETUP_LANGUAGE_STORAGE_KEY);
+    return stored ? normalizeGameLanguage(stored) || "English" : "English";
+  } catch {
+    return "English";
+  }
+}
+
+function rememberGameLanguage(language: string): void {
+  if (typeof window === "undefined") return;
+  const normalized = normalizeGameLanguage(language);
+  if (!normalized) return;
+  try {
+    window.localStorage.setItem(GAME_SETUP_LANGUAGE_STORAGE_KEY, normalized);
+  } catch {
+    // Best-effort preference only.
+  }
+}
+
+export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: GameSetupWizardProps) {
   const [step, setStep] = useState(0);
   const [gameName, setGameName] = useState("");
   const [genres, setGenres] = useState<string[]>(["Fantasy"]);
@@ -307,7 +341,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading, charac
   const [activeLorebookIds, setActiveLorebookIds] = useState<string[]>([]);
   const [lbSearch, setLbSearch] = useState("");
   const [enableCustomWidgets, setEnableCustomWidgets] = useState(true);
-  const [language, setLanguage] = useState("English");
+  const [language, setLanguage] = useState(readRememberedGameLanguage);
   const [startMuted, setStartMuted] = useState(false);
   const [expandedLearnedOptions, setExpandedLearnedOptions] = useState<Record<LearnedOptionGroup, boolean>>({
     genres: false,
@@ -323,6 +357,11 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading, charac
 
   const { data: connectionsList } = useConnections();
   const { data: personasList } = usePersonas();
+  const {
+    data: rawCharacters,
+    isLoading: isCharactersLoading,
+    isError: isCharactersError,
+  } = useCharacterSummaries(step === 1);
   const { data: lorebooksList } = useLorebooks();
   const spotifyPlaylistsQuery = useQuery({
     queryKey: ["spotify", "playlists", 50],
@@ -372,6 +411,32 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading, charac
       }>) ?? [],
     [personasList],
   );
+  const characters = useMemo<SetupCharacterInfo[]>(
+    () =>
+      ((rawCharacters ?? []) as CharacterSummary[])
+        .map((character) => {
+          const display = parseCharacterDisplayData({
+            data: character.data,
+            comment: character.comment,
+          });
+          const rawCrop = character.data?.extensions?.avatarCrop;
+          return {
+            id: character.id,
+            name: display.name,
+            comment: display.comment,
+            avatarUrl: character.avatarPath ?? null,
+            avatarCrop: parseAvatarCropValue(rawCrop),
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [rawCharacters],
+  );
+
+  const emptyCharacterMessage = isCharactersLoading
+    ? "Loading characters..."
+    : isCharactersError
+      ? "Characters could not be loaded."
+      : "No characters found.";
 
   const lorebooks = useMemo(
     () => (lorebooksList as Array<{ id: string; name: string; enabled?: boolean }>) ?? [],
@@ -490,11 +555,16 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading, charac
   const canStart = !!gmConnectionId;
   const normalizedLanguage = normalizeGameLanguage(language);
 
+  useEffect(() => {
+    rememberGameLanguage(language);
+  }, [language]);
+
   const handleComplete = () => {
     if (isLoading || !canStart) return;
     if (startMuted) {
       useGameAssetStore.getState().setAudioMuted(true);
     }
+    rememberGameLanguage(normalizedLanguage);
     rememberGameSetupOptions(
       {
         genres: filterCustomLearnedValues(genres, GENRES),
@@ -923,7 +993,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading, charac
                     ))}
                     {filteredGmCharacters.length === 0 && (
                       <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
-                        {characters.length === 0 ? "No characters found." : "No matches."}
+                        {characters.length === 0 ? emptyCharacterMessage : "No matches."}
                       </p>
                     )}
                   </div>
@@ -1010,7 +1080,11 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading, charac
                   })}
                   {filteredPartyCharacters.length === 0 && (
                     <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
-                      {characters.length === 0 ? "No characters found. Create characters first." : "No matches."}
+                      {characters.length === 0
+                        ? isCharactersLoading || isCharactersError
+                          ? emptyCharacterMessage
+                          : "No characters found. Create characters first."
+                        : "No matches."}
                     </p>
                   )}
                 </div>
@@ -1161,7 +1235,11 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading, charac
                 </button>
                 {customizeParameters && (
                   <div className="mt-3 border-t border-[var(--border)] pt-3">
-                    <GenerationParametersFields value={generationParameters} onChange={setGenerationParameters} />
+                    <GenerationParametersFields
+                      value={generationParameters}
+                      onChange={setGenerationParameters}
+                      showOpenRouterServiceTier={selectedGmConnection?.provider === "openrouter"}
+                    />
                   </div>
                 )}
               </div>

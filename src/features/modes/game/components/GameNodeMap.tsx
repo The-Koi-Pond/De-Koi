@@ -1,13 +1,20 @@
 // ──────────────────────────────────────────────
 // Game: Node Map (dungeons/interiors)
 // ──────────────────────────────────────────────
-import { useState, useCallback, type ReactNode } from "react";
+import { Check, Pencil, X } from "lucide-react";
+import { useEffect, useState, useCallback, type ReactNode } from "react";
 import { cn } from "../../../../shared/lib/utils";
 import type { GameMap } from "../../../../engine/contracts/types/game";
+
+export interface GameNodeEditPatch {
+  emoji?: string;
+  label?: string;
+}
 
 interface GameNodeMapProps {
   map: GameMap;
   onNodeClick: (nodeId: string) => void;
+  onEditNode?: (nodeId: string, patch: GameNodeEditPatch) => void | Promise<void>;
   selectedNodeId?: string | null;
   /** When true, node clicks are disabled (e.g. narration still playing) */
   disabled?: boolean;
@@ -20,6 +27,7 @@ interface GameNodeMapProps {
 export function GameNodeMap({
   map,
   onNodeClick,
+  onEditNode,
   selectedNodeId,
   disabled,
   showPartyPosition = true,
@@ -31,6 +39,13 @@ export function GameNodeMap({
   const edges = map.edges || [];
   const currentNodeId = showPartyPosition && typeof map.partyPosition === "string" ? map.partyPosition : null;
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(selectedNodeId ?? currentNodeId ?? nodes[0]?.id ?? null);
+  const [draftEmoji, setDraftEmoji] = useState("");
+  const [draftLabel, setDraftLabel] = useState("");
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const editingNode = nodes.find((node) => node.id === editingNodeId) ?? nodes[0] ?? null;
 
   const handleTap = useCallback(
     (nodeId: string, isClickable: boolean) => {
@@ -43,6 +58,44 @@ export function GameNodeMap({
     },
     [hoveredNodeId, onNodeClick],
   );
+
+  useEffect(() => {
+    if (!editorOpen) return;
+    if (editingNode && nodes.some((node) => node.id === editingNode.id)) return;
+    setEditingNodeId(selectedNodeId ?? currentNodeId ?? nodes[0]?.id ?? null);
+  }, [currentNodeId, editingNode, editorOpen, nodes, selectedNodeId]);
+
+  useEffect(() => {
+    if (!editingNode) return;
+    setDraftEmoji(editingNode.emoji || "");
+    setDraftLabel(editingNode.label || "");
+    setEditorError(null);
+  }, [editingNode]);
+
+  const saveNodeEdit = useCallback(async () => {
+    if (!editingNode || !onEditNode) return;
+
+    const nextLabel = draftLabel.trim();
+    if (!nextLabel) {
+      setEditorError("Location name is required.");
+      return;
+    }
+
+    const nextEmoji = draftEmoji.trim() || editingNode.emoji || "📍";
+    setSavingEdit(true);
+    setEditorError(null);
+    try {
+      await onEditNode(editingNode.id, {
+        emoji: nextEmoji,
+        label: nextLabel,
+      });
+      setEditorOpen(false);
+    } catch (error) {
+      setEditorError(error instanceof Error ? error.message : "Failed to update location.");
+    } finally {
+      setSavingEdit(false);
+    }
+  }, [draftEmoji, draftLabel, editingNode, onEditNode]);
 
   // Guard against empty nodes — no SVG to render
   if (nodes.length === 0) {
@@ -94,6 +147,85 @@ export function GameNodeMap({
     <div className="relative" onMouseLeave={() => setHoveredNodeId(null)}>
       {topLeftAction}
       {topRightAction}
+      {onEditNode && (
+        <>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setEditorOpen((open) => !open);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            className={cn(
+              "absolute top-1.5 z-20 flex h-6 w-6 items-center justify-center rounded-md border border-white/15 bg-black/85 text-white/80 shadow-lg shadow-black/35 transition-colors hover:bg-black hover:text-white",
+              topLeftAction ? "left-9" : "left-1.5",
+              editorOpen && "border-[var(--primary)]/50 text-white ring-1 ring-[var(--primary)]/30",
+            )}
+            title="Edit map locations"
+            aria-label="Edit map locations"
+            aria-expanded={editorOpen}
+          >
+            <Pencil size={11} />
+          </button>
+          {editorOpen && editingNode && (
+            <div
+              className="absolute left-1.5 right-1.5 top-9 z-30 rounded-lg border border-white/15 bg-black/90 p-2 text-[0.6875rem] text-white shadow-xl shadow-black/40 backdrop-blur"
+              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <div className="mb-2 flex items-center gap-1.5">
+                <Pencil size={11} className="shrink-0 text-white/65" />
+                <select
+                  value={editingNode.id}
+                  onChange={(event) => setEditingNodeId(event.target.value)}
+                  className="min-w-0 flex-1 rounded-md border border-white/10 bg-white/10 px-2 py-1 text-[0.6875rem] text-white outline-none focus:border-[var(--primary)]"
+                  aria-label="Choose map location to edit"
+                >
+                  {nodes.map((node) => (
+                    <option key={node.id} value={node.id}>
+                      {node.emoji || "📍"} {node.label || node.id}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setEditorOpen(false)}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                  title="Close location editor"
+                  aria-label="Close location editor"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+              <div className="grid grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-1.5">
+                <input
+                  value={draftEmoji}
+                  onChange={(event) => setDraftEmoji(Array.from(event.target.value).slice(0, 4).join(""))}
+                  className="h-8 rounded-md border border-white/10 bg-white/10 px-2 text-center text-base outline-none focus:border-[var(--primary)]"
+                  aria-label="Location emoji"
+                />
+                <input
+                  value={draftLabel}
+                  onChange={(event) => setDraftLabel(event.target.value)}
+                  className="h-8 min-w-0 rounded-md border border-white/10 bg-white/10 px-2 text-[0.75rem] text-white outline-none focus:border-[var(--primary)]"
+                  aria-label="Location name"
+                />
+                <button
+                  type="button"
+                  onClick={saveNodeEdit}
+                  disabled={savingEdit}
+                  className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--primary)] text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Save location"
+                  aria-label="Save location"
+                >
+                  <Check size={13} />
+                </button>
+              </div>
+              {editorError && <p className="mt-1.5 text-[0.625rem] text-red-300">{editorError}</p>}
+            </div>
+          )}
+        </>
+      )}
       <div
         className="w-full overflow-auto rounded"
         style={{

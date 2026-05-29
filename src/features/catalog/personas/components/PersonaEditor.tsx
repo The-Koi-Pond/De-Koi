@@ -6,7 +6,7 @@
 // ──────────────────────────────────────────────
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
-import { usePersonas, useUpdatePersona, useUploadPersonaAvatar, useDeletePersona } from "../../characters/index";
+import { usePersona, useUpdatePersona, useUploadPersonaAvatar, useDeletePersona } from "../../characters/index";
 import { useConnections } from "../../connections/index";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
@@ -37,7 +37,14 @@ import {
   RotateCcw,
   Crop,
 } from "lucide-react";
-import { cn, generateClientId, getAvatarCropStyle, type AvatarCrop } from "../../../../shared/lib/utils";
+import {
+  cn,
+  generateClientId,
+  getAvatarCropStyle,
+  parseAvatarCropJson,
+  type AvatarCrop,
+  type LegacyAvatarCrop,
+} from "../../../../shared/lib/utils";
 import { showAlertDialog, showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { extractColorsFromImage } from "../../../../shared/lib/avatar-color-extraction";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
@@ -53,6 +60,7 @@ import {
 import {
   useCharacterSprites,
   useUploadSprite,
+  useUploadSprites,
   useDeleteSprite,
   useCleanupSavedSprites,
   useRestoreSpriteCleanupPoint,
@@ -104,11 +112,10 @@ interface PersonaFormData {
   dialogueColor: string;
   boxColor: string;
   trackerCardColors: TrackerCardColorConfig;
-  personaStats: string;
+  personaStats: PersonaStatsData | null;
   altDescriptions: AltDescriptionEntry[];
   tags: string[];
-  /** Avatar crop region parsed from the persona row's JSON-encoded `avatarCrop`. */
-  avatarCrop: AvatarCrop | null;
+  avatarCrop: AvatarCrop | LegacyAvatarCrop | null;
 }
 
 interface PersonaRow {
@@ -121,23 +128,28 @@ interface PersonaRow {
   backstory: string;
   appearance: string;
   avatarPath: string | null;
-  /** JSON-encoded AvatarCrop, or empty string when unset. */
-  avatarCrop?: string;
+  avatarCrop?: AvatarCrop | LegacyAvatarCrop | string | null;
   isActive: string | boolean;
   nameColor?: string;
   dialogueColor?: string;
   boxColor?: string;
   trackerCardColors?: string;
   [TRACKER_CARD_COLOR_PREVIEW_BASE_FIELD]?: string;
-  personaStats?: string;
-  altDescriptions?: string;
-  tags?: string;
+  personaStats?: Record<string, unknown> | string;
+  altDescriptions?: AltDescriptionEntry[];
+  tags?: string[];
+}
+
+function parseAvatarCropValue(value: PersonaRow["avatarCrop"]): AvatarCrop | LegacyAvatarCrop | null {
+  if (!value) return null;
+  if (typeof value === "string") return parseAvatarCropJson(value);
+  return parseAvatarCropJson(JSON.stringify(value));
 }
 
 export function PersonaEditor() {
   const personaId = useUIStore((s) => s.personaDetailId);
   const closeDetail = useUIStore((s) => s.closePersonaDetail);
-  const { data: allPersonas, isLoading } = usePersonas();
+  const { data: rawPersona, isLoading } = usePersona(personaId);
   const updatePersona = useUpdatePersona();
   const uploadAvatar = useUploadPersonaAvatar();
   const deletePersona = useDeletePersona();
@@ -145,9 +157,9 @@ export function PersonaEditor() {
   const imageConnections = useMemo(
     () =>
       Array.isArray(connectionsList)
-        ? (connectionsList as Array<{ id: string; name: string; model?: string | null; provider?: string | null }>).filter(
-            (connection) => connection.provider === "image_generation",
-          )
+        ? (
+            connectionsList as Array<{ id: string; name: string; model?: string | null; provider?: string | null }>
+          ).filter((connection) => connection.provider === "image_generation")
         : [],
     [connectionsList],
   );
@@ -169,93 +181,50 @@ export function PersonaEditor() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageGenerationAvailable = imageConnections.length > 0;
 
-  // Find the persona from the list
-  const rawPersona = (allPersonas as PersonaRow[] | undefined)?.find((p) => p.id === personaId);
+  const persona = rawPersona as PersonaRow | undefined;
 
   // Parse persona into form data when it first loads (or when switching personas).
   // Important: don't overwrite local unsaved edits if server data refetches (e.g. after avatar upload).
   useEffect(() => {
-    if (!rawPersona) return;
+    if (!persona) return;
 
-    const isSwitchingPersona = loadedPersonaIdRef.current !== rawPersona.id;
+    const isSwitchingPersona = loadedPersonaIdRef.current !== persona.id;
     if (!isSwitchingPersona && dirty) return;
 
-    loadedPersonaIdRef.current = rawPersona.id;
+    loadedPersonaIdRef.current = persona.id;
 
-    let parsedAltDescs: AltDescriptionEntry[] = [];
-    try {
-      const raw = rawPersona.altDescriptions;
-      if (raw) parsedAltDescs = JSON.parse(raw);
-    } catch {
-      /* ignore */
-    }
+    const parsedAltDescs: AltDescriptionEntry[] = Array.isArray(persona.altDescriptions) ? persona.altDescriptions : [];
 
-    let parsedAvatarCrop: AvatarCrop | null = null;
-    try {
-      const raw = rawPersona.avatarCrop;
-      if (raw) {
-        const obj = JSON.parse(raw);
-        // Defensive: malformed crop data is dropped so the editor falls back to defaults.
-        if (obj && typeof obj === "object") {
-          // Validate geometry — finite, positive, within normalized bounds.
-          // Anything malformed is dropped so the editor falls back to defaults
-          // instead of producing NaN transforms or an off-screen overlay.
-          if (
-            Number.isFinite(obj.srcX) &&
-            Number.isFinite(obj.srcY) &&
-            Number.isFinite(obj.srcWidth) &&
-            Number.isFinite(obj.srcHeight) &&
-            obj.srcWidth > 0 &&
-            obj.srcHeight > 0 &&
-            obj.srcX >= 0 &&
-            obj.srcY >= 0 &&
-            obj.srcX + obj.srcWidth <= 1.001 &&
-            obj.srcY + obj.srcHeight <= 1.001
-          ) {
-            parsedAvatarCrop = {
-              srcX: obj.srcX,
-              srcY: obj.srcY,
-              srcWidth: obj.srcWidth,
-              srcHeight: obj.srcHeight,
-            };
-          }
-        }
-      }
-    } catch {
-      /* ignore — empty / malformed crop just stays null */
-    }
+    const parsedAvatarCrop = parseAvatarCropValue(persona.avatarCrop);
 
     const savedTrackerCardColors =
-      typeof rawPersona[TRACKER_CARD_COLOR_PREVIEW_BASE_FIELD] === "string"
-        ? rawPersona[TRACKER_CARD_COLOR_PREVIEW_BASE_FIELD]
-        : rawPersona.trackerCardColors;
+      typeof persona[TRACKER_CARD_COLOR_PREVIEW_BASE_FIELD] === "string"
+        ? persona[TRACKER_CARD_COLOR_PREVIEW_BASE_FIELD]
+        : persona.trackerCardColors;
 
     setFormData({
-      name: rawPersona.name,
-      comment: rawPersona.comment ?? "",
-      description: rawPersona.description,
-      personality: rawPersona.personality ?? "",
-      scenario: rawPersona.scenario ?? "",
-      backstory: rawPersona.backstory ?? "",
-      appearance: rawPersona.appearance ?? "",
-      nameColor: rawPersona.nameColor ?? "",
-      dialogueColor: rawPersona.dialogueColor ?? "",
-      boxColor: rawPersona.boxColor ?? "",
+      name: persona.name,
+      comment: persona.comment ?? "",
+      description: persona.description,
+      personality: persona.personality ?? "",
+      scenario: persona.scenario ?? "",
+      backstory: persona.backstory ?? "",
+      appearance: persona.appearance ?? "",
+      nameColor: persona.nameColor ?? "",
+      dialogueColor: persona.dialogueColor ?? "",
+      boxColor: persona.boxColor ?? "",
       trackerCardColors: parseTrackerCardColorConfig(savedTrackerCardColors),
-      personaStats: rawPersona.personaStats ?? "",
+      personaStats:
+        persona.personaStats && typeof persona.personaStats === "object"
+          ? (persona.personaStats as unknown as PersonaStatsData)
+          : null,
       altDescriptions: parsedAltDescs,
-      tags: (() => {
-        try {
-          return rawPersona.tags ? JSON.parse(rawPersona.tags) : [];
-        } catch {
-          return [];
-        }
-      })(),
+      tags: Array.isArray(persona.tags) ? persona.tags : [],
       avatarCrop: parsedAvatarCrop,
     });
-    setAvatarPreview(rawPersona.avatarPath);
+    setAvatarPreview(persona.avatarPath);
     setDirty(false);
-  }, [rawPersona, dirty]);
+  }, [persona, dirty]);
 
   const updateField = useCallback(<K extends keyof PersonaFormData>(key: K, value: PersonaFormData[K]) => {
     setFormData((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -270,11 +239,10 @@ export function PersonaEditor() {
       await updatePersona.mutateAsync({
         id: personaId,
         ...rest,
-        altDescriptions: JSON.stringify(altDescriptions),
-        tags: JSON.stringify(tags),
+        altDescriptions,
+        tags,
         trackerCardColors: serializeTrackerCardColorConfig(formData.trackerCardColors),
-        // Persist as JSON string; empty string means "no crop".
-        avatarCrop: avatarCrop ? JSON.stringify(avatarCrop) : "",
+        avatarCrop: avatarCrop ?? null,
       });
       setDirty(false);
     } finally {
@@ -288,7 +256,7 @@ export function PersonaEditor() {
 
     const uploadToken = generateClientId();
     latestAvatarUploadTokenRef.current = uploadToken;
-    const fallbackAvatarPath = rawPersona?.avatarPath ?? null;
+    const fallbackAvatarPath = persona?.avatarPath ?? null;
     // Capture the saved crop so we can revert if the upload fails. The new image
     // almost certainly has different framing/dimensions, so the old normalized
     // crop coords are meaningless for it — clear immediately on upload start
@@ -403,7 +371,7 @@ export function PersonaEditor() {
       />
 
       {/* ── Header ── */}
-      <div className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-4 py-3 max-md:gap-2 max-md:px-3">
+      <div className="flex min-h-12 flex-shrink-0 flex-wrap items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-4 py-0 max-md:gap-2 max-md:px-3">
         <button
           type="button"
           onClick={handleClose}
@@ -672,6 +640,7 @@ function PersonaSpritesTab({
   const { data: sprites, isLoading } = useCharacterSprites(personaId);
   const { data: spriteCapabilities } = useSpriteCapabilities();
   const uploadSprite = useUploadSprite();
+  const uploadSprites = useUploadSprites();
   const deleteSprite = useDeleteSprite();
   const cleanupSavedSprites = useCleanupSavedSprites();
   const restoreSpriteCleanupPoint = useRestoreSpriteCleanupPoint();
@@ -713,16 +682,15 @@ function PersonaSpritesTab({
   const backgroundCleanupUnavailable = spriteCapabilities?.backgroundRemovalAvailable === false;
   const backgroundCleanupReason = spriteCapabilities?.reason ?? "Background cleanup is unavailable on this platform.";
   const cleanupEngineUnavailable = spriteCapabilities?.cleanupEngine?.installed === false;
-  const cleanupEngineReason =
-    spriteCapabilities?.cleanupEngine?.reason ?? "Sprite cleanup is not available.";
+  const cleanupEngineReason = spriteCapabilities?.cleanupEngine?.reason ?? "Sprite cleanup is not available.";
 
-  const normalizeExpressionForCategory = (raw: string) => {
+  const normalizeExpressionForCategory = (raw: string, forCategory: SpriteCategory = category) => {
     const cleaned = raw
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9_-]/g, "_");
     if (!cleaned) return "";
-    if (category === "full-body") {
+    if (forCategory === "full-body") {
       return cleaned.startsWith("full_") ? cleaned : `full_${cleaned}`;
     }
     return cleaned.replace(/^full_/, "");
@@ -767,25 +735,51 @@ function PersonaSpritesTab({
     if (imageFiles.length === 0) return;
 
     setFolderProgress({ done: 0, total: imageFiles.length });
-    for (let i = 0; i < imageFiles.length; i++) {
-      const file = imageFiles[i]!;
-      const expression = file.name.replace(/\.[^.]+$/, "").trim();
-      const normalized = normalizeExpressionForCategory(expression);
-      if (!normalized) continue;
-      const dataUrl = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
-      try {
-        await uploadSprite.mutateAsync({ characterId: personaId, expression: normalized, image: dataUrl });
-      } catch {
-        /* skip */
+    try {
+      const uploads: Array<{ expression: string; image: string }> = [];
+      const folderCategory = category;
+      let skipped = 0;
+      for (let i = 0; i < imageFiles.length; i++) {
+        const file = imageFiles[i]!;
+        const expression = file.name.replace(/\.[^.]+$/, "").trim();
+        const normalized = normalizeExpressionForCategory(expression, folderCategory);
+        if (!normalized) {
+          skipped += 1;
+          setFolderProgress({ done: i + 1, total: imageFiles.length });
+          continue;
+        }
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(reader.error ?? new Error(`Failed to read ${file.name}`));
+          reader.readAsDataURL(file);
+        }).catch(() => {
+          skipped += 1;
+          return null;
+        });
+        if (dataUrl) {
+          uploads.push({ expression: normalized, image: dataUrl });
+        }
+        setFolderProgress({ done: i + 1, total: imageFiles.length });
       }
-      setFolderProgress({ done: i + 1, total: imageFiles.length });
+      if (uploads.length > 0) {
+        const result = await uploadSprites.mutateAsync({ characterId: personaId, sprites: uploads });
+        if (result.failed.length > 0 || skipped > 0) {
+          toast.warning(
+            `${result.failed.length + skipped} sprite${result.failed.length + skipped === 1 ? "" : "s"} could not be imported.`,
+          );
+        } else {
+          toast.success(`Imported ${result.imported} sprite${result.imported === 1 ? "" : "s"}.`);
+        }
+      } else if (skipped > 0) {
+        toast.error("No sprites could be imported.");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to import sprites.");
+    } finally {
+      setFolderProgress(null);
+      e.target.value = "";
     }
-    setFolderProgress(null);
-    e.target.value = "";
   };
 
   const handleDeleteSingleSprite = useCallback(async () => {
@@ -879,9 +873,7 @@ function PersonaSpritesTab({
 
       if (result.processed > 0) {
         setLastCleanupRestorePointId(result.restorePointId ?? null);
-        toast.success(
-          `Cleaned ${result.processed} saved sprite${result.processed === 1 ? "" : "s"} .`,
-        );
+        toast.success(`Cleaned ${result.processed} saved sprite${result.processed === 1 ? "" : "s"} .`);
       }
       if (result.failed.length > 0) {
         toast.warning(`${result.failed.length} sprite${result.failed.length === 1 ? "" : "s"} could not be cleaned.`);
@@ -902,7 +894,9 @@ function PersonaSpritesTab({
         restorePointId: lastCleanupRestorePointId,
       });
       if (result.restored > 0) {
-        toast.success(`Restored ${result.restored} sprite${result.restored === 1 ? "" : "s"} from the cleanup restore point.`);
+        toast.success(
+          `Restored ${result.restored} sprite${result.restored === 1 ? "" : "s"} from the cleanup restore point.`,
+        );
       }
       if (result.failed.length > 0) {
         toast.warning(`${result.failed.length} sprite${result.failed.length === 1 ? "" : "s"} could not be restored.`);
@@ -1594,18 +1588,10 @@ function PersonaStatsTab({
   formData: PersonaFormData;
   updateField: <K extends keyof PersonaFormData>(key: K, value: PersonaFormData[K]) => void;
 }) {
-  const parsed: PersonaStatsData = formData.personaStats
-    ? (() => {
-        try {
-          return JSON.parse(formData.personaStats) as PersonaStatsData;
-        } catch {
-          return DEFAULT_PERSONA_STATS;
-        }
-      })()
-    : DEFAULT_PERSONA_STATS;
+  const parsed: PersonaStatsData = formData.personaStats ?? DEFAULT_PERSONA_STATS;
 
   const save = (next: PersonaStatsData) => {
-    updateField("personaStats", JSON.stringify(next));
+    updateField("personaStats", next);
   };
 
   const updateBar = (index: number, field: string, value: string | number) => {
@@ -1911,7 +1897,7 @@ function DescriptionTab({
 
   // Pass through whichever shape is saved (or null when unset). The widget
   // initializes the cropper from the saved value or a centered max-square.
-  const avatarCrop: AvatarCrop | null = formData.avatarCrop;
+  const avatarCrop: AvatarCrop | LegacyAvatarCrop | null = formData.avatarCrop;
 
   return (
     <div className="space-y-6">

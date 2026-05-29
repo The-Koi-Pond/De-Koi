@@ -91,6 +91,7 @@ export function SpriteOverlay({
 }: SpriteOverlayProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const resolvedSpriteDisplayModes = useMemo(() => normalizeSpriteDisplayModes(spriteDisplayModes), [spriteDisplayModes]);
+  const characterIdsKey = characterIds.join("\u0000");
 
   // Subscribe to agent expression results
   const expressionResult = useAgentStore((s) => s.lastResults.get("expression"));
@@ -189,16 +190,33 @@ export function SpriteOverlay({
 
     for (const id of characterIds) {
       if (!newStates[id]) {
-        const lastMsg = [...messages].reverse().find((m) => m.characterId === id && m.role === "assistant");
+        let lastMsg: (typeof messages)[number] | undefined;
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+          const message = messages[index];
+          if (message?.characterId === id && message.role === "assistant") {
+            lastMsg = message;
+            break;
+          }
+        }
         const expr = lastMsg ? detectExpression(lastMsg.content) : "neutral";
         newStates[id] = { expression: expr, transition: "crossfade" };
       }
     }
 
-    setStates(newStates);
-  }, [messages, characterIds, expressionResult, spriteExpressions, fullBodyOnly]);
+    setStates((prev) => {
+      const prevKeys = Object.keys(prev);
+      const nextKeys = Object.keys(newStates);
+      if (prevKeys.length !== nextKeys.length) return newStates;
+      for (const key of nextKeys) {
+        if (prev[key]?.expression !== newStates[key]?.expression || prev[key]?.transition !== newStates[key]?.transition) {
+          return newStates;
+        }
+      }
+      return prev;
+    });
+  }, [messages, characterIdsKey, expressionResult, spriteExpressions, fullBodyOnly]);
 
-  const visibleChars = characterIds.slice(0, 3);
+  const visibleChars = useMemo(() => characterIds.slice(0, 3), [characterIdsKey]);
   const resolvedPlacements = useMemo(() => {
     const placements: Record<string, SpritePlacement> = {};
     for (const [index, charId] of visibleChars.entries()) {

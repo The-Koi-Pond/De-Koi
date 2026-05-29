@@ -17,6 +17,16 @@ type NewChatSetupIntent = {
   shortcutMode: boolean;
 };
 
+/** Read the last active chat so reloads reopen the selected transcript. */
+function loadActiveChatId(): string | null {
+  try {
+    const id = localStorage.getItem(STORAGE_KEY)?.trim();
+    return id || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Read drafts from localStorage so typed input survives reloads, tab closes, and app restarts. */
 function loadDrafts(): Map<string, string> {
   try {
@@ -89,7 +99,7 @@ interface ChatState {
   /** Targeted setup intent for a newly created chat. */
   newChatSetupIntent: NewChatSetupIntent | null;
   /** Pending new-chat mode for first-run connection setup gating. */
-  pendingNewChatMode: Exclude<ChatMode, "visual_novel"> | null;
+  pendingNewChatMode: ChatMode | null;
   /** Per-chat draft input text so typing isn't lost when navigating away. */
   inputDrafts: Map<string, string>;
   /** Current chat input */
@@ -141,7 +151,7 @@ interface ChatState {
   setShouldOpenWizard: (v: boolean, chatId?: string) => void;
   setShouldOpenWizardInShortcutMode: (v: boolean, chatId?: string) => void;
   consumeNewChatSetupIntent: (chatId: string) => NewChatSetupIntent | null;
-  setPendingNewChatMode: (mode: Exclude<ChatMode, "visual_novel"> | null) => void;
+  setPendingNewChatMode: (mode: ChatMode | null) => void;
   setInputDraft: (chatId: string, text: string) => void;
   clearInputDraft: (chatId: string) => void;
   setCurrentInput: (text: string) => void;
@@ -171,13 +181,7 @@ interface ChatState {
 
 export const useChatStore = create<ChatState>()(
   subscribeWithSelector((set, get) => ({
-    activeChatId: (() => {
-      try {
-        return localStorage.getItem(STORAGE_KEY) || null;
-      } catch {
-        return null;
-      }
-    })(),
+    activeChatId: loadActiveChatId(),
     activeChat: null,
     messages: [],
     isStreaming: false,
@@ -309,10 +313,20 @@ export const useChatStore = create<ChatState>()(
         return { abortControllers: m };
       }),
     stopGeneration: () => {
-      const { streamingChatId, abortControllers } = useChatStore.getState();
-      if (streamingChatId) {
-        const ctrl = abortControllers.get(streamingChatId);
-        if (ctrl) ctrl.abort();
+      const { activeChatId, streamingChatId, abortControllers } = useChatStore.getState();
+      const targetChatId = streamingChatId ?? activeChatId;
+      if (targetChatId) {
+        const ctrl = abortControllers.get(targetChatId);
+        if (ctrl) {
+          ctrl.abort();
+          return;
+        }
+      }
+      for (const ctrl of abortControllers.values()) {
+        if (!ctrl.signal.aborted) {
+          ctrl.abort();
+          return;
+        }
       }
     },
     appendStreamBuffer: (text, chatId) =>

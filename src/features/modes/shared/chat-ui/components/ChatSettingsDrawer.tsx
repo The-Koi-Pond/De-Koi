@@ -17,7 +17,6 @@ import {
   Plus,
   Trash2,
   Wrench,
-  Search,
   MessageSquare,
   Sparkles,
   Image,
@@ -61,23 +60,37 @@ import { ExpandedTextarea } from "../../../../../shared/components/ui/ExpandedTe
 import { Modal } from "../../../../../shared/components/ui/Modal";
 import {
   CHAT_PARAMETER_DEFAULTS,
+  EDITABLE_GENERATION_PARAMETER_KEYS,
   GenerationParametersFields,
   getEditableGenerationParameters,
+  getEditableGenerationParameterOverrides,
+  parseGenerationParameterRecord,
   type EditableGenerationParameters,
   ROLEPLAY_PARAMETER_DEFAULTS,
 } from "../../../../../shared/components/ui/GenerationParametersEditor";
 import { ChoiceSelectionModal } from "../../../../catalog/presets/index";
 import { SummariesEditorModal } from "./SummariesEditorModal";
-import { useCharacters, usePersonas, useCharacterGroups, type SpriteInfo } from "../../../../catalog/characters/index";
+import {
+  AgentCategorySection,
+  ChatSettingsSection as Section,
+  PickerDropdown,
+  SpriteRangeSlider,
+} from "./settings/ChatSettingsSections";
+import {
+  useCharacterSummaries,
+  usePersonaSummaries,
+  useCharacterGroups,
+  type SpriteInfo,
+} from "../../../../catalog/characters/index";
 import { useLorebooks } from "../../../../catalog/lorebooks/index";
-import { usePresetFull, usePresets } from "../../../../catalog/presets/index";
+import { usePresetFull, usePresetSummaries } from "../../../../catalog/presets/index";
 import { useConnections, useSaveConnectionDefaults } from "../../../../catalog/connections/index";
 import { useGenerate } from "../../../../runtime/generation/index";
 import {
   useUpdateChat,
   useUpdateChatMetadata,
   useCreateMessage,
-  useChats,
+  useChatSummaries,
   useConnectChat,
   useDisconnectChat,
   useChatMemories,
@@ -117,20 +130,33 @@ import {
   useApplyChatPreset,
   useImportChatPreset,
   useSetActiveChatPreset,
+  sanitizeChatPresetSettings,
 } from "../../../../catalog/chat-presets/index";
 import type { AgentPhase } from "../../../../../engine/contracts/types/agent";
-import type { ChatMode, ChatMemoryChunk, ConversationNote } from "../../../../../engine/contracts/types/chat";
+import type { Chat, ChatMode, ChatMemoryChunk, ConversationNote } from "../../../../../engine/contracts/types/chat";
 import type { ChatPreset, ChatPresetSettings } from "../../../../../engine/contracts/types/chat-preset";
 import { useAgentConfigs, useCreateAgent, useUpdateAgent, type AgentConfigRow } from "../../../../catalog/agents/index";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
 import { DEFAULT_AGENT_PROMPTS } from "../../../../../engine/contracts/constants/agent-prompts";
 import { LIMITS } from "../../../../../engine/contracts/constants/defaults";
 import { DEFAULT_IMPERSONATE_PROMPT } from "../../../../../engine/contracts/constants/impersonate";
-import { BUILT_IN_AGENTS, BUILT_IN_TOOLS, DEFAULT_AGENT_CONTEXT_SIZE, DEFAULT_AGENT_TOOLS, DEFAULT_AGENT_MAX_TOKENS, MAX_AGENT_MAX_TOKENS, MIN_AGENT_MAX_TOKENS, getDefaultBuiltInAgentSettings } from "../../../../../engine/contracts/types/agent";
-import { estimateAgentLoadCost, AGENT_COST_HIGH_CALLS, AGENT_COST_HIGH_TOKENS } from "../../../../../engine/shared/scoring/agent-cost";
+import {
+  BUILT_IN_AGENTS,
+  BUILT_IN_TOOLS,
+  DEFAULT_AGENT_CONTEXT_SIZE,
+  DEFAULT_AGENT_TOOLS,
+  DEFAULT_AGENT_MAX_TOKENS,
+  MAX_AGENT_MAX_TOKENS,
+  MIN_AGENT_MAX_TOKENS,
+  getDefaultBuiltInAgentSettings,
+} from "../../../../../engine/contracts/types/agent";
+import {
+  estimateAgentLoadCost,
+  AGENT_COST_HIGH_CALLS,
+  AGENT_COST_HIGH_TOKENS,
+} from "../../../../../engine/shared/scoring/agent-cost";
 import { boolish as isEnabledFlag } from "../../../../../engine/generation/runtime-records";
 import type { CharacterGroup } from "../../../../../engine/contracts/types/character";
-import type { Chat } from "../../../../../engine/contracts/types/chat";
 import type { Lorebook } from "../../../../../engine/contracts/types/lorebook";
 import {
   isCustomToolSelectable,
@@ -164,18 +190,25 @@ const HIDDEN_ROLEPLAY_AGENTS = new Set([
   "response-orchestrator",
   "autonomous-messenger",
 ]);
+const HAPTIC_AGENT_ID = "haptic";
 
-type GameSpotifySourceType = "liked" | "playlist" | "artist" | "any";
+type SpotifySourceType = "liked" | "playlist" | "artist" | "any";
 
-const GAME_SPOTIFY_SOURCE_OPTIONS: Array<{ id: GameSpotifySourceType; label: string; description: string }> = [
+const SPOTIFY_SOURCE_OPTIONS: Array<{ id: SpotifySourceType; label: string; description: string }> = [
   { id: "liked", label: "Liked Songs", description: "Pick from the user's saved tracks first." },
   { id: "playlist", label: "Playlist", description: "Keep choices inside one Spotify playlist." },
   { id: "artist", label: "Artist", description: "Search only around a named artist, like HOYO-MiX." },
   { id: "any", label: "Any Spotify", description: "Let the DJ use Spotify search when it fits." },
 ];
 
-function normalizeGameSpotifySourceType(value: unknown): GameSpotifySourceType {
+const GAME_SPOTIFY_SOURCE_OPTIONS = SPOTIFY_SOURCE_OPTIONS;
+
+function normalizeSpotifySourceType(value: unknown): SpotifySourceType {
   return value === "playlist" || value === "artist" || value === "any" ? value : "liked";
+}
+
+function normalizeGameSpotifySourceType(value: unknown): SpotifySourceType {
+  return normalizeSpotifySourceType(value);
 }
 
 const MODE_INTROS: Record<ChatMode, string> = {
@@ -183,8 +216,6 @@ const MODE_INTROS: Record<ChatMode, string> = {
     "Plain chat — no roleplay or game systems built in; autonomous messaging and other tools are optional below.",
   roleplay:
     "Plain roleplay surface — no built-in dice, combat, or GM pipeline; sprites, world-state tracking, and other helpers are available as optional agents below.",
-  visual_novel:
-    "Sprite- and background-driven roleplay — expressions, world state, and CYOA choices are available as optional agents below.",
   game: "Full Game Master with built-in dice, combat, encounters, world state, and session/map tracking — the Scene Analysis toggle below adds optional cinematic visuals (backgrounds, music, weather).",
 };
 
@@ -220,6 +251,79 @@ type AgentAddPreview = {
   runInterval: number | null;
 };
 
+type DrawerCharacter = {
+  id: string;
+  data?: unknown;
+  comment?: string | null;
+  avatarPath?: string | null;
+};
+
+function useDeferredDrawerContent(open: boolean, contentKey: string): boolean {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setReady(false);
+      return;
+    }
+
+    setReady(false);
+    const scheduler = typeof window !== "undefined" ? window : null;
+    if (!scheduler) {
+      setReady(true);
+      return;
+    }
+
+    type IdleWindow = Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+
+    const idleWindow = scheduler as IdleWindow;
+    let idleHandle: number | null = null;
+    const frameHandle = scheduler.requestAnimationFrame(() => {
+      if (idleWindow.requestIdleCallback) {
+        idleHandle = idleWindow.requestIdleCallback(() => setReady(true), { timeout: 120 });
+      } else {
+        idleHandle = scheduler.setTimeout(() => setReady(true), 32);
+      }
+    });
+
+    return () => {
+      scheduler.cancelAnimationFrame(frameHandle);
+      if (idleHandle != null) {
+        if (idleWindow.cancelIdleCallback) idleWindow.cancelIdleCallback(idleHandle);
+        else scheduler.clearTimeout(idleHandle);
+      }
+    };
+  }, [contentKey, open]);
+
+  return ready;
+}
+
+function ChatSettingsDrawerLoadingShell({ onClose }: { onClose: () => void }) {
+  return (
+    <>
+      <div className="absolute inset-0 z-40 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="absolute right-0 top-0 z-50 flex h-full w-80 max-md:w-full flex-col border-l border-[var(--border)] bg-[var(--background)] shadow-2xl animate-fade-in-up max-md:pt-[env(safe-area-inset-top)]">
+        <div className="flex h-12 flex-shrink-0 items-center justify-between border-b border-[var(--border)] px-4">
+          <h3 className="text-sm font-bold">Chat Settings</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)]"
+          >
+            <X size="1rem" />
+          </button>
+        </div>
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-xs text-[var(--muted-foreground)]">
+          Preparing settings...
+        </div>
+      </div>
+    </>
+  );
+}
+
 function parseAgentSettings(raw: unknown): Record<string, unknown> {
   if (!raw) return {};
   if (typeof raw === "string") {
@@ -254,20 +358,28 @@ function normalizeSpriteDisplayValue(value: unknown, fallback: number, min: numb
   return Math.max(min, Math.min(max, numeric));
 }
 
-
 function normalizeNonNegativeInteger(value: unknown, fallback: number, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   return Math.max(0, Math.min(max, Math.trunc(value)));
 }
 
 function getChatActiveAgentIds(chat: Chat): string[] {
-  const metadata = typeof chat.metadata === "string" ? JSON.parse(chat.metadata) : (chat.metadata ?? {});
+  const metadata =
+    chat.metadata && typeof chat.metadata === "object" && !Array.isArray(chat.metadata) ? chat.metadata : {};
   const activeIds =
     metadata && typeof metadata === "object" ? (metadata as { activeAgentIds?: unknown }).activeAgentIds : [];
   return Array.isArray(activeIds) ? activeIds.filter((id): id is string => typeof id === "string") : [];
 }
 
-export function ChatSettingsDrawer({
+export function ChatSettingsDrawer(props: ChatSettingsDrawerProps) {
+  const contentReady = useDeferredDrawerContent(props.open, props.chat.id);
+
+  if (!props.open) return null;
+  if (!contentReady) return <ChatSettingsDrawerLoadingShell onClose={props.onClose} />;
+  return <ChatSettingsDrawerInner {...props} />;
+}
+
+function ChatSettingsDrawerInner({
   chat,
   open,
   onClose,
@@ -290,16 +402,44 @@ export function ChatSettingsDrawer({
   const setScheduleGenerationPreferences = useUIStore((s) => s.setScheduleGenerationPreferences);
   const roleplaySpriteScale = useUIStore((s) => s.roleplaySpriteScale);
 
-  const { data: allCharacters } = useCharacters();
+  const { data: allCharacters } = useCharacterSummaries();
   const { data: characterGroups } = useCharacterGroups();
   const { data: lorebooks } = useLorebooks();
-  const { data: presets } = usePresets();
-  const chatMode = (chat as unknown as { mode?: string }).mode ?? "roleplay";
+  const { data: presets, isLoading: presetsLoading } = usePresetSummaries();
+  const { data: connections, isLoading: connectionsLoading } = useConnections();
+  const chatMode: ChatMode =
+    chat.mode === "conversation" || chat.mode === "roleplay" || chat.mode === "game" ? chat.mode : "roleplay";
   const isConversation = chatMode === "conversation";
   const isGame = chatMode === "game";
-  const isRoleplayMode = chatMode === "roleplay" || chatMode === "visual_novel";
-  const { data: currentPromptPresetFull } = usePresetFull(isConversation ? null : (chat.promptPresetId ?? null));
-  const { data: connections } = useConnections();
+  const isRoleplayMode = chatMode === "roleplay";
+  const chatPromptPresetId = nonEmptyString(chat.promptPresetId);
+  const activeTextConnection = useMemo(() => {
+    if (!chat.connectionId || chat.connectionId === "random") return null;
+    return connections?.find((connection) => connection.id === chat.connectionId) ?? null;
+  }, [chat.connectionId, connections]);
+  const connectionPromptPresetId = isRoleplayMode ? nonEmptyString(activeTextConnection?.promptPresetId) : null;
+  const defaultPromptPresetId = useMemo(
+    () =>
+      isRoleplayMode
+        ? (presets?.find((preset) => isEnabledFlag(preset.isDefault ?? preset.default, false))?.id ?? null)
+        : null,
+    [isRoleplayMode, presets],
+  );
+  // The chat's selected prompt preset is the user's scene-level choice; connection presets are a fallback.
+  const advancedPromptPresetId = isRoleplayMode
+    ? (chatPromptPresetId ?? connectionPromptPresetId ?? defaultPromptPresetId)
+    : null;
+  const { data: currentPromptPresetFull } = usePresetFull(isConversation ? null : chatPromptPresetId);
+  const { data: advancedPromptPresetFull, isLoading: advancedPromptPresetLoading } =
+    usePresetFull(advancedPromptPresetId);
+  const connectionInheritancePending =
+    !isConversation && !!chat.connectionId && chat.connectionId !== "random" && connectionsLoading;
+  const defaultPromptPresetPending =
+    isRoleplayMode && !connectionPromptPresetId && !chatPromptPresetId && presetsLoading;
+  const inheritedGenerationParametersPending =
+    connectionInheritancePending ||
+    defaultPromptPresetPending ||
+    (isRoleplayMode && !!advancedPromptPresetId && advancedPromptPresetLoading);
   const imageConnectionsList = useMemo(
     () =>
       ((connections as Array<{ id: string; name: string; model?: string; provider?: string }>) ?? []).filter(
@@ -314,20 +454,17 @@ export function ChatSettingsDrawer({
       ),
     [connections],
   );
-  const { data: allPersonas } = usePersonas();
+  const { data: allPersonas } = usePersonaSummaries();
   const { data: agentConfigs } = useAgentConfigs();
   const { data: customTools } = useCustomTools();
   const { data: customToolCapabilities } = useCustomToolCapabilities();
-  const { data: allChats } = useChats();
+  const { data: allChats } = useChatSummaries();
   const personas = useMemo(() => (allPersonas ?? []) as DrawerPersona[], [allPersonas]);
 
-  const chatCharIds: string[] = useMemo(
-    () => (typeof chat.characterIds === "string" ? JSON.parse(chat.characterIds) : (chat.characterIds ?? [])),
-    [chat.characterIds],
-  );
+  const chatCharIds: string[] = useMemo(() => chat.characterIds ?? [], [chat.characterIds]);
 
-  const metadata = useMemo(
-    () => (typeof chat.metadata === "string" ? JSON.parse(chat.metadata) : (chat.metadata ?? {})),
+  const metadata = useMemo<Record<string, any>>(
+    () => (chat.metadata && typeof chat.metadata === "object" && !Array.isArray(chat.metadata) ? chat.metadata : {}),
     [chat.metadata],
   );
   const isSceneChat = metadata.sceneStatus === "active" || typeof metadata.sceneOriginChatId === "string";
@@ -397,12 +534,31 @@ export function ChatSettingsDrawer({
       ? Math.max(0, Math.floor(metadata.lorebookTokenBudget))
       : LIMITS.DEFAULT_LOREBOOK_TOKEN_BUDGET;
   const activeAgentIds = useMemo<string[]>(() => metadata.activeAgentIds ?? [], [metadata.activeAgentIds]);
+  const inactiveCharacterIds = useMemo<string[]>(
+    () =>
+      Array.isArray(metadata.inactiveCharacterIds)
+        ? metadata.inactiveCharacterIds.filter(
+            (id: unknown): id is string => typeof id === "string" && id.trim().length > 0,
+          )
+        : [],
+    [metadata.inactiveCharacterIds],
+  );
+  const inactiveCharacterIdSet = useMemo(() => new Set(inactiveCharacterIds), [inactiveCharacterIds]);
+  const activeChatCharacterCount = useMemo(
+    () => chatCharIds.filter((id) => !inactiveCharacterIdSet.has(id)).length,
+    [chatCharIds, inactiveCharacterIdSet],
+  );
   const activeToolIds: string[] = metadata.activeToolIds ?? [];
+  const spotifyActive = activeAgentIds.includes("spotify");
+  const hapticAgentActive = activeAgentIds.includes(HAPTIC_AGENT_ID);
   const gameLorebookKeeperLorebook = gameLorebookKeeperLorebookId
     ? ((lorebooks ?? []) as Array<{ id: string; name: string }>).find(
         (book) => book.id === gameLorebookKeeperLorebookId,
       )
     : null;
+  const spotifySourceType = normalizeSpotifySourceType(metadata.spotifySourceType);
+  const spotifyPlaylistId = typeof metadata.spotifyPlaylistId === "string" ? metadata.spotifyPlaylistId : "";
+  const spotifyArtist = typeof metadata.spotifyArtist === "string" ? metadata.spotifyArtist : "";
   const gameUseSpotifyMusic = metadata.gameUseSpotifyMusic === true;
   const gameSpotifySourceType = normalizeGameSpotifySourceType(metadata.gameSpotifySourceType);
   const gameSpotifyPlaylistId =
@@ -412,6 +568,7 @@ export function ChatSettingsDrawer({
     (metadata.enableAgents ? 1 : 0) + (gameLorebookKeeperEnabled ? 1 : 0) + (gameUseSpotifyMusic ? 1 : 0);
   const spriteCharacterIds: string[] = Array.isArray(metadata.spriteCharacterIds) ? metadata.spriteCharacterIds : [];
   const spriteDisplayModes = normalizeSpriteDisplayModes(metadata.spriteDisplayModes);
+  const expressionAvatarsEnabled = metadata.expressionAvatarsEnabled === true;
   const spritePosition: "left" | "right" = metadata.spritePosition === "right" ? "right" : "left";
   const spriteScale = normalizeSpriteDisplayValue(metadata.spriteScale, roleplaySpriteScale, 0.5, 1.75);
   const spriteOpacity = normalizeSpriteDisplayValue(metadata.spriteOpacity, 1, 0.15, 1);
@@ -430,7 +587,10 @@ export function ChatSettingsDrawer({
           owned: boolean | null;
         }>;
       }>({ limit: 50 }),
-    enabled: open && isGame && gameUseSpotifyMusic && gameSpotifySourceType === "playlist",
+    enabled:
+      open &&
+      ((isGame && gameUseSpotifyMusic && gameSpotifySourceType === "playlist") ||
+        (isRoleplayMode && metadata.enableAgents && spotifyActive && spotifySourceType === "playlist")),
     staleTime: 60_000,
     retry: false,
   });
@@ -528,6 +688,7 @@ export function ChatSettingsDrawer({
     0,
     100,
   );
+  const lorebookKeeperReviewRequired = metadata.lorebookKeeperReviewRequired !== false;
 
   // Build the available tool list: built-in + custom tools from DB
   const availableTools = useMemo(() => {
@@ -546,22 +707,13 @@ export function ChatSettingsDrawer({
   }, [customToolCapabilities, customTools]);
 
   // ── Helpers ──
-  const characters = useMemo(
-    () =>
-      (allCharacters ?? []) as Array<{
-        id: string;
-        data: string;
-        comment?: string | null;
-        avatarPath: string | null;
-      }>,
-    [allCharacters],
-  );
+  const characters = useMemo<DrawerCharacter[]>(() => (allCharacters ?? []) as DrawerCharacter[], [allCharacters]);
 
   const chatCharacters = useMemo(
     () =>
       chatCharIds
         .map((characterId) => characters.find((character) => character.id === characterId))
-        .filter((character): character is { id: string; data: string; avatarPath: string | null } => !!character),
+        .filter((character): character is DrawerCharacter => !!character),
     [chatCharIds, characters],
   );
 
@@ -602,7 +754,7 @@ export function ChatSettingsDrawer({
   const charInfoMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof parseCharacterDisplayData>>();
     for (const c of characters) {
-      map.set(c.id, parseCharacterDisplayData(c));
+      map.set(c.id, parseCharacterDisplayData({ data: c.data, comment: c.comment }));
     }
     return map;
   }, [characters]);
@@ -616,35 +768,30 @@ export function ChatSettingsDrawer({
   }, [charInfoMap]);
 
   const getCharacterInfo = useCallback(
-    (c: { id?: string; data: string; comment?: string | null }) => {
+    (c: { id?: string; data?: unknown; comment?: string | null }) => {
       if (c.id && charInfoMap.has(c.id)) return charInfoMap.get(c.id)!;
-      return parseCharacterDisplayData(c);
+      return parseCharacterDisplayData({ data: c.data, comment: c.comment });
     },
     [charInfoMap],
   );
 
   const charName = useCallback(
-    (c: { id?: string; data: string; comment?: string | null }) => getCharacterInfo(c).name,
+    (c: { id?: string; data?: unknown; comment?: string | null }) => getCharacterInfo(c).name,
     [getCharacterInfo],
   );
 
   const charTitle = useCallback(
-    (c: { id?: string; data: string; comment?: string | null }) => getCharacterTitle(getCharacterInfo(c)),
+    (c: { id?: string; data?: unknown; comment?: string | null }) => getCharacterTitle(getCharacterInfo(c)),
     [getCharacterInfo],
   );
 
-  const charAvatarCrop = useCallback((c: { data: unknown }) => {
-    try {
-      const parsed = typeof c.data === "string" ? JSON.parse(c.data) : c.data;
-      return (
-        ((parsed as { extensions?: { avatarCrop?: AvatarCrop | null } } | null)?.extensions?.avatarCrop as
-          | AvatarCrop
-          | null
-          | undefined) ?? null
-      );
-    } catch {
-      return null;
-    }
+  const charAvatarCrop = useCallback((c: { data?: unknown }) => {
+    return (
+      ((c.data as { extensions?: { avatarCrop?: AvatarCrop | null } } | null)?.extensions?.avatarCrop as
+        | AvatarCrop
+        | null
+        | undefined) ?? null
+    );
   }, []);
 
   // ── First message confirm state ──
@@ -666,11 +813,7 @@ export function ChatSettingsDrawer({
     if (msg?.id && firstMesConfirm.alternateGreetings.length > 0) {
       for (const greeting of firstMesConfirm.alternateGreetings) {
         if (greeting.trim()) {
-          await invokeTauri("chat_message_add_swipe", {
-            chatId: chat.id,
-            messageId: msg.id,
-            body: { content: greeting, silent: true },
-          });
+          await storageApi.addChatMessageSwipe(chat.id, msg.id, greeting, { activate: false });
         }
       }
       qc.invalidateQueries({ queryKey: chatKeys.messages(chat.id) });
@@ -710,6 +853,10 @@ export function ChatSettingsDrawer({
           onSuccess: () => syncGamePartyMetadata(current),
         },
       );
+      const nextInactiveCharacterIds = inactiveCharacterIds.filter((id) => id !== charId);
+      if (nextInactiveCharacterIds.length !== inactiveCharacterIds.length) {
+        updateMeta.mutate({ id: chat.id, inactiveCharacterIds: nextInactiveCharacterIds });
+      }
       if (spriteCharacterIds.includes(charId)) {
         const nextSpritePlacements = { ...normalizeSpritePlacements(metadata.spritePlacements) };
         delete nextSpritePlacements[charId];
@@ -724,31 +871,42 @@ export function ChatSettingsDrawer({
       updateChat.mutate(
         { id: chat.id, characterIds: current },
         {
-          onSuccess: () => {
+          onSuccess: async () => {
             syncGamePartyMetadata(current);
             // Skip auto-greeting for conversation mode
             if (isConversation) return;
-            const char = characters.find((c) => c.id === charId);
-            if (!char) return;
-            try {
-              const parsed = typeof char.data === "string" ? JSON.parse(char.data) : char.data;
-              const firstMes = (parsed as { first_mes?: string }).first_mes;
-              const altGreetings = (parsed as { alternate_greetings?: string[] }).alternate_greetings ?? [];
-              if (firstMes) {
-                setFirstMesConfirm({
-                  charId,
-                  charName: charName(char),
-                  message: firstMes,
-                  alternateGreetings: altGreetings,
-                });
-              }
-            } catch {
-              /* ignore parse errors */
+            const charSummary = characters.find((c) => c.id === charId);
+            const fullCharacter = await storageApi.get<DrawerCharacter>("characters", charId).catch(() => null);
+            const parsed =
+              fullCharacter?.data && typeof fullCharacter.data === "object"
+                ? (fullCharacter.data as { first_mes?: string; alternate_greetings?: string[] })
+                : {};
+            const firstMes = parsed.first_mes;
+            const altGreetings = parsed.alternate_greetings ?? [];
+            if (firstMes) {
+              setFirstMesConfirm({
+                charId,
+                charName: charSummary ? charName(charSummary) : "Character",
+                message: firstMes,
+                alternateGreetings: altGreetings,
+              });
             }
           },
         },
       );
     }
+  };
+
+  const toggleCharacterGenerationActive = (charId: string) => {
+    const isInactive = inactiveCharacterIdSet.has(charId);
+    if (!isInactive && activeChatCharacterCount <= 1) {
+      toast.info("At least one character must stay active.");
+      return;
+    }
+    const next = isInactive
+      ? inactiveCharacterIds.filter((id) => id !== charId)
+      : Array.from(new Set([...inactiveCharacterIds, charId]));
+    updateMeta.mutate({ id: chat.id, inactiveCharacterIds: next });
   };
 
   const toggleSprite = (charId: string) => {
@@ -1103,12 +1261,15 @@ export function ChatSettingsDrawer({
       setIsRegeneratingSchedules(true);
       try {
         const scheduleGenerationPreferences = useUIStore.getState().scheduleGenerationPreferences;
-        const result = await runGenerateConversationSchedules({ storage: storageApi, llm: llmApi }, {
-          chatId: chat.id,
-          characterIds: chatCharIds,
-          forceRefresh,
-          scheduleGenerationPreferences,
-        });
+        const result = await runGenerateConversationSchedules(
+          { storage: storageApi, llm: llmApi },
+          {
+            chatId: chat.id,
+            characterIds: chatCharIds,
+            forceRefresh,
+            scheduleGenerationPreferences,
+          },
+        );
         const generatedCount = Object.values(result.schedules).filter(Boolean).length;
         toast.success(`Generated ${generatedCount} conversation schedule${generatedCount === 1 ? "" : "s"}.`);
         qc.invalidateQueries({ queryKey: chatKeys.detail(chat.id) });
@@ -1135,10 +1296,11 @@ export function ChatSettingsDrawer({
   const [gameImagePromptInstructionsDraft, setGameImagePromptInstructionsDraft] = useState(
     (metadata.gameImagePromptInstructions as string) ?? "",
   );
+  const [spotifyArtistDraft, setSpotifyArtistDraft] = useState(spotifyArtist);
   const [gameSpotifyArtistDraft, setGameSpotifyArtistDraft] = useState(gameSpotifyArtist);
 
   // ── Chat Settings Presets ──
-  const presetMode = (chatMode === "visual_novel" ? "roleplay" : chatMode) as ChatMode;
+  const presetMode = chatMode;
   const { data: chatPresets } = useChatPresets(presetMode);
   const saveChatPreset = useSaveChatPresetSettings();
   const duplicateChatPreset = useDuplicateChatPreset();
@@ -1170,6 +1332,10 @@ export function ChatSettingsDrawer({
   useEffect(() => {
     setGameImagePromptInstructionsDraft((metadata.gameImagePromptInstructions as string) ?? "");
   }, [chat.id, metadata.gameImagePromptInstructions]);
+
+  useEffect(() => {
+    setSpotifyArtistDraft(spotifyArtist);
+  }, [chat.id, spotifyArtist]);
 
   useEffect(() => {
     setGameSpotifyArtistDraft(gameSpotifyArtist);
@@ -1346,11 +1512,11 @@ export function ChatSettingsDrawer({
     : null;
 
   const snapshotCurrentPresetSettings = useCallback((): ChatPresetSettings => {
-    return {
+    return sanitizeChatPresetSettings({
       connectionId: chat.connectionId ?? null,
       promptPresetId: isConversation ? null : (chat.promptPresetId ?? null),
       metadata: { ...metadata },
-    };
+    });
   }, [chat.connectionId, chat.promptPresetId, isConversation, metadata]);
 
   const handleSelectPreset = (id: string) => {
@@ -2342,6 +2508,8 @@ export function ChatSettingsDrawer({
                     if (!c) return null;
                     const name = charName(c);
                     const title = charTitle(c);
+                    const isInactive = inactiveCharacterIdSet.has(c.id);
+                    const canDeactivate = !isInactive && activeChatCharacterCount <= 1;
                     return (
                       <div key={c.id}>
                         {dropIdx === i && dragIdx !== null && dragIdx !== i && (
@@ -2356,7 +2524,10 @@ export function ChatSettingsDrawer({
                           }}
                           onDragEnd={handleCharDragEnd}
                           className={cn(
-                            "flex items-center gap-2 rounded-lg bg-[var(--primary)]/10 px-2 py-2 ring-1 ring-[var(--primary)]/30 transition-opacity",
+                            "flex items-center gap-2 rounded-lg px-2 py-2 ring-1 transition-opacity",
+                            isInactive
+                              ? "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-[var(--border)]"
+                              : "bg-[var(--primary)]/10 ring-[var(--primary)]/30",
                             dragIdx === i && "opacity-40",
                           )}
                         >
@@ -2397,6 +2568,27 @@ export function ChatSettingsDrawer({
                                 </span>
                               )}
                             </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleCharacterGenerationActive(c.id)}
+                            disabled={canDeactivate}
+                            className={cn(
+                              "rounded-md px-2 py-1 text-[0.625rem] font-medium transition-colors",
+                              isInactive
+                                ? "bg-[var(--muted)] text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                                : "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15",
+                              canDeactivate && "cursor-not-allowed opacity-50",
+                            )}
+                            title={
+                              isInactive
+                                ? "Mark active for generation"
+                                : canDeactivate
+                                  ? "At least one character must stay active"
+                                  : "Mark inactive for generation"
+                            }
+                          >
+                            {isInactive ? "Inactive" : "Active"}
                           </button>
                           <button
                             onClick={() => toggleCharacter(c.id)}
@@ -2558,9 +2750,7 @@ export function ChatSettingsDrawer({
             </Section>
           )}
 
-          {isConversation && (
-            <ConversationPromptSection chat={chat} metadata={metadata} updateMeta={updateMeta} />
-          )}
+          {isConversation && <ConversationPromptSection chat={chat} metadata={metadata} updateMeta={updateMeta} />}
 
           {isConversation && (
             <Section
@@ -2733,6 +2923,44 @@ export function ChatSettingsDrawer({
                         ? "An AI agent decides which characters should respond based on the scene context."
                         : "Characters respond one by one in their listed order."}
                   </p>
+                  <button
+                    onClick={() =>
+                      updateMeta.mutate({
+                        id: chat.id,
+                        groupTurnPromptEnabled: metadata.groupTurnPromptEnabled === false,
+                      })
+                    }
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                      metadata.groupTurnPromptEnabled !== false
+                        ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                        : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                    )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[0.6875rem] font-medium">Add Turn To Prompt</span>
+                      <p className="mt-0.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+                        {metadata.groupTurnPromptEnabled !== false
+                          ? "Each individual turn includes a short responding-character instruction."
+                          : "Individual turns rely on context without adding a turn instruction."}
+                      </p>
+                    </div>
+                    <div
+                      className={cn(
+                        "ml-3 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
+                        metadata.groupTurnPromptEnabled !== false
+                          ? "bg-[var(--primary)]"
+                          : "bg-[var(--muted-foreground)]/50",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                          metadata.groupTurnPromptEnabled !== false && "translate-x-3.5",
+                        )}
+                      />
+                    </div>
+                  </button>
                 </div>
               )}
 
@@ -3165,7 +3393,7 @@ export function ChatSettingsDrawer({
             >
               {chat.connectedChatId ? (
                 (() => {
-                  const linked = (allChats ?? []).find((c: Chat) => c.id === chat.connectedChatId);
+                  const linked = (allChats ?? []).find((c) => c.id === chat.connectedChatId);
                   return (
                     <div className="flex items-center gap-2.5 rounded-lg bg-[var(--primary)]/10 px-3 py-2 ring-1 ring-[var(--primary)]/30">
                       <ArrowRightLeft size="0.875rem" className="text-[var(--primary)]" />
@@ -3204,7 +3432,7 @@ export function ChatSettingsDrawer({
                   onClose={() => setShowConnectionPicker(false)}
                   placeholder="Search roleplay or game chats…"
                 >
-                  {((allChats ?? []) as Chat[])
+                  {(allChats ?? [])
                     .filter(
                       (c) =>
                         c.id !== chat.id &&
@@ -3242,7 +3470,7 @@ export function ChatSettingsDrawer({
               <div className="space-y-2">
                 {chat.connectedChatId ? (
                   (() => {
-                    const linked = (allChats ?? []).find((c: Chat) => c.id === chat.connectedChatId);
+                    const linked = (allChats ?? []).find((c) => c.id === chat.connectedChatId);
                     return (
                       <div className="flex items-center gap-2.5 rounded-lg bg-[var(--primary)]/10 px-3 py-2 ring-1 ring-[var(--primary)]/30">
                         <MessageCircle size="0.875rem" className="text-[var(--primary)]" />
@@ -3318,7 +3546,7 @@ export function ChatSettingsDrawer({
               help="Linked to a conversation. `<influence>` tags from the conversation steer the next turn here (one-shot, then consumed). `<note>` tags persist on every turn until cleared. Raw conversation messages are not injected — use `<note>` for facts this chat should keep remembering."
             >
               {(() => {
-                const linked = (allChats ?? []).find((c: Chat) => c.id === chat.connectedChatId);
+                const linked = (allChats ?? []).find((c) => c.id === chat.connectedChatId);
                 return (
                   <div className="flex items-center gap-2.5 rounded-lg bg-[var(--primary)]/10 px-3 py-2 ring-1 ring-[var(--primary)]/30">
                     <MessageCircle size="0.875rem" className="text-[var(--primary)]" />
@@ -3368,7 +3596,7 @@ export function ChatSettingsDrawer({
                   onClose={() => setShowConnectionPicker(false)}
                   placeholder="Search conversation chats…"
                 >
-                  {((allChats ?? []) as Chat[])
+                  {(allChats ?? [])
                     .filter(
                       (c) =>
                         c.id !== chat.id &&
@@ -3863,6 +4091,36 @@ export function ChatSettingsDrawer({
                           className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)]"
                         />
                       </label>
+
+                      <div className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 sm:col-span-2">
+                        <div className="min-w-0">
+                          <p className="text-[0.6875rem] font-medium text-[var(--foreground)]">Review before saving</p>
+                          <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                            Queue Lorebook Keeper proposals for approve/reject instead of committing them immediately.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateMeta.mutate({
+                              id: chat.id,
+                              lorebookKeeperReviewRequired: !lorebookKeeperReviewRequired,
+                            })
+                          }
+                          className={cn(
+                            "relative h-5 w-9 shrink-0 rounded-full transition-colors",
+                            lorebookKeeperReviewRequired ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
+                          )}
+                          aria-pressed={lorebookKeeperReviewRequired}
+                        >
+                          <span
+                            className={cn(
+                              "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform",
+                              lorebookKeeperReviewRequired && "translate-x-4",
+                            )}
+                          />
+                        </button>
+                      </div>
                     </div>
 
                     <p className="text-[0.625rem] text-[var(--muted-foreground)]">
@@ -3896,6 +4154,40 @@ export function ChatSettingsDrawer({
                     </div>
 
                     <SpriteDisplayModeToggle modes={spriteDisplayModes} onToggle={toggleSpriteDisplayMode} />
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateMeta.mutate({ id: chat.id, expressionAvatarsEnabled: !expressionAvatarsEnabled })
+                      }
+                      className={cn(
+                        "flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-all",
+                        expressionAvatarsEnabled
+                          ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                          : "bg-[var(--background)]/75 ring-1 ring-[var(--border)] hover:bg-[var(--accent)]",
+                      )}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[0.6875rem] font-medium">Expression Avatars</span>
+                        <p className="mt-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
+                          Replace message avatars with the selected expression sprite and hide duplicate portrait
+                          sprites.
+                        </p>
+                      </div>
+                      <div
+                        className={cn(
+                          "h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
+                          expressionAvatarsEnabled ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                            expressionAvatarsEnabled && "translate-x-3.5",
+                          )}
+                        />
+                      </div>
+                    </button>
 
                     {chatSpriteSubjects.length === 0 ? (
                       <p className="text-[0.625rem] text-[var(--muted-foreground)]">
@@ -4075,6 +4367,130 @@ export function ChatSettingsDrawer({
                   </div>
                 )}
 
+                {metadata.enableAgents && isRoleplayMode && spotifyActive && (
+                  <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/70 p-3">
+                    <div className="flex items-start gap-2">
+                      <Music2 size="0.75rem" className="mt-0.5 text-[var(--primary)]" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[0.6875rem] font-medium">Spotify DJ</div>
+                        <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
+                          Choose where the DJ should look for roleplay music when it reacts to the scene.
+                        </p>
+                      </div>
+                    </div>
+
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Music source</span>
+                      <select
+                        value={spotifySourceType}
+                        onChange={(event) => {
+                          const next = normalizeSpotifySourceType(event.target.value);
+                          updateMeta.mutate({
+                            id: chat.id,
+                            spotifySourceType: next,
+                            spotifyPlaylistId: next === "playlist" ? spotifyPlaylistId || null : null,
+                            spotifyPlaylistName:
+                              next === "playlist" ? (metadata.spotifyPlaylistName as string) || null : null,
+                            spotifyArtist: next === "artist" ? spotifyArtistDraft.trim() || null : null,
+                          });
+                        }}
+                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)]"
+                      >
+                        {SPOTIFY_SOURCE_OPTIONS.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="text-[0.5625rem] text-[var(--muted-foreground)]">
+                        {SPOTIFY_SOURCE_OPTIONS.find((option) => option.id === spotifySourceType)?.description ?? ""}
+                      </span>
+                    </label>
+
+                    {spotifySourceType === "playlist" && (
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Playlist</span>
+                        {spotifyPlaylistsQuery.data?.playlists.length ? (
+                          <select
+                            value={spotifyPlaylistId}
+                            onChange={(event) => {
+                              const playlist = spotifyPlaylistsQuery.data?.playlists.find(
+                                (entry) => entry.id === event.target.value,
+                              );
+                              updateMeta.mutate({
+                                id: chat.id,
+                                spotifyPlaylistId: event.target.value || null,
+                                spotifyPlaylistName: playlist?.name ?? null,
+                              });
+                            }}
+                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)]"
+                          >
+                            <option value="">Choose playlist...</option>
+                            {spotifyPlaylistsQuery.data.playlists.map((playlist) => {
+                              const suffix =
+                                typeof playlist.trackCount === "number"
+                                  ? ` (${playlist.trackCount})`
+                                  : playlist.owned === false
+                                    ? " (followed, unavailable)"
+                                    : "";
+                              return (
+                                <option key={playlist.id} value={playlist.id}>
+                                  {playlist.name}
+                                  {suffix}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        ) : (
+                          <input
+                            key={`${chat.id}-${spotifyPlaylistId}`}
+                            defaultValue={spotifyPlaylistId}
+                            onBlur={(event) =>
+                              updateMeta.mutate({
+                                id: chat.id,
+                                spotifyPlaylistId: event.target.value.trim() || null,
+                                spotifyPlaylistName: null,
+                              })
+                            }
+                            placeholder={
+                              spotifyPlaylistsQuery.isFetching ? "Loading playlists..." : "Paste playlist ID"
+                            }
+                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/50"
+                          />
+                        )}
+                        {spotifyPlaylistsQuery.isError && (
+                          <span className="text-[0.5625rem] text-amber-400/90">
+                            Connect Spotify in the Spotify DJ agent to load playlist names.
+                          </span>
+                        )}
+                      </label>
+                    )}
+
+                    {spotifySourceType === "artist" && (
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Artist</span>
+                        <input
+                          value={spotifyArtistDraft}
+                          onChange={(event) => setSpotifyArtistDraft(event.target.value)}
+                          onBlur={() =>
+                            updateMeta.mutate({
+                              id: chat.id,
+                              spotifyArtist: spotifyArtistDraft.trim() || null,
+                            })
+                          }
+                          placeholder="HOYO-MiX"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/50"
+                        />
+                      </label>
+                    )}
+
+                    <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                      Roleplay DJ queues several fitting tracks when it changes music. Spotify Premium, a connected
+                      account, and an active Spotify device are still required.
+                    </p>
+                  </div>
+                )}
+
                 {/* Manual trackers toggle — not for game mode */}
                 {metadata.enableAgents && !isGame && (
                   <button
@@ -4111,7 +4527,7 @@ export function ChatSettingsDrawer({
                 )}
 
                 {/* Love Toys Control — not for game mode */}
-                {metadata.enableAgents && !isGame && (
+                {metadata.enableAgents && !isGame && hapticAgentActive && (
                   <div className="space-y-1.5">
                     <button
                       onClick={() => {
@@ -4766,168 +5182,168 @@ export function ChatSettingsDrawer({
             count={activeToolIds.length}
             help="When enabled, the AI can call built-in tools like dice rolls, game state updates, and lorebook searches during conversation."
           >
-              <div className="space-y-2">
-                <button
-                  onClick={() => {
-                    updateMeta.mutate({ id: chat.id, enableTools: !metadata.enableTools });
-                  }}
+            <div className="space-y-2">
+              <button
+                onClick={() => {
+                  updateMeta.mutate({ id: chat.id, enableTools: !metadata.enableTools });
+                }}
+                className={cn(
+                  "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                  metadata.enableTools
+                    ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                    : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                )}
+              >
+                <div>
+                  <span className="text-xs font-medium">Enable Tool Use</span>
+                  <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                    Allow AI to call functions (dice rolls, game state, etc.)
+                  </p>
+                </div>
+                <div
                   className={cn(
-                    "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
-                    metadata.enableTools
-                      ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
-                      : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                    "h-5 w-9 overflow-hidden rounded-full p-0.5 transition-colors",
+                    metadata.enableTools ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
                   )}
                 >
-                  <div>
-                    <span className="text-xs font-medium">Enable Tool Use</span>
-                    <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                      Allow AI to call functions (dice rolls, game state, etc.)
-                    </p>
-                  </div>
                   <div
                     className={cn(
-                      "h-5 w-9 overflow-hidden rounded-full p-0.5 transition-colors",
-                      metadata.enableTools ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
+                      "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                      metadata.enableTools && "translate-x-3.5",
                     )}
-                  >
-                    <div
-                      className={cn(
-                        "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
-                        metadata.enableTools && "translate-x-3.5",
-                      )}
-                    />
-                  </div>
-                </button>
-                <p className="text-[0.625rem] text-[var(--muted-foreground)] px-1">
-                  {metadata.enableTools
-                    ? "If enabled, this chat can use globally enabled tools (or any tools you add below)."
-                    : "If disabled, no functions will be available."}
-                </p>
+                  />
+                </div>
+              </button>
+              <p className="text-[0.625rem] text-[var(--muted-foreground)] px-1">
+                {metadata.enableTools
+                  ? "If enabled, this chat can use globally enabled tools (or any tools you add below)."
+                  : "If disabled, no functions will be available."}
+              </p>
 
-                {/* Per-chat tool list */}
-                {metadata.enableTools && (
-                  <>
-                    {activeToolIds.length === 0 ? (
-                      <p className="text-[0.6875rem] text-[var(--muted-foreground)] px-1">
-                        All globally enabled tools are available to this chat. Add tools below to restrict this chat to
-                        a specific set.
-                      </p>
-                    ) : (
-                      <div className="flex max-h-40 flex-col gap-1 overflow-y-auto">
-                        {activeToolIds.map((toolId) => {
-                          const tool = availableTools.find((t) => t.id === toolId);
-                          if (!tool) return null;
-                          return (
-                            <div
-                              key={tool.id}
-                              className="flex items-center gap-2.5 rounded-lg bg-[var(--primary)]/10 px-3 py-2 ring-1 ring-[var(--primary)]/30"
+              {/* Per-chat tool list */}
+              {metadata.enableTools && (
+                <>
+                  {activeToolIds.length === 0 ? (
+                    <p className="text-[0.6875rem] text-[var(--muted-foreground)] px-1">
+                      All globally enabled tools are available to this chat. Add tools below to restrict this chat to a
+                      specific set.
+                    </p>
+                  ) : (
+                    <div className="flex max-h-40 flex-col gap-1 overflow-y-auto">
+                      {activeToolIds.map((toolId) => {
+                        const tool = availableTools.find((t) => t.id === toolId);
+                        if (!tool) return null;
+                        return (
+                          <div
+                            key={tool.id}
+                            className="flex items-center gap-2.5 rounded-lg bg-[var(--primary)]/10 px-3 py-2 ring-1 ring-[var(--primary)]/30"
+                          >
+                            <Wrench size="0.875rem" className="text-[var(--primary)]" />
+                            <div className="flex-1 min-w-0">
+                              <span className="block truncate text-xs">{tool.name}</span>
+                            </div>
+                            <button
+                              onClick={() => toggleTool(tool.id)}
+                              className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"
+                              title="Remove from chat"
                             >
-                              <Wrench size="0.875rem" className="text-[var(--primary)]" />
-                              <div className="flex-1 min-w-0">
-                                <span className="block truncate text-xs">{tool.name}</span>
-                              </div>
-                              <button
-                                onClick={() => toggleTool(tool.id)}
-                                className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"
-                                title="Remove from chat"
-                              >
-                                <Trash2 size="0.6875rem" />
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                              <Trash2 size="0.6875rem" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
-                    {/* Add tool picker */}
-                    {!showToolPicker ? (
-                      <button
-                        onClick={() => {
-                          setShowToolPicker(true);
-                          setToolSearch("");
-                          setPendingToolIds([]);
-                        }}
-                        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
-                      >
-                        <Plus size="0.75rem" /> Add Functions
-                      </button>
-                    ) : (
-                      <PickerDropdown
-                        search={toolSearch}
-                        onSearchChange={setToolSearch}
-                        onClose={() => setShowToolPicker(false)}
-                        placeholder="Search functions…"
-                        footer={
-                          pendingToolIds.length > 0 ? (
-                            <div className="border-t border-[var(--border)] px-3 py-2">
-                              <button
-                                onClick={() => {
-                                  const next = [...activeToolIds, ...pendingToolIds];
-                                  updateMeta.mutate({ id: chat.id, activeToolIds: next });
-                                  setPendingToolIds([]);
-                                  setShowToolPicker(false);
-                                }}
-                                className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
-                              >
-                                <Plus size="0.75rem" /> Add {pendingToolIds.length} Function
-                                {pendingToolIds.length > 1 ? "s" : ""}
-                              </button>
-                            </div>
-                          ) : undefined
-                        }
-                      >
-                        {availableTools
-                          .filter((t) => !activeToolIds.includes(t.id))
-                          .filter((t) => t.name.toLowerCase().includes(toolSearch.toLowerCase()))
-                          .map((t) => {
-                            const selected = pendingToolIds.includes(t.id);
-                            return (
-                              <button
-                                key={t.id}
-                                onClick={() =>
-                                  setPendingToolIds((prev) =>
-                                    prev.includes(t.id) ? prev.filter((id) => id !== t.id) : [...prev, t.id],
-                                  )
-                                }
+                  {/* Add tool picker */}
+                  {!showToolPicker ? (
+                    <button
+                      onClick={() => {
+                        setShowToolPicker(true);
+                        setToolSearch("");
+                        setPendingToolIds([]);
+                      }}
+                      className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
+                    >
+                      <Plus size="0.75rem" /> Add Functions
+                    </button>
+                  ) : (
+                    <PickerDropdown
+                      search={toolSearch}
+                      onSearchChange={setToolSearch}
+                      onClose={() => setShowToolPicker(false)}
+                      placeholder="Search functions…"
+                      footer={
+                        pendingToolIds.length > 0 ? (
+                          <div className="border-t border-[var(--border)] px-3 py-2">
+                            <button
+                              onClick={() => {
+                                const next = [...activeToolIds, ...pendingToolIds];
+                                updateMeta.mutate({ id: chat.id, activeToolIds: next });
+                                setPendingToolIds([]);
+                                setShowToolPicker(false);
+                              }}
+                              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
+                            >
+                              <Plus size="0.75rem" /> Add {pendingToolIds.length} Function
+                              {pendingToolIds.length > 1 ? "s" : ""}
+                            </button>
+                          </div>
+                        ) : undefined
+                      }
+                    >
+                      {availableTools
+                        .filter((t) => !activeToolIds.includes(t.id))
+                        .filter((t) => t.name.toLowerCase().includes(toolSearch.toLowerCase()))
+                        .map((t) => {
+                          const selected = pendingToolIds.includes(t.id);
+                          return (
+                            <button
+                              key={t.id}
+                              onClick={() =>
+                                setPendingToolIds((prev) =>
+                                  prev.includes(t.id) ? prev.filter((id) => id !== t.id) : [...prev, t.id],
+                                )
+                              }
+                              className={cn(
+                                "flex items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
+                                selected && "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30",
+                              )}
+                            >
+                              <div
                                 className={cn(
-                                  "flex items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
-                                  selected && "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30",
+                                  "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+                                  selected
+                                    ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                                    : "border-[var(--border)]",
                                 )}
                               >
-                                <div
-                                  className={cn(
-                                    "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
-                                    selected
-                                      ? "border-[var(--primary)] bg-[var(--primary)] text-white"
-                                      : "border-[var(--border)]",
-                                  )}
-                                >
-                                  {selected && <Check size="0.625rem" />}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <span className="block truncate text-xs">{t.name}</span>
-                                  <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
-                                    {t.description}
-                                  </span>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        {availableTools
-                          .filter((t) => !activeToolIds.includes(t.id))
-                          .filter((t) => t.name.toLowerCase().includes(toolSearch.toLowerCase())).length === 0 && (
-                          <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
-                            {availableTools.filter((t) => !activeToolIds.includes(t.id)).length === 0
-                              ? "All functions already added."
-                              : "No matches."}
-                          </p>
-                        )}
-                      </PickerDropdown>
-                    )}
-                  </>
-                )}
-              </div>
-            </Section>
+                                {selected && <Check size="0.625rem" />}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <span className="block truncate text-xs">{t.name}</span>
+                                <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
+                                  {t.description}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      {availableTools
+                        .filter((t) => !activeToolIds.includes(t.id))
+                        .filter((t) => t.name.toLowerCase().includes(toolSearch.toLowerCase())).length === 0 && (
+                        <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
+                          {availableTools.filter((t) => !activeToolIds.includes(t.id)).length === 0
+                            ? "All functions already added."
+                            : "No matches."}
+                        </p>
+                      )}
+                    </PickerDropdown>
+                  )}
+                </>
+              )}
+            </div>
+          </Section>
 
           {/* Memory Recall — roleplay/game modes: show after Function Calling */}
           {!isConversation && import.meta.env.VITE_MARINARA_LITE !== "true" && (
@@ -5151,6 +5567,8 @@ export function ChatSettingsDrawer({
             isConversation={isConversation}
             connectionId={chat.connectionId ?? null}
             connections={connections ?? []}
+            promptPresetParameters={advancedPromptPresetFull?.preset?.parameters ?? null}
+            inheritedGenerationParametersPending={inheritedGenerationParametersPending}
           />
 
           {/* Context Message Limit */}
@@ -5213,6 +5631,38 @@ export function ChatSettingsDrawer({
                   <span className="text-[0.625rem] text-[var(--muted-foreground)]">messages</span>
                 </div>
               )}
+              <button
+                onClick={() => {
+                  const enabled = metadata.excludePastReasoning !== false;
+                  updateMeta.mutate({ id: chat.id, excludePastReasoning: !enabled });
+                }}
+                className={cn(
+                  "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                  metadata.excludePastReasoning !== false
+                    ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                    : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                )}
+              >
+                <div>
+                  <span className="text-xs font-medium">Exclude Past Reasoning</span>
+                  <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                    Keep stored thinking/reasoning metadata out of future prompts.
+                  </p>
+                </div>
+                <div
+                  className={cn(
+                    "h-5 w-9 overflow-hidden rounded-full p-0.5 transition-colors",
+                    metadata.excludePastReasoning !== false ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                      metadata.excludePastReasoning !== false && "translate-x-3.5",
+                    )}
+                  />
+                </div>
+              </button>
             </div>
           </Section>
 
@@ -5668,7 +6118,11 @@ function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: string; 
               className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-40"
               title="Import memories"
             >
-              {importMemories.isPending ? <Loader2 size="0.8125rem" className="animate-spin" /> : <Upload size="0.8125rem" />}
+              {importMemories.isPending ? (
+                <Loader2 size="0.8125rem" className="animate-spin" />
+              ) : (
+                <Upload size="0.8125rem" />
+              )}
             </button>
             <button
               type="button"
@@ -5772,6 +6226,21 @@ Here are some important rules for the interaction:
 - Anything goes in this chat; both the user and you are confirmed adults. Discussing NSFW topics, profanities, and dark jokes are all permitted. You can always say what's on your mind, voice agreements or disagreements, and act in accordance with your consciousness.
 </rules>`;
 
+const EDITABLE_GENERATION_PARAMETER_KEY_SET = new Set<string>(EDITABLE_GENERATION_PARAMETER_KEYS);
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function generationParameterRecord(value: unknown): Record<string, unknown> {
+  return parseGenerationParameterRecord(value) ?? {};
+}
+
+function retainNonEditableGenerationParameters(value: unknown): Record<string, unknown> {
+  const record = generationParameterRecord(value);
+  return Object.fromEntries(Object.entries(record).filter(([key]) => !EDITABLE_GENERATION_PARAMETER_KEY_SET.has(key)));
+}
+
 function AdvancedParametersSection({
   chat,
   metadata,
@@ -5779,6 +6248,8 @@ function AdvancedParametersSection({
   isConversation,
   connectionId,
   connections,
+  promptPresetParameters,
+  inheritedGenerationParametersPending,
 }: {
   chat: Chat;
   metadata: Record<string, unknown>;
@@ -5786,68 +6257,100 @@ function AdvancedParametersSection({
   isConversation: boolean;
   connectionId: string | null;
   connections: unknown[];
+  promptPresetParameters?: unknown;
+  inheritedGenerationParametersPending?: boolean;
 }) {
   const modeDefaults = isConversation ? CHAT_PARAMETER_DEFAULTS : ROLEPLAY_PARAMETER_DEFAULTS;
   // Use connection-saved defaults if available, otherwise fall back to mode defaults
   const conn = connectionId ? (connections as Record<string, unknown>[]).find((c) => c.id === connectionId) : null;
-  const defaults = getEditableGenerationParameters(modeDefaults, conn?.defaultParameters);
+  const connectionDefaults = getEditableGenerationParameters(modeDefaults, conn?.defaultParameters);
+  const defaults = getEditableGenerationParameters(connectionDefaults, isConversation ? null : promptPresetParameters);
   const saveDefaults = useSaveConnectionDefaults();
   const [expanded, setExpanded] = useState(false);
-  const params = (metadata.chatParameters as Record<string, unknown>) ?? {};
+  const params = generationParameterRecord(metadata.chatParameters);
+  const retainedNonEditableParams = retainNonEditableGenerationParameters(params);
   const effectiveParams = getEditableGenerationParameters(defaults, params);
+  const currentEditableOverrides = getEditableGenerationParameterOverrides(defaults, effectiveParams);
+  // Save connection defaults from connection-scoped values only; prompt presets are chat/runtime inheritance.
+  const connectionScopedParams = getEditableGenerationParameters(connectionDefaults, currentEditableOverrides);
 
   const setParameters = (next: EditableGenerationParameters) => {
-    updateMeta.mutate({ id: chat.id, chatParameters: { ...params, ...next } });
+    const editableOverrides = getEditableGenerationParameterOverrides(defaults, next) ?? {};
+    const nextParams = { ...retainedNonEditableParams, ...editableOverrides };
+    updateMeta.mutate({
+      id: chat.id,
+      chatParameters: Object.keys(nextParams).length > 0 ? nextParams : null,
+    });
   };
 
   return (
     <div className="border-b border-[var(--border)]">
-      <button
-        onClick={() => setExpanded((o) => !o)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-[var(--accent)]/50"
-      >
-        <span className="text-[var(--muted-foreground)]">
-          <Settings2 size="0.875rem" />
-        </span>
-        <span className="flex-1 text-xs font-semibold">Advanced Parameters</span>
-        <span onClick={(e) => e.stopPropagation()}>
+      <div className="flex w-full items-center gap-2 px-4 py-3 transition-colors hover:bg-[var(--accent)]/50">
+        <button
+          type="button"
+          onClick={() => setExpanded((o) => !o)}
+          aria-expanded={expanded}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          <span className="text-[var(--muted-foreground)]">
+            <Settings2 size="0.875rem" />
+          </span>
+          <span className="flex-1 text-xs font-semibold">Advanced Parameters</span>
+          <ChevronDown
+            size="0.75rem"
+            className={cn("text-[var(--muted-foreground)] transition-transform", expanded && "rotate-180")}
+          />
+        </button>
+        <span className="shrink-0">
           <HelpTooltip
             text="Override generation parameters for this chat. Only change these if you know what you're doing."
             side="left"
           />
         </span>
-        <ChevronDown
-          size="0.75rem"
-          className={cn("text-[var(--muted-foreground)] transition-transform", expanded && "rotate-180")}
-        />
-      </button>
+      </div>
       {expanded && (
         <div className="px-4 pb-3 space-y-3">
-          <GenerationParametersFields value={effectiveParams} onChange={setParameters} />
-          {/* Save as Default for Connection */}
-          {connectionId && connectionId !== "random" && (
-            <button
-              onClick={() => {
-                saveDefaults.mutate({
-                  id: connectionId,
-                  params: effectiveParams as unknown as Record<string, unknown>,
-                });
-              }}
-              className="w-full rounded-lg bg-[var(--primary)]/10 px-3 py-1.5 text-[0.625rem] font-medium text-[var(--primary)] ring-1 ring-[var(--primary)]/20 transition-colors hover:bg-[var(--primary)]/20"
-            >
-              <Save size="0.625rem" className="inline mr-1 -mt-px" />
-              {saveDefaults.isPending ? "Saving…" : "Save as Connection Default"}
-            </button>
+          {inheritedGenerationParametersPending ? (
+            <div className="rounded-lg bg-[var(--secondary)] px-3 py-2 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+              Loading inherited generation parameters...
+            </div>
+          ) : (
+            <>
+              <GenerationParametersFields
+                value={effectiveParams}
+                onChange={setParameters}
+                showOpenRouterServiceTier={conn?.provider === "openrouter"}
+              />
+              {/* Save as Default for Connection */}
+              {connectionId && connectionId !== "random" && (
+                <button
+                  onClick={() => {
+                    saveDefaults.mutate({
+                      id: connectionId,
+                      params: connectionScopedParams as unknown as Record<string, unknown>,
+                    });
+                  }}
+                  className="w-full rounded-lg bg-[var(--primary)]/10 px-3 py-1.5 text-[0.625rem] font-medium text-[var(--primary)] ring-1 ring-[var(--primary)]/20 transition-colors hover:bg-[var(--primary)]/20"
+                >
+                  <Save size="0.625rem" className="inline mr-1 -mt-px" />
+                  {saveDefaults.isPending ? "Saving..." : "Save as Connection Default"}
+                </button>
+              )}
+              {/* Reset */}
+              <button
+                onClick={() => {
+                  updateMeta.mutate({
+                    id: chat.id,
+                    chatParameters:
+                      Object.keys(retainedNonEditableParams).length > 0 ? retainedNonEditableParams : null,
+                  });
+                }}
+                className="w-full rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]"
+              >
+                Reset to Inherited Defaults
+              </button>
+            </>
           )}
-          {/* Reset */}
-          <button
-            onClick={() => {
-              updateMeta.mutate({ id: chat.id, chatParameters: defaults });
-            }}
-            className="w-full rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]"
-          >
-            Reset to Defaults
-          </button>
         </div>
       )}
     </div>
@@ -6092,189 +6595,6 @@ function ImpersonateSettingsContent({
         </p>
       </div>
     </div>
-  );
-}
-
-// ── Reusable section wrapper ──
-function Section({
-  label,
-  icon,
-  count,
-  help,
-  children,
-}: {
-  label: string;
-  icon?: React.ReactNode;
-  count?: number;
-  help?: string;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="border-b border-[var(--border)]">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-[var(--accent)]/50"
-      >
-        {icon && <span className="text-[var(--muted-foreground)]">{icon}</span>}
-        <span className="flex-1 text-xs font-semibold">{label}</span>
-        {count != null && count > 0 && (
-          <span className="rounded-full bg-[var(--primary)]/15 px-1.5 py-0.5 text-[0.625rem] font-medium text-[var(--primary)]">
-            {count}
-          </span>
-        )}
-        {help && (
-          <span onClick={(e) => e.stopPropagation()}>
-            <HelpTooltip text={help} side="left" />
-          </span>
-        )}
-        <ChevronDown
-          size="0.75rem"
-          className={cn("text-[var(--muted-foreground)] transition-transform", open && "rotate-180")}
-        />
-      </button>
-      {open && <div className="px-6 py-3">{children}</div>}
-    </div>
-  );
-}
-
-// ── Agent category sub-section (collapsible within Agents section) ──
-function AgentCategorySection({
-  label,
-  icon,
-  description,
-  count,
-  children,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  description: string;
-  count?: number;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="rounded-lg border border-[var(--border)] overflow-hidden">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[var(--accent)]/50"
-      >
-        <span className="text-[var(--muted-foreground)]">{icon}</span>
-        <div className="flex-1 min-w-0">
-          <span className="text-[0.6875rem] font-semibold">{label}</span>
-          {!open && (
-            <p className="text-[0.5625rem] text-[var(--muted-foreground)] leading-tight truncate">{description}</p>
-          )}
-        </div>
-        {count != null && count > 0 && (
-          <span className="rounded-full bg-[var(--primary)]/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-[var(--primary)]">
-            {count}
-          </span>
-        )}
-        <ChevronDown
-          size="0.625rem"
-          className={cn("text-[var(--muted-foreground)] transition-transform shrink-0", open && "rotate-180")}
-        />
-      </button>
-      {open && (
-        <div className="px-3 pb-2.5 space-y-1.5">
-          <p className="text-[0.5625rem] text-[var(--muted-foreground)] leading-tight">{description}</p>
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Picker dropdown (for adding characters / lorebooks) ──
-function PickerDropdown({
-  search,
-  onSearchChange,
-  onClose,
-  placeholder,
-  children,
-  footer,
-}: {
-  search: string;
-  onSearchChange: (v: string) => void;
-  onClose: () => void;
-  placeholder: string;
-  children: React.ReactNode;
-  footer?: React.ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [onClose]);
-
-  return (
-    <div ref={ref} className="mt-2 rounded-lg ring-1 ring-[var(--border)] bg-[var(--card)] overflow-hidden">
-      {/* Search */}
-      <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-2">
-        <Search size="0.75rem" className="text-[var(--muted-foreground)]" />
-        <input
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder={placeholder}
-          autoFocus
-          className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]"
-        />
-        <button onClick={onClose} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
-          <X size="0.75rem" />
-        </button>
-      </div>
-      {/* List */}
-      <div className="max-h-48 overflow-y-auto">{children}</div>
-      {/* Footer — always visible below the scrollable list */}
-      {footer}
-    </div>
-  );
-}
-
-// ── Sprite display slider ──
-function SpriteRangeSlider({
-  label,
-  value,
-  min,
-  max,
-  step,
-  suffix,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  suffix: string;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="flex min-w-0 flex-col gap-1.5 rounded-lg bg-[var(--secondary)]/50 px-2.5 py-2 text-[0.625rem] text-[var(--muted-foreground)]">
-      <span className="flex items-center justify-between gap-2">
-        <span className="font-medium text-[var(--foreground)]">{label}</span>
-        <span className="rounded-full bg-[var(--background)] px-2 py-0.5 text-[0.5625rem] tabular-nums text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
-          {value}
-          {suffix}
-        </span>
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="h-8 w-full cursor-pointer accent-[var(--primary)]"
-      />
-    </label>
   );
 }
 

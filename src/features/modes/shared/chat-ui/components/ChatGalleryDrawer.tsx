@@ -5,12 +5,12 @@ import { X } from "lucide-react";
 import { ChatGallery } from "./ChatGallery";
 import type { Chat } from "../../../../../engine/contracts/types/chat";
 
-interface ChatGalleryDrawerProps {
+export interface ChatGalleryDrawerProps {
   chat: Chat;
   open: boolean;
   onClose: () => void;
   /** Manually trigger the Illustrator agent */
-  onIllustrate?: () => void;
+  onIllustrate?: () => void | Promise<void>;
 }
 
 export function ChatGalleryDrawer({ chat, open, onClose, onIllustrate }: ChatGalleryDrawerProps) {
@@ -37,7 +37,7 @@ export function ChatGalleryDrawer({ chat, open, onClose, onIllustrate }: ChatGal
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <ChatGallery chatId={chat.id} onIllustrate={onIllustrate} />
+          <ChatGallery chat={chat} onIllustrate={onIllustrate} />
         </div>
       </div>
     </>

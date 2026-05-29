@@ -486,7 +486,7 @@ flowchart TB
           <tbody>
             <tr>
               <td>Frontend adapters</td>
-              <td><code>assets-api.ts</code>, <code>avatar-api.ts</code>, <code>export-api.ts</code>, <code>image-generation-api.ts</code>, <code>import-api.ts</code>, <code>integration-gateway.ts</code>, <code>integration-utility-api.ts</code>, <code>llm-api.ts</code>, <code>local-file-api.ts</code>, <code>mari-api.ts</code>, <code>profile-api.ts</code>, <code>settings-assets-api.ts</code>, <code>storage-api.ts</code>, <code>tracker-snapshot-api.ts</code>, <code>remote-runtime.ts</code>, <code>tauri-client.ts</code>, and helpers.</td>
+              <td><code>assets-api.ts</code>, <code>avatar-api.ts</code>, <code>export-api.ts</code>, <code>image-generation-api.ts</code>, <code>import-api.ts</code>, <code>integration-gateway.ts</code>, <code>integration-utility-api.ts</code>, <code>llm-api.ts</code>, <code>local-file-api.ts</code>, <code>mari-api.ts</code>, <code>profile-api.ts</code>, <code>settings-assets-api.ts</code>, <code>storage-api.ts</code>, <code>tracker-snapshot-api.ts</code>, <code>translation-api.ts</code>, <code>tts-api.ts</code>, <code>remote-runtime.ts</code>, <code>tauri-client.ts</code>, and helpers.</td>
               <td>Keep them typed and narrow. Product decisions belong in features or engine services. New feature code should call these wrappers, not <code>tauri-client.ts</code> directly. Remote-capable commands must be allowlisted in <code>remote-runtime.ts</code>.</td>
             </tr>
             <tr>

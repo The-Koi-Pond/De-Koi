@@ -3,6 +3,7 @@ import type { LlmGateway, LlmMessage } from "../../../../capabilities/llm";
 import type { StorageGateway } from "../../../../capabilities/storage";
 import type { BaseLLMProvider } from "../../../../generation-core/llm/base-provider.js";
 import { boolish } from "../../../../generation/runtime-records";
+import { readString as stringValue } from "../../../../shared/value-readers";
 import { stripConversationPromptTimestamps } from "./transcript-sanitize.js";
 
 export interface ConversationSummaryMessage {
@@ -76,11 +77,6 @@ function parseRecord(value: unknown): JsonRecord {
   }
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {};
 }
-
-function stringValue(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
 
 function stringArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);

@@ -4,11 +4,13 @@ import { AppShell } from "./shell/AppShell";
 import { ModalRenderer } from "./shell/ModalRenderer";
 import { CustomThemeInjector } from "./providers/CustomThemeInjector";
 import { AppDialogRenderer } from "../shared/components/ui/AppDialogRenderer";
+import { ChibiProfessorMariEasterEgg } from "../shared/components/ui/ChibiProfessorMariEasterEgg";
 import { fontsApi } from "../shared/api/settings-assets-api";
-import { filePathToAssetUrl } from "../shared/api/local-file-api";
+import { fontFileUrlFromPath } from "../shared/api/local-file-api";
 import { useUIStore } from "../shared/stores/ui.store";
 import { useChatSwitchEffects } from "./startup/chat-switch-effects";
 import { installRangeSliderSync } from "./startup/range-slider-sync";
+import { useRemoteRuntimeStartupHealthCheck } from "./startup/remote-runtime-health";
 
 function stripFontFamilyQuotes(family: string): string {
   const trimmed = family.trim();
@@ -45,6 +47,7 @@ export function App() {
   const fontFamily = useUIStore((s) => s.fontFamily);
 
   useChatSwitchEffects();
+  useRemoteRuntimeStartupHealthCheck();
 
   useEffect(() => installRangeSliderSync(), []);
 
@@ -88,7 +91,7 @@ export function App() {
         if (cancelled) return;
         const css = fonts
           .map((font) => {
-            const source = font.absolutePath ? filePathToAssetUrl(font.absolutePath) : font.url;
+            const source = fontFileUrlFromPath(font.filename, font.absolutePath) || font.url;
             if (!source || !font.family) return "";
             const unicodeRange = font.unicodeRange ? `  unicode-range: ${font.unicodeRange};\n` : "";
             return `@font-face {\n  font-family: "${font.family.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}";\n  src: url("${source}") format("${font.filename.endsWith(".woff2") ? "woff2" : font.filename.endsWith(".woff") ? "woff" : font.filename.endsWith(".otf") ? "opentype" : "truetype"}");\n  font-weight: ${font.weight ?? "400"};\n  font-style: ${font.style ?? "normal"};\n  font-display: swap;\n${unicodeRange}}`;
@@ -120,6 +123,7 @@ export function App() {
       <AppShell />
       <ModalRenderer />
       <AppDialogRenderer />
+      <ChibiProfessorMariEasterEgg />
       <Toaster
         position="bottom-right"
         theme={theme}

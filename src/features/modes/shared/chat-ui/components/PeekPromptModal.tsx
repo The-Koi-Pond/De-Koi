@@ -2,8 +2,9 @@
 // Peek Prompt Modal — collapsible section viewer
 // ──────────────────────────────────────────────
 import { useState, useMemo } from "react";
-import { X, ChevronRight, ChevronDown } from "lucide-react";
+import { X, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "../../../../../shared/lib/utils";
+import { usePresetSummaries } from "../../../../catalog/presets/index";
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -18,9 +19,14 @@ interface GenerationInfo {
   provider?: string;
   temperature?: number | null;
   maxTokens?: number | null;
+  topP?: number | null;
+  topK?: number | null;
+  frequencyPenalty?: number | null;
+  presencePenalty?: number | null;
   showThoughts?: boolean | null;
   reasoningEffort?: string | null;
   verbosity?: string | null;
+  serviceTier?: string | null;
   assistantPrefill?: string | null;
   tokensPrompt?: number | null;
   tokensCompletion?: number | null;
@@ -30,12 +36,18 @@ interface GenerationInfo {
   finishReason?: string | null;
 }
 
+type PeekPromptMessage = { role: string; content: string; displayName?: string; images?: string[] };
+
 interface PeekPromptModalProps {
   data: {
-    messages: Array<{ role: string; content: string }>;
+    messages: PeekPromptMessage[];
+    previewMessages?: PeekPromptMessage[];
     parameters: unknown;
+    promptPresetId?: string | null;
     generationInfo?: GenerationInfo | null;
     agentNote?: string;
+    loading?: boolean;
+    error?: string;
   };
   onClose: () => void;
 }
@@ -79,7 +91,7 @@ type DisplaySection = SectionBlock | ChatHistoryBlock;
  * Returns named blocks; anything between/around sections becomes a block
  * named after the message role.
  */
-function parseXmlSections(content: string, fallbackLabel: string): SectionBlock[] {
+function parseXmlSections(content: string, fallbackLabel: string, fallbackRole = fallbackLabel): SectionBlock[] {
   const blocks: SectionBlock[] = [];
   // Match <tag_name>\n...\n</tag_name> where both tags sit on their own line.
   const tagRegex = /(?:^|\n)(<([a-z_][a-z0-9_-]*)>\n[\s\S]*?\n<\/\2>)(?:\n|$)/gi;
@@ -90,20 +102,20 @@ function parseXmlSections(content: string, fallbackLabel: string): SectionBlock[
     const realStart = content[matchStart] === "\n" ? matchStart + 1 : matchStart;
     const before = content.slice(lastIndex, realStart);
     if (before.trim()) {
-      blocks.push({ kind: "section", label: fallbackLabel, role: fallbackLabel, content: before.trim() });
+      blocks.push({ kind: "section", label: fallbackLabel, role: fallbackRole, content: before.trim() });
     }
     const tagName = match[2]!;
     const tagContent = match[1]!;
-    blocks.push({ kind: "section", label: tagName, role: fallbackLabel, content: tagContent.trimEnd() });
+    blocks.push({ kind: "section", label: tagName, role: fallbackRole, content: tagContent.trimEnd() });
     lastIndex = match.index! + match[0].length;
   }
 
   const remaining = content.slice(lastIndex);
   if (remaining.trim()) {
-    blocks.push({ kind: "section", label: fallbackLabel, role: fallbackLabel, content: remaining.trim() });
+    blocks.push({ kind: "section", label: fallbackLabel, role: fallbackRole, content: remaining.trim() });
   }
 
-  return blocks.length > 0 ? blocks : [{ kind: "section", label: fallbackLabel, role: fallbackLabel, content }];
+  return blocks.length > 0 ? blocks : [{ kind: "section", label: fallbackLabel, role: fallbackRole, content }];
 }
 
 /**
@@ -113,7 +125,7 @@ function parseXmlSections(content: string, fallbackLabel: string): SectionBlock[
  * with bare user/assistant messages in between. We detect boundaries at the
  * array level first, then handle each region appropriately.
  */
-function buildDisplaySections(messages: Array<{ role: string; content: string }>): DisplaySection[] {
+function buildDisplaySections(messages: PeekPromptMessage[]): DisplaySection[] {
   // ── Pass 1: find chat history boundaries across the messages array ──
   let chStartIdx = -1;
   let chEndIdx = -1;
@@ -224,7 +236,7 @@ function buildDisplaySections(messages: Array<{ role: string; content: string }>
     }
 
     // ── System/other messages: parse XML sections within them ──
-    const blocks = parseXmlSections(msg.content, msg.role);
+    const blocks = parseXmlSections(msg.content, msg.displayName || msg.role, msg.role);
     for (const b of blocks) {
       result.push(b);
     }
@@ -367,11 +379,19 @@ function ChatHistoryMessage({ entry, roleColor }: { entry: ChatHistoryEntry; rol
 // ═══════════════════════════════════════════════
 
 export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
-  const sections = useMemo(() => buildDisplaySections(data.messages), [data.messages]);
+  const { data: presetSummaries } = usePresetSummaries();
+  const displayMessages = data.messages;
+  const sections = useMemo(() => buildDisplaySections(displayMessages), [displayMessages]);
   const totalTokens = useMemo(() => estimateTokens(data.messages.map((m) => m.content).join("")), [data.messages]);
+  const isLoading = data.loading === true;
 
   const gen = data.generationInfo;
   const params = data.parameters as Record<string, unknown> | null;
+  const promptPresetLabel = useMemo(() => {
+    const id = data.promptPresetId?.trim();
+    if (!id) return null;
+    return presetSummaries?.find((preset) => preset.id === id)?.name?.trim() || id;
+  }, [data.promptPresetId, presetSummaries]);
 
   // Build parameter pills from generationInfo (cached) or assembled parameters
   const paramPills = useMemo(() => {
@@ -379,9 +399,16 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
     if (gen) {
       if (gen.temperature != null) pills.push({ label: "Temperature", value: String(gen.temperature) });
       if (gen.maxTokens != null) pills.push({ label: "Max Output Tokens", value: fmtTokens(gen.maxTokens) });
+      if (gen.topP != null && gen.topP !== 1) pills.push({ label: "Top P", value: String(gen.topP) });
+      if (gen.topK != null && gen.topK !== 0) pills.push({ label: "Top K", value: String(gen.topK) });
+      if (gen.frequencyPenalty != null && gen.frequencyPenalty !== 0)
+        pills.push({ label: "Freq Penalty", value: String(gen.frequencyPenalty) });
+      if (gen.presencePenalty != null && gen.presencePenalty !== 0)
+        pills.push({ label: "Pres Penalty", value: String(gen.presencePenalty) });
       if (gen.showThoughts) pills.push({ label: "Thinking", value: "On" });
       if (gen.reasoningEffort) pills.push({ label: "Reasoning", value: gen.reasoningEffort });
       if (gen.verbosity) pills.push({ label: "Verbosity", value: gen.verbosity });
+      if (gen.serviceTier) pills.push({ label: "Service Tier", value: gen.serviceTier });
       if (gen.assistantPrefill) pills.push({ label: "Assistant Prefill", value: "On" });
     } else if (params) {
       if (params.temperature != null) pills.push({ label: "Temperature", value: String(params.temperature) });
@@ -397,6 +424,7 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
       if (params.showThoughts) pills.push({ label: "Thinking", value: "On" });
       if (params.reasoningEffort) pills.push({ label: "Reasoning", value: String(params.reasoningEffort) });
       if (params.verbosity) pills.push({ label: "Verbosity", value: String(params.verbosity) });
+      if (params.serviceTier) pills.push({ label: "Service Tier", value: String(params.serviceTier) });
       if (params.assistantPrefill) pills.push({ label: "Assistant Prefill", value: "On" });
     }
     return pills;
@@ -422,7 +450,9 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
           <div className="flex items-center gap-3">
             <h3 className="text-sm font-bold">Assembled Prompt</h3>
             <span className="text-[0.625rem] text-[var(--muted-foreground)]">
-              {sections.length} section{sections.length !== 1 ? "s" : ""} &middot; ~{fmtTokens(totalTokens)} tokens
+              {isLoading
+                ? "assembling"
+                : `${sections.length} section${sections.length !== 1 ? "s" : ""} \u00b7 ~${fmtTokens(totalTokens)} tokens`}
             </span>
           </div>
           <button
@@ -433,8 +463,18 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-2">
+          {isLoading && (
+            <div className="flex min-h-48 items-center justify-center text-[var(--muted-foreground)]">
+              <Loader2 size="1.5rem" className="animate-spin" />
+            </div>
+          )}
+          {!isLoading && data.error && (
+            <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[0.75rem] text-red-300/90">
+              {data.error}
+            </div>
+          )}
           {/* Generation info panel */}
-          {(gen || paramPills.length > 0) && (
+          {!isLoading && !data.error && (gen || paramPills.length > 0) && (
             <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 px-4 py-3 space-y-2">
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.6875rem]">
                 {gen?.model && (
@@ -443,6 +483,12 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
                       <span className="text-[var(--muted-foreground)] font-normal">{gen.provider} / </span>
                     ) : null}
                     {gen.model}
+                  </span>
+                )}
+                {promptPresetLabel && (
+                  <span className="font-medium text-[var(--foreground)]" title={data.promptPresetId ?? undefined}>
+                    <span className="text-[var(--muted-foreground)] font-normal">Preset / </span>
+                    {promptPresetLabel}
                   </span>
                 )}
                 <span className="text-[var(--muted-foreground)]">
@@ -469,24 +515,26 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
               )}
             </div>
           )}
-          {data.agentNote && (
+          {!isLoading && !data.error && data.agentNote && (
             <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[0.6875rem] text-amber-300/80">
               ⚠ {data.agentNote}
             </div>
           )}
-          {sections.map((s, i) =>
-            s.kind === "chat-history" ? (
-              <ChatHistorySection key={i} entries={s.entries} rawContent={s.rawContent} />
-            ) : (
-              <CollapsibleBlock
-                key={i}
-                label={s.label}
-                content={s.content}
-                defaultOpen={false}
-                roleColor={sectionRoleColor(s.role, s.label)}
-              />
-            ),
-          )}
+          {!isLoading &&
+            !data.error &&
+            sections.map((s, i) =>
+              s.kind === "chat-history" ? (
+                <ChatHistorySection key={i} entries={s.entries} rawContent={s.rawContent} />
+              ) : (
+                <CollapsibleBlock
+                  key={i}
+                  label={s.label}
+                  content={s.content}
+                  defaultOpen={false}
+                  roleColor={sectionRoleColor(s.role, s.label)}
+                />
+              ),
+            )}
         </div>
       </div>
     </div>

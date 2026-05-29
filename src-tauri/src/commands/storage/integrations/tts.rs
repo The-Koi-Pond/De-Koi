@@ -109,6 +109,7 @@ fn default_config() -> Value {
         "apiKey": "",
         "voice": "alloy",
         "model": "tts-1",
+        "audioFormat": "mp3",
         "speed": 1.0,
         "elevenLabsStability": 0.5,
         "elevenLabsLanguageCode": "",
@@ -120,6 +121,7 @@ fn default_config() -> Value {
         "autoplayRP": false,
         "autoplayConvo": false,
         "autoplayGame": false,
+        "autoplayStreaming": false,
         "dialogueOnly": false,
         "dialogueScope": "all",
         "dialogueCharacterName": ""
@@ -196,9 +198,9 @@ async fn voices(state: &AppState) -> AppResult<Value> {
         ));
     }
     if source == "elevenlabs" {
-        return elevenlabs_voices(&config, &base)
+        return Ok(elevenlabs_voices(&config, &base)
             .await
-            .or_else(|_| Ok(fallback_voices(source)));
+            .unwrap_or_else(|error| fallback_voices_with_error(source, &error)));
     }
     if source == "pockettts" {
         return Ok(fallback_voices(source));
@@ -208,23 +210,58 @@ async fn voices(state: &AppState) -> AppResult<Value> {
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|error| AppError::new("tts_client_error", error.to_string()))?
-        .get(format!("{base}/audio/voices"))
+        .get(openai_voices_url(
+            &base,
+            config.get("model").and_then(Value::as_str),
+        ))
         .headers(openai_headers(api_key)?)
         .send()
         .await;
     match response {
         Ok(response) if response.status().is_success() => {
-            let data = response.json::<Value>().await.unwrap_or(Value::Null);
+            let data = match response.json::<Value>().await {
+                Ok(data) => data,
+                Err(error) => {
+                    return Ok(fallback_voices_with_error(
+                        source,
+                        &AppError::new("tts_response_error", error.to_string()),
+                    ));
+                }
+            };
             let parsed = parse_voice_options(&data);
             if parsed.is_empty() {
-                Ok(fallback_voices(source))
+                Ok(fallback_voices_with_error(
+                    source,
+                    &AppError::new("tts_provider_error", "TTS provider returned no voices"),
+                ))
             } else {
                 Ok(
-                    json!({ "voices": parsed.iter().filter_map(|voice| voice.get("id").cloned()).collect::<Vec<_>>(), "voiceOptions": parsed, "fromProvider": true, "source": source }),
+                    json!({ "voices": parsed.iter().filter_map(|voice| voice.get("id").cloned()).collect::<Vec<_>>(), "voiceOptions": parsed, "fromProvider": true, "fallback": false, "source": source }),
                 )
             }
         }
-        _ => Ok(fallback_voices(source)),
+        Ok(response) => {
+            let status = response.status();
+            let detail = response
+                .text()
+                .await
+                .unwrap_or_default()
+                .chars()
+                .take(300)
+                .collect::<String>();
+            Ok(fallback_voices_with_error(
+                source,
+                &AppError::with_details(
+                    "tts_provider_error",
+                    format!("TTS provider returned HTTP {status}"),
+                    json!({ "detail": detail }),
+                ),
+            ))
+        }
+        Err(error) => Ok(fallback_voices_with_error(
+            source,
+            &AppError::new("tts_provider_unreachable", error.to_string()),
+        )),
     }
 }
 
@@ -278,6 +315,12 @@ async fn speak(state: &AppState, body: Value) -> AppResult<Value> {
     let tone = body.get("tone").and_then(Value::as_str);
     let speaker = body.get("speaker").and_then(Value::as_str);
     let use_nano_gpt = is_nano_gpt_base_url(&base);
+    let audio_format = if source == "elevenlabs" {
+        "mp3"
+    } else {
+        normalized_audio_format(&config)
+    };
+    let fallback_content_type = audio_format_content_type(audio_format);
     let url = if use_nano_gpt {
         format!("{}/audio/speech", nano_gpt_v1_base_url(&base))
     } else if source == "pockettts" {
@@ -304,7 +347,8 @@ async fn speak(state: &AppState, body: Value) -> AppResult<Value> {
     let request = if source == "pockettts" {
         let form = reqwest::multipart::Form::new()
             .text("text", provider_text)
-            .text("voice_url", voice.to_string());
+            .text("voice_url", voice.to_string())
+            .text("output_format", audio_format.to_string());
         client
             .post(url)
             .headers(optional_bearer_headers(api_key)?)
@@ -337,7 +381,7 @@ async fn speak(state: &AppState, body: Value) -> AppResult<Value> {
             "input": provider_text,
             "voice": if voice.trim().is_empty() { "alloy" } else { voice },
             "speed": speed,
-            "response_format": "mp3"
+            "response_format": audio_format
         });
         if let Some(instructions) = instructions {
             payload["instructions"] = json!(instructions);
@@ -359,7 +403,7 @@ async fn speak(state: &AppState, body: Value) -> AppResult<Value> {
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
-        .unwrap_or("audio/mpeg")
+        .unwrap_or(fallback_content_type)
         .to_string();
     let bytes = response
         .bytes()
@@ -392,8 +436,29 @@ async fn speak(state: &AppState, body: Value) -> AppResult<Value> {
     }
     Ok(json!({
         "audioBase64": general_purpose::STANDARD.encode(bytes),
-        "contentType": if content_type.starts_with("audio/") { content_type } else { "audio/mpeg".to_string() }
+        "contentType": if content_type.starts_with("audio/") { content_type } else { fallback_content_type.to_string() }
     }))
+}
+
+fn normalized_audio_format(config: &Value) -> &'static str {
+    match config
+        .get("audioFormat")
+        .and_then(Value::as_str)
+        .unwrap_or("mp3")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "wav" => "wav",
+        _ => "mp3",
+    }
+}
+
+fn audio_format_content_type(format: &str) -> &'static str {
+    match format {
+        "wav" => "audio/wav",
+        _ => "audio/mpeg",
+    }
 }
 
 fn configured_base_url(config: &Value) -> String {
@@ -415,6 +480,25 @@ fn configured_base_url(config: &Value) -> String {
         "pockettts" => "http://localhost:8000".to_string(),
         _ => "https://api.openai.com/v1".to_string(),
     }
+}
+
+/// Builds the OpenAI-compatible voice discovery endpoint.
+///
+/// Nonblank model values are trimmed and sent as `model` so multi-model
+/// providers can return the right catalog. If URL parsing fails, return the
+/// raw legacy endpoint and let the provider request fail through the existing
+/// fallback path.
+fn openai_voices_url(base: &str, model: Option<&str>) -> String {
+    let raw_url = format!("{base}/audio/voices");
+    let Ok(mut url) = reqwest::Url::parse(&raw_url) else {
+        return raw_url;
+    };
+
+    if let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) {
+        url.query_pairs_mut().append_pair("model", model);
+    }
+
+    url.to_string()
 }
 
 fn normalized_model(source: &str, base: &str, configured: &str) -> String {
@@ -453,6 +537,17 @@ fn fallback_voices(source: &str) -> Value {
     }
 }
 
+fn fallback_voices_with_error(source: &str, error: &AppError) -> Value {
+    let mut response = fallback_voices(source);
+    response["fallback"] = json!(true);
+    response["providerError"] = json!(error.message.clone());
+    response["providerErrorCode"] = json!(error.code.clone());
+    if let Some(details) = error.details.clone() {
+        response["providerErrorDetails"] = details;
+    }
+    response
+}
+
 fn voice_options_response(
     source: &str,
     voices: &[&str],
@@ -473,6 +568,7 @@ fn voice_options_response(
         "voices": voices,
         "voiceOptions": options,
         "fromProvider": from_provider,
+        "fallback": !from_provider,
         "source": source
     })
 }
@@ -496,15 +592,33 @@ async fn elevenlabs_voices(config: &Value, base: &str) -> AppResult<Value> {
         .await
         .map_err(|error| AppError::new("tts_provider_unreachable", error.to_string()))?;
     if !response.status().is_success() {
-        return Ok(fallback_voices("elevenlabs"));
+        let status = response.status();
+        let detail = response
+            .text()
+            .await
+            .unwrap_or_default()
+            .chars()
+            .take(300)
+            .collect::<String>();
+        return Err(AppError::with_details(
+            "tts_provider_error",
+            format!("TTS provider returned HTTP {status}"),
+            json!({ "detail": detail }),
+        ));
     }
-    let data = response.json::<Value>().await.unwrap_or(Value::Null);
+    let data = response
+        .json::<Value>()
+        .await
+        .map_err(|error| AppError::new("tts_response_error", error.to_string()))?;
     let parsed = parse_voice_options(&data);
     if parsed.is_empty() {
-        Ok(fallback_voices("elevenlabs"))
+        Err(AppError::new(
+            "tts_provider_error",
+            "TTS provider returned no voices",
+        ))
     } else {
         Ok(
-            json!({ "voices": parsed.iter().filter_map(|voice| voice.get("id").cloned()).collect::<Vec<_>>(), "voiceOptions": parsed, "fromProvider": true, "source": "elevenlabs" }),
+            json!({ "voices": parsed.iter().filter_map(|voice| voice.get("id").cloned()).collect::<Vec<_>>(), "voiceOptions": parsed, "fromProvider": true, "fallback": false, "source": "elevenlabs" }),
         )
     }
 }
@@ -689,4 +803,276 @@ fn optional_bearer_headers(api_key: &str) -> AppResult<reqwest::header::HeaderMa
         );
     }
     Ok(headers)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::AppState;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    fn test_state(label: &str) -> AppState {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("marinara-tts-{label}-{nonce}"));
+        if path.exists() {
+            std::fs::remove_dir_all(&path).expect("stale temp TTS dir should be removable");
+        }
+        AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
+    }
+
+    async fn serve_model_gated_voices(expected_model: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test voice server should bind");
+        let address = listener
+            .local_addr()
+            .expect("test voice server address should be readable");
+        tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("test voice server should accept one request");
+            let mut buffer = [0_u8; 2048];
+            let bytes = stream
+                .read(&mut buffer)
+                .await
+                .expect("test voice server should read request");
+            let request = String::from_utf8_lossy(&buffer[..bytes]);
+            let path = request.lines().next().unwrap_or_default();
+            let encoded_model = expected_model.replace('/', "%2F");
+            let has_model = path.contains(&format!("model={encoded_model}"));
+            let (status, body) = if has_model {
+                ("200 OK", r#"{"voices":["af_heart"]}"#)
+            } else {
+                ("400 Bad Request", r#"{"error":"missing model"}"#)
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("test voice server should write response");
+        });
+        format!("http://{address}/v1")
+    }
+
+    async fn serve_voice_failure(status: &'static str, body: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test voice server should bind");
+        let address = listener
+            .local_addr()
+            .expect("test voice server address should be readable");
+        tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("test voice server should accept one request");
+            let mut buffer = [0_u8; 2048];
+            let _ = stream
+                .read(&mut buffer)
+                .await
+                .expect("test voice server should read request");
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("test voice server should write response");
+        });
+        format!("http://{address}/v1")
+    }
+
+    async fn serve_pockettts_audio() -> String {
+        const WAV_BYTES: &[u8] = &[
+            82, 73, 70, 70, 38, 0, 0, 0, 87, 65, 86, 69, 102, 109, 116, 32, 16, 0, 0, 0, 1, 0, 1,
+            0, 64, 31, 0, 0, 64, 31, 0, 0, 1, 0, 8, 0, 100, 97, 116, 97, 2, 0, 0, 0, 128, 128,
+        ];
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test TTS server should bind");
+        let address = listener
+            .local_addr()
+            .expect("test TTS server address should be readable");
+        tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("test TTS server should accept one request");
+            let mut buffer = [0_u8; 8192];
+            let bytes = stream
+                .read(&mut buffer)
+                .await
+                .expect("test TTS server should read request");
+            let request = String::from_utf8_lossy(&buffer[..bytes]);
+            assert!(request.starts_with("POST /tts "));
+            assert!(request.contains("name=\"text\""));
+            assert!(request.contains("name=\"voice_url\""));
+
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                WAV_BYTES.len()
+            );
+            stream
+                .write_all(header.as_bytes())
+                .await
+                .expect("test TTS server should write response header");
+            stream
+                .write_all(WAV_BYTES)
+                .await
+                .expect("test TTS server should write response body");
+        });
+        format!("http://{address}")
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_voice_lookup_passes_configured_model() {
+        let state = test_state("openai-voices-model");
+        let model = "mlx-community/Kokoro-82M-bf16";
+        let base_url = serve_model_gated_voices(model).await;
+        state
+            .storage
+            .upsert_with_id(
+                "app-settings",
+                TTS_SETTINGS_KEY,
+                json!({
+                    "value": {
+                        "enabled": true,
+                        "source": "openai",
+                        "baseUrl": base_url,
+                        "apiKey": "",
+                        "model": model
+                    }
+                }),
+            )
+            .expect("TTS settings should be stored");
+
+        let result = voices(&state).await.expect("voice lookup should complete");
+
+        assert_eq!(result["fromProvider"], true);
+        assert_eq!(result["fallback"], false);
+        assert!(result.get("providerError").is_none());
+        assert_eq!(result["voices"], json!(["af_heart"]));
+    }
+
+    #[tokio::test]
+    async fn openai_voice_lookup_marks_fallback_when_provider_fails() {
+        let state = test_state("openai-voices-provider-error");
+        let base_url = serve_voice_failure("401 Unauthorized", r#"{"error":"bad key"}"#).await;
+        state
+            .storage
+            .upsert_with_id(
+                "app-settings",
+                TTS_SETTINGS_KEY,
+                json!({
+                    "value": {
+                        "enabled": true,
+                        "source": "openai",
+                        "baseUrl": base_url,
+                        "apiKey": "bad-key",
+                        "model": "tts-1"
+                    }
+                }),
+            )
+            .expect("TTS settings should be stored");
+
+        let result = voices(&state)
+            .await
+            .expect("voice lookup should return fallback metadata");
+
+        assert_eq!(result["fromProvider"], false);
+        assert_eq!(result["fallback"], true);
+        assert!(result["providerError"]
+            .as_str()
+            .is_some_and(|message| message.contains("TTS provider returned HTTP")));
+        assert_eq!(result["voices"], json!(OPENAI_FALLBACK_VOICES));
+    }
+
+    #[tokio::test]
+    async fn disabled_voice_lookup_uses_fallback_without_provider_error() {
+        let state = test_state("openai-voices-disabled");
+        state
+            .storage
+            .upsert_with_id(
+                "app-settings",
+                TTS_SETTINGS_KEY,
+                json!({
+                    "value": {
+                        "enabled": false,
+                        "source": "openai",
+                        "apiKey": "bad-key",
+                        "model": "tts-1"
+                    }
+                }),
+            )
+            .expect("TTS settings should be stored");
+
+        let result = voices(&state)
+            .await
+            .expect("disabled voice lookup should use fallback");
+
+        assert_eq!(result["fromProvider"], false);
+        assert_eq!(result["fallback"], true);
+        assert!(result.get("providerError").is_none());
+        assert_eq!(result["voices"], json!(OPENAI_FALLBACK_VOICES));
+    }
+
+    #[tokio::test]
+    async fn pockettts_speak_returns_provider_audio() {
+        let state = test_state("pockettts-speak");
+        let base_url = serve_pockettts_audio().await;
+        state
+            .storage
+            .upsert_with_id(
+                "app-settings",
+                TTS_SETTINGS_KEY,
+                json!({
+                    "value": {
+                        "enabled": true,
+                        "source": "pockettts",
+                        "baseUrl": base_url,
+                        "voice": "alba"
+                    }
+                }),
+            )
+            .expect("TTS settings should be stored");
+
+        let result = speak(&state, json!({ "text": "Hello from streaming TTS." }))
+            .await
+            .expect("TTS speak should return provider audio");
+
+        assert_eq!(result["contentType"], "audio/wav");
+        assert!(result["audioBase64"]
+            .as_str()
+            .is_some_and(|audio| !audio.is_empty()));
+    }
+
+    #[test]
+    fn openai_voices_url_encodes_configured_model() {
+        assert_eq!(
+            openai_voices_url(
+                "http://127.0.0.1:8081/v1",
+                Some(" mlx-community/Kokoro-82M-bf16 ")
+            ),
+            "http://127.0.0.1:8081/v1/audio/voices?model=mlx-community%2FKokoro-82M-bf16"
+        );
+    }
+
+    #[test]
+    fn openai_voices_url_omits_blank_model() {
+        assert_eq!(
+            openai_voices_url("http://127.0.0.1:8081/v1", Some("  ")),
+            "http://127.0.0.1:8081/v1/audio/voices"
+        );
+    }
 }

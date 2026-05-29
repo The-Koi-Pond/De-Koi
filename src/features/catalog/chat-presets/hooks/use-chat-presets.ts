@@ -7,10 +7,32 @@ import { invokeTauri } from "../../../../shared/api/tauri-client";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { chatKeys } from "../../chats/query-keys";
 import type { Chat, ChatMode } from "../../../../engine/contracts/types/chat";
-import type { ChatPreset, ChatPresetSettings } from "../../../../engine/contracts/types/chat-preset";
+import {
+  CHAT_PRESET_EXCLUDED_METADATA_KEYS,
+  type ChatPreset,
+  type ChatPresetSettings,
+} from "../../../../engine/contracts/types/chat-preset";
 
 export { chatPresetKeys } from "../query-keys";
 
+const EXCLUDED_METADATA_KEYS = new Set<string>(CHAT_PRESET_EXCLUDED_METADATA_KEYS);
+
+export function sanitizeChatPresetSettings(settings: ChatPresetSettings | null | undefined): ChatPresetSettings {
+  const clean: ChatPresetSettings = {};
+  if (!settings) return clean;
+
+  if ("connectionId" in settings) clean.connectionId = settings.connectionId ?? null;
+  if ("promptPresetId" in settings) clean.promptPresetId = settings.promptPresetId ?? null;
+
+  if (settings.metadata && typeof settings.metadata === "object" && !Array.isArray(settings.metadata)) {
+    const metadata = Object.fromEntries(
+      Object.entries(settings.metadata).filter(([key]) => !EXCLUDED_METADATA_KEYS.has(key)),
+    );
+    if (Object.keys(metadata).length > 0) clean.metadata = metadata;
+  }
+
+  return clean;
+}
 
 async function setOnlyActivePreset(id: string): Promise<ChatPreset> {
   const selected = await storageApi.get<ChatPreset>("chat-presets", id);
@@ -37,6 +59,7 @@ export function useChatPresets(mode?: ChatMode | null) {
       return mode ? presets.filter((preset) => preset.mode === mode) : presets;
     },
     staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -58,6 +81,7 @@ export function useActiveChatPreset(mode: ChatMode | null) {
     },
     enabled: !!mode,
     staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -65,7 +89,10 @@ export function useCreateChatPreset() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { name: string; mode: ChatMode; settings?: ChatPresetSettings }) =>
-      storageApi.create<ChatPreset>("chat-presets", data as Record<string, unknown>),
+      storageApi.create<ChatPreset>("chat-presets", {
+        ...data,
+        settings: sanitizeChatPresetSettings(data.settings),
+      } as Record<string, unknown>),
     onSuccess: () => qc.invalidateQueries({ queryKey: chatPresetKeys.all }),
   });
 }
@@ -74,7 +101,14 @@ export function useUpdateChatPreset() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...data }: { id: string; name?: string; settings?: ChatPresetSettings }) =>
-      storageApi.update<ChatPreset>("chat-presets", id, data as Record<string, unknown>),
+      storageApi.update<ChatPreset>(
+        "chat-presets",
+        id,
+        {
+          ...data,
+          ...(data.settings ? { settings: sanitizeChatPresetSettings(data.settings) } : {}),
+        } as Record<string, unknown>,
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: chatPresetKeys.all }),
   });
 }
@@ -83,7 +117,9 @@ export function useSaveChatPresetSettings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, settings }: { id: string; settings: ChatPresetSettings }) =>
-      storageApi.update<ChatPreset>("chat-presets", id, { settings: settings as unknown as Record<string, unknown> }),
+      storageApi.update<ChatPreset>("chat-presets", id, {
+        settings: sanitizeChatPresetSettings(settings) as unknown as Record<string, unknown>,
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: chatPresetKeys.all }),
   });
 }
@@ -129,8 +165,33 @@ export function useImportChatPreset() {
 export function useApplyChatPreset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ presetId, chatId }: { presetId: string; chatId: string }) =>
-      storageApi.update<Chat>("chats", chatId, { chatPresetId: presetId }),
+    mutationFn: async ({ presetId, chatId }: { presetId: string; chatId: string }) => {
+      const [preset, chat] = await Promise.all([
+        storageApi.get<ChatPreset>("chat-presets", presetId),
+        storageApi.get<Chat>("chats", chatId),
+      ]);
+      if (!preset) throw new Error(`Chat preset ${presetId} was not found`);
+      if (!chat) throw new Error(`Chat ${chatId} was not found`);
+
+      const settings = sanitizeChatPresetSettings(preset.settings);
+      const currentMetadata =
+        chat.metadata && typeof chat.metadata === "object" && !Array.isArray(chat.metadata) ? chat.metadata : {};
+      const patch: Record<string, unknown> = {
+        chatPresetId: presetId,
+        metadata: {
+          ...currentMetadata,
+          ...(settings.metadata ?? {}),
+          appliedChatPresetId: presetId,
+        },
+      };
+      if ("connectionId" in settings) patch.connectionId = settings.connectionId ?? null;
+      if (chat.mode === "conversation") {
+        patch.promptPresetId = null;
+      } else if ("promptPresetId" in settings) {
+        patch.promptPresetId = settings.promptPresetId ?? null;
+      }
+      return storageApi.update<Chat>("chats", chatId, patch);
+    },
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
       qc.invalidateQueries({ queryKey: chatKeys.list() });

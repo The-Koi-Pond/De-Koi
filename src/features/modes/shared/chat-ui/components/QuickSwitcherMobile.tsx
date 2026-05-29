@@ -6,12 +6,17 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { ChevronUp, ChevronDown, ChevronRight, Link, CircleUser, FolderOpen, Folder, Check } from "lucide-react";
 import { useConnections, useUpdateConnection } from "../../../../catalog/connections/index";
-import { usePersonas, usePersonaGroups } from "../../../../catalog/characters/index";
+import { usePersonaGroups, usePersonaSummaries } from "../../../../catalog/characters/index";
 import { useUpdateChat, useChat } from "../../../../catalog/chats/index";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { filterLanguageGenerationConnections } from "../../../../../shared/lib/connection-filters";
 import { cn, getAvatarCropStyle, parseAvatarCropJson } from "../../../../../shared/lib/utils";
 import { boolish as isRandomPoolEnabled } from "../../../../../engine/generation/runtime-records";
+import {
+  CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS,
+  CHAT_INPUT_ICON_BUTTON_CLASS,
+  CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
+} from "./input-button-styles";
 
 interface Persona {
   id: string;
@@ -44,9 +49,9 @@ export function QuickSwitcherMobile() {
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const activeChatId = useChatStore((s) => s.activeChatId);
-  const { data: connections } = useConnections();
-  const { data: rawPersonas } = usePersonas();
-  const { data: rawPersonaGroups } = usePersonaGroups();
+  const { data: connections } = useConnections(open && tab === "connections");
+  const { data: rawPersonas } = usePersonaSummaries(open && tab === "personas");
+  const { data: rawPersonaGroups } = usePersonaGroups(open && tab === "personas");
   const { data: chat } = useChat(activeChatId);
   const updateChat = useUpdateChat();
   const updateConnection = useUpdateConnection();
@@ -77,7 +82,7 @@ export function QuickSwitcherMobile() {
     for (const g of groupRows) {
       let memberIds: string[] = [];
       try {
-        memberIds = JSON.parse(g.personaIds);
+        memberIds = Array.isArray(g.personaIds) ? g.personaIds : [];
       } catch {
         memberIds = [];
       }
@@ -234,8 +239,8 @@ export function QuickSwitcherMobile() {
         onClick={() => setOpen((v) => !v)}
         title="Quick Switcher"
         className={cn(
-          "flex h-8 w-8 items-center justify-center rounded-xl transition-all",
-          open ? "text-foreground bg-foreground/10" : "text-foreground/70 hover:bg-foreground/10 hover:text-foreground",
+          CHAT_INPUT_ICON_BUTTON_CLASS,
+          open ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS : CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
         )}
       >
         <ChevronUp size="1rem" className={cn("transition-transform", open && "rotate-180")} />

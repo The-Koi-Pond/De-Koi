@@ -11,16 +11,21 @@ import type { AvatarCropValue } from "../../../../../shared/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { startGeneration } from "../../../../../engine/generation/start-generation";
-import { checkConversationAutonomous, getConversationBusyDelay, recordAssistantActivity } from "../../../../../engine/modes/chat/autonomous/autonomous.service";
+import {
+  checkConversationAutonomous,
+  getConversationBusyDelay,
+  recordAssistantActivity,
+} from "../../../../../engine/modes/chat/autonomous/autonomous.service";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { integrationGateway } from "../../../../../shared/api/integration-gateway";
 import { invokeTauri } from "../../../../../shared/api/tauri-client";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
+import { showConversationLocalNotification } from "../../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../../shared/lib/notification-sound";
 import { chatKeys } from "../../../../catalog/chats/index";
-import { characterKeys } from "../../../../catalog/characters/index";
+import { invalidateCharacterCollectionQueries } from "../../../../catalog/characters/index";
 
 interface RawChat {
   id: string;
@@ -31,7 +36,7 @@ interface RawChat {
 
 interface RawCharacter {
   id: string;
-  data?: string | { name?: string };
+  data?: { name?: string; extensions?: { avatarCrop?: AvatarCropValue | null } };
   avatarPath?: string | null;
 }
 
@@ -127,11 +132,14 @@ export function useBackgroundAutonomousPolling() {
                 }
 
                 // Drain the TS generation engine; tokens aren't displayed for background chats.
-                for await (const _event of startGeneration({ storage: storageApi, llm: llmApi, integrations: integrationGateway }, {
-                  chatId: chat.id,
-                  connectionId: null,
-                  streaming: useUIStore.getState().enableStreaming,
-                })) {
+                for await (const _event of startGeneration(
+                  { storage: storageApi, llm: llmApi, integrations: integrationGateway },
+                  {
+                    chatId: chat.id,
+                    connectionId: null,
+                    streaming: useUIStore.getState().enableStreaming,
+                  },
+                )) {
                   if ((_event as { type: string }).type === "token") receivedTokens = true;
                 }
 
@@ -144,7 +152,7 @@ export function useBackgroundAutonomousPolling() {
                 // the background refetch completes — making it look like the
                 // message isn't there even though it was saved.
                 qc.resetQueries({ queryKey: chatKeys.messages(chat.id) });
-                qc.invalidateQueries({ queryKey: characterKeys.list() });
+                invalidateCharacterCollectionQueries(qc);
                 void invokeTauri<Chat>("chat_autonomous_unread_mark", {
                   chatId: chat.id,
                   body: { characterId },
@@ -165,7 +173,7 @@ export function useBackgroundAutonomousPolling() {
                   // Find the triggering character's name
                   const charRow = await storageApi.get<RawCharacter>("characters", characterId);
                   if (charRow) {
-                    const data = typeof charRow.data === "string" ? JSON.parse(charRow.data) : charRow.data;
+                    const data = charRow.data;
                     if (data?.name) charName = data.name;
                     charAvatarCrop = data?.extensions?.avatarCrop ?? null;
                     charAvatar = charRow.avatarPath ?? null;
@@ -184,6 +192,12 @@ export function useBackgroundAutonomousPolling() {
 
                 // Add floating avatar notification bubble
                 useChatStore.getState().addNotification(chat.id, charName, charAvatar, charAvatarCrop);
+
+                void showConversationLocalNotification({
+                  enabled: useUIStore.getState().conversationBrowserNotifications,
+                  characterName: charName,
+                  tag: `marinara-conversation-${chat.id}`,
+                });
 
                 // Show a global toast so the user knows even from a different chat
                 toast(`${charName} sent you a message`, { icon: "💬" });

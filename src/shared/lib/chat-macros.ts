@@ -9,6 +9,8 @@ export interface MacroCharacterData {
   appearance?: string;
   scenario?: string;
   example?: string;
+  systemPrompt?: string;
+  postHistoryInstructions?: string;
 }
 
 export interface MacroPersonaData {
@@ -30,23 +32,14 @@ function getRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function appendActiveAltDescriptions(description: string, altDescriptions: unknown): string {
-  try {
-    const parsed =
-      typeof altDescriptions === "string"
-        ? altDescriptions.trim()
-          ? (JSON.parse(altDescriptions) as Array<{ active?: boolean; content?: string }>)
-          : []
-        : Array.isArray(altDescriptions)
-          ? (altDescriptions as Array<{ active?: boolean; content?: string }>)
-          : [];
-    const activeDescriptions = parsed
-      .filter((item) => item?.active && typeof item.content === "string" && item.content.trim().length > 0)
-      .map((item) => item.content!.trim());
-    if (activeDescriptions.length === 0) return description;
-    return [description, ...activeDescriptions].filter((part) => part.trim().length > 0).join("\n");
-  } catch {
-    return description;
-  }
+  const parsed = Array.isArray(altDescriptions)
+    ? (altDescriptions as Array<{ active?: boolean; content?: string }>)
+    : [];
+  const activeDescriptions = parsed
+    .filter((item) => item?.active && typeof item.content === "string" && item.content.trim().length > 0)
+    .map((item) => item.content!.trim());
+  if (activeDescriptions.length === 0) return description;
+  return [description, ...activeDescriptions].filter((part) => part.trim().length > 0).join("\n");
 }
 
 export function getChatCharacterIds(chat: { characterIds?: unknown } | null | undefined): string[] {
@@ -77,8 +70,7 @@ export function parseCharacterMacroData(
   if (!raw) return null;
 
   try {
-    const parsed = typeof raw.data === "string" ? JSON.parse(raw.data) : raw.data;
-    const data = getRecord(parsed);
+    const data = getRecord(raw.data);
     if (!data) return { id: raw.id, name: "Unknown" };
     const extensions = getRecord(data.extensions);
     return {
@@ -93,6 +85,8 @@ export function parseCharacterMacroData(
       appearance: getString(extensions?.appearance),
       scenario: getString(data.scenario),
       example: getString(data.mes_example),
+      systemPrompt: getString(data.system_prompt) || getString(data.systemPrompt),
+      postHistoryInstructions: getString(data.post_history_instructions) || getString(data.postHistoryInstructions),
     };
   } catch {
     return { id: raw.id, name: "Unknown" };
@@ -182,6 +176,17 @@ export function buildMessageMacroContext({
     user: userName ?? persona?.name ?? "User",
     char: fallbackCharacter?.name ?? "Character",
     characters: characters.map((character) => character.name).filter((name) => name.trim().length > 0),
+    characterProfiles: characters.map((character) => ({
+      name: character.name,
+      description: character.description ?? "",
+      personality: character.personality ?? "",
+      backstory: character.backstory ?? "",
+      appearance: character.appearance ?? "",
+      scenario: character.scenario ?? "",
+      example: character.example ?? "",
+      systemPrompt: character.systemPrompt ?? "",
+      postHistoryInstructions: character.postHistoryInstructions ?? "",
+    })),
     variables,
     lastInput,
     characterFields: fallbackCharacter
@@ -192,6 +197,8 @@ export function buildMessageMacroContext({
           appearance: fallbackCharacter.appearance ?? "",
           scenario: fallbackCharacter.scenario ?? "",
           example: fallbackCharacter.example ?? "",
+          systemPrompt: fallbackCharacter.systemPrompt ?? "",
+          postHistoryInstructions: fallbackCharacter.postHistoryInstructions ?? "",
         }
       : undefined,
     personaFields: persona

@@ -32,7 +32,10 @@ import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 const EXEC_TYPES = [
   { value: "static", label: "Static Result", icon: FileText, description: "Returns a fixed string when called." },
   { value: "webhook", label: "Webhook", icon: Globe, description: "Sends a POST request to an external URL." },
+  { value: "script", label: "Script", icon: Code2, description: "Runs a local JavaScript function body." },
 ] as const;
+
+type ExecType = "static" | "webhook" | "script";
 
 // ═══════════════════════════════════════════════
 //  Main Editor
@@ -56,9 +59,10 @@ export function ToolEditor() {
   // ── Local state ──
   const [localName, setLocalName] = useState("");
   const [localDesc, setLocalDesc] = useState("");
-  const [localExecType, setLocalExecType] = useState<"static" | "webhook">("static");
+  const [localExecType, setLocalExecType] = useState<ExecType>("static");
   const [localWebhookUrl, setLocalWebhookUrl] = useState("");
   const [localStaticResult, setLocalStaticResult] = useState("");
+  const [localScriptBody, setLocalScriptBody] = useState("");
   const [localParams, setLocalParams] = useState<ParamDef[]>([]);
   const [dirty, setDirty] = useState(false);
   const setEditorDirty = useUIStore((s) => s.setEditorDirty);
@@ -73,34 +77,37 @@ export function ToolEditor() {
     if (dbTool) {
       setLocalName(dbTool.name);
       setLocalDesc(dbTool.description);
-      setLocalExecType(dbTool.executionType === "webhook" ? "webhook" : "static");
+      const execType: ExecType =
+        dbTool.executionType === "webhook"
+          ? "webhook"
+          : dbTool.executionType === "script"
+            ? "script"
+            : "static";
+      setLocalExecType(execType);
       setLocalWebhookUrl(dbTool.webhookUrl ?? "");
       setLocalStaticResult(dbTool.staticResult ?? "");
-      // Parse params from schema
-      try {
-        const schema = JSON.parse(dbTool.parametersSchema || "{}");
-        const props = schema.properties ?? {};
-        const req: string[] = schema.required ?? [];
-        setLocalParams(
-          Object.entries(props).map(([name, p]) => {
-            const prop = p as { type?: string; description?: string };
-            return {
-              name,
-              type: prop.type ?? "string",
-              description: prop.description ?? "",
-              required: req.includes(name),
-            };
-          }),
-        );
-      } catch {
-        setLocalParams([]);
-      }
+      setLocalScriptBody(dbTool.scriptBody ?? "");
+      const schema = dbTool.parametersSchema ?? {};
+      const props = (schema.properties as Record<string, unknown> | undefined) ?? {};
+      const req: string[] = Array.isArray(schema.required) ? schema.required.filter((value): value is string => typeof value === "string") : [];
+      setLocalParams(
+        Object.entries(props).map(([name, p]) => {
+          const prop = p as { type?: string; description?: string };
+          return {
+            name,
+            type: prop.type ?? "string",
+            description: prop.description ?? "",
+            required: req.includes(name),
+          };
+        }),
+      );
     } else if (isNew) {
       setLocalName("");
       setLocalDesc("");
       setLocalExecType("static");
       setLocalWebhookUrl("");
       setLocalStaticResult("");
+      setLocalScriptBody("");
       setLocalParams([]);
     }
     setDirty(false);
@@ -130,29 +137,36 @@ export function ToolEditor() {
     return { type: "object", properties, required };
   }, [localParams]);
 
-  const handleSave = useCallback(async () => {
-    if (!toolDetailId) return;
+  // Returns true on persisted save, false on any validation or mutation failure.
+  // Callers that auto-close on save (Save & close) must gate the close on this
+  // result so a failed save does not discard the user's unsaved edits.
+  const handleSave = useCallback(async (): Promise<boolean> => {
+    if (!toolDetailId) return false;
     setSaveError(null);
 
     if (!localName.trim()) {
       setSaveError("Tool name is required.");
-      return;
+      return false;
     }
     if (!/^[a-z][a-z0-9_]*$/.test(localName)) {
       setSaveError("Tool name must be lowercase snake_case (e.g. my_tool).");
-      return;
+      return false;
     }
     if (!localDesc.trim()) {
       setSaveError("Description is required.");
-      return;
+      return false;
     }
     if (localExecType === "static" && !localStaticResult.trim()) {
       setSaveError("Static result is required for a static custom tool.");
-      return;
+      return false;
     }
     if (localExecType === "webhook" && !localWebhookUrl.trim()) {
       setSaveError("Webhook URL is required for a webhook custom tool.");
-      return;
+      return false;
+    }
+    if (localExecType === "script" && !localScriptBody.trim()) {
+      setSaveError("Script body is required for a script custom tool.");
+      return false;
     }
     const payload = {
       name: localName,
@@ -161,6 +175,7 @@ export function ToolEditor() {
       executionType: localExecType,
       webhookUrl: localExecType === "webhook" ? localWebhookUrl || null : null,
       staticResult: localExecType === "static" ? localStaticResult || null : null,
+      scriptBody: localExecType === "script" ? localScriptBody || null : null,
       enabled: true,
     };
 
@@ -174,8 +189,10 @@ export function ToolEditor() {
       setDirty(false);
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);
+      return true;
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Failed to save tool");
+      return false;
     }
   }, [
     toolDetailId,
@@ -184,6 +201,7 @@ export function ToolEditor() {
     localExecType,
     localWebhookUrl,
     localStaticResult,
+    localScriptBody,
     dbTool,
     createTool,
     updateTool,
@@ -292,8 +310,8 @@ export function ToolEditor() {
             </button>
             <button
               onClick={async () => {
-                await handleSave();
-                closeToolDetail();
+                const saved = await handleSave();
+                if (saved) closeToolDetail();
               }}
               className="rounded-lg bg-amber-500/20 px-3 py-1 hover:bg-amber-500/30"
             >
@@ -437,7 +455,7 @@ export function ToolEditor() {
 
           {/* ── Execution Type ── */}
           <FieldGroup label="Execution Type" icon={<Wrench size="0.875rem" className="text-[var(--primary)]" />}>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {EXEC_TYPES.map((et) => {
                 const isActive = localExecType === et.value;
                 const Icon = et.icon;
@@ -501,6 +519,27 @@ export function ToolEditor() {
                 A POST request will be sent with{" "}
                 <code className="rounded bg-[var(--secondary)] px-1">{"{ tool, arguments }"}</code> as JSON body.
                 Response is returned to the AI.
+              </p>
+            </FieldGroup>
+          )}
+
+          {localExecType === "script" && (
+            <FieldGroup label="Script Body" icon={<Code2 size="0.875rem" className="text-[var(--primary)]" />}>
+              <textarea
+                value={localScriptBody}
+                onChange={(e) => {
+                  setLocalScriptBody(e.target.value);
+                  markDirty();
+                }}
+                rows={10}
+                placeholder={`const name = args.name ?? "there";\nreturn { result: \`Hello, \${name}.\` };`}
+                className="w-full resize-y rounded-xl bg-[var(--secondary)] px-4 py-3 font-mono text-xs leading-relaxed ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)]/50 focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+              />
+              <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
+                Runs locally in the Tauri app with <code className="rounded bg-[var(--secondary)] px-1">args</code>,{" "}
+                <code className="rounded bg-[var(--secondary)] px-1">JSON</code>,{" "}
+                <code className="rounded bg-[var(--secondary)] px-1">Math</code>, and{" "}
+                <code className="rounded bg-[var(--secondary)] px-1">Date</code>. Return a JSON-serializable value.
               </p>
             </FieldGroup>
           )}

@@ -25,6 +25,14 @@ export const presetKeys = {
 
 type PromptNestedKind = "groups" | "sections" | "variables";
 
+export type PromptPresetSummary = Pick<PromptPreset, "id" | "name" | "isDefault"> & {
+  default?: boolean | string;
+};
+
+const PRESET_SUMMARY_OPTIONS = {
+  fields: ["id", "name", "isDefault", "default"],
+};
+
 const promptNestedEntity: Record<PromptNestedKind, string> = {
   groups: "prompt-groups",
   sections: "prompt-sections",
@@ -40,10 +48,7 @@ const promptOrderField: Record<PromptNestedKind, string> = {
 const presetOrderQueues = new Map<string, Promise<void>>();
 
 function parseOrderIds(value: unknown): string[] {
-  if (Array.isArray(value)) return value.filter((id): id is string => typeof id === "string");
-  if (typeof value !== "string" || !value.trim()) return [];
-  const parsed = JSON.parse(value) as unknown;
-  return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
 }
 
 async function runPresetOrderUpdate<T>(presetId: string, task: () => Promise<T>): Promise<T> {
@@ -137,6 +142,16 @@ export function usePresets() {
     queryKey: presetKeys.list(),
     queryFn: () => storageApi.list<PromptPreset>("prompts"),
     staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function usePresetSummaries() {
+  return useQuery({
+    queryKey: [...presetKeys.list(), "summaries"],
+    queryFn: () => storageApi.list<PromptPresetSummary>("prompts", PRESET_SUMMARY_OPTIONS),
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -146,6 +161,7 @@ export function usePreset(id: string | null) {
     queryFn: () => storageApi.get<PromptPreset>("prompts", id!),
     enabled: !!id,
     staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -372,7 +388,7 @@ export function useReorderSections() {
       if (prev?.preset?.sectionOrder) {
         qc.setQueryData(presetKeys.full(presetId), {
           ...prev,
-          preset: { ...prev.preset, sectionOrder: JSON.stringify(sectionIds) },
+          preset: { ...prev.preset, sectionOrder: sectionIds },
         });
       }
       return { prev };

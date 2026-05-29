@@ -28,13 +28,19 @@ import {
   Cookie,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { characterKeys } from "../../../catalog/characters/index";
+import {
+  cacheCharacterListRecordFromResult,
+  invalidateCharacterCollectionQueries,
+} from "../../../catalog/characters/index";
 import { lorebookKeys } from "../../../catalog/lorebooks/index";
 import { parsePngCharacterCard } from "../../../../shared/lib/png-parser";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { toast } from "sonner";
 import { cn } from "../../../../shared/lib/utils";
-import { confirmEmbeddedLorebookImport, readEmbeddedLorebookFromCharacterPayload } from "../../../../shared/lib/character-import";
+import {
+  confirmEmbeddedLorebookImport,
+  readEmbeddedLorebookFromCharacterPayload,
+} from "../../../../shared/lib/character-import";
 import {
   botBrowserAssetUrl,
   botBrowserBlob,
@@ -608,7 +614,6 @@ const jannyProvider: ProviderConfig = {
     }
     return null;
   },
-
 };
 
 // ════════════════════════════════════════════════
@@ -1196,6 +1201,8 @@ export function BotBrowserView() {
     setPersistLogin("chartavern", val);
   }, []);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const searchRequestIdRef = useRef(0);
+  const searchCriteriaKeyRef = useRef("");
 
   // ── Check auth sessions on mount — sync persisted state with server ──
   useEffect(() => {
@@ -1302,7 +1309,43 @@ export function BotBrowserView() {
     };
   }, [sourceId]);
 
+  const searchCriteriaKey = useMemo(
+    () =>
+      JSON.stringify({
+        providerId: provider.id,
+        query,
+        page,
+        sort,
+        nsfw,
+        includeTags,
+        excludeTags,
+        sortAsc,
+        minTokens,
+        maxTokens,
+        features,
+        extraToggles,
+      }),
+    [
+      provider.id,
+      query,
+      page,
+      sort,
+      nsfw,
+      includeTags,
+      excludeTags,
+      sortAsc,
+      minTokens,
+      maxTokens,
+      features,
+      extraToggles,
+    ],
+  );
+  searchCriteriaKeyRef.current = searchCriteriaKey;
+
   const doSearch = useCallback(async () => {
+    const requestId = searchRequestIdRef.current + 1;
+    searchRequestIdRef.current = requestId;
+    const requestCriteriaKey = searchCriteriaKey;
     setLoading(true);
     setError(null);
     try {
@@ -1320,13 +1363,17 @@ export function BotBrowserView() {
         extraToggles,
       });
 
+      if (searchRequestIdRef.current !== requestId || searchCriteriaKeyRef.current !== requestCriteriaKey) return;
       setResults(result.cards);
       setTotalCount(result.totalCount);
     } catch (err) {
+      if (searchRequestIdRef.current !== requestId || searchCriteriaKeyRef.current !== requestCriteriaKey) return;
       setError(err instanceof Error ? err.message : "Search failed");
       setResults([]);
     } finally {
-      setLoading(false);
+      if (searchRequestIdRef.current === requestId && searchCriteriaKeyRef.current === requestCriteriaKey) {
+        setLoading(false);
+      }
     }
   }, [
     provider,
@@ -1341,6 +1388,7 @@ export function BotBrowserView() {
     maxTokens,
     features,
     extraToggles,
+    searchCriteriaKey,
   ]);
 
   useEffect(() => {
@@ -1397,7 +1445,8 @@ export function BotBrowserView() {
         });
         if (data.success) {
           toast.success(`Imported "${data.name ?? "character"}" successfully!`);
-          qc.invalidateQueries({ queryKey: characterKeys.list() });
+          const cached = cacheCharacterListRecordFromResult(qc, data);
+          if (!cached) invalidateCharacterCollectionQueries(qc);
           if (data.lorebook) qc.invalidateQueries({ queryKey: lorebookKeys.all });
         } else throw new Error(data.error ?? "Import failed");
       } else {
@@ -1443,7 +1492,8 @@ export function BotBrowserView() {
         const data = await importStCharacter(v2);
         if (data.success) {
           toast.success(`Imported "${data.name ?? card.name}" successfully!`);
-          qc.invalidateQueries({ queryKey: characterKeys.list() });
+          const cached = cacheCharacterListRecordFromResult(qc, data);
+          if (!cached) invalidateCharacterCollectionQueries(qc);
           if (data.lorebook) qc.invalidateQueries({ queryKey: lorebookKeys.all });
         } else throw new Error(data.error ?? "Import failed");
       }

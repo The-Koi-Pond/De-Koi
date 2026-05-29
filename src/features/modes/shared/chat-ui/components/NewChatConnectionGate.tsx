@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, Loader2, MessageCircle, Plug, X } from "lucide-react";
+import { BookOpen, Loader2, MessageCircle, Plug, Settings, X } from "lucide-react";
 import { useCreateChat } from "../../../../catalog/chats/index";
 import { useApplyChatPreset, useChatPresets } from "../../../../catalog/chat-presets/index";
 import { useConnections } from "../../../../catalog/connections/index";
@@ -16,6 +16,13 @@ const MODE_META: Record<Mode, { label: string; icon: React.ReactNode }> = {
   game: { label: "Game", icon: <BookOpen size="0.875rem" /> },
 };
 
+function hasEmbeddedTauriIpc(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)
+  );
+}
+
 interface NewChatConnectionGateProps {
   mode: Mode;
   onClose: () => void;
@@ -27,6 +34,8 @@ export function NewChatConnectionGate({ mode, onClose }: NewChatConnectionGatePr
   const { data: chatPresetsData } = useChatPresets();
   const applyChatPreset = useApplyChatPreset();
   const openRightPanel = useUIStore((state) => state.openRightPanel);
+  const setSettingsTab = useUIStore((state) => state.setSettingsTab);
+  const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
   const [connectionId, setConnectionId] = useState<string>("");
 
   const connectionRows = useMemo(
@@ -80,9 +89,16 @@ export function NewChatConnectionGate({ mode, onClose }: NewChatConnectionGatePr
   };
 
   const showEmptyState = !isLoading && connectionRows.length === 0;
+  const needsRemoteRuntimeUrl = showEmptyState && !hasEmbeddedTauriIpc() && remoteRuntimeUrl.trim().length === 0;
 
   const handleOpenConnections = () => {
     openRightPanel("connections");
+    onClose();
+  };
+
+  const handleOpenRemoteRuntimeSettings = () => {
+    setSettingsTab("advanced");
+    openRightPanel("settings");
     onClose();
   };
 
@@ -102,15 +118,34 @@ export function NewChatConnectionGate({ mode, onClose }: NewChatConnectionGatePr
               </div>
             </div>
             <button
+              type="button"
               onClick={onClose}
-              className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+              aria-label="Close setup"
+              className="flex min-h-8 min-w-8 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)] max-md:min-h-11 max-md:min-w-11"
             >
-              <X size="0.875rem" />
+              <X size="0.875rem" aria-hidden="true" />
             </button>
           </div>
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4">
-            {showEmptyState ? (
+            {needsRemoteRuntimeUrl ? (
+              <div className="rounded-xl border border-[var(--primary)]/20 bg-[var(--primary)]/8 p-4">
+                <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
+                  <Settings size="0.875rem" className="text-[var(--primary)]" />
+                  Remote Runtime required
+                </div>
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  Configure the Remote Runtime URL first. Web-shell mode needs it before connections can be created.
+                </p>
+                <button
+                  onClick={handleOpenRemoteRuntimeSettings}
+                  className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-3 py-2 text-xs font-medium text-[var(--primary)] transition-all hover:bg-[var(--primary)]/20"
+                >
+                  <Settings size="0.75rem" />
+                  Open Advanced Settings
+                </button>
+              </div>
+            ) : showEmptyState ? (
               <div className="rounded-xl border border-[var(--primary)]/20 bg-[var(--primary)]/8 p-4">
                 <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
                   <Plug size="0.875rem" className="text-[var(--primary)]" />

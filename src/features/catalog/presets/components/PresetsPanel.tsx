@@ -90,15 +90,7 @@ export function PresetsPanel() {
     );
   };
 
-  const getSectionCount = (preset: PresetRow) => {
-    try {
-      const order = preset.sectionOrder;
-      if (Array.isArray(order)) return order.length;
-      return JSON.parse(order ?? "[]").length;
-    } catch {
-      return 0;
-    }
-  };
+  const getSectionCount = (preset: PresetRow) => (Array.isArray(preset.sectionOrder) ? preset.sectionOrder.length : 0);
 
   const exitSelectionMode = () => {
     setSelectionMode(false);

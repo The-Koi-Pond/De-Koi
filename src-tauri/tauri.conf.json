@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Marinara Engine",
-  "version": "0.1.0",
+  "version": "1.6.1",
   "identifier": "com.marinara-engine.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -15,6 +15,7 @@
         "title": "Marinara Engine",
         "width": 800,
         "height": 600,
+        "center": true,
         "dragDropEnabled": false,
         "decorations": false,
         "resizable": true,
@@ -26,7 +27,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/**"]
+        "scope": ["$APPDATA/**", "$APPLOCALDATA/**", "$APPCONFIG/**"]
       }
     }
   },

@@ -25,12 +25,16 @@ import {
   Tag,
   Pencil,
   Download,
+  X,
+  Star,
 } from "lucide-react";
 import {
   useBulkExportChats,
-  useChats,
+  useChatSummaries,
   useDeleteChat,
   useDeleteChatGroup,
+  useUpdateChatMetadata,
+  type BulkChatExportFormat,
 } from "../../features/catalog/chats/index";
 import {
   useChatFolders,
@@ -40,13 +44,13 @@ import {
   useReorderFolders,
   useMoveChat,
 } from "../../features/catalog/chats/index";
-import { useCharacters } from "../../features/catalog/characters/index";
+import { useCharacterSummaries } from "../../features/catalog/characters/index";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
 import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../shared/lib/utils";
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import type { Chat, ChatFolder } from "../../engine/contracts/types/chat";
+import type { ChatFolder } from "../../engine/contracts/types/chat";
 import { Modal } from "../../shared/components/ui/Modal";
 import { Reorder, useDragControls } from "framer-motion";
 import { parseChatMetadata } from "../../shared/lib/chat-display";
@@ -55,10 +59,14 @@ import { useStartNewChat } from "./useStartNewChat";
 type ChatSortOption = "newest" | "oldest" | "name-asc" | "name-desc";
 export type ChatSidebarTab = "conversation" | "roleplay" | "game";
 
-function getChatTags(chat: Pick<Chat, "metadata">): string[] {
+function getChatTags(chat: { metadata?: { tags?: unknown } | null }): string[] {
   return Array.isArray(chat.metadata?.tags)
     ? chat.metadata.tags.filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
     : [];
+}
+
+function isChatPinned(chat: { metadata?: unknown }): boolean {
+  return parseChatMetadata(chat.metadata).pinned === true;
 }
 
 function toSearchText(value: unknown): string {
@@ -98,14 +106,6 @@ const MODE_CONFIG: Record<
     bg: "linear-gradient(135deg, #eb8951, #d97530)",
     description: "Immersive roleplay with characters, game state tracking, and world simulation.",
   },
-  visual_novel: {
-    icon: <Theater size="0.875rem" />,
-    label: "Visual Novel",
-    shortLabel: "VN",
-    bg: "linear-gradient(135deg, #e15c8c, #c94776)",
-    description: "A full game experience with backgrounds, sprites, text boxes, and choices.",
-    comingSoon: true,
-  },
   game: {
     icon: <Theater size="0.875rem" />,
     label: "Game",
@@ -122,15 +122,16 @@ export function ChatSidebar({
   activeTab: ChatSidebarTab;
   onActiveTabChange: (tab: ChatSidebarTab) => void;
 }) {
-  const { data: chats, isError: chatsError, isLoading, isFetching, refetch: refetchChats } = useChats();
+  const { data: chats, isError: chatsError, isLoading, isFetching, refetch: refetchChats } = useChatSummaries();
   const deleteChat = useDeleteChat();
   const deleteChatGroup = useDeleteChatGroup();
+  const updateChatMetadata = useUpdateChatMetadata();
   const bulkExportChats = useBulkExportChats();
   const activeChatId = useChatStore((s) => s.activeChatId);
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
   const unreadCounts = useChatStore((s) => s.unreadCounts);
   const hydrateUnread = useChatStore((s) => s.hydrateUnread);
-  const { data: allCharacters } = useCharacters();
+  const { data: allCharacters } = useCharacterSummaries();
   const hasAnyDetailOpen = useUIStore((s) => s.hasAnyDetailOpen);
   const editorDirty = useUIStore((s) => s.editorDirty);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
@@ -157,26 +158,19 @@ export function ChatSidebar({
       }
     >();
     if (!allCharacters) return map;
-    for (const char of allCharacters as Array<{ id: string; data: unknown; avatarPath: string | null }>) {
-      try {
-        const parsed = typeof char.data === "string" ? JSON.parse(char.data) : char.data;
-        const record = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
-        const extensions =
-          record.extensions && typeof record.extensions === "object"
-            ? (record.extensions as Record<string, unknown>)
-            : {};
-        const name = typeof record.name === "string" && record.name.trim() ? record.name.trim() : "Unknown";
-        const conversationStatus =
-          typeof extensions.conversationStatus === "string" ? extensions.conversationStatus : undefined;
-        map.set(char.id, {
-          name,
-          avatarUrl: char.avatarPath ?? null,
-          avatarCrop: (extensions.avatarCrop as AvatarCropValue | undefined) ?? null,
-          conversationStatus,
-        });
-      } catch {
-        map.set(char.id, { name: "Unknown", avatarUrl: null });
-      }
+    for (const char of allCharacters) {
+      const record = char.data && typeof char.data === "object" ? (char.data as Record<string, unknown>) : {};
+      const extensions =
+        record.extensions && typeof record.extensions === "object" ? (record.extensions as Record<string, unknown>) : {};
+      const name = typeof record.name === "string" && record.name.trim() ? record.name.trim() : "Unknown";
+      const conversationStatus =
+        typeof extensions.conversationStatus === "string" ? extensions.conversationStatus : undefined;
+      map.set(char.id, {
+        name,
+        avatarUrl: char.avatarPath ?? null,
+        avatarCrop: (extensions.avatarCrop as AvatarCropValue | undefined) ?? null,
+        conversationStatus,
+      });
     }
     return map;
   }, [allCharacters]);
@@ -199,6 +193,7 @@ export function ChatSidebar({
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
   const [lastActiveChatIdsByGroup, setLastActiveChatIdsByGroup] = useState<Map<string, string>>(() => new Map());
+  const [batchExportMenuOpen, setBatchExportMenuOpen] = useState(false);
 
   const toggleSelectChat = useCallback((chatId: string) => {
     setSelectedChatIds((prev) => {
@@ -212,6 +207,7 @@ export function ChatSidebar({
   const exitMultiSelect = useCallback(() => {
     setMultiSelectMode(false);
     setSelectedChatIds(new Set());
+    setBatchExportMenuOpen(false);
   }, []);
 
   // Exit multi-select when switching tabs
@@ -337,12 +333,22 @@ export function ChatSidebar({
     return folders.filter((f) => f.mode === activeTab).sort((a, b) => a.sortOrder - b.sortOrder);
   }, [folders, activeTab]);
 
-  const { unfiledChats, folderChatsMap } = useMemo(() => {
-    if (!displayChats.length)
-      return { unfiledChats: displayChats, folderChatsMap: new Map<string, typeof displayChats>() };
+  const { pinnedChats, unfiledChats, folderChatsMap } = useMemo(() => {
+    if (!displayChats.length) {
+      return {
+        pinnedChats: [] as typeof displayChats,
+        unfiledChats: displayChats,
+        folderChatsMap: new Map<string, typeof displayChats>(),
+      };
+    }
+    const pinned: typeof displayChats = [];
     const unfiled: typeof displayChats = [];
     const map = new Map<string, typeof displayChats>();
     for (const entry of displayChats) {
+      if (isChatPinned(entry.chat)) {
+        pinned.push(entry);
+        continue;
+      }
       const fid = entry.chat.folderId;
       if (!fid) {
         unfiled.push(entry);
@@ -351,7 +357,7 @@ export function ChatSidebar({
       if (!map.has(fid)) map.set(fid, []);
       map.get(fid)!.push(entry);
     }
-    return { unfiledChats: unfiled, folderChatsMap: map };
+    return { pinnedChats: pinned, unfiledChats: unfiled, folderChatsMap: map };
   }, [displayChats]);
 
   const [localFolderOrder, setLocalFolderOrder] = useState<string[]>([]);
@@ -467,8 +473,9 @@ export function ChatSidebar({
   }, [activeChatId, chats, folders, updateFolderMut]);
 
   const handleNewChatFromTab = useCallback(() => {
+    if (window.innerWidth < 768) setSidebarOpen(false);
     startNewChat(activeTab);
-  }, [activeTab, startNewChat]);
+  }, [activeTab, setSidebarOpen, startNewChat]);
 
   // ── Folder handlers ──
   const handleCreateFolder = useCallback(() => {
@@ -549,9 +556,9 @@ export function ChatSidebar({
     exitMultiSelect();
   }, [selectedChatIds, deleteChat, activeChatId, setActiveChatId, exitMultiSelect]);
 
-  const handleBatchExport = useCallback(async () => {
+  const handleBatchExport = useCallback(async (format: BulkChatExportFormat) => {
     if (selectedChatIds.size === 0) return;
-    await bulkExportChats.mutateAsync({ chatIds: Array.from(selectedChatIds) });
+    await bulkExportChats.mutateAsync({ chatIds: Array.from(selectedChatIds), format });
     exitMultiSelect();
   }, [selectedChatIds, bulkExportChats, exitMultiSelect]);
 
@@ -571,6 +578,7 @@ export function ChatSidebar({
     const cfg = MODE_CONFIG[chat.mode] ?? MODE_CONFIG.conversation;
     const isActive = activeChatId === chat.id || (chat.groupId != null && chat.groupId === activeGroupId);
     const isSelected = selectedChatIds.has(chat.id);
+    const pinned = isChatPinned(chat);
     return (
       <div
         role="button"
@@ -774,6 +782,27 @@ export function ChatSidebar({
           </span>
         )}
 
+        {/* Pin chat */}
+        {!multiSelectMode && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              updateChatMetadata.mutate({ id: chat.id, pinned: !pinned });
+            }}
+            disabled={updateChatMetadata.isPending}
+            className={cn(
+              "shrink-0 rounded-md p-1 transition-all hover:bg-[var(--accent)] disabled:opacity-50",
+              pinned
+                ? "text-amber-400 opacity-100"
+                : "text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100 max-md:opacity-100",
+            )}
+            title={pinned ? "Unpin chat" : "Pin chat"}
+            aria-label={pinned ? "Unpin chat" : "Pin chat"}
+          >
+            <Star size="0.75rem" className={pinned ? "fill-current" : ""} />
+          </button>
+        )}
+
         {/* Move to folder */}
         {!multiSelectMode && modeFolders.length > 0 && (
           <button
@@ -825,12 +854,12 @@ export function ChatSidebar({
         <div className="absolute inset-x-0 bottom-0 h-px bg-[var(--border)]/30" />
         <h2 className="retro-glow-text truncate text-sm font-bold tracking-tight">✧ Chats</h2>
         <button
-          onClick={handleNewChatFromTab}
-          className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90"
-          title={`New ${activeTab === "conversation" ? "Conversation" : activeTab === "game" ? "Game" : "Roleplay"}`}
-          aria-label={`New ${activeTab === "conversation" ? "Conversation" : activeTab === "game" ? "Game" : "Roleplay"}`}
+          onClick={() => setSidebarOpen(false)}
+          className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90 md:hidden"
+          title="Back to chat"
+          aria-label="Back to chat"
         >
-          <Plus size="1rem" />
+          <X size="1rem" />
         </button>
       </div>
 
@@ -897,6 +926,65 @@ export function ChatSidebar({
               className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
             />
           </div>
+
+          {creatingFolder ? (
+            <div className="flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 py-2 ring-1 ring-[var(--primary)]/20">
+              <FolderPlus size="0.75rem" className="text-[var(--muted-foreground)]" />
+              <input
+                autoFocus
+                placeholder="Folder name..."
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateFolder();
+                  if (e.key === "Escape") {
+                    setCreatingFolder(false);
+                    setNewFolderName("");
+                  }
+                }}
+                onBlur={() => {
+                  if (newFolderName.trim()) handleCreateFolder();
+                  else {
+                    setCreatingFolder(false);
+                    setNewFolderName("");
+                  }
+                }}
+                className="min-w-0 flex-1 bg-transparent text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                onClick={handleNewChatFromTab}
+                className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)]/15 px-2.5 text-[0.72rem] font-semibold text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25 active:scale-[0.98]"
+              >
+                <Plus size="0.8rem" />
+                New {activeTab === "conversation" ? "chat" : activeTab === "game" ? "game" : "RP"}
+              </button>
+              <button
+                onClick={() => setCreatingFolder(true)}
+                className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 text-[0.72rem] font-semibold text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/50 hover:text-[var(--foreground)] active:scale-[0.98]"
+              >
+                <FolderPlus size="0.8rem" />
+                Folder
+              </button>
+            </div>
+          )}
+
+          {displayChats.length > 0 && (
+            <button
+              onClick={() => (multiSelectMode ? exitMultiSelect() : setMultiSelectMode(true))}
+              className={cn(
+                "flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[0.6875rem] font-medium transition-all",
+                multiSelectMode
+                  ? "bg-[var(--primary)]/15 text-[var(--primary)]"
+                  : "bg-[var(--secondary)]/65 text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]",
+              )}
+            >
+              <CheckSquare size="0.75rem" />
+              {multiSelectMode ? "Cancel selection" : "Select chats"}
+            </button>
+          )}
 
           {allTags.length > 0 && (
             <div className="flex max-w-full flex-wrap items-center gap-1">
@@ -1010,55 +1098,14 @@ export function ChatSidebar({
         )}
 
         <div className="stagger-children flex flex-col gap-0.5">
-          {/* New folder */}
-          {creatingFolder ? (
-            <div className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5">
-              <FolderPlus size="0.75rem" className="text-[var(--muted-foreground)]" />
-              <input
-                autoFocus
-                placeholder="Folder name..."
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreateFolder();
-                  if (e.key === "Escape") {
-                    setCreatingFolder(false);
-                    setNewFolderName("");
-                  }
-                }}
-                onBlur={() => {
-                  if (newFolderName.trim()) handleCreateFolder();
-                  else {
-                    setCreatingFolder(false);
-                    setNewFolderName("");
-                  }
-                }}
-                className="flex-1 bg-transparent text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
-              />
-            </div>
-          ) : (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setCreatingFolder(true)}
-                className="flex flex-1 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]"
-              >
-                <FolderPlus size="0.75rem" />
-                New Folder
-              </button>
-              {displayChats.length > 0 && (
-                <button
-                  onClick={() => (multiSelectMode ? exitMultiSelect() : setMultiSelectMode(true))}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] transition-all",
-                    multiSelectMode
-                      ? "bg-[var(--primary)]/15 text-[var(--primary)]"
-                      : "text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]",
-                  )}
-                >
-                  <CheckSquare size="0.75rem" />
-                  {multiSelectMode ? "Cancel" : "Select"}
-                </button>
-              )}
+          {/* Pinned chats */}
+          {pinnedChats.length > 0 && (
+            <div className="mb-1 flex flex-col gap-0.5">
+              <div className="flex items-center gap-1 px-2 py-1 text-[0.5625rem] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                <Star size="0.625rem" className="fill-amber-400 text-amber-400" />
+                Pinned
+              </div>
+              {pinnedChats.map(renderChatRow)}
             </div>
           )}
 
@@ -1112,14 +1159,34 @@ export function ChatSidebar({
                 Move
               </button>
             )}
-            <button
-              onClick={() => void handleBatchExport()}
-              disabled={selectedChatIds.size === 0 || bulkExportChats.isPending}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium transition-all hover:bg-[var(--accent)] disabled:opacity-40"
-            >
-              <Download size="0.75rem" />
-              Export
-            </button>
+            <div className="relative flex flex-1">
+              <button
+                onClick={() => setBatchExportMenuOpen((open) => !open)}
+                disabled={selectedChatIds.size === 0 || bulkExportChats.isPending}
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium transition-all hover:bg-[var(--accent)] disabled:opacity-40"
+              >
+                <Download size="0.75rem" />
+                Export
+              </button>
+              {batchExportMenuOpen && (
+                <div className="absolute bottom-full left-0 z-20 mb-2 w-40 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--popover)] p-1 shadow-xl">
+                  {[
+                    ["jsonl", "JSONL ZIP"],
+                    ["text", "Text ZIP"],
+                    ["native", "Native JSON"],
+                  ].map(([format, label]) => (
+                    <button
+                      key={format}
+                      type="button"
+                      onClick={() => void handleBatchExport(format as BulkChatExportFormat)}
+                      className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--accent)]"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button
               onClick={handleBatchDelete}
               disabled={selectedChatIds.size === 0}

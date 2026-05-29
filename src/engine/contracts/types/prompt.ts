@@ -171,9 +171,11 @@ export interface GenerationParameters {
   frequencyPenalty: number;
   presencePenalty: number;
   /** For reasoning models */
-  reasoningEffort: "low" | "medium" | "high" | "maximum" | null;
+  reasoningEffort: "low" | "medium" | "high" | "xhigh" | "maximum" | null;
   /** Output verbosity for models that support it (GPT-5+) */
   verbosity: "low" | "medium" | "high" | null;
+  /** Optional OpenRouter service tier. */
+  serviceTier: "flex" | "priority" | null;
   /** Optional assistant-role prefill appended after the final user message. */
   assistantPrefill: string;
   /** Raw provider request parameters merged into the outgoing request body. */
@@ -186,7 +188,7 @@ export interface GenerationParameters {
   useMaxContext: boolean;
   /** Custom stop sequences */
   stopSequences: string[];
-  /** Strict role formatting: system first, then alternating user/assistant. Sections after chat_history become user role. */
+  /** Strict role formatting: merge leading system prompt, preserve later authored system sections, and alternate user/assistant history. */
   strictRoleFormatting: boolean;
   /** Send entire prompt + chat history as a single user message */
   singleUserMessage: boolean;
@@ -214,8 +216,12 @@ export interface ChatMLMessage {
   content: string;
   /** Internal context-fitting hint: prompt data is preserved before chat history. */
   contextKind?: "prompt" | "history" | "injection";
+  /** Optional: preview-only section label for assembled prompt inspection. */
+  displayName?: string;
   /** Optional: name of the speaker for multi-character */
   name?: string;
+  /** Optional: originating character id for multi-character history turns. */
+  characterId?: string;
   /** Base64 data URLs for multimodal image inputs */
   images?: string[];
   /** Provider-specific metadata (e.g. Gemini parts with thought signatures) */

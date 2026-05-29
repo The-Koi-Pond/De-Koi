@@ -3,6 +3,7 @@ import type { StorageGateway } from "../../../capabilities/storage";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
 import { boolish } from "../../../generation/runtime-records";
 import type { BaseLLMProvider, ChatMessage } from "../../../generation-core/llm/base-provider.js";
+import { readString as stringValue } from "../../../shared/value-readers";
 
 // ── Types ──
 
@@ -763,10 +764,6 @@ function buildScheduleContinuityContext(args: {
   }
 
   return sections.join("\n").slice(0, SCHEDULE_CONTINUITY_MAX_CHARS);
-}
-
-function stringValue(value: unknown): string {
-  return typeof value === "string" ? value : "";
 }
 
 function numberOrNull(value: unknown): number | null {

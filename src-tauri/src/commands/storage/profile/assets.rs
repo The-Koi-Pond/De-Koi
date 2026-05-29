@@ -12,6 +12,7 @@ const PROFILE_ASSET_DIRS: &[&str] = &[
     "avatars",
     "sprites",
     "backgrounds",
+    "gallery",
     "game-assets",
     "fonts",
     "knowledge-sources",
@@ -72,6 +73,16 @@ struct ProfileAssetTransaction {
 impl RestoredProfileAssets {
     pub(super) fn restored(&self) -> usize {
         self.restored
+    }
+
+    /// Path where staged assets live before `install()` moves them into the
+    /// live data dir. Callers that normalize legacy asset paths during the
+    /// pre-install window need this so they can find the assets that have
+    /// just been staged but are not yet at `state.data_dir`.
+    pub(super) fn staging_root(&self) -> Option<&Path> {
+        self.transaction
+            .as_ref()
+            .map(|transaction| transaction.staging_root.as_path())
     }
 
     pub(super) fn install(&mut self) -> AppResult<()> {
@@ -234,12 +245,26 @@ pub(super) fn profile_assets(state: &AppState) -> AppResult<Vec<Value>> {
     let mut assets = Vec::new();
     for dir in PROFILE_ASSET_DIRS {
         let relative = Path::new(dir);
-        collect_profile_assets(&state.data_dir, relative, &mut assets)?;
+        collect_profile_assets(&state.data_dir, relative, &mut assets, true)?;
     }
     Ok(assets)
 }
 
-fn collect_profile_assets(root: &Path, relative: &Path, assets: &mut Vec<Value>) -> AppResult<()> {
+pub(super) fn profile_assets_manifest(state: &AppState) -> AppResult<Vec<Value>> {
+    let mut assets = Vec::new();
+    for dir in PROFILE_ASSET_DIRS {
+        let relative = Path::new(dir);
+        collect_profile_assets(&state.data_dir, relative, &mut assets, false)?;
+    }
+    Ok(assets)
+}
+
+fn collect_profile_assets(
+    root: &Path,
+    relative: &Path,
+    assets: &mut Vec<Value>,
+    inline_bytes: bool,
+) -> AppResult<()> {
     let dir = root.join(relative);
     if !dir.exists() {
         return Ok(());
@@ -254,12 +279,23 @@ fn collect_profile_assets(root: &Path, relative: &Path, assets: &mut Vec<Value>)
         }
         let next_relative = relative.join(name);
         if path.is_dir() {
-            collect_profile_assets(root, &next_relative, assets)?;
+            collect_profile_assets(root, &next_relative, assets, inline_bytes)?;
         } else if path.is_file() {
-            assets.push(json!({
+            let mut asset = json!({
                 "path": profile_relative_path(&next_relative),
-                "base64": general_purpose::STANDARD.encode(fs::read(path)?),
-            }));
+            });
+            let object = asset
+                .as_object_mut()
+                .expect("profile asset metadata should be an object");
+            if inline_bytes {
+                object.insert(
+                    "base64".to_string(),
+                    Value::String(general_purpose::STANDARD.encode(fs::read(path)?)),
+                );
+            } else {
+                object.insert("size".to_string(), json!(fs::metadata(path)?.len()));
+            }
+            assets.push(asset);
         }
     }
     Ok(())
@@ -427,11 +463,15 @@ fn profile_asset_manifest_path(asset: &Value, index: usize) -> AppResult<&str> {
         })
 }
 
-pub(super) fn normalize_legacy_profile_asset_paths(state: &AppState, value: &mut Value) {
+pub(super) fn normalize_legacy_profile_asset_paths(
+    state: &AppState,
+    staging_root: Option<&Path>,
+    value: &mut Value,
+) {
     match value {
         Value::Object(object) => {
             for nested in object.values_mut() {
-                normalize_legacy_profile_asset_paths(state, nested);
+                normalize_legacy_profile_asset_paths(state, staging_root, nested);
             }
             for field in [
                 "avatar",
@@ -448,7 +488,7 @@ pub(super) fn normalize_legacy_profile_asset_paths(state: &AppState, value: &mut
                 let Some(raw) = object.get(field).and_then(Value::as_str) else {
                     continue;
                 };
-                let Some(asset) = legacy_profile_asset_for_path(state, raw) else {
+                let Some(asset) = legacy_profile_asset_for_path(state, staging_root, raw) else {
                     continue;
                 };
                 object.insert(field.to_string(), Value::String(asset.value));
@@ -476,7 +516,7 @@ pub(super) fn normalize_legacy_profile_asset_paths(state: &AppState, value: &mut
         }
         Value::Array(items) => {
             for item in items {
-                normalize_legacy_profile_asset_paths(state, item);
+                normalize_legacy_profile_asset_paths(state, staging_root, item);
             }
         }
         Value::String(raw) => {
@@ -488,7 +528,7 @@ pub(super) fn normalize_legacy_profile_asset_paths(state: &AppState, value: &mut
                 return;
             }
             if let Ok(mut parsed) = serde_json::from_str::<Value>(raw) {
-                normalize_legacy_profile_asset_paths(state, &mut parsed);
+                normalize_legacy_profile_asset_paths(state, staging_root, &mut parsed);
                 if let Ok(serialized) = serde_json::to_string(&parsed) {
                     *raw = serialized;
                 }
@@ -498,12 +538,37 @@ pub(super) fn normalize_legacy_profile_asset_paths(state: &AppState, value: &mut
     }
 }
 
-fn legacy_profile_asset_for_path(state: &AppState, value: &str) -> Option<LegacyProfileAsset> {
+fn legacy_profile_asset_for_path(
+    state: &AppState,
+    staging_root: Option<&Path>,
+    value: &str,
+) -> Option<LegacyProfileAsset> {
     let relative = legacy_profile_asset_relative_path(value)?;
-    let absolute = state.data_dir.join(&relative);
-    if !absolute.is_file() {
+    // Profile imports stage the asset files under a temporary `staging_root`
+    // and only move them into `state.data_dir` at install time, which happens
+    // AFTER row normalization. Read from whichever location currently holds
+    // the file so legacy paths (e.g. `/api/avatars/file/<hash>.png`) get
+    // rewritten - and, for avatars, embedded as data URLs - during this pass
+    // instead of being left as broken URLs.
+    let staged_path = staging_root.map(|root| root.join(&relative));
+    let staged_present = staged_path
+        .as_ref()
+        .map(|path| path.is_file())
+        .unwrap_or(false);
+    let installed_path = state.data_dir.join(&relative);
+    let read_path = if staged_present {
+        staged_path
+            .as_ref()
+            .expect("staged_present implies staging_root is Some")
+            .clone()
+    } else if installed_path.is_file() {
+        installed_path.clone()
+    } else {
         return None;
-    }
+    };
+    // `absolute` is the post-install location stored on the row, so the
+    // reference stays valid after the staging transaction commits.
+    let absolute = installed_path;
     let filename = relative
         .file_name()
         .map(|value| value.to_string_lossy().to_string())
@@ -511,7 +576,10 @@ fn legacy_profile_asset_for_path(state: &AppState, value: &str) -> Option<Legacy
     let kind = legacy_profile_asset_kind(&relative);
     let value = match kind {
         LegacyProfileAssetKind::Avatar | LegacyProfileAssetKind::FileDataUrl => {
-            data_url_from_file(&absolute)?
+            // Read from `read_path` (staging or installed, whichever holds the
+            // bytes right now) - avatars are inlined as data URLs at this
+            // point, so the bytes need to actually be available.
+            data_url_from_file(&read_path)?
         }
         LegacyProfileAssetKind::Background => managed_asset_url(
             "marinara-background:",

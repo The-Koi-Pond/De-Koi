@@ -4,7 +4,6 @@
 import { useState, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import {
-  usePersonas,
   useDeletePersona,
   useActivatePersona,
   useUploadPersonaAvatar,
@@ -15,6 +14,7 @@ import {
   useUpdatePersona,
   useDuplicatePersona,
 } from "../hooks/use-personas";
+import { usePersonaSummaries } from "../../characters/index";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
   Plus,
@@ -49,18 +49,18 @@ type PersonaRow = {
   id: string;
   name: string;
   comment?: string;
-  description: string;
-  personality: string;
-  scenario: string;
-  backstory: string;
-  appearance: string;
+  description?: string;
+  personality?: string;
+  scenario?: string;
+  backstory?: string;
+  appearance?: string;
   avatarPath: string | null;
   isActive: string | boolean;
-  createdAt: string;
-  tags?: string;
+  createdAt?: string;
+  tags?: string[];
 };
 
-type PersonaGroupRow = { id: string; name: string; description: string; personaIds: string };
+type PersonaGroupRow = { id: string; name: string; description: string; personaIds: string[] };
 
 type SortOption = "name-asc" | "name-desc" | "newest" | "oldest" | "tokens";
 
@@ -70,7 +70,7 @@ function estimateTokens(p: PersonaRow): number {
 }
 
 export function PersonasPanel() {
-  const { data: personas, isLoading } = usePersonas();
+  const { data: personas, isLoading } = usePersonaSummaries();
   const deletePersona = useDeletePersona();
   const duplicatePersona = useDuplicatePersona();
   const updatePersona = useUpdatePersona();
@@ -137,13 +137,7 @@ export function PersonasPanel() {
 
   const rawList = useMemo(() => (personas as PersonaRow[] | undefined) ?? [], [personas]);
 
-  const parseTags = (p: PersonaRow): string[] => {
-    try {
-      return p.tags ? JSON.parse(p.tags) : [];
-    } catch {
-      return [];
-    }
-  };
+  const parseTags = (p: PersonaRow): string[] => (Array.isArray(p.tags) ? p.tags : []);
 
   const allTags = useMemo(() => {
     const tagSet = new Set<string>();
@@ -169,7 +163,7 @@ export function PersonasPanel() {
         const affected = rawList.filter((p) => parseTags(p).includes(tag));
         for (const p of affected) {
           const newTags = parseTags(p).filter((t) => t !== tag);
-          await updatePersona.mutateAsync({ id: p.id, tags: JSON.stringify(newTags) });
+          await updatePersona.mutateAsync({ id: p.id, tags: newTags });
         }
         if (activeTag === tag) setActiveTag(null);
       } catch {
@@ -190,11 +184,7 @@ export function PersonasPanel() {
     return (personaGroupsRaw as PersonaGroupRow[]).map((g) => ({
       ...g,
       memberIds: (() => {
-        try {
-          return JSON.parse(g.personaIds);
-        } catch {
-          return [];
-        }
+        return Array.isArray(g.personaIds) ? g.personaIds : [];
       })() as string[],
     }));
   }, [personaGroupsRaw]);
@@ -429,7 +419,7 @@ export function PersonasPanel() {
       )}
 
       {/* Actions */}
-      <div className="flex gap-2">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <button
           onClick={handleCreate}
           className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 px-3 py-2.5 text-xs font-medium text-white shadow-md shadow-emerald-400/15 transition-all hover:shadow-lg hover:shadow-emerald-400/25 active:scale-[0.98]"

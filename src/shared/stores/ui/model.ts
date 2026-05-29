@@ -1,5 +1,8 @@
 // UI store types, constants, and pure helpers.
 import { TEMPERATURE_UNITS, normalizeTemperatureUnit, type TemperatureUnit } from "../../lib/temperature-units";
+import type { QuoteFormat } from "../../lib/dialogue-quotes";
+
+export type { QuoteFormat };
 
 export type Panel =
   | "chat"
@@ -16,6 +19,7 @@ export type VisualTheme = "default" | "sillytavern";
 export type HudPosition = "top" | "left" | "right";
 export type TrackerPanelSide = "left" | "right";
 export type TrackerThoughtBubbleDisplay = "inline" | "floating";
+export type ImagePromptFormat = "descriptive" | "tags";
 export const TRACKER_TEMPERATURE_UNITS = TEMPERATURE_UNITS;
 export type TrackerTemperatureUnit = TemperatureUnit;
 export const TRACKER_PANEL_SIZE_PROFILES = ["compact", "standard", "expanded"] as const;
@@ -25,11 +29,20 @@ export type TrackerPanelCollapsedSections = Partial<Record<TrackerDataPanelSecti
 export type TrackerPanelSectionOrder = TrackerDataPanelSection[];
 export type EchoChamberSide = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 export type UserStatus = "active" | "idle" | "dnd";
-export type RoleplayAvatarStyle = "circles" | "rectangles" | "panel";
+export type RoleplayAvatarStyle = "none" | "circles" | "rectangles" | "panel";
 export type GameDialogueDisplayMode = "classic" | "stacked";
+export type SummaryPopoverSourceMode = "last" | "range";
 export interface FloatingWidgetPosition {
   x: number;
   y: number;
+}
+export interface SummaryPopoverSettings {
+  sourceMode: SummaryPopoverSourceMode;
+  contextSize: number | null;
+  rangeStart: number | null;
+  rangeEnd: number | null;
+  hideSummarizedMessages: boolean;
+  collapseHiddenMessages: boolean;
 }
 export const APP_LANGUAGE_OPTIONS = [{ id: "en", label: "English" }] as const;
 export type AppLanguage = (typeof APP_LANGUAGE_OPTIONS)[number]["id"];
@@ -47,8 +60,10 @@ export interface GameSetupRememberedText {
   preferences: string;
 }
 
-export const SIDEBAR_WIDTH_MIN = 240;
-export const SIDEBAR_WIDTH_MAX = 480;
+export const SIDEBAR_WIDTH_DEFAULT = 320;
+export const RIGHT_PANEL_WIDTH_DEFAULT = 320;
+export const SIDEBAR_WIDTH_MIN = 280;
+export const SIDEBAR_WIDTH_MAX = 520;
 export const RIGHT_PANEL_WIDTH_MIN = 280;
 export const RIGHT_PANEL_WIDTH_MAX = 520;
 export const TRACKER_PANEL_SIZE_PROFILE_WIDTHS: Record<TrackerPanelSizeProfile, number> = {
@@ -85,6 +100,14 @@ export const DEFAULT_GAME_SETUP_LEARNED_OPTIONS: GameSetupLearnedOptions = {
 export const DEFAULT_GAME_SETUP_REMEMBERED_TEXT: GameSetupRememberedText = {
   playerGoals: "",
   preferences: "",
+};
+export const DEFAULT_SUMMARY_POPOVER_SETTINGS: SummaryPopoverSettings = {
+  sourceMode: "last",
+  contextSize: null,
+  rangeStart: null,
+  rangeEnd: null,
+  hideSummarizedMessages: false,
+  collapseHiddenMessages: false,
 };
 
 export function clampImageDimension(value: number) {
@@ -150,6 +173,20 @@ export function normalizeTrackerPanelSectionOrder(value: unknown): TrackerPanelS
   }
 
   return order;
+}
+
+export function normalizeSummaryPopoverSettings(value: unknown): SummaryPopoverSettings {
+  const raw = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+  const numberOrNull = (next: unknown) =>
+    typeof next === "number" && Number.isFinite(next) ? Math.round(next) : null;
+  return {
+    sourceMode: raw.sourceMode === "range" ? "range" : "last",
+    contextSize: numberOrNull(raw.contextSize),
+    rangeStart: numberOrNull(raw.rangeStart),
+    rangeEnd: numberOrNull(raw.rangeEnd),
+    hideSummarizedMessages: raw.hideSummarizedMessages === true || raw.hideSummarisedMessages === true,
+    collapseHiddenMessages: raw.collapseHiddenMessages === true,
+  };
 }
 
 export function normalizeLearnedGameSetupOption(value: unknown) {
@@ -243,6 +280,8 @@ export interface UIState {
   modal: { type: string; props?: Record<string, unknown> } | null;
   theme: "dark" | "light";
   chatBackground: string | null;
+  /** Blur applied to the current chat background image in px. */
+  chatBackgroundBlur: number;
   /** When set, the main area shows the full-page character editor instead of chat */
   characterDetailId: string | null;
   /** When set, the main area shows the full-page lorebook editor instead of chat */
@@ -296,6 +335,10 @@ export interface UIState {
   gameAutoPlayDelay: number;
   /** When true, generated game image prompts are shown for review before provider calls are sent. */
   reviewImagePromptsBeforeSend: boolean;
+  /** When true, character/persona appearance text is allowed into generated image prompts. */
+  imagePromptIncludeAppearances: boolean;
+  /** Preferred prompt wording for image prompt generation. */
+  imagePromptFormat: ImagePromptFormat;
   imageBackgroundWidth: number;
   imageBackgroundHeight: number;
   imagePortraitWidth: number;
@@ -314,16 +357,20 @@ export interface UIState {
   showQuickReplyGuide: boolean;
   showQuickReplyImpersonate: boolean;
   confirmBeforeDelete: boolean;
-  /** Number of messages to load per page (0 = load all) */
+  /** Number of messages to load per page */
   messagesPerPage: number;
   /** Bold quoted dialogue in chat messages; color highlighting can still remain when this is off */
   boldDialogue: boolean;
+  /** Preferred quote style applied to user input and displayed model output. */
+  quoteFormat: QuoteFormat;
   /** When true, model responses are trimmed back to the last complete sentence before saving. */
   trimIncompleteModelOutput: boolean;
   /** When true, chat inputs show a microphone button for browser speech-to-text dictation. */
   speechToTextEnabled: boolean;
   /** When true, show the global Spotify mini player in the app chrome. */
   spotifyPlayerEnabled: boolean;
+  /** When true, allow the rare Chibi Professor Mari scroll toast to register. */
+  chibiProfessorMariEnabled: boolean;
   /** Optional remote Rust runtime URL. Blank uses the embedded Tauri backend. */
   remoteRuntimeUrl: string;
   /** Mobile Spotify widget collapsed state. */
@@ -336,6 +383,10 @@ export interface UIState {
   intuitiveSwipeRerollLatest: boolean;
   /** When true, pressing Up Arrow with an empty chat input opens the last user message for editing (Conversation/Roleplay). */
   editLastMessageOnArrowUp: boolean;
+  /** When true, double-clicking or double-tapping a message opens it for editing. */
+  editMessagesOnDoubleClick: boolean;
+  /** Persisted controls shown in the Chat Summary popover settings window. */
+  summaryPopoverSettings: SummaryPopoverSettings;
 
   // ── Text Appearance ──
   /** Color for narrator text in RP mode (empty = default amber) */
@@ -373,6 +424,8 @@ export interface UIState {
   // ── Sound ──
   convoNotificationSound: boolean;
   rpNotificationSound: boolean;
+  /** When true, show native local notifications for new Conversation messages while Marinara is unfocused. */
+  conversationBrowserNotifications: boolean;
 
   // ── Custom Conversation Prompt ──
   /** User's custom default system prompt for new conversations (null = built-in default). */
@@ -410,9 +463,9 @@ export interface UIState {
   echoChamberSide: EchoChamberSide;
 
   // ── User Status ──
-  /** The user's manually chosen status. Persisted. */
+  /** The user's sticky manual status. "dnd" locks presence; "active" allows automatic idle. Persisted. */
   userStatusManual: UserStatus;
-  /** Effective status: matches manual, but auto-flips to "idle" on inactivity */
+  /** Effective status: "active" or "idle" from app presence, unless manual DND is enabled. */
   userStatus: UserStatus;
   /** Optional short activity shown with the user's status in Conversation mode. */
   userActivity: string;
@@ -460,6 +513,7 @@ export interface UIState {
   closeModal: () => void;
   setTheme: (theme: "dark" | "light") => void;
   setChatBackground: (url: string | null) => void;
+  setChatBackgroundBlur: (v: number) => void;
   openCharacterDetail: (id: string) => void;
   closeCharacterDetail: () => void;
   openLorebookDetail: (id: string) => void;
@@ -504,6 +558,8 @@ export interface UIState {
   setGameTextSpeed: (v: number) => void;
   setGameAutoPlayDelay: (v: number) => void;
   setReviewImagePromptsBeforeSend: (v: boolean) => void;
+  setImagePromptIncludeAppearances: (v: boolean) => void;
+  setImagePromptFormat: (format: ImagePromptFormat) => void;
   setImageBackgroundDimensions: (width: number, height: number) => void;
   setImagePortraitDimensions: (width: number, height: number) => void;
   setImageSelfieDimensions: (width: number, height: number) => void;
@@ -521,15 +577,19 @@ export interface UIState {
   setConfirmBeforeDelete: (v: boolean) => void;
   setMessagesPerPage: (n: number) => void;
   setBoldDialogue: (v: boolean) => void;
+  setQuoteFormat: (v: QuoteFormat) => void;
   setTrimIncompleteModelOutput: (v: boolean) => void;
   setSpeechToTextEnabled: (v: boolean) => void;
   setSpotifyPlayerEnabled: (v: boolean) => void;
+  setChibiProfessorMariEnabled: (v: boolean) => void;
   setRemoteRuntimeUrl: (v: string) => void;
   setSpotifyMobileWidgetCollapsed: (v: boolean) => void;
   setSpotifyMobileWidgetPosition: (position: FloatingWidgetPosition) => void;
   setIntuitiveSwipeNavigation: (v: boolean) => void;
   setIntuitiveSwipeRerollLatest: (v: boolean) => void;
   setEditLastMessageOnArrowUp: (v: boolean) => void;
+  setEditMessagesOnDoubleClick: (v: boolean) => void;
+  setSummaryPopoverSettings: (settings: Partial<SummaryPopoverSettings>) => void;
   setNarrationFontColor: (v: string) => void;
   setNarrationOpacity: (v: number) => void;
   setChatFontColor: (v: string) => void;
@@ -546,6 +606,7 @@ export interface UIState {
   setConvoGradientField: (scheme: "dark" | "light", field: "from" | "to", value: string) => void;
   setConvoNotificationSound: (v: boolean) => void;
   setRpNotificationSound: (v: boolean) => void;
+  setConversationBrowserNotifications: (v: boolean) => void;
   setCustomConversationPrompt: (v: string | null) => void;
   setScheduleGenerationPreferences: (v: string) => void;
   rememberGameSetupOptions: (
@@ -573,6 +634,7 @@ export interface UIState {
   toggleEchoChamber: () => void;
   setEchoChamberSide: (side: EchoChamberSide) => void;
   setUserStatus: (status: UserStatus) => void;
+  /** Sets sticky DND, or clears DND and applies an immediate active/idle effective status. */
   setUserStatusManual: (status: UserStatus) => void;
   setUserActivity: (activity: string) => void;
 }

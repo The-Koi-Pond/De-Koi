@@ -1,4 +1,5 @@
 import type { IntegrationGateway } from "../../engine/capabilities/integrations";
+import { hapticsApi } from "./haptics-api";
 import { imageGenerationApi } from "./image-generation-api";
 import { spotifyApi } from "./integration-utility-api";
 import { invokeTauri } from "./tauri-client";
@@ -18,8 +19,8 @@ export const integrationGateway: IntegrationGateway = {
     volume: <T = unknown>(input: Record<string, unknown>) => spotifyApi.volume(input) as Promise<T>,
   },
   haptic: {
-    command: <T = unknown>(input: Record<string, unknown>) => invokeTauri<T>("haptic_command", { command: input }),
-    stopAll: <T = unknown>() => invokeTauri<T>("haptic_stop_all"),
+    command: <T = unknown>(input: Record<string, unknown>) => hapticsApi.command<T>(input),
+    stopAll: <T = unknown>() => hapticsApi.stopAll<T>(),
   },
   customTools: {
     execute: <T = unknown>(input: { toolName: string; arguments: unknown }) =>
@@ -27,5 +28,13 @@ export const integrationGateway: IntegrationGateway = {
   },
   image: {
     generate: <T = unknown>(input: Record<string, unknown>) => imageGenerationApi.generate<T>(input),
+  },
+  discord: {
+    mirrorMessage: <T = unknown>(input: {
+      webhookUrl: string;
+      content: string;
+      username?: string | null;
+      avatarUrl?: string | null;
+    }) => invokeTauri<T>("discord_webhook_send", { body: input }),
   },
 };

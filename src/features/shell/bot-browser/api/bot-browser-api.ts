@@ -7,6 +7,7 @@ const TAURI_ASSET_PREFIX = "tauri-api:";
 export interface ImportCharacterResult {
   success?: boolean;
   name?: string;
+  character?: unknown;
   lorebook?: unknown;
   error?: string;
 }

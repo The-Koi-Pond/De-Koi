@@ -80,6 +80,10 @@ export type CharacterOrPersonaMakerInput = {
   prompt: string;
   connectionId: string;
   streaming?: boolean;
+  referenceTags?: string[];
+  nameHint?: string;
+  preserveNameSpelling?: boolean;
+  declensionHint?: string;
 };
 
 export type LorebookMakerInput = CharacterOrPersonaMakerInput & {
@@ -151,6 +155,32 @@ Guidelines:
 
 const LOREBOOK_BATCH_SIZE = 15;
 
+function buildCharacterMakerPrompt(input: CharacterOrPersonaMakerInput): string {
+  const lines = [`Create a character based on: ${input.prompt}`];
+  const referenceTags = (input.referenceTags ?? []).map((tag) => tag.trim()).filter(Boolean);
+  const nameHint = input.nameHint?.trim();
+  const declensionHint = input.declensionHint?.trim();
+
+  if (referenceTags.length > 0) {
+    lines.push("", `Reference tags to use as creative constraints: ${referenceTags.join(", ")}`);
+    lines.push("Reflect these tags in the generated character and output tags when they fit the concept.");
+  }
+
+  if (nameHint) {
+    lines.push("", `Preferred character name spelling: ${nameHint}`);
+    lines.push("Preserve that spelling exactly, including doubled letters, accents, capitalization, and spacing.");
+  } else if (input.preserveNameSpelling) {
+    lines.push("", "If the concept includes a character name, preserve its spelling exactly.");
+  }
+
+  if (declensionHint) {
+    lines.push("", `Name declension / grammar note: ${declensionHint}`);
+    lines.push("Keep the base name stable in the JSON name field and only use declined forms where grammatically needed in prose.");
+  }
+
+  return lines.join("\n");
+}
+
 export async function* generateCharacterMaker(
   capabilities: MakerCapabilities,
   input: CharacterOrPersonaMakerInput,
@@ -158,7 +188,7 @@ export async function* generateCharacterMaker(
 ): AsyncGenerator<MakerEvent> {
   yield* generateJsonMaker(capabilities, input, {
     systemPrompt: CHARACTER_SYSTEM_PROMPT,
-    userPrompt: `Create a character based on: ${input.prompt}`,
+    userPrompt: buildCharacterMakerPrompt(input),
     maxTokens: 8192,
   }, signal);
 }

@@ -4,6 +4,7 @@ import { AlertTriangle, Check, Download, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { profileApi } from "../../../../shared/api/profile-api";
+import { remoteRuntimeTarget } from "../../../../shared/api/remote-runtime";
 import { cn } from "../../../../shared/lib/utils";
 
 type ProfileImportStats = {
@@ -17,6 +18,7 @@ type ProfileImportStats = {
   messages?: number;
   connections?: number;
   files?: number;
+  unsupportedPromptOverrides?: number;
 };
 
 type ProfileImportProgressState = {
@@ -73,6 +75,12 @@ function formatProfileImportStats(stats?: ProfileImportStats) {
     .join(", ");
 }
 
+function formatProfileImportSkippedStats(stats?: ProfileImportStats) {
+  const count = stats?.unsupportedPromptOverrides;
+  if (typeof count !== "number" || count <= 0) return "";
+  return `${count} unsupported prompt override${count === 1 ? "" : "s"} skipped`;
+}
+
 export function ProfileImportSection() {
   const qc = useQueryClient();
   const [profileImportProgress, setProfileImportProgress] = useState<ProfileImportProgressState | null>(null);
@@ -105,6 +113,9 @@ export function ProfileImportSection() {
       elapsedSeconds: 0,
     });
     try {
+      if (remoteRuntimeTarget()) {
+        throw new Error("Profile import from a local file path is not available while Remote Runtime is configured.");
+      }
       const selected = await openDialog({
         multiple: false,
         filters: [{ name: "Marinara Profile", extensions: ["json", "zip"] }],
@@ -144,6 +155,7 @@ export function ProfileImportSection() {
       qc.invalidateQueries();
       const imported = data?.imported;
       const summary = formatProfileImportStats(imported);
+      const skippedSummary = formatProfileImportSkippedStats(imported);
       setProfileImportProgress((current) => {
         const totalItems = Math.max(1, current?.totalItems ?? 1);
         return {
@@ -156,7 +168,11 @@ export function ProfileImportSection() {
           imported,
         };
       });
-      toast.success(summary ? `Imported: ${summary}` : "Profile imported.");
+      toast.success(
+        [summary ? `Imported: ${summary}` : "Profile imported.", skippedSummary ? `Skipped: ${skippedSummary}.` : ""]
+          .filter(Boolean)
+          .join(" "),
+      );
     } catch (err) {
       const message =
         err instanceof SyntaxError
@@ -243,6 +259,11 @@ export function ProfileImportSection() {
               {formatProfileImportStats(profileImportProgress.imported) && (
                 <div className="text-[0.6875rem] text-[var(--muted-foreground)]">
                   Imported so far: {formatProfileImportStats(profileImportProgress.imported)}
+                </div>
+              )}
+              {formatProfileImportSkippedStats(profileImportProgress.imported) && (
+                <div className="text-[0.6875rem] text-[var(--muted-foreground)]">
+                  Skipped: {formatProfileImportSkippedStats(profileImportProgress.imported)}
                 </div>
               )}
             </>

@@ -3,6 +3,7 @@ import type { StorageGateway } from "../../../capabilities/storage";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
 import { boolish } from "../../../generation/runtime-records";
 import { parseGameJsonish } from "../../../shared/parsing-jsonish";
+import { readString as stringValue } from "../../../shared/value-readers";
 import type { SceneAnalysis, SceneCreateRequest, SceneCreateResponse, SceneForkRequest, SceneForkResponse, SceneFullPlan, ScenePlanRequest, ScenePlanResponse } from "../../../contracts/types/scene";
 import {
   copyTrackerSnapshotsForRebasedMessages,
@@ -28,6 +29,9 @@ const SCENE_GUIDELINES = [
   "- Treat this as a focused roleplay scene branched from the originating conversation.",
   "- Preserve character knowledge boundaries and relationship continuity from the origin chat.",
   "- The user controls their persona. Never decide their strategic choices or exact dialogue.",
+  "- Keep narration in third person unless the origin chat or requested scene explicitly uses another POV.",
+  "- Spoken dialogue must be wrapped in quotation marks. Do not leave spoken lines as bare prose.",
+  "- First messages should establish the scene and then hand the next meaningful choice back to the user.",
   "- Continue naturally until the scene concludes or returns to the origin conversation.",
 ].join("\n");
 
@@ -74,6 +78,7 @@ export async function planRoleplayScene(
             "You are a scene planner for Marinara roleplay.",
             "Return only one JSON object with fields name, description, scenario, firstMessage, background, characterIds, systemPrompt, rating, relationshipHistory, and participationGuide.",
             "The name must start with Scene:. The rating must be sfw or nsfw. Use only character IDs from the provided list.",
+            "Write firstMessage in the origin chat's narration style. If characters speak, use quotation marks.",
           ].join("\n"),
         },
         {
@@ -124,6 +129,7 @@ export async function createRoleplayScene(
     ...stringArray(originMeta.activeLorebookIds),
     ...stringArray(originChat.activeLorebookIds),
   ].filter((id, index, ids) => ids.indexOf(id) === index);
+  const inheritedSceneOptions = sceneCarryoverOptions(originMeta);
   const sceneSystemPrompt = [plan.systemPrompt, SCENE_GUIDELINES].filter((part) => part.trim()).join("\n\n");
 
   const metadata: JsonRecord = {
@@ -136,6 +142,7 @@ export async function createRoleplayScene(
     sceneRelationshipHistory: plan.relationshipHistory ?? null,
     sceneConversationContext,
     activeLorebookIds: inheritedActiveLorebookIds,
+    ...inheritedSceneOptions,
     sceneRating: plan.rating === "nsfw" ? "nsfw" : "sfw",
     sceneStatus: "active",
     enableMemoryRecall: true,
@@ -147,6 +154,7 @@ export async function createRoleplayScene(
     mode: "roleplay",
     characterIds,
     groupId: originChat.groupId ?? null,
+    folderId: originChat.folderId ?? null,
     personaId: originChat.personaId ?? null,
     promptPresetId: originChat.promptPresetId ?? null,
     connectionId,
@@ -215,6 +223,7 @@ export async function abandonRoleplayScene(
   const sceneMeta = parseJsonObject(sceneChat.metadata);
   const originChatId = stringValue(sceneMeta.sceneOriginChatId);
   if (!originChatId) throw new Error("Not a scene chat");
+  await rememberLastSceneOptions(storage, originChatId, sceneChat);
   await cleanOriginScenePointers(storage, originChatId);
   await deleteChatWithMessages(storage, input.sceneChatId);
   return { originChatId };
@@ -236,6 +245,7 @@ export async function forkRoleplayScene(
     mode: "roleplay",
     characterIds: stringArray(sceneChat.characterIds),
     groupId: sceneChat.groupId ?? null,
+    folderId: sceneChat.folderId ?? null,
     personaId: sceneChat.personaId ?? null,
     promptPresetId: sceneChat.promptPresetId ?? null,
     connectionId: sceneChat.connectionId ?? null,
@@ -524,6 +534,7 @@ async function appendSceneMemory(
 ): Promise<void> {
   const originChat = await requireChat(storage, originChatId);
   const originMeta = parseJsonObject(originChat.metadata);
+  const sceneChat = await requireChat(storage, sceneChatId);
   const previous = Array.isArray(originMeta.roleplaySceneHistory) ? originMeta.roleplaySceneHistory : [];
   const next = [
     ...previous.filter((entry) => parseJsonObject(entry).sceneChatId !== sceneChatId),
@@ -536,6 +547,17 @@ async function appendSceneMemory(
   await patchChatMetadata(storage, originChatId, {
     roleplaySceneHistory: next,
     lastRoleplaySceneSummary: summary,
+    lastRoleplaySceneOptions: sceneCarryoverOptions(parseJsonObject(sceneChat.metadata)),
+  });
+}
+
+async function rememberLastSceneOptions(
+  storage: StorageGateway,
+  originChatId: string,
+  sceneChat: JsonRecord,
+): Promise<void> {
+  await patchChatMetadata(storage, originChatId, {
+    lastRoleplaySceneOptions: sceneCarryoverOptions(parseJsonObject(sceneChat.metadata)),
   });
 }
 
@@ -657,6 +679,48 @@ function copyOptional(source: JsonRecord, keys: string[]): JsonRecord {
   return Object.fromEntries(keys.filter((key) => key in source).map((key) => [key, source[key]]));
 }
 
+const SCENE_CARRYOVER_METADATA_KEYS = [
+  "agentOverrides",
+  "enableTools",
+  "expressionAvatarsEnabled",
+  "spriteSide",
+  "spotifySourceType",
+  "spotifyPlaylistId",
+  "spotifyPlaylistName",
+  "spotifyArtist",
+  "spotifyVolume",
+  "spotifyMood",
+] as const;
+
+function sceneCarryoverSource(originMeta: JsonRecord): JsonRecord {
+  const lastSceneOptions = parseJsonObject(originMeta.lastRoleplaySceneOptions);
+  return Object.keys(lastSceneOptions).length > 0 ? lastSceneOptions : originMeta;
+}
+
+function sceneCarryoverOptions(originMeta: JsonRecord): JsonRecord {
+  const source = sceneCarryoverSource(originMeta);
+  const options = copyOptional(source, [...SCENE_CARRYOVER_METADATA_KEYS]);
+  const activeAgentIds = stringArray(source.activeAgentIds);
+  const activeToolIds = stringArray(source.activeToolIds);
+  if (source.enableAgents === false) {
+    options.enableAgents = false;
+  } else if (activeAgentIds.length > 0) {
+    options.activeAgentIds = activeAgentIds;
+    options.enableAgents = true;
+  } else if (typeof source.enableAgents === "boolean") {
+    options.enableAgents = source.enableAgents;
+  }
+  if (source.enableTools === false) {
+    options.enableTools = false;
+  } else if (activeToolIds.length > 0) {
+    options.activeToolIds = activeToolIds;
+    options.enableTools = true;
+  } else if (typeof source.enableTools === "boolean") {
+    options.enableTools = source.enableTools;
+  }
+  return options;
+}
+
 function parseObject(raw: string): JsonRecord {
   try {
     const parsed = parseGameJsonish(raw);
@@ -668,10 +732,6 @@ function parseObject(raw: string): JsonRecord {
 
 function stringArray(value: unknown): string[] {
   return parseJsonArray<string>(value).filter((item) => typeof item === "string" && item.trim().length > 0);
-}
-
-function stringValue(value: unknown): string {
-  return typeof value === "string" ? value : "";
 }
 
 function isRecord(value: unknown): value is JsonRecord {

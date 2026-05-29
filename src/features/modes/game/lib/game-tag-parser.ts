@@ -916,7 +916,7 @@ export function parseGmTags(content: string): ParsedGmTags {
 
   // Also strip other existing tags that the UI handles separately.
   // [map_update: ...] is persisted in message history, but canonical map
-  // changes are applied on the backend.
+  // changes are applied by the scene-processing path.
   text = stripMapUpdateTag(text);
   // [dialogue: npc="..."]
   text = text.replace(/\[dialogue:\s*npc="[^"]*"\]/gi, "");

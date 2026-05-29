@@ -5,7 +5,7 @@ import { useState, useCallback, useEffect, useRef, type PointerEvent, type RefOb
 import { motion } from "framer-motion";
 import type { GameMap, GameActiveState } from "../../../../engine/contracts/types/game";
 import { GameGridMap } from "./GameGridMap";
-import { GameNodeMap } from "./GameNodeMap";
+import { GameNodeMap, type GameNodeEditPatch } from "./GameNodeMap";
 import {
   ChevronDown,
   ChevronUp,
@@ -354,6 +354,13 @@ function nextMapZoom(current: number, delta: number): number {
   return Math.min(MAP_ZOOM_MAX, Math.max(MAP_ZOOM_MIN, next));
 }
 
+function updateNodeInMap(map: GameMap, nodeId: string, patch: GameNodeEditPatch): GameMap {
+  return {
+    ...map,
+    nodes: (map.nodes ?? []).map((node) => (node.id === nodeId ? { ...node, ...patch } : node)),
+  };
+}
+
 interface MapZoomControlsProps {
   zoom: number;
   onZoomOut: () => void;
@@ -411,6 +418,7 @@ interface GameMapProps {
   activeMapId?: string | null;
   viewedMapId?: string | null;
   onViewedMapChange?: (mapId: string) => void;
+  onMapChange?: (map: GameMap) => void | Promise<void>;
   onMove: (position: { x: number; y: number } | string) => void;
   selectedPosition?: { x: number; y: number } | string | null;
   onGenerateMap?: () => void;
@@ -467,6 +475,7 @@ export function GameMapPanel({
   activeMapId,
   viewedMapId,
   onViewedMapChange,
+  onMapChange,
   onMove,
   selectedPosition,
   onGenerateMap,
@@ -482,7 +491,7 @@ export function GameMapPanel({
   const [collapsed, setCollapsed] = useState(false);
   const [stateHovered, setStateHovered] = useState(false);
   const [mapZoom, setMapZoom] = useState(1);
-  const { locked, toggleLocked, x, y, handleDragEnd } = useDraggablePanel(chatId, "map");
+  const { locked, toggleLocked, x, y, panelRef, handleDragEnd } = useDraggablePanel(chatId, "map");
   const mapOptions = buildMapOptions(map, maps);
   const selectedMapId = viewedMapId ?? getMapId(map);
   const activeMap = activeMapId == null || selectedMapId === activeMapId;
@@ -524,6 +533,7 @@ export function GameMapPanel({
 
   return (
     <motion.div
+      ref={panelRef}
       data-tour="game-map"
       data-game-skip-bg-nav="true"
       drag={!locked}
@@ -628,6 +638,7 @@ export function GameMapPanel({
               onGenerateMap ? <MapGenerateButton onGenerateMap={onGenerateMap} disabled={generateMapDisabled} /> : null
             }
             topRightAction={zoomControls}
+            onEditNode={onMapChange ? (nodeId, patch) => onMapChange(updateNodeInMap(map, nodeId, patch)) : undefined}
           />
         ))}
     </motion.div>
@@ -642,6 +653,7 @@ interface MobileMapButtonProps {
   activeMapId?: string | null;
   viewedMapId?: string | null;
   onViewedMapChange?: (mapId: string) => void;
+  onMapChange?: (map: GameMap) => void | Promise<void>;
   onMove: (position: { x: number; y: number } | string) => void;
   selectedPosition?: { x: number; y: number } | string | null;
   onGenerateMap?: () => void;
@@ -660,6 +672,7 @@ export function MobileMapButton({
   activeMapId,
   viewedMapId,
   onViewedMapChange,
+  onMapChange,
   onMove,
   selectedPosition,
   onGenerateMap,
@@ -875,6 +888,9 @@ export function MobileMapButton({
                     ) : null
                   }
                   topRightAction={zoomControls}
+                  onEditNode={
+                    onMapChange ? (nodeId, patch) => onMapChange(updateNodeInMap(map, nodeId, patch)) : undefined
+                  }
                 />
               )}
             </div>

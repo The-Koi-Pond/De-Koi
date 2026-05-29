@@ -4,8 +4,9 @@
 
 import type { GenerationGuideSource } from "../../shared/text/generation-guide.js";
 
-/** The four primary chat modes the engine supports. */
-export type ChatMode = "conversation" | "roleplay" | "visual_novel" | "game";
+/** The primary chat modes the engine supports. */
+export type ChatMode = "conversation" | "roleplay" | "game";
+export type SpotifySourceType = "liked" | "playlist" | "artist" | "any";
 
 /** How a multi-character (group) chat is handled. */
 export type GroupChatMode = "merged" | "individual";
@@ -143,6 +144,8 @@ export interface ChatMetadata {
   activeSummaryPromptTemplateId?: string | null;
   /** Custom tags for organisation */
   tags: string[];
+  /** When true, this chat is pinned to the top of the sidebar for its mode. */
+  pinned?: boolean;
   /** Whether agents are enabled for this chat */
   enableAgents: boolean;
   /** Per-agent enable overrides (agentId → boolean) */
@@ -153,6 +156,8 @@ export interface ChatMetadata {
   lorebookKeeperTargetLorebookId?: string | null;
   /** How many assistant responses behind the latest available one Lorebook Keeper should read from. */
   lorebookKeeperReadBehindMessages?: number;
+  /** When true/omitted, Lorebook Keeper proposals wait for approve/reject instead of writing immediately. */
+  lorebookKeeperReviewRequired?: boolean;
   /** Tool/function IDs scoped to this chat. Non-empty = only these tools are sent; empty = use all enabled tools. */
   activeToolIds: string[];
   /** Per-chat variable selections for preset variables (variableName → value or values) */
@@ -165,6 +170,10 @@ export interface ChatMetadata {
   groupSpeakerColors?: boolean;
   /** Group individual mode response order: "sequential" or "smart" (agent-decided) */
   groupResponseOrder?: GroupResponseOrder;
+  /** Character IDs attached to this chat but muted/excluded from generation. */
+  inactiveCharacterIds?: string[];
+  /** When true/omitted, individual group turns append a responding-character instruction to the prompt. */
+  groupTurnPromptEnabled?: boolean;
   /** Characters with visible roleplay sprites enabled for this chat. */
   spriteCharacterIds?: string[];
   /** Which sprite file families the roleplay Expression Engine may display. */
@@ -198,6 +207,8 @@ export interface ChatMetadata {
   entryTimingStates?: Record<string, import("./lorebook.js").LorebookEntryTimingState>;
   /** Per-chat global lorebook token budget. Missing uses app default; 0 means unlimited. */
   lorebookTokenBudget?: number | null;
+  /** When true or omitted, stored provider thinking/reasoning is not replayed into future prompts. */
+  excludePastReasoning?: boolean;
   /** ID of the chat preset most recently applied to this chat (drives the preset bar dropdown). */
   appliedChatPresetId?: string | null;
   /** Custom prompt prefix used by the /impersonate slash command. */
@@ -208,6 +219,14 @@ export interface ChatMetadata {
   roleplayDmCommandsEnabled?: boolean;
   /** Chat-scoped Intiface Central WebSocket URL for haptic manual and auto-connect. */
   hapticIntifaceUrl?: string | null;
+  /** Music source constraint for Spotify DJ in roleplay and visual novel chats. */
+  spotifySourceType?: SpotifySourceType;
+  /** Spotify playlist ID used when spotifySourceType is "playlist". */
+  spotifyPlaylistId?: string | null;
+  /** Human-readable playlist name cached for prompts/display. */
+  spotifyPlaylistName?: string | null;
+  /** Spotify artist name used when spotifySourceType is "artist". */
+  spotifyArtist?: string | null;
   /** Durable count of autonomous messages the user has not viewed yet. */
   autonomousUnreadCount?: number;
   /** Character IDs that contributed to the current autonomous unread state. */
@@ -287,7 +306,7 @@ export interface ChatMetadata {
   /** When true, Game Mode uses Spotify DJ for music instead of local music assets. */
   gameUseSpotifyMusic?: boolean;
   /** Music source constraint for Spotify DJ in Game Mode. */
-  gameSpotifySourceType?: "liked" | "playlist" | "artist" | "any";
+  gameSpotifySourceType?: SpotifySourceType;
   /** Spotify playlist ID used when gameSpotifySourceType is "playlist". */
   gameSpotifyPlaylistId?: string | null;
   /** Human-readable playlist name cached for prompts/display. */
@@ -364,6 +383,10 @@ export interface MessageExtra {
   isConversationStart?: boolean;
   /** Model's reasoning/thinking content (if available) */
   thinking?: string | null;
+  /** Provider-shaped reasoning content from OpenAI-compatible responses. */
+  reasoning?: string | null;
+  /** Provider-shaped reasoning content from OpenAI-compatible streaming deltas. */
+  reasoning_content?: string | null;
   /** Per-swipe sprite expressions from the Expression Engine agent */
   spriteExpressions?: Record<string, string> | null;
   /** Per-swipe CYOA choices from the CYOA Choices agent */
@@ -388,6 +411,8 @@ export interface MessageExtra {
    * saved with this assistant message — reused when regenerating that swipe unless refreshed.
    */
   contextInjections?: Array<{ agentType: string; agentName?: string; text: string }> | null;
+  /** Fingerprint of the chat summary text used in the generation prompt. */
+  chatSummaryFingerprint?: string | null;
   /**
    * Hidden command-generation options needed to make swipes/regenerations replay
    * the same slash-command or guided-regenerate prompt behavior.
@@ -402,6 +427,10 @@ export interface MessageExtra {
     impersonateBlockAgents?: boolean;
     impersonatePromptTemplate?: string | null;
   } | null;
+  /** Exact main-generation LLM request saved for Peek Prompt on the active response. */
+  generationPromptSnapshot?: GenerationPromptSnapshot | null;
+  /** Exact main-generation LLM requests keyed by swipe index for regenerated alternatives. */
+  generationPromptSnapshotsBySwipe?: Record<string, GenerationPromptSnapshot>;
 }
 
 /** Metadata about how a message was generated. */
@@ -417,6 +446,49 @@ export interface GenerationInfo {
   finishReason: string | null;
 }
 
+export interface GenerationPromptSnapshotMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  name?: string;
+  images?: string[];
+  tool_call_id?: string;
+  tool_calls?: unknown;
+  [key: string]: unknown;
+}
+
+export interface GenerationPromptSnapshotInfo {
+  model?: string;
+  provider?: string;
+  temperature?: number | null;
+  maxTokens?: number | null;
+  topP?: number | null;
+  topK?: number | null;
+  frequencyPenalty?: number | null;
+  presencePenalty?: number | null;
+  showThoughts?: boolean | null;
+  reasoningEffort?: string | null;
+  verbosity?: string | null;
+  serviceTier?: string | null;
+  assistantPrefill?: string | null;
+  tokensPrompt?: number | null;
+  tokensCompletion?: number | null;
+  tokensCachedPrompt?: number | null;
+  tokensCacheWritePrompt?: number | null;
+  durationMs?: number | null;
+  finishReason?: string | null;
+}
+
+export interface GenerationPromptSnapshot {
+  messages: GenerationPromptSnapshotMessage[];
+  parameters: Record<string, unknown>;
+  tools?: unknown[] | null;
+  generationInfo?: GenerationPromptSnapshotInfo | null;
+  promptPresetId?: string | null;
+  createdAt?: string;
+}
+
+export type MessageSwipeExtra = Partial<MessageExtra> & Record<string, unknown>;
+
 /** A swipe (alternate response) for a message. */
 export interface MessageSwipe {
   id: string;
@@ -424,7 +496,7 @@ export interface MessageSwipe {
   index: number;
   content: string;
   createdAt: string;
-  extra: MessageExtra;
+  extra?: MessageSwipeExtra;
 }
 
 /** Payload sent to start a generation. */

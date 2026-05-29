@@ -9,6 +9,12 @@ services:
     environment:
       MARINARA_SERVER_ADDR: 0.0.0.0:8787
       MARINARA_DATA_DIR: /data
+      # Claude Subscription (Pro/Max) is optional. Set CLAUDE_CODE_OAUTH_TOKEN
+      # in your .env or shell env to enable the claude_subscription provider
+      # without an sk-ant-* API key. Empty value is fine; the provider can still
+      # use API-key auth or a credentials file in CLAUDE_CONFIG_DIR.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      CLAUDE_CONFIG_DIR: ${CLAUDE_CONFIG_DIR:-/data/claude-config}
     ports:
       - "8787:8787"
     volumes:

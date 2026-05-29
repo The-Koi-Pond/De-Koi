@@ -6,9 +6,12 @@
 // all assembled from committed snapshots, no LLM.
 // ──────────────────────────────────────────────
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { X, MapPin, Swords, ScrollText, Package, Users, PenLine, BookOpen, Trash2, Loader2, Wand2 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
+import { useChatStore } from "../../../../shared/stores/chat.store";
 import { gameApi } from "../api/game-api";
+import { chatKeys } from "../../../catalog/chats/index";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../../../shared/lib/markdown";
 import { AnimatedText } from "./AnimatedText";
 import type { GameNpc } from "../../../../engine/contracts/types/game";
@@ -178,6 +181,7 @@ export function GameJournal({
   const [removingNpcName, setRemovingNpcName] = useState<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestNotesRef = useRef("");
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     gameApi
@@ -193,10 +197,16 @@ export function GameJournal({
     (text: string) => {
       gameApi
         .updateNotes(chatId, text)
-        .then(() => setNotesSaved(true))
+        .then((res) => {
+          queryClient.setQueryData(chatKeys.detail(res.sessionChat.id), res.sessionChat);
+          if (useChatStore.getState().activeChatId === res.sessionChat.id) {
+            useChatStore.getState().setActiveChat(res.sessionChat);
+          }
+          setNotesSaved(true);
+        })
         .catch(() => {});
     },
-    [chatId],
+    [chatId, queryClient],
   );
 
   const handleNotesChange = useCallback(

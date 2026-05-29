@@ -20,6 +20,7 @@ import {
   useUploadCharacterGalleryImage,
   useDeleteCharacterGalleryImage,
   useUploadSprite,
+  useUploadSprites,
   useDeleteSprite,
   useCleanupSavedSprites,
   useRestoreSpriteCleanupPoint,
@@ -39,6 +40,7 @@ import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { SpriteGenerationModal } from "../../../../shared/components/ui/SpriteGenerationModal";
 import { AvatarGenerationModal } from "../../../../shared/components/ui/AvatarGenerationModal";
 import { AvatarCropWidget } from "../../../../shared/components/ui/AvatarCropWidget";
+import { ImageUploadDropzone } from "../../../../shared/components/ui/ImageUploadDropzone";
 import {
   ArrowLeft,
   Save,
@@ -89,7 +91,10 @@ import { SpriteFrameEditor } from "../../../../shared/components/ui/SpriteFrameE
 import { SpriteWandCleanupEditor } from "../../../../shared/components/ui/sprite-wand-cleanup/SpriteWandCleanupEditor";
 import { ExportFormatDialog, type ExportFormatChoice } from "../../../../shared/components/ui/ExportFormatDialog";
 import type { CharacterCardVersion, CharacterData, RPGStatsConfig } from "../../../../engine/contracts/types/character";
-import { parseTrackerCardColorConfig, serializeTrackerCardColorConfig } from "../../../../shared/lib/tracker-card-colors";
+import {
+  parseTrackerCardColorConfig,
+  serializeTrackerCardColorConfig,
+} from "../../../../shared/lib/tracker-card-colors";
 import { downloadBlob, loadUrlBlob, urlToDataUrl } from "../../../../shared/lib/url-blob";
 
 // ── Tabs ──
@@ -120,7 +125,7 @@ interface AltDescriptionEntry {
 
 interface ParsedCharacter {
   id: string;
-  data: string;
+  data: CharacterData;
   comment: string;
   avatarPath: string | null;
   spriteFolderPath: string | null;
@@ -163,9 +168,9 @@ export function CharacterEditor() {
   const imageConnections = useMemo(
     () =>
       Array.isArray(connectionsList)
-        ? (connectionsList as Array<{ id: string; name: string; model?: string | null; provider?: string | null }>).filter(
-            (connection) => connection.provider === "image_generation",
-          )
+        ? (
+            connectionsList as Array<{ id: string; name: string; model?: string | null; provider?: string | null }>
+          ).filter((connection) => connection.provider === "image_generation")
         : [],
     [connectionsList],
   );
@@ -223,24 +228,19 @@ export function CharacterEditor() {
 
     loadedCharacterIdRef.current = char.id;
 
-    try {
-      const parsed = typeof char.data === "string" ? JSON.parse(char.data) : char.data;
-      setFormData(parsed as CharacterData);
-      setCharacterComment(char.comment ?? "");
-      setAvatarPreview(char.avatarPath);
-      setDirtyState(false);
-    } catch {
-      setFormData(null);
-      setCharacterComment("");
-      setAvatarPreview(null);
-      setDirtyState(false);
-    }
+    setFormData(char.data ?? null);
+    setCharacterComment(char.comment ?? "");
+    setAvatarPreview(char.avatarPath);
+    setDirtyState(false);
   }, [rawCharacter, setDirtyState]);
 
-  const updateField = useCallback(<K extends keyof CharacterData>(key: K, value: CharacterData[K]) => {
-    setFormData((prev) => (prev ? { ...prev, [key]: value } : prev));
-    markDirty();
-  }, [markDirty]);
+  const updateField = useCallback(
+    <K extends keyof CharacterData>(key: K, value: CharacterData[K]) => {
+      setFormData((prev) => (prev ? { ...prev, [key]: value } : prev));
+      markDirty();
+    },
+    [markDirty],
+  );
 
   const setExtensionValue = useCallback((key: string, value: unknown) => {
     setFormData((prev) => {
@@ -464,7 +464,7 @@ export function CharacterEditor() {
 
     const rpgStats = formData.extensions.rpgStats as RPGStatsConfig | undefined;
     const personaStats = rpgStats
-      ? JSON.stringify({
+      ? {
           enabled: !!rpgStats.enabled,
           bars: [
             { name: "Satiety", value: 100, max: 100, color: "#f59e0b" },
@@ -473,8 +473,8 @@ export function CharacterEditor() {
             { name: "Mood", value: 100, max: 100, color: "#ec4899" },
           ],
           rpgStats,
-        })
-      : "";
+        }
+      : null;
 
     try {
       const created = (await createPersona.mutateAsync({
@@ -492,8 +492,8 @@ export function CharacterEditor() {
           parseTrackerCardColorConfig(formData.extensions.trackerCardColors),
         ),
         personaStats,
-        altDescriptions: "[]",
-        tags: JSON.stringify(formData.tags ?? []),
+        altDescriptions: [],
+        tags: formData.tags ?? [],
       })) as { id?: string };
 
       const personaId = created?.id;
@@ -617,7 +617,12 @@ export function CharacterEditor() {
         {formData.extensions.fav ? <Star size="1rem" fill="currentColor" /> : <StarOff size="1rem" />}
       </button>
 
-      <button type="button" onClick={() => setExportDialogOpen(true)} className={headerActionButtonClass} title="Export character">
+      <button
+        type="button"
+        onClick={() => setExportDialogOpen(true)}
+        className={headerActionButtonClass}
+        title="Export character"
+      >
         <svg width="1rem" height="1rem" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path
             d="M10 13V3m0 0l-4 4m4-4l4 4"
@@ -704,7 +709,7 @@ export function CharacterEditor() {
       />
 
       {/* ── Header ── */}
-      <div className="flex flex-wrap items-start gap-3 border-b border-[var(--border)] bg-[var(--card)] px-4 py-3 max-md:gap-2 max-md:px-3">
+      <div className="flex min-h-12 flex-shrink-0 flex-wrap items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-4 py-0 max-md:gap-2 max-md:px-3">
         <div className="flex min-w-0 flex-1 items-center gap-3 max-md:min-w-full">
           <button
             type="button"
@@ -1908,17 +1913,14 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
   const { data: images, isLoading } = useCharacterGalleryImages(characterId);
   const upload = useUploadCharacterGalleryImage(characterId);
   const remove = useDeleteCharacterGalleryImage(characterId);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [lightbox, setLightbox] = useState<CharacterGalleryImage | null>(null);
 
   const handleUpload = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const input = e.currentTarget;
-      const files = Array.from(input.files ?? []);
+    (files: File[]) => {
       if (files.length === 0) return;
       upload.mutate(files, {
-        onSettled: () => {
-          input.value = "";
+        onError: (error) => {
+          toast.error(error instanceof Error ? error.message : "Failed to upload character gallery images.");
         },
       });
     },
@@ -1950,17 +1952,15 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
         subtitle="Keep reference art, alternate outfits, and other character images attached to this character even if chats get deleted."
       />
 
-      <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleUpload} />
-
-      <button
-        type="button"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={upload.isPending}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--border)] px-4 py-6 text-xs text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)] hover:text-[var(--primary)] disabled:opacity-50"
-      >
-        <Upload size="1rem" />
-        {upload.isPending ? "Uploading…" : "Upload Character Images"}
-      </button>
+      <ImageUploadDropzone
+        label="Upload Character Images"
+        pending={upload.isPending}
+        pendingLabel="Uploading…"
+        dragLabel="Drop character images to upload"
+        onFilesSelected={handleUpload}
+        icon={<Upload size="1rem" />}
+        className="w-full"
+      />
 
       {isLoading ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
@@ -1975,7 +1975,11 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
               key={image.id}
               className="group relative overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] transition-all hover:border-[var(--primary)]/30 hover:shadow-md"
             >
-              <button type="button" className="block aspect-square w-full bg-[var(--secondary)]" onClick={() => setLightbox(image)}>
+              <button
+                type="button"
+                className="block aspect-square w-full bg-[var(--secondary)]"
+                onClick={() => setLightbox(image)}
+              >
                 <img
                   src={image.url}
                   alt={image.prompt || characterName || "Character image"}
@@ -2101,6 +2105,7 @@ function SpritesTab({
   const { data: sprites, isLoading } = useCharacterSprites(characterId);
   const { data: spriteCapabilities } = useSpriteCapabilities();
   const uploadSprite = useUploadSprite();
+  const uploadSprites = useUploadSprites();
   const deleteSprite = useDeleteSprite();
   const cleanupSavedSprites = useCleanupSavedSprites();
   const restoreSpriteCleanupPoint = useRestoreSpriteCleanupPoint();
@@ -2142,16 +2147,15 @@ function SpritesTab({
   const backgroundCleanupUnavailable = spriteCapabilities?.backgroundRemovalAvailable === false;
   const backgroundCleanupReason = spriteCapabilities?.reason ?? "Background cleanup is unavailable on this platform.";
   const cleanupEngineUnavailable = spriteCapabilities?.cleanupEngine?.installed === false;
-  const cleanupEngineReason =
-    spriteCapabilities?.cleanupEngine?.reason ?? "Sprite cleanup is not available.";
+  const cleanupEngineReason = spriteCapabilities?.cleanupEngine?.reason ?? "Sprite cleanup is not available.";
 
-  const normalizeExpressionForCategory = (raw: string) => {
+  const normalizeExpressionForCategory = (raw: string, forCategory: SpriteCategory = category) => {
     const cleaned = raw
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9_-]/g, "_");
     if (!cleaned) return "";
-    if (category === "full-body") {
+    if (forCategory === "full-body") {
       return cleaned.startsWith("full_") ? cleaned : `full_${cleaned}`;
     }
     return cleaned.replace(/^full_/, "");
@@ -2204,30 +2208,56 @@ function SpritesTab({
     if (imageFiles.length === 0) return;
 
     setFolderProgress({ done: 0, total: imageFiles.length });
+    try {
+      const uploads: Array<{ expression: string; image: string }> = [];
+      const folderCategory = category;
+      let skipped = 0;
 
-    for (let i = 0; i < imageFiles.length; i++) {
-      const file = imageFiles[i]!;
-      // Derive expression name from filename (strip extension, lowercase, sanitize)
-      const expression = file.name.replace(/\.[^.]+$/, "").trim();
-      const normalized = normalizeExpressionForCategory(expression);
-      if (!normalized) continue;
+      for (let i = 0; i < imageFiles.length; i++) {
+        const file = imageFiles[i]!;
+        // Derive expression name from filename (strip extension, lowercase, sanitize)
+        const expression = file.name.replace(/\.[^.]+$/, "").trim();
+        const normalized = normalizeExpressionForCategory(expression, folderCategory);
+        if (!normalized) {
+          skipped += 1;
+          setFolderProgress({ done: i + 1, total: imageFiles.length });
+          continue;
+        }
 
-      const dataUrl = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(reader.error ?? new Error(`Failed to read ${file.name}`));
+          reader.readAsDataURL(file);
+        }).catch(() => {
+          skipped += 1;
+          return null;
+        });
 
-      try {
-        await uploadSprite.mutateAsync({ characterId, expression: normalized, image: dataUrl });
-      } catch {
-        // Skip failed uploads, continue with the rest
+        if (dataUrl) {
+          uploads.push({ expression: normalized, image: dataUrl });
+        }
+        setFolderProgress({ done: i + 1, total: imageFiles.length });
       }
-      setFolderProgress({ done: i + 1, total: imageFiles.length });
-    }
 
-    setFolderProgress(null);
-    e.target.value = "";
+      if (uploads.length > 0) {
+        const result = await uploadSprites.mutateAsync({ characterId, sprites: uploads });
+        if (result.failed.length > 0 || skipped > 0) {
+          toast.warning(
+            `${result.failed.length + skipped} sprite${result.failed.length + skipped === 1 ? "" : "s"} could not be imported.`,
+          );
+        } else {
+          toast.success(`Imported ${result.imported} sprite${result.imported === 1 ? "" : "s"}.`);
+        }
+      } else if (skipped > 0) {
+        toast.error("No sprites could be imported.");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to import sprites.");
+    } finally {
+      setFolderProgress(null);
+      e.target.value = "";
+    }
   };
 
   const handleDeleteSingleSprite = useCallback(async () => {
@@ -2317,9 +2347,7 @@ function SpritesTab({
 
       if (result.processed > 0) {
         setLastCleanupRestorePointId(result.restorePointId ?? null);
-        toast.success(
-          `Cleaned ${result.processed} saved sprite${result.processed === 1 ? "" : "s"} .`,
-        );
+        toast.success(`Cleaned ${result.processed} saved sprite${result.processed === 1 ? "" : "s"} .`);
       }
       if (result.failed.length > 0) {
         toast.warning(`${result.failed.length} sprite${result.failed.length === 1 ? "" : "s"} could not be cleaned.`);
@@ -2340,7 +2368,9 @@ function SpritesTab({
         restorePointId: lastCleanupRestorePointId,
       });
       if (result.restored > 0) {
-        toast.success(`Restored ${result.restored} sprite${result.restored === 1 ? "" : "s"} from the cleanup restore point.`);
+        toast.success(
+          `Restored ${result.restored} sprite${result.restored === 1 ? "" : "s"} from the cleanup restore point.`,
+        );
       }
       if (result.failed.length > 0) {
         toast.warning(`${result.failed.length} sprite${result.failed.length === 1 ? "" : "s"} could not be restored.`);

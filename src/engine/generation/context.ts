@@ -1,5 +1,6 @@
 import type { StorageGateway } from "../capabilities/storage";
-import { boolish, isRecord, parseRecord, readString, type JsonRecord } from "./runtime-records";
+import { generationParameterSources, mergeStoredGenerationParameters } from "./generate-route-utils";
+import { boolish, isRecord, readString, type JsonRecord } from "./runtime-records";
 
 export function requireRecord(value: unknown, label: string): JsonRecord {
   if (isRecord(value)) return value;
@@ -26,17 +27,22 @@ export async function resolveGenerationConnection(
   return selected;
 }
 
-export async function loadChatMessages(storage: StorageGateway, chatId: string): Promise<JsonRecord[]> {
-  const messages = await storage.listChatMessages<unknown>(chatId);
+export async function loadChatMessages(
+  storage: StorageGateway,
+  chatId: string,
+  options?: Parameters<StorageGateway["listChatMessages"]>[1],
+): Promise<JsonRecord[]> {
+  const messages = await storage.listChatMessages<unknown>(chatId, options);
   return Array.isArray(messages) ? messages.filter(isRecord) : [];
 }
 
 export function llmParameters(
   connection: JsonRecord,
   input: { parameters?: Record<string, unknown> | null },
+  chat?: JsonRecord | null,
+  promptPresetParameters?: unknown,
 ): Record<string, unknown> {
-  return {
-    ...parseRecord(connection.defaultParameters),
-    ...parseRecord(input.parameters),
-  };
+  const sources = generationParameterSources(connection, input, chat, promptPresetParameters);
+  const merged = mergeStoredGenerationParameters(...sources);
+  return merged ?? {};
 }

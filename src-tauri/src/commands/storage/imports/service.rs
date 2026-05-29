@@ -1,5 +1,6 @@
 use super::super::media_uploads::{
-    decode_image_payload, extension_for_image_mime, safe_filename, unique_file_path,
+    decode_image_payload, extension_for_image_mime, persist_image_bytes, persist_image_file_copy,
+    safe_filename, unique_file_path,
 };
 use super::super::shared::*;
 use super::super::*;
@@ -13,17 +14,20 @@ mod marinara;
 mod normalization;
 #[path = "payloads.rs"]
 mod payloads;
+#[path = "rollback.rs"]
+mod rollback;
 #[path = "st_preset.rs"]
 mod st_preset;
 #[path = "timestamps.rs"]
 mod timestamps;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use access::*;
 use marinara::*;
 use normalization::*;
 use payloads::*;
+use rollback::*;
 use st_preset::*;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use timestamps::{apply_timestamp_overrides, timestamp_overrides_from_value};
 
 fn create_lorebook_from_payload(
@@ -34,25 +38,46 @@ fn create_lorebook_from_payload(
 ) -> AppResult<Value> {
     let (mut lorebook, entries) = normalize_lorebook(payload, fallback_name, character_id);
     apply_timestamp_overrides(&mut lorebook, &Value::Null, payload);
-    let record = state.storage.create("lorebooks", lorebook)?;
-    let lorebook_id = record
-        .get("id")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    for (index, entry) in entries.iter().enumerate() {
-        state.storage.create(
+    let mut created_lorebook_id = None;
+    let mut created_entry_ids = Vec::new();
+    let result = (|| -> AppResult<Value> {
+        let record = state.storage.create("lorebooks", lorebook)?;
+        let lorebook_id = created_record_id(&record, "lorebook")?;
+        created_lorebook_id = Some(lorebook_id.clone());
+        for (index, entry) in entries.iter().enumerate() {
+            let entry = state.storage.create(
+                "lorebook-entries",
+                normalize_lorebook_entry(&lorebook_id, entry, index),
+            )?;
+            created_entry_ids.push(created_record_id(&entry, "lorebook entry")?);
+        }
+        Ok(json!({
+            "success": true,
+            "lorebookId": lorebook_id,
+            "name": record.get("name").cloned().unwrap_or(Value::Null),
+            "entriesImported": entries.len(),
+            "lorebook": record
+        }))
+    })();
+
+    result.map_err(|error| {
+        let mut rollback_errors = Vec::new();
+        rollback_created_records(
+            state,
             "lorebook-entries",
-            normalize_lorebook_entry(&lorebook_id, entry, index),
-        )?;
-    }
-    Ok(json!({
-        "success": true,
-        "lorebookId": lorebook_id,
-        "name": record.get("name").cloned().unwrap_or(Value::Null),
-        "entriesImported": entries.len(),
-        "lorebook": record
-    }))
+            &created_entry_ids,
+            &mut rollback_errors,
+        );
+        if let Some(lorebook_id) = created_lorebook_id.as_deref() {
+            rollback_created_records(
+                state,
+                "lorebooks",
+                &[lorebook_id.to_string()],
+                &mut rollback_errors,
+            );
+        }
+        append_rollback_errors(error, "lorebook import", rollback_errors)
+    })
 }
 
 fn patch_imported_character_lorebook_pointer(
@@ -62,11 +87,7 @@ fn patch_imported_character_lorebook_pointer(
     entries_imported: usize,
 ) -> AppResult<()> {
     let character = get_required(state, "characters", character_id)?;
-    let mut data = character
-        .get("data")
-        .and_then(Value::as_str)
-        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
-        .unwrap_or_else(|| json!({}));
+    let mut data = character.get("data").cloned().unwrap_or_else(|| json!({}));
     let Some(data_object) = data.as_object_mut() else {
         return Ok(());
     };
@@ -90,20 +111,20 @@ fn patch_imported_character_lorebook_pointer(
             "entriesImported": entries_imported
         }),
     );
-    state.storage.patch(
-        "characters",
-        character_id,
-        json!({ "data": serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()) }),
-    )?;
+    state
+        .storage
+        .patch("characters", character_id, json!({ "data": data }))?;
     Ok(())
 }
 
 fn import_st_character_payload(
     state: &AppState,
-    payload: Value,
+    mut payload: Value,
     filename: Option<String>,
     body: &Value,
+    trusted_avatar_source: Option<&Path>,
 ) -> AppResult<Value> {
+    strip_reserved_avatar_source_fields(&mut payload);
     let tag_mode = body
         .get("tagImportMode")
         .and_then(Value::as_str)
@@ -114,10 +135,8 @@ fn import_st_character_payload(
         .into_iter()
         .flat_map(|row| {
             row.get("data")
-                .and_then(Value::as_str)
-                .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
-                .and_then(|data| data.get("tags").cloned())
-                .map(|tags| string_array(Some(&tags)))
+                .and_then(|data| data.get("tags"))
+                .map(|tags| string_array(Some(tags)))
                 .unwrap_or_default()
         })
         .collect();
@@ -128,65 +147,164 @@ fn import_st_character_payload(
         .unwrap_or("Imported Character")
         .to_string();
     let mut record = json!({
-        "data": serde_json::to_string(&data)?,
+        "data": data,
         "comment": data.get("creator_notes").and_then(Value::as_str).unwrap_or(""),
-        "avatarPath": payload
-            .get("_avatarDataUrl")
-            .and_then(Value::as_str)
-            .map(|value| Value::String(value.to_string()))
-            .unwrap_or(Value::Null),
+        "avatarPath": null,
         "format": payload.get("spec").and_then(Value::as_str).unwrap_or("chara_card_v2"),
     });
+    if let Some(avatar) =
+        imported_avatar_reference(state, &payload, filename.as_deref(), trusted_avatar_source)?
+    {
+        let avatar_absolute_path = avatar.absolute_path.clone();
+        let object = record
+            .as_object_mut()
+            .expect("character import record should be an object");
+        object.insert("avatarPath".to_string(), Value::String(avatar.asset_url));
+        object.insert(
+            "avatarFilePath".to_string(),
+            Value::String(avatar_absolute_path.clone()),
+        );
+        object.insert("avatarFilename".to_string(), Value::String(avatar.filename));
+    }
     apply_timestamp_overrides(&mut record, body, &payload);
-    let character = state.storage.create("characters", record)?;
 
-    let import_embedded = body
-        .get("importEmbeddedLorebook")
+    let avatar_absolute_path = record
+        .get("avatarFilePath")
         .and_then(Value::as_str)
-        .map(|raw| raw != "false")
-        .unwrap_or_else(|| {
-            body.get("importEmbeddedLorebook")
-                .and_then(Value::as_bool)
-                .unwrap_or(true)
-        });
-    let embedded = embedded_lorebook(&payload);
-    let mut lorebook_result = Value::Null;
-    if import_embedded {
-        if let Some(book) = embedded.as_ref() {
-            let character_id = character.get("id").and_then(Value::as_str);
-            lorebook_result = create_lorebook_from_payload(
-                state,
-                book,
-                &format!("{name}'s Lorebook"),
-                character_id,
-            )?;
-            if let (Some(character_id), Some(lorebook_id)) = (
-                character_id,
-                lorebook_result.get("lorebookId").and_then(Value::as_str),
-            ) {
-                patch_imported_character_lorebook_pointer(
+        .map(ToOwned::to_owned);
+    let mut created_character_id = None;
+    let mut created_lorebook_id = None;
+    let result = (|| -> AppResult<Value> {
+        let character = state.storage.create("characters", record)?;
+        let character_id = created_record_id(&character, "character")?;
+        created_character_id = Some(character_id.clone());
+
+        let import_embedded = body
+            .get("importEmbeddedLorebook")
+            .and_then(Value::as_str)
+            .map(|raw| raw != "false")
+            .unwrap_or_else(|| {
+                body.get("importEmbeddedLorebook")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true)
+            });
+        let embedded = embedded_lorebook(&payload);
+        let mut lorebook_result = Value::Null;
+        if import_embedded {
+            if let Some(book) = embedded.as_ref() {
+                lorebook_result = create_lorebook_from_payload(
                     state,
-                    character_id,
-                    lorebook_id,
-                    lorebook_entry_count(book),
+                    book,
+                    &format!("{name}'s Lorebook"),
+                    Some(&character_id),
                 )?;
+                if let Some(lorebook_id) = lorebook_result.get("lorebookId").and_then(Value::as_str)
+                {
+                    created_lorebook_id = Some(lorebook_id.to_string());
+                    patch_imported_character_lorebook_pointer(
+                        state,
+                        &character_id,
+                        lorebook_id,
+                        lorebook_entry_count(book),
+                    )?;
+                }
             }
         }
-    }
 
-    Ok(json!({
-        "success": true,
-        "characterId": character.get("id").cloned().unwrap_or(Value::Null),
-        "character": character,
-        "name": name,
-        "filename": filename,
-        "embeddedLorebook": {
-            "hasEmbeddedLorebook": embedded.as_ref().map(lorebook_entry_count).unwrap_or(0) > 0,
-            "entries": embedded.as_ref().map(lorebook_entry_count).unwrap_or(0),
-            "imported": lorebook_result.get("lorebookId").is_some(),
-            "skipped": embedded.is_some() && !import_embedded
-        },
-        "lorebook": lorebook_result
+        Ok(json!({
+            "success": true,
+            "characterId": character.get("id").cloned().unwrap_or(Value::Null),
+            "character": character,
+            "name": name,
+            "filename": filename,
+            "embeddedLorebook": {
+                "hasEmbeddedLorebook": embedded.as_ref().map(lorebook_entry_count).unwrap_or(0) > 0,
+                "entries": embedded.as_ref().map(lorebook_entry_count).unwrap_or(0),
+                "imported": lorebook_result.get("lorebookId").is_some(),
+                "skipped": embedded.is_some() && !import_embedded
+            },
+            "lorebook": lorebook_result
+        }))
+    })();
+
+    result.map_err(|error| {
+        let mut rollback_errors = Vec::new();
+        if let Some(lorebook_id) = created_lorebook_id.as_deref() {
+            rollback_lorebook_tree(state, lorebook_id, &mut rollback_errors);
+        }
+        if let Some(character_id) = created_character_id.as_deref() {
+            rollback_created_records(
+                state,
+                "characters",
+                &[character_id.to_string()],
+                &mut rollback_errors,
+            );
+        }
+        if let Some(path) = avatar_absolute_path.as_deref() {
+            rollback_managed_file_path(state, "avatars/characters", path, &mut rollback_errors);
+        }
+        append_rollback_errors(error, "character import", rollback_errors)
+    })
+}
+
+fn strip_reserved_avatar_source_fields(payload: &mut Value) {
+    let Some(object) = payload.as_object_mut() else {
+        return;
+    };
+    object.remove("_avatarSourcePath");
+    object.remove("_avatarFileCopySourcePath");
+}
+
+struct ImportedAvatarReference {
+    asset_url: String,
+    absolute_path: String,
+    filename: String,
+}
+
+fn imported_avatar_reference(
+    state: &AppState,
+    payload: &Value,
+    filename: Option<&str>,
+    trusted_avatar_source: Option<&Path>,
+) -> AppResult<Option<ImportedAvatarReference>> {
+    if let Some(source) = trusted_avatar_source {
+        let filename_hint = source
+            .file_name()
+            .and_then(|value| value.to_str())
+            .or(filename)
+            .unwrap_or("avatar.png");
+        let stored = persist_image_file_copy(state, "avatars/characters", filename_hint, source)?;
+        return Ok(Some(ImportedAvatarReference {
+            asset_url: stored.asset_url,
+            absolute_path: stored.absolute_path,
+            filename: stored.filename,
+        }));
+    }
+    let Some(value) = payload.get("_avatarDataUrl").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    if !value.starts_with("data:image/") {
+        return Ok(None);
+    }
+    let (mime, bytes) = decode_image_payload(value, "avatar")?;
+    let fallback = payload
+        .get("data")
+        .and_then(|data| data.get("name"))
+        .or_else(|| payload.get("name"))
+        .and_then(Value::as_str)
+        .or(filename)
+        .unwrap_or("avatar");
+    let stored = persist_image_bytes(
+        state,
+        "avatars/characters",
+        &safe_filename(fallback),
+        &bytes,
+        &mime,
+    )?;
+    Ok(Some(ImportedAvatarReference {
+        asset_url: stored.asset_url,
+        absolute_path: stored.absolute_path,
+        filename: stored.filename,
     }))
 }
 
@@ -200,7 +318,7 @@ pub(crate) fn import_st_character(state: &AppState, body: Value) -> AppResult<Va
     } else {
         body.clone()
     };
-    import_st_character_payload(state, payload, None, &body)
+    import_st_character_payload(state, payload, None, &body, None)
 }
 
 fn import_st_character_batch(state: &AppState, body: Value) -> AppResult<Value> {
@@ -240,7 +358,7 @@ fn import_st_character_batch(state: &AppState, body: Value) -> AppResult<Value> 
             }
         }
         let result = parse_character_file(&file.name, &file.bytes).and_then(|payload| {
-            import_st_character_payload(state, payload, Some(filename.clone()), &file_body)
+            import_st_character_payload(state, payload, Some(filename.clone()), &file_body, None)
         });
         match result {
             Ok(mut value) => {
@@ -364,3 +482,7 @@ pub(crate) fn import_stream_channel(
         )),
     }
 }
+
+#[cfg(test)]
+#[path = "service_tests.rs"]
+mod tests;

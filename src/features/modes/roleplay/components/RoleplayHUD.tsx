@@ -93,6 +93,21 @@ export function RoleplayHUD({
 }: RoleplayHUDProps & { mobileCompact?: boolean }) {
   const [agentsOpen, setAgentsOpen] = useState(false);
   const isDesktopHudLayout = useIsDesktopHudLayout();
+  const { data: agentConfigs } = useAgentConfigs();
+  const globalEnabledAgentTypes = useMemo(() => {
+    const set = new Set<string>();
+    if (agentConfigs) {
+      for (const a of agentConfigs as Array<{ type: string; enabled: string }>) {
+        if (a.enabled === "true") set.add(a.type);
+      }
+    }
+    return set;
+  }, [agentConfigs]);
+  const enabledAgentTypes = enabledAgentTypesProp ?? globalEnabledAgentTypes;
+  const trackerStateEnabled = useMemo(
+    () => Object.values(TRACKER_SECTION_AGENT_TYPES).some((agentType) => enabledAgentTypes.has(agentType)),
+    [enabledAgentTypes],
+  );
   const {
     gameState,
     playerStats,
@@ -105,20 +120,8 @@ export function RoleplayHUD({
     getSnapshot,
     patchField,
     patchPlayerStats,
-  } = useTrackerStateController(chatId, "roleplay-hud");
+  } = useTrackerStateController(chatId, "roleplay-hud", trackerStateEnabled);
   const setGameState = useGameStateStore((s) => s.setGameState);
-
-  const { data: agentConfigs } = useAgentConfigs();
-  const globalEnabledAgentTypes = useMemo(() => {
-    const set = new Set<string>();
-    if (agentConfigs) {
-      for (const a of agentConfigs as Array<{ type: string; enabled: string }>) {
-        if (a.enabled === "true") set.add(a.type);
-      }
-    }
-    return set;
-  }, [agentConfigs]);
-  const enabledAgentTypes = enabledAgentTypesProp ?? globalEnabledAgentTypes;
 
   const { data: chatForAgentsMenu } = useChat(chatId);
   const agentsMenuMetadata = useMemo(() => {
@@ -341,7 +344,7 @@ export function RoleplayHUD({
               className={cn(
                 MOBILE_HUD_BTN,
                 "justify-center text-[0.5625rem] font-medium",
-                isTrackerBusy ? "text-purple-600 dark:text-purple-300" : "text-[var(--muted-foreground)]",
+                isTrackerBusy ? "text-foreground/75" : "text-[var(--muted-foreground)]",
               )}
             >
               <RefreshCw size="0.875rem" className={cn("shrink-0 h-4 w-4", isTrackerBusy && "animate-spin")} />
@@ -431,7 +434,7 @@ export function RoleplayHUD({
                 onRetriggerTrackers();
               }}
               disabled={isTrackerBusy}
-              className={cn(WIDGET, isTrackerBusy ? "text-purple-300" : "text-[var(--muted-foreground)]")}
+              className={cn(WIDGET, isTrackerBusy ? "text-foreground/75" : "text-[var(--muted-foreground)]")}
               title={isTrackerBusy ? "Trackers running…" : "Run Trackers"}
             >
               <RefreshCw size="0.875rem" className={cn(isTrackerBusy && "animate-spin")} />

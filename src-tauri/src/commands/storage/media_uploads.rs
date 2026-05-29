@@ -7,6 +7,12 @@ pub(crate) struct StoredImageUpload {
     pub(crate) filename: String,
 }
 
+pub(crate) struct StoredManagedImage {
+    pub(crate) asset_url: String,
+    pub(crate) absolute_path: String,
+    pub(crate) filename: String,
+}
+
 pub(crate) fn persist_image_upload(
     state: &AppState,
     folder: &str,
@@ -48,6 +54,93 @@ pub(crate) fn persist_image_upload(
             .map(|value| value.to_string_lossy().to_string())
             .unwrap_or(filename),
     })
+}
+
+pub(crate) fn persist_image_file_copy(
+    state: &AppState,
+    folder: &str,
+    filename_hint: &str,
+    source_path: &Path,
+) -> AppResult<StoredManagedImage> {
+    let ext = source_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .and_then(extension_from_filename)
+        .unwrap_or("png");
+    let dir = state.data_dir.join(folder);
+    fs::create_dir_all(&dir)?;
+    let filename = managed_image_filename(filename_hint, ext);
+    let target = unique_file_path(&dir.join(filename))?;
+    fs::copy(source_path, &target)?;
+    stored_managed_image(target)
+}
+
+pub(crate) fn persist_image_bytes(
+    state: &AppState,
+    folder: &str,
+    filename_hint: &str,
+    bytes: &[u8],
+    mime: &str,
+) -> AppResult<StoredManagedImage> {
+    let ext = extension_for_image_mime(mime).unwrap_or("png");
+    let dir = state.data_dir.join(folder);
+    fs::create_dir_all(&dir)?;
+    let filename = managed_image_filename(filename_hint, ext);
+    let target = unique_file_path(&dir.join(filename))?;
+    fs::write(&target, bytes)?;
+    stored_managed_image(target)
+}
+
+fn stored_managed_image(target: PathBuf) -> AppResult<StoredManagedImage> {
+    let filename = target
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .ok_or_else(|| AppError::invalid_input("Managed image path is missing a filename"))?;
+    Ok(StoredManagedImage {
+        asset_url: file_path_asset_url(&target),
+        absolute_path: target.to_string_lossy().to_string(),
+        filename,
+    })
+}
+
+fn managed_image_filename(filename_hint: &str, fallback_ext: &str) -> String {
+    let filename = safe_filename(filename_hint);
+    if Path::new(&filename).extension().is_some() {
+        filename
+    } else {
+        format!("{filename}.{fallback_ext}")
+    }
+}
+
+pub(crate) fn file_path_asset_url(path: &Path) -> String {
+    let encoded = percent_encode_asset_path(&path.to_string_lossy());
+    if cfg!(windows) {
+        format!("http://asset.localhost/{encoded}")
+    } else {
+        format!("asset://localhost/{encoded}")
+    }
+}
+
+fn percent_encode_asset_path(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.as_bytes() {
+        match *byte {
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'_'
+            | b'.'
+            | b'!'
+            | b'~'
+            | b'*'
+            | b'\''
+            | b'('
+            | b')' => encoded.push(*byte as char),
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
 }
 
 pub(crate) fn remove_managed_record_file(
@@ -213,4 +306,28 @@ pub(crate) fn unique_file_path(target: &Path) -> AppResult<PathBuf> {
         }
     }
     Err(AppError::invalid_input("Could not allocate image filename"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_path_asset_url_matches_tauri_encoding_on_windows() {
+        let path = Path::new(r"C:\Users\Mari\My Avatar.png");
+
+        let url = file_path_asset_url(path);
+
+        if cfg!(windows) {
+            assert_eq!(
+                url,
+                "http://asset.localhost/C%3A%5CUsers%5CMari%5CMy%20Avatar.png"
+            );
+        } else {
+            assert_eq!(
+                url,
+                "asset://localhost/C%3A%5CUsers%5CMari%5CMy%20Avatar.png"
+            );
+        }
+    }
 }

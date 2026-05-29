@@ -251,13 +251,7 @@ export function AgentsPanel() {
           <p className="text-[0.625rem] text-[var(--muted-foreground)] px-1 py-2">No regex scripts yet.</p>
         ) : (
           sortedRegexScripts.map((script) => {
-            const placements = (() => {
-              try {
-                return JSON.parse(script.placement) as string[];
-              } catch {
-                return [];
-              }
-            })();
+            const placements = Array.isArray(script.placement) ? script.placement : [];
             const enabled = script.enabled === "true";
             return (
               <div

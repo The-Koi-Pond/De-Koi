@@ -81,6 +81,33 @@ export interface AgentResult {
   error: string | null;
 }
 
+/** Structured debug entry emitted by the agent runtime. */
+export interface AgentDebugEntry {
+  level?: "debug" | "info" | "warn" | "error";
+  phase: string;
+  message?: string;
+  args?: unknown[];
+  agents?: Array<{
+    type: string;
+    name: string;
+    model: string;
+    maxTokens: number;
+  }>;
+  results?: AgentResult[];
+  toolCall?: {
+    name: string;
+    arguments: string;
+    allowed: boolean;
+  };
+  toolResult?: {
+    name: string;
+    result: string;
+    success: boolean;
+  };
+  batchMaxTokens?: number;
+  timestamp: number;
+}
+
 /** Shared context passed to every agent. */
 export interface AgentContext {
   chatId: string;
@@ -134,6 +161,8 @@ export interface AgentContext {
   } | null;
   /** The agent's own persistent memory (key-value) */
   memory: Record<string, unknown>;
+  /** Optional sink for structured runtime debug entries when debugMode is enabled. */
+  debugSink?: (entry: Omit<AgentDebugEntry, "timestamp"> & { timestamp?: number }) => void;
   /** Lorebook entries activated for this generation (read context) */
   activatedLorebookEntries: Array<{ id: string; name: string; content: string; tag: string }> | null;
   /** All lorebook IDs the agent can write to */
@@ -146,6 +175,8 @@ export interface AgentContext {
   parallelResults?: AgentResult[];
   /** Whether internal agent LLM calls should use transport streaming. */
   streaming?: boolean;
+  /** Whether agent runtime diagnostics should emit to the debug sink and console. */
+  debugMode?: boolean;
   /** Abort signal — when triggered, agent execution should stop. Typed as `any` to avoid DOM/Node lib dependency. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   signal?: any;
@@ -459,6 +490,7 @@ export const BUILT_IN_AGENTS: BuiltInAgentMeta[] = [
 
 export const BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS: Readonly<Record<string, number>> = {
   director: 5,
+  illustrator: 5,
   "lorebook-keeper": 8,
   "card-evolution-auditor": 8,
   "chat-summary": 5,
@@ -646,9 +678,10 @@ export interface CustomTool {
   name: string;
   description: string;
   parametersSchema: ToolParameterSchema;
-  executionType: "webhook" | "static";
+  executionType: "webhook" | "static" | "script";
   webhookUrl: string | null;
   staticResult: string | null;
+  scriptBody: string | null;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;

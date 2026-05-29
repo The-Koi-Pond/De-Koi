@@ -60,6 +60,8 @@ function createLiveTestMacroContext(input: string): MacroContext {
       appearance: "Character appearance",
       scenario: "Character scenario",
       example: "Character example",
+      systemPrompt: "Character system prompt",
+      postHistoryInstructions: "Character post-history instructions",
     },
     personaFields: {
       description: "Persona description",
@@ -130,12 +132,16 @@ export function RegexScriptEditor() {
       setLocalFindRegex(dbRow.findRegex);
       setLocalReplaceString(dbRow.replaceString);
       try {
-        setLocalTrimStrings(JSON.parse(dbRow.trimStrings));
+        setLocalTrimStrings(Array.isArray(dbRow.trimStrings) ? dbRow.trimStrings : []);
       } catch {
         setLocalTrimStrings([]);
       }
       try {
-        setLocalPlacement(JSON.parse(dbRow.placement));
+        setLocalPlacement(
+          Array.isArray(dbRow.placement)
+            ? dbRow.placement.filter((value): value is RegexPlacement => value === "ai_output" || value === "user_input")
+            : [],
+        );
       } catch {
         setLocalPlacement(["ai_output"]);
       }

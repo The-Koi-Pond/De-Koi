@@ -23,6 +23,9 @@ const ImportLorebookModal = lazy(() =>
 const LorebookMakerModal = lazy(() =>
   import("../../features/catalog/lorebooks/shell").then((module) => ({ default: module.LorebookMakerModal })),
 );
+const LorebookKeeperReviewModal = lazy(() =>
+  import("../../features/catalog/lorebooks/shell").then((module) => ({ default: module.LorebookKeeperReviewModal })),
+);
 const CreatePresetModal = lazy(() =>
   import("../../features/catalog/presets/shell").then((module) => ({ default: module.CreatePresetModal })),
 );
@@ -77,6 +80,9 @@ export function ModalRenderer() {
       break;
     case "lorebook-maker":
       content = <LorebookMakerModal open onClose={closeModal} />;
+      break;
+    case "lorebook-keeper-review":
+      content = <LorebookKeeperReviewModal open onClose={closeModal} />;
       break;
     case "create-preset":
       content = <CreatePresetModal open onClose={closeModal} />;

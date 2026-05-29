@@ -59,6 +59,33 @@ fn imported_count(imported: &Value, key: &str) -> i64 {
     imported.get(key).and_then(Value::as_i64).unwrap_or(0)
 }
 
+fn push_import_error(errors: &mut Vec<Value>, item: impl AsRef<str>, error: AppError) {
+    errors.push(Value::String(format!(
+        "{}: {}",
+        item.as_ref(),
+        error.message
+    )));
+}
+
+fn push_path_import_error(errors: &mut Vec<Value>, path: &Path, error: AppError) {
+    push_import_error(errors, path.to_string_lossy(), error);
+}
+
+fn selected_path(
+    data_dir: &Path,
+    category: &str,
+    id: &str,
+    errors: &mut Vec<Value>,
+) -> Option<PathBuf> {
+    match path_from_id(data_dir, category, id) {
+        Ok(path) => Some(path),
+        Err(error) => {
+            push_import_error(errors, id, error);
+            None
+        }
+    }
+}
+
 fn bump_imported(imported: &mut Value, key: &str) {
     if let Some(value) = imported.get_mut(key) {
         *value = json!(value.as_i64().unwrap_or(0) + 1);
@@ -82,12 +109,21 @@ impl<'a> BulkImportProgress<'a> {
 
     fn emit_item(&mut self, category: &str, item: &Path, imported: &Value) -> AppResult<()> {
         self.current += 1;
+        self.emit_progress(category, &item.to_string_lossy(), imported)
+    }
+
+    fn emit_skipped(&mut self, category: &str, item: &str, imported: &Value) -> AppResult<()> {
+        self.current += 1;
+        self.emit_progress(category, item, imported)
+    }
+
+    fn emit_progress(&mut self, category: &str, item: &str, imported: &Value) -> AppResult<()> {
         if let Some(emit) = self.emit.as_deref_mut() {
             emit(json!({
                 "type": "progress",
                 "data": {
                     "category": category,
-                    "item": item.to_string_lossy(),
+                    "item": item,
                     "current": self.current,
                     "total": self.total,
                     "imported": imported
@@ -486,7 +522,7 @@ fn import_st_chat_text(
     chat.remove("id");
     chat.insert("name".to_string(), Value::String(chat_name));
     chat.entry("mode".to_string())
-        .or_insert(Value::String("chat".to_string()));
+        .or_insert(Value::String("conversation".to_string()));
     chat.entry("characterIds".to_string())
         .or_insert_with(|| json!([]));
     chat.entry("metadata".to_string())
@@ -495,52 +531,68 @@ fn import_st_chat_text(
         chat.entry("importedCharacterName".to_string())
             .or_insert(Value::String(character_name));
     }
-    let chat_record = state.storage.create("chats", Value::Object(chat))?;
-    let chat_id = chat_record
-        .get("id")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let mut imported = 0usize;
-    for row in parsed_rows {
-        if row
-            .get("is_system")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            continue;
+    let mut created_chat_id = None;
+    let mut created_message_ids = Vec::new();
+    let result = (|| -> AppResult<Value> {
+        let chat_record = state.storage.create("chats", Value::Object(chat))?;
+        let chat_id = created_record_id(&chat_record, "chat")?;
+        created_chat_id = Some(chat_id.clone());
+        let mut imported = 0usize;
+        for row in parsed_rows {
+            if row
+                .get("is_system")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            let content = row
+                .get("mes")
+                .or_else(|| row.get("content"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if content.trim().is_empty() {
+                continue;
+            }
+            let role = if row.get("is_user").and_then(Value::as_bool).unwrap_or(false) {
+                "user"
+            } else {
+                "assistant"
+            };
+            let message = state.storage.create(
+                "messages",
+                json!({
+                    "chatId": chat_id,
+                    "role": role,
+                    "content": content,
+                    "characterId": Value::Null,
+                    "extra": {},
+                    "activeSwipeIndex": 0,
+                    "swipes": [{ "content": content }]
+                }),
+            )?;
+            created_message_ids.push(created_record_id(&message, "message")?);
+            imported += 1;
         }
-        let content = row
-            .get("mes")
-            .or_else(|| row.get("content"))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        if content.trim().is_empty() {
-            continue;
-        }
-        let role = if row.get("is_user").and_then(Value::as_bool).unwrap_or(false) {
-            "user"
-        } else {
-            "assistant"
-        };
-        state.storage.create(
+        Ok(
+            json!({ "success": true, "chatId": chat_id, "chat": chat_record, "messagesImported": imported }),
+        )
+    })();
+
+    result.map_err(|error| {
+        let mut rollback_errors = Vec::new();
+        rollback_created_records(
+            state,
             "messages",
-            json!({
-                "chatId": chat_id,
-                "role": role,
-                "content": content,
-                "characterId": Value::Null,
-                "extra": {},
-                "activeSwipeIndex": 0,
-                "swipes": [{ "content": content }]
-            }),
-        )?;
-        imported += 1;
-    }
-    Ok(
-        json!({ "success": true, "chatId": chat_id, "chat": chat_record, "messagesImported": imported }),
-    )
+            &created_message_ids,
+            &mut rollback_errors,
+        );
+        if let Some(chat_id) = created_chat_id.as_deref() {
+            rollback_created_records(state, "chats", &[chat_id.to_string()], &mut rollback_errors);
+        }
+        append_rollback_errors(error, "chat import", rollback_errors)
+    })
 }
 
 pub(super) fn import_st_chat(state: &AppState, body: Value) -> AppResult<Value> {
@@ -584,7 +636,11 @@ pub(super) fn import_st_chat_into_group(state: &AppState, body: Value) -> AppRes
         .map(|name| name.to_string_lossy().replace('_', " "))
         .filter(|name| !name.trim().is_empty())
         .unwrap_or_else(|| "Imported".to_string());
-    import_st_chat_text(state, &text, branch_name, Some(inherited))
+    import_st_chat_text(state, &text, branch_name, Some(inherited)).map_err(|error| {
+        let mut rollback_errors = Vec::new();
+        restore_record(state, "chats", &target, &mut rollback_errors);
+        append_rollback_errors(error, "chat branch import", rollback_errors)
+    })
 }
 
 fn import_persona_payload(
@@ -610,7 +666,7 @@ fn import_persona_payload(
     }
     state
         .storage
-        .create("personas", with_entity_defaults("personas", Value::Object(object)))
+        .create("personas", with_entity_defaults("personas", Value::Object(object))?)
         .map(|record| json!({ "success": true, "id": record.get("id").cloned().unwrap_or(Value::Null), "name": record.get("name").cloned().unwrap_or(Value::Null), "persona": record }))
 }
 
@@ -622,40 +678,81 @@ fn import_persona_file(state: &AppState, path: &Path) -> AppResult<Value> {
     import_persona_payload(state, payload, &fallback_name)
 }
 
-fn image_mime_from_path(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("webp") => "image/webp",
-        _ => "image/png",
-    }
-}
-
 fn import_persona_avatar_file(
     state: &AppState,
     path: &Path,
     name: String,
     description: String,
 ) -> AppResult<Value> {
-    let bytes = fs::read(path)?;
-    let mime = image_mime_from_path(path);
-    let avatar = format!(
-        "data:{mime};base64,{}",
-        general_purpose::STANDARD.encode(bytes)
-    );
+    let stored = super::super::media_uploads::persist_image_file_copy(
+        state,
+        "avatars/personas",
+        &path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| file_stem(path)),
+        path,
+    )?;
     let modified = modified_at(path);
+    let avatar_path = stored.absolute_path.clone();
     let payload = json!({
         "name": name,
         "description": description,
-        "avatar": avatar,
-        "avatarPath": avatar,
+        "avatarPath": stored.asset_url,
+        "avatarFilePath": stored.absolute_path,
+        "avatarFilename": stored.filename,
         "importedModifiedAt": modified,
     });
-    import_persona_payload(state, payload, &file_stem(path))
+    import_persona_payload(state, payload, &file_stem(path)).map_err(|error| {
+        let mut rollback_errors = Vec::new();
+        rollback_managed_file_path(
+            state,
+            "avatars/personas",
+            &avatar_path,
+            &mut rollback_errors,
+        );
+        append_rollback_errors(error, "persona import", rollback_errors)
+    })
+}
+
+fn restore_record(
+    state: &AppState,
+    collection: &str,
+    original: &Value,
+    rollback_errors: &mut Vec<String>,
+) {
+    let Some(id) = original.get("id").and_then(Value::as_str) else {
+        rollback_errors.push(format!("{collection}: original record is missing an id"));
+        return;
+    };
+    let rows = match state.storage.list(collection) {
+        Ok(rows) => rows,
+        Err(error) => {
+            rollback_errors.push(format!("{collection}/{id}: {error}"));
+            return;
+        }
+    };
+    let mut replaced = false;
+    let restored = rows
+        .into_iter()
+        .map(|row| {
+            if row.get("id").and_then(Value::as_str) == Some(id) {
+                replaced = true;
+                original.clone()
+            } else {
+                row
+            }
+        })
+        .collect::<Vec<_>>();
+    if !replaced {
+        rollback_errors.push(format!(
+            "{collection}/{id}: record was not found for restore"
+        ));
+        return;
+    }
+    if let Err(error) = state.storage.replace_all(collection, restored) {
+        rollback_errors.push(format!("{collection}/{id}: {error}"));
+    }
 }
 
 fn copy_background_file(state: &AppState, path: &Path) -> AppResult<Value> {
@@ -709,7 +806,10 @@ fn run_st_bulk_import_inner(
     let (persona_names, persona_descriptions) = read_st_persona_settings(&data_dir);
 
     for id in selected_ids(&options, "characters") {
-        let path = path_from_id(&data_dir, "characters", &id)?;
+        let Some(path) = selected_path(&data_dir, "characters", &id, &mut errors) else {
+            progress.emit_skipped("Characters", &id, &imported)?;
+            continue;
+        };
         progress.emit_item("Characters", &path, &imported)?;
         let filename = path
             .file_name()
@@ -717,27 +817,31 @@ fn run_st_bulk_import_inner(
             .unwrap_or_default();
         let result = fs::read(&path)
             .map_err(AppError::from)
-            .and_then(|bytes| parse_character_file(&filename, &bytes))
+            .and_then(|bytes| parse_character_file_from_path(&filename, &path, &bytes))
             .and_then(|payload| {
+                let trusted_avatar_source = filename
+                    .to_ascii_lowercase()
+                    .ends_with(".png")
+                    .then_some(path.as_path());
                 import_st_character_payload(
                     state,
                     payload,
                     Some(filename.clone()),
                     &json!({ "tagImportMode": tag_mode, "importEmbeddedLorebook": import_embedded }),
+                    trusted_avatar_source,
                 )
             });
         match result {
             Ok(_) => bump_imported(&mut imported, "characters"),
-            Err(error) => errors.push(Value::String(format!(
-                "{}: {}",
-                path.to_string_lossy(),
-                error.message
-            ))),
+            Err(error) => push_path_import_error(&mut errors, &path, error),
         }
     }
 
     for id in selected_ids(&options, "lorebooks") {
-        let path = path_from_id(&data_dir, "lorebooks", &id)?;
+        let Some(path) = selected_path(&data_dir, "lorebooks", &id, &mut errors) else {
+            progress.emit_skipped("Lorebooks", &id, &imported)?;
+            continue;
+        };
         progress.emit_item("Lorebooks", &path, &imported)?;
         let result = fs::read(&path)
             .map_err(AppError::from)
@@ -747,16 +851,15 @@ fn run_st_bulk_import_inner(
             });
         match result {
             Ok(_) => bump_imported(&mut imported, "lorebooks"),
-            Err(error) => errors.push(Value::String(format!(
-                "{}: {}",
-                path.to_string_lossy(),
-                error.message
-            ))),
+            Err(error) => push_path_import_error(&mut errors, &path, error),
         }
     }
 
     for id in selected_ids(&options, "presets") {
-        let path = path_from_id(&data_dir, "presets", &id)?;
+        let Some(path) = selected_path(&data_dir, "presets", &id, &mut errors) else {
+            progress.emit_skipped("Presets", &id, &imported)?;
+            continue;
+        };
         progress.emit_item("Presets", &path, &imported)?;
         let result = fs::read(&path)
             .map_err(AppError::from)
@@ -764,16 +867,15 @@ fn run_st_bulk_import_inner(
             .and_then(|payload| import_st_preset_payload(state, payload, Some(&file_stem(&path))));
         match result {
             Ok(_) => bump_imported(&mut imported, "presets"),
-            Err(error) => errors.push(Value::String(format!(
-                "{}: {}",
-                path.to_string_lossy(),
-                error.message
-            ))),
+            Err(error) => push_path_import_error(&mut errors, &path, error),
         }
     }
 
     for id in selected_ids(&options, "personas") {
-        let path = path_from_id(&data_dir, "personas", &id)?;
+        let Some(path) = selected_path(&data_dir, "personas", &id, &mut errors) else {
+            progress.emit_skipped("Personas", &id, &imported)?;
+            continue;
+        };
         progress.emit_item("Personas", &path, &imported)?;
         let is_media = path
             .extension()
@@ -807,29 +909,27 @@ fn run_st_bulk_import_inner(
         };
         match result {
             Ok(_) => bump_imported(&mut imported, "personas"),
-            Err(error) => errors.push(Value::String(format!(
-                "{}: {}",
-                path.to_string_lossy(),
-                error.message
-            ))),
+            Err(error) => push_path_import_error(&mut errors, &path, error),
         }
     }
 
     for id in selected_ids(&options, "backgrounds") {
-        let path = path_from_id(&data_dir, "backgrounds", &id)?;
+        let Some(path) = selected_path(&data_dir, "backgrounds", &id, &mut errors) else {
+            progress.emit_skipped("Backgrounds", &id, &imported)?;
+            continue;
+        };
         progress.emit_item("Backgrounds", &path, &imported)?;
         match copy_background_file(state, &path) {
             Ok(_) => bump_imported(&mut imported, "backgrounds"),
-            Err(error) => errors.push(Value::String(format!(
-                "{}: {}",
-                path.to_string_lossy(),
-                error.message
-            ))),
+            Err(error) => push_path_import_error(&mut errors, &path, error),
         }
     }
 
     for id in selected_ids(&options, "chats") {
-        let path = path_from_id(&data_dir, "chats", &id)?;
+        let Some(path) = selected_path(&data_dir, "chats", &id, &mut errors) else {
+            progress.emit_skipped("Chats", &id, &imported)?;
+            continue;
+        };
         progress.emit_item("Chats", &path, &imported)?;
         let result = fs::read_to_string(&path)
             .map_err(AppError::from)
@@ -838,16 +938,15 @@ fn run_st_bulk_import_inner(
             });
         match result {
             Ok(_) => bump_imported(&mut imported, "chats"),
-            Err(error) => errors.push(Value::String(format!(
-                "{}: {}",
-                path.to_string_lossy(),
-                error.message
-            ))),
+            Err(error) => push_path_import_error(&mut errors, &path, error),
         }
     }
 
     for id in selected_ids(&options, "groupChats") {
-        let path = path_from_id(&data_dir, "groupChats", &id)?;
+        let Some(path) = selected_path(&data_dir, "groupChats", &id, &mut errors) else {
+            progress.emit_skipped("Group chats", &id, &imported)?;
+            continue;
+        };
         progress.emit_item("Group chats", &path, &imported)?;
         let result = fs::read_to_string(&path)
             .map_err(AppError::from)
@@ -856,11 +955,7 @@ fn run_st_bulk_import_inner(
             });
         match result {
             Ok(_) => bump_imported(&mut imported, "groupChats"),
-            Err(error) => errors.push(Value::String(format!(
-                "{}: {}",
-                path.to_string_lossy(),
-                error.message
-            ))),
+            Err(error) => push_path_import_error(&mut errors, &path, error),
         }
     }
 
@@ -903,5 +998,356 @@ pub(super) fn run_st_bulk_import_channel(
                 "code": error.code
             }
         })),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::AppState;
+    use base64::engine::general_purpose;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "marinara-st-bulk-import-{label}-{}-{nonce}",
+            std::process::id()
+        ))
+    }
+
+    fn write_json(path: &Path, value: &Value) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("fixture parent should be created");
+        }
+        fs::write(
+            path,
+            serde_json::to_vec(value).expect("fixture JSON should serialize"),
+        )
+        .expect("fixture JSON should be written");
+    }
+
+    fn write_bytes(path: &Path, bytes: &[u8]) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("fixture parent should be created");
+        }
+        fs::write(path, bytes).expect("fixture file should be written");
+    }
+
+    fn block_collection_writes(state: &AppState, collection: &str) {
+        let collection_path = state
+            .storage
+            .root()
+            .join("collections")
+            .join(format!("{collection}.json"));
+        if let Some(parent) = collection_path.parent() {
+            fs::create_dir_all(parent).expect("collection parent should be created");
+        }
+        fs::create_dir(collection_path).expect("collection path should block file writes");
+    }
+
+    fn uploaded_jsonl_file(name: &str, text: &str) -> Value {
+        json!({
+            "name": name,
+            "type": "application/jsonl",
+            "base64": general_purpose::STANDARD.encode(text.as_bytes())
+        })
+    }
+
+    fn build_sillytavern_fixture(root: &Path) {
+        let data_dir = root.join("data").join("default-user");
+        for index in 0..80 {
+            write_json(
+                &data_dir
+                    .join("characters")
+                    .join(format!("character-{index:02}.json")),
+                &json!({
+                    "spec": "chara_card_v2",
+                    "data": {
+                        "name": format!("Character {index:02}"),
+                        "description": "Imported test character"
+                    }
+                }),
+            );
+        }
+        for index in 0..48 {
+            write_bytes(
+                &data_dir
+                    .join("backgrounds")
+                    .join(format!("background-{index:02}.png")),
+                b"background-bytes",
+            );
+        }
+        for index in 0..2 {
+            write_bytes(
+                &data_dir
+                    .join("User Avatars")
+                    .join(format!("persona-{index:02}.png")),
+                b"persona-avatar-bytes",
+            );
+        }
+    }
+
+    fn folder_access(root: &Path) -> (String, String) {
+        let listing = directory_listing(root.to_path_buf(), true)
+            .expect("fixture folder should receive an import token");
+        let path = listing
+            .get("path")
+            .and_then(Value::as_str)
+            .expect("listing should include canonical path")
+            .to_string();
+        let token = listing
+            .get("folderToken")
+            .and_then(Value::as_str)
+            .expect("listing should include folder token")
+            .to_string();
+        (path, token)
+    }
+
+    fn scan_ids(scan: &Value, key: &str) -> Vec<String> {
+        scan.get(key)
+            .and_then(Value::as_array)
+            .expect("scan category should be an array")
+            .iter()
+            .filter_map(|item| item.get("id").and_then(Value::as_str))
+            .map(ToOwned::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn import_st_chat_text_rolls_back_chat_when_message_write_fails() {
+        let app_root = temp_path("chat-rollback");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        block_collection_writes(&state, "messages");
+
+        let error = import_st_chat_text(
+            &state,
+            r#"{"character_name":"Bot","mes":"hello"}"#,
+            "Rollback Chat".to_string(),
+            None,
+        )
+        .expect_err("message storage failure should reject chat import");
+
+        assert_eq!(error.code, "io_error");
+        assert!(
+            state.storage.list("chats").unwrap().is_empty(),
+            "failed chat import must remove the created chat"
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+    }
+
+    #[test]
+    fn import_st_chat_into_group_restores_target_when_branch_import_fails() {
+        let app_root = temp_path("branch-rollback");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "target-chat",
+                    "name": "Target Chat",
+                    "mode": "conversation",
+                    "metadata": {},
+                    "characterIds": []
+                }),
+            )
+            .expect("target chat should be created");
+        block_collection_writes(&state, "messages");
+
+        let error = import_st_chat_into_group(
+            &state,
+            json!({
+                "chatId": "target-chat",
+                "file": uploaded_jsonl_file(
+                    "branch.jsonl",
+                    r#"{"character_name":"Bot","mes":"hello"}"#
+                )
+            }),
+        )
+        .expect_err("message storage failure should reject branch import");
+
+        assert_eq!(error.code, "io_error");
+        let target = state
+            .storage
+            .get("chats", "target-chat")
+            .expect("target chat should be readable")
+            .expect("target chat should remain");
+        assert!(
+            target.get("groupId").is_none(),
+            "failed branch import must restore the target chat without a generated groupId"
+        );
+        assert_eq!(
+            state.storage.list("chats").unwrap().len(),
+            1,
+            "failed branch import must remove the created branch chat"
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+    }
+
+    #[test]
+    fn import_st_chat_into_existing_group_preserves_group_id_when_branch_import_fails() {
+        let app_root = temp_path("branch-existing-group-rollback");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "target-chat",
+                    "name": "Target Chat",
+                    "mode": "conversation",
+                    "groupId": "existing-group",
+                    "metadata": {},
+                    "characterIds": []
+                }),
+            )
+            .expect("target chat should be created");
+        block_collection_writes(&state, "messages");
+
+        let error = import_st_chat_into_group(
+            &state,
+            json!({
+                "chatId": "target-chat",
+                "file": uploaded_jsonl_file(
+                    "branch.jsonl",
+                    r#"{"character_name":"Bot","mes":"hello"}"#
+                )
+            }),
+        )
+        .expect_err("message storage failure should reject branch import");
+
+        assert_eq!(error.code, "io_error");
+        let target = state
+            .storage
+            .get("chats", "target-chat")
+            .expect("target chat should be readable")
+            .expect("target chat should remain");
+        assert_eq!(
+            target.get("groupId").and_then(Value::as_str),
+            Some("existing-group"),
+            "failed branch import must preserve the existing group id"
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+    }
+
+    #[test]
+    fn import_persona_avatar_file_rolls_back_avatar_when_persona_write_fails() {
+        let app_root = temp_path("persona-avatar-rollback");
+        let source_root = temp_path("persona-source");
+        fs::create_dir_all(&source_root).expect("source dir should be created");
+        let source = source_root.join("persona.png");
+        fs::write(&source, b"persona-avatar-bytes").expect("source fixture should be written");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        block_collection_writes(&state, "personas");
+
+        let error = import_persona_avatar_file(
+            &state,
+            &source,
+            "Persona".to_string(),
+            "description".to_string(),
+        )
+        .expect_err("persona storage failure should reject persona avatar import");
+
+        assert_eq!(error.code, "io_error");
+        assert!(
+            !app_root.join("avatars").join("personas").exists(),
+            "failed persona avatar import must remove the managed avatar file"
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn run_st_bulk_import_continues_after_stale_selected_items() {
+        let app_root = temp_path("app");
+        let st_root = temp_path("source");
+        build_sillytavern_fixture(&st_root);
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        let (folder_path, folder_token) = folder_access(&st_root);
+        let scan = scan_st_folder(json!({
+            "folderPath": folder_path,
+            "folderToken": folder_token,
+        }))
+        .expect("fixture scan should succeed");
+        let mut characters = scan_ids(&scan, "characters");
+        let mut backgrounds = scan_ids(&scan, "backgrounds");
+        let mut personas = scan_ids(&scan, "personas");
+        characters.push("characters:characters/missing.json".to_string());
+        backgrounds.push("backgrounds:backgrounds/missing.png".to_string());
+        personas.push("personas:User Avatars/missing.png".to_string());
+
+        let mut events = Vec::new();
+        let mut emit = |event| {
+            events.push(event);
+            Ok(())
+        };
+        let result = run_st_bulk_import_inner(
+            &state,
+            json!({
+                "folderPath": folder_path,
+                "folderToken": folder_token,
+                "options": {
+                    "characters": characters,
+                    "backgrounds": backgrounds,
+                    "personas": personas,
+                }
+            }),
+            Some(&mut emit),
+        )
+        .expect("stale selected items should not abort the import");
+
+        assert_eq!(result["success"], Value::Bool(true));
+        assert_eq!(result["imported"]["characters"], json!(80));
+        assert_eq!(result["imported"]["backgrounds"], json!(48));
+        assert_eq!(result["imported"]["personas"], json!(2));
+        assert_eq!(result["errors"].as_array().map(Vec::len), Some(3));
+        let progress_events = events
+            .iter()
+            .filter(|event| event.get("type") == Some(&json!("progress")))
+            .collect::<Vec<_>>();
+        assert_eq!(progress_events.len(), 133);
+        let last_progress = progress_events
+            .last()
+            .expect("bulk import should emit progress events");
+        assert_eq!(last_progress["data"]["current"], json!(133));
+        assert_eq!(last_progress["data"]["total"], json!(133));
+        let personas = state
+            .storage
+            .list("personas")
+            .expect("personas should be readable");
+        let persona = personas.first().expect("a persona should be imported");
+        let expected_asset_url_prefix = if cfg!(windows) {
+            "http://asset.localhost/"
+        } else {
+            "asset://localhost/"
+        };
+        assert!(
+            persona
+                .get("avatarPath")
+                .and_then(Value::as_str)
+                .is_some_and(|value| value.starts_with(expected_asset_url_prefix)),
+            "persona avatars should be stored as managed asset URLs"
+        );
+        assert!(
+            persona.get("avatar").and_then(Value::as_str).is_none(),
+            "persona imports should not duplicate avatar bytes into the avatar field"
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+        let _ = fs::remove_dir_all(st_root);
     }
 }

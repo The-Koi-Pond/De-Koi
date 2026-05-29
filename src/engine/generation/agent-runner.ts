@@ -1,7 +1,21 @@
-import { BUILT_IN_TOOLS, type AgentContext, type AgentResult } from "../contracts/types/agent";
+import {
+  BUILT_IN_AGENTS,
+  BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS,
+  DEFAULT_AGENT_TOOLS,
+  getDefaultBuiltInAgentSettings,
+  type AgentContext,
+  type AgentResult,
+} from "../contracts/types/agent";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
+import type {
+  BackgroundAssetInfo,
+  GameAssetManifest,
+  GameAssetManifestEntry,
+  SpriteAssetInfo,
+  VisualAssetGateway,
+} from "../capabilities/visual-assets";
 import type {
   BaseLLMProvider,
   ChatCompleteOptions,
@@ -10,32 +24,53 @@ import type {
   LLMToolCall,
   LLMToolDefinition,
 } from "../generation-core/llm/base-provider";
-import { createAgentPipeline, type AgentInjection, type ResolvedAgent } from "../agents-runtime/pipeline/agent-pipeline";
+import { matchCustomAgentActivation, type ActivationScanMessage } from "../agents-runtime/activation";
+import {
+  createAgentPipeline,
+  type AgentInjection,
+  type ResolvedAgent,
+} from "../agents-runtime/pipeline/agent-pipeline";
 import type { AgentToolContext } from "../agents-runtime/executor/agent-executor";
-import { appendChatSummaryEntryToMetadata } from "../shared/text/chat-summary-entries";
 import type { GenerationCharacterContext, GenerationPersonaContext } from "./prompt-assembly";
+import { buildSpriteExpressionChoices } from "../modes/game/prompts/sprite.service";
+import { llmParameters } from "./context";
+import { loadAgentMemory, secretPlotStateFromMemory } from "./agent-memory-runtime";
 import {
   boolish,
   hiddenFromAi,
   isRecord,
-  newId,
-  nowIso,
   parseRecord,
-  readNumber,
   readString,
+  stringArray,
   type JsonRecord,
 } from "./runtime-records";
+import {
+  BUILT_IN_TOOL_MAP,
+  builtInToolDefinition,
+  customToolDefinition,
+  customToolExecutor,
+  executeBuiltInTool,
+  loadCustomTools,
+  normalizeToolCall,
+  stringifyToolResult,
+  type CustomToolRecord,
+} from "./tools-runtime";
 
 export interface GenerationAgentRuntimeInput {
   chat: JsonRecord;
   connection: JsonRecord;
   storedMessages: JsonRecord[];
+  cadenceMessages?: JsonRecord[];
   characters: GenerationCharacterContext[];
   persona: GenerationPersonaContext | null;
   activatedLorebookEntries: Array<{ id: string; name: string; content: string; tag: string }>;
   chatSummary: string | null;
+  debugMode?: boolean;
+  debugSink?: AgentContext["debugSink"];
   signal?: AbortSignal;
   agentTypes?: Set<string>;
+  bypassCustomAgentActivation?: boolean;
+  regenerateMessageId?: string | null;
 }
 
 export interface GenerationAgentRuntime {
@@ -50,6 +85,7 @@ interface AgentDeps {
   storage: StorageGateway;
   llm: LlmGateway;
   integrations: IntegrationGateway;
+  visuals?: VisualAssetGateway;
 }
 
 interface ResolvedAgentsResult {
@@ -57,7 +93,112 @@ interface ResolvedAgentsResult {
   skippedResults: AgentResult[];
 }
 
-function llmProvider(llm: LlmGateway, connectionId: string | null): BaseLLMProvider {
+const BUILT_IN_AGENT_TYPES = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));
+const ILLUSTRATOR_AGENT_TYPE = "illustrator";
+const MAX_ASSISTANT_RUN_INTERVAL = 100;
+const MAX_CUSTOM_AGENT_USER_RUN_INTERVAL = 200;
+const PROMPT_INJECTABLE_RESULT_TYPES = new Set(["context_injection", "director_event"]);
+type AutomaticIntervalMessageRole = "assistant" | "user";
+type SpriteDisplayMode = "expressions" | "full-body";
+
+const DEFAULT_SPRITE_DISPLAY_MODES: SpriteDisplayMode[] = ["expressions", "full-body"];
+const DEFAULT_ROLEPLAY_EXPRESSIONS = [
+  "angry",
+  "blushing",
+  "confused",
+  "crying",
+  "determined",
+  "disgusted",
+  "embarrassed",
+  "happy",
+  "laughing",
+  "neutral",
+  "sad",
+  "scared",
+  "sleepy",
+  "smirk",
+  "surprised",
+  "thinking",
+] as const;
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const text = readString(value).trim();
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(text);
+  }
+  return result;
+}
+
+function normalizeSpriteDisplayModes(value: unknown): SpriteDisplayMode[] {
+  const rawModes = Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
+  const modes: SpriteDisplayMode[] = [];
+
+  for (const mode of rawModes) {
+    const normalized = mode === "fullBody" || mode === "full_body" ? "full-body" : mode;
+    if (normalized === "expressions" && !modes.includes("expressions")) {
+      modes.push("expressions");
+    } else if (normalized === "full-body" && !modes.includes("full-body")) {
+      modes.push("full-body");
+    }
+  }
+
+  return modes.length > 0 ? modes : [...DEFAULT_SPRITE_DISPLAY_MODES];
+}
+
+function isFullBodySpriteExpression(expression: string): boolean {
+  return expression.toLowerCase().startsWith("full_");
+}
+
+function spriteExpressionsForAgent(sprites: SpriteAssetInfo[], displayModes: readonly SpriteDisplayMode[]): string[] {
+  const customExpressions = sprites.map((sprite) => readString(sprite.expression).trim()).filter(Boolean);
+  const expressions = displayModes.includes("expressions")
+    ? [
+        ...DEFAULT_ROLEPLAY_EXPRESSIONS,
+        ...customExpressions.filter((expression) => !isFullBodySpriteExpression(expression)),
+      ]
+    : [];
+  const fullBody = displayModes.includes("full-body")
+    ? customExpressions.filter((expression) => isFullBodySpriteExpression(expression))
+    : [];
+
+  return uniqueStrings([...expressions, ...fullBody]);
+}
+
+function buildAvailableSpriteCharacter(
+  characterId: string,
+  characterName: string,
+  sprites: SpriteAssetInfo[],
+  displayModes: readonly SpriteDisplayMode[],
+): { characterId: string; characterName: string; expressions: string[]; expressionChoices: string[] } | null {
+  const expressions = spriteExpressionsForAgent(sprites, displayModes);
+  if (expressions.length === 0) return null;
+  return {
+    characterId,
+    characterName,
+    expressions,
+    expressionChoices: buildSpriteExpressionChoices(expressions),
+  };
+}
+
+interface AutomaticIntervalGate {
+  agentId: string;
+  agentType: string;
+  messageRole: AutomaticIntervalMessageRole;
+  includePendingMessage: boolean;
+  runInterval: number;
+}
+
+function llmProvider(
+  llm: LlmGateway,
+  connectionId: string | null,
+  baseParameters: Record<string, unknown>,
+): BaseLLMProvider {
   return {
     maxTokensOverrideValue: null,
     async chatComplete(messages: ChatMessage[], options: ChatCompleteOptions): Promise<ChatCompleteResult> {
@@ -71,15 +212,15 @@ function llmProvider(llm: LlmGateway, connectionId: string | null): BaseLLMProvi
         tool_calls: Array.isArray(message.tool_calls) ? message.tool_calls : undefined,
       }));
       const toolCalls: LLMToolCall[] = [];
+      const parameters = { ...baseParameters };
+      if (typeof options.temperature === "number") parameters.temperature = options.temperature;
+      if (typeof options.maxTokens === "number") parameters.maxTokens = options.maxTokens;
       for await (const chunk of llm.stream(
         {
           connectionId,
           model: options.model,
           messages: requestMessages,
-          parameters: {
-            temperature: options.temperature,
-            maxTokens: options.maxTokens,
-          },
+          parameters,
           tools: options.tools as never,
         },
         options.signal,
@@ -93,33 +234,6 @@ function llmProvider(llm: LlmGateway, connectionId: string | null): BaseLLMProvi
         }
       }
       return { content, toolCalls };
-    },
-  };
-}
-
-interface CustomToolRecord extends JsonRecord {
-  name: string;
-  description: string;
-  parametersSchema: unknown;
-  executionType: string;
-  webhookUrl: string | null;
-  staticResult: string | null;
-  enabled: string | boolean;
-}
-
-function normalizeToolCall(value: unknown): LLMToolCall | null {
-  if (!isRecord(value)) return null;
-  const rawFunction = isRecord(value.function) ? value.function : value;
-  const name = readString(rawFunction.name || value.name).trim();
-  if (!name) return null;
-  const args = readString(rawFunction.arguments || value.arguments, "{}");
-  return {
-    id: readString(value.id) || `tool-${name}-${Date.now().toString(36)}`,
-    name,
-    arguments: args,
-    function: {
-      name,
-      arguments: args,
     },
   };
 }
@@ -139,19 +253,6 @@ async function loadConnection(storage: StorageGateway, connectionId: string | nu
   return isRecord(connection) ? connection : null;
 }
 
-async function loadAgentMemory(storage: StorageGateway, agentId: string, chatId: string): Promise<Record<string, unknown>> {
-  const rows = await storage.list<JsonRecord>("agent-memory");
-  const memory: Record<string, unknown> = {};
-  for (const row of rows) {
-    if (readString(row.agentConfigId) !== agentId || readString(row.chatId) !== chatId) continue;
-    const key = readString(row.key);
-    if (!key) continue;
-    const value = row.value;
-    memory[key] = typeof value === "string" ? parseMaybeJson(value) : value;
-  }
-  return memory;
-}
-
 function enabledToolNames(settings: Record<string, unknown>): string[] {
   const value = settings.enabledTools;
   if (!Array.isArray(value)) return [];
@@ -169,6 +270,7 @@ function chatMetadata(input: GenerationAgentRuntimeInput): JsonRecord {
 
 function chatAgentsEnabled(input: GenerationAgentRuntimeInput): boolean {
   if (input.agentTypes && input.agentTypes.size > 0) return true;
+  if (chatActiveAgentIds(input).size > 0) return true;
   return boolish(chatMetadata(input).enableAgents, false);
 }
 
@@ -184,335 +286,182 @@ function chatActiveToolIds(input: GenerationAgentRuntimeInput): Set<string> {
   return stringSet(chatMetadata(input).activeToolIds);
 }
 
-function parseToolParameters(value: unknown): unknown {
-  if (!value) return { type: "object", properties: {} };
-  if (typeof value === "string") {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return { type: "object", properties: {} };
-    }
+function activationScanMessages(input: GenerationAgentRuntimeInput): ActivationScanMessage[] {
+  return input.storedMessages
+    .filter((message) => !hiddenFromAi(message))
+    .map((message) => ({ content: readString(message.content) }));
+}
+
+function isBuiltInAgent(agent: JsonRecord): boolean {
+  const type = readString(agent.type || agent.agentType).trim();
+  return BUILT_IN_AGENT_TYPES.has(type);
+}
+
+function builtInAgentType(agent: JsonRecord): string {
+  return readString(agent.type || agent.agentType).trim();
+}
+
+function builtInAgentMeta(type: string) {
+  return BUILT_IN_AGENTS.find((agent) => agent.id === type) ?? null;
+}
+
+function builtInAgentFallback(type: string): JsonRecord | null {
+  const meta = builtInAgentMeta(type);
+  if (!meta) return null;
+  const settings = {
+    ...getDefaultBuiltInAgentSettings(type),
+    enabledTools: DEFAULT_AGENT_TOOLS[type] ?? [],
+  };
+  return {
+    id: `builtin:${type}`,
+    type,
+    name: meta.name,
+    description: meta.description,
+    enabled: true,
+    phase: meta.phase,
+    connectionId: null,
+    promptTemplate: "",
+    settings,
+  };
+}
+
+function positiveInteger(value: unknown, fallback: number, max: number): number {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+  return Math.max(1, Math.min(max, Math.floor(parsed)));
+}
+
+function automaticIntervalGate(
+  input: GenerationAgentRuntimeInput,
+  id: string,
+  type: string,
+  settings: Record<string, unknown>,
+  builtInAgent: boolean,
+): AutomaticIntervalGate | null {
+  if (input.agentTypes && input.agentTypes.size > 0) return null;
+  if (type === ILLUSTRATOR_AGENT_TYPE) {
+    const fallback = positiveInteger(BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS[type], 5, MAX_ASSISTANT_RUN_INTERVAL);
+    const runInterval = positiveInteger(settings.runInterval, fallback, MAX_ASSISTANT_RUN_INTERVAL);
+    return runInterval > 1
+      ? {
+          agentId: id,
+          agentType: type,
+          messageRole: "assistant",
+          includePendingMessage: true,
+          runInterval,
+        }
+      : null;
   }
-  return value;
-}
-
-function customToolRecord(row: JsonRecord): CustomToolRecord | null {
-  const name = readString(row.name).trim();
-  if (!name || !boolish(row.enabled, false)) return null;
-  const executionType = readString(row.executionType, "static");
-  if (executionType !== "static" && executionType !== "webhook") return null;
-  return {
-    ...row,
-    name,
-    description: readString(row.description),
-    parametersSchema: parseToolParameters(row.parametersSchema),
-    executionType,
-    webhookUrl: readString(row.webhookUrl).trim() || null,
-    staticResult: readString(row.staticResult),
-    enabled: row.enabled as string | boolean,
-  };
-}
-
-async function loadCustomTools(storage: StorageGateway): Promise<Map<string, CustomToolRecord>> {
-  const tools = new Map<string, CustomToolRecord>();
-  for (const row of await storage.list<JsonRecord>("custom-tools")) {
-    const tool = customToolRecord(row);
-    if (tool) tools.set(tool.name, tool);
+  if (!builtInAgent) {
+    const runInterval = positiveInteger(settings.runInterval, 1, MAX_CUSTOM_AGENT_USER_RUN_INTERVAL);
+    return runInterval > 1
+      ? {
+          agentId: id,
+          agentType: type,
+          messageRole: "user",
+          includePendingMessage: false,
+          runInterval,
+        }
+      : null;
   }
-  return tools;
+  return null;
 }
 
-function customToolDefinition(tool: CustomToolRecord): LLMToolDefinition {
-  return {
-    name: tool.name,
-    description: tool.description || `Run custom tool ${tool.name}.`,
-    parameters: tool.parametersSchema,
-  };
+function runAgentType(run: JsonRecord): string {
+  return readString(run.agentType || run.type).trim();
 }
 
-const BUILT_IN_TOOL_MAP = new Map(BUILT_IN_TOOLS.map((tool) => [tool.name, tool]));
-
-function builtInToolDefinition(name: string): LLMToolDefinition | null {
-  const tool = BUILT_IN_TOOL_MAP.get(name);
-  if (!tool) return null;
-  return {
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.parameters,
-  };
+function runAgentId(run: JsonRecord): string {
+  return readString(run.agentId || run.agentConfigId).trim();
 }
 
-function stringifyToolResult(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (isRecord(value) && typeof value.result === "string") return value.result;
-  return JSON.stringify(value ?? null);
+function runMatchesAgent(run: JsonRecord, agentType: string, agentId: string): boolean {
+  const type = runAgentType(run);
+  if (type) return type === agentType;
+  const id = runAgentId(run);
+  return !!agentId && id === agentId;
 }
 
-function toolArguments(call: LLMToolCall): JsonRecord {
-  const raw = call.function?.arguments || call.arguments || "{}";
-  if (typeof raw === "string") return parseRecord(raw);
-  return parseRecord(raw);
+function illustratorRunCountsTowardInterval(run: JsonRecord): boolean {
+  const resultType = readString(run.resultType).trim();
+  if (resultType && resultType !== "image_prompt") return false;
+  const data = parseRecord(run.resultData);
+  if (boolish(data.parseError, false)) return false;
+  if (data.shouldGenerate !== true) return false;
+  return readString(data.prompt).trim().length > 0;
 }
 
-function stringArg(args: JsonRecord, key: string, fallback = ""): string {
-  return readString(args[key], fallback).trim();
+function messageIndexById(input: GenerationAgentRuntimeInput): Map<string, number> {
+  const indexes = new Map<string, number>();
+  const messages = input.cadenceMessages ?? input.storedMessages;
+  messages.forEach((message, index) => {
+    const id = readString(message.id).trim();
+    if (id) indexes.set(id, index);
+  });
+  return indexes;
 }
 
-function numberArg(args: JsonRecord, key: string, fallback: number): number {
-  return readNumber(args[key], fallback);
+function intervalAnchorRun(
+  runs: JsonRecord[],
+  input: GenerationAgentRuntimeInput,
+  chatId: string,
+  agentType: string,
+  agentId: string,
+): JsonRecord | null {
+  const indexes = messageIndexById(input);
+  return (
+    runs
+      .filter((run) => readString(run.chatId).trim() === chatId)
+      .filter((run) => runMatchesAgent(run, agentType, agentId))
+      .filter((run) => boolish(run.success, false))
+      .filter((run) => agentType !== ILLUSTRATOR_AGENT_TYPE || illustratorRunCountsTowardInterval(run))
+      .map((run) => ({ run, messageIndex: indexes.get(readString(run.messageId).trim()) ?? -1 }))
+      .filter((entry) => entry.messageIndex >= 0)
+      .sort(
+        (a, b) =>
+          b.messageIndex - a.messageIndex || readString(b.run.createdAt).localeCompare(readString(a.run.createdAt)),
+      )[0]?.run ?? null
+  );
 }
 
-function stringArrayArg(args: JsonRecord, key: string): string[] {
-  const value = args[key];
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => readString(item).trim()).filter(Boolean);
+function visibleMessagesSinceRun(
+  input: GenerationAgentRuntimeInput,
+  messageId: string,
+  role: AutomaticIntervalMessageRole,
+): number | null {
+  const messages = input.cadenceMessages ?? input.storedMessages;
+  const index = messages.findIndex((message) => readString(message.id).trim() === messageId);
+  if (index < 0) return null;
+  return messages
+    .slice(index + 1)
+    .filter((message) => !hiddenFromAi(message))
+    .filter((message) => readString(message.role).trim() === role).length;
 }
 
-function toolError(message: string): never {
-  throw new Error(message);
-}
-
-function requireChatId(input: GenerationAgentRuntimeInput): string {
-  const chatId = readString(input.chat.id).trim();
-  if (!chatId) toolError("Tool requires a persisted chat id.");
-  return chatId;
-}
-
-async function updateChatMetadata(
+async function automaticIntervalAllowsRun(
   storage: StorageGateway,
   input: GenerationAgentRuntimeInput,
-  updater: (metadata: JsonRecord) => JsonRecord,
-): Promise<JsonRecord> {
-  const chatId = requireChatId(input);
-  const metadata = updater({ ...parseRecord(input.chat.metadata) });
-  await storage.update("chats", chatId, { metadata });
-  input.chat.metadata = metadata;
-  return metadata;
+  gate: AutomaticIntervalGate,
+): Promise<boolean> {
+  const chatId = readString(input.chat.id).trim();
+  if (!chatId) return true;
+  const lastRun = intervalAnchorRun(
+    await storage.list<JsonRecord>("agent-runs"),
+    input,
+    chatId,
+    gate.agentType,
+    gate.agentId,
+  );
+  if (!lastRun) return true;
+  const messageId = readString(lastRun.messageId).trim();
+  if (!messageId) return true;
+  const messagesSince = visibleMessagesSinceRun(input, messageId, gate.messageRole);
+  if (messagesSince === null) return true;
+  return messagesSince + (gate.includePendingMessage ? 1 : 0) >= gate.runInterval;
 }
 
-function rollDiceNotation(notation: string) {
-  const match = notation.trim().match(/^(\d*)d(\d+)([+-]\d+)?$/i);
-  if (!match) toolError("Dice notation must look like 1d20, 2d6, or 3d8+2.");
-  const count = Math.max(1, Math.min(100, Number(match[1] || "1")));
-  const sides = Math.max(2, Math.min(1000, Number(match[2])));
-  const modifier = Number(match[3] || "0");
-  const rolls = Array.from({ length: count }, () => Math.floor(Math.random() * sides) + 1);
-  return {
-    notation: `${count}d${sides}${modifier === 0 ? "" : modifier > 0 ? `+${modifier}` : modifier}`,
-    rolls,
-    modifier,
-    total: rolls.reduce((sum, value) => sum + value, 0) + modifier,
-  };
-}
-
-async function searchLorebookTool(storage: StorageGateway, input: GenerationAgentRuntimeInput, args: JsonRecord) {
-  const query = stringArg(args, "query").toLowerCase();
-  if (!query) toolError("query is required.");
-  const category = stringArg(args, "category").toLowerCase();
-  const tokens = query.split(/\s+/).filter((token) => token.length > 1);
-  const rows = await storage.list<JsonRecord>("lorebook-entries").catch(() => []);
-  const activated = input.activatedLorebookEntries.map((entry) => ({
-    id: entry.id,
-    name: entry.name,
-    content: entry.content,
-    tag: entry.tag,
-    source: "activated",
-  }));
-  const stored = rows.map((entry) => ({
-    id: readString(entry.id),
-    name: readString(entry.name || entry.comment || entry.title, "Lorebook entry"),
-    content: readString(entry.content),
-    tag: readString(entry.tag || entry.category || entry.position),
-    source: "stored",
-  }));
-  const seen = new Set<string>();
-  const scored = [...activated, ...stored]
-    .filter((entry) => {
-      if (!entry.id || seen.has(entry.id)) return false;
-      seen.add(entry.id);
-      if (category && !`${entry.name} ${entry.tag}`.toLowerCase().includes(category)) return false;
-      return true;
-    })
-    .map((entry) => {
-      const haystack = `${entry.name} ${entry.tag} ${entry.content}`.toLowerCase();
-      const score =
-        (haystack.includes(query) ? 10 : 0) +
-        tokens.reduce((sum, token) => sum + (haystack.includes(token) ? 1 : 0), 0);
-      return { ...entry, score };
-    })
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 8)
-    .map((entry) => ({
-      id: entry.id,
-      name: entry.name,
-      tag: entry.tag || null,
-      source: entry.source,
-      score: entry.score,
-      content: entry.content.slice(0, 4000),
-    }));
-  return { query, entries: scored };
-}
-
-async function executeBuiltInTool(
-  deps: Pick<AgentDeps, "storage" | "integrations">,
-  input: GenerationAgentRuntimeInput,
-  agent: JsonRecord,
-  call: LLMToolCall,
-): Promise<unknown> {
-  const { storage, integrations } = deps;
-  const toolName = call.function?.name || call.name;
-  const args = toolArguments(call);
-  const chatId = requireChatId(input);
-
-  switch (toolName) {
-    case "roll_dice": {
-      const notation = stringArg(args, "notation");
-      if (!notation) toolError("notation is required.");
-      return { ...rollDiceNotation(notation), reason: stringArg(args, "reason") || null };
-    }
-    case "update_game_state": {
-      const update = {
-        id: newId("game_state_update"),
-        createdAt: nowIso(),
-        type: stringArg(args, "type"),
-        target: stringArg(args, "target"),
-        key: stringArg(args, "key"),
-        value: stringArg(args, "value"),
-        description: stringArg(args, "description"),
-      };
-      if (!update.type || !update.target || !update.key) toolError("type, target, and key are required.");
-      const metadata = parseRecord(input.chat.metadata);
-      const updates = Array.isArray(metadata.agentGameStateUpdates) ? metadata.agentGameStateUpdates : [];
-      metadata.agentGameStateUpdates = [...updates, update].slice(-100);
-      const gameState = isRecord(input.chat.gameState) ? { ...input.chat.gameState } : {};
-      if (update.type === "location_change") gameState.location = update.value;
-      if (update.type === "time_advance") gameState.time = update.value;
-      await storage.update("chats", chatId, { metadata, gameState });
-      input.chat.metadata = metadata;
-      input.chat.gameState = gameState;
-      return { success: true, update, gameState };
-    }
-    case "set_expression": {
-      const characterName = stringArg(args, "characterName");
-      const expression = stringArg(args, "expression");
-      if (!characterName || !expression) toolError("characterName and expression are required.");
-      const metadata = await updateChatMetadata(storage, input, (current) => {
-        const expressions = parseRecord(current.agentExpressions);
-        expressions[characterName] = expression;
-        return { ...current, agentExpressions: expressions };
-      });
-      return { success: true, characterName, expression, expressions: metadata.agentExpressions };
-    }
-    case "trigger_event": {
-      const event = {
-        id: newId("agent_event"),
-        createdAt: nowIso(),
-        eventType: stringArg(args, "eventType"),
-        description: stringArg(args, "description"),
-        involvedCharacters: stringArrayArg(args, "involvedCharacters"),
-      };
-      if (!event.eventType || !event.description) toolError("eventType and description are required.");
-      await updateChatMetadata(storage, input, (current) => {
-        const events = Array.isArray(current.agentEvents) ? current.agentEvents : [];
-        return { ...current, agentEvents: [...events, event].slice(-100) };
-      });
-      return { success: true, event };
-    }
-    case "search_lorebook":
-      return searchLorebookTool(storage, input, args);
-    case "read_chat_summary":
-      return { summary: (input.chatSummary ?? readString(parseRecord(input.chat.metadata).summary)) || null };
-    case "append_chat_summary": {
-      const text = stringArg(args, "text");
-      if (!text) toolError("text is required.");
-      const now = nowIso();
-      const metadata = parseRecord(input.chat.metadata);
-      const appended = appendChatSummaryEntryToMetadata(
-        metadata,
-        {
-          content: text,
-          origin: "automated",
-          sourceMode: "agent",
-          title: "Agent memory",
-        },
-        { now, createId: () => newId("summary") },
-      );
-      metadata.summaryEntries = appended.entries;
-      metadata.summary = appended.summary;
-      await storage.update("chats", chatId, { metadata });
-      input.chat.metadata = metadata;
-      input.chatSummary = appended.summary;
-      return { success: true, entry: appended.entry, summary: appended.summary };
-    }
-    case "read_chat_variable": {
-      const key = stringArg(args, "key");
-      if (!key) toolError("key is required.");
-      const variables = parseRecord(parseRecord(input.chat.metadata).agentVariables);
-      return { key, value: typeof variables[key] === "string" ? variables[key] : null };
-    }
-    case "write_chat_variable": {
-      const key = stringArg(args, "key");
-      const value = stringArg(args, "value");
-      if (!key) toolError("key is required.");
-      await updateChatMetadata(storage, input, (current) => {
-        const variables = parseRecord(current.agentVariables);
-        variables[key] = value;
-        return { ...current, agentVariables: variables };
-      });
-      return { success: true, key, value };
-    }
-    case "spotify_get_current_playback":
-      return integrations.spotify.player({ agentId: spotifyAgentId(agent) });
-    case "spotify_get_playlists": {
-      const limit = Math.max(1, Math.min(50, Math.trunc(numberArg(args, "limit", 20))));
-      return integrations.spotify.playlists({ agentId: spotifyAgentId(agent), limit });
-    }
-    case "spotify_get_playlist_tracks": {
-      const playlistId = stringArg(args, "playlistId");
-      if (!playlistId) toolError("playlistId is required.");
-      const body: JsonRecord = {
-        agentId: spotifyAgentId(agent),
-        playlistId,
-        query: stringArg(args, "query"),
-        mood: stringArg(args, "mood"),
-        limit: Math.max(1, Math.min(80, Math.trunc(numberArg(args, "candidateLimit", numberArg(args, "limit", 50))))),
-      };
-      const offset = numberArg(args, "offset", Number.NaN);
-      if (Number.isFinite(offset)) body.offset = Math.max(0, Math.trunc(offset));
-      return integrations.spotify.playlistTracks(body);
-    }
-    case "spotify_search":
-      return integrations.spotify.searchTracks({
-        agentId: spotifyAgentId(agent),
-        query: stringArg(args, "query"),
-        limit: Math.max(1, Math.min(50, Math.trunc(numberArg(args, "limit", 10)))),
-      });
-    case "spotify_play": {
-      const uri = stringArg(args, "uri");
-      const uris = stringArrayArg(args, "uris");
-      if (!uri && uris.length === 0) toolError("uri or uris is required.");
-      const body: JsonRecord = { agentId: spotifyAgentId(agent) };
-      if (uris.length > 0) body.uris = uris;
-      else if (uri.startsWith("spotify:track:")) body.uri = uri;
-      else body.contextUri = uri;
-      return integrations.spotify.play(body);
-    }
-    case "spotify_set_volume":
-      return integrations.spotify.volume({
-        agentId: spotifyAgentId(agent),
-        volume: Math.max(0, Math.min(100, Math.trunc(numberArg(args, "volume", 50)))),
-      });
-    default:
-      return null;
-  }
-}
-
-function spotifyAgentId(agent: JsonRecord): string {
-  const settings = agentSettings(agent);
-  return readString(settings.spotifyAgentId).trim() || readString(agent.id).trim() || "spotify";
-}
-
+// Tool-runtime helpers live in ./tools-runtime.ts and are imported above.
+// Keep both call sites on that single source of truth when merging upstream.
 function buildAgentToolContext(
   deps: Pick<AgentDeps, "storage" | "integrations">,
   input: GenerationAgentRuntimeInput,
@@ -522,13 +471,13 @@ function buildAgentToolContext(
 ): AgentToolContext | undefined {
   if (!chatToolsEnabled(input)) return undefined;
   const scopedToolIds = chatActiveToolIds(input);
-  const selectedNames = enabledToolNames(settings).filter((name) => scopedToolIds.size === 0 || scopedToolIds.has(name));
-  const selectedBuiltIns = selectedNames
-    .map(builtInToolDefinition)
-    .filter((tool): tool is LLMToolDefinition => !!tool);
+  const selectedNames = enabledToolNames(settings).filter(
+    (name) => scopedToolIds.size === 0 || scopedToolIds.has(name),
+  );
+  const selectedBuiltIns = selectedNames.map(builtInToolDefinition).filter((tool): tool is LLMToolDefinition => !!tool);
   const selectedCustomTools = selectedNames
     .map((name) => customTools.get(name))
-    .filter((tool): tool is CustomToolRecord => !!tool);
+    .filter((tool): tool is CustomToolRecord => !!tool && !BUILT_IN_TOOL_MAP.has(tool.name));
   if (selectedBuiltIns.length === 0 && selectedCustomTools.length === 0) return undefined;
 
   return {
@@ -538,22 +487,9 @@ function buildAgentToolContext(
       if (BUILT_IN_TOOL_MAP.has(toolName)) {
         return stringifyToolResult(await executeBuiltInTool(deps, input, agent, call));
       }
-      return stringifyToolResult(
-        await deps.integrations.customTools.execute({
-          toolName,
-          arguments: toolArguments(call),
-        }),
-      );
+      return customToolExecutor(deps.integrations, call, customTools.get(toolName));
     },
   };
-}
-
-function parseMaybeJson(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
 }
 
 function skippedDanglingConnectionResult(agent: JsonRecord, connectionId: string): AgentResult {
@@ -575,23 +511,58 @@ function skippedDanglingConnectionResult(agent: JsonRecord, connectionId: string
   };
 }
 
+function suppressAgentForTurn(input: GenerationAgentRuntimeInput, type: string): boolean {
+  const isRegeneration = !!readString(input.regenerateMessageId).trim();
+  return isRegeneration && type === "echo-chamber";
+}
+
 async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput): Promise<ResolvedAgentsResult> {
   if (!chatAgentsEnabled(input)) return { agents: [], skippedResults: [] };
   const scopedAgentIds = chatActiveAgentIds(input);
-  const rows = (await deps.storage.list<JsonRecord>("agents"))
-    .filter((agent) => boolish(agent.enabled, false))
-    .filter((agent) => {
-      const type = readString(agent.type || agent.agentType);
-      const id = readString(agent.id);
-      if (scopedAgentIds.size > 0 && !scopedAgentIds.has(type) && !scopedAgentIds.has(id)) return false;
-      if (!input.agentTypes || input.agentTypes.size === 0) return true;
-      return input.agentTypes.has(type);
-    });
-  const customTools = await loadCustomTools(deps.storage);
+  const activationMessages = activationScanMessages(input);
+  const requestedAgentTypes = input.agentTypes ?? null;
+  const explicitAgentTypes = requestedAgentTypes ?? scopedAgentIds;
+  const rows = (await deps.storage.list<JsonRecord>("agents")).filter((agent) => {
+    const type = builtInAgentType(agent);
+    const id = readString(agent.id);
+    const requestedExplicitly = requestedAgentTypes && (requestedAgentTypes.has(type) || requestedAgentTypes.has(id));
+    const scopedToChat = scopedAgentIds.size > 0 && (scopedAgentIds.has(type) || scopedAgentIds.has(id));
+    if (
+      !requestedExplicitly &&
+      (!requestedAgentTypes || requestedAgentTypes.size === 0) &&
+      type === "lorebook-keeper"
+    ) {
+      return false;
+    }
+    if (requestedAgentTypes && requestedAgentTypes.size > 0) return Boolean(requestedExplicitly);
+    if (scopedAgentIds.size > 0) return scopedToChat;
+    return boolish(agent.enabled, false);
+  });
+  const resolvedBuiltInTypes = new Set(rows.map(builtInAgentType).filter((type) => BUILT_IN_AGENT_TYPES.has(type)));
+  const fallbackRows = [...explicitAgentTypes]
+    .filter((type) => BUILT_IN_AGENT_TYPES.has(type))
+    .filter((type) => !resolvedBuiltInTypes.has(type))
+    .filter((type) => requestedAgentTypes || type !== "lorebook-keeper")
+    .map(builtInAgentFallback)
+    .filter((agent): agent is JsonRecord => !!agent);
+  rows.push(...fallbackRows);
+  let customTools: Map<string, CustomToolRecord> | null = null;
   const resolved: ResolvedAgent[] = [];
   const skippedResults: AgentResult[] = [];
   for (const agent of rows) {
+    const type = readString(agent.type || agent.agentType) || "agent";
+    if (suppressAgentForTurn(input, type)) continue;
+    const id = readString(agent.id) || type;
     const settings = agentSettings(agent);
+    const builtInAgent = isBuiltInAgent(agent);
+    if (!input.bypassCustomAgentActivation && !builtInAgent) {
+      const activation = matchCustomAgentActivation(settings, activationMessages);
+      if (activation.configured && !activation.matched) continue;
+    }
+    const intervalGate = automaticIntervalGate(input, id, type, settings, builtInAgent);
+    if (intervalGate && !(await automaticIntervalAllowsRun(deps.storage, input, intervalGate))) {
+      continue;
+    }
     const requestedConnectionId = readString(agent.connectionId).trim();
     const fallbackConnectionId = readString(input.connection.id).trim() || null;
     const connectionId = requestedConnectionId || fallbackConnectionId;
@@ -608,40 +579,266 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     }
     const model = readString(agent.model).trim() || readString(connection.model).trim();
     if (!model) continue;
+    const parameters = llmParameters(connection, {}, input.chat);
+    customTools ??= await loadCustomTools(deps.storage);
     resolved.push({
       id: readString(agent.id) || readString(agent.type) || "agent",
-      type: readString(agent.type || agent.agentType) || "agent",
+      type,
       name: readString(agent.name) || readString(agent.type) || "Agent",
       phase: normalizePhase(agent),
       promptTemplate: readString(agent.promptTemplate),
       connectionId,
       settings,
-      provider: llmProvider(deps.llm, connectionId),
+      provider: llmProvider(deps.llm, connectionId, parameters),
       model,
-      maxParallelJobs: typeof settings.maxParallelJobs === "number" ? settings.maxParallelJobs : undefined,
       toolContext: buildAgentToolContext(deps, input, agent, settings, customTools),
     });
   }
   return { agents: resolved, skippedResults };
 }
 
-async function buildAgentContext(deps: AgentDeps, input: GenerationAgentRuntimeInput): Promise<AgentContext> {
+type SpotifyDjSourceType = "liked" | "playlist" | "artist" | "any";
+
+function normalizeSpotifyDjSourceType(value: unknown): SpotifyDjSourceType {
+  return value === "playlist" || value === "artist" || value === "any" ? value : "liked";
+}
+
+function cleanOptionalString(value: unknown): string | null {
+  const text = readString(value).trim();
+  return text || null;
+}
+
+function buildSpotifyDjConstraints(chatMode: string, chatMeta: JsonRecord): Record<string, unknown> {
+  const isGame = chatMode === "game";
+  const sourceType = normalizeSpotifyDjSourceType(isGame ? chatMeta.gameSpotifySourceType : chatMeta.spotifySourceType);
+  const playlistId = cleanOptionalString(isGame ? chatMeta.gameSpotifyPlaylistId : chatMeta.spotifyPlaylistId);
+  const playlistName = cleanOptionalString(isGame ? chatMeta.gameSpotifyPlaylistName : chatMeta.spotifyPlaylistName);
+  const artist = cleanOptionalString(isGame ? chatMeta.gameSpotifyArtist : chatMeta.spotifyArtist);
+  const constraints: Record<string, unknown> = {
+    mode: isGame ? "game" : "roleplay",
+    replaceBuiltInMusic: isGame && chatMeta.gameUseSpotifyMusic === true,
+    sourceType,
+    playlistId: sourceType === "liked" ? "liked" : sourceType === "playlist" ? playlistId : null,
+    playlistName: sourceType === "playlist" ? playlistName : null,
+    artist: sourceType === "artist" ? artist : null,
+  };
+
+  if (sourceType === "liked") {
+    constraints.note =
+      "Use the user's Liked Songs first by calling spotify_get_playlist_tracks with playlistId='liked'. Search wider only when no fitting liked track exists.";
+  } else if (sourceType === "playlist") {
+    constraints.note = playlistId
+      ? "Use this configured playlist first by calling spotify_get_playlist_tracks with the provided playlistId. Search wider only if the playlist has no fitting track."
+      : "Playlist source is selected, but no playlist ID is configured. Call spotify_get_playlists to inspect available playlists, then fall back to Liked Songs if needed.";
+  } else if (sourceType === "artist") {
+    constraints.note = artist
+      ? `Search around this artist first. Prefer queries using artist:${artist}.`
+      : "Artist source is selected, but no artist is configured. Fall back to Liked Songs if needed.";
+  } else {
+    constraints.note =
+      "Spotify catalogue search is allowed. Still inspect current playback first and prefer the user's library when it fits.";
+  }
+
+  return constraints;
+}
+
+function lorebookKeeperActiveForContext(input: GenerationAgentRuntimeInput): boolean {
+  if (input.agentTypes?.has("lorebook-keeper")) return true;
+  const activeAgentIds = chatActiveAgentIds(input);
+  return activeAgentIds.has("lorebook-keeper");
+}
+
+async function loadLorebookKeeperEntries(
+  storage: StorageGateway,
+  chatMeta: JsonRecord,
+): Promise<Array<{ id: string; name: string; content: string; keys: string[]; locked: boolean }> | null> {
+  const configuredLorebookId = readString(chatMeta.lorebookKeeperTargetLorebookId).trim();
+  const activeLorebookIds = stringSet(chatMeta.activeLorebookIds);
+  let lorebookId = configuredLorebookId || [...activeLorebookIds][0] || "";
+
+  if (!lorebookId) {
+    const lorebook = (await storage.list<JsonRecord>("lorebooks").catch(() => [])).find((row) =>
+      boolish(row.enabled, true),
+    );
+    lorebookId = readString(lorebook?.id).trim();
+  }
+
+  if (!lorebookId) return null;
+  const entries = await storage.list<JsonRecord>("lorebook-entries", { filters: { lorebookId } }).catch(() => []);
+  return entries.map((entry) => ({
+    id: readString(entry.id).trim(),
+    name: readString(entry.name).trim() || "Unnamed",
+    content: readString(entry.content).trim(),
+    keys: Array.isArray(entry.keys) ? entry.keys.map((key) => readString(key).trim()).filter(Boolean) : [],
+    locked: boolish(entry.locked, false),
+  }));
+}
+
+function agentTypeActive(agents: ResolvedAgent[], type: string): boolean {
+  return agents.some((agent) => agent.type === type);
+}
+
+async function loadAgentAvailableSprites(
+  visuals: VisualAssetGateway,
+  input: GenerationAgentRuntimeInput,
+  context: AgentContext,
+  chatMeta: JsonRecord,
+): Promise<void> {
+  const spriteDisplayModes = normalizeSpriteDisplayModes(chatMeta.spriteDisplayModes);
+  const selectedSpriteIds = stringSet(chatMeta.spriteCharacterIds);
+  const restrictToSelectedSprites = selectedSpriteIds.size > 0;
+  const perCharacter = await Promise.all(
+    context.characters
+      .filter((character) => !restrictToSelectedSprites || selectedSpriteIds.has(character.id))
+      .map(async (character) => {
+        const sprites = await visuals.listSprites(character.id).catch(() => []);
+        return buildAvailableSpriteCharacter(character.id, character.name, sprites, spriteDisplayModes);
+      }),
+  );
+
+  const personaId = readString(input.chat.personaId).trim();
+  if (personaId && input.persona && (!restrictToSelectedSprites || selectedSpriteIds.has(personaId))) {
+    const sprites = await visuals.listSprites(personaId).catch(() => []);
+    const spritePersona = buildAvailableSpriteCharacter(personaId, input.persona.name, sprites, spriteDisplayModes);
+    if (spritePersona) perCharacter.push(spritePersona);
+  }
+
+  const availableSprites = perCharacter.filter(
+    (spriteCharacter): spriteCharacter is NonNullable<typeof spriteCharacter> => Boolean(spriteCharacter),
+  );
+  if (availableSprites.length > 0) {
+    context.memory._availableSprites = availableSprites;
+  }
+}
+
+function gameAssetBackgrounds(manifest: GameAssetManifest | null): GameAssetManifestEntry[] {
+  const backgrounds = manifest?.byCategory?.backgrounds;
+  return Array.isArray(backgrounds) ? backgrounds : [];
+}
+
+function backgroundEntryFromUserAsset(background: BackgroundAssetInfo): {
+  filename: string;
+  originalName: string | null;
+  tags: string[];
+  source: "user" | "game_asset";
+} | null {
+  const filename =
+    readString(background.filename).trim() || readString(background.name).trim() || readString(background.path).trim();
+  if (!filename) return null;
+  return {
+    filename,
+    originalName: readString(background.originalName).trim() || null,
+    tags: stringArray(background.tags),
+    source: background.source === "game_asset" ? "game_asset" : "user",
+  };
+}
+
+function backgroundEntryFromGameAsset(asset: GameAssetManifestEntry): {
+  filename: string;
+  originalName: string | null;
+  tags: string[];
+  source: "game_asset";
+} | null {
+  const path = readString(asset.path).trim();
+  if (!path || path.startsWith("__user_bg__/")) return null;
+  return {
+    filename: `gameAsset:${path}`,
+    originalName: readString(asset.tag).trim() || readString(asset.name).trim() || null,
+    tags: stringArray([asset.subcategory, asset.category]).filter(Boolean),
+    source: "game_asset",
+  };
+}
+
+async function loadAgentAvailableBackgrounds(
+  visuals: VisualAssetGateway,
+  context: AgentContext,
+  chatMeta: JsonRecord,
+  backgroundAgent: ResolvedAgent,
+): Promise<void> {
+  context.memory._availableBackgrounds = [];
+  context.memory._currentBackground = chatMeta.background ?? null;
+  if (backgroundAgent.settings.autoGenerateBackgrounds === true) {
+    context.memory._backgroundGenerationEnabled = true;
+  }
+
+  const userBackgrounds = await visuals.listBackgrounds().catch(() => []);
+  const entries = userBackgrounds.map(backgroundEntryFromUserAsset).filter(
+    (
+      background,
+    ): background is {
+      filename: string;
+      originalName: string | null;
+      tags: string[];
+      source: "user" | "game_asset";
+    } => !!background,
+  );
+
+  if (visuals.gameAssetsManifest) {
+    const manifest = await visuals.gameAssetsManifest().catch(() => null);
+    entries.push(
+      ...gameAssetBackgrounds(manifest)
+        .map(backgroundEntryFromGameAsset)
+        .filter(
+          (
+            background,
+          ): background is { filename: string; originalName: string | null; tags: string[]; source: "game_asset" } =>
+            !!background,
+        ),
+    );
+  }
+
+  context.memory._availableBackgrounds = entries;
+}
+
+async function populateAgentVisualContext(
+  deps: AgentDeps,
+  input: GenerationAgentRuntimeInput,
+  context: AgentContext,
+  chatMeta: JsonRecord,
+  agents: ResolvedAgent[],
+): Promise<void> {
+  if (!deps.visuals) return;
+  if (agentTypeActive(agents, "expression")) {
+    await loadAgentAvailableSprites(deps.visuals, input, context, chatMeta);
+  }
+
+  const backgroundAgent = agents.find((agent) => agent.type === "background");
+  if (backgroundAgent) {
+    await loadAgentAvailableBackgrounds(deps.visuals, context, chatMeta, backgroundAgent);
+  }
+}
+
+async function buildAgentContext(
+  deps: AgentDeps,
+  input: GenerationAgentRuntimeInput,
+  agents: ResolvedAgent[],
+): Promise<AgentContext> {
   const chatId = readString(input.chat.id);
+  const chatMode = readString(input.chat.mode || input.chat.chatMode, "roleplay");
+  const chatMeta = parseRecord(input.chat.metadata);
   const memoryRows = await Promise.all(
     (await deps.storage.list<JsonRecord>("agents"))
       .filter((agent) => readString(agent.id).trim())
       .map((agent) => loadAgentMemory(deps.storage, readString(agent.id), chatId)),
   );
   const memory = Object.assign({}, ...memoryRows);
-  return {
+  const secretPlotState = secretPlotStateFromMemory(memory);
+  if (secretPlotState) memory._secretPlotState = secretPlotState;
+  memory._spotifyDjConstraints = buildSpotifyDjConstraints(chatMode, chatMeta);
+  if (lorebookKeeperActiveForContext(input)) {
+    const existingLorebookEntries = await loadLorebookKeeperEntries(deps.storage, chatMeta);
+    if (existingLorebookEntries) memory._existingLorebookEntries = existingLorebookEntries;
+  }
+  const context: AgentContext = {
     chatId,
-    chatMode: readString(input.chat.mode || input.chat.chatMode, "roleplay"),
+    chatMode,
     recentMessages: input.storedMessages
       .filter((message) => !hiddenFromAi(message))
       .slice(-60)
       .map((message) => ({
         role: readString(message.role, "user"),
         content: readString(message.content),
+        characterId: readString(message.characterId).trim() || undefined,
       })),
     mainResponse: null,
     gameState: isRecord(input.chat.gameState) ? (input.chat.gameState as unknown as AgentContext["gameState"]) : null,
@@ -664,13 +861,18 @@ async function buildAgentContext(deps: AgentDeps, input: GenerationAgentRuntimeI
     activatedLorebookEntries: input.activatedLorebookEntries,
     writableLorebookIds: null,
     chatSummary: input.chatSummary,
+    debugMode: input.debugMode === true,
+    debugSink: input.debugSink,
     streaming: true,
     signal: input.signal,
   };
+  await populateAgentVisualContext(deps, input, context, chatMeta, agents);
+  return context;
 }
 
 function resultText(result: AgentResult): string | null {
   if (!result.success) return null;
+  if (!PROMPT_INJECTABLE_RESULT_TYPES.has(result.type)) return null;
   if (typeof result.data === "string") return result.data;
   if (!isRecord(result.data)) return null;
   const text = result.data.text ?? result.data.direction ?? result.data.summary ?? result.data.raw;
@@ -687,12 +889,22 @@ export async function createGenerationAgentRuntime(
   onResult?: (result: AgentResult) => void,
 ): Promise<GenerationAgentRuntime> {
   const { agents, skippedResults } = await resolveAgents(deps, input);
-  const context = await buildAgentContext(deps, input);
   const preResults: AgentResult[] = [...skippedResults];
   const agentData: Record<string, string> = {};
   for (const result of skippedResults) {
     onResult?.(result);
   }
+  if (agents.length === 0) {
+    return {
+      preInjections: [],
+      preResults,
+      agentData,
+      runParallel: async () => [],
+      runPost: async () => [],
+    };
+  }
+
+  const context = await buildAgentContext(deps, input, agents);
   const pipeline = createAgentPipeline(agents, context, (result) => {
     const text = resultText(result);
     if (text) agentData[result.agentType] = text;

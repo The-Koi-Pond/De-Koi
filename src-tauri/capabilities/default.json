@@ -11,6 +11,7 @@
     "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
     "dialog:default",
+    "notification:default",
     "opener:default"
   ]
 }

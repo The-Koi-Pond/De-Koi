@@ -3,6 +3,7 @@ import type { SpriteSide } from "../../../../../engine/contracts/types/chat";
 import { ChevronUp, ChevronDown, Trash2 } from "lucide-react";
 import { PinnedImageOverlay } from "../../../../runtime/visuals/index";
 import type { PeekPromptData } from "../types";
+import { PeekPromptModal } from "./PeekPromptModal";
 
 const ChatSettingsDrawer = lazy(async () => {
   const module = await import("./ChatSettingsDrawer");
@@ -22,11 +23,6 @@ const ChatGalleryDrawer = lazy(async () => {
 const ChatSetupWizard = lazy(async () => {
   const module = await import("./ChatSetupWizard");
   return { default: module.ChatSetupWizard };
-});
-
-const PeekPromptModal = lazy(async () => {
-  const module = await import("./PeekPromptModal");
-  return { default: module.PeekPromptModal };
 });
 
 type ChatData = ComponentProps<typeof ChatSettingsDrawer>["chat"];
@@ -191,8 +187,9 @@ type ChatCommonOverlaysProps = {
   onCloseFiles: () => void;
   onCloseGallery: () => void;
   /** Manually trigger the Illustrator agent */
-  onIllustrate?: () => void;
+  onIllustrate?: () => void | Promise<void>;
   onWizardFinish: () => void;
+  onWizardCancel?: () => void;
   onClosePeekPrompt: () => void;
   onDeleteConfirm: () => void;
   onDeleteSwipe: () => void;
@@ -225,6 +222,7 @@ export function ChatCommonOverlays({
   onCloseGallery,
   onIllustrate,
   onWizardFinish,
+  onWizardCancel,
   onClosePeekPrompt,
   onDeleteConfirm,
   onDeleteSwipe,
@@ -266,12 +264,12 @@ export function ChatCommonOverlays({
         </Suspense>
       )}
       {chat && (
-        <Suspense fallback={null}>{wizardOpen && <ChatSetupWizard chat={chat} onFinish={onWizardFinish} />}</Suspense>
+        <Suspense fallback={null}>
+          {wizardOpen && <ChatSetupWizard chat={chat} onFinish={onWizardFinish} onCancel={onWizardCancel} />}
+        </Suspense>
       )}
       <PinnedImageOverlay activeChatId={activeChatId} />
-      <Suspense fallback={null}>
-        {peekPromptData && <PeekPromptModal data={peekPromptData} onClose={onClosePeekPrompt} />}
-      </Suspense>
+      {peekPromptData && <PeekPromptModal data={peekPromptData} onClose={onClosePeekPrompt} />}
       <DeleteConfirmationDialog
         messageId={deleteDialogMessageId}
         canDeleteSwipe={deleteDialogCanDeleteSwipe}

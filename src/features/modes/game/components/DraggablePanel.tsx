@@ -6,7 +6,7 @@
 // by chatId so positions don't bleed across games.
 // `PanelLockButton` renders the lock toggle in headers.
 // ──────────────────────────────────────────────
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useMotionValue } from "framer-motion";
 import { Lock, Unlock } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
@@ -17,6 +17,8 @@ interface PanelState {
   locked: boolean;
   x: number;
   y: number;
+  left?: number;
+  top?: number;
 }
 
 function storageKey(scopeId: string, panelId: string): string {
@@ -33,6 +35,8 @@ function readPanelState(key: string): PanelState {
       locked: parsed.locked !== false,
       x: Number.isFinite(parsed.x) ? (parsed.x as number) : 0,
       y: Number.isFinite(parsed.y) ? (parsed.y as number) : 0,
+      left: Number.isFinite(parsed.left) ? (parsed.left as number) : undefined,
+      top: Number.isFinite(parsed.top) ? (parsed.top as number) : undefined,
     };
   } catch {
     return { locked: true, x: 0, y: 0 };
@@ -65,22 +69,69 @@ export function useDraggablePanel(scopeId: string, panelId: string) {
   const seed = seedRef.current;
 
   const [locked, setLocked] = useState(seed.locked);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const x = useMotionValue(seed.x);
   const y = useMotionValue(seed.y);
+
+  const currentState = useCallback(
+    (nextLocked = locked): PanelState => {
+      const rect = panelRef.current?.getBoundingClientRect();
+      return {
+        locked: nextLocked,
+        x: x.get(),
+        y: y.get(),
+        ...(rect ? { left: rect.left, top: rect.top } : {}),
+      };
+    },
+    [locked, x, y],
+  );
+
+  const restoreViewportAnchor = useCallback(() => {
+    const stored = readPanelState(key);
+    if (!Number.isFinite(stored.left) || !Number.isFinite(stored.top)) return;
+    const rect = panelRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const dx = (stored.left as number) - rect.left;
+    const dy = (stored.top as number) - rect.top;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+    x.set(x.get() + dx);
+    y.set(y.get() + dy);
+  }, [key, x, y]);
+
+  useLayoutEffect(() => {
+    restoreViewportAnchor();
+  });
+
+  useEffect(() => {
+    const element = panelRef.current;
+    const parent = element?.offsetParent;
+    if (!parent || typeof ResizeObserver === "undefined") return;
+    let frame = 0;
+    const schedule = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(restoreViewportAnchor);
+    };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(parent);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [restoreViewportAnchor]);
 
   const toggleLocked = useCallback(() => {
     setLocked((prev) => {
       const next = !prev;
-      writePanelState(key, { locked: next, x: x.get(), y: y.get() });
+      writePanelState(key, currentState(next));
       return next;
     });
-  }, [key, x, y]);
+  }, [currentState, key]);
 
   const handleDragEnd = useCallback(() => {
-    writePanelState(key, { locked, x: x.get(), y: y.get() });
-  }, [key, locked, x, y]);
+    writePanelState(key, currentState());
+  }, [currentState, key]);
 
-  return { locked, toggleLocked, x, y, handleDragEnd };
+  return { locked, toggleLocked, x, y, panelRef, handleDragEnd };
 }
 
 interface PanelLockButtonProps {

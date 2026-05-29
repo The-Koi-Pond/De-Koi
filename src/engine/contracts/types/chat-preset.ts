@@ -43,6 +43,14 @@ export interface ChatPreset {
 /** Metadata keys that must NOT be saved into a preset (chat-specific). */
 export const CHAT_PRESET_EXCLUDED_METADATA_KEYS: readonly string[] = [
   "summary",
+  "summaryEntries",
+  "summaryPromptTemplates",
+  "activeSummaryPromptTemplateId",
+  "conversationSummary",
+  "daySummaries",
+  "weekSummaries",
+  "lastRoleplaySceneSummary",
+  "chatSummaryFingerprint",
   "tags",
   "spriteCharacterIds",
   "spritePlacements",

@@ -7,6 +7,7 @@ import {
   getTrackerPanelWidthForProfile,
   useUIStore,
   type GameDialogueDisplayMode,
+  type QuoteFormat,
   type RoleplayAvatarStyle,
   type TrackerDataPanelSection,
   type TrackerPanelSizeProfile,
@@ -19,11 +20,18 @@ import { useExtensions, useCreateExtension, useDeleteExtension, useUpdateExtensi
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { gameAssetsApi } from "../../../../shared/api/assets-api";
 import { importApi } from "../../../../shared/api/import-api";
-import { profileApi } from "../../../../shared/api/profile-api";
+import { backupApi, profileApi, type ManagedBackup } from "../../../../shared/api/profile-api";
+import { updatesApi, type UpdateCheckResponse } from "../../../../shared/api/updates-api";
 import { backgroundsApi, fontsApi } from "../../../../shared/api/settings-assets-api";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { triggerDownload } from "../../../../shared/api/download-payload";
 import { chatBackgroundMetadataToUrl, chatBackgroundUrlToMetadata } from "../../../../shared/lib/backgrounds";
-import { filePathToAssetUrl, resolveManagedLocalAssetUrl, userBackgroundUrl } from "../../../../shared/api/local-file-api";
+import {
+  backgroundFileUrlFromPath,
+  resolveManagedLocalAssetUrl,
+  userBackgroundUrl,
+} from "../../../../shared/api/local-file-api";
+import { checkRemoteRuntimeHealth, type RemoteRuntimeHealthCheck } from "../../../../shared/api/remote-runtime";
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import type { Theme } from "../../../../engine/contracts/types/theme";
@@ -79,8 +87,10 @@ import { chatKeys } from "../../../catalog/chats";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 import { TrackerPanelIcon } from "../../../../shared/components/ui/TrackerPanelIcon";
 import { TrackerSizeTierIcon } from "../../../../shared/components/ui/TrackerSizeTierIcon";
+import { ImageUploadDropzone } from "../../../../shared/components/ui/ImageUploadDropzone";
 import { ConversationSoundSetting, ToggleSetting } from "./settings/SettingControls";
 import { TrackerCardColorSettings } from "./settings/TrackerCardColorSettings";
+import { PromptOverridesEditor } from "./settings/PromptOverridesEditor";
 import { DraftNumberInput } from "../../../../shared/components/ui/DraftNumberInput";
 import { inspectCharacterFilesForEmbeddedLorebooks } from "../../../../shared/lib/character-import";
 import { ProfileImportSection } from "./ProfileImportSection";
@@ -93,6 +103,13 @@ type CustomFontFace = {
   style?: string;
   unicodeRange?: string;
 };
+
+type RemoteRuntimeHealthView =
+  | RemoteRuntimeHealthCheck
+  | {
+      status: "idle" | "checking";
+      message: string;
+    };
 
 const TABS = [
   { id: "general", label: "General" },
@@ -121,7 +138,7 @@ const EXPUNGE_SCOPE_OPTIONS: Array<{ id: ExpungeScope; label: string; descriptio
   {
     id: "characters",
     label: "Characters",
-    description: "Characters and character groups. Professor Mari is always preserved.",
+    description: "Characters and character groups.",
   },
   { id: "personas", label: "Personas", description: "Personas and persona groups." },
   { id: "lorebooks", label: "Lorebooks", description: "Lorebooks and lorebook entries." },
@@ -142,6 +159,11 @@ const EXPUNGE_SCOPE_OPTIONS: Array<{ id: ExpungeScope; label: string; descriptio
 const ADMIN_SECRET_STORAGE_KEY = "marinara-admin-secret";
 
 const ROLEPLAY_AVATAR_STYLE_OPTIONS: Array<{ id: RoleplayAvatarStyle; label: string; desc: string }> = [
+  {
+    id: "none",
+    label: "None",
+    desc: "Hide roleplay message avatars for the cleanest reading layout.",
+  },
   {
     id: "circles",
     label: "Small Circles",
@@ -170,6 +192,11 @@ const GAME_DIALOGUE_DISPLAY_OPTIONS: Array<{ id: GameDialogueDisplayMode; label:
     label: "History Above VN",
     desc: "Shows prior segments above the VN box and keeps the full session scrollable there.",
   },
+];
+
+const QUOTE_FORMAT_OPTIONS: Array<{ id: QuoteFormat; label: string; sample: string }> = [
+  { id: "straight", label: "Straight", sample: '"Hello", it\'s me.' },
+  { id: "typographic", label: "Typographic", sample: "\u201cHello,\u201d it\u2019s me." },
 ];
 
 const TRACKER_PANEL_SIZE_PROFILE_OPTIONS: Array<{ id: TrackerPanelSizeProfile; label: string; desc: string }> = [
@@ -245,9 +272,6 @@ const GAME_ASSET_CATEGORIES = [
 
 type GameAssetCategoryId = (typeof GAME_ASSET_CATEGORIES)[number]["id"];
 const GAME_ASSET_CATEGORY_BY_ID = new Map(GAME_ASSET_CATEGORIES.map((category) => [category.id, category]));
-
-// Module-level set survives component remounts (e.g. mobile AnimatePresence unmount/remount)
-const mountedSettingsTabs = new Set<string>();
 
 function ImageDimensionRow({
   label,
@@ -495,137 +519,133 @@ function TrackerPanelAppearanceDrawer({
           !drawerOpen && "hidden",
         )}
       >
-          <ToggleSetting
-            label="Replace tracker HUD icons"
-            checked={trackerPanelHideHudWidgets}
-            onChange={setTrackerPanelHideHudWidgets}
-            help="Hides the old world/player tracker icon strip so the Tracker panel can dock to the edge. The Agents button stays visible."
-          />
-          <ToggleSetting
-            label="Use expression sprites for tracker portraits"
-            checked={trackerPanelUseExpressionSprites}
-            onChange={setTrackerPanelUseExpressionSprites}
-            help="When on, tracker portraits can switch to Expression Engine sprites if that agent is enabled for the chat and the character has matching sprite images."
-          />
-          <div className="mt-2 grid gap-1.5">
-            <span className="inline-flex items-center gap-1 text-[0.6875rem] font-medium">
-              Desktop size
-              <HelpTooltip text="Choose the designed desktop width for the Tracker panel. Compact favors quick scanning, Standard balances density, and Expanded gives character cards more room." />
-            </span>
-            <div className="grid grid-cols-3 gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/45 p-0.5">
-              {TRACKER_PANEL_SIZE_PROFILE_OPTIONS.map((opt) => {
-                const selected = trackerPanelSizeProfile === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setTrackerPanelSizeProfile(opt.id)}
-                    aria-pressed={selected}
-                    title={`${opt.label}: ${getTrackerPanelWidthForProfile(opt.id)}px. ${opt.desc}`}
-                    className={cn(
-                      "flex min-h-8 min-w-0 items-center justify-center rounded-md px-1.5 text-[0.6875rem] transition-all disabled:cursor-not-allowed",
-                      selected
-                        ? "bg-[var(--primary)]/12 text-[var(--foreground)] ring-1 ring-[var(--primary)]/45"
-                        : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
-                    )}
-                  >
-                    <span className="inline-flex items-center gap-1 font-semibold">
-                      <span className={cn("inline-flex", selected && "text-[var(--primary)]")}>
-                        <TrackerSizeTierIcon sizeProfile={opt.id} />
-                      </span>
-                      {opt.label}
+        <ToggleSetting
+          label="Replace tracker HUD icons"
+          checked={trackerPanelHideHudWidgets}
+          onChange={setTrackerPanelHideHudWidgets}
+          help="Hides the old world/player tracker icon strip so the Tracker panel can dock to the edge. The Agents button stays visible."
+        />
+        <ToggleSetting
+          label="Use expression sprites for tracker portraits"
+          checked={trackerPanelUseExpressionSprites}
+          onChange={setTrackerPanelUseExpressionSprites}
+          help="When on, tracker portraits can switch to Expression Engine sprites if that agent is enabled for the chat and the character has matching sprite images."
+        />
+        <div className="mt-2 grid gap-1.5">
+          <span className="inline-flex items-center gap-1 text-[0.6875rem] font-medium">
+            Desktop size
+            <HelpTooltip text="Choose the designed desktop width for the Tracker panel. Compact favors quick scanning, Standard balances density, and Expanded gives character cards more room." />
+          </span>
+          <div className="grid grid-cols-3 gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/45 p-0.5">
+            {TRACKER_PANEL_SIZE_PROFILE_OPTIONS.map((opt) => {
+              const selected = trackerPanelSizeProfile === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setTrackerPanelSizeProfile(opt.id)}
+                  aria-pressed={selected}
+                  title={`${opt.label}: ${getTrackerPanelWidthForProfile(opt.id)}px. ${opt.desc}`}
+                  className={cn(
+                    "flex min-h-8 min-w-0 items-center justify-center rounded-md px-1.5 text-[0.6875rem] transition-all disabled:cursor-not-allowed",
+                    selected
+                      ? "bg-[var(--primary)]/12 text-[var(--foreground)] ring-1 ring-[var(--primary)]/45"
+                      : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+                  )}
+                >
+                  <span className="inline-flex items-center gap-1 font-semibold">
+                    <span className={cn("inline-flex", selected && "text-[var(--primary)]")}>
+                      <TrackerSizeTierIcon sizeProfile={opt.id} />
                     </span>
-                  </button>
-                );
-              })}
-            </div>
+                    {opt.label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-          <div className="mt-2 grid gap-1.5">
-            <span className="inline-flex items-center gap-1 text-[0.6875rem] font-medium">
-              Thought display mode
-              <HelpTooltip text="Choose whether featured character thoughts open inside the tracker card or float beside the portrait. This no longer changes automatically when the panel width changes." />
-            </span>
-            <div className="grid grid-cols-2 gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/45 p-0.5">
-              {TRACKER_THOUGHT_BUBBLE_DISPLAY_OPTIONS.map((opt) => {
-                const selected = trackerPanelThoughtBubbleDisplay === opt.id;
-                const Icon = opt.id === "inline" ? Dock : MessageCircle;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setTrackerPanelThoughtBubbleDisplay(opt.id)}
-                    aria-pressed={selected}
-                    title={opt.desc}
-                    className={cn(
-                      "flex min-h-8 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-[0.6875rem] transition-all disabled:cursor-not-allowed",
-                      selected
-                        ? "bg-[var(--primary)]/12 text-[var(--foreground)] ring-1 ring-[var(--primary)]/45"
-                        : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
-                    )}
-                  >
-                    <span className="inline-flex items-center gap-1.5 font-semibold">
-                      <Icon size="0.75rem" className={selected ? "text-[var(--primary)]" : ""} />
-                      {opt.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+        </div>
+        <div className="mt-2 grid gap-1.5">
+          <span className="inline-flex items-center gap-1 text-[0.6875rem] font-medium">
+            Thought display mode
+            <HelpTooltip text="Choose whether featured character thoughts open inside the tracker card or float beside the portrait. This no longer changes automatically when the panel width changes." />
+          </span>
+          <div className="grid grid-cols-2 gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/45 p-0.5">
+            {TRACKER_THOUGHT_BUBBLE_DISPLAY_OPTIONS.map((opt) => {
+              const selected = trackerPanelThoughtBubbleDisplay === opt.id;
+              const Icon = opt.id === "inline" ? Dock : MessageCircle;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setTrackerPanelThoughtBubbleDisplay(opt.id)}
+                  aria-pressed={selected}
+                  title={opt.desc}
+                  className={cn(
+                    "flex min-h-8 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-[0.6875rem] transition-all disabled:cursor-not-allowed",
+                    selected
+                      ? "bg-[var(--primary)]/12 text-[var(--foreground)] ring-1 ring-[var(--primary)]/45"
+                      : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+                  )}
+                >
+                  <span className="inline-flex items-center gap-1.5 font-semibold">
+                    <Icon size="0.75rem" className={selected ? "text-[var(--primary)]" : ""} />
+                    {opt.label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-          <ToggleSetting
-            label="Always show Docked thoughts"
-            checked={trackerPanelDockedThoughtsAlwaysVisible}
-            onChange={setTrackerPanelDockedThoughtsAlwaysVisible}
-            help="When Thought display mode is Docked, every featured character's thought stays visible inside the tracker card instead of waiting for the per-card thought button."
-          />
-          <div className="mt-2 flex min-h-8 items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1 text-[0.6875rem] font-medium">
-              Temperature unit
-              <HelpTooltip text="Changes Tracker Panel and Roleplay HUD temperature displays without rewriting the saved world-state temperature." />
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={trackerTemperatureUnit === "fahrenheit"}
-              aria-label={`Tracker temperature unit: ${
-                trackerTemperatureUnit === "celsius" ? "Celsius" : "Fahrenheit"
-              }`}
-              title={
-                trackerTemperatureUnit === "celsius"
-                  ? "Showing tracker temperatures as °C. Click for °F."
-                  : "Showing tracker temperatures as °F. Click for °C."
-              }
-              onClick={() => setTrackerTemperatureUnit(trackerTemperatureUnit === "celsius" ? "fahrenheit" : "celsius")}
-              className="relative grid h-7 w-[4.75rem] shrink-0 grid-cols-2 items-center rounded-full border border-[var(--border)] bg-[var(--secondary)]/55 p-0.5 text-[0.625rem] font-semibold transition-colors hover:bg-[var(--accent)]/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)]"
+        </div>
+        <ToggleSetting
+          label="Always show Docked thoughts"
+          checked={trackerPanelDockedThoughtsAlwaysVisible}
+          onChange={setTrackerPanelDockedThoughtsAlwaysVisible}
+          help="When Thought display mode is Docked, every featured character's thought stays visible inside the tracker card instead of waiting for the per-card thought button."
+        />
+        <div className="mt-2 flex min-h-8 items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1 text-[0.6875rem] font-medium">
+            Temperature unit
+            <HelpTooltip text="Changes Tracker Panel and Roleplay HUD temperature displays without rewriting the saved world-state temperature." />
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={trackerTemperatureUnit === "fahrenheit"}
+            aria-label={`Tracker temperature unit: ${trackerTemperatureUnit === "celsius" ? "Celsius" : "Fahrenheit"}`}
+            title={
+              trackerTemperatureUnit === "celsius"
+                ? "Showing tracker temperatures as °C. Click for °F."
+                : "Showing tracker temperatures as °F. Click for °C."
+            }
+            onClick={() => setTrackerTemperatureUnit(trackerTemperatureUnit === "celsius" ? "fahrenheit" : "celsius")}
+            className="relative grid h-7 w-[4.75rem] shrink-0 grid-cols-2 items-center rounded-full border border-[var(--border)] bg-[var(--secondary)]/55 p-0.5 text-[0.625rem] font-semibold transition-colors hover:bg-[var(--accent)]/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)]"
+          >
+            <span
+              className={cn(
+                "absolute inset-y-0.5 left-0.5 w-[calc(50%-0.125rem)] rounded-full bg-[var(--primary)]/16 ring-1 ring-[var(--primary)]/45 transition-transform",
+                trackerTemperatureUnit === "fahrenheit" && "translate-x-full",
+              )}
+            />
+            <span
+              className={cn(
+                "relative z-10 text-center transition-colors",
+                trackerTemperatureUnit === "celsius" ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]",
+              )}
             >
-              <span
-                className={cn(
-                  "absolute inset-y-0.5 left-0.5 w-[calc(50%-0.125rem)] rounded-full bg-[var(--primary)]/16 ring-1 ring-[var(--primary)]/45 transition-transform",
-                  trackerTemperatureUnit === "fahrenheit" && "translate-x-full",
-                )}
-              />
-              <span
-                className={cn(
-                  "relative z-10 text-center transition-colors",
-                  trackerTemperatureUnit === "celsius" ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]",
-                )}
-              >
-                °C
-              </span>
-              <span
-                className={cn(
-                  "relative z-10 text-center transition-colors",
-                  trackerTemperatureUnit === "fahrenheit"
-                    ? "text-[var(--foreground)]"
-                    : "text-[var(--muted-foreground)]",
-                )}
-              >
-                °F
-              </span>
-            </button>
-          </div>
-          <TrackerPanelCardOrderSetting />
-          <TrackerCardColorSettings />
+              °C
+            </span>
+            <span
+              className={cn(
+                "relative z-10 text-center transition-colors",
+                trackerTemperatureUnit === "fahrenheit" ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]",
+              )}
+            >
+              °F
+            </span>
+          </button>
+        </div>
+        <TrackerPanelCardOrderSetting />
+        <TrackerCardColorSettings />
       </fieldset>
     </section>
   );
@@ -634,12 +654,13 @@ function TrackerPanelAppearanceDrawer({
 export function SettingsPanel() {
   const settingsTab = useUIStore((s) => s.settingsTab);
   const setSettingsTab = useUIStore((s) => s.setSettingsTab);
-  mountedSettingsTabs.add(settingsTab);
+  const activeTab = TABS.find((tab) => tab.id === settingsTab) ?? TABS[0];
+  const ActiveSettings = SETTINGS_COMPONENTS[activeTab.id];
 
   return (
     <div className="flex h-full flex-col">
       {/* Tab bar */}
-      <div className="flex flex-shrink-0 flex-wrap border-b border-[var(--sidebar-border)]">
+      <div className="flex flex-shrink-0 flex-wrap border-b border-[var(--border)] bg-[var(--card)]/40">
         {TABS.map((tab) => (
           <button
             key={tab.id}
@@ -659,21 +680,8 @@ export function SettingsPanel() {
         ))}
       </div>
 
-      <div className="relative min-h-0 flex-1">
-        {TABS.map((tab) => {
-          if (!mountedSettingsTabs.has(tab.id)) return null;
-          const Comp = SETTINGS_COMPONENTS[tab.id];
-          const active = settingsTab === tab.id;
-          return (
-            <div
-              key={tab.id}
-              className="absolute inset-0 overflow-y-auto p-3"
-              style={active ? undefined : { clipPath: "inset(100%)", pointerEvents: "none" }}
-            >
-              <Comp />
-            </div>
-          );
-        })}
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        <ActiveSettings />
       </div>
     </div>
   );
@@ -695,6 +703,10 @@ function GeneralSettings() {
   const setGameAutoPlayDelay = useUIStore((s) => s.setGameAutoPlayDelay);
   const reviewImagePromptsBeforeSend = useUIStore((s) => s.reviewImagePromptsBeforeSend);
   const setReviewImagePromptsBeforeSend = useUIStore((s) => s.setReviewImagePromptsBeforeSend);
+  const imagePromptIncludeAppearances = useUIStore((s) => s.imagePromptIncludeAppearances);
+  const setImagePromptIncludeAppearances = useUIStore((s) => s.setImagePromptIncludeAppearances);
+  const imagePromptFormat = useUIStore((s) => s.imagePromptFormat);
+  const setImagePromptFormat = useUIStore((s) => s.setImagePromptFormat);
   const imageBackgroundWidth = useUIStore((s) => s.imageBackgroundWidth);
   const imageBackgroundHeight = useUIStore((s) => s.imageBackgroundHeight);
   const setImageBackgroundDimensions = useUIStore((s) => s.setImageBackgroundDimensions);
@@ -716,18 +728,24 @@ function GeneralSettings() {
   const setMessagesPerPage = useUIStore((s) => s.setMessagesPerPage);
   const boldDialogue = useUIStore((s) => s.boldDialogue);
   const setBoldDialogue = useUIStore((s) => s.setBoldDialogue);
+  const quoteFormat = useUIStore((s) => s.quoteFormat);
+  const setQuoteFormat = useUIStore((s) => s.setQuoteFormat);
   const trimIncompleteModelOutput = useUIStore((s) => s.trimIncompleteModelOutput);
   const setTrimIncompleteModelOutput = useUIStore((s) => s.setTrimIncompleteModelOutput);
   const speechToTextEnabled = useUIStore((s) => s.speechToTextEnabled);
   const setSpeechToTextEnabled = useUIStore((s) => s.setSpeechToTextEnabled);
   const spotifyPlayerEnabled = useUIStore((s) => s.spotifyPlayerEnabled);
   const setSpotifyPlayerEnabled = useUIStore((s) => s.setSpotifyPlayerEnabled);
+  const chibiProfessorMariEnabled = useUIStore((s) => s.chibiProfessorMariEnabled);
+  const setChibiProfessorMariEnabled = useUIStore((s) => s.setChibiProfessorMariEnabled);
   const intuitiveSwipeNavigation = useUIStore((s) => s.intuitiveSwipeNavigation);
   const setIntuitiveSwipeNavigation = useUIStore((s) => s.setIntuitiveSwipeNavigation);
   const intuitiveSwipeRerollLatest = useUIStore((s) => s.intuitiveSwipeRerollLatest);
   const setIntuitiveSwipeRerollLatest = useUIStore((s) => s.setIntuitiveSwipeRerollLatest);
   const editLastMessageOnArrowUp = useUIStore((s) => s.editLastMessageOnArrowUp);
   const setEditLastMessageOnArrowUp = useUIStore((s) => s.setEditLastMessageOnArrowUp);
+  const editMessagesOnDoubleClick = useUIStore((s) => s.editMessagesOnDoubleClick);
+  const setEditMessagesOnDoubleClick = useUIStore((s) => s.setEditMessagesOnDoubleClick);
   const rescanGameAssets = useGameAssetStore((s) => s.rescanAssets);
   const assetFileRef = useRef<HTMLInputElement>(null);
   const [assetCategory, setAssetCategory] = useState<GameAssetCategoryId>("backgrounds");
@@ -833,6 +851,13 @@ function GeneralSettings() {
         checked={spotifyPlayerEnabled}
         onChange={setSpotifyPlayerEnabled}
         help="Shows a compact Spotify player in the top bar on desktop and as a draggable floating widget on mobile. Requires the Spotify DJ agent to be connected."
+      />
+
+      <ToggleSetting
+        label="Chibi Professor Mari visits"
+        checked={chibiProfessorMariEnabled}
+        onChange={setChibiProfessorMariEnabled}
+        help="Allows the rare Chibi Professor Mari scroll toast to appear. Turn this off to prevent the easter egg from registering while you use the app."
       />
 
       {/* Streaming Speed */}
@@ -979,12 +1004,12 @@ function GeneralSettings() {
         <span className="text-xs">Messages per page</span>
         <DraftNumberInput
           value={messagesPerPage}
-          min={0}
+          min={1}
           max={500}
-          onCommit={(nextValue) => setMessagesPerPage(Math.max(0, Math.min(500, nextValue)))}
+          onCommit={(nextValue) => setMessagesPerPage(Math.max(1, Math.min(500, nextValue)))}
           className="w-16 rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1 text-xs"
         />
-        <HelpTooltip text="How many messages to load at a time. Click 'Load More' in the chat to see older messages. Set to 0 to load all messages at once." />
+        <HelpTooltip text="How many messages to load at a time. Click 'Load More' in the chat to see older messages." />
       </label>
 
       <ToggleSetting
@@ -995,6 +1020,35 @@ function GeneralSettings() {
           'When on, text inside dialogue quotation marks ("like this", 「like this」, or 『like this』) is bolded in addition to its dialogue highlight color. Turn it off to keep the color without bold.'
         }
       />
+
+      <div className="flex flex-col gap-1.5 rounded-lg p-1 transition-colors hover:bg-[var(--secondary)]/50">
+        <div className="flex items-center gap-2">
+          <span className="text-xs">Quote style</span>
+          <HelpTooltip text="Choose how straight and smart quotation marks are unified in chat inputs and displayed AI output." />
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {QUOTE_FORMAT_OPTIONS.map((option) => {
+            const active = quoteFormat === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setQuoteFormat(option.id)}
+                className={cn(
+                  "flex min-w-0 flex-col items-start gap-0.5 rounded-lg px-2.5 py-2 text-left text-xs transition-all ring-1",
+                  active
+                    ? "bg-[var(--primary)]/15 text-[var(--primary)] ring-[var(--primary)]/35"
+                    : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-[var(--border)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+                )}
+              >
+                <span className="font-medium">{option.label}</span>
+                <span className="max-w-full truncate text-[0.625rem] opacity-80">{option.sample}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       <ToggleSetting
         label="Trim incomplete model endings"
@@ -1033,6 +1087,13 @@ function GeneralSettings() {
         help="In Conversation and Roleplay modes, press Up Arrow while the chat input is empty to open the most recent message in the chat for editing — whether it's yours or the AI's."
       />
 
+      <ToggleSetting
+        label="Double-click edits messages"
+        checked={editMessagesOnDoubleClick}
+        onChange={setEditMessagesOnDoubleClick}
+        help="When on, double-clicking or double-tapping a chat message opens the message editor. Edit buttons and keyboard shortcuts still work when this is off."
+      />
+
       <div className="rounded-xl bg-[var(--secondary)]/50 p-4 ring-1 ring-[var(--border)]">
         <div className="mb-3 flex flex-col gap-1">
           <div className="text-xs font-semibold text-[var(--foreground)]">Image Generation</div>
@@ -1046,8 +1107,25 @@ function GeneralSettings() {
             label="Expose image prompts before sending"
             checked={reviewImagePromptsBeforeSend}
             onChange={setReviewImagePromptsBeforeSend}
-            help="Shows generated image prompts for review before sending Game assets, character or persona avatars, and sprite generations to the image provider."
+            help="Shows generated image prompts for review before sending Game assets, character or persona avatars, sprites, and chat selfies to the image provider."
           />
+          <ToggleSetting
+            label="Include card appearances"
+            checked={imagePromptIncludeAppearances}
+            onChange={setImagePromptIncludeAppearances}
+            help="Allows character and persona appearance text to be included when Marinara asks for image prompts."
+          />
+          <label className="flex flex-col gap-1.5 rounded-xl bg-[var(--background)]/50 p-3 ring-1 ring-[var(--border)]">
+            <span className="text-xs font-medium text-[var(--foreground)]">Prompt wording</span>
+            <select
+              value={imagePromptFormat}
+              onChange={(event) => setImagePromptFormat(event.target.value === "tags" ? "tags" : "descriptive")}
+              className="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+            >
+              <option value="descriptive">Proper descriptions</option>
+              <option value="tags">Tags</option>
+            </select>
+          </label>
 
           <ImageDimensionRow
             label="Backgrounds"
@@ -1165,10 +1243,9 @@ function GeneralSettings() {
         </div>
 
         <p className="mt-2.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-          On desktop, folder buttons open the local app asset folders. Use upload to copy files into Marinara's
-          managed data directory. Audio supports MP3, OGG, WAV, FLAC, M4A, AAC, and WebM;
-          images support PNG, JPG, GIF, WebP, AVIF, and SVG for sprites. Music folders use state/genre/intensity, such
-          as exploration/fantasy/calm.
+          On desktop, folder buttons open the local app asset folders. Use upload to copy files into Marinara's managed
+          data directory. Audio supports MP3, OGG, WAV, FLAC, M4A, AAC, and WebM; images support PNG, JPG, GIF, WebP,
+          AVIF, and SVG for sprites. Music folders use state/genre/intensity, such as exploration/fantasy/calm.
         </p>
       </div>
     </div>
@@ -1182,6 +1259,8 @@ function AppearanceSettings() {
   const setVisualTheme = useUIStore((s) => s.setVisualTheme);
   const chatBackground = useUIStore((s) => s.chatBackground);
   const setChatBackgroundRaw = useUIStore((s) => s.setChatBackground);
+  const chatBackgroundBlur = useUIStore((s) => s.chatBackgroundBlur);
+  const setChatBackgroundBlur = useUIStore((s) => s.setChatBackgroundBlur);
   const activeChatId = useChatStore((s) => s.activeChatId);
   const updateMeta = useUpdateChatMetadata();
   // Persist background changes to the active chat's metadata immediately so
@@ -1229,9 +1308,7 @@ function AppearanceSettings() {
   const trackerPanelThoughtBubbleDisplay = useUIStore((s) => s.trackerPanelThoughtBubbleDisplay);
   const setTrackerPanelThoughtBubbleDisplay = useUIStore((s) => s.setTrackerPanelThoughtBubbleDisplay);
   const trackerPanelDockedThoughtsAlwaysVisible = useUIStore((s) => s.trackerPanelDockedThoughtsAlwaysVisible);
-  const setTrackerPanelDockedThoughtsAlwaysVisible = useUIStore(
-    (s) => s.setTrackerPanelDockedThoughtsAlwaysVisible,
-  );
+  const setTrackerPanelDockedThoughtsAlwaysVisible = useUIStore((s) => s.setTrackerPanelDockedThoughtsAlwaysVisible);
   const trackerTemperatureUnit = useUIStore((s) => s.trackerTemperatureUnit);
   const setTrackerTemperatureUnit = useUIStore((s) => s.setTrackerTemperatureUnit);
 
@@ -1610,7 +1687,14 @@ function AppearanceSettings() {
               )}
             >
               <div className="w-full overflow-hidden rounded-md bg-[var(--secondary)]/80 ring-1 ring-[var(--border)]/70">
-                {opt.id === "circles" ? (
+                {opt.id === "none" ? (
+                  <div className="flex h-14 items-center px-3">
+                    <div className="flex-1 rounded-2xl bg-black/25 px-3 py-2">
+                      <div className="h-1.5 w-16 rounded-full bg-white/20" />
+                      <div className="mt-1.5 h-1.5 w-24 rounded-full bg-white/12" />
+                    </div>
+                  </div>
+                ) : opt.id === "circles" ? (
                   <div className="flex h-14 items-center px-3">
                     <div className="relative flex-1 rounded-2xl rounded-tl-sm bg-black/25 px-3 py-2">
                       <div className="absolute left-2 top-2 h-2.5 w-2.5 rounded-full bg-gradient-to-br from-rose-400 to-orange-300 shadow-[0_0_0_2px_rgba(255,255,255,0.16)]" />
@@ -1649,28 +1733,30 @@ function AppearanceSettings() {
         <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/45 p-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex h-20 w-full shrink-0 items-end justify-center gap-3 overflow-hidden rounded-md bg-black/30 ring-1 ring-[var(--border)]/70 sm:w-28">
-              <div
-                className={cn(
-                  "mb-2 border border-white/20 bg-gradient-to-b from-rose-300/85 via-fuchsia-300/65 to-slate-900/90 shadow-lg transition-all",
-                  roleplayAvatarStyle === "circles"
-                    ? "rounded-full"
-                    : roleplayAvatarStyle === "rectangles"
-                      ? "rounded-xl"
-                      : "rounded-md",
-                )}
-                style={{
-                  width: `${
-                    roleplayAvatarStyle === "panel"
-                      ? Math.min(5.5, 2.2 * roleplayAvatarScale)
-                      : Math.min(5.5, (roleplayAvatarStyle === "rectangles" ? 2.15 : 2) * roleplayAvatarScale)
-                  }rem`,
-                  height: `${
+              {roleplayAvatarStyle !== "none" && (
+                <div
+                  className={cn(
+                    "mb-2 border border-white/20 bg-gradient-to-b from-rose-300/85 via-fuchsia-300/65 to-slate-900/90 shadow-lg transition-all",
                     roleplayAvatarStyle === "circles"
-                      ? Math.min(5.5, 2 * roleplayAvatarScale)
-                      : Math.min(6, (roleplayAvatarStyle === "rectangles" ? 2.7 : 3.4) * roleplayAvatarScale)
-                  }rem`,
-                }}
-              />
+                      ? "rounded-full"
+                      : roleplayAvatarStyle === "rectangles"
+                        ? "rounded-xl"
+                        : "rounded-md",
+                  )}
+                  style={{
+                    width: `${
+                      roleplayAvatarStyle === "panel"
+                        ? Math.min(5.5, 2.2 * roleplayAvatarScale)
+                        : Math.min(5.5, (roleplayAvatarStyle === "rectangles" ? 2.15 : 2) * roleplayAvatarScale)
+                    }rem`,
+                    height: `${
+                      roleplayAvatarStyle === "circles"
+                        ? Math.min(5.5, 2 * roleplayAvatarScale)
+                        : Math.min(6, (roleplayAvatarStyle === "rectangles" ? 2.7 : 3.4) * roleplayAvatarScale)
+                    }rem`,
+                  }}
+                />
+              )}
               <div
                 className="mb-1 rounded-full border border-white/20 bg-gradient-to-b from-violet-200/85 via-purple-200/70 to-slate-900/95 shadow-lg transition-all"
                 style={{
@@ -1688,9 +1774,10 @@ function AppearanceSettings() {
                     min={0.75}
                     max={2.5}
                     step={0.05}
+                    disabled={roleplayAvatarStyle === "none"}
                     value={roleplayAvatarScale}
                     onChange={(e) => setRoleplayAvatarScale(Number(e.target.value))}
-                    className="min-w-0 flex-1 accent-[var(--primary)]"
+                    className="min-w-0 flex-1 accent-[var(--primary)] disabled:opacity-50"
                   />
                   <span className="w-12 text-right text-xs tabular-nums text-[var(--muted-foreground)]">
                     {Math.round(roleplayAvatarScale * 100)}%
@@ -1960,6 +2047,26 @@ function AppearanceSettings() {
           )}
         </div>
         <BackgroundPicker selected={chatBackground} onSelect={setChatBackground} />
+        <label className="flex flex-col gap-1 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/35 p-3">
+          <span className="text-[0.6875rem] font-medium inline-flex items-center gap-1">
+            Background Blur
+            <HelpTooltip text="Softens the selected roleplay background image behind the chat. Set to 0px for a sharp background." />
+          </span>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={0}
+              max={24}
+              step={1}
+              value={chatBackgroundBlur}
+              onChange={(e) => setChatBackgroundBlur(Number(e.target.value))}
+              className="flex-1 accent-[var(--primary)]"
+            />
+            <span className="w-10 text-right text-xs tabular-nums text-[var(--muted-foreground)]">
+              {chatBackgroundBlur}px
+            </span>
+          </div>
+        </label>
       </div>
     </div>
   );
@@ -1989,11 +2096,12 @@ type BackgroundUploadResponse = {
 };
 
 function BackgroundThumbnail({ item }: { item: BackgroundLibraryItem }) {
-  const [src, setSrc] = useState(() => filePathToAssetUrl(item.absolutePath) || "");
+  const filename = item.filename ?? item.path ?? item.id;
+  const [src, setSrc] = useState(() => (filename ? backgroundFileUrlFromPath(filename, item.absolutePath) : ""));
 
   useEffect(() => {
-    if (item.absolutePath) {
-      setSrc(filePathToAssetUrl(item.absolutePath));
+    if (filename) {
+      setSrc(backgroundFileUrlFromPath(filename, item.absolutePath));
       return;
     }
     let cancelled = false;
@@ -2007,13 +2115,12 @@ function BackgroundThumbnail({ item }: { item: BackgroundLibraryItem }) {
     return () => {
       cancelled = true;
     };
-  }, [item.absolutePath, item.url]);
+  }, [filename, item.absolutePath, item.url]);
 
   return <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" />;
 }
 
 function BackgroundPicker({ selected, onSelect }: { selected: string | null; onSelect: (url: string | null) => void }) {
-  const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [editingTags, setEditingTags] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState("");
@@ -2026,7 +2133,9 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
     queryKey: ["backgrounds"],
     queryFn: async () => {
       const rows =
-        await backgroundsApi.list<Array<BackgroundLibraryItem & { name?: string; type?: string; isDirectory?: boolean }>>();
+        await backgroundsApi.list<
+          Array<BackgroundLibraryItem & { name?: string; type?: string; isDirectory?: boolean }>
+        >();
       return rows
         .filter((row) => row.type !== "folder" && row.isDirectory !== true)
         .map((row) => {
@@ -2058,8 +2167,7 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
   });
 
   const updateTags = useMutation({
-    mutationFn: ({ filename, tags }: { filename: string; tags: string[] }) =>
-      backgroundsApi.updateTags(filename, tags),
+    mutationFn: ({ filename, tags }: { filename: string; tags: string[] }) => backgroundsApi.updateTags(filename, tags),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["backgrounds"] });
       qc.invalidateQueries({ queryKey: ["background-tags"] });
@@ -2079,8 +2187,7 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
     },
   });
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+  const handleUpload = async (files: File[]) => {
     if (files.length === 0) return;
     setUploading(true);
     try {
@@ -2113,7 +2220,6 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
       toast.error("Background import failed.");
     } finally {
       setUploading(false);
-      e.target.value = "";
     }
   };
 
@@ -2133,16 +2239,15 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Upload button */}
-      <button
-        onClick={() => fileRef.current?.click()}
-        disabled={uploading}
-        className="flex items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-[var(--border)] p-3 text-xs text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)]/40 hover:bg-[var(--secondary)]/50"
-      >
-        {uploading ? <Loader2 size="0.875rem" className="animate-spin" /> : <Upload size="0.875rem" />}
-        {uploading ? "Importing..." : "Import Backgrounds"}
-      </button>
-      <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleUpload} />
+      <ImageUploadDropzone
+        label="Import Backgrounds"
+        pending={uploading}
+        pendingLabel="Importing..."
+        dragLabel="Drop backgrounds to import"
+        onFilesSelected={(files) => void handleUpload(files)}
+        icon={uploading ? <Loader2 size="0.875rem" className="animate-spin" /> : <Upload size="0.875rem" />}
+        className="gap-1.5 rounded-lg p-3 hover:border-[var(--primary)]/40 hover:bg-[var(--secondary)]/50"
+      />
 
       {/* Background grid */}
       {backgrounds && backgrounds.length > 0 && (
@@ -2908,8 +3013,7 @@ function ImportSettings() {
   return (
     <div className="flex flex-col gap-3">
       <div className="text-xs text-[var(--muted-foreground)]">
-        Import data from Marinara exports, SillyTavern, or other tools. Full profile imports also restore custom
-        themes.
+        Import data from Marinara exports, SillyTavern, or other tools. Full profile imports also restore custom themes.
       </div>
 
       <ProfileImportSection />
@@ -3087,9 +3191,111 @@ function AdvancedSettings() {
   const [selectedScopes, setSelectedScopes] = useState<ExpungeScope[]>(["chats"]);
   const [confirmAction, setConfirmAction] = useState<"selected" | "all" | null>(null);
   const [exportingProfile, setExportingProfile] = useState(false);
+  const [downloadingBackupName, setDownloadingBackupName] = useState<string | null>(null);
   const [refreshingSpa, setRefreshingSpa] = useState(false);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [openingUpdate, setOpeningUpdate] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResponse | null>(null);
   const [adminSecret, setAdminSecret] = useState(() => localStorage.getItem(ADMIN_SECRET_STORAGE_KEY) ?? "");
   const [quickRepliesDrawerOpen, setQuickRepliesDrawerOpen] = useState(true);
+  const remoteRuntimeSectionRef = useRef<HTMLDivElement>(null);
+  const remoteRuntimeHealthAbortRef = useRef<AbortController | null>(null);
+  const remoteRuntimeHealthCheckIdRef = useRef(0);
+  const [remoteRuntimeHealth, setRemoteRuntimeHealth] = useState<RemoteRuntimeHealthView>(() =>
+    remoteRuntimeUrl.trim()
+      ? { status: "idle", message: "Status checks when this section is visible." }
+      : { status: "unconfigured", message: "Embedded Tauri runtime in use." },
+  );
+  const queryClient = useQueryClient();
+
+  const runRemoteRuntimeHealthCheck = useCallback(() => {
+    const url = remoteRuntimeUrl.trim();
+    remoteRuntimeHealthAbortRef.current?.abort();
+
+    if (!url) {
+      setRemoteRuntimeHealth({ status: "unconfigured", message: "Embedded Tauri runtime in use." });
+      return;
+    }
+
+    const checkId = remoteRuntimeHealthCheckIdRef.current + 1;
+    remoteRuntimeHealthCheckIdRef.current = checkId;
+    const controller = new AbortController();
+    remoteRuntimeHealthAbortRef.current = controller;
+    setRemoteRuntimeHealth({ status: "checking", message: "Checking remote runtime..." });
+
+    void checkRemoteRuntimeHealth(url, { signal: controller.signal })
+      .then((result) => {
+        if (controller.signal.aborted || remoteRuntimeHealthCheckIdRef.current !== checkId) return;
+        setRemoteRuntimeHealth(result);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted || remoteRuntimeHealthCheckIdRef.current !== checkId) return;
+        setRemoteRuntimeHealth({
+          status: "unreachable",
+          message: error instanceof Error ? error.message : "Remote runtime health check failed.",
+        });
+      });
+  }, [remoteRuntimeUrl]);
+
+  useEffect(
+    () => () => {
+      remoteRuntimeHealthAbortRef.current?.abort();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!remoteRuntimeUrl.trim()) {
+      remoteRuntimeHealthAbortRef.current?.abort();
+      setRemoteRuntimeHealth({ status: "unconfigured", message: "Embedded Tauri runtime in use." });
+      return;
+    }
+
+    const element = remoteRuntimeSectionRef.current;
+    if (!element || typeof IntersectionObserver === "undefined") {
+      runRemoteRuntimeHealthCheck();
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          runRemoteRuntimeHealthCheck();
+        }
+      },
+      { threshold: 0.25 },
+    );
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [remoteRuntimeUrl, runRemoteRuntimeHealthCheck]);
+
+  const backupsQuery = useQuery<ManagedBackup[]>({
+    queryKey: ["backups"],
+    queryFn: backupApi.listBackups,
+  });
+
+  const createBackupMutation = useMutation({
+    mutationFn: backupApi.createBackup,
+    onSuccess: (result) => {
+      toast.success(`Managed backup created: ${result.backupName}`);
+      queryClient.invalidateQueries({ queryKey: ["backups"] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : "Failed to create backup");
+    },
+  });
+
+  const deleteBackupMutation = useMutation({
+    mutationFn: backupApi.deleteBackup,
+    onSuccess: () => {
+      toast.success("Managed backup deleted");
+      queryClient.invalidateQueries({ queryKey: ["backups"] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : "Failed to delete backup");
+    },
+  });
 
   const handleQuickRepliesMenuChange = (enabled: boolean) => {
     setShowQuickRepliesMenu(enabled);
@@ -3099,18 +3305,25 @@ function AdvancedSettings() {
   const handleExportProfile = async () => {
     setExportingProfile(true);
     try {
-      const { blob, filename } = await profileApi.exportProfile();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
+      triggerDownload(await profileApi.exportProfile());
       toast.success("Profile exported!");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to export profile");
     } finally {
       setExportingProfile(false);
+    }
+  };
+
+  const handleDownloadBackup = async (name?: string) => {
+    const key = name ?? "__current__";
+    setDownloadingBackupName(key);
+    try {
+      triggerDownload(await backupApi.downloadBackup(name));
+      toast.success(name ? "Managed backup downloaded!" : "Backup downloaded!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to download backup");
+    } finally {
+      setDownloadingBackupName(null);
     }
   };
 
@@ -3130,6 +3343,39 @@ function AdvancedSettings() {
     }
   };
 
+  const handleCheckUpdates = async () => {
+    if (checkingUpdates) return;
+    setCheckingUpdates(true);
+    try {
+      const result = await updatesApi.check();
+      setUpdateInfo(result);
+      if (result.updateAvailable) {
+        toast.success(`Update ${result.releaseTag} is available.`);
+      } else {
+        toast.info("Marinara is up to date.");
+      }
+    } catch (err) {
+      setUpdateInfo(null);
+      toast.error(err instanceof Error ? err.message : "Failed to check for updates");
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
+  const handleOpenUpdate = async () => {
+    if (!updateInfo || !updateInfo.updateAvailable || openingUpdate || checkingUpdates) return;
+    setOpeningUpdate(true);
+    try {
+      const result = await updatesApi.apply(updateInfo);
+      window.open(result.releaseUrl, "_blank", "noopener,noreferrer");
+      toast.info(result.message);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to open update");
+    } finally {
+      setOpeningUpdate(false);
+    }
+  };
+
   const saveAdminSecret = useCallback(() => {
     const trimmed = adminSecret.trim();
     if (trimmed) {
@@ -3143,6 +3389,15 @@ function AdvancedSettings() {
 
   const isClearing = clearAllData.isPending || expungeData.isPending;
   const isAllScopesSelected = selectedScopes.length === EXPUNGE_SCOPE_OPTIONS.length;
+  const remoteRuntimeHealthDotClass = cn(
+    "h-2 w-2 shrink-0 rounded-full",
+    remoteRuntimeHealth.status === "ok" && "bg-emerald-400",
+    remoteRuntimeHealth.status === "checking" && "animate-pulse bg-sky-400",
+    remoteRuntimeHealth.status === "not-writable" && "bg-amber-400",
+    (remoteRuntimeHealth.status === "invalid" || remoteRuntimeHealth.status === "unreachable") && "bg-rose-400",
+    (remoteRuntimeHealth.status === "idle" || remoteRuntimeHealth.status === "unconfigured") &&
+      "bg-[var(--muted-foreground)]/45",
+  );
 
   const toggleScope = (scope: ExpungeScope) => {
     setSelectedScopes((current) =>
@@ -3225,7 +3480,60 @@ function AdvancedSettings() {
           />
         </div>
 
-        <div className="flex flex-col gap-1.5 rounded-lg bg-[var(--secondary)]/35 p-2.5 ring-1 ring-[var(--border)]">
+        <div className="flex flex-col gap-2 rounded-lg bg-[var(--secondary)]/35 p-2.5 ring-1 ring-[var(--border)]">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium">App Updates</span>
+            <HelpTooltip text="Checks the Marinara Engine GitHub releases. This refactor build opens the release page for manual install because signed Tauri updater artifacts are not configured yet." />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void handleCheckUpdates()}
+              disabled={checkingUpdates}
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--background)]/70 px-3 py-2 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {checkingUpdates ? (
+                <>
+                  <Loader2 size="0.8125rem" className="animate-spin" />
+                  Checking...
+                </>
+              ) : (
+                <>
+                  <RefreshCw size="0.8125rem" />
+                  Check for Updates
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleOpenUpdate()}
+              disabled={!updateInfo || !updateInfo.updateAvailable || openingUpdate || checkingUpdates}
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-medium text-white transition-all hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {openingUpdate ? (
+                <>
+                  <Loader2 size="0.8125rem" className="animate-spin" />
+                  Opening...
+                </>
+              ) : (
+                <>
+                  <Download size="0.8125rem" />
+                  Open Release
+                </>
+              )}
+            </button>
+          </div>
+          {updateInfo && (
+            <div className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+              Current {updateInfo.currentVersion}; latest {updateInfo.latestVersion}. {updateInfo.manualUpdateHint}
+            </div>
+          )}
+        </div>
+
+        <div
+          ref={remoteRuntimeSectionRef}
+          className="flex flex-col gap-1.5 rounded-lg bg-[var(--secondary)]/35 p-2.5 ring-1 ring-[var(--border)]"
+        >
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium">Remote Runtime URL</span>
             <HelpTooltip text="Blank uses the embedded Tauri backend. Set this to a Marinara Rust server URL to route supported storage and generation calls through the remote runtime." />
@@ -3237,11 +3545,17 @@ function AdvancedSettings() {
             placeholder="http://127.0.0.1:8787"
             className="rounded-lg bg-[var(--background)] px-3 py-2 text-xs outline-none ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)]/50 focus:ring-[var(--primary)]"
           />
+          <div className="flex min-h-7 items-center gap-2 rounded-lg bg-[var(--background)]/55 px-2.5 py-1.5 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]/70">
+            <span className={remoteRuntimeHealthDotClass} aria-hidden="true" />
+            <span>{remoteRuntimeHealth.message}</span>
+          </div>
           <div className="text-[0.625rem] text-[var(--muted-foreground)]">
             Supports reverse-proxy Basic Auth with https://user:password@example.com.
           </div>
         </div>
       </div>
+
+      <PromptOverridesEditor />
 
       <div className="retro-divider" />
       <div
@@ -3430,8 +3744,91 @@ function AdvancedSettings() {
         label="Debug mode"
         checked={debugMode}
         onChange={setDebugMode}
-        help="Logs the prompt and response payloads sent to the local Tauri console for debugging."
+        help="Shows the in-app agent debug panel and emits agent runtime diagnostics to the console for troubleshooting."
       />
+
+      {/* Backup */}
+      <div className="retro-divider" />
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-1.5">
+          <Download size="0.75rem" className="text-[var(--muted-foreground)]" />
+          <span className="text-xs font-medium">Backup & Export</span>
+          <HelpTooltip text="Creates, lists, downloads, and deletes managed full backups. Backups include data collections plus managed asset folders for recovery." />
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button
+            onClick={() => createBackupMutation.mutate()}
+            disabled={createBackupMutation.isPending}
+            className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-medium text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
+          >
+            {createBackupMutation.isPending ? (
+              <>
+                <Loader2 size="0.8125rem" className="animate-spin" />
+                Creating...
+              </>
+            ) : (
+              <>
+                <Save size="0.8125rem" />
+                Create Managed Backup
+              </>
+            )}
+          </button>
+          <button
+            onClick={() => void handleDownloadBackup()}
+            disabled={downloadingBackupName === "__current__"}
+            className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium ring-1 ring-[var(--border)] transition-all hover:bg-[var(--secondary)]/80 active:scale-95 disabled:opacity-50"
+          >
+            {downloadingBackupName === "__current__" ? (
+              <Loader2 size="0.8125rem" className="animate-spin" />
+            ) : (
+              <Download size="0.8125rem" />
+            )}
+            Download Backup
+          </button>
+        </div>
+        {backupsQuery.data && backupsQuery.data.length > 0 && (
+          <div className="mt-1 flex flex-col gap-1">
+            <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Existing backups</span>
+            {backupsQuery.data.map((backup) => (
+              <div
+                key={backup.name}
+                className="flex items-center justify-between gap-2 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 ring-1 ring-[var(--border)]"
+              >
+                <div className="min-w-0">
+                  <span className="block truncate text-[0.6875rem] font-medium">{backup.name}</span>
+                  <span className="block text-[0.5625rem] text-[var(--muted-foreground)]">
+                    {new Date(backup.createdAt).toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    aria-label={`Download ${backup.name}`}
+                    onClick={() => void handleDownloadBackup(backup.name)}
+                    disabled={downloadingBackupName === backup.name}
+                    className="rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--background)] hover:text-[var(--foreground)] disabled:opacity-50"
+                  >
+                    {downloadingBackupName === backup.name ? (
+                      <Loader2 size="0.75rem" className="animate-spin" />
+                    ) : (
+                      <Download size="0.75rem" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Delete ${backup.name}`}
+                    onClick={() => deleteBackupMutation.mutate(backup.name)}
+                    disabled={deleteBackupMutation.isPending}
+                    className="rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] disabled:opacity-50"
+                  >
+                    <Trash2 size="0.75rem" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* ── Profile Export ── */}
       <div className="retro-divider" />
@@ -3468,8 +3865,8 @@ function AdvancedSettings() {
           Danger Zone
         </div>
         <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-          Permanently clear selected categories of local data. Professor Mari is always preserved, and Marinara resets
-          live caches immediately after a successful expunge so stale data does not linger on screen.
+          Permanently clear selected categories of local data. Marinara resets live caches immediately after a
+          successful expunge so stale data does not linger on screen.
         </p>
         <div className="grid gap-2">
           {EXPUNGE_SCOPE_OPTIONS.map((scope) => {

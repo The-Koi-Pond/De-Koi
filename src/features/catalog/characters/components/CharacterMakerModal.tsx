@@ -5,12 +5,15 @@
 import { useState, useRef, useCallback } from "react";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import { useConnections } from "../../connections/index";
-import { useCreateCharacter } from "../hooks/use-characters";
+import { useCharacterGroups, useCreateCharacter, useUpdateGroup } from "../hooks/use-characters";
+import { useCreateLorebookEntry, useLorebooks } from "../../lorebooks/index";
 import { useUIStore } from "../../../../shared/stores/ui.store";
-import { Sparkles, Loader2, Wand2, CheckCircle, AlertCircle, ChevronDown, User, Save } from "lucide-react";
+import { Sparkles, Loader2, Wand2, CheckCircle, AlertCircle, ChevronDown, User, Save, Folder, BookOpen } from "lucide-react";
 import { ProfessorMariWorkingWindow } from "../../../../shared/components/ui/ProfessorMariWorkingWindow";
 import { generateCharacterMaker } from "../../../../engine/generation/makers";
 import { llmApi } from "../../../../shared/api/llm-api";
+import type { CharacterGroup } from "../../../../engine/contracts/types/character";
+import type { Lorebook } from "../../../../engine/contracts/types/lorebook";
 
 interface Props {
   open: boolean;
@@ -39,22 +42,81 @@ type GeneratedData = {
   appearance?: string;
 };
 
+function parseTagsInput(value: string): string[] {
+  const seen = new Set<string>();
+  return value
+    .split(/[,\n]/)
+    .map((tag) => tag.trim())
+    .filter((tag) => {
+      const key = tag.toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function mergeTags(generatedTags: string[] | undefined, referenceTags: string[]): string[] {
+  const seen = new Set<string>();
+  return [...(generatedTags ?? []), ...referenceTags]
+    .map((tag) => tag.trim())
+    .filter((tag) => {
+      const key = tag.toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function nameKeywords(name: string): string[] {
+  const parts = name
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return Array.from(new Set([name.trim(), ...parts])).filter(Boolean);
+}
+
+function characterLorebookContent(data: GeneratedData, name: string): string {
+  return [
+    `Name: ${name}`,
+    data.description ? `Description: ${data.description}` : "",
+    data.personality ? `Personality: ${data.personality}` : "",
+    data.backstory ? `Backstory: ${data.backstory}` : "",
+    data.appearance ? `Appearance: ${data.appearance}` : "",
+    data.scenario ? `Scenario: ${data.scenario}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 export function CharacterMakerModal({ open, onClose }: Props) {
   const { data: rawConnections } = useConnections();
+  const { data: rawGroups } = useCharacterGroups();
+  const { data: rawLorebooks } = useLorebooks();
   const createCharacter = useCreateCharacter();
+  const updateGroup = useUpdateGroup();
+  const createLorebookEntry = useCreateLorebookEntry();
   const openCharacterDetail = useUIStore((s) => s.openCharacterDetail);
   const enableStreaming = useUIStore((s) => s.enableStreaming);
 
   const [prompt, setPrompt] = useState("");
+  const [referenceTagsInput, setReferenceTagsInput] = useState("");
+  const [nameHint, setNameHint] = useState("");
+  const [preserveNameSpelling, setPreserveNameSpelling] = useState(true);
+  const [declensionHint, setDeclensionHint] = useState("");
+  const [targetGroupId, setTargetGroupId] = useState("");
+  const [targetLorebookId, setTargetLorebookId] = useState("");
   const [connectionId, setConnectionId] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [generated, setGenerated] = useState<GeneratedData | null>(null);
+  const [confirmedName, setConfirmedName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const connections = (rawConnections ?? []) as ConnectionRow[];
+  const groups = (rawGroups ?? []) as CharacterGroup[];
+  const lorebooks = (rawLorebooks ?? []) as Lorebook[];
 
   // Auto-select first connection
   if (!connectionId && connections.length > 0) {
@@ -75,9 +137,18 @@ export function CharacterMakerModal({ open, onClose }: Props) {
     try {
       let fullText = "";
       let parsed: GeneratedData | null = null;
+      const referenceTags = parseTagsInput(referenceTagsInput);
       for await (const event of generateCharacterMaker(
         { llm: llmApi },
-        { prompt, connectionId, streaming: enableStreaming },
+        {
+          prompt,
+          connectionId,
+          streaming: enableStreaming,
+          referenceTags,
+          nameHint,
+          preserveNameSpelling,
+          declensionHint,
+        },
         abort.signal,
       )) {
         if (event.type === "token") {
@@ -88,7 +159,10 @@ export function CharacterMakerModal({ open, onClose }: Props) {
         }
       }
 
-      if (parsed) setGenerated(parsed);
+      if (parsed) {
+        setGenerated(parsed);
+        setConfirmedName((parsed.name || nameHint).trim());
+      }
       else setError("Generated text wasn't valid JSON. You can try again.");
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
@@ -98,15 +172,18 @@ export function CharacterMakerModal({ open, onClose }: Props) {
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [prompt, connectionId, enableStreaming]);
+  }, [prompt, connectionId, enableStreaming, referenceTagsInput, nameHint, preserveNameSpelling, declensionHint]);
 
   const handleSave = async () => {
-    if (!generated?.name) return;
+    const finalName = confirmedName.trim() || generated?.name?.trim();
+    if (!generated || !finalName) return;
     setSaving(true);
     try {
+      const referenceTags = parseTagsInput(referenceTagsInput);
+      const savedTags = mergeTags(generated.tags, referenceTags);
       const characterData = {
         data: {
-          name: generated.name,
+          name: finalName,
           description: generated.description ?? "",
           personality: generated.personality ?? "",
           scenario: generated.scenario ?? "",
@@ -115,7 +192,7 @@ export function CharacterMakerModal({ open, onClose }: Props) {
           creator_notes: generated.creator_notes ?? "",
           system_prompt: generated.system_prompt ?? "",
           post_history_instructions: generated.post_history_instructions ?? "",
-          tags: generated.tags ?? [],
+          tags: savedTags,
           creator: "AI Character Maker",
           character_version: "1.0",
           alternate_greetings: [],
@@ -127,6 +204,14 @@ export function CharacterMakerModal({ open, onClose }: Props) {
             backstory: generated.backstory ?? "",
             appearance: generated.appearance ?? "",
             altDescriptions: [],
+            marinara: {
+              aiCharacterMaker: {
+                referenceTags,
+                nameHint: nameHint.trim(),
+                preserveNameSpelling,
+                declensionHint: declensionHint.trim(),
+              },
+            },
           },
           character_book: null,
         },
@@ -135,11 +220,41 @@ export function CharacterMakerModal({ open, onClose }: Props) {
       const result = await createCharacter.mutateAsync(characterData);
       const charId = (result as { id: string })?.id;
 
+      if (charId && targetGroupId) {
+        const group = groups.find((entry) => entry.id === targetGroupId);
+        const characterIds = Array.from(new Set([...(group?.characterIds ?? []), charId]));
+        await updateGroup.mutateAsync({ id: targetGroupId, characterIds });
+      }
+
+      if (charId && targetLorebookId) {
+        await createLorebookEntry.mutateAsync({
+          lorebookId: targetLorebookId,
+          name: finalName,
+          content: characterLorebookContent(generated, finalName),
+          description: generated.description ?? generated.personality ?? "",
+          keys: nameKeywords(finalName),
+          secondaryKeys: savedTags,
+          enabled: true,
+          tag: "character",
+          characterFilterMode: "include",
+          characterFilterIds: [charId],
+          additionalMatchingSources: ["character_name", "character_description", "character_tags"],
+          order: 100,
+        });
+      }
+
       onClose();
       // Reset state
       setPrompt("");
+      setReferenceTagsInput("");
+      setNameHint("");
+      setPreserveNameSpelling(true);
+      setDeclensionHint("");
+      setTargetGroupId("");
+      setTargetLorebookId("");
       setStreamText("");
       setGenerated(null);
+      setConfirmedName("");
       setError(null);
 
       // Open the character editor for the newly created character
@@ -157,7 +272,7 @@ export function CharacterMakerModal({ open, onClose }: Props) {
   };
 
   return (
-    <Modal open={open} onClose={handleClose} title="✦ AI Character Maker" width="max-w-lg">
+    <Modal open={open} onClose={handleClose} title="✦ AI Character Maker" width="max-w-xl">
       <ProfessorMariWorkingWindow visible={streaming || saving} />
       <div className="space-y-4">
         {/* Connection selector */}
@@ -193,6 +308,81 @@ export function CharacterMakerModal({ open, onClose }: Props) {
             className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-3 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
             placeholder="Describe your character... e.g. 'A cheerful catgirl barista who secretly runs a thieves' guild at night'"
           />
+        </div>
+
+        <div className="grid gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)]/70 p-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-[var(--muted-foreground)]">Reference Tags</label>
+            <input
+              value={referenceTagsInput}
+              onChange={(e) => setReferenceTagsInput(e.target.value)}
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              placeholder="scholar, vampire, slow burn"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-[var(--muted-foreground)]">Preferred Name</label>
+            <input
+              value={nameHint}
+              onChange={(e) => setNameHint(e.target.value)}
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              placeholder="Bella"
+            />
+          </div>
+          <label className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-3 py-2 text-xs text-[var(--foreground)]">
+            <input
+              type="checkbox"
+              checked={preserveNameSpelling}
+              onChange={(e) => setPreserveNameSpelling(e.target.checked)}
+              className="h-4 w-4 accent-[var(--primary)]"
+            />
+            Preserve exact name spelling
+          </label>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-[var(--muted-foreground)]">Declension Note</label>
+            <input
+              value={declensionHint}
+              onChange={(e) => setDeclensionHint(e.target.value)}
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              placeholder="Keep base name unchanged"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)]">
+              <Folder size="0.75rem" />
+              Save to Group
+            </label>
+            <select
+              value={targetGroupId}
+              onChange={(e) => setTargetGroupId(e.target.value)}
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+            >
+              <option value="">No group</option>
+              {groups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)]">
+              <BookOpen size="0.75rem" />
+              Add to Lorebook
+            </label>
+            <select
+              value={targetLorebookId}
+              onChange={(e) => setTargetLorebookId(e.target.value)}
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+            >
+              <option value="">No lorebook entry</option>
+              {lorebooks.map((lorebook) => (
+                <option key={lorebook.id} value={lorebook.id}>
+                  {lorebook.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {/* Generate button */}
@@ -249,7 +439,15 @@ export function CharacterMakerModal({ open, onClose }: Props) {
                 <User size="1.25rem" className="text-white" />
               </div>
               <div className="min-w-0 flex-1">
-                <h4 className="font-bold">{generated.name}</h4>
+                <label className="sr-only" htmlFor="character-maker-confirmed-name">
+                  Confirm character name
+                </label>
+                <input
+                  id="character-maker-confirmed-name"
+                  value={confirmedName}
+                  onChange={(e) => setConfirmedName(e.target.value)}
+                  className="w-full rounded-lg border border-transparent bg-transparent px-0 py-0 text-sm font-bold outline-none transition-colors focus:border-[var(--primary)]/30 focus:bg-[var(--secondary)] focus:px-2 focus:py-1"
+                />
                 <p className="mt-0.5 text-xs text-[var(--muted-foreground)] line-clamp-2">
                   {generated.description?.slice(0, 200)}
                 </p>
@@ -279,7 +477,7 @@ export function CharacterMakerModal({ open, onClose }: Props) {
             {/* Save button */}
             <button
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || !confirmedName.trim()}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-pink-400 to-purple-500 px-4 py-2.5 text-sm font-medium text-white shadow-md shadow-pink-500/20 transition-all hover:shadow-lg active:scale-[0.98] disabled:opacity-50"
             >
               {saving ? (

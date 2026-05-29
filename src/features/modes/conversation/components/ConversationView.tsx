@@ -31,9 +31,10 @@ import { ChatBranchSelector } from "../../shared/chat-ui/index";
 import { ActiveWorldInfoButton, ActiveWorldInfoModal } from "../../../runtime/visuals/index";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { showConversationLocalNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
 import { getAvatarCropStyle, type AvatarCropValue } from "../../../../shared/lib/utils";
-import { characterKeys } from "../../../catalog/characters/index";
+import { invalidateCharacterCollectionQueries } from "../../../catalog/characters/index";
 import { getConversationStatus } from "../../../../engine/modes/chat/autonomous/autonomous.service";
 import { storageApi } from "../../../../shared/api/storage-api";
 import type { CharacterMap, MessageSelectionToggle, PersonaInfo } from "../../shared/chat-ui/types";
@@ -62,7 +63,7 @@ interface ConversationViewProps {
   chatCharIds: string[];
   onDelete: (messageId: string) => void;
   onRegenerate: (messageId: string) => void;
-  onEdit: (messageId: string, content: string) => void;
+  onEdit: (messageId: string, content: string) => void | Promise<void>;
   onSetActiveSwipe: (messageId: string, index: number) => void;
   onPeekPrompt: () => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
@@ -132,6 +133,14 @@ function isHiddenFromUser(message: Message) {
   } catch {
     return false;
   }
+}
+
+function getAssistantNotificationName(message: Message, characterMap: CharacterMap, characterNames: string[]) {
+  if (message.characterId) {
+    const name = characterMap.get(message.characterId)?.name?.trim();
+    if (name) return name;
+  }
+  return characterNames.length === 1 ? characterNames[0] : "Character";
 }
 
 const LIST_LINE_RE = /^\s*(?:[-*+]|\d+\.)\s/;
@@ -307,7 +316,6 @@ export function ConversationView({
   pageCount,
   totalMessageCount,
   characterMap,
-  characterNames,
   personaInfo,
   chatMeta,
   chatName,
@@ -341,13 +349,25 @@ export function ConversationView({
   const streamingCharacterId = useChatStore((s) => s.streamingCharacterId);
   const typingCharacterName = useChatStore((s) => s.typingCharacterName);
   const delayedCharacterInfo = useChatStore((s) => s.delayedCharacterInfo);
+  const inactiveCharacterIdSet = useMemo(
+    () => new Set(Array.isArray(chatMeta.inactiveCharacterIds) ? chatMeta.inactiveCharacterIds : []),
+    [chatMeta.inactiveCharacterIds],
+  );
+  const activeChatCharIds = useMemo(
+    () => chatCharIds.filter((id) => !inactiveCharacterIdSet.has(id)),
+    [chatCharIds, inactiveCharacterIdSet],
+  );
+  const activeCharacterNames = useMemo(
+    () => activeChatCharIds.map((id) => characterMap.get(id)?.name).filter((name): name is string => !!name),
+    [activeChatCharIds, characterMap],
+  );
   const liveTypingName = useMemo(() => {
     if (typingCharacterName) return typingCharacterName;
     if (streamingCharacterId) return characterMap.get(streamingCharacterId)?.name ?? "Character";
-    if (chatCharIds.length === 1) return characterMap.get(chatCharIds[0]!)?.name ?? "Character";
-    if (characterNames.length > 0) return characterNames.join(", ");
+    if (activeChatCharIds.length === 1) return characterMap.get(activeChatCharIds[0]!)?.name ?? "Character";
+    if (activeCharacterNames.length > 0) return activeCharacterNames.join(", ");
     return "Character";
-  }, [characterMap, characterNames, chatCharIds, streamingCharacterId, typingCharacterName]);
+  }, [activeCharacterNames, activeChatCharIds, characterMap, streamingCharacterId, typingCharacterName]);
   const liveTypingVerb = liveTypingName.includes(",") || liveTypingName.includes(" & ") ? "are" : "is";
   const showTypingIndicator =
     isStreaming && !delayedCharacterInfo && (!regenerateMessageId || (!streamBuffer && !thinkingBuffer));
@@ -361,7 +381,7 @@ export function ConversationView({
       if (document.hidden) return;
       try {
         await getConversationStatus(storageApi, chatId);
-        qc.invalidateQueries({ queryKey: characterKeys.list() });
+        invalidateCharacterCollectionQueries(qc);
       } catch {
         /* non-critical */
       }
@@ -671,7 +691,7 @@ export function ConversationView({
     // Find newly arrived split child lines (key has __line1, __line2, etc.)
     const newSplitChildren: string[] = [];
     // Find newly arrived non-split assistant messages (for notification sound)
-    let hasNewAssistantMessage = false;
+    let newAssistantMessage: Message | null = null;
 
     for (const key of currentKeys) {
       if (!prevKeys.has(key) && !seenGlobal.has(key)) {
@@ -689,12 +709,15 @@ export function ConversationView({
           newSplitChildren.push(key);
         } else if (/__block0$/.test(key)) {
           // First block of a split message — counts as new assistant message
-          hasNewAssistantMessage = true;
+          const item = renderedItems.find((i) => i.type === "message" && i.key === key);
+          if (!newAssistantMessage && item?.type === "message" && item.msg.role === "assistant") {
+            newAssistantMessage = item.msg;
+          }
         } else {
           // Check if it's a new assistant message (not a split)
           const item = renderedItems.find((i) => i.type === "message" && i.key === key);
           if (item && item.type === "message" && item.msg.role === "assistant") {
-            hasNewAssistantMessage = true;
+            newAssistantMessage ??= item.msg;
           }
         }
       }
@@ -705,8 +728,16 @@ export function ConversationView({
     prevRenderedKeysRef.current = currentKeys;
 
     // Play notification for the first new message appearance
-    if (hasNewAssistantMessage && useUIStore.getState().convoNotificationSound) {
-      playNotificationPing();
+    if (newAssistantMessage) {
+      const uiState = useUIStore.getState();
+      if (uiState.convoNotificationSound) {
+        playNotificationPing();
+      }
+      void showConversationLocalNotification({
+        enabled: uiState.conversationBrowserNotifications,
+        characterName: getAssistantNotificationName(newAssistantMessage, characterMap, activeCharacterNames),
+        tag: `marinara-conversation-${chatId}`,
+      });
     }
 
     if (newSplitChildren.length === 0) {
@@ -755,7 +786,7 @@ export function ConversationView({
     // No cleanup return here — timers are managed via staggerTimersRef and
     // must survive effect re-runs caused by query refetches. Cleanup on
     // unmount is handled by a separate effect below.
-  }, [renderedItems]);
+  }, [activeCharacterNames, characterMap, chatId, renderedItems]);
 
   // Clean up stagger timers on unmount only (empty deps = unmount cleanup)
   useEffect(() => {
@@ -1097,17 +1128,17 @@ export function ConversationView({
       {/* ── Input area ── */}
       <ConversationInput
         key={chatId}
-        characterNames={characterNames}
+        characterNames={activeCharacterNames}
         groupResponseOrder={
-          chatMeta.groupResponseOrder === "manual"
-            ? "manual"
-            : chatCharIds.length > 1
-              ? (chatMeta.groupResponseOrder ?? "sequential")
-              : undefined
+          activeChatCharIds.length > 1
+            ? chatMeta.groupResponseOrder === "manual"
+              ? "manual"
+              : (chatMeta.groupResponseOrder ?? "sequential")
+            : undefined
         }
         chatCharacters={
-          chatCharIds.length > 1
-            ? chatCharIds
+          activeChatCharIds.length > 1
+            ? activeChatCharIds
                 .filter((id) => characterMap.has(id))
                 .map((id) => {
                   const info = characterMap.get(id)!;

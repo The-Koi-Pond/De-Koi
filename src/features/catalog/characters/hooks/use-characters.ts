@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // React Query: Character, Group & Persona hooks
 // ──────────────────────────────────────────────
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { characterKeys, spriteKeys } from "../query-keys";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { invokeTauri } from "../../../../shared/api/tauri-client";
@@ -11,6 +11,157 @@ import type { SpriteCapabilities, SpriteCleanupEngine } from "../../../../shared
 
 export { characterKeys, spriteKeys } from "../query-keys";
 
+type CharacterListRecord = Record<string, unknown> & { id?: string };
+export type CharacterSummary = {
+  id: string;
+  data?: {
+    name?: string;
+    tags?: unknown[];
+    extensions?: Record<string, unknown>;
+  };
+  comment?: string | null;
+  avatarPath?: string | null;
+};
+
+export type PersonaSummary = {
+  id: string;
+  name?: string;
+  comment?: string | null;
+  description?: string;
+  tags?: string[];
+  avatarPath?: string | null;
+  avatarCrop?: unknown;
+  isActive?: string | boolean;
+  createdAt?: string;
+  nameColor?: string;
+  dialogueColor?: string;
+  boxColor?: string;
+};
+
+const CHARACTER_SUMMARY_OPTIONS = {
+  fields: ["id", "data", "comment", "avatarPath"],
+  fieldSelections: { data: ["name", "tags", "extensions"] },
+};
+
+const PERSONA_SUMMARY_OPTIONS = {
+  fields: [
+    "id",
+    "name",
+    "comment",
+    "description",
+    "tags",
+    "avatarPath",
+    "avatarCrop",
+    "isActive",
+    "active",
+    "createdAt",
+    "nameColor",
+    "dialogueColor",
+    "boxColor",
+  ],
+};
+
+function isCharacterListRecord(value: unknown): value is CharacterListRecord & { id: string } {
+  return Boolean(
+    value && typeof value === "object" && !Array.isArray(value) && typeof (value as { id?: unknown }).id === "string",
+  );
+}
+
+export function upsertCharacterListRecord(current: unknown[] | undefined, record: unknown): unknown[] | undefined {
+  if (!isCharacterListRecord(record)) return current;
+  if (!Array.isArray(current)) return current;
+
+  const existingIndex = current.findIndex((item) => isCharacterListRecord(item) && item.id === record.id);
+  if (existingIndex === -1) return [record, ...current];
+
+  return current.map((item, index) =>
+    index === existingIndex && isCharacterListRecord(item) ? { ...item, ...record } : item,
+  );
+}
+
+export function removeCharacterListRecord(current: unknown[] | undefined, id: string): unknown[] | undefined {
+  if (!Array.isArray(current)) return current;
+  return current.filter((item) => !isCharacterListRecord(item) || item.id !== id);
+}
+
+export function invalidateCharacterCollectionQueries(queryClient: Pick<QueryClient, "invalidateQueries">): void {
+  queryClient.invalidateQueries({ queryKey: characterKeys.list() });
+  queryClient.invalidateQueries({ queryKey: characterKeys.summaries() });
+}
+
+function upsertCharacterCollectionRecord(
+  queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
+  queryKey: readonly unknown[],
+  record: CharacterListRecord & { id: string },
+): boolean {
+  const current = queryClient.getQueryData<unknown[] | undefined>(queryKey);
+  if (!Array.isArray(current)) return false;
+  queryClient.setQueryData<unknown[] | undefined>(queryKey, (value) => upsertCharacterListRecord(value, record));
+  return true;
+}
+
+function removeCharacterCollectionRecord(
+  queryClient: Pick<QueryClient, "setQueryData">,
+  queryKey: readonly unknown[],
+  id: string,
+): void {
+  queryClient.setQueryData<unknown[] | undefined>(queryKey, (value) => removeCharacterListRecord(value, id));
+}
+
+export function cacheCharacterListRecordFromResult(
+  queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
+  result: unknown,
+): boolean {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return false;
+  const record = (result as { character?: unknown }).character;
+  if (!isCharacterListRecord(record)) return false;
+
+  const updatedList = upsertCharacterCollectionRecord(queryClient, characterKeys.list(), record);
+  const updatedSummaries = upsertCharacterCollectionRecord(queryClient, characterKeys.summaries(), record);
+  queryClient.setQueryData(characterKeys.detail(record.id), record);
+  queryClient.setQueryData(characterKeys.summaryDetail(record.id), record);
+  return updatedList || updatedSummaries;
+}
+
+export function removeCachedCharacterRecord(
+  queryClient: Pick<QueryClient, "setQueryData" | "removeQueries">,
+  id: string,
+) {
+  removeCharacterCollectionRecord(queryClient, characterKeys.list(), id);
+  removeCharacterCollectionRecord(queryClient, characterKeys.summaries(), id);
+  queryClient.removeQueries({ queryKey: characterKeys.detail(id) });
+  queryClient.removeQueries({ queryKey: characterKeys.summaryDetail(id) });
+}
+
+function refreshCharacterCollectionAfterMutation(
+  queryClient: Pick<QueryClient, "getQueryData" | "setQueryData" | "invalidateQueries">,
+  result: unknown,
+): void {
+  const updated = cacheCharacterListRecordFromResult(queryClient, { character: result });
+  if (!updated) invalidateCharacterCollectionQueries(queryClient);
+}
+
+function invalidateCharacterDetailQueries(
+  queryClient: Pick<QueryClient, "invalidateQueries">,
+  id: string,
+  options: { includeVersions?: boolean } = {},
+): void {
+  queryClient.invalidateQueries({ queryKey: characterKeys.detail(id) });
+  queryClient.invalidateQueries({ queryKey: characterKeys.summaryDetail(id) });
+  if (options.includeVersions) {
+    queryClient.invalidateQueries({ queryKey: characterKeys.versions(id) });
+  }
+}
+
+function invalidateCharacterRecordQueries(
+  queryClient: Pick<QueryClient, "invalidateQueries">,
+  id: string,
+  options: { includeVersions?: boolean } = {},
+): void {
+  invalidateCharacterCollectionQueries(queryClient);
+  invalidateCharacterDetailQueries(queryClient, id, options);
+}
+
 // ── Characters ──
 
 export function useCharacters(enabled = true) {
@@ -19,6 +170,17 @@ export function useCharacters(enabled = true) {
     queryFn: () => storageApi.list<unknown>("characters"),
     enabled,
     staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useCharacterSummaries(enabled = true) {
+  return useQuery({
+    queryKey: characterKeys.summaries(),
+    queryFn: () => storageApi.list<CharacterSummary>("characters", CHARACTER_SUMMARY_OPTIONS),
+    enabled,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -28,14 +190,55 @@ export function useCharacter(id: string | null) {
     queryFn: () => storageApi.get("characters", id!),
     enabled: !!id,
     staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
+}
+
+export function useCharactersByIds(ids: string[], enabled = true) {
+  const uniqueIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  const queries = useQueries({
+    queries: uniqueIds.map((id) => ({
+      queryKey: characterKeys.detail(id),
+      queryFn: () => storageApi.get("characters", id),
+      enabled: enabled && !!id,
+      staleTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+    })),
+  });
+
+  return {
+    data: queries.map((query) => query.data).filter(Boolean),
+    isLoading: queries.some((query) => query.isLoading),
+    isFetching: queries.some((query) => query.isFetching),
+  };
+}
+
+export function useCharacterSummariesByIds(ids: string[], enabled = true) {
+  const uniqueIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  const queries = useQueries({
+    queries: uniqueIds.map((id) => ({
+      queryKey: characterKeys.summaryDetail(id),
+      queryFn: () => storageApi.get<CharacterSummary>("characters", id, CHARACTER_SUMMARY_OPTIONS),
+      enabled: enabled && !!id,
+      staleTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+    })),
+  });
+
+  return {
+    data: queries.map((query) => query.data).filter(Boolean),
+    isLoading: queries.some((query) => query.isLoading),
+    isFetching: queries.some((query) => query.isFetching),
+  };
 }
 
 export function useCreateCharacter() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: Record<string, unknown>) => storageApi.create("characters", data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.list() }),
+    onSuccess: (character) => {
+      refreshCharacterCollectionAfterMutation(qc, character);
+    },
   });
 }
 
@@ -55,9 +258,7 @@ export function useUpdateCharacter() {
       skipVersionSnapshot?: boolean;
     }) => storageApi.update("characters", id, data),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: characterKeys.list() });
-      qc.invalidateQueries({ queryKey: characterKeys.detail(variables.id) });
-      qc.invalidateQueries({ queryKey: characterKeys.versions(variables.id) });
+      invalidateCharacterRecordQueries(qc, variables.id, { includeVersions: true });
     },
   });
 }
@@ -77,9 +278,7 @@ export function useRestoreCharacterVersion() {
     mutationFn: ({ id, versionId }: { id: string; versionId: string }) =>
       invokeTauri("character_restore_version", { characterId: id, versionId }),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: characterKeys.list() });
-      qc.invalidateQueries({ queryKey: characterKeys.detail(variables.id) });
-      qc.invalidateQueries({ queryKey: characterKeys.versions(variables.id) });
+      invalidateCharacterRecordQueries(qc, variables.id, { includeVersions: true });
     },
   });
 }
@@ -87,7 +286,8 @@ export function useRestoreCharacterVersion() {
 export function useDeleteCharacterVersion() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ versionId }: { id: string; versionId: string }) => storageApi.delete("character-versions", versionId),
+    mutationFn: ({ versionId }: { id: string; versionId: string }) =>
+      storageApi.delete("character-versions", versionId),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: characterKeys.versions(variables.id) });
     },
@@ -100,8 +300,7 @@ export function useUploadAvatar() {
     mutationFn: ({ id, avatar }: { id: string; avatar: string }) =>
       invokeTauri("character_avatar_upload", { id, body: { avatar } }),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: characterKeys.list() });
-      qc.invalidateQueries({ queryKey: characterKeys.detail(variables.id) });
+      invalidateCharacterRecordQueries(qc, variables.id);
     },
   });
 }
@@ -110,7 +309,20 @@ export function useDeleteCharacter() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => storageApi.delete("characters", id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.list() }),
+    onSuccess: (result, id) => {
+      if (result?.deleted !== true) {
+        invalidateCharacterCollectionQueries(qc);
+        return;
+      }
+
+      const hasListCache = Array.isArray(qc.getQueryData<unknown[] | undefined>(characterKeys.list()));
+      const hasSummaryCache = Array.isArray(qc.getQueryData<unknown[] | undefined>(characterKeys.summaries()));
+      if (!hasListCache && !hasSummaryCache) {
+        invalidateCharacterCollectionQueries(qc);
+      }
+
+      removeCachedCharacterRecord(qc, id);
+    },
   });
 }
 
@@ -118,7 +330,9 @@ export function useDuplicateCharacter() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => invokeTauri("storage_duplicate", { entity: "characters", id }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.list() }),
+    onSuccess: (character) => {
+      refreshCharacterCollectionAfterMutation(qc, character);
+    },
   });
 }
 
@@ -128,6 +342,17 @@ export interface SpriteInfo {
   expression: string;
   filename: string;
   url: string;
+}
+
+export interface SpriteUploadItem {
+  expression: string;
+  image: string;
+}
+
+export interface SpriteBulkUploadResult {
+  imported: number;
+  failed: Array<{ expression: string; filename?: string; error: string }>;
+  sprites: SpriteInfo[];
 }
 
 export interface SpriteCleanupResult {
@@ -188,6 +413,17 @@ export function useUploadSprite() {
   });
 }
 
+export function useUploadSprites() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ characterId, sprites }: { characterId: string; sprites: SpriteUploadItem[] }) =>
+      spriteApi.bulkUpload<SpriteBulkUploadResult>(characterId, { sprites }),
+    onSuccess: (data, variables) => {
+      qc.setQueryData(spriteKeys.list(variables.characterId), data.sprites);
+    },
+  });
+}
+
 export function useDeleteSprite() {
   const qc = useQueryClient();
   return useMutation({
@@ -212,8 +448,7 @@ export function useCleanupSavedSprites() {
       expressions?: string[];
       cleanupStrength?: number;
       engine?: SpriteCleanupEngine;
-    }) =>
-      spriteApi.cleanupSaved<SpriteCleanupResult>(characterId, { expressions, cleanupStrength, engine }),
+    }) => spriteApi.cleanupSaved<SpriteCleanupResult>(characterId, { expressions, cleanupStrength, engine }),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: spriteKeys.list(variables.characterId) });
     },
@@ -287,6 +522,70 @@ export function usePersonas(enabled = true) {
     queryFn: () => storageApi.list<unknown>("personas"),
     enabled,
     staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function usePersonaSummaries(enabled = true) {
+  return useQuery({
+    queryKey: characterKeys.personaSummaries,
+    queryFn: () => storageApi.list<PersonaSummary>("personas", PERSONA_SUMMARY_OPTIONS),
+    enabled,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function usePersonaSummariesByIds(ids: string[], enabled = true) {
+  const uniqueIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  const queries = useQueries({
+    queries: uniqueIds.map((id) => ({
+      queryKey: characterKeys.personaSummaryDetail(id),
+      queryFn: () => storageApi.get<PersonaSummary>("personas", id, PERSONA_SUMMARY_OPTIONS),
+      enabled: enabled && !!id,
+      staleTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+    })),
+  });
+
+  return {
+    data: queries.map((query) => query.data).filter(Boolean),
+    isLoading: queries.some((query) => query.isLoading),
+    isFetching: queries.some((query) => query.isFetching),
+  };
+}
+
+export function usePersona(id: string | null, enabled = true) {
+  return useQuery({
+    queryKey: characterKeys.personaDetail(id ?? ""),
+    queryFn: () => storageApi.get("personas", id!),
+    enabled: enabled && !!id,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useActivePersona(enabled = true) {
+  return useQuery({
+    queryKey: characterKeys.activePersona,
+    queryFn: async () => {
+      const personas = await storageApi.list<PersonaSummary & { active?: string | boolean }>(
+        "personas",
+        PERSONA_SUMMARY_OPTIONS,
+      );
+      return (
+        personas.find(
+          (persona) =>
+            persona.isActive === true ||
+            persona.isActive === "true" ||
+            persona.active === true ||
+            persona.active === "true",
+        ) ?? null
+      );
+    },
+    enabled,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -305,13 +604,16 @@ export function useCreatePersona() {
       dialogueColor?: string;
       boxColor?: string;
       trackerCardColors?: string;
-      personaStats?: string;
-      altDescriptions?: string;
-      tags?: string;
-      savedStatusOptions?: string;
-      avatarCrop?: string;
+      personaStats?: unknown;
+      altDescriptions?: unknown[];
+      tags?: string[];
+      savedStatusOptions?: string[];
+      avatarCrop?: unknown;
     }) => storageApi.create("personas", data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.personas }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: characterKeys.personas });
+      qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });
+    },
   });
 }
 
@@ -334,13 +636,14 @@ export function useUpdatePersona() {
       dialogueColor?: string;
       boxColor?: string;
       trackerCardColors?: string;
-      personaStats?: string;
-      altDescriptions?: string;
-      tags?: string;
-      savedStatusOptions?: string;
-      avatarCrop?: string;
+      personaStats?: unknown;
+      altDescriptions?: unknown[];
+      tags?: string[];
+      savedStatusOptions?: string[];
+      avatarCrop?: unknown;
     }) => storageApi.update("personas", id, data),
     onSuccess: (updatedPersona, variables) => {
+      qc.setQueryData(characterKeys.personaDetail(variables.id), updatedPersona);
       qc.setQueryData<unknown[] | undefined>(characterKeys.personas, (old) => {
         if (!Array.isArray(old)) return old;
         const updatedId = (updatedPersona as { id?: string } | null)?.id ?? variables.id;
@@ -355,6 +658,8 @@ export function useUpdatePersona() {
       });
 
       qc.invalidateQueries({ queryKey: characterKeys.personas });
+      qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });
+      qc.invalidateQueries({ queryKey: characterKeys.personaDetail(variables.id) });
     },
   });
 }
@@ -363,7 +668,12 @@ export function useDeletePersona() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => storageApi.delete("personas", id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.personas }),
+    onSuccess: (_data, id) => {
+      qc.removeQueries({ queryKey: characterKeys.personaDetail(id) });
+      qc.removeQueries({ queryKey: characterKeys.personaSummaryDetail(id) });
+      qc.invalidateQueries({ queryKey: characterKeys.personas });
+      qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });
+    },
   });
 }
 
@@ -371,7 +681,10 @@ export function useDuplicatePersona() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => invokeTauri("storage_duplicate", { entity: "personas", id }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.personas }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: characterKeys.personas });
+      qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });
+    },
   });
 }
 
@@ -379,7 +692,11 @@ export function useActivatePersona() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => invokeTauri("persona_activate", { id }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.personas }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: characterKeys.personas });
+      qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });
+      qc.invalidateQueries({ queryKey: characterKeys.activePersona });
+    },
   });
 }
 
@@ -388,7 +705,12 @@ export function useUploadPersonaAvatar() {
   return useMutation({
     mutationFn: ({ id, avatar, filename }: { id: string; avatar: string; filename?: string }) =>
       invokeTauri("persona_avatar_upload", { id, body: { avatar, filename } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.personas }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: characterKeys.personas });
+      qc.invalidateQueries({ queryKey: characterKeys.personaSummaries });
+      qc.invalidateQueries({ queryKey: characterKeys.personaDetail(variables.id) });
+      qc.invalidateQueries({ queryKey: characterKeys.personaSummaryDetail(variables.id) });
+    },
   });
 }
 
@@ -437,10 +759,11 @@ export function useDeleteGroup() {
 
 // ── Persona Groups ──
 
-export function usePersonaGroups() {
+export function usePersonaGroups(enabled = true) {
   return useQuery({
     queryKey: characterKeys.personaGroups,
     queryFn: () => storageApi.list<unknown>("persona-groups"),
+    enabled,
   });
 }
 

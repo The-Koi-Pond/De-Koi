@@ -32,9 +32,10 @@ import {
   useUpdateLorebookEntry,
   useReorderLorebookFolders,
   useTransferLorebookEntries,
+  useBulkUnvectorizeLorebookEntries,
   lorebookKeys,
 } from "../hooks/use-lorebooks";
-import { useCharacters, usePersonas } from "../../characters/index";
+import { useCharacterSummaries, usePersonaSummaries } from "../../characters/index";
 import { useConnections } from "../../connections/index";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -59,6 +60,7 @@ import {
   ArrowUpDown,
   Hash,
   Sparkles,
+  Eraser,
   Loader2,
   Check,
   CheckSquare2,
@@ -116,6 +118,16 @@ type LinkedResourceItem = {
   description?: string | null;
   deleted?: boolean;
 };
+
+function readBoolFlag(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  return false;
+}
 
 function LinkedResourcePicker({
   label,
@@ -291,8 +303,8 @@ export function LorebookEditor() {
   const { data: rawLorebooks } = useLorebooks();
   const { data: rawEntries } = useLorebookEntries(lorebookId);
   const { data: rawFolders } = useLorebookFolders(lorebookId);
-  const { data: rawCharacters } = useCharacters();
-  const { data: rawPersonas } = usePersonas();
+  const { data: rawCharacters } = useCharacterSummaries();
+  const { data: rawPersonas } = usePersonaSummaries();
   const updateLorebook = useUpdateLorebook();
   const deleteLorebook = useDeleteLorebook();
   const createEntry = useCreateLorebookEntry();
@@ -301,6 +313,7 @@ export function LorebookEditor() {
   const createFolder = useCreateLorebookFolder();
   const reorderFolders = useReorderLorebookFolders();
   const transferEntries = useTransferLorebookEntries();
+  const unvectorizeEntries = useBulkUnvectorizeLorebookEntries();
 
   const lorebook = rawLorebook as Lorebook | undefined;
   const lorebooks = useMemo(() => (rawLorebooks ?? []) as Lorebook[], [rawLorebooks]);
@@ -308,14 +321,10 @@ export function LorebookEditor() {
   const folders = useMemo(() => (rawFolders ?? []) as LorebookFolder[], [rawFolders]);
   const characters = useMemo(() => {
     if (!rawCharacters) return [] as Array<{ id: string; name: string; tags: string[] }>;
-    return (rawCharacters as Array<{ id: string; data: string | Record<string, unknown> }>).map((c) => {
-      try {
-        const parsed = typeof c.data === "string" ? JSON.parse(c.data) : c.data;
-        const tags = Array.isArray(parsed?.tags) ? parsed.tags.map(String).filter(Boolean) : [];
-        return { id: c.id, name: parsed?.name ?? "Unknown", tags };
-      } catch {
-        return { id: c.id, name: "Unknown", tags: [] };
-      }
+    return rawCharacters.map((c) => {
+      const parsed = c.data ?? {};
+      const tags = Array.isArray(parsed?.tags) ? parsed.tags.map(String).filter(Boolean) : [];
+      return { id: c.id, name: typeof parsed?.name === "string" ? parsed.name : "Unknown", tags };
     });
   }, [rawCharacters]);
   const characterTags = useMemo(
@@ -324,7 +333,7 @@ export function LorebookEditor() {
   );
   const personas = useMemo(() => {
     if (!rawPersonas) return [] as Array<{ id: string; name: string; comment?: string | null }>;
-    return (rawPersonas as Array<{ id: string; name: string; comment?: string | null }>).map((p) => ({
+    return rawPersonas.map((p) => ({
       id: p.id,
       name: p.name || "Unknown",
       comment: p.comment ?? null,
@@ -415,6 +424,7 @@ export function LorebookEditor() {
   const [formCategory, setFormCategory] = useState<LorebookCategory>("uncategorized");
   const [formEnabled, setFormEnabled] = useState(true);
   const [formIsGlobal, setFormIsGlobal] = useState(false);
+  const [formExcludeFromVectorization, setFormExcludeFromVectorization] = useState(false);
   const [formScanDepth, setFormScanDepth] = useState(2);
   const [formTokenBudget, setFormTokenBudget] = useState(2048);
   const [formRecursive, setFormRecursive] = useState(false);
@@ -487,6 +497,7 @@ export function LorebookEditor() {
     setFormCategory(lorebook.category);
     setFormEnabled(lorebook.enabled);
     setFormIsGlobal(lorebook.isGlobal ?? false);
+    setFormExcludeFromVectorization(readBoolFlag(lorebook.excludeFromVectorization));
     setFormScanDepth(lorebook.scanDepth);
     setFormTokenBudget(lorebook.tokenBudget);
     setFormRecursive(lorebook.recursiveScanning);
@@ -588,8 +599,8 @@ export function LorebookEditor() {
   const canReorderFolders = showFolderGrouping && folders.length > 1 && !reorderFolders.isPending;
 
   // Keyword-test verdicts: for each entry, would the debounced preview text
-  // activate it? Honors useRegex / matchWholeWords / caseSensitive / selective
-  // + secondaryKeys + selectiveLogic / enabled / constant. Skips runtime gates
+  // activate it? Honors useRegex / matchWholeWords / caseSensitive /
+  // secondaryKeys + selectiveLogic / enabled / constant. Skips runtime gates
   // that have no meaning outside a live chat (timing, probability, character
   // filters, semantic embeddings, recursive scan, group selection).
   // Logic mirrors the original lorebook keyword scanner —
@@ -611,7 +622,7 @@ export function LorebookEditor() {
       };
       const { matched } = testPrimaryKeys(entry.keys, text, opts);
       if (!matched) continue;
-      if (entry.selective && entry.secondaryKeys.length > 0) {
+      if (entry.secondaryKeys.length > 0) {
         if (!testSecondaryKeys(entry.secondaryKeys, text, entry.selectiveLogic, opts)) continue;
       }
       result.set(entry.id, "matched");
@@ -679,6 +690,35 @@ export function LorebookEditor() {
       transferTargetLorebooks,
     ],
   );
+
+  const handleUnvectorizeSelectedEntries = useCallback(async () => {
+    if (!lorebookId || selectedEntryIds.size === 0) return;
+    const selectedIds = Array.from(selectedEntryIds);
+    const vectorizedSelectedCount = entries.filter(
+      (entry) => selectedEntryIds.has(entry.id) && Array.isArray(entry.embedding) && entry.embedding.length > 0,
+    ).length;
+    if (vectorizedSelectedCount === 0) {
+      toast.info("No selected entries are vectorized.");
+      return;
+    }
+    if (
+      !(await showConfirmDialog({
+        title: "Unvectorize Entries",
+        message: `Clear stored embeddings for ${vectorizedSelectedCount} selected ${
+          vectorizedSelectedCount === 1 ? "entry" : "entries"
+        }? Keyword and regex matching will keep working.`,
+        confirmLabel: "Unvectorize",
+      }))
+    ) {
+      return;
+    }
+    try {
+      const result = await unvectorizeEntries.mutateAsync({ lorebookId, entryIds: selectedIds });
+      toast.success(`Cleared embeddings for ${result.cleared} ${result.cleared === 1 ? "entry" : "entries"}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to clear embeddings.");
+    }
+  }, [entries, lorebookId, selectedEntryIds, unvectorizeEntries]);
 
   // Toggle the inline drawer for an entry. Single-expand keeps the page
   // tidy; users can collapse the open one and click another to jump.
@@ -916,6 +956,7 @@ export function LorebookEditor() {
         category: formCategory,
         enabled: formEnabled,
         isGlobal: formIsGlobal,
+        excludeFromVectorization: formExcludeFromVectorization,
         scanDepth: formScanDepth,
         tokenBudget: formTokenBudget,
         recursiveScanning: formRecursive,
@@ -935,6 +976,7 @@ export function LorebookEditor() {
     formCategory,
     formEnabled,
     formIsGlobal,
+    formExcludeFromVectorization,
     formScanDepth,
     formTokenBudget,
     formRecursive,
@@ -1400,7 +1442,7 @@ export function LorebookEditor() {
                 </div>
 
                 {/* Scan settings */}
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
                   <div>
                     <label className="mb-1.5 flex items-center gap-1 text-xs font-medium">
                       Scan Depth{" "}
@@ -1469,10 +1511,37 @@ export function LorebookEditor() {
                       </div>
                     )}
                   </div>
+                  <div className="flex items-end">
+                    <div className="flex w-full items-center justify-between rounded-xl bg-[var(--secondary)] px-3 py-2.5 ring-1 ring-[var(--border)]">
+                      <span className="mr-2 inline-flex items-center gap-1 text-xs">
+                        No Vector
+                        <HelpTooltip text="Skip semantic embeddings for every entry in this lorebook. Keyword matching still works." />
+                      </span>
+                      <button
+                        onClick={() => {
+                          setFormExcludeFromVectorization(!formExcludeFromVectorization);
+                          markLorebookDirty();
+                        }}
+                      >
+                        {formExcludeFromVectorization ? (
+                          <ToggleRight size="1.375rem" className="text-amber-400" />
+                        ) : (
+                          <ToggleLeft size="1.375rem" className="text-[var(--muted-foreground)]" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Vectorize (Embeddings) */}
-                <VectorizeSection lorebookId={lorebookId!} entries={entries} />
+                <VectorizeSection
+                  lorebookId={lorebookId!}
+                  entries={entries}
+                  excludeFromVectorization={formExcludeFromVectorization}
+                  hasUnsavedVectorizationToggle={
+                    formExcludeFromVectorization !== readBoolFlag(lorebook.excludeFromVectorization)
+                  }
+                />
               </div>
             )}
 
@@ -1671,6 +1740,19 @@ export function LorebookEditor() {
                         <MoveRight size="0.6875rem" />
                       )}
                       Move
+                    </button>
+                    <button
+                      onClick={() => void handleUnvectorizeSelectedEntries()}
+                      disabled={selectedEntryIds.size === 0 || unvectorizeEntries.isPending}
+                      className="inline-flex items-center gap-1 rounded-lg bg-violet-500/12 px-2.5 py-1.5 text-[0.625rem] font-medium text-violet-300 transition-all hover:bg-violet-500/20 disabled:opacity-40"
+                      title="Clear stored embeddings for selected entries"
+                    >
+                      {unvectorizeEntries.isPending ? (
+                        <Loader2 size="0.6875rem" className="animate-spin" />
+                      ) : (
+                        <Eraser size="0.6875rem" />
+                      )}
+                      Unvectorize
                     </button>
                     <button
                       onClick={exitEntrySelectionMode}
@@ -2001,22 +2083,44 @@ export function LorebookEditor() {
 }
 
 /** Vectorize lorebook entries for semantic matching. */
-function VectorizeSection({ lorebookId, entries }: { lorebookId: string; entries: LorebookEntry[] }) {
+function VectorizeSection({
+  lorebookId,
+  entries,
+  excludeFromVectorization,
+  hasUnsavedVectorizationToggle,
+}: {
+  lorebookId: string;
+  entries: LorebookEntry[];
+  excludeFromVectorization: boolean;
+  hasUnsavedVectorizationToggle: boolean;
+}) {
   const queryClient = useQueryClient();
+  const unvectorizeEntries = useBulkUnvectorizeLorebookEntries();
   const { data: rawConnections } = useConnections();
   const connections = (rawConnections ?? []) as Array<{ id: string; name: string; embeddingModel?: string }>;
   const embeddingConnections = connections.filter((c) => c.embeddingModel);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
   const [vectorizing, setVectorizing] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
-  const excludedCount = entries.filter((entry) => entry.excludeFromVectorization).length;
-  const vectorizableEntries = entries.filter((entry) => !entry.excludeFromVectorization);
+  const excludedCount = excludeFromVectorization
+    ? entries.length
+    : entries.filter((entry) => readBoolFlag(entry.excludeFromVectorization)).length;
+  const vectorizableEntries = excludeFromVectorization
+    ? []
+    : entries.filter((entry) => !readBoolFlag(entry.excludeFromVectorization));
   const vectorizableEntryCount = vectorizableEntries.length;
   const vectorizedCount = vectorizableEntries.filter(
     (entry) => Array.isArray(entry.embedding) && entry.embedding.length > 0,
   ).length;
   const missingCount = Math.max(0, vectorizableEntryCount - vectorizedCount);
   const allVectorized = vectorizableEntryCount > 0 && missingCount === 0;
+  const vectorizedEntryIds = useMemo(
+    () =>
+      vectorizableEntries
+        .filter((entry) => Array.isArray(entry.embedding) && entry.embedding.length > 0)
+        .map((entry) => entry.id),
+    [vectorizableEntries],
+  );
 
   // Auto-select first embedding connection
   useEffect(() => {
@@ -2034,9 +2138,9 @@ function VectorizeSection({ lorebookId, entries }: { lorebookId: string; entries
       const res = await invokeTauri("lorebook_vectorize", {
         id: lorebookId,
         body: {
-        connectionId: selectedConnectionId,
-        model: conn?.embeddingModel ?? "",
-        onlyMissing: !allVectorized,
+          connectionId: selectedConnectionId,
+          model: conn?.embeddingModel ?? "",
+          onlyMissing: !allVectorized,
         },
       });
       const data = res as { vectorized: number; total?: number; skipped?: number };
@@ -2051,6 +2155,31 @@ function VectorizeSection({ lorebookId, entries }: { lorebookId: string; entries
       setResult({ success: false, message: err instanceof Error ? err.message : "Vectorization failed" });
     } finally {
       setVectorizing(false);
+    }
+  };
+
+  const handleUnvectorizeAll = async () => {
+    if (vectorizedEntryIds.length === 0) return;
+    if (
+      !(await showConfirmDialog({
+        title: "Unvectorize Lorebook",
+        message: `Clear stored embeddings for ${vectorizedEntryIds.length} ${
+          vectorizedEntryIds.length === 1 ? "entry" : "entries"
+        }? Keyword and regex matching will keep working.`,
+        confirmLabel: "Unvectorize",
+      }))
+    ) {
+      return;
+    }
+    setResult(null);
+    try {
+      const data = await unvectorizeEntries.mutateAsync({ lorebookId, entryIds: vectorizedEntryIds });
+      setResult({
+        success: true,
+        message: `Cleared embeddings for ${data.cleared} ${data.cleared === 1 ? "entry" : "entries"}`,
+      });
+    } catch (err) {
+      setResult({ success: false, message: err instanceof Error ? err.message : "Unvectorize failed" });
     }
   };
 
@@ -2074,9 +2203,18 @@ function VectorizeSection({ lorebookId, entries }: { lorebookId: string; entries
           {vectorizedCount}/{vectorizableEntryCount} entries vectorized
         </span>
         {missingCount > 0 && <span>{missingCount} still need embeddings.</span>}
-        {excludedCount > 0 && <span>{excludedCount} excluded.</span>}
+        {excludeFromVectorization ? <span>This lorebook excludes every entry.</span> : null}
+        {!excludeFromVectorization && excludedCount > 0 && <span>{excludedCount} excluded.</span>}
       </div>
-      {embeddingConnections.length === 0 ? (
+      {hasUnsavedVectorizationToggle ? (
+        <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+          Save this lorebook before vectorizing so the No Vector setting is applied.
+        </p>
+      ) : excludeFromVectorization ? (
+        <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+          Semantic vectorization is disabled by this lorebook&apos;s No Vector toggle. Keyword matching still works.
+        </p>
+      ) : embeddingConnections.length === 0 ? (
         <p className="text-[0.625rem] text-[var(--muted-foreground)]">
           No connections with an embedding model configured. Set an Embedding Model on a connection first.
         </p>
@@ -2096,15 +2234,39 @@ function VectorizeSection({ lorebookId, entries }: { lorebookId: string; entries
             </select>
             <button
               onClick={handleVectorize}
-              disabled={vectorizing || vectorizableEntryCount === 0}
+              disabled={
+                vectorizing ||
+                unvectorizeEntries.isPending ||
+                hasUnsavedVectorizationToggle ||
+                vectorizableEntryCount === 0
+              }
               className="flex items-center gap-1.5 rounded-xl bg-violet-500/15 px-3 py-1.5 text-xs font-medium text-violet-400 ring-1 ring-violet-500/30 transition-all hover:bg-violet-500/25 active:scale-[0.98] disabled:opacity-50"
             >
               {vectorizing ? <Loader2 size="0.75rem" className="animate-spin" /> : <Sparkles size="0.75rem" />}
               {vectorizing
                 ? "Vectorizing..."
-                : allVectorized
-                  ? `Re-vectorize ${vectorizableEntryCount} entries`
-                  : `Vectorize ${missingCount} missing`}
+                : hasUnsavedVectorizationToggle
+                  ? "Save first"
+                  : allVectorized
+                    ? `Re-vectorize ${vectorizableEntryCount} entries`
+                    : `Vectorize ${missingCount} missing`}
+            </button>
+            <button
+              onClick={handleUnvectorizeAll}
+              disabled={
+                vectorizing ||
+                unvectorizeEntries.isPending ||
+                hasUnsavedVectorizationToggle ||
+                vectorizedEntryIds.length === 0
+              }
+              className="flex items-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] active:scale-[0.98] disabled:opacity-50"
+            >
+              {unvectorizeEntries.isPending ? (
+                <Loader2 size="0.75rem" className="animate-spin" />
+              ) : (
+                <Eraser size="0.75rem" />
+              )}
+              Unvectorize all
             </button>
           </div>
           {result && (

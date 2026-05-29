@@ -72,13 +72,13 @@ pub(crate) fn materialize_message_swipe_fields(message: &mut Value) {
     let Some(object) = message.as_object_mut() else {
         return;
     };
-    let Some((swipe_count, active_index, active_content)) = object
+    let Some((swipe_count, active_index, active_content, active_extra)) = object
         .get("swipes")
         .and_then(Value::as_array)
         .map(|swipes| {
             let swipe_count = swipes.len();
             if swipe_count == 0 {
-                return (0, 0, None);
+                return (0, 0, None, None);
             }
 
             let requested_index = object
@@ -87,12 +87,13 @@ pub(crate) fn materialize_message_swipe_fields(message: &mut Value) {
                 .map(|value| value as usize)
                 .unwrap_or(0);
             let active_index = requested_index.min(swipe_count.saturating_sub(1));
-            let active_content = swipes
-                .get(active_index)
+            let active_swipe = swipes.get(active_index);
+            let active_content = active_swipe
                 .and_then(|swipe| swipe.get("content"))
                 .and_then(Value::as_str)
                 .map(ToOwned::to_owned);
-            (swipe_count, active_index, active_content)
+            let active_extra = json_object_value(active_swipe.and_then(|swipe| swipe.get("extra")));
+            (swipe_count, active_index, active_content, active_extra)
         })
     else {
         return;
@@ -106,6 +107,80 @@ pub(crate) fn materialize_message_swipe_fields(message: &mut Value) {
     object.insert("activeSwipeIndex".to_string(), json!(active_index));
     if let Some(content) = active_content {
         object.insert("content".to_string(), Value::String(content));
+    }
+    if let Some(extra) = active_extra {
+        object.insert(
+            "extra".to_string(),
+            merge_active_swipe_extra(object.get("extra"), extra),
+        );
+    }
+}
+
+const SWIPE_SCOPED_EXTRA_KEYS: [&str; 15] = [
+    "displayText",
+    "isGenerated",
+    "tokenCount",
+    "generationInfo",
+    "thinking",
+    "spriteExpressions",
+    "cyoaChoices",
+    "contextInjections",
+    "chatSummaryFingerprint",
+    "cachedPrompt",
+    "generationReplay",
+    "generationPromptSnapshot",
+    "attachments",
+    "reasoning",
+    "reasoning_content",
+];
+
+pub(crate) fn clear_swipe_scoped_extra(base: Option<&Value>) -> Value {
+    let mut merged = json_object_value(base)
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    for key in SWIPE_SCOPED_EXTRA_KEYS {
+        merged.remove(key);
+    }
+    Value::Object(merged)
+}
+
+pub(crate) fn swipe_scoped_extra(value: Option<&Value>) -> Option<Value> {
+    let value = json_object_value(value)?;
+    let object = value.as_object()?;
+    let mut scoped = Map::new();
+    for key in SWIPE_SCOPED_EXTRA_KEYS {
+        if let Some(value) = object.get(key) {
+            scoped.insert(key.to_string(), value.clone());
+        }
+    }
+    (!scoped.is_empty()).then_some(Value::Object(scoped))
+}
+
+pub(crate) fn merge_active_swipe_extra(base: Option<&Value>, active_extra: Value) -> Value {
+    let mut merged = clear_swipe_scoped_extra(base)
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    if let Some(active_value) = json_object_value(Some(&active_extra)) {
+        let Some(active) = active_value.as_object() else {
+            return Value::Object(merged);
+        };
+        for key in SWIPE_SCOPED_EXTRA_KEYS {
+            if let Some(value) = active.get(key) {
+                merged.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+    Value::Object(merged)
+}
+
+pub(crate) fn json_object_value(value: Option<&Value>) -> Option<Value> {
+    match value? {
+        Value::Object(_) => value.cloned(),
+        Value::String(raw) => serde_json::from_str::<Value>(raw)
+            .ok()
+            .filter(Value::is_object),
+        _ => None,
     }
 }
 
@@ -129,33 +204,322 @@ pub(crate) fn swipe_index_value(message: &Value) -> i64 {
     non_negative_i64_value(message.get("activeSwipeIndex")).unwrap_or(fallback)
 }
 
+pub(crate) fn collapse_excess_blank_lines(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut newline_run = 0usize;
+    let mut pending_blank_space = String::new();
+
+    for ch in input.chars() {
+        if ch == '\r' {
+            continue;
+        }
+        if ch == '\n' {
+            newline_run += 1;
+            if newline_run <= 2 {
+                output.push_str(&pending_blank_space);
+                output.push('\n');
+            }
+            pending_blank_space.clear();
+            continue;
+        }
+        if newline_run > 0 && (ch == ' ' || ch == '\t') {
+            pending_blank_space.push(ch);
+            continue;
+        }
+        output.push_str(&pending_blank_space);
+        pending_blank_space.clear();
+        output.push(ch);
+        newline_run = 0;
+    }
+
+    output
+}
+
+fn normalize_message_text_fields(object: &mut Map<String, Value>) {
+    if let Some(Value::String(content)) = object.get_mut("content") {
+        *content = collapse_excess_blank_lines(content);
+    }
+    let Some(swipes) = object.get_mut("swipes").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for swipe in swipes {
+        let Some(swipe) = swipe.as_object_mut() else {
+            continue;
+        };
+        if let Some(Value::String(content)) = swipe.get_mut("content") {
+            *content = collapse_excess_blank_lines(content);
+        }
+    }
+}
+
 pub(crate) fn normalize_character_data_for_storage(data: &Value) -> AppResult<Value> {
     match data {
-        Value::String(raw) => Ok(Value::String(raw.clone())),
-        Value::Object(_) => Ok(Value::String(serde_json::to_string(data)?)),
+        Value::Object(_) => Ok(data.clone()),
         _ => Err(AppError::invalid_input(
-            "Character data must be an object or JSON string",
+            "Character data must be a JSON object",
         )),
     }
 }
 
 pub(crate) fn normalize_update_patch(collection: &str, patch: Value) -> AppResult<Value> {
-    if collection != "characters" {
-        return Ok(patch);
-    }
-
     let mut object = ensure_object(patch)?;
-    if let Some(data) = object.get("data") {
-        object.insert(
-            "data".to_string(),
-            normalize_character_data_for_storage(data)?,
-        );
-    }
+    normalize_typed_json_fields(collection, &mut object)?;
     Ok(Value::Object(object))
 }
 
-pub(crate) fn with_entity_defaults(collection: &str, body: Value) -> Value {
-    let mut object = ensure_object(body).unwrap_or_default();
+pub(crate) fn patch_message_update(
+    state: &AppState,
+    message_id: &str,
+    patch: Value,
+) -> AppResult<Value> {
+    let normalized = normalize_update_patch("messages", patch)?;
+    state
+        .storage
+        .patch_with("messages", message_id, normalized, |message, patch| {
+            sync_message_patch_content_to_active_swipe(message, patch);
+            Ok(())
+        })
+}
+
+pub(crate) fn sync_message_patch_content_to_active_swipe(
+    message: &mut Map<String, Value>,
+    patch: &Map<String, Value>,
+) {
+    if patch.contains_key("swipes") {
+        return;
+    }
+    let content = patch
+        .get("content")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    let extra = patch
+        .get("extra")
+        .filter(|value| value.is_object())
+        .and_then(|value| swipe_scoped_extra(Some(value)));
+    if content.is_none() && extra.is_none() {
+        return;
+    }
+    let active_index = patch
+        .get("activeSwipeIndex")
+        .or_else(|| message.get("activeSwipeIndex"))
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .unwrap_or(0);
+    let Some(swipes) = message.get_mut("swipes").and_then(Value::as_array_mut) else {
+        return;
+    };
+    if swipes.is_empty() {
+        return;
+    }
+    let active_index = active_index.min(swipes.len().saturating_sub(1));
+    match swipes.get_mut(active_index) {
+        Some(Value::Object(swipe)) => {
+            if let Some(content) = content {
+                swipe.insert("content".to_string(), Value::String(content));
+            }
+            if let Some(extra) = extra {
+                swipe.insert("extra".to_string(), extra);
+            }
+        }
+        Some(swipe) => {
+            let mut next = Map::new();
+            if let Some(content) = content {
+                next.insert("content".to_string(), Value::String(content));
+            }
+            if let Some(extra) = extra {
+                next.insert("extra".to_string(), extra);
+            }
+            *swipe = Value::Object(next);
+        }
+        None => {}
+    }
+}
+
+pub(crate) fn normalize_typed_json_fields(
+    collection: &str,
+    object: &mut Map<String, Value>,
+) -> AppResult<()> {
+    match collection {
+        "characters" => {
+            if let Some(data) = object.get("data") {
+                object.insert(
+                    "data".to_string(),
+                    normalize_character_data_for_storage(data)?,
+                );
+            }
+        }
+        "chats" => {
+            normalize_json_array_fields(
+                object,
+                &[
+                    "characterIds",
+                    "activeLorebookIds",
+                    "activeAgentIds",
+                    "activeToolIds",
+                    "memories",
+                    "notes",
+                ],
+            )?;
+            normalize_nullable_json_object_fields(object, &["metadata", "gameState"])?;
+        }
+        "messages" => {
+            normalize_json_array_fields(object, &["swipes", "images", "attachments"])?;
+            normalize_nullable_json_object_fields(object, &["extra"])?;
+            normalize_message_text_fields(object);
+        }
+        "character-groups" => {
+            normalize_json_array_fields(object, &["characterIds"])?;
+        }
+        "persona-groups" => {
+            normalize_json_array_fields(object, &["personaIds"])?;
+        }
+        "lorebooks" => {
+            normalize_json_array_fields(object, &["tags", "characterIds", "personaIds"])?;
+        }
+        "lorebook-entries" => {
+            normalize_json_array_fields(object, &["keys", "secondaryKeys"])?;
+        }
+        "connections" => {
+            normalize_nullable_json_object_fields(
+                object,
+                &["defaultParameters", "capabilities", "providerMetadata"],
+            )?;
+        }
+        "custom-tools" => {
+            normalize_json_object_fields(object, &["parametersSchema"])?;
+        }
+        "game-state-snapshots" => {
+            normalize_json_array_fields(object, &["presentCharacters", "recentEvents"])?;
+            normalize_nullable_json_object_fields(object, &["playerStats", "metadata"])?;
+            normalize_nullable_json_array_fields(object, &["personaStats"])?;
+        }
+        "game-checkpoints" => {
+            normalize_nullable_json_object_fields(object, &["snapshot", "metadata"])?;
+        }
+        "chat-presets" => {
+            normalize_json_object_fields(object, &["parameters"])?;
+        }
+        "prompts" => {
+            normalize_json_array_fields(object, &["sectionOrder", "groupOrder", "variableOrder"])?;
+            normalize_json_object_fields(
+                object,
+                &["variableValues", "parameters", "defaultChoices"],
+            )?;
+            normalize_json_array_fields(object, &["variableGroups"])?;
+        }
+        "prompt-sections" => {
+            normalize_nullable_json_object_fields(object, &["markerConfig"])?;
+        }
+        "prompt-variables" => {
+            normalize_json_array_fields(object, &["options"])?;
+        }
+        "personas" => {
+            normalize_json_array_fields(
+                object,
+                &["tags", "altDescriptions", "savedStatusOptions"],
+            )?;
+            normalize_nullable_json_object_fields(object, &["avatarCrop", "personaStats"])?;
+        }
+        "agents" => {
+            normalize_json_object_fields(object, &["settings"])?;
+        }
+        "regex-scripts" => {
+            normalize_json_array_fields(object, &["placement", "trimStrings"])?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn normalize_json_array_fields(object: &mut Map<String, Value>, fields: &[&str]) -> AppResult<()> {
+    for field in fields {
+        let Some(value) = object.get(*field) else {
+            continue;
+        };
+        let normalized = normalize_json_field(value, Value::is_array, "array", field)?;
+        object.insert((*field).to_string(), normalized);
+    }
+    Ok(())
+}
+
+fn normalize_nullable_json_array_fields(
+    object: &mut Map<String, Value>,
+    fields: &[&str],
+) -> AppResult<()> {
+    for field in fields {
+        let Some(value) = object.get(*field) else {
+            continue;
+        };
+        if value.is_null() {
+            continue;
+        }
+        let normalized = normalize_json_field(value, Value::is_array, "array or null", field)?;
+        object.insert((*field).to_string(), normalized);
+    }
+    Ok(())
+}
+
+fn normalize_json_object_fields(object: &mut Map<String, Value>, fields: &[&str]) -> AppResult<()> {
+    for field in fields {
+        let Some(value) = object.get(*field) else {
+            continue;
+        };
+        let normalized = normalize_json_field(value, Value::is_object, "object", field)?;
+        object.insert((*field).to_string(), normalized);
+    }
+    Ok(())
+}
+
+fn normalize_nullable_json_object_fields(
+    object: &mut Map<String, Value>,
+    fields: &[&str],
+) -> AppResult<()> {
+    for field in fields {
+        let Some(value) = object.get(*field) else {
+            continue;
+        };
+        if value.is_null() {
+            continue;
+        }
+        let normalized = normalize_json_field(value, Value::is_object, "object or null", field)?;
+        object.insert((*field).to_string(), normalized);
+    }
+    Ok(())
+}
+
+fn normalize_json_field(
+    value: &Value,
+    predicate: fn(&Value) -> bool,
+    expected: &str,
+    field: &str,
+) -> AppResult<Value> {
+    if predicate(value) {
+        return Ok(value.clone());
+    }
+    if let Some(raw) = value.as_str() {
+        if raw.trim().is_empty() {
+            return Ok(match expected {
+                "array" => json!([]),
+                "array or null" | "object or null" => Value::Null,
+                _ => json!({}),
+            });
+        }
+        let parsed: Value = serde_json::from_str(raw).map_err(|_| {
+            AppError::invalid_input(format!(
+                "{field} must be a JSON {expected}, not a JSON string"
+            ))
+        })?;
+        if predicate(&parsed) {
+            return Ok(parsed);
+        }
+    }
+    Err(AppError::invalid_input(format!(
+        "{field} must be a JSON {expected}"
+    )))
+}
+
+pub(crate) fn with_entity_defaults(collection: &str, body: Value) -> AppResult<Value> {
+    let mut object = ensure_object(body)?;
     match collection {
         "chats" => {
             object
@@ -174,12 +538,8 @@ pub(crate) fn with_entity_defaults(collection: &str, body: Value) -> Value {
                 .or_insert(Value::Bool(true));
         }
         "characters" => {
-            if let Some(data) = object.get_mut("data") {
-                if data.is_object() {
-                    *data = Value::String(
-                        serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string()),
-                    );
-                }
+            if let Some(data) = object.get("data") {
+                normalize_character_data_for_storage(data)?;
             } else {
                 let mut data = Map::new();
                 let name = object
@@ -208,13 +568,7 @@ pub(crate) fn with_entity_defaults(collection: &str, body: Value) -> Value {
                 data.insert("alternate_greetings".to_string(), json!([]));
                 data.insert("extensions".to_string(), json!({ "altDescriptions": [] }));
                 data.insert("character_book".to_string(), Value::Null);
-                object.insert(
-                    "data".to_string(),
-                    Value::String(
-                        serde_json::to_string(&Value::Object(data))
-                            .unwrap_or_else(|_| "{}".to_string()),
-                    ),
-                );
+                object.insert("data".to_string(), Value::Object(data));
             }
             object
                 .entry("comment".to_string())
@@ -256,6 +610,9 @@ pub(crate) fn with_entity_defaults(collection: &str, body: Value) -> Value {
             object
                 .entry("enabled".to_string())
                 .or_insert(Value::Bool(true));
+            object
+                .entry("excludeFromVectorization".to_string())
+                .or_insert(Value::Bool(false));
             object.entry("tags".to_string()).or_insert(json!([]));
             object
                 .entry("generatedBy".to_string())
@@ -265,6 +622,7 @@ pub(crate) fn with_entity_defaults(collection: &str, body: Value) -> Value {
                 .or_insert(Value::Null);
         }
         "personas" => {
+            normalize_typed_json_fields(collection, &mut object)?;
             object
                 .entry("description".to_string())
                 .or_insert(Value::String(String::new()));
@@ -291,35 +649,82 @@ pub(crate) fn with_entity_defaults(collection: &str, body: Value) -> Value {
                 .or_insert(Value::Bool(false));
             object
                 .entry("tags".to_string())
-                .or_insert(Value::String("[]".to_string()));
+                .or_insert_with(|| json!([]));
+            object
+                .entry("altDescriptions".to_string())
+                .or_insert_with(|| json!([]));
+            object
+                .entry("avatarCrop".to_string())
+                .or_insert(Value::Null);
         }
         "prompts" => {
+            normalize_typed_json_fields(collection, &mut object)?;
             object
                 .entry("description".to_string())
                 .or_insert(Value::String(String::new()));
             object
+                .entry("sectionOrder".to_string())
+                .or_insert_with(|| json!([]));
+            object
+                .entry("groupOrder".to_string())
+                .or_insert_with(|| json!([]));
+            object
+                .entry("variableGroups".to_string())
+                .or_insert_with(|| json!([]));
+            object
+                .entry("variableValues".to_string())
+                .or_insert_with(|| json!({}));
+            object
                 .entry("parameters".to_string())
+                .or_insert_with(|| json!({}));
+            object
+                .entry("defaultChoices".to_string())
                 .or_insert_with(|| json!({}));
             object
                 .entry("isDefault".to_string())
                 .or_insert(Value::Bool(false));
         }
+        "prompt-sections" | "prompt-variables" => {
+            normalize_typed_json_fields(collection, &mut object)?;
+        }
         "agents" => {
+            normalize_typed_json_fields(collection, &mut object)?;
             object
                 .entry("enabled".to_string())
                 .or_insert(Value::Bool(true));
         }
         _ => {}
     }
-    Value::Object(object)
+    normalize_typed_json_fields(collection, &mut object)?;
+    Ok(Value::Object(object))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempRoot(PathBuf);
+
+    impl Drop for TempRoot {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn temp_root(test_name: &str) -> TempRoot {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        TempRoot(std::env::temp_dir().join(format!(
+            "marinara-storage-{test_name}-{suffix}"
+        )))
+    }
 
     #[test]
-    fn character_update_patch_serializes_object_data() {
+    fn character_update_patch_preserves_object_data() {
         let patch = normalize_update_patch(
             "characters",
             json!({
@@ -331,29 +736,429 @@ mod tests {
         )
         .expect("patch should normalize");
 
-        let data = patch
-            .get("data")
-            .and_then(Value::as_str)
-            .expect("character data should be serialized");
-        let parsed: Value =
-            serde_json::from_str(data).expect("serialized data should be valid JSON");
-        assert_eq!(parsed["name"], "Professor Mari");
-        assert_eq!(parsed["tags"], json!(["guide"]));
-    }
-
-    #[test]
-    fn character_update_patch_preserves_string_data() {
-        let raw = r#"{"name":"Professor Mari"}"#;
-        let patch = normalize_update_patch("characters", json!({ "data": raw }))
-            .expect("patch should normalize");
-        assert_eq!(patch["data"], raw);
+        assert_eq!(patch["data"]["name"], "Professor Mari");
+        assert_eq!(patch["data"]["tags"], json!(["guide"]));
     }
 
     #[test]
     fn character_update_patch_rejects_invalid_data_shape() {
-        let error = normalize_update_patch("characters", json!({ "data": true }))
-            .expect_err("invalid character data should fail");
+        for invalid in [
+            json!(true),
+            json!("{\"name\":\"Professor Mari\"}"),
+            json!([]),
+            Value::Null,
+        ] {
+            let error = normalize_update_patch("characters", json!({ "data": invalid }))
+                .expect_err("invalid character data should fail");
+            assert_eq!(error.code, "invalid_input");
+        }
+    }
+
+    #[test]
+    fn message_content_update_patch_updates_active_swipe_content() {
+        let root = temp_root("message-edit-active-swipe");
+        let state = AppState::from_data_dir(&root.0, Vec::new()).expect("state should initialize");
+        state
+            .storage
+            .create(
+                "messages",
+                with_entity_defaults(
+                    "messages",
+                    json!({
+                        "id": "message-1",
+                        "chatId": "chat-1",
+                        "role": "user",
+                        "content": "original active",
+                        "activeSwipeIndex": 1,
+                        "swipes": [
+                            { "content": "first swipe" },
+                            { "content": "original active" }
+                        ]
+                    }),
+                )
+                .expect("message defaults should apply"),
+            )
+            .expect("message should be created");
+
+        let mut updated =
+            patch_message_update(&state, "message-1", json!({ "content": "edited active" }))
+                .expect("message should update");
+        materialize_message_swipe_fields(&mut updated);
+
+        assert_eq!(updated["content"], json!("edited active"));
+        assert_eq!(updated["activeSwipeIndex"], json!(1));
+        assert_eq!(updated["swipes"][0]["content"], json!("first swipe"));
+        assert_eq!(updated["swipes"][1]["content"], json!("edited active"));
+    }
+
+    #[test]
+    fn materialize_message_swipe_fields_uses_active_swipe_extra() {
+        let mut message = json!({
+            "content": "old visible",
+            "activeSwipeIndex": 1,
+            "extra": {
+                "hiddenFromAI": true,
+                "reasoning_content": "old reasoning",
+                "cachedPrompt": [{ "role": "system", "content": "old prompt" }],
+                "generationInfo": { "model": "old-model" }
+            },
+            "swipes": [
+                {
+                    "content": "first",
+                    "extra": { "generationInfo": { "model": "first-model" } }
+                },
+                {
+                    "content": "second",
+                    "extra": {
+                        "generationInfo": { "model": "second-model" },
+                        "reasoning_content": "second reasoning"
+                    }
+                }
+            ]
+        });
+
+        materialize_message_swipe_fields(&mut message);
+
+        assert_eq!(message["content"], json!("second"));
+        assert_eq!(message["extra"]["hiddenFromAI"], json!(true));
+        assert_eq!(
+            message["extra"]["generationInfo"]["model"],
+            json!("second-model")
+        );
+        assert_eq!(
+            message["extra"]["reasoning_content"],
+            json!("second reasoning")
+        );
+        assert!(message["extra"]["cachedPrompt"].is_null());
+    }
+
+    #[test]
+    fn materialize_message_swipe_fields_preserves_legacy_parent_extra_without_swipe_extra() {
+        let mut message = json!({
+            "content": "old visible",
+            "activeSwipeIndex": 1,
+            "extra": {
+                "hiddenFromAI": true,
+                "reasoning_content": "stale reasoning",
+                "cachedPrompt": [{ "role": "system", "content": "old prompt" }],
+                "generationInfo": { "model": "old-model" }
+            },
+            "swipes": [
+                { "content": "first" },
+                { "content": "second" }
+            ]
+        });
+
+        materialize_message_swipe_fields(&mut message);
+
+        assert_eq!(message["content"], json!("second"));
+        assert_eq!(message["extra"]["hiddenFromAI"], json!(true));
+        assert_eq!(
+            message["extra"]["generationInfo"]["model"],
+            json!("old-model")
+        );
+        assert_eq!(
+            message["extra"]["reasoning_content"],
+            json!("stale reasoning")
+        );
+        assert_eq!(
+            message["extra"]["cachedPrompt"][0]["content"],
+            json!("old prompt")
+        );
+    }
+
+    #[test]
+    fn message_content_update_patch_collapses_excess_blank_lines() {
+        let root = temp_root("message-edit-collapse-blank-lines");
+        let state = AppState::from_data_dir(&root.0, Vec::new()).expect("state should initialize");
+        state
+            .storage
+            .create(
+                "messages",
+                with_entity_defaults(
+                    "messages",
+                    json!({
+                        "id": "message-1",
+                        "chatId": "chat-1",
+                        "role": "user",
+                        "content": "original",
+                        "activeSwipeIndex": 0,
+                        "swipes": [{ "content": "original" }]
+                    }),
+                )
+                .expect("message defaults should apply"),
+            )
+            .expect("message should be created");
+
+        let mut updated = patch_message_update(
+            &state,
+            "message-1",
+            json!({ "content": "first\n\n\n\nsecond" }),
+        )
+        .expect("message should update");
+        materialize_message_swipe_fields(&mut updated);
+
+        assert_eq!(updated["content"], json!("first\n\nsecond"));
+        assert_eq!(updated["swipes"][0]["content"], json!("first\n\nsecond"));
+    }
+
+    #[test]
+    fn message_content_update_patch_does_not_invent_missing_swipes() {
+        let root = temp_root("message-edit-no-swipes");
+        let state = AppState::from_data_dir(&root.0, Vec::new()).expect("state should initialize");
+        state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "message-1",
+                    "chatId": "chat-1",
+                    "role": "user",
+                    "content": "legacy content",
+                    "extra": {}
+                }),
+            )
+            .expect("message should be created");
+
+        let mut updated =
+            patch_message_update(&state, "message-1", json!({ "content": "edited legacy" }))
+                .expect("message should update");
+        materialize_message_swipe_fields(&mut updated);
+
+        assert_eq!(updated["content"], json!("edited legacy"));
+        assert!(updated.get("swipes").is_none());
+    }
+
+    #[test]
+    fn game_state_snapshot_normalizes_persona_stats_as_nullable_array() {
+        let mut row = json!({
+            "presentCharacters": "[{\"name\":\"Mari\"}]",
+            "recentEvents": "[\"arrived\"]",
+            "playerStats": "{\"status\":\"ready\"}",
+            "personaStats": "[{\"name\":\"Energy\",\"value\":5,\"max\":10}]",
+            "metadata": "{\"source\":\"qa\"}"
+        });
+        let object = row.as_object_mut().expect("row should be an object");
+
+        normalize_typed_json_fields("game-state-snapshots", object)
+            .expect("snapshot row should normalize");
+
+        assert!(object["presentCharacters"].is_array());
+        assert!(object["recentEvents"].is_array());
+        assert!(object["playerStats"].is_object());
+        assert!(object["personaStats"].is_array());
+        assert!(object["metadata"].is_object());
+
+        let mut null_row = json!({ "personaStats": null });
+        let null_object = null_row.as_object_mut().expect("row should be an object");
+        normalize_typed_json_fields("game-state-snapshots", null_object)
+            .expect("null personaStats should normalize");
+        assert!(null_object["personaStats"].is_null());
+
+        let mut empty_row = json!({ "personaStats": "  " });
+        let empty_object = empty_row.as_object_mut().expect("row should be an object");
+        normalize_typed_json_fields("game-state-snapshots", empty_object)
+            .expect("empty personaStats should normalize");
+        assert!(empty_object["personaStats"].is_null());
+    }
+
+    #[test]
+    fn lorebook_defaults_include_vectorization_enabled() {
+        let row = with_entity_defaults("lorebooks", json!({ "name": "World Book" }))
+            .expect("lorebook defaults should apply");
+
+        assert_eq!(row["excludeFromVectorization"], json!(false));
+    }
+
+    #[test]
+    fn game_state_snapshot_rejects_malformed_persona_stats_string() {
+        let mut row = json!({ "personaStats": "{\"not\":\"an array\"}" });
+        let object = row.as_object_mut().expect("row should be an object");
+
+        let error = normalize_typed_json_fields("game-state-snapshots", object)
+            .expect_err("object-shaped personaStats should fail");
+
         assert_eq!(error.code, "invalid_input");
+        assert_eq!(error.message, "personaStats must be a JSON array or null");
+    }
+
+    #[test]
+    fn normalize_legacy_text_array_fields_preserves_existing_arrays() {
+        let mut record = json!({ "tags": ["a", "b"] });
+        normalize_legacy_text_array_fields(&mut record, &["tags"]);
+        assert_eq!(record["tags"], json!(["a", "b"]));
+    }
+
+    #[test]
+    fn normalize_legacy_text_array_fields_parses_text_encoded_json_arrays() {
+        let mut record = json!({ "tags": "[\"a\",\"b\"]" });
+        normalize_legacy_text_array_fields(&mut record, &["tags"]);
+        assert_eq!(record["tags"], json!(["a", "b"]));
+    }
+
+    #[test]
+    fn normalize_legacy_text_array_fields_replaces_unparseable_string_with_empty() {
+        let mut record = json!({ "tags": "not-json" });
+        normalize_legacy_text_array_fields(&mut record, &["tags"]);
+        assert_eq!(record["tags"], json!([]));
+    }
+
+    #[test]
+    fn normalize_legacy_text_array_fields_replaces_non_array_json_string_with_empty() {
+        let mut record = json!({ "tags": "{\"oops\":true}" });
+        normalize_legacy_text_array_fields(&mut record, &["tags"]);
+        assert_eq!(record["tags"], json!([]));
+    }
+
+    #[test]
+    fn normalize_legacy_text_array_fields_replaces_scalar_with_empty() {
+        let mut record = json!({ "tags": 7 });
+        normalize_legacy_text_array_fields(&mut record, &["tags"]);
+        assert_eq!(record["tags"], json!([]));
+    }
+
+    #[test]
+    fn normalize_legacy_text_array_fields_replaces_null_with_empty() {
+        let mut record = json!({ "tags": null });
+        normalize_legacy_text_array_fields(&mut record, &["tags"]);
+        assert_eq!(record["tags"], json!([]));
+    }
+
+    #[test]
+    fn normalize_legacy_text_array_fields_leaves_missing_keys_alone() {
+        let mut record = json!({ "other": "value" });
+        normalize_legacy_text_array_fields(&mut record, &["tags"]);
+        assert!(!record.as_object().unwrap().contains_key("tags"));
+    }
+
+    #[test]
+    fn normalize_legacy_text_array_fields_ignores_non_object_records() {
+        let mut record = json!("scalar");
+        normalize_legacy_text_array_fields(&mut record, &["tags"]);
+        assert_eq!(record, json!("scalar"));
+    }
+
+    #[test]
+    fn normalize_legacy_text_bool_fields_preserves_existing_bools() {
+        let mut record = json!({ "isGlobal": true, "enabled": false });
+        normalize_legacy_text_bool_fields(&mut record, &["isGlobal", "enabled"]);
+        assert_eq!(record["isGlobal"], json!(true));
+        assert_eq!(record["enabled"], json!(false));
+    }
+
+    #[test]
+    fn normalize_legacy_text_bool_fields_coerces_text_true_and_false() {
+        let mut record = json!({ "isGlobal": "true", "enabled": "false" });
+        normalize_legacy_text_bool_fields(&mut record, &["isGlobal", "enabled"]);
+        assert_eq!(record["isGlobal"], json!(true));
+        assert_eq!(record["enabled"], json!(false));
+    }
+
+    #[test]
+    fn normalize_legacy_text_bool_fields_coerces_truthy_text_aliases() {
+        for alias in ["1", "yes", "on", "TRUE", "  Yes  "] {
+            let mut record = json!({ "flag": alias });
+            normalize_legacy_text_bool_fields(&mut record, &["flag"]);
+            assert_eq!(
+                record["flag"],
+                json!(true),
+                "alias {alias:?} should be true"
+            );
+        }
+    }
+
+    #[test]
+    fn normalize_legacy_text_bool_fields_coerces_falsy_text_aliases() {
+        for alias in ["0", "no", "off", "FALSE", "  No  "] {
+            let mut record = json!({ "flag": alias });
+            normalize_legacy_text_bool_fields(&mut record, &["flag"]);
+            assert_eq!(
+                record["flag"],
+                json!(false),
+                "alias {alias:?} should be false"
+            );
+        }
+    }
+
+    #[test]
+    fn normalize_legacy_text_bool_fields_defaults_unknown_string_to_false() {
+        let mut record = json!({ "flag": "maybe" });
+        normalize_legacy_text_bool_fields(&mut record, &["flag"]);
+        assert_eq!(record["flag"], json!(false));
+    }
+
+    #[test]
+    fn normalize_legacy_text_bool_fields_coerces_zero_and_non_zero_numbers() {
+        let mut record = json!({ "off": 0, "on": 1, "neg": -3 });
+        normalize_legacy_text_bool_fields(&mut record, &["off", "on", "neg"]);
+        assert_eq!(record["off"], json!(false));
+        assert_eq!(record["on"], json!(true));
+        assert_eq!(record["neg"], json!(true));
+    }
+
+    #[test]
+    fn normalize_legacy_text_bool_fields_coerces_float_zero_and_non_zero() {
+        let mut record = json!({ "off": 0.0, "on": 1.5 });
+        normalize_legacy_text_bool_fields(&mut record, &["off", "on"]);
+        assert_eq!(record["off"], json!(false));
+        assert_eq!(record["on"], json!(true));
+    }
+
+    #[test]
+    fn normalize_legacy_text_bool_fields_defaults_null_to_false() {
+        let mut record = json!({ "flag": null });
+        normalize_legacy_text_bool_fields(&mut record, &["flag"]);
+        assert_eq!(record["flag"], json!(false));
+    }
+
+    #[test]
+    fn normalize_legacy_text_bool_fields_leaves_missing_keys_alone() {
+        let mut record = json!({ "other": "value" });
+        normalize_legacy_text_bool_fields(&mut record, &["flag"]);
+        assert!(!record.as_object().unwrap().contains_key("flag"));
+    }
+
+    #[test]
+    fn normalize_legacy_text_bool_fields_ignores_non_object_records() {
+        let mut record = json!("scalar");
+        normalize_legacy_text_bool_fields(&mut record, &["flag"]);
+        assert_eq!(record, json!("scalar"));
+    }
+
+    #[test]
+    fn decode_uploaded_image_file_rejects_declared_oversized_upload() {
+        let result = decode_uploaded_image_file(&json!({
+            "file": {
+                "name": "huge.png",
+                "type": "image/png",
+                "size": MAX_IMAGE_UPLOAD_BYTES + 1,
+                "base64": ""
+            }
+        }));
+
+        let Err(error) = result else {
+            panic!("declared oversized image upload should fail before decode");
+        };
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("20 MB"));
+    }
+
+    #[test]
+    fn decode_uploaded_image_file_rejects_non_image_content_type() {
+        let result = decode_uploaded_image_file(&json!({
+            "file": {
+                "name": "notes.txt",
+                "type": "text/plain",
+                "size": 4,
+                "base64": "bm9wZQ=="
+            }
+        }));
+
+        let Err(error) = result else {
+            panic!("non-image upload should fail before storage");
+        };
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("Only image uploads"));
     }
 }
 
@@ -415,11 +1220,89 @@ pub(crate) fn string_array_from_value(value: Option<&Value>) -> Vec<String> {
     }
 }
 
+/// Replace any text-encoded boolean field on a record object with a real
+/// JSON boolean. The pre-refactor server stored bool columns as TEXT
+/// (`"true"` / `"false"` strings); the refactor frontend reads these
+/// directly, so `lorebook.isGlobal === "false"` evaluates truthy and every
+/// scoped lorebook renders as a global one. Called from the migration
+/// import paths to bridge that schema gap.
+pub(crate) fn normalize_legacy_text_bool_fields(record: &mut Value, fields: &[&str]) {
+    let Some(object) = record.as_object_mut() else {
+        return;
+    };
+    for field in fields {
+        let Some(entry) = object.get_mut(*field) else {
+            continue;
+        };
+        if entry.is_boolean() {
+            continue;
+        }
+        let coerced = match entry.as_str().map(str::trim).map(str::to_ascii_lowercase) {
+            Some(raw) if raw == "true" || raw == "1" || raw == "yes" || raw == "on" => true,
+            Some(raw) if raw == "false" || raw == "0" || raw == "no" || raw == "off" => false,
+            _ => match entry.as_i64() {
+                Some(n) => n != 0,
+                // NaN is unordered against 0.0, so the naive `n != 0.0` check
+                // would treat it as truthy. Short-circuit to false.
+                None => match entry.as_f64() {
+                    Some(n) if n.is_nan() => false,
+                    Some(n) => n != 0.0,
+                    None => false,
+                },
+            },
+        };
+        *entry = Value::Bool(coerced);
+    }
+}
+
+/// Replace any text-encoded JSON-array field on a record object with a real
+/// JSON array. The pre-refactor server stored `tags`, `characterIds`,
+/// `personaIds`, etc. as TEXT columns (a JSON-stringified array); the
+/// refactor expects an actual JSON array on every row, and the frontend
+/// crashes (`.map is not a function`) when it sees a string. Called from the
+/// migration import paths to bridge that schema gap.
+pub(crate) fn normalize_legacy_text_array_fields(record: &mut Value, fields: &[&str]) {
+    let Some(object) = record.as_object_mut() else {
+        return;
+    };
+    for field in fields {
+        let Some(entry) = object.get_mut(*field) else {
+            continue;
+        };
+        if entry.is_array() {
+            continue;
+        }
+        // String -> parse as JSON array, fall back to empty.
+        // Anything else (null, number, bool, object) -> empty array. Pre-refactor
+        // should only emit array or text-encoded array here; any other shape is a
+        // malformed legacy value that must not reach the editor as-is.
+        if let Some(raw) = entry.as_str() {
+            *entry = serde_json::from_str::<Value>(raw)
+                .ok()
+                .filter(Value::is_array)
+                .unwrap_or_else(|| json!([]));
+        } else {
+            *entry = json!([]);
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct UploadedFile {
     pub(crate) name: String,
     pub(crate) content_type: String,
     pub(crate) bytes: Vec<u8>,
+}
+
+const MAX_IMAGE_UPLOAD_BYTES: usize = 20 * 1024 * 1024;
+const MAX_IMAGE_UPLOAD_BASE64_CHARS: usize = MAX_IMAGE_UPLOAD_BYTES.div_ceil(3) * 4;
+
+fn image_upload_too_large_error() -> AppError {
+    AppError::invalid_input("Image uploads must be 20 MB or smaller")
+}
+
+fn image_upload_invalid_type_error() -> AppError {
+    AppError::invalid_input("Only image uploads are allowed")
 }
 
 pub(crate) fn decode_uploaded_file_value(file: &Value) -> AppResult<UploadedFile> {
@@ -456,6 +1339,38 @@ pub(crate) fn decode_uploaded_file(body: &Value) -> AppResult<(String, String, V
     Ok((uploaded.name, uploaded.content_type, uploaded.bytes))
 }
 
+pub(crate) fn decode_uploaded_image_file(body: &Value) -> AppResult<UploadedFile> {
+    let file = body
+        .get("file")
+        .ok_or_else(|| AppError::invalid_input("file is required"))?;
+    let content_type = file
+        .get("type")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|content_type| !content_type.is_empty())
+        .ok_or_else(image_upload_invalid_type_error)?;
+    if !content_type.to_ascii_lowercase().starts_with("image/") {
+        return Err(image_upload_invalid_type_error());
+    }
+    if let Some(size) = file.get("size").and_then(Value::as_u64) {
+        if size > MAX_IMAGE_UPLOAD_BYTES as u64 {
+            return Err(image_upload_too_large_error());
+        }
+    }
+    if file
+        .get("base64")
+        .and_then(Value::as_str)
+        .is_some_and(|base64| base64.len() > MAX_IMAGE_UPLOAD_BASE64_CHARS)
+    {
+        return Err(image_upload_too_large_error());
+    }
+    let uploaded = decode_uploaded_file_value(file)?;
+    if uploaded.bytes.len() > MAX_IMAGE_UPLOAD_BYTES {
+        return Err(image_upload_too_large_error());
+    }
+    Ok(uploaded)
+}
+
 pub(crate) fn decode_uploaded_files(body: &Value, field: &str) -> AppResult<Vec<UploadedFile>> {
     let Some(value) = body.get(field) else {
         return Ok(Vec::new());
@@ -476,16 +1391,16 @@ pub(crate) fn upload_gallery_image(
     parent_id: &str,
     body: Value,
 ) -> AppResult<Value> {
-    let (name, content_type, bytes) = decode_uploaded_file(&body)?;
-    let encoded = general_purpose::STANDARD.encode(bytes);
-    let data_url = format!("data:{content_type};base64,{encoded}");
+    let uploaded = decode_uploaded_image_file(&body)?;
+    let encoded = general_purpose::STANDARD.encode(&uploaded.bytes);
+    let data_url = format!("data:{};base64,{encoded}", uploaded.content_type);
     let mut record = Map::new();
     record.insert(
         parent_field.to_string(),
         Value::String(parent_id.to_string()),
     );
-    record.insert("filePath".to_string(), Value::String(name.clone()));
-    record.insert("filename".to_string(), Value::String(name));
+    record.insert("filePath".to_string(), Value::String(uploaded.name.clone()));
+    record.insert("filename".to_string(), Value::String(uploaded.name));
     record.insert("url".to_string(), Value::String(data_url));
     record.insert("prompt".to_string(), Value::Null);
     record.insert("provider".to_string(), Value::Null);
@@ -493,6 +1408,89 @@ pub(crate) fn upload_gallery_image(
     record.insert("width".to_string(), Value::Null);
     record.insert("height".to_string(), Value::Null);
     state.storage.create(collection, Value::Object(record))
+}
+
+pub(crate) fn project_list_rows(rows: Vec<Value>, options: Option<&Value>) -> Vec<Value> {
+    let Some(fields) = option_string_array(options, "fields") else {
+        return rows;
+    };
+    if fields.is_empty() {
+        return rows;
+    }
+
+    rows.into_iter()
+        .map(|row| project_row(row, &fields, options))
+        .collect()
+}
+
+pub(crate) fn project_record(row: Value, options: Option<&Value>) -> Value {
+    let Some(fields) = option_string_array(options, "fields") else {
+        return row;
+    };
+    if fields.is_empty() {
+        return row;
+    }
+    project_row(row, &fields, options)
+}
+
+fn project_row(row: Value, fields: &[String], options: Option<&Value>) -> Value {
+    let Value::Object(object) = row else {
+        return row;
+    };
+    let mut projected = Map::new();
+    for field in fields {
+        let Some(value) = object.get(field) else {
+            continue;
+        };
+        projected.insert(
+            field.clone(),
+            project_nested_field(field, value.clone(), options),
+        );
+    }
+    Value::Object(projected)
+}
+
+fn project_nested_field(field: &str, value: Value, options: Option<&Value>) -> Value {
+    let Some(nested_fields) = options
+        .and_then(|value| value.get("fieldSelections"))
+        .and_then(Value::as_object)
+        .and_then(|selections| selections.get(field))
+        .and_then(string_array_from_json)
+    else {
+        return value;
+    };
+    if nested_fields.is_empty() {
+        return value;
+    }
+    match value {
+        Value::Object(object) => {
+            let mut projected = Map::new();
+            for nested_field in nested_fields {
+                if let Some(nested_value) = object.get(&nested_field) {
+                    projected.insert(nested_field, nested_value.clone());
+                }
+            }
+            Value::Object(projected)
+        }
+        other => other,
+    }
+}
+
+fn option_string_array(options: Option<&Value>, key: &str) -> Option<Vec<String>> {
+    options
+        .and_then(|value| value.get(key))
+        .and_then(string_array_from_json)
+}
+
+fn string_array_from_json(value: &Value) -> Option<Vec<String>> {
+    value.as_array().map(|items| {
+        items
+            .iter()
+            .filter_map(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(ToOwned::to_owned)
+            .collect()
+    })
 }
 
 pub(crate) fn metadata_map(chat: &Value) -> Map<String, Value> {

@@ -6,7 +6,7 @@
 // ──────────────────────────────────────────────
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bug, ChevronDown, ChevronUp, X, CheckCircle2, XCircle, Clock, Wrench } from "lucide-react";
+import { Bug, ChevronDown, ChevronUp, X, CheckCircle2, XCircle, Clock, FileText, Wrench } from "lucide-react";
 import { useAgentStore } from "../../../../shared/stores/agent.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { cn } from "../../../../shared/lib/utils";
@@ -26,6 +26,7 @@ export function AgentDebugPanel() {
   const setupEntries = debugLog.filter((e) => e.agents && !e.results);
   const resultEntries = debugLog.filter((e) => e.results);
   const toolEntries = debugLog.filter((e) => e.toolCall || e.toolResult);
+  const detailEntries = debugLog.filter((e) => !e.agents && !e.results && !e.toolCall && !e.toolResult);
 
   return (
     <motion.div
@@ -173,8 +174,25 @@ export function AgentDebugPanel() {
                 );
               })}
 
+              {/* Prompt, response, and lifecycle details */}
+              {detailEntries.map((entry, i) => (
+                <div key={`detail-${i}`} className="rounded-md bg-[var(--muted)]/30 p-2">
+                  <div className="mb-1 flex items-center gap-1.5 font-semibold text-cyan-400">
+                    <FileText size="0.75rem" className="shrink-0" />
+                    <span>{formatDebugMessage(entry.message)}</span>
+                    {entry.level && <span className="text-[var(--muted-foreground)]">{entry.level}</span>}
+                  </div>
+                  <div className="mb-1 text-[var(--muted-foreground)]">{formatPhase(entry.phase)}</div>
+                  {entry.args && entry.args.length > 0 && (
+                    <pre className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded bg-black/10 p-1.5 font-mono text-[0.6875rem] leading-snug text-[var(--muted-foreground)]">
+                      {formatDebugArgs(entry.args)}
+                    </pre>
+                  )}
+                </div>
+              ))}
+
               {/* Fallback: show lastResults when no debug log entries */}
-              {resultEntries.length === 0 && toolEntries.length === 0 && lastResults.size > 0 && (
+              {resultEntries.length === 0 && toolEntries.length === 0 && detailEntries.length === 0 && lastResults.size > 0 && (
                 <div className="rounded-md bg-[var(--muted)]/30 p-2">
                   <div className="font-semibold text-blue-400 mb-1">Last Agent Results</div>
                   <div className="flex flex-col gap-0.5">
@@ -208,6 +226,28 @@ export function AgentDebugPanel() {
       </AnimatePresence>
     </motion.div>
   );
+}
+
+function formatDebugMessage(message?: string): string {
+  if (!message) return "Debug Event";
+  return message
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part[0]!.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatDebugArgs(args: unknown[]): string {
+  return args
+    .map((arg) => {
+      if (typeof arg === "string") return arg;
+      try {
+        return JSON.stringify(arg, null, 2);
+      } catch {
+        return String(arg);
+      }
+    })
+    .join("\n\n");
 }
 
 function formatPhase(phase: string): string {

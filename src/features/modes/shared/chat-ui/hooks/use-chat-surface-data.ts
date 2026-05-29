@@ -1,13 +1,12 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useChat,
   useChatMessageCount,
   useChatMessages,
-  useChats,
   type Chat,
   type ChatMode,
 } from "../../../../catalog/chats/index";
-import { useCharacters, usePersonas } from "../../../../catalog/characters/index";
+import { useActivePersona, useCharactersByIds, usePersona } from "../../../../catalog/characters/index";
 import { ApiError } from "../../../../../shared/api/api-errors";
 import { getConnectedChatDisplayName, parseChatMetadata } from "../../../../../shared/lib/chat-display";
 import { parseCharacterDisplayData } from "../../../../../shared/lib/character-display";
@@ -16,6 +15,8 @@ import { useChatStore } from "../../../../../shared/stores/chat.store";
 import type { CharacterMap, MessageWithSwipes, PersonaInfo } from "../types";
 
 type PersonaFallback = "active-persona" | "none";
+const DEFAULT_MESSAGE_PAGE_SIZE = 20;
+type RelatedChat = { id: string; name: string; metadata?: string | Record<string, unknown> | null };
 
 type UseChatSurfaceDataOptions = {
   activeChatId: string;
@@ -26,7 +27,7 @@ type UseChatSurfaceDataOptions = {
 
 type CharacterRow = {
   id: string;
-  data: string;
+  data: Record<string, any>;
   comment?: string | null;
   avatarPath: string | null;
 };
@@ -40,7 +41,7 @@ type PersonaRow = {
   scenario?: string;
   backstory?: string;
   appearance?: string;
-  altDescriptions?: string;
+  altDescriptions?: Array<{ active?: boolean; content?: string }>;
   avatarPath?: string | null;
   avatarCrop?: string;
   nameColor?: string;
@@ -50,7 +51,7 @@ type PersonaRow = {
 
 function parseChatCharacterIds(chat: Chat | null | undefined): string[] {
   if (!chat) return [];
-  const raw = chat.characterIds;
+  const raw = chat.characterIds as string[] | string | null | undefined;
   if (typeof raw === "string") {
     try {
       const parsed = JSON.parse(raw);
@@ -62,36 +63,68 @@ function parseChatCharacterIds(chat: Chat | null | undefined): string[] {
   return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : [];
 }
 
-function parseCharacterData(data: string): Record<string, any> {
-  const parsed = typeof data === "string" ? JSON.parse(data) : data;
-  return parsed && typeof parsed === "object" ? parsed : {};
+function parseCharacterData(data: Record<string, any>): Record<string, any> {
+  return data && typeof data === "object" ? data : {};
 }
 
-function buildPersonaInfo(
-  personas: PersonaRow[] | undefined,
-  chat: Chat | null | undefined,
-  fallback: PersonaFallback,
-): PersonaInfo | undefined {
-  if (!personas) return undefined;
-  const chatPersonaId = (chat as unknown as { personaId?: string | null })?.personaId;
-  const persona =
-    (chatPersonaId ? personas.find((candidate) => candidate.id === chatPersonaId) : null) ??
-    (fallback === "active-persona"
-      ? personas.find((candidate) => candidate.isActive === "true" || candidate.isActive === true)
-      : null);
+function normalizeIds(ids: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(ids.map((id) => (typeof id === "string" ? id.trim() : "")).filter(Boolean)));
+}
+
+function extractMessageCharacterIds(messages: MessageWithSwipes[] | undefined): string[] {
+  if (!messages) return [];
+  return normalizeIds(messages.map((message) => message.characterId));
+}
+
+function parseMessageExtra(extra: unknown): Record<string, unknown> {
+  if (typeof extra === "string") {
+    try {
+      const parsed = JSON.parse(extra);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  return extra && typeof extra === "object" && !Array.isArray(extra) ? (extra as Record<string, unknown>) : {};
+}
+
+function isLegacyGenerationFailureNotice(message: MessageWithSwipes): boolean {
+  const extra = parseMessageExtra(message.extra);
+  return extra.generationError === true && message.role === "system";
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+}
+
+function collectGameCharacterIds(chatMeta: Record<string, any>): string[] {
+  const setup = chatMeta.gameSetupConfig && typeof chatMeta.gameSetupConfig === "object" ? chatMeta.gameSetupConfig : {};
+  const ids: Array<string | null | undefined> = [
+    typeof setup.gmCharacterId === "string" ? setup.gmCharacterId : null,
+    ...stringArray(setup.partyCharacterIds),
+    ...stringArray(chatMeta.gamePartyCharacterIds),
+  ];
+  if (Array.isArray(chatMeta.gameCharacterCards)) {
+    for (const card of chatMeta.gameCharacterCards as Array<Record<string, unknown>>) {
+      ids.push(
+        typeof card.id === "string" ? card.id : null,
+        typeof card.characterId === "string" ? card.characterId : null,
+        typeof card.libraryCharacterId === "string" ? card.libraryCharacterId : null,
+      );
+    }
+  }
+  return normalizeIds(ids);
+}
+
+function buildPersonaInfo(persona: PersonaRow | null | undefined): PersonaInfo | undefined {
   if (!persona) return undefined;
 
   let description = persona.description ?? "";
-  if (persona.altDescriptions) {
-    try {
-      const altDescriptions = JSON.parse(persona.altDescriptions) as Array<{ active?: boolean; content?: string }>;
-      for (const altDescription of altDescriptions) {
-        if (altDescription?.active && typeof altDescription.content === "string" && altDescription.content.trim()) {
-          description = [description, altDescription.content.trim()].filter(Boolean).join("\n");
-        }
+  if (Array.isArray(persona.altDescriptions)) {
+    for (const altDescription of persona.altDescriptions) {
+      if (altDescription?.active && typeof altDescription.content === "string" && altDescription.content.trim()) {
+        description = [description, altDescription.content.trim()].filter(Boolean).join("\n");
       }
-    } catch {
-      /* ignore malformed persona alt-description JSON */
     }
   }
 
@@ -116,9 +149,10 @@ export function useChatSurfaceData({
   fallbackChatMode = "conversation",
   personaFallback = "active-persona",
 }: UseChatSurfaceDataOptions) {
+  const resolvedMessagePageSize =
+    Number.isFinite(messagePageSize) && messagePageSize > 0 ? Math.floor(messagePageSize) : DEFAULT_MESSAGE_PAGE_SIZE;
   const setActiveChatId = useChatStore((state) => state.setActiveChatId);
   const { data: chat, error: chatError } = useChat(activeChatId);
-  const { data: allChats } = useChats();
   const {
     data: msgData,
     isLoading,
@@ -126,10 +160,7 @@ export function useChatSurfaceData({
     hasNextPage,
     isFetchingNextPage,
     refetch: refetchMessages,
-  } = useChatMessages(activeChatId, messagePageSize, !!chat);
-  const { data: messageCountData } = useChatMessageCount(activeChatId);
-  const { data: allCharacters } = useCharacters();
-  const { data: allPersonas } = usePersonas();
+  } = useChatMessages(activeChatId, resolvedMessagePageSize, !!chat);
 
   useEffect(() => {
     if (!(chatError instanceof ApiError) || chatError.status !== 404) return;
@@ -143,12 +174,42 @@ export function useChatSurfaceData({
   const rawMode = chat?.mode;
   const chatMode = rawMode ?? fallbackChatMode;
   const chatMeta = useMemo(() => parseChatMetadata(chat?.metadata), [chat]);
+  const connectedChatId =
+    typeof (chat as unknown as { connectedChatId?: unknown } | null | undefined)?.connectedChatId === "string"
+      ? ((chat as unknown as { connectedChatId: string }).connectedChatId.trim() || null)
+      : null;
+  const activeSceneChatId =
+    typeof chatMeta.activeSceneChatId === "string" && chatMeta.activeSceneChatId.trim()
+      ? chatMeta.activeSceneChatId.trim()
+      : null;
+  const { data: connectedChat } = useChat(connectedChatId && connectedChatId !== activeChatId ? connectedChatId : null);
+  const { data: activeSceneChat } = useChat(
+    activeSceneChatId && activeSceneChatId !== activeChatId && activeSceneChatId !== connectedChatId
+      ? activeSceneChatId
+      : null,
+  );
   const messages = useMemo<MessageWithSwipes[] | undefined>(
-    () => (msgData ? [...msgData.pages].reverse().flat() : undefined),
+    () =>
+      msgData
+        ? [...msgData.pages].reverse().flat().filter((message) => !isLegacyGenerationFailureNotice(message))
+        : undefined,
     [msgData],
   );
-  const totalMessageCount = messageCountData?.count ?? messages?.length ?? 0;
   const loadedMessageCount = messages?.length ?? 0;
+  const [messageCountEnabledForChatId, setMessageCountEnabledForChatId] = useState<string | null>(null);
+  useEffect(() => {
+    setMessageCountEnabledForChatId(null);
+    if (!chat?.id || !msgData?.pages.length) return;
+    const id = window.setTimeout(() => setMessageCountEnabledForChatId(activeChatId), 350);
+    return () => window.clearTimeout(id);
+  }, [activeChatId, chat?.id, msgData?.pages.length]);
+  const { data: messageCountData } = useChatMessageCount(
+    chat && messageCountEnabledForChatId === activeChatId ? activeChatId : null,
+  );
+  const totalMessageCount =
+    typeof messageCountData?.count === "number"
+      ? Math.max(messageCountData.count, loadedMessageCount)
+      : loadedMessageCount;
   const messageOffset = messages ? totalMessageCount - messages.length : 0;
   const messageIdByOrderIndex = useMemo(() => {
     const map = new Map<number, string>();
@@ -159,10 +220,15 @@ export function useChatSurfaceData({
     return map;
   }, [messageOffset, messages]);
 
+  const chatCharIds = useMemo(() => parseChatCharacterIds(chat), [chat]);
+  const neededCharacterIds = useMemo(
+    () => normalizeIds([...chatCharIds, ...extractMessageCharacterIds(messages), ...collectGameCharacterIds(chatMeta)]),
+    [chatCharIds, chatMeta, messages],
+  );
+  const { data: characterRows } = useCharactersByIds(neededCharacterIds, neededCharacterIds.length > 0);
   const characterMap: CharacterMap = useMemo(() => {
     const map: CharacterMap = new Map();
-    if (!allCharacters) return map;
-    for (const character of allCharacters as CharacterRow[]) {
+    for (const character of (characterRows ?? []) as CharacterRow[]) {
       try {
         const parsed = parseCharacterData(character.data);
         map.set(character.id, {
@@ -173,6 +239,8 @@ export function useChatSurfaceData({
           appearance: parsed.extensions?.appearance ?? "",
           scenario: parsed.scenario ?? "",
           example: parsed.mes_example ?? "",
+          systemPrompt: parsed.system_prompt ?? parsed.systemPrompt ?? "",
+          postHistoryInstructions: parsed.post_history_instructions ?? parsed.postHistoryInstructions ?? "",
           avatarUrl: character.avatarPath ?? null,
           nameColor: parsed.extensions?.nameColor || undefined,
           dialogueColor: parsed.extensions?.dialogueColor || undefined,
@@ -186,29 +254,35 @@ export function useChatSurfaceData({
       }
     }
     return map;
-  }, [allCharacters]);
+  }, [characterRows]);
 
-  const chatCharIds = useMemo(() => parseChatCharacterIds(chat), [chat]);
   const characterNames = useMemo(
     () => chatCharIds.map((id) => characterMap.get(id)?.name).filter((name): name is string => !!name),
     [characterMap, chatCharIds],
   );
+  const chatPersonaId =
+    typeof (chat as unknown as { personaId?: unknown } | null | undefined)?.personaId === "string"
+      ? ((chat as unknown as { personaId: string }).personaId.trim() || null)
+      : null;
+  const { data: chatPersona } = usePersona(chatPersonaId, !!chatPersonaId);
+  const { data: activePersona } = useActivePersona(personaFallback === "active-persona" && !chatPersonaId);
   const personaInfo = useMemo(
-    () => buildPersonaInfo(allPersonas as PersonaRow[] | undefined, chat, personaFallback),
-    [allPersonas, chat, personaFallback],
+    () => buildPersonaInfo((chatPersona ?? activePersona) as PersonaRow | null | undefined),
+    [activePersona, chatPersona],
   );
-  const chatList =
-    (allChats as Array<{ id: string; name: string; metadata?: string | Record<string, unknown> | null }> | undefined) ??
-    [];
-  const connectedChatName = chat?.connectedChatId
-    ? getConnectedChatDisplayName(chatList.find((item) => item.id === chat.connectedChatId))
-    : undefined;
+  const chatList = useMemo(() => {
+    const rows: RelatedChat[] = [];
+    if (connectedChat) rows.push(connectedChat as RelatedChat);
+    if (activeSceneChat) rows.push(activeSceneChat as RelatedChat);
+    return rows;
+  }, [activeSceneChat, connectedChat]);
+  const connectedChatName = connectedChat ? getConnectedChatDisplayName(connectedChat) : undefined;
   const pageCount = msgData?.pages.length ?? 0;
 
   const gameCharacters = useMemo(
     () =>
-      allCharacters
-        ? (allCharacters as CharacterRow[]).map((character) => {
+      characterRows
+        ? (characterRows as CharacterRow[]).map((character) => {
             try {
               const parsed = parseCharacterData(character.data);
               const display = parseCharacterDisplayData(character);
@@ -231,7 +305,7 @@ export function useChatSurfaceData({
             }
           })
         : [],
-    [allCharacters],
+    [characterRows],
   );
 
   return {

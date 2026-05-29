@@ -11,6 +11,7 @@ export function usePersonas() {
     queryKey: personaKeys.list,
     queryFn: () => storageApi.list<unknown>("personas"),
     staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -29,7 +30,11 @@ export function useUpdatePersona() {
       scenario?: string;
       backstory?: string;
       appearance?: string;
-      tags?: string;
+      tags?: string[];
+      altDescriptions?: unknown[];
+      savedStatusOptions?: string[];
+      avatarCrop?: unknown;
+      personaStats?: unknown;
     }) => storageApi.update("personas", id, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: personaKeys.list }),
   });

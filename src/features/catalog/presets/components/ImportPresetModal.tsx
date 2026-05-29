@@ -31,8 +31,14 @@ export function ImportPresetModal({ open, onClose }: Props) {
         const text = await file.text();
         const json = JSON.parse(text);
 
-        // Detect Marinara native export format vs SillyTavern format
-        const isMarinara = json.type === "marinara_preset" && json.version === 1;
+        // Detect Marinara native export format vs SillyTavern format.
+        // Accept any `marinara_*` envelope so unsupported types (e.g.
+        // `marinara_chat_preset`, `marinara_memory_recall`) route to the
+        // Marinara importer and surface a clear "Unknown Marinara import type"
+        // error instead of falling through to the permissive ST importer,
+        // which would silently create an empty preset.
+        const isMarinara =
+          json.version === 1 && typeof json.type === "string" && (json.type as string).startsWith("marinara_");
         const payload = isMarinara
           ? {
               ...json,

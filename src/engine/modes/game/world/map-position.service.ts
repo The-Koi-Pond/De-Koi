@@ -36,6 +36,7 @@ export interface MapUpdateCommand {
   newLocation: string;
   connectedTo: string | null;
   nodeEmoji: string | null;
+  mapName: string | null;
 }
 
 function normalizeLocationValue(value: string): string {
@@ -252,6 +253,7 @@ export function parseMapUpdateCommands(content: string): MapUpdateCommand[] {
       newLocation,
       connectedTo: (values.get("connected_to") ?? values.get("connected") ?? "").trim() || null,
       nodeEmoji: (values.get("node_emoji") ?? values.get("emoji") ?? "").trim() || null,
+      mapName: (values.get("map") ?? values.get("map_name") ?? values.get("area") ?? "").trim() || null,
     });
   }
 
@@ -313,6 +315,70 @@ export function applyMapUpdateCommand(map: GameMap | null, command: MapUpdateCom
     nodes,
     edges,
     partyPosition: targetId,
+  };
+}
+
+function emptyNodeMap(name: string, existingMaps: readonly GameMap[]): GameMap {
+  return ensureGameMapId(
+    {
+      type: "node",
+      name,
+      description: "",
+      nodes: [],
+      edges: [],
+      partyPosition: "",
+    } as GameMap,
+    existingMaps,
+  );
+}
+
+function findMapMatch(maps: readonly GameMap[], mapName: string | null | undefined): GameMap | null {
+  const name = mapName?.trim();
+  if (!name) return null;
+  return findBestMatch(name, maps, (map) => [getGameMapId(map) ?? "", map.name ?? ""])?.entry ?? null;
+}
+
+export function applyMapUpdateCommandsToMeta(
+  meta: Record<string, unknown>,
+  commands: readonly MapUpdateCommand[],
+): Record<string, unknown> {
+  if (commands.length === 0) return meta;
+
+  let maps = getGameMapsFromMeta(meta);
+  const activeId =
+    typeof meta.activeGameMapId === "string"
+      ? meta.activeGameMapId
+      : getGameMapId(isGameMap(meta.gameMap) ? meta.gameMap : null);
+  let activeMap =
+    (activeId ? maps.find((map, index) => getGameMapId(map, index) === activeId) : null) ??
+    (isGameMap(meta.gameMap) ? meta.gameMap : null) ??
+    maps[0] ??
+    null;
+  let changed = false;
+
+  for (const command of commands) {
+    const matchingMap = findMapMatch(maps, command.mapName);
+    let targetMap = matchingMap ?? activeMap;
+    if (command.mapName && !matchingMap) {
+      targetMap = emptyNodeMap(command.mapName, maps);
+      maps = upsertGameMap(maps, targetMap);
+      changed = true;
+    }
+    if (!targetMap) continue;
+
+    const updated = applyMapUpdateCommand(targetMap, command);
+    if (!updated) continue;
+    maps = upsertGameMap(maps, updated);
+    activeMap = updated;
+    changed = true;
+  }
+
+  if (!changed || !activeMap) return meta;
+  return {
+    ...meta,
+    gameMap: activeMap,
+    gameMaps: maps,
+    activeGameMapId: getGameMapId(activeMap),
   };
 }
 

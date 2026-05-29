@@ -27,6 +27,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "../../../../shared/lib/utils";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { importApi } from "../../../../shared/api/import-api";
+import { remoteRuntimeTarget } from "../../../../shared/api/remote-runtime";
+import { characterKeys, invalidateCharacterCollectionQueries } from "../../../catalog/characters/index";
+import { chatKeys } from "../../../catalog/chats/index";
+import { lorebookKeys } from "../../../catalog/lorebooks/index";
+import { presetKeys } from "../../../catalog/presets/index";
 
 interface Props {
   open: boolean;
@@ -130,6 +135,10 @@ function normalizeImportProgress(value: unknown): ImportProgress | null {
     total: Number(record.total ?? 0),
     imported: result.imported,
   };
+}
+
+function hasImported(imported: ImportResult["imported"], category: keyof ImportResult["imported"]): boolean {
+  return Number(imported[category] ?? 0) > 0;
 }
 
 function buildInitialSelection(scan: ScanResult): SelectionState {
@@ -257,6 +266,20 @@ export function STBulkImportModal({ open, onClose }: Props) {
   const handleBrowse = useCallback(async () => {
     setPicking(true);
     setError("");
+    let remoteConfigured = false;
+    try {
+      remoteConfigured = Boolean(remoteRuntimeTarget());
+    } catch (err) {
+      setError(describeImportError(err, "Unable to open remote folder browser"));
+      setPicking(false);
+      return;
+    }
+    if (remoteConfigured) {
+      setShowFolderBrowser(true);
+      await loadDirectory(folderPath || undefined);
+      setPicking(false);
+      return;
+    }
     try {
       const selected = await openDialog({ directory: true, multiple: false });
       if (typeof selected === "string" && selected.trim()) {
@@ -334,7 +357,25 @@ export function STBulkImportModal({ open, onClose }: Props) {
       if (data.success) {
         setImportResult(data);
         setPhase("done");
-        qc.invalidateQueries();
+        if (hasImported(data.imported, "characters")) {
+          invalidateCharacterCollectionQueries(qc);
+        }
+        if (hasImported(data.imported, "chats") || hasImported(data.imported, "groupChats")) {
+          qc.invalidateQueries({ queryKey: chatKeys.list() });
+        }
+        if (hasImported(data.imported, "lorebooks")) {
+          qc.invalidateQueries({ queryKey: lorebookKeys.all });
+        }
+        if (hasImported(data.imported, "presets")) {
+          qc.invalidateQueries({ queryKey: presetKeys.all });
+        }
+        if (hasImported(data.imported, "personas")) {
+          qc.invalidateQueries({ queryKey: characterKeys.personas });
+        }
+        if (hasImported(data.imported, "backgrounds")) {
+          qc.invalidateQueries({ queryKey: ["backgrounds"] });
+          qc.invalidateQueries({ queryKey: ["background-tags"] });
+        }
       } else {
         setError(`Import failed${data.error ? `: ${data.error}` : ""}`);
         setPhase("preview");

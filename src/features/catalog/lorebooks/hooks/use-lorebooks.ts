@@ -79,6 +79,32 @@ async function reorderLorebookFolders(lorebookId: string, folderIds: string[]): 
   return storageApi.list<LorebookFolder>("lorebook-folders", { filters: { lorebookId } });
 }
 
+async function bulkUnvectorizeLorebookEntries(
+  lorebookId: string,
+  entryIds?: string[],
+): Promise<{ lorebookId: string; requested: number; cleared: number }> {
+  const requestedIds = Array.from(new Set((entryIds ?? []).map((id) => id.trim()).filter(Boolean)));
+  const entries =
+    requestedIds.length > 0
+      ? (
+          await Promise.all(
+            requestedIds.map((entryId) =>
+              storageApi.get<LorebookEntry>("lorebook-entries", entryId).catch(() => null),
+            ),
+          )
+        ).filter((entry): entry is LorebookEntry => !!entry && entry.lorebookId === lorebookId)
+      : await storageApi.list<LorebookEntry>("lorebook-entries", { filters: { lorebookId } });
+  const targets = entries.filter((entry) => Array.isArray(entry.embedding) && entry.embedding.length > 0);
+  await Promise.all(
+    targets.map((entry) =>
+      storageApi.update<LorebookEntry>("lorebook-entries", entry.id, {
+        embedding: null,
+      }),
+    ),
+  );
+  return { lorebookId, requested: requestedIds.length || entries.length, cleared: targets.length };
+}
+
 function lorebookEntryMatches(entry: LorebookEntry, query: string) {
   const haystack = [
     entry.name,
@@ -106,6 +132,7 @@ export function useLorebooks(category?: string) {
       return lorebooks.filter((lorebook) => (lorebook.category ?? "uncategorized") === category);
     },
     staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -118,6 +145,7 @@ export function useLorebook(id: string | null) {
     }),
     enabled: !!id,
     staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
     retry: (failureCount, error) => !(error instanceof ApiError && error.status === 404) && failureCount < 3,
   });
 }
@@ -294,6 +322,18 @@ export function useBulkCreateEntries() {
           }),
         ),
       ),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: lorebookKeys.entries(variables.lorebookId) });
+      qc.invalidateQueries({ queryKey: lorebookKeys.active() });
+    },
+  });
+}
+
+export function useBulkUnvectorizeLorebookEntries() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ lorebookId, entryIds }: { lorebookId: string; entryIds?: string[] }) =>
+      bulkUnvectorizeLorebookEntries(lorebookId, entryIds),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: lorebookKeys.entries(variables.lorebookId) });
       qc.invalidateQueries({ queryKey: lorebookKeys.active() });

@@ -2,7 +2,7 @@
 // Full-Page Connection Editor
 // Click a connection → opens this editor (like presets/characters)
 // ──────────────────────────────────────────────
-import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ChangeEvent } from "react";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
   useConnection,
@@ -40,6 +40,7 @@ import {
   ImageIcon,
   RotateCcw,
   SlidersHorizontal,
+  Upload,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
@@ -52,11 +53,31 @@ import {
   parseEditableGenerationParameters,
   type EditableGenerationParameters,
 } from "../../../../shared/components/ui/GenerationParametersEditor";
-import { IMAGE_DEFAULTS_STORAGE_KEY, COMFYUI_SAMPLER_OPTIONS, COMFYUI_SCHEDULER_OPTIONS, NOVELAI_NOISE_SCHEDULE_OPTIONS, NOVELAI_SAMPLER_OPTIONS, SD_WEBUI_SAMPLER_OPTIONS, SD_WEBUI_SCHEDULER_OPTIONS, createDefaultImageGenerationProfile, imageSourceToDefaultsService, normalizeImageGenerationProfile, sanitizeImageGenerationProfile } from "../../../../engine/contracts/constants/image-generation-defaults";
-import { MODEL_LISTS, IMAGE_GENERATION_SOURCES, inferImageSource } from "../../../../engine/contracts/constants/model-lists";
+import {
+  IMAGE_DEFAULTS_STORAGE_KEY,
+  COMFYUI_SAMPLER_OPTIONS,
+  COMFYUI_SCHEDULER_OPTIONS,
+  NOVELAI_NOISE_SCHEDULE_OPTIONS,
+  NOVELAI_SAMPLER_OPTIONS,
+  SD_WEBUI_SAMPLER_OPTIONS,
+  SD_WEBUI_SCHEDULER_OPTIONS,
+  createDefaultImageGenerationProfile,
+  imageSourceToDefaultsService,
+  normalizeImageGenerationProfile,
+  sanitizeImageGenerationProfile,
+} from "../../../../engine/contracts/constants/image-generation-defaults";
+import {
+  MODEL_LISTS,
+  IMAGE_GENERATION_SOURCES,
+  inferImageSource,
+} from "../../../../engine/contracts/constants/model-lists";
 import { PROVIDERS, isTauriRuntimeProvider } from "../../../../engine/contracts/constants/providers";
 import type { APIProvider } from "../../../../engine/contracts/types/connection";
-import type { ImageDefaultsService, ImageGenerationDefaultsProfile } from "../../../../engine/contracts/types/image-generation-defaults";
+import type {
+  ImageDefaultsService,
+  ImageGenerationDefaultsProfile,
+} from "../../../../engine/contracts/types/image-generation-defaults";
+import { toast } from "sonner";
 
 /** Links where users can obtain API keys for each provider */
 const API_KEY_LINKS: Partial<Record<APIProvider, { label: string; url: string }>> = {
@@ -74,6 +95,27 @@ const DEFAULT_CACHING_AT_DEPTH = 5;
 const MAX_CACHING_AT_DEPTH = 100;
 const DEFAULT_MAX_PARALLEL_JOBS = 1;
 const MAX_PARALLEL_JOBS = 16;
+
+const OPENAI_CHATGPT_SETUP_STEPS = [
+  { label: "Install Codex CLI", command: "npm i -g @openai/codex" },
+  { label: "Sign in once", command: "codex login" },
+  { label: "API Key and Base URL are not required - leave them blank." },
+] as const;
+
+type RemoteModel = {
+  id: string;
+  name: string;
+  fallback?: boolean;
+  fromProvider?: boolean;
+  providerError?: string;
+};
+
+type ModelLookupResponse = {
+  models: RemoteModel[];
+  fromProvider?: boolean;
+  fallback?: boolean;
+  providerError?: string;
+};
 
 function normalizeCachingAtDepth(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return DEFAULT_CACHING_AT_DEPTH;
@@ -124,6 +166,7 @@ export function ConnectionEditor() {
   const [localMaxParallelJobs, setLocalMaxParallelJobs] = useState(DEFAULT_MAX_PARALLEL_JOBS);
   const [localEnableCaching, setLocalEnableCaching] = useState(false);
   const [localCachingAtDepth, setLocalCachingAtDepth] = useState(DEFAULT_CACHING_AT_DEPTH);
+  const [localClaudeFastMode, setLocalClaudeFastMode] = useState(false);
   const [localDefaultForAgents, setLocalDefaultForAgents] = useState(false);
   const [localEmbeddingModel, setLocalEmbeddingModel] = useState("");
   const [localEmbeddingBaseUrl, setLocalEmbeddingBaseUrl] = useState("");
@@ -164,6 +207,7 @@ export function ConnectionEditor() {
   const modelTriggerRef = useRef<HTMLDivElement>(null);
   const modelSearchInputRef = useRef<HTMLInputElement>(null);
   const comfyWorkflowTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const comfyWorkflowFileInputRef = useRef<HTMLInputElement>(null);
   const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number; maxH: number } | null>(
     null,
   );
@@ -205,7 +249,7 @@ export function ConnectionEditor() {
   }, [showModelDropdown]);
 
   // Remote models fetched from provider API
-  const [remoteModels, setRemoteModels] = useState<Array<{ id: string; name: string }>>([]);
+  const [remoteModels, setRemoteModels] = useState<RemoteModel[]>([]);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Populate from the stored connection record.
@@ -221,6 +265,7 @@ export function ConnectionEditor() {
     setLocalMaxParallelJobs(normalizeMaxParallelJobs(c.maxParallelJobs));
     setLocalEnableCaching(c.enableCaching === "true" || c.enableCaching === true);
     setLocalCachingAtDepth(normalizeCachingAtDepth(c.cachingAtDepth));
+    setLocalClaudeFastMode(c.claudeFastMode === "true" || c.claudeFastMode === true);
     setLocalDefaultForAgents(c.defaultForAgents === "true" || c.defaultForAgents === true);
     setLocalEmbeddingModel((c.embeddingModel as string) ?? "");
     setLocalEmbeddingBaseUrl((c.embeddingBaseUrl as string) ?? "");
@@ -330,7 +375,14 @@ export function ConnectionEditor() {
     const knownIds = new Set(providerModels.map((m) => m.id));
     const uniqueRemote = remoteModels
       .filter((m) => !knownIds.has(m.id))
-      .map((m) => ({ id: m.id, name: m.name, context: 0, maxOutput: 0, isRemote: true as const }));
+      .map((m) => ({
+        id: m.id,
+        name: m.name,
+        context: 0,
+        maxOutput: 0,
+        isRemote: true as const,
+        fallback: m.fallback,
+      }));
     const known = providerModels.map((m) => ({ ...m, isRemote: false as const }));
     return [...known, ...uniqueRemote];
   }, [providerModels, remoteModels]);
@@ -351,6 +403,31 @@ export function ConnectionEditor() {
     setFetchError(null);
   }, [localProvider]);
 
+  const usesLocalChatGptAuth = localProvider === "openai_chatgpt";
+  const embeddingConnectionOptions = useMemo(
+    () =>
+      ((allConnections ?? []) as Record<string, unknown>[]).filter(
+        (c) => c.id !== connectionDetailId && c.provider !== "image_generation" && c.provider !== "openai_chatgpt",
+      ),
+    [allConnections, connectionDetailId],
+  );
+  const selectedEmbeddingConnectionId =
+    localEmbeddingConnectionId &&
+    (allConnections === undefined || embeddingConnectionOptions.some((c) => c.id === localEmbeddingConnectionId))
+      ? localEmbeddingConnectionId
+      : "";
+
+  useEffect(() => {
+    if (
+      localEmbeddingConnectionId &&
+      allConnections !== undefined &&
+      !embeddingConnectionOptions.some((c) => c.id === localEmbeddingConnectionId)
+    ) {
+      setLocalEmbeddingConnectionId("");
+      setDirty(true);
+    }
+  }, [allConnections, embeddingConnectionOptions, localEmbeddingConnectionId]);
+
   const handleClose = useCallback(() => {
     if (dirty) {
       setShowUnsavedWarning(true);
@@ -362,20 +439,22 @@ export function ConnectionEditor() {
   const handleSave = useCallback(async () => {
     if (!connectionDetailId) return;
     setSaveError(null);
+    const chatGptAuthProvider = localProvider === "openai_chatgpt";
     const payload: Record<string, unknown> = {
       id: connectionDetailId,
       name: localName,
       provider: localProvider,
-      baseUrl: localBaseUrl,
+      baseUrl: chatGptAuthProvider ? "" : localBaseUrl,
       model: localModel,
       maxContext: localMaxContext,
       maxParallelJobs: localMaxParallelJobs,
       enableCaching: localEnableCaching,
       cachingAtDepth: localCachingAtDepth,
+      claudeFastMode: localProvider === "claude_subscription" ? localClaudeFastMode : false,
       defaultForAgents: localDefaultForAgents,
-      embeddingModel: localEmbeddingModel,
-      embeddingBaseUrl: localEmbeddingBaseUrl,
-      embeddingConnectionId: localEmbeddingConnectionId || null,
+      embeddingModel: chatGptAuthProvider ? "" : localEmbeddingModel,
+      embeddingBaseUrl: chatGptAuthProvider ? "" : localEmbeddingBaseUrl,
+      embeddingConnectionId: selectedEmbeddingConnectionId || null,
       promptPresetId: localProvider !== "image_generation" ? localPromptPresetId || null : null,
       openrouterProvider: localOpenrouterProvider || null,
       imageGenerationSource:
@@ -386,8 +465,9 @@ export function ConnectionEditor() {
         localProvider === "image_generation" ? localImageGenerationSource || localImageService || null : null,
       maxTokensOverride: localMaxTokensOverride ?? null,
     };
-    // Only send API key if user typed a new one
-    if (localApiKey.trim()) {
+    if (chatGptAuthProvider) {
+      payload.apiKey = "";
+    } else if (localApiKey.trim()) {
       payload.apiKey = localApiKey;
     }
     try {
@@ -427,10 +507,11 @@ export function ConnectionEditor() {
     localMaxParallelJobs,
     localEnableCaching,
     localCachingAtDepth,
+    localClaudeFastMode,
     localDefaultForAgents,
     localEmbeddingModel,
     localEmbeddingBaseUrl,
-    localEmbeddingConnectionId,
+    selectedEmbeddingConnectionId,
     localPromptPresetId,
     localOpenrouterProvider,
     localImageGenerationSource,
@@ -553,8 +634,19 @@ export function ConnectionEditor() {
     }
     fetchModels.mutate(connectionDetailId, {
       onSuccess: (data) => {
-        const result = data as { models: Array<{ id: string; name: string }> };
-        setRemoteModels(result.models);
+        const result = data as ModelLookupResponse;
+        const fallback = result.fallback === true;
+        setRemoteModels(
+          result.models.map((model) => ({
+            ...model,
+            fallback: model.fallback ?? fallback,
+            fromProvider: model.fromProvider ?? result.fromProvider,
+            providerError: model.providerError ?? result.providerError,
+          })),
+        );
+        setFetchError(
+          result.providerError ? `Provider lookup failed: ${result.providerError}. Showing fallback models.` : null,
+        );
         setShowModelDropdown(true);
         requestAnimationFrame(() => {
           modelSearchInputRef.current?.focus();
@@ -584,6 +676,31 @@ export function ConnectionEditor() {
     ta.focus();
     ta.setSelectionRange(pos, pos);
   }, [comfyWorkflowValidation]);
+
+  const handleImportComfyWorkflowFile = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+
+      const isJsonFile = file.type === "application/json" || file.name.trim().toLowerCase().endsWith(".json");
+      if (!isJsonFile) {
+        toast.error("Choose a .json workflow file.");
+        return;
+      }
+
+      try {
+        const workflowText = await file.text();
+        JSON.parse(workflowText);
+        setLocalComfyuiWorkflow(workflowText);
+        markDirty();
+        toast.success(`Imported ${file.name}`);
+      } catch (error) {
+        toast.error(error instanceof Error ? `Invalid workflow JSON: ${error.message}` : "Invalid workflow JSON.");
+      }
+    },
+    [markDirty],
+  );
 
   const providerDef = PROVIDERS[localProvider];
   const providerEntries = useMemo(
@@ -619,7 +736,7 @@ export function ConnectionEditor() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* ── Header ── */}
-      <div className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-4 py-3">
+      <div className="flex h-12 flex-shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-4">
         <button
           onClick={handleClose}
           className="shrink-0 rounded-xl p-2 transition-all hover:bg-[var(--accent)] active:scale-95"
@@ -744,6 +861,11 @@ export function ConnectionEditor() {
                     setLocalProvider(key);
                     // Auto-fill base URL
                     setLocalBaseUrl(info.defaultBaseUrl);
+                    if (key === "openai_chatgpt") {
+                      setLocalApiKey("");
+                      setLocalEmbeddingModel("");
+                      setLocalEmbeddingBaseUrl("");
+                    }
                     // Clear model when switching providers, except xAI where
                     // we can seed the newest supported Grok model.
                     setLocalModel(key === "xai" ? (defaultModel?.id ?? "grok-4.3") : "");
@@ -764,6 +886,8 @@ export function ConnectionEditor() {
               ))}
             </div>
           </FieldGroup>
+
+          {usesLocalChatGptAuth && <OpenAiChatGptAuthHelp />}
 
           {/* ── OpenRouter Provider Preference ── */}
           {localProvider === "openrouter" && (
@@ -800,22 +924,33 @@ export function ConnectionEditor() {
           <FieldGroup
             label="API Key"
             icon={<Key size="0.875rem" className="text-sky-400" />}
-            help="Your authentication key from the AI provider. You can get one from their website. It's like a password that lets Marinara talk to the AI service."
+            help={
+              usesLocalChatGptAuth
+                ? "OpenAI (ChatGPT) uses your local Codex login instead of a provider API key."
+                : "Your authentication key from the AI provider. You can get one from their website. It's like a password that lets Marinara talk to the AI service."
+            }
           >
             <input
-              value={localApiKey}
+              value={usesLocalChatGptAuth ? "" : localApiKey}
               onChange={(e) => {
                 setLocalApiKey(e.target.value);
                 markDirty();
               }}
               type="password"
+              disabled={usesLocalChatGptAuth}
               className="w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
-              placeholder="••••••••  (leave empty to keep existing key)"
+              placeholder={
+                usesLocalChatGptAuth
+                  ? "Not used - read from local Codex ChatGPT login"
+                  : "••••••••  (leave empty to keep existing key)"
+              }
             />
             <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-              Your key is encrypted at rest. Leave blank when editing to keep the existing key.
+              {usesLocalChatGptAuth
+                ? "Authentication is read from your local codex login session."
+                : "Your key is encrypted at rest. Leave blank when editing to keep the existing key."}
             </p>
-            {API_KEY_LINKS[localProvider] && (
+            {!usesLocalChatGptAuth && API_KEY_LINKS[localProvider] && (
               <a
                 href={API_KEY_LINKS[localProvider]!.url}
                 target="_blank"
@@ -838,22 +973,35 @@ export function ConnectionEditor() {
           <FieldGroup
             label="Base URL"
             icon={<Globe size="0.875rem" className="text-sky-400" />}
-            help="The API endpoint URL. Usually auto-filled for known providers. Only change this if you're using a proxy, local server, or custom endpoint."
+            help={
+              usesLocalChatGptAuth
+                ? "OpenAI (ChatGPT) sends requests through Marinara's built-in ChatGPT Codex endpoint."
+                : "The API endpoint URL. Usually auto-filled for known providers. Only change this if you're using a proxy, local server, or custom endpoint."
+            }
           >
             <input
-              value={localBaseUrl}
+              value={usesLocalChatGptAuth ? "" : localBaseUrl}
               onChange={(e) => {
                 setLocalBaseUrl(e.target.value);
                 markDirty();
               }}
+              disabled={usesLocalChatGptAuth}
               className="w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm font-mono ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
-              placeholder={providerDef?.defaultBaseUrl || "https://api.example.com/v1"}
+              placeholder={
+                usesLocalChatGptAuth
+                  ? "Not used - ChatGPT Codex endpoint is selected automatically"
+                  : providerDef?.defaultBaseUrl || "https://api.example.com/v1"
+              }
             />
-            {providerDef?.defaultBaseUrl && !localBaseUrl && (
+            {usesLocalChatGptAuth ? (
+              <p className="mt-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
+                Marinara sends requests to the ChatGPT Codex endpoint automatically using your local Codex auth.
+              </p>
+            ) : providerDef?.defaultBaseUrl && !localBaseUrl ? (
               <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
                 Default: {providerDef.defaultBaseUrl}
               </p>
-            )}
+            ) : null}
             {localProvider === "custom" && (
               <p className="mt-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
                 Local model examples: Ollama →{" "}
@@ -862,13 +1010,15 @@ export function ConnectionEditor() {
                 <code className="rounded bg-[var(--secondary)] px-1">http://localhost:5001/v1</code>
               </p>
             )}
-            <p className="mt-1.5 flex items-start gap-1 text-[0.625rem] text-amber-400/80">
-              <AlertCircle size="0.625rem" className="mt-px shrink-0" />
-              <span>
-                Only use URLs from providers you trust. A malicious endpoint could intercept your messages and API
-                keys.
-              </span>
-            </p>
+            {!usesLocalChatGptAuth && (
+              <p className="mt-1.5 flex items-start gap-1 text-[0.625rem] text-amber-400/80">
+                <AlertCircle size="0.625rem" className="mt-px shrink-0" />
+                <span>
+                  Only use URLs from providers you trust. A malicious endpoint could intercept your messages and API
+                  keys.
+                </span>
+              </p>
+            )}
             {localProvider === "custom" && (
               <p className="mt-1.5 flex items-start gap-1 text-[0.625rem] text-sky-400/80">
                 <AlertCircle size="0.625rem" className="mt-px shrink-0" />
@@ -1097,7 +1247,7 @@ export function ConnectionEditor() {
                                     <span className="text-[0.625rem] text-[var(--muted-foreground)]">{m.id}</span>
                                   </div>
                                   <span className="shrink-0 rounded-md bg-sky-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-sky-400">
-                                    API
+                                    {m.fallback ? "Fallback" : "API"}
                                   </span>
                                 </button>
                               ))}
@@ -1141,7 +1291,7 @@ export function ConnectionEditor() {
                               <span className="text-sm font-medium">{m.name}</span>
                               {m.isRemote && (
                                 <span className="rounded-md bg-sky-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-sky-400">
-                                  API
+                                  {m.fallback ? "Fallback" : "API"}
                                 </span>
                               )}
                               {localModel === m.id && <Check size="0.75rem" className="text-sky-400" />}
@@ -1197,76 +1347,93 @@ export function ConnectionEditor() {
           {/* ── ComfyUI Workflow ── */}
           {localProvider === "image_generation" &&
             (selectedImageService === "comfyui" || selectedImageService === "runpod_comfyui") && (
-            <FieldGroup
-              label={selectedImageService === "runpod_comfyui" ? "ComfyUI Workflow" : "ComfyUI Workflow (Optional)"}
-              icon={<Zap size="0.875rem" className="text-sky-400" />}
-              help={
-                selectedImageService === "runpod_comfyui"
-                  ? "RunPod requires a ComfyUI workflow JSON in API format. Use placeholders like %prompt%, %negative_prompt%, %width%, %height%, %seed%, %model%, %steps%, %cfg%, %sampler%, %scheduler%, and %denoise%."
-                  : "Paste a custom ComfyUI workflow JSON (API format). Use placeholders like %prompt%, %negative_prompt%, %width%, %height%, %seed%, %model%, %steps%, %cfg%, %sampler%, %scheduler%, and %denoise%. Leave empty to use the built-in default txt2img workflow."
-              }
-            >
-              <textarea
-                ref={comfyWorkflowTextareaRef}
-                value={localComfyuiWorkflow}
-                onChange={(e) => {
-                  setLocalComfyuiWorkflow(e.target.value);
-                  markDirty();
-                }}
-                placeholder='Paste workflow JSON here (exported from ComfyUI via "Save (API Format)")…'
-                className={cn(
-                  "w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-mono outline-none ring-1 transition-shadow placeholder:text-[var(--muted-foreground)]/50 min-h-[120px] max-h-[300px] resize-y",
-                  comfyWorkflowValidation?.parseError
-                    ? "ring-red-400/60 focus:ring-red-400"
-                    : "ring-[var(--border)] focus:ring-sky-400/50",
-                )}
-              />
-              {comfyWorkflowValidation?.parseError && (
-                <p className="mt-1 flex items-start gap-1 text-[0.625rem] text-red-400">
-                  <AlertCircle size="0.625rem" className="mt-px shrink-0" />
-                  {comfyWorkflowValidation.charPos !== null ? (
-                    <button
-                      onClick={handleJumpToJsonError}
-                      className="underline decoration-dotted cursor-pointer text-left hover:text-red-300"
-                    >
-                      {comfyWorkflowValidation.label}
-                    </button>
-                  ) : (
-                    comfyWorkflowValidation.label
+              <FieldGroup
+                label={selectedImageService === "runpod_comfyui" ? "ComfyUI Workflow" : "ComfyUI Workflow (Optional)"}
+                icon={<Zap size="0.875rem" className="text-sky-400" />}
+                help={
+                  selectedImageService === "runpod_comfyui"
+                    ? "RunPod requires a ComfyUI workflow JSON in API format. Use placeholders like %prompt%, %negative_prompt%, %width%, %height%, %seed%, %model%, %steps%, %cfg%, %sampler%, %scheduler%, and %denoise%."
+                    : "Paste a custom ComfyUI workflow JSON (API format). Use placeholders like %prompt%, %negative_prompt%, %width%, %height%, %seed%, %model%, %steps%, %cfg%, %sampler%, %scheduler%, and %denoise%. Leave empty to use the built-in default txt2img workflow."
+                }
+              >
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <input
+                    ref={comfyWorkflowFileInputRef}
+                    type="file"
+                    accept=".json,application/json"
+                    className="hidden"
+                    onChange={handleImportComfyWorkflowFile}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => comfyWorkflowFileInputRef.current?.click()}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)] active:scale-[0.98]"
+                  >
+                    <Upload size="0.8125rem" />
+                    Import JSON
+                  </button>
+                </div>
+                <textarea
+                  ref={comfyWorkflowTextareaRef}
+                  value={localComfyuiWorkflow}
+                  onChange={(e) => {
+                    setLocalComfyuiWorkflow(e.target.value);
+                    markDirty();
+                  }}
+                  placeholder='Paste workflow JSON here (exported from ComfyUI via "Save (API Format)")…'
+                  className={cn(
+                    "w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-mono outline-none ring-1 transition-shadow placeholder:text-[var(--muted-foreground)]/50 min-h-[120px] max-h-[300px] resize-y",
+                    comfyWorkflowValidation?.parseError
+                      ? "ring-red-400/60 focus:ring-red-400"
+                      : "ring-[var(--border)] focus:ring-sky-400/50",
                   )}
-                </p>
-              )}
-              {comfyWorkflowValidation &&
-                !comfyWorkflowValidation.parseError &&
-                comfyWorkflowValidation.missing.length > 0 && (
-                  <p className="mt-1 flex items-start gap-1 text-[0.625rem] text-amber-400">
+                />
+                {comfyWorkflowValidation?.parseError && (
+                  <p className="mt-1 flex items-start gap-1 text-[0.625rem] text-red-400">
                     <AlertCircle size="0.625rem" className="mt-px shrink-0" />
-                    <span>
-                      {comfyWorkflowValidation.missing.some((m) => m.critical) && (
-                        <>
-                          <strong>%prompt%</strong> placeholder not found — prompts won&apos;t be injected.{" "}
-                        </>
-                      )}
-                      {comfyWorkflowValidation.missing.some((m) => !m.critical) && (
-                        <>
-                          Unused:{" "}
-                          {comfyWorkflowValidation.missing
-                            .filter((m) => !m.critical)
-                            .map((m) => m.label)
-                            .join(", ")}
-                          .
-                        </>
-                      )}
-                    </span>
+                    {comfyWorkflowValidation.charPos !== null ? (
+                      <button
+                        onClick={handleJumpToJsonError}
+                        className="underline decoration-dotted cursor-pointer text-left hover:text-red-300"
+                      >
+                        {comfyWorkflowValidation.label}
+                      </button>
+                    ) : (
+                      comfyWorkflowValidation.label
+                    )}
                   </p>
                 )}
-              <p className="text-[0.55rem] text-[var(--muted-foreground)] mt-1">
-                Export your workflow from ComfyUI using <strong>Save (API Format)</strong> in the menu. Placeholders
-                like <code>%prompt%</code>, <code>%steps%</code>, and <code>%sampler%</code> will be replaced at
-                generation time.
-              </p>
-            </FieldGroup>
-          )}
+                {comfyWorkflowValidation &&
+                  !comfyWorkflowValidation.parseError &&
+                  comfyWorkflowValidation.missing.length > 0 && (
+                    <p className="mt-1 flex items-start gap-1 text-[0.625rem] text-amber-400">
+                      <AlertCircle size="0.625rem" className="mt-px shrink-0" />
+                      <span>
+                        {comfyWorkflowValidation.missing.some((m) => m.critical) && (
+                          <>
+                            <strong>%prompt%</strong> placeholder not found — prompts won&apos;t be injected.{" "}
+                          </>
+                        )}
+                        {comfyWorkflowValidation.missing.some((m) => !m.critical) && (
+                          <>
+                            Unused:{" "}
+                            {comfyWorkflowValidation.missing
+                              .filter((m) => !m.critical)
+                              .map((m) => m.label)
+                              .join(", ")}
+                            .
+                          </>
+                        )}
+                      </span>
+                    </p>
+                  )}
+                <p className="text-[0.55rem] text-[var(--muted-foreground)] mt-1">
+                  Export your workflow from ComfyUI using <strong>Save (API Format)</strong> in the menu. Placeholders
+                  like <code>%prompt%</code>, <code>%steps%</code>, and <code>%sampler%</code> will be replaced at
+                  generation time.
+                </p>
+              </FieldGroup>
+            )}
 
           {localProvider === "image_generation" && selectedImageDefaultsService && localImageDefaults && (
             <ImageGenerationDefaultsPanel
@@ -1431,6 +1598,7 @@ export function ConnectionEditor() {
                       setLocalDefaultParameters(next);
                       markDirty();
                     }}
+                    showOpenRouterServiceTier={localProvider === "openrouter"}
                   />
                 </div>
               ) : (
@@ -1438,6 +1606,32 @@ export function ConnectionEditor() {
                   This connection is using the mode defaults from conversation, roleplay, and game setup.
                 </p>
               )}
+            </FieldGroup>
+          )}
+
+          {/* ── Claude Subscription Fast Mode ── */}
+          {localProvider === "claude_subscription" && (
+            <FieldGroup
+              label="Claude Fast Mode"
+              icon={<Zap size="0.875rem" className="text-amber-400" />}
+              help="When enabled, Marinara asks Claude Code to use its fast-mode routing for this subscription connection. When disabled, Marinara explicitly forces fast mode off so a persisted Claude CLI preference cannot silently downgrade the selected model."
+            >
+              <label className="flex cursor-pointer select-none items-center gap-3 px-2 py-1">
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    checked={localClaudeFastMode}
+                    onChange={(e) => {
+                      setLocalClaudeFastMode(e.target.checked);
+                      markDirty();
+                    }}
+                    className="peer sr-only"
+                  />
+                  <div className="h-5 w-9 rounded-full bg-[var(--border)] transition-colors peer-checked:bg-amber-400/70" />
+                  <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
+                </div>
+                <span className="text-sm">Allow fast mode</span>
+              </label>
             </FieldGroup>
           )}
 
@@ -1535,7 +1729,34 @@ export function ConnectionEditor() {
           </FieldGroup>
 
           {/* ── Embedding Model (for lorebook vectorization) ── */}
-          {localProvider !== "image_generation" && (
+          {usesLocalChatGptAuth ? (
+            <FieldGroup
+              label="Embedding Connection"
+              icon={<Server size="0.875rem" className="text-violet-400" />}
+              help="OpenAI (ChatGPT) cannot create embeddings through Codex auth. Choose a separate embedding-capable connection if this chat should use semantic lorebook matching."
+            >
+              <select
+                value={selectedEmbeddingConnectionId}
+                onChange={(e) => {
+                  setLocalEmbeddingConnectionId(e.target.value);
+                  markDirty();
+                }}
+                className="w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm ring-1 ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+              >
+                <option value="">No semantic embeddings</option>
+                {embeddingConnectionOptions.map((c) => (
+                  <option key={c.id as string} value={c.id as string}>
+                    {c.name as string}
+                    {c.embeddingModel ? ` (${c.embeddingModel})` : ""}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
+                Embedding model and endpoint settings come from the selected connection. ChatGPT local auth remains only
+                for chat generation.
+              </p>
+            </FieldGroup>
+          ) : localProvider !== "image_generation" ? (
             <FieldGroup
               label="Embedding Model"
               icon={<Server size="0.875rem" className="text-violet-400" />}
@@ -1582,7 +1803,7 @@ export function ConnectionEditor() {
                   Embedding Connection
                 </label>
                 <select
-                  value={localEmbeddingConnectionId}
+                  value={selectedEmbeddingConnectionId}
                   onChange={(e) => {
                     setLocalEmbeddingConnectionId(e.target.value);
                     markDirty();
@@ -1590,14 +1811,12 @@ export function ConnectionEditor() {
                   className="w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm ring-1 ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
                 >
                   <option value="">Same as this connection</option>
-                  {((allConnections ?? []) as Record<string, unknown>[])
-                    .filter((c) => c.id !== connectionDetailId && c.provider !== "image_generation")
-                    .map((c) => (
-                      <option key={c.id as string} value={c.id as string}>
-                        {c.name as string}
-                        {c.embeddingModel ? ` (${c.embeddingModel})` : ""}
-                      </option>
-                    ))}
+                  {embeddingConnectionOptions.map((c) => (
+                    <option key={c.id as string} value={c.id as string}>
+                      {c.name as string}
+                      {c.embeddingModel ? ` (${c.embeddingModel})` : ""}
+                    </option>
+                  ))}
                 </select>
                 <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
                   Use a different connection&apos;s API key and base URL for embeddings. The embedding model name above
@@ -1605,7 +1824,7 @@ export function ConnectionEditor() {
                 </p>
               </div>
             </FieldGroup>
-          )}
+          ) : null}
 
           {/* ── Test Section ── */}
           <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 space-y-4">
@@ -1655,7 +1874,8 @@ export function ConnectionEditor() {
             </div>
 
             <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-              <strong>Test Connection</strong> verifies your API key works.
+              <strong>Test Connection</strong>{" "}
+              {usesLocalChatGptAuth ? "verifies your local Codex ChatGPT login." : "verifies your API key works."}
               {localProvider !== "image_generation" && (
                 <>
                   {" "}
@@ -1706,7 +1926,6 @@ export function ConnectionEditor() {
                 )}
               </TestResultCard>
             )}
-
           </div>
         </div>
       </div>
@@ -1737,6 +1956,43 @@ function FieldGroup({
         {help && <HelpTooltip text={help} />}
       </div>
       {children}
+    </div>
+  );
+}
+
+function OpenAiChatGptAuthHelp() {
+  return (
+    <div className="rounded-xl border border-sky-400/25 bg-sky-400/5 p-3 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
+      <div className="flex items-start gap-2">
+        <AlertCircle size="0.8125rem" className="mt-0.5 shrink-0 text-sky-300" />
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-sky-200">
+            Routes chat through your local Codex ChatGPT login so it uses your ChatGPT account instead of an OpenAI API
+            key.
+          </p>
+          <p className="mt-1 text-sky-200/90">Prerequisites on the Marinara host:</p>
+          <ol className="mt-1 list-decimal space-y-0.5 pl-4">
+            {OPENAI_CHATGPT_SETUP_STEPS.map((step) => {
+              return (
+                <li key={step.label}>
+                  {"command" in step ? (
+                    <>
+                      {step.label}:{" "}
+                      <code className="rounded bg-[var(--secondary)] px-1 py-0.5 text-[0.625rem]">{step.command}</code>
+                    </>
+                  ) : (
+                    step.label
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+          <p className="mt-2">
+            Marinara reads the local Codex auth file and refreshes the ChatGPT session when possible. Embeddings are not
+            available on this provider; configure a separate connection for embedding work.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

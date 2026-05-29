@@ -175,7 +175,7 @@ flowchart LR
           <tbody>
             <tr><th>Touching</th><td>Professor Mari shell entry, standalone chat surface, connection/persona context, attachments, read-only creative library tool, native tool calling, or Mari provider errors.</td></tr>
             <tr><th>Review</th><td>App shell routing, <code>features/shell/mari</code>, <code>engine/mari</code>, <code>shared/api/mari-api</code>, Rust Mari command, LLM connection support, storage snapshot scope.</td></tr>
-            <tr><th>Verify</th><td><code>pnpm typecheck</code>; add <code>cargo check --manifest-path src-tauri/Cargo.toml</code> when the command, AutoAgents bridge, storage snapshot, or provider transport changed.</td></tr>
+            <tr><th>Verify</th><td><code>pnpm typecheck</code>; add <code>cargo check --manifest-path src-tauri/Cargo.toml --workspace</code> when the command, AutoAgents bridge, storage snapshot, or provider transport changed.</td></tr>
           </tbody>
         </table>
 
@@ -203,7 +203,7 @@ flowchart LR
           <tbody>
             <tr><th>Touching</th><td>Entity CRUD, profile import/export, avatar/background/gallery files, game assets, bulk imports, local file URLs.</td></tr>
             <tr><th>Review</th><td>DTO shapes, filename/path validation, atomic writes, frontend adapter response shapes, progress channels.</td></tr>
-            <tr><th>Verify</th><td><code>cargo check --manifest-path src-tauri/Cargo.toml</code>; run TypeScript checks if adapter contracts changed.</td></tr>
+            <tr><th>Verify</th><td><code>cargo check --manifest-path src-tauri/Cargo.toml --workspace</code>; run TypeScript checks if adapter contracts changed.</td></tr>
           </tbody>
         </table>
 
@@ -268,7 +268,7 @@ flowchart LR
           <tbody>
             <tr><th>Touching</th><td><code>invokeTauri</code>, <code>remote-runtime.ts</code>, <code>llm-api</code> streaming, <code>http_server.rs</code>, <code>http_dispatch.rs</code>, <code>local-file-api</code>, Tauri plugins, file dialogs, managed asset URLs, imports/uploads, native window/titlebar behavior, opener behavior, haptics, Spotify OAuth, TTS, or Docker/server build files.</td></tr>
             <tr><th>Review</th><td>Does the feature require desktop-only native access, or can it safely run through the hostable runtime data directory and JSON/SSE HTTP contract? Is the command allowlisted in <code>remote-runtime.ts</code> and handled explicitly in <code>http_dispatch.rs</code> or a dedicated route? Does the feature avoid raw server filesystem paths and silent no-op fallbacks?</td></tr>
-            <tr><th>Verify</th><td><code>pnpm typecheck</code>, <code>pnpm build</code>, <code>cargo check --manifest-path src-tauri/Cargo.toml</code>, and an HTTP smoke check when practical: run <code>marinara-server</code>, hit <code>/health</code>, then exercise the supported shared API path from Settings &gt; Advanced &gt; Remote Runtime URL.</td></tr>
+            <tr><th>Verify</th><td><code>pnpm typecheck</code>, <code>pnpm build</code>, <code>cargo check --manifest-path src-tauri/Cargo.toml --workspace</code>, and an HTTP smoke check when practical: run <code>marinara-server</code>, hit <code>/health</code>, then exercise the supported shared API path from Settings &gt; Advanced &gt; Remote Runtime URL.</td></tr>
             <tr><th>Decision</th><td>If remote behavior cannot be equivalent, keep the feature desktop-only and document that limit instead of adding silent fallbacks.</td></tr>
           </tbody>
         </table>

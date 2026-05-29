@@ -128,7 +128,7 @@ pub(crate) fn import_character_embedded_lorebook(
                 "characterId": character_id,
                 "sourceCharacterId": character_id
             }),
-        ),
+        )?,
     )?;
     let lorebook_id = lorebook
         .get("id")
@@ -450,11 +450,7 @@ fn compatible_lorebook_export(lorebook: &Value, entries: &Value) -> Value {
 }
 
 fn character_data_value(character: &Value) -> Value {
-    match character.get("data") {
-        Some(Value::String(raw)) => serde_json::from_str(raw).unwrap_or_else(|_| json!({})),
-        Some(value) => value.clone(),
-        None => character.clone(),
-    }
+    character.get("data").cloned().unwrap_or_else(|| json!({}))
 }
 
 fn normalize_character_book_entry(entry: &Value, index: usize, lorebook_id: &str) -> Value {
@@ -507,11 +503,9 @@ fn patch_character_embedded_lorebook_pointer(
             "entriesImported": entries_imported
         }),
     );
-    state.storage.patch(
-        "characters",
-        character_id,
-        json!({ "data": serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()) }),
-    )?;
+    state
+        .storage
+        .patch("characters", character_id, json!({ "data": data }))?;
     Ok(())
 }
 

@@ -98,6 +98,75 @@
           <code>Marinara Engine</code>.
         </p>
 
+        <h2>Manual Pre-Alpha Platform Builds</h2>
+        <p>
+          Maintainers can run <strong>Pre-Alpha Platform Builds</strong> from
+          GitHub Actions on the <code>refactor</code> branch. The workflow is
+          manual-only, creates a draft GitHub release first, uploads artifacts,
+          then publishes it as a <strong>pre-release</strong> with
+          <code>make_latest=false</code> so it is not treated as the latest
+          release.
+        </p>
+        <div class="callout">
+          Pre-alpha release notes intentionally warn that almost everything may
+          be broken. These builds are unsigned, not connected to the stable
+          updater, and should be tested only with throwaway data.
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Desktop target</th>
+              <th>CI build path</th>
+              <th>Artifact channel</th>
+              <th>Signing/updater decision</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Windows x64</td>
+              <td><code>tauri-apps/tauri-action@v0</code> with <code>--target x86_64-pc-windows-msvc --config src-tauri/tauri.prealpha.conf.json --no-sign</code></td>
+              <td>GitHub pre-release assets, not latest</td>
+              <td>Unsigned Tauri bundles; legacy launcher/updater parity is deferred.</td>
+            </tr>
+            <tr>
+              <td>macOS Intel and Apple Silicon</td>
+              <td><code>tauri-apps/tauri-action@v0</code> with <code>--target x86_64-apple-darwin</code> and <code>--target aarch64-apple-darwin</code> using the pre-alpha config</td>
+              <td>GitHub pre-release assets, not latest</td>
+              <td>Unsigned and unnotarized; tester Gatekeeper warnings are expected.</td>
+            </tr>
+            <tr>
+              <td>Linux x64</td>
+              <td><code>tauri-apps/tauri-action@v0</code> with <code>--target x86_64-unknown-linux-gnu --config src-tauri/tauri.prealpha.conf.json --no-sign</code></td>
+              <td>GitHub pre-release assets, not latest</td>
+              <td>Unsigned packages/AppImage; stable updater metadata is not generated.</td>
+            </tr>
+          </tbody>
+        </table>
+        <table>
+          <thead>
+            <tr>
+              <th>Mobile target</th>
+              <th>Status</th>
+              <th>CI build path</th>
+              <th>Distribution decision</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Android universal debug APK</td>
+              <td>Experimental pre-alpha test build</td>
+              <td><code>pnpm tauri android build --debug --apk --ci</code> with Gradle-provided pre-alpha app id/name overrides</td>
+              <td>Debug-signed APK on the GitHub pre-release using <code>com.marinara_engine.prealpha</code>.</td>
+            </tr>
+            <tr>
+              <td>iOS</td>
+              <td>Deferred</td>
+              <td>Not built in this workflow</td>
+              <td>Requires Apple signing/provisioning/TestFlight planning before CI distribution.</td>
+            </tr>
+          </tbody>
+        </table>
+
         <h2>Run The Remote Rust Runtime</h2>
         <p>
           The remote runtime hosts the Rust API only. It does not serve the
@@ -110,9 +179,62 @@
         <pre><code>http://127.0.0.1:8787</code></pre>
         <p>Check the server with:</p>
         <pre><code>curl http://127.0.0.1:8787/health</code></pre>
+        <p>
+          Legacy local-sidecar embedding clients can use the compatibility
+          endpoint at <code>/api/sidecar/v1/embeddings</code>. In the Tauri
+          refactor this route is backed by the configured Marinara embedding
+          connection, not by the old managed sidecar process. Pass
+          <code>connectionId</code> to target a specific connection, or configure
+          a connection with <code>embeddingModel</code> and
+          <code>embeddingBaseUrl</code> for local OpenAI-compatible, Ollama, or
+          provider embeddings.
+        </p>
+        <pre><code>curl http://127.0.0.1:8787/api/sidecar/v1/embeddings \
+  -H 'content-type: application/json' \
+  -d '{"connectionId":"your-connection-id","model":"text-embedding-3-small","input":"hello"}'</code></pre>
+        <h3>Managed Local Sidecar Status</h3>
+        <p>
+          The Node-era managed local model sidecar is intentionally retired in
+          the Tauri refactor. Marinara no longer downloads curated Hugging Face
+          models, starts or stops a bundled inference process, or exposes the
+          old <code>LOCAL_SIDECAR_CONNECTION_ID</code> path. Use a normal
+          Marinara connection for local models instead: OpenAI-compatible local
+          servers such as LM Studio and KoboldCpp can use the Custom provider,
+          and Ollama can be reached through its OpenAI-compatible
+          <code>/v1</code> endpoint or through dedicated embedding settings.
+          The only retained sidecar URL is the compatibility embedding route
+          above, backed by the configured connection.
+        </p>
         <p>Override the bind address and data directory with:</p>
         <pre><code>MARINARA_SERVER_ADDR=0.0.0.0:8787
 MARINARA_DATA_DIR=/path/to/data</code></pre>
+        <p>
+          For prompt/model/connection troubleshooting, start the runtime with
+          <code>LOG_PRESET=prompt-connections</code>. This enables Rust LLM
+          prompt diagnostics and suppresses routine <code>/api/invoke</code>
+          request logs. To suppress routine request logs without prompt
+          diagnostics, set <code>LOG_DISABLE_REQUEST_LOGGING=true</code>.
+        </p>
+        <p>
+          Autonomous conversation scheduling is owned by the desktop/web client
+          pollers in the refactor architecture. The remote Rust runtime stores
+          autonomous unread state and serves the shared generation/storage APIs,
+          but it does not run a privileged background scheduler when no client is
+          connected. Keep a Marinara client open if autonomous messages should
+          continue to trigger.
+        </p>
+        <p>
+          Non-loopback clients fail closed unless the runtime has explicit
+          access control. Configure <code>BASIC_AUTH_USER</code> and
+          <code>BASIC_AUTH_PASS</code>, <code>IP_ALLOWLIST</code>, or an
+          intentional compatibility opt-in such as
+          <code>ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK=true</code> for trusted
+          LAN/private-network access. Set <code>CORS_ORIGINS</code> or
+          <code>CSRF_TRUSTED_ORIGINS</code> if your desktop client origin is not
+          one of the runtime defaults. Use exact origins;
+          <code>CORS_ORIGINS=*</code> does not grant browser-origin trust for
+          mutating API requests.
+        </p>
         <div class="callout">
           Remote-capable features must use the shared API HTTP pipeline:
           <code>src/shared/api</code> wrapper, <code>remote-runtime.ts</code>
@@ -148,7 +270,19 @@ docker run --rm -p 8787:8787 -v marinara-server-data:/data marinara-engine-serve
               <td>Imports, build output, frontend bundling, or production behavior changed.</td>
             </tr>
             <tr>
-              <td><code>cargo check --manifest-path src-tauri/Cargo.toml</code></td>
+              <td><code>pnpm test</code></td>
+              <td>Run focused Vitest coverage. This fails if no tests are collected.</td>
+            </tr>
+            <tr>
+              <td><code>pnpm test:ui</code></td>
+              <td>Build the frontend, start a fresh preview server on port 4175 by default, and run Playwright browser smoke tests. Set <code>PLAYWRIGHT_PORT</code> if that port is occupied.</td>
+            </tr>
+            <tr>
+              <td><code>pnpm test:ui:run</code></td>
+              <td>Start a fresh preview server on the Playwright port and run Playwright only after a build already exists.</td>
+            </tr>
+            <tr>
+              <td><code>cargo check --manifest-path src-tauri/Cargo.toml --workspace</code></td>
               <td>Rust commands, capability crates, provider transport, storage, assets, or integrations changed.</td>
             </tr>
             <tr>

@@ -30,8 +30,13 @@ export function ImportLorebookModal({ open, onClose }: Props) {
         const text = await file.text();
         const json = JSON.parse(text) as Record<string, unknown>;
 
-        const isMarinaraLorebook = json.type === "marinara_lorebook" && json.version === 1;
-        const payload = isMarinaraLorebook
+        // Accept any `marinara_*` envelope so unsupported types route to the
+        // Marinara importer and surface a clear "Unknown Marinara import type"
+        // error instead of falling through to the permissive ST importer,
+        // which would silently create an empty lorebook.
+        const isMarinaraEnvelope =
+          json.version === 1 && typeof json.type === "string" && (json.type as string).startsWith("marinara_");
+        const payload = isMarinaraEnvelope
           ? {
               ...json,
               timestampOverrides: {
@@ -48,7 +53,7 @@ export function ImportLorebookModal({ open, onClose }: Props) {
               },
             };
 
-        const data = isMarinaraLorebook
+        const data = isMarinaraEnvelope
           ? await importApi.marinara<{ success: boolean; error?: string }>(payload)
           : await importApi.stLorebook<{ success: boolean; error?: string }>(payload);
         nextResults.push({

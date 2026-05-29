@@ -50,6 +50,15 @@ pub fn sprite_upload(
 }
 
 #[tauri::command]
+pub fn sprite_upload_bulk(
+    state: State<'_, AppState>,
+    character_id: String,
+    body: Value,
+) -> Result<Value, AppError> {
+    sprites::upload_sprites(&state, &character_id, body)
+}
+
+#[tauri::command]
 pub fn sprite_delete(
     state: State<'_, AppState>,
     character_id: String,
@@ -211,6 +220,11 @@ pub fn lorebook_image_upload(
 #[tauri::command]
 pub async fn llm_complete(state: State<'_, AppState>, request: Value) -> Result<Value, AppError> {
     llm::llm_complete(&state, request).await
+}
+
+#[tauri::command]
+pub async fn llm_embed(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    llm::llm_embed(&state, body).await
 }
 
 #[tauri::command]

@@ -1,5 +1,5 @@
 import { invokeTauri } from "./tauri-client";
-import { fileToUploadPayload } from "./file-payload";
+import { fileToUploadPayload, IMAGE_UPLOAD_SIZE_ERROR, MAX_IMAGE_UPLOAD_BYTES } from "./file-payload";
 
 export const spriteApi = {
   capabilities: <T = unknown>() => invokeTauri<T>("sprite_capabilities_command"),
@@ -11,6 +11,8 @@ export const spriteApi = {
   list: <T = unknown>(characterId: string) => invokeTauri<T>("sprite_list", { characterId }),
   upload: <T = unknown>(characterId: string, body: Record<string, unknown>) =>
     invokeTauri<T>("sprite_upload", { characterId, body }),
+  bulkUpload: <T = unknown>(characterId: string, body: Record<string, unknown>) =>
+    invokeTauri<T>("sprite_upload_bulk", { characterId, body }),
   delete: <T = unknown>(characterId: string, expression: string) =>
     invokeTauri<T>("sprite_delete", { characterId, expression }),
   cleanupSaved: <T = unknown>(characterId: string, body: Record<string, unknown>) =>
@@ -29,11 +31,17 @@ export const imageGenerationApi = {
 
 export const galleryApi = {
   uploadCharacter: async <T = unknown>(characterId: string, file: File) => {
-    const payload = await fileToUploadPayload(file);
+    const payload = await fileToUploadPayload(file, {
+      maxBytes: MAX_IMAGE_UPLOAD_BYTES,
+      tooLargeMessage: IMAGE_UPLOAD_SIZE_ERROR,
+    });
     return invokeTauri<T>("character_gallery_upload", { characterId, body: { file: payload } });
   },
   uploadChat: async <T = unknown>(chatId: string, file: File) => {
-    const payload = await fileToUploadPayload(file);
+    const payload = await fileToUploadPayload(file, {
+      maxBytes: MAX_IMAGE_UPLOAD_BYTES,
+      tooLargeMessage: IMAGE_UPLOAD_SIZE_ERROR,
+    });
     return invokeTauri<T>("chat_gallery_upload", { chatId, body: { file: payload } });
   },
 };

@@ -53,12 +53,7 @@ export function ChoiceSelectionModal({
   const variables = useMemo<VariableData[]>(() => {
     if (!data?.choiceBlocks) return [];
     return (data.choiceBlocks as any[]).map((cb: any) => {
-      let opts: ChoiceOption[] = [];
-      try {
-        opts = typeof cb.options === "string" ? JSON.parse(cb.options) : (cb.options ?? []);
-      } catch {
-        /* empty */
-      }
+      const opts: ChoiceOption[] = Array.isArray(cb.options) ? cb.options : [];
       return {
         id: cb.id,
         variableName: cb.variableName ?? cb.variable_name ?? "unknown",
@@ -73,12 +68,7 @@ export function ChoiceSelectionModal({
   // Parse saved default choices from preset
   const defaultChoices = useMemo<Record<string, string | string[]>>(() => {
     if (!data?.preset) return {};
-    try {
-      const raw = (data.preset as any).defaultChoices ?? (data.preset as any).default_choices;
-      return typeof raw === "string" ? JSON.parse(raw) : (raw ?? {});
-    } catch {
-      return {};
-    }
+    return ((data.preset as any).defaultChoices ?? (data.preset as any).default_choices ?? {}) as Record<string, string | string[]>;
   }, [data?.preset]);
 
   // Base selections derived from existing choices / defaults / first option.

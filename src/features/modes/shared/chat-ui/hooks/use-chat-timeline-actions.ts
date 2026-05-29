@@ -18,9 +18,11 @@ import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
-import type { MessageSelectionToggle, MessageWithSwipes, PeekPromptData } from "../types";
+import type { MessageSelectionToggle, MessageWithSwipes, PeekPromptData, PeekPromptOptions } from "../types";
 
-const TRACKER_AGENT_IDS = new Set(BUILT_IN_AGENTS.filter((agent) => agent.category === "tracker").map((agent) => agent.id));
+const TRACKER_AGENT_IDS = new Set(
+  BUILT_IN_AGENTS.filter((agent) => agent.category === "tracker").map((agent) => agent.id),
+);
 
 type RegenerateOptions = {
   skipTouchConfirm?: boolean;
@@ -35,12 +37,59 @@ type UseChatTimelineActionsOptions = {
 };
 
 function readMessageExtra(message: MessageWithSwipes): Record<string, any> {
-  if (typeof message.extra !== "string") return (message.extra ?? {}) as Record<string, any>;
-  try {
-    return JSON.parse(message.extra);
-  } catch {
-    return {};
-  }
+  return message.extra && typeof message.extra === "object" && !Array.isArray(message.extra)
+    ? (message.extra as Record<string, any>)
+    : {};
+}
+
+function readString(value: unknown): string {
+  return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function promptSnapshotToPeekPromptData(value: unknown): PeekPromptData | null {
+  const snapshot = readRecord(value);
+  const rawMessages = Array.isArray(snapshot.messages) ? snapshot.messages : [];
+  const messages = rawMessages
+    .map((message) => {
+      const record = readRecord(message);
+      const role = readString(record.role).trim();
+      const content = readString(record.content);
+      return role && content ? { role, content } : null;
+    })
+    .filter((message): message is { role: string; content: string } => !!message);
+  if (messages.length === 0) return null;
+  return {
+    messages,
+    parameters: snapshot.parameters ?? null,
+    promptPresetId: readString(snapshot.promptPresetId).trim() || null,
+    generationInfo: readRecord(snapshot.generationInfo) as PeekPromptData["generationInfo"],
+  };
+}
+
+function promptSnapshotForMessage(message: MessageWithSwipes | undefined): PeekPromptData | null {
+  if (!message) return null;
+  const extra = readMessageExtra(message);
+  const bySwipe = readRecord(extra.generationPromptSnapshotsBySwipe);
+  const activeSwipeIndex =
+    typeof message.activeSwipeIndex === "number" && Number.isFinite(message.activeSwipeIndex)
+      ? Math.max(0, Math.trunc(message.activeSwipeIndex))
+      : 0;
+  return (
+    promptSnapshotToPeekPromptData(bySwipe[String(activeSwipeIndex)]) ??
+    promptSnapshotToPeekPromptData(extra.generationPromptSnapshot)
+  );
+}
+
+function useLatestRef<T>(value: T) {
+  const ref = useRef(value);
+  useEffect(() => {
+    ref.current = value;
+  }, [value]);
+  return ref;
 }
 
 export function useChatTimelineActions({
@@ -50,7 +99,6 @@ export function useChatTimelineActions({
   enabledAgentTypes = new Set<string>(),
   refreshWorldStateOnTimelineChange = false,
 }: UseChatTimelineActionsOptions) {
-  const currentInput = useChatStore((state) => state.currentInput);
   const guideGenerations = useUIStore((state) => state.guideGenerations);
   const isStreamingGlobal = useChatStore((state) => state.isStreaming);
   const streamingChatId = useChatStore((state) => state.streamingChatId);
@@ -68,8 +116,14 @@ export function useChatTimelineActions({
   const branchChat = useBranchChat();
   const setActiveSwipe = useSetActiveSwipe(activeChatId);
   const { generate, retryAgents } = useGenerate();
+  const updateMessageRef = useLatestRef(updateMessage);
+  const updateMessageExtraRef = useLatestRef(updateMessageExtra);
+  const setActiveSwipeRef = useLatestRef(setActiveSwipe);
+  const peekPromptRef = useLatestRef(peekPrompt);
+  const branchChatRef = useLatestRef(branchChat);
 
   const swipeActionSeq = useRef(0);
+  const peekPromptActionSeq = useRef(0);
   const pendingSwipeMutationsRef = useRef(new Map<string, Promise<void>>());
   const [deleteDialogMessageId, setDeleteDialogMessageId] = useState<string | null>(null);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
@@ -353,14 +407,16 @@ export function useChatTimelineActions({
         return;
       }
       try {
-        const hasInput = currentInput ? currentInput.trim().length > 0 : false;
+        const currentInput = useChatStore.getState().currentInput;
+        const generationGuide = currentInput.trim();
+        const hasInput = generationGuide.length > 0;
         await generate(
           guideGenerations && hasInput
             ? {
                 chatId: activeChatId,
                 connectionId: null,
                 regenerateMessageId: messageId,
-                generationGuide: buildGuidedGenerationInstructionMessage(currentInput.toString()),
+                generationGuide: buildGuidedGenerationInstructionMessage(generationGuide),
                 generationGuideSource: "guide",
               }
             : { chatId: activeChatId, connectionId: null, regenerateMessageId: messageId },
@@ -369,7 +425,7 @@ export function useChatTimelineActions({
         /* Error toast is shown by the generate hook. */
       }
     },
-    [activeChatId, currentInput, generate, guideGenerations, isStreaming],
+    [activeChatId, generate, guideGenerations, isStreaming],
   );
 
   const handleRetryFailedAgents = useCallback(async () => {
@@ -393,90 +449,68 @@ export function useChatTimelineActions({
     [activeChatId, agentProcessing, enabledAgentTypes, isStreaming, retryAgents],
   );
 
-  const handleIllustrate = useCallback(() => {
-    retryAgents(activeChatId, ["illustrator"]);
+  const handleIllustrate = useCallback(async () => {
+    await retryAgents(activeChatId, ["illustrator"]);
   }, [activeChatId, retryAgents]);
 
   const handleSetActiveSwipe = useCallback(
     (messageId: string, index: number) => {
       const actionId = ++swipeActionSeq.current;
+      const mutation = setActiveSwipeRef.current.mutateAsync({ messageId, index });
+      const trackedMutation = mutation.then(
+        () => undefined,
+        () => undefined,
+      );
+      pendingSwipeMutationsRef.current.set(messageId, trackedMutation);
       void (async () => {
-        beginRefreshingTimeline();
         try {
-          if (
-            !(await flushTrackerPatchesForTimelineAction(
-              actionId,
-              "Could not save tracker changes before switching swipes.",
-            ))
-          ) {
-            return;
+          await mutation;
+        } catch (error) {
+          if (swipeActionSeq.current === actionId) {
+            toast.error(error instanceof Error ? error.message : "Could not switch swipes.");
           }
-          if (swipeActionSeq.current !== actionId) return;
-          const previousMutation = pendingSwipeMutationsRef.current.get(messageId);
-          if (previousMutation) {
-            try {
-              await previousMutation;
-            } catch {
-              /* The active mutation below reports its own failure if needed. */
-            }
-          }
-          if (swipeActionSeq.current !== actionId) return;
-          const mutation = setActiveSwipe.mutateAsync({ messageId, index });
-          const trackedMutation = mutation.then(
-            () => undefined,
-            () => undefined,
-          );
-          pendingSwipeMutationsRef.current.set(messageId, trackedMutation);
-          try {
-            await mutation;
-          } finally {
-            if (pendingSwipeMutationsRef.current.get(messageId) === trackedMutation) {
-              pendingSwipeMutationsRef.current.delete(messageId);
-            }
-          }
-          if (swipeActionSeq.current !== actionId) return;
-          await refreshVisibleWorldState({ messageId, swipeIndex: index });
-        } catch {
-          if (swipeActionSeq.current !== actionId) return;
-          toast.error("Could not switch swipes.");
         } finally {
-          clearRefreshingTimeline(actionId);
+          if (pendingSwipeMutationsRef.current.get(messageId) === trackedMutation) {
+            pendingSwipeMutationsRef.current.delete(messageId);
+          }
         }
       })();
     },
-    [
-      beginRefreshingTimeline,
-      clearRefreshingTimeline,
-      flushTrackerPatchesForTimelineAction,
-      refreshVisibleWorldState,
-      setActiveSwipe,
-    ],
+    [setActiveSwipeRef],
   );
 
   const handleEdit = useCallback(
     (messageId: string, content: string) => {
-      updateMessage.mutate({ messageId, content });
+      updateMessageRef.current.mutate(
+        { messageId, content },
+        {
+          onError: (error) => {
+            toast.error(error instanceof Error ? error.message : "Could not save edit.");
+          },
+        },
+      );
+      return Promise.resolve();
     },
-    [updateMessage],
+    [updateMessageRef],
   );
 
   const handleToggleConversationStart = useCallback(
     (messageId: string, current: boolean) => {
-      updateMessageExtra.mutate({ messageId, extra: { isConversationStart: !current } });
+      updateMessageExtraRef.current.mutate({ messageId, extra: { isConversationStart: !current } });
     },
-    [updateMessageExtra],
+    [updateMessageExtraRef],
   );
 
   const handleToggleHiddenFromAI = useCallback(
     (messageId: string, current: boolean) => {
-      updateMessageExtra.mutate({ messageId, extra: { hiddenFromAI: !current } });
+      updateMessageExtraRef.current.mutate({ messageId, extra: { hiddenFromAI: !current, hiddenFromAi: !current } });
     },
-    [updateMessageExtra],
+    [updateMessageExtraRef],
   );
 
   const handleBranch = useCallback(
     (messageId: string) => {
-      branchChat.mutate(
+      branchChatRef.current.mutate(
         { chatId: activeChatId, upToMessageId: messageId },
         {
           onSuccess: (newChat) => {
@@ -485,14 +519,69 @@ export function useChatTimelineActions({
         },
       );
     },
-    [activeChatId, branchChat],
+    [activeChatId, branchChatRef],
   );
 
-  const handlePeekPrompt = useCallback(() => {
-    peekPrompt.mutate(activeChatId, {
-      onSuccess: (data) => setPeekPromptData(data),
-    });
-  }, [activeChatId, peekPrompt]);
+  const handlePeekPrompt = useCallback(
+    (options?: PeekPromptOptions) => {
+      const actionId = ++peekPromptActionSeq.current;
+      const messageId = options?.messageId ?? null;
+      setPeekPromptData({ messages: [], parameters: null, generationInfo: null, loading: true });
+
+      void (async () => {
+        while (messageId) {
+          const pendingSwipeMutation = pendingSwipeMutationsRef.current.get(messageId);
+          if (!pendingSwipeMutation) break;
+          await pendingSwipeMutation;
+          if (pendingSwipeMutationsRef.current.get(messageId) === pendingSwipeMutation) break;
+        }
+        if (peekPromptActionSeq.current !== actionId) return;
+        const savedSnapshot =
+          promptSnapshotToPeekPromptData(options?.promptSnapshot) ??
+          promptSnapshotForMessage(messages?.find((message) => message.id === messageId));
+        if (savedSnapshot) {
+          setPeekPromptData(savedSnapshot);
+          return;
+        }
+        peekPromptRef.current.mutate(
+          {
+            chatId: activeChatId,
+            forCharacterId: options?.forCharacterId ?? null,
+            beforeMessageId: messageId,
+          },
+          {
+            onSuccess: (data) => {
+              if (peekPromptActionSeq.current === actionId) {
+                const peekData = data as PeekPromptData;
+                setPeekPromptData({
+                  ...peekData,
+                  agentNote:
+                    messageId != null
+                      ? "No saved prompt snapshot was available for this response, so this was rebuilt from current chat data before the selected message."
+                      : peekData.agentNote,
+                });
+              }
+            },
+            onError: (error) => {
+              if (peekPromptActionSeq.current !== actionId) return;
+              setPeekPromptData({
+                messages: [],
+                parameters: null,
+                generationInfo: null,
+                error: error instanceof Error ? error.message : "Could not assemble prompt.",
+              });
+            },
+          },
+        );
+      })();
+    },
+    [activeChatId, messages, peekPromptRef],
+  );
+
+  const closePeekPrompt = useCallback(() => {
+    peekPromptActionSeq.current++;
+    setPeekPromptData(null);
+  }, []);
 
   const lastAssistantMessageId = useMemo(() => {
     if (!messages) return null;
@@ -577,7 +666,7 @@ export function useChatTimelineActions({
     handleToggleHiddenFromAI,
     handleBranch,
     handlePeekPrompt,
-    closePeekPrompt: () => setPeekPromptData(null),
+    closePeekPrompt,
     closeDeleteDialog: () => setDeleteDialogMessageId(null),
   };
 }

@@ -1,21 +1,36 @@
 // ──────────────────────────────────────────────
 // Chat Gallery — Image grid for per-chat generated images
 // ──────────────────────────────────────────────
-import { useState, useRef } from "react";
-import { ImagePlus, Paintbrush, Trash2, X, ZoomIn, Download, Sparkles, Pin, Minimize2 } from "lucide-react";
+import { useCallback, useState } from "react";
+import { toast } from "sonner";
+import {
+  AlertCircle,
+  ImagePlus,
+  Loader2,
+  Paintbrush,
+  Trash2,
+  X,
+  ZoomIn,
+  Download,
+  Sparkles,
+  Pin,
+  Minimize2,
+} from "lucide-react";
 import {
   useGalleryImages,
   useUploadGalleryImage,
   useDeleteGalleryImage,
 } from "../../../../catalog/gallery/index";
 import { useGalleryStore } from "../../../../../shared/stores/gallery.store";
+import { ImageUploadDropzone } from "../../../../../shared/components/ui/ImageUploadDropzone";
 import { ImagePromptPanel } from "./ImagePromptPanel";
 import type { ChatImage } from "../../../../../shared/types/gallery";
+import type { Chat } from "../../../../../engine/contracts/types/chat";
 
 interface ChatGalleryProps {
-  chatId: string;
+  chat: Chat;
   /** Manually trigger the Illustrator agent */
-  onIllustrate?: () => void;
+  onIllustrate?: () => void | Promise<void>;
 }
 
 function formatImageMeta(image: ChatImage) {
@@ -26,27 +41,47 @@ function formatImageMeta(image: ChatImage) {
   return details.join(" | ");
 }
 
-export function ChatGallery({ chatId, onIllustrate }: ChatGalleryProps) {
-  const { data: images, isLoading } = useGalleryImages(chatId);
-  const upload = useUploadGalleryImage(chatId);
-  const remove = useDeleteGalleryImage(chatId);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+function formatIllustrateError(error: unknown) {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return "Illustration failed. Check your text and image generation settings.";
+}
+
+export function ChatGallery({ chat, onIllustrate }: ChatGalleryProps) {
+  const { data: images, isLoading } = useGalleryImages(chat);
+  const upload = useUploadGalleryImage(chat.id);
+  const remove = useDeleteGalleryImage(chat.id);
   const [lightbox, setLightbox] = useState<ChatImage | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [illustratePending, setIllustratePending] = useState(false);
+  const [illustrateError, setIllustrateError] = useState<string | null>(null);
   const pinImage = useGalleryStore((s) => s.pinImage);
   const lightboxPrompt = lightbox?.prompt?.trim() ?? "";
   const lightboxMeta = lightbox ? formatImageMeta(lightbox) : "";
 
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const input = e.currentTarget;
-    const files = Array.from(input.files ?? []);
-    if (files.length === 0) return;
-    upload.mutate(files, {
-      onSettled: () => {
-        input.value = "";
-      },
-    });
-  };
+  const handleUpload = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+      upload.mutate(files, {
+        onError: (error) => {
+          toast.error(error instanceof Error ? error.message : "Failed to upload chat gallery images.");
+        },
+      });
+    },
+    [upload],
+  );
+
+  const handleIllustrate = useCallback(async () => {
+    if (!onIllustrate || illustratePending) return;
+    setIllustrateError(null);
+    setIllustratePending(true);
+    try {
+      await onIllustrate();
+    } catch (error) {
+      setIllustrateError(formatIllustrateError(error));
+    } finally {
+      setIllustratePending(false);
+    }
+  }, [illustratePending, onIllustrate]);
 
   const handleDelete = (id: string) => {
     remove.mutate(id);
@@ -58,25 +93,47 @@ export function ChatGallery({ chatId, onIllustrate }: ChatGalleryProps) {
     <div className="flex flex-col gap-3 p-4">
       {/* Illustrate button */}
       {onIllustrate && (
-        <button
-          onClick={onIllustrate}
-          className="flex items-center justify-center gap-2 rounded-xl bg-[var(--primary)]/15 px-4 py-3 text-xs font-medium text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25"
-        >
-          <Paintbrush size="1rem" />
-          Illustrate
-        </button>
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            aria-label="Illustrate chat gallery"
+            onClick={() => void handleIllustrate()}
+            disabled={illustratePending}
+            aria-busy={illustratePending}
+            className="flex items-center justify-center gap-2 rounded-xl bg-[var(--primary)]/15 px-4 py-3 text-xs font-medium text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25 disabled:cursor-wait disabled:opacity-70 disabled:hover:bg-[var(--primary)]/15"
+          >
+            {illustratePending ? <Loader2 size="1rem" className="animate-spin" /> : <Paintbrush size="1rem" />}
+            {illustratePending ? "Illustrating..." : "Illustrate"}
+          </button>
+          {(illustratePending || illustrateError) && (
+            <p
+              role="status"
+              aria-live="polite"
+              className="flex items-start gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-[0.6875rem] leading-snug text-[var(--muted-foreground)]"
+            >
+              {illustratePending ? (
+                <Loader2 size="0.75rem" className="mt-0.5 shrink-0 animate-spin text-[var(--primary)]" />
+              ) : (
+                <AlertCircle size="0.75rem" className="mt-0.5 shrink-0 text-[var(--destructive)]" />
+              )}
+              <span>
+                {illustratePending
+                  ? "Illustrator is checking the chat and image settings."
+                  : illustrateError}
+              </span>
+            </p>
+          )}
+        </div>
       )}
 
-      {/* Upload button */}
-      <button
-        onClick={() => fileInputRef.current?.click()}
-        disabled={upload.isPending}
-        className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--border)] px-4 py-6 text-xs text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)] hover:text-[var(--primary)]"
-      >
-        <ImagePlus size="1rem" />
-        {upload.isPending ? "Uploading…" : "Upload Images"}
-      </button>
-      <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleUpload} className="hidden" />
+      <ImageUploadDropzone
+        label="Upload Images"
+        pending={upload.isPending}
+        pendingLabel="Uploading…"
+        dragLabel="Drop images to upload"
+        onFilesSelected={handleUpload}
+        icon={<ImagePlus size="1rem" />}
+      />
 
       {/* Loading state */}
       {isLoading && <p className="text-center text-xs text-[var(--muted-foreground)]">Loading gallery…</p>}

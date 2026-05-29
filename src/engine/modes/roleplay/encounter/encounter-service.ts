@@ -2,6 +2,7 @@ import type { LlmGateway, LlmMessage } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
 import { parseGameJsonish } from "../../../shared/parsing-jsonish";
+import { readString as stringValue } from "../../../shared/value-readers";
 import type { RPGStatsConfig } from "../../../contracts/types/character";
 import type { Chat, Message } from "../../../contracts/types/chat";
 import type { CombatActionResult, CombatAttack, CombatEnemy, CombatEnemyAction, CombatInitState, CombatItemEffect, CombatPartyAction, CombatPartyMember, CombatPlayerActions, CombatStatus, CombatStyleNotes, EncounterActionRequest, EncounterActionResponse, EncounterInitRequest, EncounterInitResponse, EncounterLogEntry, EncounterSummaryRequest, EncounterSummaryResponse, NarrativeStyle } from "../../../contracts/types/combat-encounter";
@@ -956,10 +957,6 @@ function arrayValue(value: unknown): unknown[] | null {
 
 function stringArray(value: unknown): string[] {
   return parseJsonArray<unknown>(value).filter((item): item is string => typeof item === "string" && item.trim().length > 0);
-}
-
-function stringValue(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
 }
 
 function numberValue(value: unknown, fallback: number): number {

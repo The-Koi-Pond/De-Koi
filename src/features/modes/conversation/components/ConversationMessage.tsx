@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Eye,
   EyeOff,
+  ChevronRight,
   ScrollText,
   Brain,
   X,
@@ -19,7 +20,6 @@ import {
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import type { Message, MessageExtra } from "../../../../engine/contracts/types/chat";
 import { useUIStore } from "../../../../shared/stores/ui.store";
-import { useChatStore } from "../../../../shared/stores/chat.store";
 import { cn, copyToClipboard, getAvatarCropStyle, parseAvatarCropJson } from "../../../../shared/lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../../../shared/lib/markdown";
 import { chatKeys } from "../../../catalog/chats/index";
@@ -51,6 +51,43 @@ function nameColorStyle(color?: string): CSSProperties | undefined {
 
 /** Regex to detect a message that is just an image/GIF URL */
 const IMAGE_URL_RE = /^https?:\/\/\S+\.(?:gif|png|jpe?g|webp)(?:\?[^\s]*)?$/i;
+const MESSAGE_EDIT_GESTURE_IGNORE_SELECTOR =
+  "button, a, textarea, input, select, label, [role='button'], [contenteditable='true'], .mari-message-actions";
+
+function HiddenFromAIConversationButton({
+  canCollapse,
+  isExpanded,
+  onToggle,
+}: {
+  canCollapse: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const className =
+    "inline-flex items-center gap-1 rounded px-1 py-0.5 text-[0.625rem] font-medium text-amber-500/80";
+  if (!canCollapse) {
+    return (
+      <span className={className} title="Hidden from AI">
+        <EyeOff size="0.7rem" />
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+      className={`${className} transition-colors hover:bg-amber-500/10 hover:text-amber-400`}
+      title={isExpanded ? "Collapse hidden from AI message" : "Expand hidden from AI message"}
+      aria-label={isExpanded ? "Collapse hidden from AI message" : "Expand hidden from AI message"}
+    >
+      <ChevronRight size="0.7rem" className={cn("transition-transform", isExpanded && "rotate-90")} />
+      <EyeOff size="0.7rem" />
+    </button>
+  );
+}
 
 /** Highlight @mentions in a list of ReactNodes. Scans string nodes for @CharacterName and wraps matches in a styled span. */
 function highlightMentions(nodes: ReactNode[], names: string[], keyPrefix: string): ReactNode[] {
@@ -246,7 +283,7 @@ interface ConversationMessageProps {
   forceShowActions?: boolean;
   onDelete?: (messageId: string) => void;
   onRegenerate?: (messageId: string) => void;
-  onEdit?: (messageId: string, content: string) => void;
+  onEdit?: (messageId: string, content: string) => void | Promise<void>;
   onSetActiveSwipe?: (messageId: string, index: number) => void;
   onPeekPrompt?: () => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
@@ -291,18 +328,23 @@ export const ConversationMessage = memo(function ConversationMessage({
 }: ConversationMessageProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(message.content);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [showActions, setShowActions] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showThinking, setShowThinking] = useState(false);
   const [showGenerationReplay, setShowGenerationReplay] = useState(false);
+  const [manuallyExpandedHidden, setManuallyExpandedHidden] = useState(false);
   const [imageLightbox, setImageLightbox] = useState<{ url: string; prompt?: string | null } | null>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
-  const hasInput = useChatStore((s) => s.currentInput.trim().length > 0);
+  const lastMessageTapAtRef = useRef(0);
   const guideGenerations = useUIStore((s) => s.guideGenerations);
   const chatFontSize = useUIStore((s) => s.chatFontSize);
   const showMessageNumbers = useUIStore((s) => s.showMessageNumbers);
+  const collapseHiddenMessages = useUIStore((s) => s.summaryPopoverSettings.collapseHiddenMessages);
+  const editMessagesOnDoubleClick = useUIStore((s) => s.editMessagesOnDoubleClick);
   const messageTextStyle = useMemo<CSSProperties>(() => ({ fontSize: `${chatFontSize}px` }), [chatFontSize]);
-  const isGuided = guideGenerations && hasInput;
+  const isGuided = guideGenerations;
   const regenerateButtonTitle = isGuided ? "Regenerate (guided)" : "Regenerate";
   const regenerateGuidedClass = isGuided
     ? "text-[var(--primary)] bg-[var(--primary)]/15 ring-1 ring-[var(--primary)]/30 hover:text-[var(--primary)] hover:bg-[var(--primary)]/20"
@@ -322,7 +364,17 @@ export const ConversationMessage = memo(function ConversationMessage({
     return typeof message.extra === "string" ? JSON.parse(message.extra) : message.extra;
   }, [message.extra]);
   const generationReplay = hasGenerationReplayDetails(extra.generationReplay) ? extra.generationReplay : null;
-  const isHiddenFromAI = extra.hiddenFromAI === true;
+  const isHiddenFromAI = extra.hiddenFromAI === true || extra.hiddenFromAi === true;
+  const isHiddenExpanded =
+    isHiddenFromAI && (!collapseHiddenMessages || manuallyExpandedHidden || editing || isStreaming === true);
+  const isHiddenCollapsed = isHiddenFromAI && collapseHiddenMessages && !isHiddenExpanded;
+  const hiddenFromAIHeader = isHiddenFromAI ? (
+    <HiddenFromAIConversationButton
+      canCollapse={collapseHiddenMessages}
+      isExpanded={isHiddenExpanded}
+      onToggle={() => setManuallyExpandedHidden((value) => !value)}
+    />
+  ) : null;
   // canRegenerate lets assistant messages retry; isUser messages need generationReplay
   // metadata from hasGenerationReplayDetails, such as /impersonate.
   const canRegenerate = !isUser || generationReplay !== null;
@@ -330,6 +382,14 @@ export const ConversationMessage = memo(function ConversationMessage({
   useEffect(() => {
     if (!generationReplay) setShowGenerationReplay(false);
   }, [generationReplay]);
+
+  useEffect(() => {
+    setManuallyExpandedHidden(false);
+  }, [message.id]);
+
+  useEffect(() => {
+    if (!isHiddenFromAI || !collapseHiddenMessages) setManuallyExpandedHidden(false);
+  }, [collapseHiddenMessages, isHiddenFromAI]);
 
   const scopedCharacterMap = useMemo(() => {
     if (!characterMap) return null;
@@ -519,6 +579,8 @@ export const ConversationMessage = memo(function ConversationMessage({
   }, [renderedContent]);
 
   const startEditing = useCallback(() => {
+    setEditError(null);
+    setEditSaving(false);
     setEditing(true);
     setEditValue(message.content);
     requestAnimationFrame(() => {
@@ -530,6 +592,63 @@ export const ConversationMessage = memo(function ConversationMessage({
       }
     });
   }, [message.content]);
+
+  const startEditingFromMessageGesture = useCallback(
+    (event: React.MouseEvent) => {
+      if (!editMessagesOnDoubleClick || !onEdit || editing) return false;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(MESSAGE_EDIT_GESTURE_IGNORE_SELECTOR)) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      if (onEditClick) onEditClick();
+      else startEditing();
+      return true;
+    },
+    [editMessagesOnDoubleClick, editing, onEdit, onEditClick, startEditing],
+  );
+
+  const handleMessageDoubleClick = useCallback(
+    (event: React.MouseEvent) => {
+      startEditingFromMessageGesture(event);
+    },
+    [startEditingFromMessageGesture],
+  );
+
+  const handleMessageClick = useCallback(
+    (event: React.MouseEvent) => {
+      if (multiSelectMode) {
+        onToggleSelect?.({
+          messageId: message.id,
+          orderIndex: messageOrderIndex ?? 0,
+          checked: !isSelected,
+          shiftKey: event.shiftKey,
+        });
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(MESSAGE_EDIT_GESTURE_IGNORE_SELECTOR)) return;
+
+      const isCoarsePointer =
+        typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+      if (isCoarsePointer) {
+        const now = Date.now();
+        const isDoubleTap = now - lastMessageTapAtRef.current <= 350;
+        lastMessageTapAtRef.current = now;
+        if (isDoubleTap && startEditingFromMessageGesture(event)) return;
+      }
+
+      setShowActions((v) => !v);
+    },
+    [
+      isSelected,
+      message.id,
+      messageOrderIndex,
+      multiSelectMode,
+      onToggleSelect,
+      startEditingFromMessageGesture,
+    ],
+  );
 
   useEffect(() => {
     if (!onEdit) return;
@@ -546,13 +665,22 @@ export const ConversationMessage = memo(function ConversationMessage({
   const editValueRef = useRef(editValue);
   editValueRef.current = editValue;
 
-  const handleSaveEdit = useCallback(() => {
+  const handleSaveEdit = useCallback(async () => {
+    if (editSaving) return;
     const val = editValueRef.current.trim();
-    if (val !== message.content) {
-      onEdit?.(message.id, val);
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      if (val !== message.content) {
+        await onEdit?.(message.id, val);
+      }
+      setEditing(false);
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : "Could not save edit.");
+    } finally {
+      setEditSaving(false);
     }
-    setEditing(false);
-  }, [message.content, message.id, onEdit]);
+  }, [editSaving, message.content, message.id, onEdit]);
 
   // System messages — minimal display
   if (isSystem) {
@@ -562,18 +690,8 @@ export const ConversationMessage = memo(function ConversationMessage({
           "group flex justify-center py-1",
           multiSelectMode && isSelected && "rounded-lg bg-[var(--destructive)]/10",
         )}
-        onClick={(e) => {
-          if (multiSelectMode) {
-            onToggleSelect?.({
-              messageId: message.id,
-              orderIndex: messageOrderIndex ?? 0,
-              checked: !isSelected,
-              shiftKey: e.shiftKey,
-            });
-          } else {
-            setShowActions((v) => !v);
-          }
-        }}
+        onClick={handleMessageClick}
+        onDoubleClick={handleMessageDoubleClick}
       >
         <div className="relative">
           {!multiSelectMode && onDelete && (
@@ -601,6 +719,21 @@ export const ConversationMessage = memo(function ConversationMessage({
 
   // ── Render: grouped multi-speaker message (merged group chat) ──
   if (groupedSegments && !editing && !isUser) {
+    if (isHiddenCollapsed) {
+      return (
+        <div
+          className={cn(
+            "relative px-4 py-0.5 transition-colors hover:bg-[var(--secondary)]/30",
+            !noHoverGroup && "group",
+            isGrouped ? "mt-0" : "mt-3",
+          )}
+          data-message-id={message.id}
+          data-message-role={message.role}
+        >
+          <div className="ml-14 flex items-center gap-2 py-1">{hiddenFromAIHeader}</div>
+        </div>
+      );
+    }
     return (
       <div
         className={cn(
@@ -610,18 +743,8 @@ export const ConversationMessage = memo(function ConversationMessage({
           isStreaming && "bg-[var(--secondary)]/20",
           multiSelectMode && isSelected && "bg-[var(--destructive)]/10",
         )}
-        onClick={(e) => {
-          if (multiSelectMode) {
-            onToggleSelect?.({
-              messageId: message.id,
-              orderIndex: messageOrderIndex ?? 0,
-              checked: !isSelected,
-              shiftKey: e.shiftKey,
-            });
-          } else {
-            setShowActions((v) => !v);
-          }
-        }}
+        onClick={handleMessageClick}
+        onDoubleClick={handleMessageDoubleClick}
       >
         {/* Multi-select checkbox */}
         {multiSelectMode && (
@@ -761,7 +884,7 @@ export const ConversationMessage = memo(function ConversationMessage({
         )}
 
         {/* Image attachments (selfies, illustrations) */}
-        {extra.attachments && extra.attachments.length > 0 && !IMAGE_URL_RE.test(renderedContent.trim()) && (
+        {!isHiddenCollapsed && extra.attachments && extra.attachments.length > 0 && !IMAGE_URL_RE.test(renderedContent.trim()) && (
           <div className="ml-14 mt-1.5 flex flex-col items-start gap-2">
             {extra.attachments.map((att: any, i: number) =>
               att.type === "image" || att.type?.startsWith("image/") ? (
@@ -800,6 +923,7 @@ export const ConversationMessage = memo(function ConversationMessage({
             activeSwipeIndex={message.activeSwipeIndex}
             swipeCount={swipeCount}
             onSetActiveSwipe={(index) => onSetActiveSwipe?.(message.id, index)}
+            onCreateNextSwipe={onRegenerate ? () => onRegenerate(message.id) : undefined}
             className="ml-14 mt-2 px-1 text-[0.6875rem] text-[var(--muted-foreground)]"
             buttonClassName="rounded p-0.5 transition-colors hover:bg-[var(--accent)] disabled:opacity-30"
           />
@@ -912,18 +1036,8 @@ export const ConversationMessage = memo(function ConversationMessage({
       )}
       data-message-id={message.id}
       data-message-role={message.role}
-      onClick={(e) => {
-        if (multiSelectMode) {
-          onToggleSelect?.({
-            messageId: message.id,
-            orderIndex: messageOrderIndex ?? 0,
-            checked: !isSelected,
-            shiftKey: e.shiftKey,
-          });
-        } else {
-          setShowActions((v) => !v);
-        }
-      }}
+      onClick={handleMessageClick}
+      onDoubleClick={handleMessageDoubleClick}
     >
       {/* Multi-select checkbox */}
       {multiSelectMode && (
@@ -974,6 +1088,7 @@ export const ConversationMessage = memo(function ConversationMessage({
         {/* Header — name + timestamp (only for first in group) */}
         {!isGrouped && (
           <div className="mari-message-meta flex items-baseline gap-2 mb-0.5">
+            {hiddenFromAIHeader}
             <span
               className="mari-message-name text-[0.9375rem] font-semibold leading-tight hover:underline cursor-default"
               style={nameColorStyle(nameColor)}
@@ -987,7 +1102,7 @@ export const ConversationMessage = memo(function ConversationMessage({
         )}
 
         {/* Message body */}
-        {editing ? (
+        {isHiddenCollapsed ? null : editing ? (
           <div className="space-y-2">
             <textarea
               ref={editRef}
@@ -1004,20 +1119,29 @@ export const ConversationMessage = memo(function ConversationMessage({
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   e.preventDefault();
-                  setEditing(false);
+                  if (!editSaving) setEditing(false);
                 }
               }}
+              disabled={editSaving}
             />
+            {editError && <div className="text-[0.6875rem] text-red-300/90">{editError}</div>}
             <div className="flex items-center gap-2 text-[0.6875rem] text-[var(--muted-foreground)]">
               <button
-                onClick={() => setEditing(false)}
+                onClick={() => {
+                  if (!editSaving) setEditing(false);
+                }}
+                disabled={editSaving}
                 className="text-foreground/70 hover:underline hover:text-foreground"
               >
                 cancel
               </button>
               <span>·</span>
-              <button onClick={handleSaveEdit} className="text-foreground/70 hover:underline hover:text-foreground">
-                save
+              <button
+                onClick={() => void handleSaveEdit()}
+                disabled={editSaving}
+                className="text-foreground/70 hover:underline hover:text-foreground"
+              >
+                {editSaving ? "saving" : "save"}
               </button>
             </div>
           </div>
@@ -1051,7 +1175,7 @@ export const ConversationMessage = memo(function ConversationMessage({
         )}
 
         {/* Translation */}
-        {(translatedText || isTranslating) && (
+        {!isHiddenCollapsed && (translatedText || isTranslating) && (
           <div className="mt-1.5 border-t border-[var(--border)] pt-1.5">
             {isTranslating ? (
               <span className="text-[0.75rem] italic text-[var(--muted-foreground)]">Translating…</span>
@@ -1064,7 +1188,7 @@ export const ConversationMessage = memo(function ConversationMessage({
         )}
 
         {/* Image attachments (selfies, illustrations) — skip when content is already an image URL */}
-        {extra.attachments && extra.attachments.length > 0 && !IMAGE_URL_RE.test(renderedContent.trim()) && (
+        {!isHiddenCollapsed && extra.attachments && extra.attachments.length > 0 && !IMAGE_URL_RE.test(renderedContent.trim()) && (
           <div className="mt-1.5 flex flex-col items-center gap-2">
             {extra.attachments.map((att: any, i: number) =>
               att.type === "image" || att.type?.startsWith("image/") ? (
@@ -1103,6 +1227,7 @@ export const ConversationMessage = memo(function ConversationMessage({
             activeSwipeIndex={message.activeSwipeIndex}
             swipeCount={swipeCount}
             onSetActiveSwipe={(index) => onSetActiveSwipe?.(message.id, index)}
+            onCreateNextSwipe={onRegenerate ? () => onRegenerate(message.id) : undefined}
             className="mt-1.5 text-[0.6875rem] text-[var(--muted-foreground)]"
             buttonClassName="rounded p-0.5 transition-colors hover:bg-[var(--accent)] disabled:opacity-30"
           />

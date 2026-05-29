@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────
 import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { isJsonRepairApiError } from "../../../../shared/api/api-errors";
 import { chatKeys } from "../../../catalog/chats/index";
@@ -54,6 +55,15 @@ export function patchChatMetadata(chat: Chat | null | undefined, patch: Record<s
   };
 }
 
+function publishSessionChat(qc: QueryClient, sessionChat: Chat | null | undefined): string | null {
+  if (!sessionChat?.id) return null;
+  qc.setQueryData(chatKeys.detail(sessionChat.id), sessionChat);
+  if (useChatStore.getState().activeChatId === sessionChat.id) {
+    useChatStore.getState().setActiveChat(sessionChat);
+  }
+  return sessionChat.id;
+}
+
 // ── Mutations ──
 
 export function useCreateGame() {
@@ -73,6 +83,7 @@ export function useCreateGame() {
     onSuccess: (res) => {
       store.getState().setActiveGame(res.gameId, res.sessionChat.id, null);
       store.getState().setSetupActive(true);
+      publishSessionChat(qc, res.sessionChat);
       // Collapse sidebar when starting a new game to maximize game area
       useUIStore.getState().setSidebarOpen(false);
       qc.invalidateQueries({ queryKey: chatKeys.list() });
@@ -90,9 +101,9 @@ export function useGameSetup() {
   return useMutation({
     mutationFn: (data: { chatId: string; connectionId?: string; preferences: string; setupConfig?: GameSetupConfig }) =>
       gameApi.setupGame(data),
-    onSuccess: () => {
+    onSuccess: (res) => {
       store.getState().setSetupActive(false);
-      const sessionChatId = store.getState().activeSessionChatId;
+      const sessionChatId = publishSessionChat(qc, res.sessionChat) || store.getState().activeSessionChatId;
       if (sessionChatId) {
         qc.invalidateQueries({ queryKey: chatKeys.detail(sessionChatId) });
         qc.invalidateQueries({ queryKey: chatKeys.messages(sessionChatId) });
@@ -115,17 +126,9 @@ export function useStartGame() {
 
   return useMutation({
     mutationFn: (data: { chatId: string }) => gameApi.startGame(data),
-    onSuccess: () => {
-      const sessionChatId = store.getState().activeSessionChatId;
+    onSuccess: (res) => {
+      const sessionChatId = publishSessionChat(qc, res.sessionChat) || store.getState().activeSessionChatId;
       if (sessionChatId) {
-        const queryKey = chatKeys.detail(sessionChatId);
-        const patched = patchChatMetadata(qc.getQueryData<Chat>(queryKey), { gameSessionStatus: "active" });
-        if (patched) {
-          qc.setQueryData(queryKey, patched);
-          if (useChatStore.getState().activeChatId === sessionChatId) {
-            useChatStore.getState().setActiveChat(patched);
-          }
-        }
         qc.invalidateQueries({ queryKey: chatKeys.detail(sessionChatId) });
       }
     },
@@ -150,7 +153,7 @@ export function useStartSession() {
     onSuccess: (res, variables) => {
       store.getState().setActiveGame(variables.gameId, res.sessionChat.id, null);
       store.getState().setSessionNumber(res.sessionNumber);
-      qc.setQueryData(chatKeys.detail(res.sessionChat.id), res.sessionChat);
+      publishSessionChat(qc, res.sessionChat);
       const chatStore = useChatStore.getState();
       chatStore.setActiveChatId(res.sessionChat.id);
       chatStore.setActiveChat(res.sessionChat);
@@ -182,7 +185,8 @@ export function useConcludeSession() {
         id: `game-session-conclude:${variables.chatId}`,
       });
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (res, variables) => {
+      publishSessionChat(qc, res.sessionChat);
       console.info("[game/session/conclude] Conclude request completed", variables);
       toast.success("Session concluded.", {
         id: `game-session-conclude:${variables.chatId}`,
@@ -217,7 +221,8 @@ export function useRegenerateSessionConclusion() {
         id: `game-session-regenerate:${variables.chatId}:${variables.sessionNumber}`,
       });
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (res, variables) => {
+      publishSessionChat(qc, res.sessionChat);
       toast.success(`Session ${variables.sessionNumber} conclusion regenerated.`, {
         id: `game-session-regenerate:${variables.chatId}:${variables.sessionNumber}`,
       });
@@ -252,6 +257,7 @@ export function useRegenerateSessionLorebook() {
       });
     },
     onSuccess: (result, variables) => {
+      publishSessionChat(qc, result.sessionChat);
       toast.success(`Lorebook updated with ${result.entryCount} entr${result.entryCount === 1 ? "y" : "ies"}.`, {
         id: `game-session-lorebook:${variables.chatId}:${variables.sessionNumber}`,
       });
@@ -290,7 +296,7 @@ export function useUpdateCampaignProgression() {
       });
     },
     onSuccess: (res, variables) => {
-      qc.setQueryData(chatKeys.detail(res.sessionChat.id), res.sessionChat);
+      publishSessionChat(qc, res.sessionChat);
       toast.success(`Plot arcs updated from session ${variables.sessionNumber}.`, {
         id: `game-campaign-progression:${variables.chatId}:${variables.sessionNumber}`,
       });
@@ -321,7 +327,7 @@ export function useRecruitPartyMember() {
     mutationFn: (data: { chatId: string; characterName: string; connectionId?: string }) =>
       gameApi.upsertPartyCard({ ...data, added: true }),
     onSuccess: (res, variables) => {
-      qc.setQueryData(chatKeys.detail(variables.chatId), res.sessionChat);
+      publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
       qc.invalidateQueries({ queryKey: chatKeys.list() });
       if (res.added) {
@@ -344,7 +350,7 @@ export function useRegeneratePartyCard() {
     mutationFn: (data: { chatId: string; characterName: string; characterId?: string; connectionId?: string }) =>
       gameApi.upsertPartyCard(data),
     onSuccess: (res, variables) => {
-      qc.setQueryData(chatKeys.detail(variables.chatId), res.sessionChat);
+      publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
       qc.invalidateQueries({ queryKey: chatKeys.list() });
       toast.success(`${res.characterName}'s sheet was regenerated.`);
@@ -363,7 +369,7 @@ export function useRemovePartyMember() {
     mutationFn: (data: { chatId: string; characterName: string }) =>
       gameApi.removePartyMember(data),
     onSuccess: (res, variables) => {
-      qc.setQueryData(chatKeys.detail(variables.chatId), res.sessionChat);
+      publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
       qc.invalidateQueries({ queryKey: chatKeys.list() });
       if (res.removed) {
@@ -421,6 +427,7 @@ export function useTransitionGameState() {
       gameApi.transitionGameState(data),
     onSuccess: (res, variables) => {
       store.getState().setGameState(res.newState);
+      publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
     },
   });
@@ -439,6 +446,7 @@ export function useGenerateMap() {
       } else {
         store.getState().setCurrentMap(res.map);
       }
+      publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
     },
   });
@@ -457,6 +465,7 @@ export function useMoveOnMap() {
       } else {
         store.getState().setCurrentMap(res.map);
       }
+      publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
       qc.invalidateQueries({ queryKey: [...gameKeys.all, "journal", variables.chatId] });
     },
@@ -469,16 +478,9 @@ export function useUpdateGameWidgets() {
   return useMutation({
     mutationFn: ({ chatId, widgets }: { chatId: string; widgets: HudWidget[] }) =>
       gameApi.updateWidgets({ chatId, widgets }),
-    onSuccess: (_, variables) => {
+    onSuccess: (res, variables) => {
       useGameModeStore.getState().setHudWidgets(variables.widgets);
-      const queryKey = chatKeys.detail(variables.chatId);
-      const patched = patchChatMetadata(qc.getQueryData<Chat>(queryKey), { gameWidgetState: variables.widgets });
-      if (patched) {
-        qc.setQueryData(queryKey, patched);
-        if (useChatStore.getState().activeChatId === variables.chatId) {
-          useChatStore.getState().setActiveChat(patched);
-        }
-      }
+      publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
     },
     onError: (err) => {
@@ -500,8 +502,35 @@ export function useGameSessions(gameId: string | null) {
 
 // ── Sync hook — reads chat metadata and updates game store ──
 
+function isNumericHudWidgetType(type: HudWidget["type"]) {
+  return type === "progress_bar" || type === "gauge" || type === "relationship_meter";
+}
+
+function finiteNumber(value: unknown): number | null {
+  const raw = typeof value === "string" && value.trim() ? Number(value.trim()) : value;
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
 function normalizeHudWidgets(widgets: readonly HudWidget[]): HudWidget[] {
   return widgets.map((w) => {
+    if (isNumericHudWidgetType(w.type)) {
+      const max = Math.max(1, finiteNumber(w.config.max) ?? 100);
+      const value = finiteNumber(w.config.value) ?? finiteNumber(w.config.startingValue) ?? 0;
+      const startingValue = finiteNumber(w.config.startingValue) ?? value;
+
+      if (w.config.max !== max || w.config.value !== value || w.config.startingValue !== startingValue) {
+        return {
+          ...w,
+          config: {
+            ...w.config,
+            max,
+            startingValue,
+            value,
+          },
+        };
+      }
+    }
+
     if (w.type === "inventory_grid" && !w.config.contents && Array.isArray((w.config as any).items)) {
       const items = (w.config as any).items as Array<{ name: string; slot?: string | number; quantity?: number }>;
       return {
@@ -639,6 +668,7 @@ export function useAdvanceTime() {
     mutationFn: (data: { chatId: string; action: string }) =>
       gameApi.advanceTime(data),
     onSuccess: (res, variables) => {
+      publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
       // Sync time into the game state snapshot so WeatherEffects updates immediately
       if (res.formatted) {
@@ -660,6 +690,7 @@ export function useUpdateWeather() {
     mutationFn: (data: { chatId: string; action: string; location?: string; season?: string; type?: string }) =>
       gameApi.updateWeather(data),
     onSuccess: (res, variables) => {
+      publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
       // Sync weather into the game state snapshot store so WeatherEffects updates immediately
       if (res.changed && res.weather) {
@@ -691,6 +722,7 @@ export function useUpdateReputation() {
       gameApi.updateReputation(data),
     onSuccess: (res, variables) => {
       store.getState().setNpcs(res.npcs as any[]);
+      publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
       qc.invalidateQueries({ queryKey: [...gameKeys.all, "journal", variables.chatId] });
     },
@@ -702,7 +734,8 @@ export function useJournalEntry() {
   return useMutation({
     mutationFn: (data: { chatId: string; type: string; data: Record<string, unknown> }) =>
       gameApi.addJournalEntry(data),
-    onSuccess: (_, variables) => {
+    onSuccess: (res, variables) => {
+      publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: [...gameKeys.all, "journal", variables.chatId] });
     },
   });

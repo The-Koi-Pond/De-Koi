@@ -24,11 +24,11 @@ pub fn chat_memories_clear(state: State<'_, AppState>, chat_id: String) -> Resul
 }
 
 #[tauri::command]
-pub fn chat_memories_refresh(
+pub async fn chat_memories_refresh(
     state: State<'_, AppState>,
     chat_id: String,
 ) -> Result<Value, AppError> {
-    chats::refresh_chat_memories(&state, &chat_id)
+    chats::refresh_chat_memories(&state, &chat_id).await
 }
 
 #[tauri::command]
@@ -40,12 +40,12 @@ pub fn chat_memories_export(
 }
 
 #[tauri::command]
-pub fn chat_memories_import(
+pub async fn chat_memories_import(
     state: State<'_, AppState>,
     chat_id: String,
     body: Value,
 ) -> Result<Value, AppError> {
-    chats::import_chat_memories(&state, &chat_id, body)
+    chats::import_chat_memories(&state, &chat_id, body).await
 }
 
 #[tauri::command]
@@ -99,6 +99,11 @@ pub fn chat_messages_bulk_delete(
 }
 
 #[tauri::command]
+pub fn chat_message_count(state: State<'_, AppState>, chat_id: String) -> Result<Value, AppError> {
+    Ok(json!({ "count": state.storage.count_messages_for_chat(&chat_id)? }))
+}
+
+#[tauri::command]
 pub fn chat_branch(
     state: State<'_, AppState>,
     chat_id: String,
@@ -131,13 +136,18 @@ pub fn chat_message_add_swipe(
 }
 
 #[tauri::command]
-pub fn chat_message_set_active_swipe(
+pub async fn chat_message_set_active_swipe(
     state: State<'_, AppState>,
     chat_id: String,
     message_id: String,
     index: i64,
 ) -> Result<Value, AppError> {
-    chats::set_active_swipe(&state, &chat_id, &message_id, json!({ "index": index }))
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        chats::set_active_swipe(&state, &chat_id, &message_id, json!({ "index": index }))
+    })
+    .await
+    .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
 #[tauri::command]

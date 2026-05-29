@@ -16,7 +16,7 @@ import {
 import { useUpdateChat, useCreateMessage, chatKeys } from "../../chats/index";
 import { useStartChatFromCharacter } from "../hooks/use-start-chat-from-character";
 import { exportApi } from "../../../../shared/api/export-api";
-import { invokeTauri } from "../../../../shared/api/tauri-client";
+import { storageApi } from "../../../../shared/api/storage-api";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { ContextMenu, type ContextMenuItem } from "../../../../shared/components/ui/ContextMenu";
@@ -54,7 +54,7 @@ import { CharacterAvatarImage } from "./CharacterAvatarImage";
 
 type CharacterRow = {
   id: string;
-  data: string;
+  data: Record<string, any>;
   comment?: string | null;
   avatarPath: string | null;
   createdAt: string;
@@ -161,24 +161,17 @@ export function CharactersPanel() {
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<string>>(new Set());
   const [exportingSelected, setExportingSelected] = useState(false);
 
-  const chatCharacterIds: string[] = activeChat
-    ? ((typeof activeChat.characterIds === "string" ? JSON.parse(activeChat.characterIds) : activeChat.characterIds) ??
-      [])
-    : [];
+  const chatCharacterIds: string[] = activeChat ? (activeChat.characterIds ?? []) : [];
 
   const isConversation = (activeChat as unknown as { mode?: string })?.mode === "conversation";
 
-  // Parse character data and filter by search
+  // Character data is stored as raw JSON objects.
   const parsedCharacters = useMemo(() => {
     if (!characters) return [];
-    return (characters as CharacterRow[]).map((char) => {
-      try {
-        const parsed = typeof char.data === "string" ? JSON.parse(char.data) : char.data;
-        return { ...char, parsed };
-      } catch {
-        return { ...char, parsed: { name: "Unknown", description: "" } };
-      }
-    });
+    return (characters as CharacterRow[]).map((char) => ({
+      ...char,
+      parsed: char.data ?? { name: "Unknown", description: "" },
+    }));
   }, [characters]) as ParsedCharacterRow[];
 
   const charMap = useMemo(() => {
@@ -336,7 +329,7 @@ export function CharactersPanel() {
       ...g,
       memberIds: (() => {
         try {
-          return JSON.parse(g.characterIds);
+          return Array.isArray(g.characterIds) ? g.characterIds : [];
         } catch {
           return [];
         }
@@ -358,16 +351,12 @@ export function CharactersPanel() {
           const charList = (characters ?? []) as CharacterRow[];
           const char = charList.find((c) => c.id === charId);
           if (!char) return;
-          try {
-            const parsed = typeof char.data === "string" ? JSON.parse(char.data) : char.data;
-            const firstMes = (parsed as { first_mes?: string }).first_mes;
-            const altGreetings = (parsed as { alternate_greetings?: string[] }).alternate_greetings ?? [];
-            const name = (parsed as { name?: string }).name ?? "Unknown";
-            if (firstMes) {
-              setFirstMesConfirm({ charId, charName: name, message: firstMes, alternateGreetings: altGreetings });
-            }
-          } catch {
-            /* ignore */
+          const parsed = char.data;
+          const firstMes = (parsed as { first_mes?: string }).first_mes;
+          const altGreetings = (parsed as { alternate_greetings?: string[] }).alternate_greetings ?? [];
+          const name = (parsed as { name?: string }).name ?? "Unknown";
+          if (firstMes) {
+            setFirstMesConfirm({ charId, charName: name, message: firstMes, alternateGreetings: altGreetings });
           }
         },
       },
@@ -389,17 +378,13 @@ export function CharactersPanel() {
           for (const charId of newlyAdded) {
             const char = charList.find((c) => c.id === charId);
             if (!char) continue;
-            try {
-              const parsed = typeof char.data === "string" ? JSON.parse(char.data) : char.data;
-              const firstMes = (parsed as { first_mes?: string }).first_mes;
-              const altGreetings = (parsed as { alternate_greetings?: string[] }).alternate_greetings ?? [];
-              const name = (parsed as { name?: string }).name ?? "Unknown";
-              if (firstMes) {
-                setFirstMesConfirm({ charId, charName: name, message: firstMes, alternateGreetings: altGreetings });
-                break; // show one at a time
-              }
-            } catch {
-              /* ignore */
+            const parsed = char.data;
+            const firstMes = (parsed as { first_mes?: string }).first_mes;
+            const altGreetings = (parsed as { alternate_greetings?: string[] }).alternate_greetings ?? [];
+            const name = (parsed as { name?: string }).name ?? "Unknown";
+            if (firstMes) {
+              setFirstMesConfirm({ charId, charName: name, message: firstMes, alternateGreetings: altGreetings });
+              break; // show one at a time
             }
           }
         },
@@ -674,7 +659,7 @@ export function CharactersPanel() {
       )}
 
       {/* Actions */}
-      <div className="flex gap-2">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <button
           onClick={() => openModal("create-character")}
           className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-pink-400 to-purple-500 px-3 py-2.5 text-xs font-medium text-white shadow-md shadow-pink-500/15 transition-all hover:shadow-lg hover:shadow-pink-500/25 active:scale-[0.98]"
@@ -1207,31 +1192,9 @@ export function CharactersPanel() {
                 )}
               </div>
 
-              {!assigningToGroup && !selectionMode && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleStartNewChat(
-                      char.id,
-                      charName,
-                      char.parsed?.first_mes as string | undefined,
-                      (char.parsed?.alternate_greetings ?? []) as string[],
-                    );
-                  }}
-                  disabled={isStartingChat}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-[var(--primary)]/10 px-2 py-1 text-[0.625rem] font-medium text-[var(--primary)] ring-1 ring-[var(--primary)]/20 transition-all hover:bg-[var(--primary)]/15 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-                  title="Start New Chat"
-                  aria-label={`Start New Chat with ${charName}`}
-                >
-                  <MessageCircle size="0.6875rem" />
-                  <span>New Chat</span>
-                </button>
-              )}
-
               {/* Actions (hidden during group assign mode) */}
               {!assigningToGroup && !selectionMode && (
-                <div className="absolute right-[4.5rem] top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
                   {activeChat && (
                     <button
                       onClick={(e) => {
@@ -1357,25 +1320,28 @@ export function CharactersPanel() {
               </button>
               <button
                 onClick={async () => {
-                  const msg = await createMessage.mutateAsync({
-                    role: "assistant",
-                    content: firstMesConfirm.message,
-                    characterId: firstMesConfirm.charId,
-                  });
-                  // Add alternate greetings as swipes on the first message
-                  if (msg?.id && firstMesConfirm.alternateGreetings.length > 0) {
-                    for (const greeting of firstMesConfirm.alternateGreetings) {
-                      if (greeting.trim()) {
-                        await invokeTauri("chat_message_add_swipe", {
-                          chatId: activeChat!.id,
-                          messageId: msg.id,
-                          body: { content: greeting, silent: true },
-                        });
+                  try {
+                    const msg = await createMessage.mutateAsync({
+                      role: "assistant",
+                      content: firstMesConfirm.message,
+                      characterId: firstMesConfirm.charId,
+                    });
+                    // Add alternate greetings as swipes on the first message
+                    if (msg?.id && firstMesConfirm.alternateGreetings.length > 0) {
+                      for (const greeting of firstMesConfirm.alternateGreetings) {
+                        if (greeting.trim()) {
+                          await storageApi.addChatMessageSwipe(activeChat!.id, msg.id, greeting, {
+                            activate: false,
+                          });
+                        }
                       }
+                      queryClient.invalidateQueries({ queryKey: chatKeys.messages(activeChat!.id) });
                     }
-                    queryClient.invalidateQueries({ queryKey: chatKeys.messages(activeChat!.id) });
+                  } catch {
+                    toast.error("Failed to add first message");
+                  } finally {
+                    setFirstMesConfirm(null);
                   }
-                  setFirstMesConfirm(null);
                 }}
                 className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-[var(--primary-foreground)] transition-colors hover:opacity-90"
               >

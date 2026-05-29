@@ -34,6 +34,7 @@ import {
 } from "../../../../../shared/lib/slash-commands";
 import { createInputMacroResolverForChat, isPromptPreviewMacro } from "../../../../../shared/lib/chat-macros";
 import { parseChatMetadata } from "../../../../../shared/lib/chat-display";
+import { formatTextQuotes } from "../../../../../shared/lib/dialogue-quotes";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../../../../shared/lib/utils";
 import { translateDraftText } from "../../../../../shared/lib/draft-translation";
 import { EmojiPicker } from "../../../../../shared/components/ui/EmojiPicker";
@@ -43,6 +44,13 @@ import { QuickPersonaSwitcher } from "./QuickPersonaSwitcher";
 import { QuickSwitcherMobile } from "./QuickSwitcherMobile";
 import { SlashCommandFeedback } from "./SlashCommandFeedback";
 import { QuickReplyMenu, type QuickReplyAction } from "./QuickReplyMenu";
+import {
+  CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS,
+  CHAT_INPUT_ICON_BUTTON_CLASS,
+  CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
+  CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
+  CHAT_INPUT_ICON_BUTTON_READY_CLASS,
+} from "./input-button-styles";
 
 interface Attachment {
   type: string; // MIME type
@@ -80,6 +88,10 @@ function inferAttachmentType(file: File): string {
   return "application/octet-stream";
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 function isSupportedChatAttachment(file: File): boolean {
   if (file.type.startsWith("image/")) return true;
   if (file.type.startsWith("text/")) return true;
@@ -103,9 +115,6 @@ function readFileAsDataUrl(file: Blob): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
-
-// Normalize curly/smart quotes to straight quotes (hoisted to avoid recreation)
-const normalizeQuotes = (s: string) => s.replace(/["\u201C\u201D\u201E\u201F]/g, '"').replace(/[\u2018\u2019]/g, "'");
 
 interface ChatInputProps {
   mode?: "conversation" | "roleplay";
@@ -162,13 +171,14 @@ export const ChatInput = memo(function ChatInput({
   const activeChat = useChatStore((s) => s.activeChat);
   const { generate } = useGenerate();
   const { applyToUserInput } = useApplyRegex();
-  const enterToSend = useUIStore((s) => s.enterToSendRP);
+  const enterToSend = useUIStore((s) => (mode === "conversation" ? s.enterToSendConvo : s.enterToSendRP));
   const guideGenerations = useUIStore((s) => s.guideGenerations);
   const showQuickRepliesMenu = useUIStore((s) => s.showQuickRepliesMenu);
   const showQuickReplyPostOnly = useUIStore((s) => s.showQuickReplyPostOnly);
   const showQuickReplyGuide = useUIStore((s) => s.showQuickReplyGuide);
   const showQuickReplyImpersonate = useUIStore((s) => s.showQuickReplyImpersonate);
   const speechToTextEnabled = useUIStore((s) => s.speechToTextEnabled);
+  const quoteFormat = useUIStore((s) => s.quoteFormat);
   const createMessage = useCreateMessage(activeChatId);
   const deleteMessage = useDeleteMessage(activeChatId);
   const updateMessageExtra = useUpdateMessageExtra(activeChatId);
@@ -486,15 +496,14 @@ export const ChatInput = memo(function ChatInput({
         // Retry (last msg is user) or Continue (last msg is assistant, roleplay mode)
         try {
           await generate({ chatId: activeChatId, connectionId: null });
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : "Generation failed";
-          toast.error(msg);
+        } catch {
+          // Generation failures are reported by the generation hook; aborts are an expected Stop path.
         }
       }
       return;
     }
 
-    const normalized = normalizeQuotes(raw.trim());
+    const normalized = formatTextQuotes(raw.trim(), quoteFormat);
 
     if (isPromptPreviewMacro(normalized)) {
       if (textareaRef.current) {
@@ -534,6 +543,7 @@ export const ChatInput = memo(function ChatInput({
           setFeedback(result.feedback);
         }
       } catch (error) {
+        if (isAbortError(error)) return;
         const activeChatIdAfterFailure = useChatStore.getState().activeChatId;
         const currentValue = textareaRef.current?.value ?? "";
         const canRestoreVisibleDraft = activeChatIdAfterFailure === activeChatId && currentValue.length === 0;
@@ -626,8 +636,7 @@ export const ChatInput = memo(function ChatInput({
         ...(pendingAttachments.length ? { attachments: pendingAttachments } : {}),
       });
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Generation failed";
-      toast.error(msg);
+      if (isAbortError(error)) return;
       console.error("Send failed:", error);
     }
   }, [
@@ -650,6 +659,7 @@ export const ChatInput = memo(function ChatInput({
     setInputDraft,
     completions,
     onPeekPrompt,
+    quoteFormat,
   ]);
 
   const runQuickSlashCommand = useCallback(
@@ -707,6 +717,7 @@ export const ChatInput = memo(function ChatInput({
           restoreSubmittedDraft();
         }
       } catch (error) {
+        if (isAbortError(error)) return;
         restoreSubmittedDraft();
         const msg = error instanceof Error ? error.message : fallbackError;
         toast.error(msg);
@@ -721,10 +732,10 @@ export const ChatInput = memo(function ChatInput({
       toast.info("Clear or send attachments before using quick impersonate.");
       return;
     }
-    const text = textareaRef.current?.value?.trim() ?? "";
+    const text = formatTextQuotes(textareaRef.current?.value?.trim() ?? "", quoteFormat);
     if (!text) return;
     await runQuickSlashCommand(`/impersonate ${text}`, "Impersonate failed");
-  }, [activeChatId, isStreaming, hasPendingAttachments, runQuickSlashCommand]);
+  }, [activeChatId, isStreaming, hasPendingAttachments, quoteFormat, runQuickSlashCommand]);
 
   const handlePostOnlyButton = useCallback(async () => {
     if (!activeChatId || isStreaming) return;
@@ -743,7 +754,7 @@ export const ChatInput = memo(function ChatInput({
       draftTimerRef.current = null;
     }
 
-    const normalized = normalizeQuotes(raw.trim());
+    const normalized = formatTextQuotes(raw.trim(), quoteFormat);
     const chat = useChatStore.getState().activeChat;
     const cachedCharacters = qc.getQueryData<Array<{ id: string; data: unknown }>>(characterKeys.list());
     const cachedPersonas = qc.getQueryData<Array<Record<string, unknown>>>(characterKeys.personas);
@@ -843,6 +854,7 @@ export const ChatInput = memo(function ChatInput({
     createMessage,
     deleteMessage,
     updateMessageExtra,
+    quoteFormat,
   ]);
 
   const handleGuidedGenerationButton = useCallback(async () => {
@@ -855,10 +867,10 @@ export const ChatInput = memo(function ChatInput({
       toast.info("Clear or send attachments before using guided generation.");
       return;
     }
-    const text = textareaRef.current?.value?.trim() ?? "";
+    const text = formatTextQuotes(textareaRef.current?.value?.trim() ?? "", quoteFormat);
     if (!text) return;
     await runQuickSlashCommand(`/guided ${text}`, "Guided generation failed");
-  }, [activeChatId, isStreaming, requiresManualGuideTarget, hasPendingAttachments, runQuickSlashCommand]);
+  }, [activeChatId, isStreaming, requiresManualGuideTarget, hasPendingAttachments, quoteFormat, runQuickSlashCommand]);
 
   const quickReplyActions = useMemo<QuickReplyAction[]>(() => {
     const actions: QuickReplyAction[] = [];
@@ -965,7 +977,12 @@ export const ChatInput = memo(function ChatInput({
       }
     }
 
-    if (enterToSend && e.key === "Enter" && !e.shiftKey) {
+    const shouldSend =
+      !e.nativeEvent.isComposing &&
+      (enterToSend
+        ? e.key === "Enter" && !e.shiftKey
+        : e.key === "Enter" && (e.metaKey || e.ctrlKey));
+    if (shouldSend) {
       e.preventDefault();
       handleSend();
     }
@@ -976,7 +993,7 @@ export const ChatInput = memo(function ChatInput({
     if (!el) return;
     // Normalize smart quotes directly in the DOM
     const raw = el.value;
-    const fixed = normalizeQuotes(raw);
+    const fixed = formatTextQuotes(raw, quoteFormat);
     if (raw !== fixed) {
       const pos = el.selectionStart;
       el.value = fixed;
@@ -1062,8 +1079,8 @@ export const ChatInput = memo(function ChatInput({
             : { chatId: activeChatId, connectionId: null, forCharacterId: characterId },
         );
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "Generation failed";
-        toast.error(msg);
+        if (isAbortError(error)) return;
+        console.error("Character response failed:", error);
       }
     },
     [activeChatId, isStreaming, generate, hasInput, currentInput, guideGenerations],
@@ -1126,16 +1143,17 @@ export const ChatInput = memo(function ChatInput({
     try {
       const translated = await translateDraftText(raw);
       if (!translated || !textareaRef.current) return;
-      textareaRef.current.value = translated;
+      const formatted = formatTextQuotes(translated, quoteFormat);
+      textareaRef.current.value = formatted;
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + "px";
-      syncInputState(translated);
-      setInputDraft(activeChatId, translated);
+      syncInputState(formatted);
+      setInputDraft(activeChatId, formatted);
       textareaRef.current.focus();
     } finally {
       setIsTranslatingDraft(false);
     }
-  }, [activeChatId, isTranslatingDraft, setInputDraft, syncInputState]);
+  }, [activeChatId, isTranslatingDraft, quoteFormat, setInputDraft, syncInputState]);
 
   const handleSpeechTranscript = useCallback(
     (transcript: string) => {
@@ -1147,7 +1165,7 @@ export const ChatInput = memo(function ChatInput({
       const after = el.value.slice(end);
       const prefix = before && !/\s$/.test(before) ? " " : "";
       const suffix = after && !/^\s/.test(after) ? " " : "";
-      const nextValue = `${before}${prefix}${transcript}${suffix}${after}`;
+      const nextValue = formatTextQuotes(`${before}${prefix}${transcript}${suffix}${after}`, quoteFormat);
       const nextCursor = before.length + prefix.length + transcript.length;
 
       el.value = nextValue;
@@ -1158,7 +1176,7 @@ export const ChatInput = memo(function ChatInput({
       if (activeChatId) setInputDraft(activeChatId, nextValue);
       el.focus();
     },
-    [activeChatId, setInputDraft, syncInputState],
+    [activeChatId, quoteFormat, setInputDraft, syncInputState],
   );
 
   return (
@@ -1259,10 +1277,12 @@ export const ChatInput = memo(function ChatInput({
           onClick={() => fileInputRef.current?.click()}
           disabled={!activeChatId}
           className={cn(
-            "rounded-lg p-1.5 transition-all active:scale-90",
-            attachments.length
-              ? "text-blue-400 hover:bg-foreground/10"
-              : "text-foreground/40 hover:bg-foreground/10 hover:text-foreground/70",
+            CHAT_INPUT_ICON_BUTTON_CLASS,
+            !activeChatId
+              ? CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS
+              : attachments.length
+                ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS
+                : CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
           )}
           title="Attach files"
         >
@@ -1284,11 +1304,13 @@ export const ChatInput = memo(function ChatInput({
           onPaste={handlePaste}
           placeholder={
             activeChatId
-              ? characterNames.length > 0
-                ? characterNames.length > 1
-                  ? `Message @${characterNames.join(", @")}, / for commands`
-                  : `Message @${characterNames[0]}, / for commands`
-                : "Type here, / for commands."
+              ? mode === "roleplay"
+                ? "Respond here, / for commands"
+                : characterNames.length > 0
+                  ? characterNames.length > 1
+                    ? `Message @${characterNames.join(", @")}, / for commands`
+                    : `Message @${characterNames[0]}, / for commands`
+                  : "Type here, / for commands."
               : "Select a chat first"
           }
           disabled={!activeChatId}
@@ -1304,10 +1326,8 @@ export const ChatInput = memo(function ChatInput({
             ref={emojiButtonRef}
             onClick={() => setEmojiOpen((v) => !v)}
             className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
-              emojiOpen
-                ? "text-foreground bg-foreground/10"
-                : "text-foreground/40 hover:bg-foreground/10 hover:text-foreground/70",
+              CHAT_INPUT_ICON_BUTTON_CLASS,
+              emojiOpen ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS : CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
             )}
             title="Emoji"
           >
@@ -1328,12 +1348,12 @@ export const ChatInput = memo(function ChatInput({
             ref={charPickerBtnRef}
             onClick={() => setCharPickerOpen((v) => !v)}
             className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+              CHAT_INPUT_ICON_BUTTON_CLASS,
               guideGenerations && hasInput
-                ? "text-[var(--primary)] bg-[var(--primary)]/15 ring-1 ring-[var(--primary)]/30 hover:bg-[var(--primary)]/20"
+                ? `${CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS} ring-1 ring-foreground/20`
                 : charPickerOpen
-                  ? "text-foreground bg-foreground/10"
-                  : "text-foreground/40 hover:bg-foreground/10 hover:text-foreground/70",
+                  ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS
+                  : CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
             )}
             title={guideGenerations && hasInput ? "Trigger character response (guided)" : "Trigger character response"}
           >
@@ -1347,10 +1367,10 @@ export const ChatInput = memo(function ChatInput({
             onClick={() => void handleTranslateDraft()}
             disabled={!activeChatId || !hasInput || isStreaming || isTranslatingDraft}
             className={cn(
-              "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-200",
+              CHAT_INPUT_ICON_BUTTON_CLASS,
               hasInput && !isStreaming && !isTranslatingDraft
-                ? "text-foreground/70 hover:bg-foreground/10 hover:text-foreground active:scale-90"
-                : "text-foreground/25",
+                ? CHAT_INPUT_ICON_BUTTON_IDLE_CLASS
+                : CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
             )}
             title="Translate draft"
           >
@@ -1362,7 +1382,7 @@ export const ChatInput = memo(function ChatInput({
           <SpeechToTextButton
             disabled={!activeChatId}
             onTranscript={handleSpeechTranscript}
-            className="rounded-full"
+            className={CHAT_INPUT_ICON_BUTTON_CLASS}
             iconSize={16}
           />
         )}
@@ -1384,12 +1404,13 @@ export const ChatInput = memo(function ChatInput({
             !activeChatId
           }
           className={cn(
-            "mari-chat-send-btn flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-200",
+            "mari-chat-send-btn",
+            CHAT_INPUT_ICON_BUTTON_CLASS,
             isStreaming
-              ? "text-foreground hover:opacity-80"
+              ? CHAT_INPUT_ICON_BUTTON_READY_CLASS
               : (hasInput || attachments.length || canRetry || canContinue) && activeChatId && !isReadingAttachments
-                ? "text-foreground hover:text-foreground/80 active:scale-90"
-                : "text-foreground/20",
+                ? CHAT_INPUT_ICON_BUTTON_READY_CLASS
+                : CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
           )}
         >
           {isStreaming ? (

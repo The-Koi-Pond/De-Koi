@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 import { z } from "zod";
 
-export const chatModeSchema = z.enum(["conversation", "roleplay", "visual_novel", "game"]);
+export const chatModeSchema = z.enum(["conversation", "roleplay", "game"]);
 
 export const messageRoleSchema = z.enum(["user", "assistant", "system", "narrator"]);
 

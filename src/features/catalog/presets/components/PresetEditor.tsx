@@ -194,11 +194,7 @@ export function PresetEditor() {
     setLocalDescription(p.description ?? "");
     setLocalWrapFormat((p.wrapFormat ?? "xml") as WrapFormat);
     setLocalAuthor(p.author ?? "");
-    try {
-      setLocalParams(typeof p.parameters === "string" ? JSON.parse(p.parameters) : (p.parameters ?? {}));
-    } catch {
-      setLocalParams({});
-    }
+    setLocalParams(p.parameters ?? {});
   }, [data]);
 
   const handleClose = useCallback(() => {
@@ -251,11 +247,7 @@ export function PresetEditor() {
   const sectionOrder = useMemo(() => {
     if (!data?.preset) return [];
     const p = data.preset as any;
-    try {
-      return typeof p.sectionOrder === "string" ? JSON.parse(p.sectionOrder) : (p.sectionOrder ?? []);
-    } catch {
-      return [];
-    }
+    return Array.isArray(p.sectionOrder) ? p.sectionOrder : [];
   }, [data]);
 
   const orderedSections = useMemo(() => {
@@ -268,15 +260,10 @@ export function PresetEditor() {
     return orderedSections.some((section: any) => {
       if (section.enabled !== "true" && section.enabled !== true) return false;
       if (section.isMarker !== "true" && section.isMarker !== true) return false;
-      try {
-        const config =
-          typeof section.markerConfig === "string" ? JSON.parse(section.markerConfig) : section.markerConfig;
-        return (
-          config?.type === "lorebook" || config?.type === "world_info_before" || config?.type === "world_info_after"
-        );
-      } catch {
-        return false;
-      }
+      const config = section.markerConfig;
+      return (
+        config?.type === "lorebook" || config?.type === "world_info_before" || config?.type === "world_info_after"
+      );
     });
   }, [orderedSections]);
   const parentChatHasLorebook = useMemo(() => {
@@ -697,7 +684,7 @@ function SectionsTab({
   const injectableAgents = useMemo(() => {
     if (!agentConfigs) return [];
     return (agentConfigs as AgentConfigRow[]).filter((a) => {
-      const settings = typeof a.settings === "string" ? JSON.parse(a.settings) : a.settings;
+      const settings = a.settings as unknown as Record<string, unknown>;
       return settings?.injectAsSection === true;
     });
   }, [agentConfigs]);
@@ -1229,10 +1216,7 @@ function SectionsTab({
                       {isMarker &&
                         section.markerConfig &&
                         (() => {
-                          const mc =
-                            typeof section.markerConfig === "string"
-                              ? JSON.parse(section.markerConfig)
-                              : section.markerConfig;
+                          const mc = section.markerConfig;
                           const isAgentMarker = mc.type === "agent_data";
                           return isAgentMarker ? (
                             <div className="space-y-2">
@@ -1570,13 +1554,9 @@ function VariableCard({
   canMoveDown: boolean;
   isReordering: boolean;
 }) {
-  // Parse options
-  let opts: Array<{ id: string; label: string; value: string }> = [];
-  try {
-    opts = typeof variable.options === "string" ? JSON.parse(variable.options) : (variable.options ?? []);
-  } catch {
-    /* empty */
-  }
+  const opts: Array<{ id: string; label: string; value: string }> = Array.isArray(variable.options)
+    ? variable.options
+    : [];
 
   const varName = variable.variableName ?? variable.variable_name ?? "";
   const question = variable.question ?? "";
