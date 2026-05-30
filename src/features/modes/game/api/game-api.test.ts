@@ -11,6 +11,7 @@ const storageApiMock = vi.hoisted(() => ({
   listChatMessages: vi.fn(),
   createChatMessage: vi.fn(),
   updateChatMessage: vi.fn(),
+  updateChatMessageContentIfUnchanged: vi.fn(),
   deleteChatMessage: vi.fn(),
   patchChatMessageExtra: vi.fn(),
   addChatMessageSwipe: vi.fn(),
@@ -566,6 +567,180 @@ describe("gameApi.concludeSession summary normalization", () => {
     expect((result.sessionChat.metadata as Record<string, unknown>).gamePreviousSessionSummaries).toEqual([
       result.summary,
     ]);
+  });
+});
+
+describe("gameApi.skillCheck history serialization", () => {
+  beforeEach(() => {
+    Object.values(storageApiMock).forEach((fn) => fn.mockReset());
+  });
+
+  function mockSkillCheckChat(messageContent: string, messageChatId = "chat-game") {
+    const chat = {
+      id: "chat-game",
+      mode: "game",
+      metadata: {
+        gameCharacterCards: [
+          {
+            name: "Mira",
+            rpgStats: {
+              attributes: [{ name: "WIS", value: 14 }],
+            },
+          },
+        ],
+      },
+    } as unknown as Chat;
+    let message = {
+      id: "message-1",
+      chatId: messageChatId,
+      role: "assistant",
+      content: messageContent,
+    };
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "chats" && id === chat.id) return chat;
+      if (entity === "messages" && id === message.id) return message;
+      return null;
+    });
+    storageApiMock.updateChatMessageContentIfUnchanged.mockImplementation(
+      async (chatId: string, id: string, expectedContent: string, content: string) => {
+        if (id !== message.id || chatId !== message.chatId || message.content !== expectedContent) {
+          return { updated: false, message };
+        }
+        message = { ...message, content };
+        return { updated: true, message };
+      },
+    );
+  }
+
+  it("replaces the unresolved skill_check tag with the resolved result tag", async () => {
+    mockSkillCheckChat(`Try it.\n[skill_check: skill="Perception" dc="15"]\nThen listen.`);
+
+    const res = await gameApi.skillCheck({
+      chatId: "chat-game",
+      skill: "Perception",
+      dc: 15,
+      preRolledD20: 12,
+      messageId: "message-1",
+    });
+
+    expect(res.result.total).toBe(14);
+    expect(res.updatedContent).toContain(`[skill_check: skill="Perception"`);
+    expect(res.updatedContent).toContain(`rolls="12"`);
+    expect(res.updatedContent).toContain(`modifier="2"`);
+    expect(res.updatedContent).toContain(`total="14"`);
+    expect(res.updatedContent).toContain(`result="failure"`);
+    expect(storageApiMock.updateChatMessageContentIfUnchanged).toHaveBeenCalledWith(
+      "chat-game",
+      "message-1",
+      `Try it.\n[skill_check: skill="Perception" dc="15"]\nThen listen.`,
+      res.updatedContent,
+    );
+    expect(storageApiMock.updateChatMessage).not.toHaveBeenCalled();
+  });
+
+  it("retries a skill_check history rewrite after a conditional content conflict", async () => {
+    const chat = {
+      id: "chat-game",
+      mode: "game",
+      metadata: {
+        gameCharacterCards: [
+          {
+            name: "Mira",
+            rpgStats: {
+              attributes: [{ name: "WIS", value: 14 }],
+            },
+          },
+        ],
+      },
+    } as unknown as Chat;
+    const contents = [
+      `Original.\n[skill_check: skill="Perception" dc="15"]`,
+      `Concurrent edit.\n[skill_check: skill="Perception" dc="15"]`,
+    ];
+    let messageReadCount = 0;
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "chats" && id === chat.id) return chat;
+      if (entity === "messages" && id === "message-1") {
+        const content = contents[Math.min(messageReadCount, contents.length - 1)];
+        messageReadCount += 1;
+        return { id: "message-1", chatId: "chat-game", role: "assistant", content };
+      }
+      return null;
+    });
+    storageApiMock.updateChatMessageContentIfUnchanged
+      .mockResolvedValueOnce({ updated: false })
+      .mockImplementationOnce(async (_chatId: string, _id: string, _expectedContent: string, content: string) => ({
+        updated: true,
+        message: { id: "message-1", chatId: "chat-game", role: "assistant", content },
+      }));
+
+    const res = await gameApi.skillCheck({
+      chatId: "chat-game",
+      skill: "Perception",
+      dc: 15,
+      preRolledD20: 12,
+      messageId: "message-1",
+    });
+
+    expect(res.result.total).toBe(14);
+    expect(res.updatedContent).toContain("Concurrent edit.");
+    expect(res.updatedContent).toContain(`result="failure"`);
+    expect(storageApiMock.updateChatMessageContentIfUnchanged).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not rewrite already resolved skill_check tags", async () => {
+    mockSkillCheckChat(
+      `[skill_check: skill="Perception" dc="15" rolls="12" used="12" modifier="2" total="14" RESULT="failure" mode="normal"]`,
+    );
+
+    const res = await gameApi.skillCheck({
+      chatId: "chat-game",
+      skill: "Perception",
+      dc: 15,
+      preRolledD20: 12,
+      messageId: "message-1",
+    });
+
+    expect(res.updatedContent).toBeUndefined();
+    expect(storageApiMock.updateChatMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not rewrite a skill_check tag on a message from another chat", async () => {
+    mockSkillCheckChat(`[skill_check: skill="Perception" dc="15"]`, "other-chat");
+
+    const res = await gameApi.skillCheck({
+      chatId: "chat-game",
+      skill: "Perception",
+      dc: 15,
+      preRolledD20: 12,
+      messageId: "message-1",
+    });
+
+    expect(res.result.total).toBe(14);
+    expect(res.updatedContent).toBeUndefined();
+    expect(storageApiMock.updateChatMessage).not.toHaveBeenCalled();
+    expect(storageApiMock.updateChatMessageContentIfUnchanged).not.toHaveBeenCalled();
+  });
+
+  it("still returns the resolved skill check if history persistence fails", async () => {
+    mockSkillCheckChat(`[skill_check: skill="Perception" dc="15"]`);
+    storageApiMock.updateChatMessageContentIfUnchanged.mockRejectedValueOnce(new Error("storage offline"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const res = await gameApi.skillCheck({
+        chatId: "chat-game",
+        skill: "Perception",
+        dc: 15,
+        preRolledD20: 12,
+        messageId: "message-1",
+      });
+
+      expect(res.result.total).toBe(14);
+      expect(res.updatedContent).toBeUndefined();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 

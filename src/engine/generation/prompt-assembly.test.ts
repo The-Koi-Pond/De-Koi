@@ -1474,6 +1474,39 @@ describe("assembleGenerationPrompt lorebook activation settings", () => {
     expect(promptText(assembly)).not.toContain("LQA_CHAT_BUDGET_CONTENT_SHOULD_NOT_APPEAR");
   });
 
+  it("does not advance timing state for entries skipped by the chat lorebook budget", async () => {
+    const assembly = await assembleGenerationPrompt(
+      storageWithLore([
+        {
+          id: "entry-budgeted-cooldown",
+          lorebookId: "lorebook",
+          name: "Budgeted cooldown entry",
+          content: "LQA_CHAT_BUDGET_TIMING_CONTENT_SHOULD_NOT_APPEAR",
+          enabled: true,
+          constant: true,
+          cooldown: 3,
+        },
+      ]),
+      {
+        chat: { id: "chat", mode: "roleplay", metadata: { lorebookTokenBudget: 1 } },
+        storedMessages: [],
+        connection: {},
+        request: { ...request, promptPresetId: "" },
+        latestUserInput: "",
+      },
+    );
+
+    expect(assembly.activatedLorebookEntries).toHaveLength(0);
+    expect(assembly.budgetSkippedLorebookEntries).toMatchObject([
+      {
+        id: "entry-budgeted-cooldown",
+        blockedBy: "chat",
+        chatBudget: 1,
+      },
+    ]);
+    expect(assembly.lorebookTimingStates).toBeNull();
+  });
+
   it("returns budget skipped lorebook entries for active-world-info scans", async () => {
     const baseStorage = storageWithLore(
       [
@@ -1550,6 +1583,87 @@ describe("assembleGenerationPrompt lorebook activation settings", () => {
       },
     ]);
     expect(promptText(assembly)).not.toContain("LQA_LOREBOOK_BUDGET_CONTENT_SHOULD_NOT_APPEAR");
+  });
+
+  it("returns next timing state when a delayed lorebook entry is still waiting", async () => {
+    const assembly = await assembleGenerationPrompt(
+      storageWithLore([
+        {
+          id: "entry-delay",
+          lorebookId: "lorebook",
+          name: "Delayed moonlit lore",
+          content: "LQA_DELAYED_CONTENT_SHOULD_NOT_APPEAR_YET",
+          keys: ["moonlit"],
+          enabled: true,
+          delay: 1,
+        },
+      ]),
+      {
+        chat: { id: "chat", mode: "roleplay", metadata: {} },
+        storedMessages: [{ role: "user", content: "Tell me about the moonlit path.", contextKind: "history" }],
+        connection: {},
+        request: { ...request, promptPresetId: "" },
+        latestUserInput: "Tell me about the moonlit path.",
+      },
+    );
+
+    expect(assembly.activatedLorebookEntries).toHaveLength(0);
+    expect(promptText(assembly)).not.toContain("LQA_DELAYED_CONTENT_SHOULD_NOT_APPEAR_YET");
+    expect(assembly.lorebookTimingStates).toEqual({
+      "entry-delay": {
+        lastActivatedAt: null,
+        stickyCount: 0,
+        cooldownRemaining: 0,
+        delayRemaining: 0,
+      },
+    });
+  });
+
+  it("uses persisted sticky timing state when scanning active lore", async () => {
+    const assembly = await assembleGenerationPrompt(
+      storageWithLore([
+        {
+          id: "entry-sticky",
+          lorebookId: "lorebook",
+          name: "Sticky moonlit lore",
+          content: "LQA_STICKY_CONTENT_FROM_PRIOR_TRIGGER",
+          keys: ["moonlit"],
+          enabled: true,
+          sticky: 2,
+        },
+      ]),
+      {
+        chat: {
+          id: "chat",
+          mode: "roleplay",
+          metadata: {
+            entryTimingStates: {
+              "entry-sticky": {
+                lastActivatedAt: 1,
+                stickyCount: 2,
+                cooldownRemaining: 0,
+                delayRemaining: 0,
+              },
+            },
+          },
+        },
+        storedMessages: [{ role: "user", content: "No keyword in this turn.", contextKind: "history" }],
+        connection: {},
+        request: { ...request, promptPresetId: "" },
+        latestUserInput: "No keyword in this turn.",
+      },
+    );
+
+    expect(assembly.activatedLorebookEntries.map((entry) => entry.name)).toEqual(["Sticky moonlit lore"]);
+    expect(promptText(assembly)).toContain("LQA_STICKY_CONTENT_FROM_PRIOR_TRIGGER");
+    expect(assembly.lorebookTimingStates).toEqual({
+      "entry-sticky": {
+        lastActivatedAt: 1,
+        stickyCount: 1,
+        cooldownRemaining: 0,
+        delayRemaining: 0,
+      },
+    });
   });
 });
 

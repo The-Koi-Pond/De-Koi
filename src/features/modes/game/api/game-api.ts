@@ -18,6 +18,7 @@ import type {
   HudWidget,
   PartyArc,
   SessionSummary,
+  SkillCheckResult,
 } from "../../../../engine/contracts/types/game";
 import type { RPGAttributes } from "../../../../engine/contracts/types/game-state";
 import { ApiError, type JsonRepairRequest } from "../../../../shared/api/api-errors";
@@ -44,6 +45,7 @@ import {
   mapSheetAttributesToRPG,
   resolveSkillCheck,
 } from "../../../../engine/modes/game/mechanics/skill-check.service";
+import { serializeResolvedSkillCheckTag } from "../../../../engine/shared/scoring/skill-check-format";
 import {
   applyMoraleEvent,
   getMoraleTier,
@@ -1034,6 +1036,50 @@ function playerAttributes(meta: Record<string, unknown>): Partial<RPGAttributes>
   return mapSheetAttributesToRPG(Array.isArray(rpgStats.attributes) ? (rpgStats.attributes as any[]) : undefined);
 }
 
+function replaceFirstUnresolvedSkillCheckTag(content: string, resolvedTag: string): string {
+  let replaced = false;
+  return content.replace(/\[skill_check:\s*([^\]]+)\]/gi, (fullTag, body: string) => {
+    if (replaced) return fullTag;
+    if (/\bresult\s*=/i.test(body)) return fullTag;
+    replaced = true;
+    return resolvedTag;
+  });
+}
+
+const SKILL_CHECK_HISTORY_PERSIST_ATTEMPTS = 3;
+
+async function persistResolvedSkillCheckTag(
+  chatId: string,
+  messageId: string | undefined,
+  result: SkillCheckResult,
+): Promise<string | undefined> {
+  const id = typeof messageId === "string" ? messageId.trim() : "";
+  if (!id) return undefined;
+  try {
+    const conditionalUpdate = storageApi.updateChatMessageContentIfUnchanged;
+    if (typeof conditionalUpdate !== "function") {
+      throw new Error("Conditional chat message content update is unavailable");
+    }
+    const resolvedTag = serializeResolvedSkillCheckTag(result);
+    for (let attempt = 0; attempt < SKILL_CHECK_HISTORY_PERSIST_ATTEMPTS; attempt += 1) {
+      const message = await storageApi.get<ChatMessage>("messages", id);
+      if (typeof message?.chatId !== "string" || message.chatId !== chatId) return undefined;
+      const content = typeof message?.content === "string" ? message.content : "";
+      if (!content) return undefined;
+      const updatedContent = replaceFirstUnresolvedSkillCheckTag(content, resolvedTag);
+      if (updatedContent === content) return undefined;
+      const update = await conditionalUpdate<ChatMessage>(chatId, id, content, updatedContent);
+      if (update.updated) {
+        return typeof update.message?.content === "string" ? update.message.content : updatedContent;
+      }
+    }
+    return undefined;
+  } catch (error) {
+    console.warn("[game] skill check history persist failed", error);
+    return undefined;
+  }
+}
+
 function generatedAssetSlug(value: string): string {
   const slug = value
     .trim()
@@ -1700,22 +1746,24 @@ export const gameApi = {
     disadvantage?: boolean;
     preRolledD20?: number;
     skillModifier?: number;
+    messageId?: string;
   }) {
     const meta = chatMeta(await getChat(data.chatId));
     const attrs = playerAttributes(meta);
     const attr = getGoverningAttribute(data.skill);
     const attrScore = Number(attrs[attr] ?? 10);
+    const result = resolveSkillCheck({
+      skill: data.skill,
+      dc: data.dc,
+      skillModifier: Number(data.skillModifier ?? 0),
+      attributeModifier: Math.floor((attrScore - 10) / 2),
+      advantage: data.advantage,
+      disadvantage: data.disadvantage,
+      preRolledD20: data.preRolledD20,
+    });
     return {
-      result: resolveSkillCheck({
-        skill: data.skill,
-        dc: data.dc,
-        skillModifier: Number(data.skillModifier ?? 0),
-        attributeModifier: Math.floor((attrScore - 10) / 2),
-        advantage: data.advantage,
-        disadvantage: data.disadvantage,
-        preRolledD20: data.preRolledD20,
-      }),
-      updatedContent: undefined as string | undefined,
+      result,
+      updatedContent: await persistResolvedSkillCheckTag(data.chatId, data.messageId, result),
     };
   },
 
