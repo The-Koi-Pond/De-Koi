@@ -124,7 +124,6 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
     activeChatId,
     messages: data.messages,
     pageCount: data.pageCount,
-    msgData: data.msgData,
     hasNextPage: !!data.hasNextPage,
     isFetchingNextPage: data.isFetchingNextPage,
     fetchNextPage: data.fetchNextPage,

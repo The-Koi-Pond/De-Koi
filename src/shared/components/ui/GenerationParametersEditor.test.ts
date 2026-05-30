@@ -52,20 +52,6 @@ describe("GenerationParametersEditor parameter overrides", () => {
     });
   });
 
-  it("preserves explicit show-thoughts overrides so inherited omitted thinking can be corrected", () => {
-    const defaults = getEditableGenerationParameters(ROLEPLAY_PARAMETER_DEFAULTS, {
-      showThoughts: false,
-    });
-
-    expect(defaults.showThoughts).toBe(false);
-    expect(
-      getEditableGenerationParameterOverrides(defaults, {
-        ...defaults,
-        showThoughts: true,
-      }),
-    ).toEqual({ showThoughts: true });
-  });
-
   it("compares custom parameters by value instead of object key order", () => {
     const defaults = getEditableGenerationParameters(ROLEPLAY_PARAMETER_DEFAULTS, {
       customParameters: { provider: { b: 2, a: 1 } },

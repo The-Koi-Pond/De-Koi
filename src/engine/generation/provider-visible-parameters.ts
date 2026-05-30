@@ -31,10 +31,6 @@ function stopSequences(parameters: JsonRecord): string[] | null {
   return stops.length > 0 ? stops.map((entry) => entry.trim()) : null;
 }
 
-function shouldShowThoughts(parameters: JsonRecord): boolean {
-  return boolish(parameters.showThoughts ?? parameters.show_thoughts, true);
-}
-
 function requestMaxTokens(connection: JsonRecord, parameters: JsonRecord, fallback = 1024): number {
   const requested =
     parameterNumber(parameters, ["maxTokens", "max_tokens", "maxOutputTokens", "max_output_tokens"]) ?? fallback;
@@ -123,7 +119,8 @@ function anthropicThinkingEffort(parameters: JsonRecord): string | null {
   const effort = parameterString(parameters, ["reasoningEffort", "reasoning_effort"]);
   if (!effort) return null;
   if (["low", "medium", "high"].includes(effort)) return effort;
-  if (effort === "maximum" || effort === "xhigh") return "xhigh";
+  if (effort === "xhigh") return "xhigh";
+  if (effort === "maximum" || effort === "max") return "max";
   return null;
 }
 
@@ -227,9 +224,7 @@ function visibleAnthropicParameters(
   }
   if (effort) {
     if (adaptiveThinking) {
-      const thinking: Record<string, unknown> = { type: "adaptive" };
-      if (shouldShowThoughts(parameters)) thinking.display = "summarized";
-      body.thinking = thinking;
+      body.thinking = { type: "adaptive", display: "summarized" };
       body.output_config = { effort };
     } else {
       const budgetTokens = anthropicThinkingBudgetTokens(effort);

@@ -474,7 +474,8 @@ fn anthropic_thinking_effort(parameters: &Value) -> Option<&'static str> {
         "low" => Some("low"),
         "medium" => Some("medium"),
         "high" => Some("high"),
-        "maximum" | "xhigh" => Some("xhigh"),
+        "xhigh" => Some("xhigh"),
+        "maximum" | "max" => Some("max"),
         _ => None,
     }
 }
@@ -551,14 +552,6 @@ fn request_messages(request: &LlmRequest) -> Vec<LlmMessage> {
         });
     }
     messages
-}
-
-fn should_show_thoughts(parameters: &Value) -> bool {
-    parameters
-        .get("showThoughts")
-        .or_else(|| parameters.get("show_thoughts"))
-        .and_then(Value::as_bool)
-        .unwrap_or(true)
 }
 
 #[derive(Debug, Clone)]
@@ -2018,11 +2011,7 @@ fn build_anthropic_body(request: &LlmRequest, stream: bool) -> Value {
     }
     if let Some(effort) = thinking_effort {
         if adaptive_thinking {
-            let mut thinking = json!({ "type": "adaptive" });
-            if should_show_thoughts(&request.parameters) {
-                thinking["display"] = json!("summarized");
-            }
-            body["thinking"] = thinking;
+            body["thinking"] = json!({ "type": "adaptive", "display": "summarized" });
             body["output_config"] = json!({ "effort": effort });
         } else {
             let budget_tokens = anthropic_thinking_budget_tokens(effort);
@@ -3010,7 +2999,7 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_opus_48_body_uses_adaptive_xhigh_and_strips_sampling() {
+    fn anthropic_opus_48_body_uses_adaptive_maximum_and_strips_sampling() {
         let request = request_for(
             "anthropic",
             "claude-opus-4-8",
@@ -3031,7 +3020,7 @@ mod tests {
             body["thinking"],
             json!({ "type": "adaptive", "display": "summarized" })
         );
-        assert_eq!(body["output_config"]["effort"], json!("xhigh"));
+        assert_eq!(body["output_config"]["effort"], json!("max"));
         assert!(body.get("temperature").is_none());
         assert!(body.get("top_p").is_none());
         assert!(body.get("top_k").is_none());
@@ -3050,7 +3039,10 @@ mod tests {
         let body = build_anthropic_body(&request, true);
 
         assert_eq!(body["stream"], json!(true));
-        assert_eq!(body["thinking"], json!({ "type": "adaptive" }));
+        assert_eq!(
+            body["thinking"],
+            json!({ "type": "adaptive", "display": "summarized" })
+        );
         assert_eq!(body["output_config"]["effort"], json!("xhigh"));
     }
 
