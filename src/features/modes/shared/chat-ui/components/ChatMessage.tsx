@@ -85,6 +85,7 @@ import {
   messageAttachmentsFromExtra,
 } from "../lib/message-attachments";
 import { resolvePromptSnapshotFromExtra } from "../lib/prompt-snapshot";
+import { ResolvedAvatarImage } from "./ResolvedAvatarImage";
 
 const MESSAGE_ACTION_ICON_SIZE = "1em";
 const MESSAGE_SWIPE_ICON_SIZE = "1.15em";
@@ -407,6 +408,14 @@ interface ChatMessageProps {
   isSelected?: boolean;
   onToggleSelect?: (toggle: MessageSelectionToggle) => void;
 }
+
+type MergedAvatar = {
+  key: string;
+  url: string;
+  crop: AvatarCropValue | null | undefined;
+  avatarFilePath: string | null;
+  avatarFilename: string | null;
+};
 
 /** Regex to match a plain image URL as the entire content. */
 const IMAGE_URL_RE = /^https?:\/\/\S+\.(?:gif|png|jpe?g|webp)(?:\?[^\s]*)?$/i;
@@ -1426,6 +1435,16 @@ export const ChatMessage = memo(function ChatMessage({
   const expressionAvatarUrl =
     !isUser && message.characterId ? (expressionAvatarResolver?.(message, message.characterId) ?? null) : null;
   const avatarUrl = expressionAvatarUrl ?? baseAvatarUrl;
+  const avatarFilePath = !isUser && !expressionAvatarUrl ? (charInfo?.avatarFilePath ?? null) : null;
+  const avatarFilename = !isUser && !expressionAvatarUrl ? (charInfo?.avatarFilename ?? null) : null;
+  const [resolvedAvatarUrl, setResolvedAvatarUrl] = useState<string | null>(null);
+  useEffect(() => {
+    setResolvedAvatarUrl(null);
+  }, [avatarFilePath, avatarFilename, avatarUrl]);
+  const avatarLightboxUrl = resolvedAvatarUrl ?? avatarUrl;
+  const handleResolvedAvatarSrc = useCallback((src: string | null) => {
+    setResolvedAvatarUrl(src);
+  }, []);
   const personaAvatarCrop = isUser
     ? (parseAvatarCropJson(msgPersona?.avatarCrop) ?? personaInfo?.avatarCrop ?? null)
     : null;
@@ -1468,7 +1487,7 @@ export const ChatMessage = memo(function ChatMessage({
 
   // Merged group chat: cycling avatars + cycling name color
   const isMergedGroup = groupChatMode === "merged" && !isUser && chatCharacterIds && chatCharacterIds.length > 1;
-  const mergedAvatars = useMemo(() => {
+  const mergedAvatars = useMemo<MergedAvatar[]>(() => {
     if (!isMergedGroup || !characterMap || !chatCharacterIds) return [];
     return chatCharacterIds
       .map((id) => {
@@ -1476,9 +1495,15 @@ export const ChatMessage = memo(function ChatMessage({
         const expressionUrl = expressionAvatarResolver?.(message, id) ?? null;
         const url = expressionUrl ?? info?.avatarUrl;
         if (!url) return null;
-        return { url, crop: expressionUrl ? null : info?.avatarCrop };
+        return {
+          key: id,
+          url,
+          crop: expressionUrl ? null : info?.avatarCrop,
+          avatarFilePath: expressionUrl ? null : (info?.avatarFilePath ?? null),
+          avatarFilename: expressionUrl ? null : (info?.avatarFilename ?? null),
+        };
       })
-      .filter(Boolean) as { url: string; crop?: AvatarCropValue | null }[];
+      .filter((avatar): avatar is MergedAvatar => avatar !== null);
   }, [isMergedGroup, characterMap, chatCharacterIds, expressionAvatarResolver, message]);
   const mergedNameColors = useMemo(() => {
     if (!isMergedGroup || !characterMap || !chatCharacterIds) return [];
@@ -1494,6 +1519,24 @@ export const ChatMessage = memo(function ChatMessage({
   const mergedNameRef = useRef<HTMLSpanElement>(null);
   const mergedAvatarRefs = useRef<(HTMLImageElement | null)[]>([]);
   const mergedAvatarTailRefs = useRef<(HTMLImageElement | null)[]>([]);
+  const resolvedMergedAvatarUrlsRef = useRef(new Map<string, string>());
+  useEffect(() => {
+    resolvedMergedAvatarUrlsRef.current.clear();
+  }, [mergedAvatars]);
+  const rememberMergedAvatarSrc = useCallback((key: string, src: string | null) => {
+    if (src) {
+      resolvedMergedAvatarUrlsRef.current.set(key, src);
+    } else {
+      resolvedMergedAvatarUrlsRef.current.delete(key);
+    }
+  }, []);
+  const openMergedAvatarLightbox = useCallback(
+    (avatar?: { key: string; url: string }) => {
+      if (!avatar) return;
+      openImageLightbox(resolvedMergedAvatarUrlsRef.current.get(avatar.key) ?? avatar.url);
+    },
+    [openImageLightbox],
+  );
 
   useEffect(() => {
     if (!isMergedGroup) return;
@@ -1634,31 +1677,37 @@ export const ChatMessage = memo(function ChatMessage({
     isMergedGroup && mergedAvatars.length > 0 ? (
       <div className="rpg-avatar-panel-tail absolute inset-0 pointer-events-none overflow-hidden">
         {mergedAvatars.map((avatar, i) => (
-          <img
-            key={`tail-${avatar.url}`}
+          <ResolvedAvatarImage
+            key={`tail-${avatar.key}`}
             ref={(el) => {
               mergedAvatarTailRefs.current[i] = el;
             }}
             src={avatar.url}
+            avatarFilePath={avatar.avatarFilePath}
+            avatarFilename={avatar.avatarFilename}
             alt=""
             aria-hidden="true"
             loading="lazy"
             decoding="async"
             className="rpg-avatar-panel-tail-image absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-700"
             style={{ opacity: i === 0 ? 1 : 0, ...panelMergedAvatarCropStyle(avatar) }}
+            onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
           />
         ))}
       </div>
     ) : avatarUrl ? (
       <div className="rpg-avatar-panel-tail absolute inset-0 pointer-events-none overflow-hidden">
-        <img
+        <ResolvedAvatarImage
           src={avatarUrl}
+          avatarFilePath={avatarFilePath}
+          avatarFilename={avatarFilename}
           alt=""
           aria-hidden="true"
           loading="lazy"
           decoding="async"
           className="rpg-avatar-panel-tail-image absolute inset-0 h-full w-full object-cover object-top"
           style={panelAvatarCropStyle}
+          onResolvedSrc={handleResolvedAvatarSrc}
         />
       </div>
     ) : null
@@ -1866,24 +1915,24 @@ export const ChatMessage = memo(function ChatMessage({
                     "rpg-avatar-glow relative cursor-pointer overflow-hidden ring-2 ring-white/10",
                     compactAvatarFrameClass,
                   )}
-                  onClick={() => {
-                    const visible = mergedAvatars[cycleIndexRef.current];
-                    if (visible) openImageLightbox(visible.url);
-                  }}
+                  onClick={() => openMergedAvatarLightbox(mergedAvatars[cycleIndexRef.current])}
                   aria-label={`Open ${displayName} avatar`}
                 >
                   {mergedAvatars.map((avatar, i) => (
-                    <img
-                      key={avatar.url}
+                    <ResolvedAvatarImage
+                      key={avatar.key}
                       ref={(el) => {
                         mergedAvatarRefs.current[i] = el;
                       }}
                       src={avatar.url}
+                      avatarFilePath={avatar.avatarFilePath}
+                      avatarFilename={avatar.avatarFilename}
                       alt="Group"
                       loading="lazy"
                       decoding="async"
                       className="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
                       style={{ opacity: i === 0 ? 1 : 0, ...compactMergedAvatarCropStyle(avatar) }}
+                      onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
                     />
                   ))}
                 </button>
@@ -1895,16 +1944,19 @@ export const ChatMessage = memo(function ChatMessage({
                       "relative cursor-pointer overflow-hidden ring-2 ring-white/10",
                       compactAvatarFrameClass,
                     )}
-                    onClick={() => openImageLightbox(avatarUrl)}
+                    onClick={() => avatarLightboxUrl && openImageLightbox(avatarLightboxUrl)}
                     aria-label={`Open ${displayName} avatar`}
                   >
-                    <img
+                    <ResolvedAvatarImage
                       src={avatarUrl}
+                      avatarFilePath={avatarFilePath}
+                      avatarFilename={avatarFilename}
                       alt={displayName}
                       loading="lazy"
                       decoding="async"
                       className="h-full w-full object-cover"
                       style={compactAvatarCropStyle}
+                      onResolvedSrc={handleResolvedAvatarSrc}
                     />
                   </button>
                 </div>
@@ -2011,24 +2063,24 @@ export const ChatMessage = memo(function ChatMessage({
                         <button
                           type="button"
                           className="rpg-avatar-panel-media rpg-avatar-panel absolute inset-0 block h-full w-full cursor-zoom-in overflow-hidden"
-                          onClick={() => {
-                            const visible = mergedAvatars[cycleIndexRef.current];
-                            if (visible) openImageLightbox(visible.url);
-                          }}
+                          onClick={() => openMergedAvatarLightbox(mergedAvatars[cycleIndexRef.current])}
                           aria-label={`Open ${displayName} avatar`}
                         >
                           {mergedAvatars.map((avatar, i) => (
-                            <img
-                              key={avatar.url}
+                            <ResolvedAvatarImage
+                              key={avatar.key}
                               ref={(el) => {
                                 mergedAvatarRefs.current[i] = el;
                               }}
                               src={avatar.url}
+                              avatarFilePath={avatar.avatarFilePath}
+                              avatarFilename={avatar.avatarFilename}
                               alt="Group"
                               loading="lazy"
                               decoding="async"
                               className="absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-700"
                               style={{ opacity: i === 0 ? 1 : 0, ...panelMergedAvatarCropStyle(avatar) }}
+                              onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
                             />
                           ))}
                         </button>
@@ -2039,16 +2091,19 @@ export const ChatMessage = memo(function ChatMessage({
                             "rpg-avatar-panel-media absolute inset-0 block h-full w-full cursor-zoom-in overflow-hidden",
                             !isUser && "rpg-avatar-panel",
                           )}
-                          onClick={() => openImageLightbox(avatarUrl)}
+                          onClick={() => avatarLightboxUrl && openImageLightbox(avatarLightboxUrl)}
                           aria-label={`Open ${displayName} avatar`}
                         >
-                          <img
+                          <ResolvedAvatarImage
                             src={avatarUrl}
+                            avatarFilePath={avatarFilePath}
+                            avatarFilename={avatarFilename}
                             alt={displayName}
                             loading="lazy"
                             decoding="async"
                             className="h-full w-full object-cover object-top"
                             style={panelAvatarCropStyle}
+                            onResolvedSrc={handleResolvedAvatarSrc}
                           />
                         </button>
                       ) : (
@@ -2402,24 +2457,24 @@ export const ChatMessage = memo(function ChatMessage({
               <button
                 type="button"
                 className="relative h-8 w-8 cursor-pointer overflow-hidden rounded-full"
-                onClick={() => {
-                  const visible = mergedAvatars[cycleIndexRef.current];
-                  if (visible) openImageLightbox(visible.url);
-                }}
+                onClick={() => openMergedAvatarLightbox(mergedAvatars[cycleIndexRef.current])}
                 aria-label={`Open ${displayName} avatar`}
               >
                 {mergedAvatars.map((avatar, i) => (
-                  <img
-                    key={avatar.url}
+                  <ResolvedAvatarImage
+                    key={avatar.key}
                     ref={(el) => {
                       mergedAvatarRefs.current[i] = el;
                     }}
                     src={avatar.url}
+                    avatarFilePath={avatar.avatarFilePath}
+                    avatarFilename={avatar.avatarFilename}
                     alt="Group"
                     loading="lazy"
                     decoding="async"
                     className="absolute inset-0 h-8 w-8 object-cover transition-opacity duration-700"
                     style={{ opacity: i === 0 ? 1 : 0, ...getAvatarCropStyle(avatar.crop) }}
+                    onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
                   />
                 ))}
               </button>
@@ -2427,16 +2482,19 @@ export const ChatMessage = memo(function ChatMessage({
               <button
                 type="button"
                 className="relative h-8 w-8 cursor-pointer overflow-hidden rounded-full"
-                onClick={() => openImageLightbox(avatarUrl)}
+                onClick={() => avatarLightboxUrl && openImageLightbox(avatarLightboxUrl)}
                 aria-label={`Open ${displayName} avatar`}
               >
-                <img
+                <ResolvedAvatarImage
                   src={avatarUrl}
+                  avatarFilePath={avatarFilePath}
+                  avatarFilename={avatarFilename}
                   alt={displayName}
                   loading="lazy"
                   decoding="async"
                   className="h-full w-full object-cover"
                   style={avatarCropStyle}
+                  onResolvedSrc={handleResolvedAvatarSrc}
                 />
               </button>
             ) : (

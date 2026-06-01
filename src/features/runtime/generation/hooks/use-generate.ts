@@ -19,16 +19,20 @@ import type {
   PresentCharacter,
 } from "../../../../engine/contracts/types/game-state";
 import { chatBackgroundMetadataToUrl } from "../../../../shared/lib/backgrounds";
+import { chatCommandApi } from "../../../../shared/api/chat-command-api";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { integrationGateway } from "../../../../shared/api/integration-gateway";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { visualAssetsApi } from "../../../../shared/api/visual-assets-api";
 import { requestImagePromptReview } from "../../../../shared/components/ui/ImagePromptReviewHost";
+import { showConversationLocalNotification } from "../../../../shared/lib/local-notifications";
+import { playNotificationPing } from "../../../../shared/lib/notification-sound";
 import { useAgentStore, type PendingCardUpdate } from "../../../../shared/stores/agent.store";
 import { formatAgentFailuresToast, toAgentFailure, type AgentFailure } from "../../../../shared/lib/agent-failures";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import type { AvatarCropValue } from "../../../../shared/lib/utils";
 import { useGameStateStore } from "../../world-state/index";
 import { worldStateApi, type WorldStateTarget } from "../../world-state/index";
 import {
@@ -38,6 +42,7 @@ import {
   timelineMessageProjection,
 } from "../../../catalog/chats/index";
 import { characterKeys } from "../../../catalog/characters/index";
+import { personaKeys } from "../../../catalog/personas/index";
 import {
   applyLorebookKeeperUpdate,
   buildPendingLorebookUpdates,
@@ -49,6 +54,7 @@ import {
   type GenerationReplayInput,
   type GenerationReplay,
 } from "../../../../engine/generation/generation-replay";
+import { findPersonaSnapshotForChat } from "../../../../engine/generation/persona-snapshot";
 import { readNonNegativeInteger } from "../../../../engine/generation/runtime-records";
 import {
   applyQuestUpdatesToPlayerStats,
@@ -58,6 +64,7 @@ import {
 } from "../../../../engine/shared/game-state/player-stats";
 import type { AgentDebugEntry } from "../../../../engine/contracts/types/agent";
 import type { IntegrationGateway } from "../../../../engine/capabilities/integrations";
+import type { HapticStatus } from "../../../../engine/contracts/types/haptic";
 
 export type GenerateArgs = GenerationReplayInput & {
   chatId: string;
@@ -81,6 +88,18 @@ const AGENT_DEBUG_FLUSH_CONTINUE_DELAY_MS = 16;
 const scheduledChatRefreshTimers = new Map<string, number>();
 const queuedAgentDebugEntries: Array<Omit<AgentDebugEntry, "timestamp"> & { timestamp?: number }> = [];
 let agentDebugFlushTimer: number | null = null;
+
+function eventCharacters(event: StreamEvent): string[] {
+  const value = parseMaybeRecord(event.data).characters;
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string" && !!entry.trim())
+    : [];
+}
+
+function characterLabel(names: string[], fallback = "Character"): string {
+  if (names.length === 1) return names[0]!;
+  return names.length > 1 ? names.join(", ") : fallback;
+}
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message;
@@ -131,11 +150,42 @@ function sortMessagesByCreatedAt(messages: Message[]): Message[] {
   });
 }
 
-function optimisticUserMessage(args: GenerateArgs): Message | null {
+function addPersonaRows(target: unknown[], rows: unknown): void {
+  if (Array.isArray(rows)) {
+    target.push(...rows.filter(isRecord));
+  } else if (isRecord(rows)) {
+    target.push(rows);
+  }
+}
+
+function cachedChatForPersonaSnapshot(queryClient: QueryClient, chatId: string): unknown {
+  const detail = queryClient.getQueryData<Chat>(chatKeys.detail(chatId));
+  if (detail) return detail;
+  const list = queryClient.getQueryData<Chat[]>(chatKeys.list());
+  return Array.isArray(list) ? list.find((chat) => readString(chat.id).trim() === chatId) : null;
+}
+
+function cachedPersonaSnapshot(queryClient: QueryClient, chatId: string) {
+  const chat = cachedChatForPersonaSnapshot(queryClient, chatId);
+  const chatRecord = isRecord(chat) ? chat : {};
+  const personaId = readString(chatRecord.personaId).trim();
+  const personas: unknown[] = [];
+  addPersonaRows(personas, queryClient.getQueryData(personaKeys.list));
+  addPersonaRows(personas, queryClient.getQueryData(personaKeys.summaries));
+  addPersonaRows(personas, queryClient.getQueryData(personaKeys.active));
+  if (personaId) {
+    addPersonaRows(personas, queryClient.getQueryData(personaKeys.detail(personaId)));
+    addPersonaRows(personas, queryClient.getQueryData(personaKeys.summaryDetail(personaId)));
+  }
+  return findPersonaSnapshotForChat(personas, chat);
+}
+
+function optimisticUserMessage(queryClient: QueryClient, args: GenerateArgs): Message | null {
   if (args.impersonate === true || readString(args.regenerateMessageId).trim()) return null;
   const content = readString(args.userMessage).trim() || readString(args.message).trim();
   if (!content) return null;
   const attachments = Array.isArray(args.attachments) ? args.attachments : [];
+  const personaSnapshot = cachedPersonaSnapshot(queryClient, args.chatId);
   const createdAt = new Date().toISOString();
   return {
     id: `__optimistic_${Date.now()}`,
@@ -149,6 +199,7 @@ function optimisticUserMessage(args: GenerateArgs): Message | null {
       isGenerated: false,
       tokenCount: null,
       generationInfo: null,
+      personaSnapshot,
       ...(attachments.length ? { attachments } : {}),
     },
     createdAt,
@@ -169,7 +220,7 @@ async function assertChatCanGenerate(queryClient: QueryClient, chatId: string) {
 }
 
 function insertOptimisticUserMessage(queryClient: QueryClient, args: GenerateArgs) {
-  const optimistic = optimisticUserMessage(args);
+  const optimistic = optimisticUserMessage(queryClient, args);
   if (!optimistic) return;
   queryClient.setQueryData<InfiniteData<Message[]>>(chatKeys.messages(args.chatId), (old) => {
     if (!old?.pages?.length) return old;
@@ -294,6 +345,75 @@ function scheduleChatQueryRefresh(queryClient: QueryClient, chatId: string): voi
     ]).catch((error) => console.warn("[generation] chat cache refresh failed", error));
   }, 75);
   scheduledChatRefreshTimers.set(chatId, timer);
+}
+
+async function chatForNotification(queryClient: QueryClient, chatId: string): Promise<Chat | null> {
+  const cached = queryClient.getQueryData<Chat>(chatKeys.detail(chatId));
+  if (cached) return cached;
+  return storageApi.get<Chat>("chats", chatId).catch(() => null);
+}
+
+async function characterNotificationInfo(characterId: string | null): Promise<{
+  characterName: string;
+  avatarUrl: string | null;
+  avatarCrop: AvatarCropValue | null;
+}> {
+  if (!characterId) return { characterName: "Someone", avatarUrl: null, avatarCrop: null };
+
+  try {
+    const row = await storageApi.get<Record<string, unknown>>("characters", characterId);
+    if (!row) return { characterName: "Someone", avatarUrl: null, avatarCrop: null };
+    const data = parseMaybeRecord(row.data);
+    const extensions = parseMaybeRecord(data.extensions);
+    return {
+      characterName: readString(data.name).trim() || readString(row.name).trim() || "Someone",
+      avatarUrl: readString(row.avatarPath).trim() || null,
+      avatarCrop: (extensions.avatarCrop ?? null) as AvatarCropValue | null,
+    };
+  } catch {
+    return { characterName: "Someone", avatarUrl: null, avatarCrop: null };
+  }
+}
+
+async function notifyOffChatAssistantMessage(queryClient: QueryClient, chatId: string, rawMessage: unknown): Promise<void> {
+  const state = useChatStore.getState();
+  if (state.activeChatId === chatId) return;
+
+  const savedMessage = savedMessagePayload(rawMessage, chatId);
+  if (!savedMessage || savedMessage.role !== "assistant") return;
+
+  const chat = await chatForNotification(queryClient, chatId);
+  if (chat?.mode !== "conversation" && chat?.mode !== "roleplay") return;
+
+  const characterId = readString(savedMessage.characterId).trim() || null;
+  const { characterName, avatarUrl, avatarCrop } = await characterNotificationInfo(characterId);
+  if (useChatStore.getState().activeChatId === chatId) return;
+
+  void chatCommandApi
+    .markAutonomousUnread<Chat>(chatId, { characterId })
+    .then((updatedChat) => {
+      queryClient.setQueryData(chatKeys.detail(chatId), updatedChat);
+      void queryClient.invalidateQueries({ queryKey: chatKeys.list() });
+    })
+    .catch(() => {
+      /* persistence is best-effort; keep the local notification */
+    });
+
+  const latestState = useChatStore.getState();
+  latestState.incrementUnread(chatId);
+  latestState.addNotification(chatId, characterName, avatarUrl, avatarCrop);
+
+  const uiState = useUIStore.getState();
+  if (chat.mode === "conversation") {
+    if (uiState.convoNotificationSound) playNotificationPing();
+    void showConversationLocalNotification({
+      enabled: uiState.conversationBrowserNotifications,
+      characterName,
+      tag: `marinara-conversation-${chatId}`,
+    });
+  } else if (uiState.rpNotificationSound) {
+    playNotificationPing();
+  }
 }
 
 function parseMaybeRecord(value: unknown): Record<string, unknown> {
@@ -812,6 +932,8 @@ function delay(ms: number): Promise<void> {
 }
 
 async function applyHapticAgentResult(rawData: unknown) {
+  const status = await integrationGateway.haptic.status<HapticStatus>().catch(() => null);
+  if (!status?.connected || !Array.isArray(status.devices) || status.devices.length === 0) return;
   const data = parseMaybeRecord(rawData);
   const rawCommands = Array.isArray(data.commands) ? data.commands : [];
   for (const rawCommand of rawCommands) {
@@ -833,6 +955,13 @@ async function applyHapticAgentResult(rawData: unknown) {
       console.warn("Failed to send haptic agent command", error);
     }
   }
+}
+
+async function hapticFeedbackEnabledForChat(queryClient: QueryClient, chatId: string): Promise<boolean> {
+  const cachedChat =
+    queryClient.getQueryData<Chat>(chatKeys.detail(chatId)) ??
+    ((await storageApi.get<Chat>("chats", chatId).catch(() => null)) as Chat | null);
+  return parseMaybeRecord(cachedChat?.metadata).enableHapticFeedback === true;
 }
 
 async function applyAgentResultEffects(
@@ -909,7 +1038,9 @@ async function applyAgentResultEffects(
     }
   }
 
-  if (result.type === "haptic_command" || result.agentType === "haptic") await applyHapticAgentResult(result.data);
+  if (result.type === "haptic_command" || result.agentType === "haptic") {
+    if (await hapticFeedbackEnabledForChat(queryClient, chatId)) await applyHapticAgentResult(result.data);
+  }
   if (result.type === "background_change" || result.agentType === "background") {
     await applyBackgroundChoice(chatId, data.chosen);
   }
@@ -943,6 +1074,8 @@ export async function runGenerationWithUi(
   useAgentStore.getState().setProcessing(true);
 
   let received = "";
+  let receivedAnyContent = false;
+  let receivedTurnContent = false;
   let receivedThinking = false;
   let visibleStreamText = "";
   let committedStreamText = "";
@@ -1107,7 +1240,37 @@ export async function runGenerationWithUi(
     await flushVisibleStreamText();
   };
 
+  const resetLiveGenerationBuffers = () => {
+    cancelTypewriterFrame();
+    received = "";
+    receivedTurnContent = false;
+    receivedThinking = false;
+    visibleStreamText = "";
+    committedStreamText = "";
+    lastStreamBufferCommitAt = 0;
+    thinkingText = "";
+    committedThinkingText = "";
+    lastThinkingBufferCommitAt = null;
+    pendingReveal = "";
+    typewriterActive = false;
+    lastTypewriterPaintAt = 0;
+    typewriterRemainder = 0;
+    resolveAllRevealWaiters();
+    useChatStore.getState().setStreamBuffer("", chatId);
+    useChatStore.getState().setThinkingBuffer("", chatId);
+  };
+
   const ownsChatController = () => useChatStore.getState().abortControllers.get(chatId) === controller;
+
+  const clearChatAvailabilityState = () => {
+    const state = useChatStore.getState();
+    state.setPerChatTyping(chatId, null);
+    state.setPerChatDelayed(chatId, null);
+    if (state.activeChatId === chatId) {
+      state.setTypingCharacterName(null);
+      state.setDelayedCharacterInfo(null);
+    }
+  };
 
   const queueAgentResultEffect = (rawResult: unknown) => {
     pendingAgentResultEffects.push(rawResult);
@@ -1131,6 +1294,7 @@ export async function runGenerationWithUi(
   };
 
   let foregroundGenerationReleased = false;
+  let groupTurnActive = false;
 
   const releaseForegroundGenerationUi = () => {
     if (foregroundGenerationReleased) return;
@@ -1139,11 +1303,11 @@ export async function runGenerationWithUi(
     foregroundGenerationReleased = true;
     state.setAbortController(chatId, null);
     state.setMariPhase(chatId, "idle");
+    clearChatAvailabilityState();
     if (state.streamingChatId === chatId) {
       state.setStreaming(false, chatId);
       state.setRegenerateMessageId(null);
       state.setGenerationPhase(null);
-      state.setTypingCharacterName(null);
       state.setStreamingCharacterId(null);
     }
     if (useChatStore.getState().abortControllers.size === 0) {
@@ -1178,9 +1342,9 @@ export async function runGenerationWithUi(
           if (!foregroundGenerationReleased && typeof event.data === "string") {
             if (!receivedThinking) {
               receivedThinking = true;
+              clearChatAvailabilityState();
               const state = useChatStore.getState();
-              state.setTypingCharacterName(null);
-              state.setGenerationPhase("Thinking...");
+              if (state.activeChatId === chatId) state.setGenerationPhase("Thinking...");
               state.setMariPhase(chatId, "thinking");
             }
             appendThinkingText(event.data);
@@ -1189,6 +1353,12 @@ export async function runGenerationWithUi(
         case "token":
         case "delta":
           if (!foregroundGenerationReleased && typeof event.data === "string") {
+            const firstVisibleToken = !receivedTurnContent;
+            receivedTurnContent = true;
+            receivedAnyContent = true;
+            if (firstVisibleToken) {
+              clearChatAvailabilityState();
+            }
             received += event.data;
             enqueueVisibleStreamText(event.data);
           }
@@ -1199,7 +1369,7 @@ export async function runGenerationWithUi(
             if (event.type === "user_message") await flushLiveGenerationBuffers();
             upsertCachedMessage(queryClient, chatId, event.data);
             scheduleChatQueryRefresh(queryClient, chatId);
-            releaseForegroundGenerationUi();
+            if (event.type !== "user_message") releaseForegroundGenerationUi();
             drainAgentResultEffects();
           }
           break;
@@ -1208,12 +1378,64 @@ export async function runGenerationWithUi(
             await flushLiveGenerationBuffers();
             upsertCachedMessage(queryClient, chatId, event.data, { replaceMessageId: regenerateMessageId });
             scheduleChatQueryRefresh(queryClient, chatId);
+            await notifyOffChatAssistantMessage(queryClient, chatId, event.data);
             const trackerTarget = trackerTargetFromMessagePayload(event.data);
             runDeferredGenerationWork("game state refresh", () => refreshGameStateFromStorage(chatId, trackerTarget));
-            releaseForegroundGenerationUi();
+            if (groupTurnActive) {
+              resetLiveGenerationBuffers();
+            } else {
+              releaseForegroundGenerationUi();
+            }
             drainAgentResultEffects();
           }
           break;
+        case "group_turn": {
+          groupTurnActive = true;
+          await flushLiveGenerationBuffers();
+          resetLiveGenerationBuffers();
+          const data = parseMaybeRecord(event.data);
+          const characterId = readString(data.characterId).trim();
+          const characterName = readString(data.characterName).trim();
+          if (useChatStore.getState().activeChatId === chatId) {
+            useChatStore.getState().setStreamingCharacterId(characterId || null);
+          }
+          if (characterName) {
+            const state = useChatStore.getState();
+            state.setPerChatTyping(chatId, characterName);
+            if (state.activeChatId === chatId) state.setTypingCharacterName(characterName);
+          }
+          break;
+        }
+        case "typing": {
+          const label = characterLabel(eventCharacters(event));
+          const state = useChatStore.getState();
+          state.setPerChatTyping(chatId, label);
+          state.setPerChatDelayed(chatId, null);
+          if (state.activeChatId === chatId) {
+            state.setDelayedCharacterInfo(null);
+            state.setTypingCharacterName(label);
+          }
+          break;
+        }
+        case "delayed": {
+          const label = characterLabel(eventCharacters(event));
+          const status = readString(parseMaybeRecord(event.data).status, "idle");
+          const info = { name: label, status };
+          const state = useChatStore.getState();
+          state.setPerChatDelayed(chatId, info);
+          if (state.activeChatId === chatId) state.setDelayedCharacterInfo(info);
+          runDeferredGenerationWork("character status refresh", () =>
+            queryClient.invalidateQueries({ queryKey: characterKeys.list() }),
+          );
+          break;
+        }
+        case "offline": {
+          const label = characterLabel(eventCharacters(event), "Characters");
+          const verb = label === "Characters" || label.includes(",") ? "are" : "is";
+          toast(`${label} ${verb} offline. They'll respond when they're back online.`);
+          clearChatAvailabilityState();
+          break;
+        }
         case "agent_result":
           queueAgentResultEffect(event.data);
           break;
@@ -1314,7 +1536,7 @@ export async function runGenerationWithUi(
     }
     await flushLiveGenerationBuffers();
     scheduleChatQueryRefresh(queryClient, chatId);
-    return received.length > 0;
+    return receivedAnyContent;
   } catch (error) {
     if (!isAbortError(error)) {
       const message = errorMessage(error);
@@ -1416,6 +1638,8 @@ export function useGenerate() {
             { storage: storageApi, llm: llmApi, integrations: reviewedIntegrationGateway, visuals: visualAssetsApi },
             {
               ...streamArgs,
+              userStatus: useUIStore.getState().userStatus,
+              userActivity: useUIStore.getState().userActivity,
               userTimeZone: resolveUserTimeZone(),
               imagePromptSettings: {
                 includeAppearances: useUIStore.getState().imagePromptIncludeAppearances,

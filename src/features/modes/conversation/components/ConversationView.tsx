@@ -23,6 +23,7 @@ import {
   Image as ImageIcon,
   ArrowRightLeft,
   MoreHorizontal,
+  ScrollText,
 } from "lucide-react";
 import { ConversationMessage } from "./ConversationMessage";
 import { ConversationInput } from "./ConversationInput";
@@ -36,6 +37,7 @@ import { playNotificationPing } from "../../../../shared/lib/notification-sound"
 import { getAvatarCropStyle, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { usePageActivity } from "../../../../shared/hooks/use-page-activity";
 import { invalidateCharacterCollectionQueries } from "../../../catalog/characters/index";
+import { useUpdateChatMetadata } from "../../../catalog/chats/index";
 import { getConversationStatus } from "../../../../engine/modes/chat/autonomous/autonomous.service";
 import { storageApi } from "../../../../shared/api/storage-api";
 import type { CharacterMap, MessageSelectionToggle, PeekPromptOptions, PersonaInfo } from "../../shared/chat-ui/types";
@@ -44,6 +46,11 @@ import type { Message } from "../../../../engine/contracts/types/chat";
 const ConversationAutonomousEffects = lazy(async () => {
   const module = await import("./ConversationAutonomousEffects");
   return { default: module.ConversationAutonomousEffects };
+});
+
+const SummaryPopover = lazy(async () => {
+  const module = await import("../../shared/chat-ui/index");
+  return { default: module.SummaryPopover };
 });
 
 interface ConversationViewProps {
@@ -68,6 +75,7 @@ interface ConversationViewProps {
   onSetActiveSwipe: (messageId: string, index: number) => void;
   onPeekPrompt: (options?: PeekPromptOptions) => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
+  onBranch: (messageId: string) => void;
   lastAssistantMessageId: string | null;
   onOpenSettings: () => void;
   onOpenFiles: () => void;
@@ -332,6 +340,7 @@ export function ConversationView({
   onSetActiveSwipe,
   onPeekPrompt,
   onToggleHiddenFromAI,
+  onBranch,
   lastAssistantMessageId,
   onOpenSettings,
   onOpenFiles,
@@ -411,6 +420,12 @@ export function ConversationView({
   }, [convoGradient, theme]);
   const hasAutonomousMessaging = !!chatMeta.autonomousMessages || !!chatMeta.characterExchanges;
   const [mobileWorldInfoOpen, setMobileWorldInfoOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const updateMeta = useUpdateChatMetadata();
+  const summaryContextSize =
+    typeof chatMeta.summaryContextSize === "number" && Number.isFinite(chatMeta.summaryContextSize)
+      ? chatMeta.summaryContextSize
+      : 50;
   const renderToolbarActions = (compact = false) => (
     <>
       <ChatBranchSelector
@@ -422,6 +437,28 @@ export function ConversationView({
           compact ? "bg-transparent text-foreground/80 hover:bg-[var(--accent)] hover:text-foreground" : undefined
         }
       />
+      <div className="relative" onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={() => setSummaryOpen((open) => !open)}
+          className={compact ? MOBILE_MENU_BTN : HEADER_BTN}
+          title="Chat Summary"
+          aria-label="Chat Summary"
+        >
+          <ScrollText size="0.875rem" />
+        </button>
+        {summaryOpen && compact === (typeof window !== "undefined" && window.innerWidth < 768) && (
+          <Suspense fallback={null}>
+            <SummaryPopover
+              chatId={chatId}
+              summary={chatMetaString(chatMeta.summary, "") || null}
+              contextSize={summaryContextSize}
+              totalMessageCount={totalMessageCount}
+              onContextSizeChange={(size) => updateMeta.mutate({ id: chatId, summaryContextSize: size })}
+              onClose={() => setSummaryOpen(false)}
+            />
+          </Suspense>
+        )}
+      </div>
       {compact ? (
         <button
           onClick={() => setMobileWorldInfoOpen(true)}
@@ -809,7 +846,11 @@ export function ConversationView({
   }, [hiddenCount]);
 
   return (
-    <div className="mari-chat-area mari-card-css relative flex flex-1 flex-col overflow-hidden" data-chat-mode="conversation" style={{ ...gradientStyle, isolation: "isolate" }}>
+    <div
+      className="mari-chat-area mari-card-css relative flex flex-1 flex-col overflow-hidden"
+      data-chat-mode="conversation"
+      style={{ ...gradientStyle, isolation: "isolate" }}
+    >
       {/* ── Messages scroll area ── */}
       <div ref={scrollRef} className="mari-messages-scroll flex-1 overflow-y-auto overflow-x-hidden">
         {/* Floating header — character info + action buttons */}
@@ -1011,6 +1052,7 @@ export function ConversationView({
                   onSetActiveSwipe={onSetActiveSwipe}
                   onPeekPrompt={onPeekPrompt}
                   onToggleHiddenFromAI={onToggleHiddenFromAI}
+                  onBranch={onBranch}
                 />,
               );
               i = j;
@@ -1048,6 +1090,7 @@ export function ConversationView({
                 onSetActiveSwipe={onSetActiveSwipe}
                 onPeekPrompt={onPeekPrompt}
                 onToggleHiddenFromAI={onToggleHiddenFromAI}
+                onBranch={onBranch}
                 isLastAssistantMessage={msg.id === lastAssistantMessageId}
                 characterMap={characterMap}
                 personaInfo={personaInfo}
@@ -1180,6 +1223,7 @@ function SplitMessageGroup({
   onSetActiveSwipe,
   onPeekPrompt,
   onToggleHiddenFromAI,
+  onBranch,
 }: {
   items: Array<{ key: string; msg: Message; isGrouped: boolean; index: number }>;
   isStreaming: boolean;
@@ -1196,6 +1240,7 @@ function SplitMessageGroup({
   onSetActiveSwipe: (id: string, index: number) => void;
   onPeekPrompt: (options?: PeekPromptOptions) => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
+  onBranch: (messageId: string) => void;
 }) {
   const [showActions, setShowActions] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -1237,6 +1282,7 @@ function SplitMessageGroup({
           onSetActiveSwipe={onSetActiveSwipe}
           onPeekPrompt={onPeekPrompt}
           onToggleHiddenFromAI={onToggleHiddenFromAI}
+          onBranch={onBranch}
           isLastAssistantMessage={false}
           characterMap={characterMap}
           chatCharacterIds={chatCharacterIds}
@@ -1313,6 +1359,7 @@ function SplitMessageGroup({
                 onSetActiveSwipe={onSetActiveSwipe}
                 onPeekPrompt={onPeekPrompt}
                 onToggleHiddenFromAI={onToggleHiddenFromAI}
+                onBranch={onBranch}
                 isLastAssistantMessage={false}
                 characterMap={characterMap}
                 chatCharacterIds={chatCharacterIds}
@@ -1340,6 +1387,7 @@ function SplitMessageGroup({
               onSetActiveSwipe={onSetActiveSwipe}
               onPeekPrompt={onPeekPrompt}
               onToggleHiddenFromAI={onToggleHiddenFromAI}
+              onBranch={onBranch}
               onEditClick={handleStartEdit}
               isLastAssistantMessage={firstItem.msg.id === lastAssistantMessageId}
               characterMap={characterMap}
@@ -1368,6 +1416,7 @@ function SplitMessageGroup({
               onSetActiveSwipe={onSetActiveSwipe}
               onPeekPrompt={onPeekPrompt}
               onToggleHiddenFromAI={isChild ? undefined : onToggleHiddenFromAI}
+              onBranch={isChild ? undefined : onBranch}
               onEditClick={handleStartEdit}
               isLastAssistantMessage={msg.id === lastAssistantMessageId}
               characterMap={characterMap}

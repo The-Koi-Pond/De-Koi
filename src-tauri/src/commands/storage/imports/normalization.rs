@@ -7,7 +7,6 @@ pub(super) fn string_field(value: &Value, key: &str) -> String {
         .unwrap_or("")
         .to_string()
 }
-
 pub(super) fn string_array(value: Option<&Value>) -> Vec<String> {
     match value {
         Some(Value::Array(items)) => items
@@ -21,7 +20,6 @@ pub(super) fn string_array(value: Option<&Value>) -> Vec<String> {
         _ => Vec::new(),
     }
 }
-
 pub(super) fn first_string(values: Vec<Option<&Value>>) -> String {
     values
         .into_iter()
@@ -32,7 +30,6 @@ pub(super) fn first_string(values: Vec<Option<&Value>>) -> String {
         .unwrap_or("")
         .to_string()
 }
-
 pub(super) fn source_character_data(payload: &Value) -> Value {
     if matches!(
         payload.get("spec").and_then(Value::as_str),
@@ -53,7 +50,6 @@ pub(super) fn source_character_data(payload: &Value) -> Value {
     }
     payload.clone()
 }
-
 pub(super) fn embedded_lorebook(payload: &Value) -> Option<Value> {
     let wrapped = source_character_data(payload);
     let mut candidates = Vec::new();
@@ -111,7 +107,10 @@ pub(super) fn character_import_extensions(
     extensions
         .entry("altDescriptions".to_string())
         .or_insert_with(|| alt_descriptions(data));
-
+    let bot_browser_source = string_field(payload, "_botBrowserSource");
+    if !bot_browser_source.trim().is_empty() {
+        extensions.insert("botBrowserSource".to_string(), json!(bot_browser_source));
+    }
     let import_metadata = extensions
         .entry("importMetadata".to_string())
         .or_insert_with(|| json!({}));
@@ -222,6 +221,19 @@ pub(super) fn bool_field(value: Option<&Value>, fallback: bool) -> bool {
     value.and_then(Value::as_bool).unwrap_or(fallback)
 }
 
+fn selective_logic_value(value: Option<&Value>) -> &'static str {
+    let raw = match value {
+        Some(Value::String(raw)) => raw.trim().to_ascii_lowercase(),
+        Some(Value::Number(raw)) => raw.as_i64().unwrap_or(0).to_string(),
+        _ => String::new(),
+    };
+    match raw.as_str() {
+        "1" | "or" => "or",
+        "2" | "not" => "not",
+        _ => "and",
+    }
+}
+
 pub(super) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: usize) -> Value {
     let keys = entry.get("key").or_else(|| entry.get("keys"));
     let secondary = entry
@@ -232,18 +244,24 @@ pub(super) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: 
         .and_then(Value::as_bool)
         .map(|disabled| !disabled)
         .unwrap_or_else(|| bool_field(entry.get("enabled"), true));
-    let role = match entry.get("role").and_then(Value::as_str) {
-        Some("user" | "assistant" | "system") => entry
-            .get("role")
-            .and_then(Value::as_str)
-            .unwrap_or("system"),
-        _ => "system",
-    };
+    let role = entry
+        .get("role")
+        .and_then(Value::as_str)
+        .filter(|role| matches!(*role, "user" | "assistant" | "system"))
+        .unwrap_or("system");
     let position = match entry.get("position") {
         Some(Value::String(raw)) if raw == "after_char" => 1,
         Some(Value::String(raw)) if raw == "at_depth" || raw == "depth" => 2,
         Some(Value::Number(raw)) => raw.as_i64().unwrap_or(0),
         _ => 0,
+    };
+    let probability = match entry
+        .get("useProbability")
+        .or_else(|| entry.get("use_probability"))
+        .and_then(Value::as_bool)
+    {
+        Some(false) => Value::Null,
+        _ => optional_number(entry.get("probability")),
     };
     json!({
         "lorebookId": lorebook_id,
@@ -255,8 +273,8 @@ pub(super) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: 
         "enabled": enabled,
         "constant": bool_field(entry.get("constant"), false),
         "selective": bool_field(entry.get("selective"), false),
-        "selectiveLogic": "and",
-        "probability": optional_number(entry.get("probability")),
+        "selectiveLogic": selective_logic_value(entry.get("selectiveLogic").or_else(|| entry.get("selective_logic"))),
+        "probability": probability,
         "scanDepth": optional_number(entry.get("scanDepth").or_else(|| entry.get("scan_depth"))),
         "matchWholeWords": bool_field(entry.get("matchWholeWords").or_else(|| entry.get("match_whole_words")), false),
         "caseSensitive": bool_field(entry.get("caseSensitive").or_else(|| entry.get("case_sensitive")), false),
@@ -357,6 +375,25 @@ pub(super) fn normalize_imported_lorebook_entry(
         object.insert("role".to_string(), Value::String("system".to_string()));
     }
     object.insert(
+        "selectiveLogic".to_string(),
+        Value::String(
+            selective_logic_value(
+                object
+                    .get("selectiveLogic")
+                    .or_else(|| object.get("selective_logic")),
+            )
+            .to_string(),
+        ),
+    );
+    if object
+        .get("useProbability")
+        .or_else(|| object.get("use_probability"))
+        .and_then(Value::as_bool)
+        == Some(false)
+    {
+        object.insert("probability".to_string(), Value::Null);
+    }
+    object.insert(
         "lorebookId".to_string(),
         Value::String(lorebook_id.to_string()),
     );
@@ -365,8 +402,11 @@ pub(super) fn normalize_imported_lorebook_entry(
         "key",
         "keysecondary",
         "secondary_keys",
+        "selective_logic",
         "disable",
         "uid",
+        "useProbability",
+        "use_probability",
     ] {
         object.remove(key);
     }

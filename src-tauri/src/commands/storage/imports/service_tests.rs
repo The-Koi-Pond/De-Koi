@@ -40,6 +40,40 @@ fn uploaded_bytes(name: &str, content_type: &str, bytes: Vec<u8>) -> Value {
 }
 
 #[test]
+fn normalizes_sillytavern_selective_logic_numbers() {
+    let entry = normalize_lorebook_entry(
+        "book-1",
+        &json!({
+            "content": "Lore",
+            "key": ["moon"],
+            "selectiveLogic": 1
+        }),
+        0,
+    );
+
+    assert_eq!(entry["selectiveLogic"], "or");
+}
+
+#[test]
+fn normalizes_imported_lorebook_entry_after_raw_field_merge() {
+    let entry = normalize_imported_lorebook_entry(
+        "book-1",
+        &json!({
+            "content": "Lore",
+            "key": ["moon"],
+            "selectiveLogic": 2,
+            "useProbability": false,
+            "probability": 25
+        }),
+        0,
+    );
+
+    assert_eq!(entry["selectiveLogic"], "not");
+    assert!(entry["probability"].is_null());
+    assert!(entry.get("useProbability").is_none());
+}
+
+#[test]
 fn import_st_character_batch_rejects_wrong_route_lorebook_json() {
     let app_root = temp_path("wrong-route-lorebook");
     let state =
@@ -282,4 +316,41 @@ fn import_st_character_uses_trusted_avatar_source_path() {
 
     let _ = fs::remove_dir_all(app_root);
     let _ = fs::remove_dir_all(source_root);
+}
+
+#[test]
+fn import_st_character_preserves_bot_browser_source_marker() {
+    let app_root = temp_path("bot-browser-source");
+    let state =
+        AppState::from_data_dir(&app_root, Vec::new()).expect("test app state should initialize");
+
+    let result = import_st_character(
+        &state,
+        json!({
+            "spec": "chara_card_v2",
+            "data": {
+                "name": "Browser Import",
+                "extensions": {
+                    "chub": { "id": "creator/browser-import" }
+                }
+            },
+            "_botBrowserSource": "chub:creator/browser-import"
+        }),
+    )
+    .expect("bot browser source marker should import");
+
+    let extensions = result
+        .pointer("/character/data/extensions")
+        .and_then(Value::as_object)
+        .expect("imported character extensions should be an object");
+    assert_eq!(
+        extensions.get("botBrowserSource").and_then(Value::as_str),
+        Some("chub:creator/browser-import")
+    );
+    assert!(
+        extensions.get("chub").is_some(),
+        "existing provider extension metadata should be preserved"
+    );
+
+    let _ = fs::remove_dir_all(app_root);
 }

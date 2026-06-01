@@ -6,11 +6,18 @@
 // new save points.
 // ──────────────────────────────────────────────
 import { useState, useCallback } from "react";
-import { X, Save, RotateCcw, Trash2, Shield, Swords, MapPin, Clock } from "lucide-react";
+import { X, Save, RotateCcw, Trash2, Shield, Swords, MapPin, Clock, GitBranch } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { toast } from "sonner";
-import { useGameCheckpoints, useCreateCheckpoint, useLoadCheckpoint, useDeleteCheckpoint } from "../hooks/use-game";
+import {
+  useGameCheckpoints,
+  useCreateCheckpoint,
+  useLoadCheckpoint,
+  useBranchCheckpoint,
+  useDeleteCheckpoint,
+} from "../hooks/use-game";
 import type { GameCheckpoint, CheckpointTrigger } from "../../../../engine/contracts/types/game";
+import { useChatStore } from "../../../../shared/stores/chat.store";
 
 interface GameCheckpointsProps {
   chatId: string;
@@ -51,6 +58,7 @@ export function GameCheckpoints({ chatId, onClose, onLoaded }: GameCheckpointsPr
   const { data: checkpoints, refetch } = useGameCheckpoints(chatId);
   const createCheckpoint = useCreateCheckpoint();
   const loadCheckpoint = useLoadCheckpoint();
+  const branchCheckpoint = useBranchCheckpoint();
   const deleteCheckpoint = useDeleteCheckpoint();
   const [newLabel, setNewLabel] = useState("");
   const [confirmLoadId, setConfirmLoadId] = useState<string | null>(null);
@@ -98,6 +106,27 @@ export function GameCheckpoints({ chatId, onClose, onLoaded }: GameCheckpointsPr
     [deleteCheckpoint, refetch],
   );
 
+  const handleBranch = useCallback(
+    (cp: GameCheckpoint) => {
+      branchCheckpoint.mutate(
+        { chatId, checkpointId: cp.id },
+        {
+          onSuccess: (newChat) => {
+            toast.success(`Branched: ${cp.label}`);
+            if (newChat?.id) {
+              useChatStore.getState().setActiveChatId(newChat.id);
+              onClose();
+            }
+          },
+          onError: (error) => {
+            toast.error(error instanceof Error ? error.message : "Failed to branch from checkpoint");
+          },
+        },
+      );
+    },
+    [branchCheckpoint, chatId, onClose],
+  );
+
   return (
     <div className="flex h-full flex-col bg-background">
       {/* Header */}
@@ -143,6 +172,7 @@ export function GameCheckpoints({ chatId, onClose, onLoaded }: GameCheckpointsPr
             {checkpoints.map((cp) => {
               const Icon = TRIGGER_ICONS[cp.triggerType as CheckpointTrigger] ?? Clock;
               const triggerLabel = TRIGGER_LABELS[cp.triggerType as CheckpointTrigger] ?? cp.triggerType;
+              const canBranchCheckpoint = Boolean(cp.messageId?.trim());
 
               return (
                 <div
@@ -187,6 +217,21 @@ export function GameCheckpoints({ chatId, onClose, onLoaded }: GameCheckpointsPr
                           title="Load checkpoint"
                         >
                           <RotateCcw className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => handleBranch(cp)}
+                          disabled={branchCheckpoint.isPending || !canBranchCheckpoint}
+                          className={cn(
+                            "rounded p-1 opacity-0 transition-opacity hover:bg-muted disabled:opacity-50 group-hover:opacity-100",
+                            branchCheckpoint.isPending ? "disabled:cursor-wait" : "disabled:cursor-not-allowed",
+                          )}
+                          title={
+                            canBranchCheckpoint
+                              ? "Branch from checkpoint"
+                              : "Cannot branch legacy checkpoint - no message anchor"
+                          }
+                        >
+                          <GitBranch className="h-3 w-3" />
                         </button>
                         {cp.triggerType === "manual" && (
                           <button

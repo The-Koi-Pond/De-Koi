@@ -6,6 +6,7 @@ use crate::builtins::is_protected_record;
 use crate::state::AppState;
 use marinara_core::{ensure_object, AppError};
 use serde_json::{json, Map, Value};
+use std::collections::HashSet;
 use tauri::State;
 
 #[tauri::command]
@@ -495,6 +496,7 @@ pub(crate) fn delete_entity(
     if deleted {
         if entity == "lorebooks" {
             delete_lorebook_children(state, id)?;
+            clear_deleted_lorebook_references(state, id)?;
         }
         if entity == "prompts" {
             prompts::delete_prompt_preset_children(state, id)?;
@@ -533,6 +535,7 @@ pub(crate) fn connection_folder_reorder_inner(
     state: &AppState,
     ordered_ids: Vec<String>,
 ) -> Result<Value, AppError> {
+    validate_connection_folder_reorder(state, &ordered_ids)?;
     let patches = ordered_ids
         .into_iter()
         .enumerate()
@@ -540,6 +543,40 @@ pub(crate) fn connection_folder_reorder_inner(
         .collect::<Vec<_>>();
     let rows = state.storage.patch_many("connection-folders", patches)?;
     Ok(Value::Array(rows))
+}
+
+fn validate_connection_folder_reorder(
+    state: &AppState,
+    ordered_ids: &[String],
+) -> Result<(), AppError> {
+    let mut seen = HashSet::with_capacity(ordered_ids.len());
+    if ordered_ids
+        .iter()
+        .any(|id| id.trim().is_empty() || !seen.insert(id.as_str()))
+    {
+        return Err(AppError::invalid_input(
+            "Connection folder reorder must include each folder id exactly once",
+        ));
+    }
+
+    let existing_ids = state
+        .storage
+        .list("connection-folders")?
+        .into_iter()
+        .filter_map(|folder| {
+            folder
+                .get("id")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+        .collect::<HashSet<_>>();
+    let ordered_ids = ordered_ids.iter().cloned().collect::<HashSet<_>>();
+    if existing_ids != ordered_ids {
+        return Err(AppError::invalid_input(
+            "Connection folder reorder must include every existing folder exactly once",
+        ));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -606,6 +643,90 @@ fn delete_lorebook_children(state: &AppState, lorebook_id: &str) -> Result<(), A
     Ok(())
 }
 
+fn remove_string_from_json_array(value: Option<&Value>, removed_id: &str) -> Option<Value> {
+    let array = value?.as_array()?;
+    let filtered = array
+        .iter()
+        .filter_map(Value::as_str)
+        .filter(|id| *id != removed_id)
+        .map(|id| Value::String(id.to_string()))
+        .collect::<Vec<_>>();
+    (filtered.len() != array.len()).then_some(Value::Array(filtered))
+}
+
+fn clear_deleted_lorebook_from_chats(state: &AppState, lorebook_id: &str) -> Result<(), AppError> {
+    for chat in state.storage.list("chats")? {
+        let Some(chat_id) = chat.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let mut patch = Map::new();
+        if let Some(active_ids) =
+            remove_string_from_json_array(chat.get("activeLorebookIds"), lorebook_id)
+        {
+            patch.insert("activeLorebookIds".to_string(), active_ids);
+        }
+
+        let mut metadata = chat
+            .get("metadata")
+            .and_then(|value| shared::json_object_value(Some(value)))
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default();
+        if let Some(active_ids) =
+            remove_string_from_json_array(metadata.get("activeLorebookIds"), lorebook_id)
+        {
+            metadata.insert("activeLorebookIds".to_string(), active_ids);
+            patch.insert("metadata".to_string(), Value::Object(metadata));
+        }
+
+        if !patch.is_empty() {
+            state
+                .storage
+                .patch("chats", chat_id, Value::Object(patch))?;
+        }
+    }
+    Ok(())
+}
+
+fn embedded_lorebook_id(data: &Value) -> Option<&str> {
+    data.pointer("/extensions/importMetadata/embeddedLorebook/lorebookId")
+        .and_then(Value::as_str)
+}
+
+fn clear_deleted_lorebook_from_characters(
+    state: &AppState,
+    lorebook_id: &str,
+) -> Result<(), AppError> {
+    for character in state.storage.list("characters")? {
+        let Some(character_id) = character.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let mut data = character.get("data").cloned().unwrap_or_else(|| json!({}));
+        if embedded_lorebook_id(&data) != Some(lorebook_id) {
+            continue;
+        }
+        let Some(data_object) = data.as_object_mut() else {
+            continue;
+        };
+        data_object.insert("character_book".to_string(), Value::Null);
+        if let Some(import_metadata) = data
+            .pointer_mut("/extensions/importMetadata")
+            .and_then(Value::as_object_mut)
+        {
+            import_metadata.remove("embeddedLorebook");
+        }
+        state
+            .storage
+            .patch("characters", character_id, json!({ "data": data }))?;
+    }
+    Ok(())
+}
+
+fn clear_deleted_lorebook_references(state: &AppState, lorebook_id: &str) -> Result<(), AppError> {
+    clear_deleted_lorebook_from_chats(state, lorebook_id)?;
+    clear_deleted_lorebook_from_characters(state, lorebook_id)?;
+    Ok(())
+}
+
 fn owned_record_for_delete(
     state: &AppState,
     entity: &str,
@@ -657,12 +778,33 @@ pub(crate) fn duplicate_entity(
     if entity == "chat-presets" {
         return duplicate_chat_preset(state, id);
     }
-    let duplicated = shared::duplicate_record(state, entity, id)?;
     if entity == "connections" {
-        let mut masked = duplicated;
-        connection_secrets::mask_connection_for_read(&mut masked);
-        return Ok(masked);
+        return duplicate_connection(state, id);
     }
+    let duplicated = shared::duplicate_record(state, entity, id)?;
+    Ok(duplicated)
+}
+
+fn duplicate_connection(state: &AppState, id: &str) -> Result<Value, AppError> {
+    let mut record = shared::get_required(state, "connections", id)?;
+    let object = record
+        .as_object_mut()
+        .ok_or_else(|| AppError::invalid_input("Connection is not an object"))?;
+    object.remove("id");
+    if let Some(name) = object
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    {
+        object.insert("name".to_string(), Value::String(format!("{name} Copy")));
+    }
+    object.insert("isDefault".to_string(), Value::Bool(false));
+    object.insert("default".to_string(), Value::Bool(false));
+    object.insert("defaultForAgents".to_string(), Value::Bool(false));
+
+    let prepared = connection_secrets::prepare_connection_for_create(state, record)?;
+    let mut duplicated = state.storage.create("connections", prepared)?;
+    connection_secrets::mask_connection_for_read(&mut duplicated);
     Ok(duplicated)
 }
 
@@ -1030,6 +1172,75 @@ mod tests {
     }
 
     #[test]
+    fn deleting_lorebook_clears_chat_and_embedded_character_refs() {
+        let state = test_state("lorebook-delete-refs");
+        state
+            .storage
+            .create(
+                "lorebooks",
+                json!({ "id": "book-delete", "name": "Delete me" }),
+            )
+            .expect("lorebook should be created");
+        state
+            .storage
+            .create("lorebooks", json!({ "id": "book-keep", "name": "Keep me" }))
+            .expect("other lorebook should be created");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Chat",
+                    "activeLorebookIds": ["book-delete", "book-keep"],
+                    "metadata": { "activeLorebookIds": ["book-delete", "book-keep"] }
+                }),
+            )
+            .expect("chat should be created");
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "char-1",
+                    "data": {
+                        "name": "Character",
+                        "character_book": { "entries": [{ "content": "legacy" }] },
+                        "extensions": {
+                            "importMetadata": {
+                                "embeddedLorebook": {
+                                    "hasEmbeddedLorebook": true,
+                                    "lorebookId": "book-delete"
+                                }
+                            }
+                        }
+                    }
+                }),
+            )
+            .expect("character should be created");
+
+        delete_entity(&state, "lorebooks", "book-delete", false).expect("delete should succeed");
+
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should remain");
+        assert_eq!(chat["activeLorebookIds"], json!(["book-keep"]));
+        assert_eq!(chat["metadata"]["activeLorebookIds"], json!(["book-keep"]));
+
+        let character = state
+            .storage
+            .get("characters", "char-1")
+            .expect("character should read")
+            .expect("character should remain");
+        assert!(character["data"]["character_book"].is_null());
+        assert!(character
+            .pointer("/data/extensions/importMetadata/embeddedLorebook")
+            .is_none());
+    }
+
+    #[test]
     fn storage_list_searches_projected_character_fields_without_returning_avatar_payloads() {
         let state = test_state("character-search-projection");
         state
@@ -1287,6 +1498,44 @@ mod tests {
     }
 
     #[test]
+    fn duplicating_connection_resets_default_flags_and_keeps_secret_masked() {
+        let state = test_state("connection-duplicate-defaults");
+        storage_create_inner(
+            &state,
+            "connections".to_string(),
+            json!({
+                "id": "default-connection",
+                "name": "Default Connection",
+                "provider": "anthropic",
+                "model": "claude-opus-4-8",
+                "isDefault": true,
+                "default": true,
+                "defaultForAgents": true,
+                "apiKey": "sk-secret"
+            }),
+        )
+        .expect("connection should be created");
+
+        let duplicated = duplicate_entity(&state, "connections", "default-connection")
+            .expect("connection duplicate should succeed");
+
+        assert_ne!(duplicated["id"], "default-connection");
+        assert_eq!(duplicated["name"], "Default Connection Copy");
+        assert_eq!(duplicated["isDefault"], false);
+        assert_eq!(duplicated["default"], false);
+        assert_eq!(duplicated["defaultForAgents"], false);
+        assert_eq!(duplicated["apiKey"], connection_secrets::API_KEY_MASK);
+
+        let raw = state
+            .storage
+            .get("connections", duplicated["id"].as_str().unwrap())
+            .expect("duplicate should read")
+            .expect("duplicate should exist");
+        assert!(raw.get("apiKey").is_none());
+        assert!(raw.get("apiKeyEncrypted").is_some());
+    }
+
+    #[test]
     fn deleting_connection_folder_unfiles_child_connections() {
         let state = test_state("connection-folder-delete");
         storage_create_inner(
@@ -1338,5 +1587,40 @@ mod tests {
             connection_move_inner(&state, "connection-a", Some("missing-folder".to_string()))
                 .expect_err("missing folders should be rejected");
         assert_eq!(error.code, "invalid_input");
+    }
+
+    #[test]
+    fn reordering_connection_folders_requires_each_folder_once() {
+        let state = test_state("connection-folder-reorder-validate");
+        storage_create_inner(
+            &state,
+            "connection-folders".to_string(),
+            json!({ "id": "folder-a", "name": "Folder A" }),
+        )
+        .expect("first folder should be created");
+        storage_create_inner(
+            &state,
+            "connection-folders".to_string(),
+            json!({ "id": "folder-b", "name": "Folder B" }),
+        )
+        .expect("second folder should be created");
+
+        let duplicate_error = connection_folder_reorder_inner(
+            &state,
+            vec!["folder-a".to_string(), "folder-a".to_string()],
+        )
+        .expect_err("duplicate folder ids should reject the reorder");
+        assert_eq!(duplicate_error.code, "invalid_input");
+
+        let missing_error = connection_folder_reorder_inner(&state, vec!["folder-a".to_string()])
+            .expect_err("omitted folders should reject the reorder");
+        assert_eq!(missing_error.code, "invalid_input");
+
+        let folder_b = state
+            .storage
+            .get("connection-folders", "folder-b")
+            .expect("folder should read")
+            .expect("folder should exist");
+        assert_eq!(folder_b["sortOrder"], 1);
     }
 }

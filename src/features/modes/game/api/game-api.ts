@@ -23,10 +23,11 @@ import type {
 import type { RPGAttributes } from "../../../../engine/contracts/types/game-state";
 import { ApiError, type JsonRepairRequest } from "../../../../shared/api/api-errors";
 import { gameAssetsApi } from "../../../../shared/api/assets-api";
-import { imageGenerationApi } from "../../../../shared/api/image-generation-api";
+import { imageGenerationApi, spriteApi } from "../../../../shared/api/image-generation-api";
 import { integrationGateway } from "../../../../shared/api/integration-gateway";
 import { spotifyApi } from "../../../../shared/api/integration-utility-api";
 import { llmApi } from "../../../../shared/api/llm-api";
+import { chatCommandApi } from "../../../../shared/api/chat-command-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import {
   createLorebookEntrySchema,
@@ -110,17 +111,27 @@ export interface StartGameResponse {
   status: string;
   alreadyStarted?: boolean;
   sessionChat: Chat;
+  checkpointWarning?: GameCheckpointWarning;
 }
 
 export interface StartSessionResponse {
   sessionChat: Chat;
   sessionNumber: number;
   recap: string;
+  checkpointWarning?: GameCheckpointWarning;
 }
 
 export interface SessionSummaryResponse {
   summary: SessionSummary;
   sessionChat: Chat;
+  checkpointWarning?: GameCheckpointWarning;
+}
+
+export interface GameCheckpointWarning {
+  chatId: string;
+  triggerType: string;
+  label: string;
+  message: string;
 }
 
 export interface RegenerateSessionLorebookResponse {
@@ -169,12 +180,14 @@ export interface GameImagePromptReviewItem {
   prompt: string;
   width: number;
   height: number;
+  referenceImages?: string[];
+  referenceSubjectNames?: string[];
 }
 
 export interface GameAssetGenerationResult {
   generatedBackground: string | null;
   fallbackBackground: string | null;
-  generatedIllustration: { tag: string; segment?: number } | null;
+  generatedIllustration: { tag: string; segment?: number; galleryId?: string | null } | null;
   generatedNpcAvatars: Array<{ name: string; avatarUrl: string }>;
   sessionChat?: Chat;
 }
@@ -202,7 +215,15 @@ type ChatMessage = {
   id?: string;
   role?: string;
   content?: string;
+  createdAt?: string;
   [key: string]: unknown;
+};
+
+type IllustrationReferenceSubject = {
+  id: string;
+  name: string;
+  avatar: string;
+  spriteOwnerType?: "character" | "persona";
 };
 
 type PromptOverride = {
@@ -233,6 +254,10 @@ function newId(prefix = ""): string {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function readTrimmed(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -312,12 +337,117 @@ async function listMessages(chatId: string, limit?: number): Promise<ChatMessage
   return storageApi.list<ChatMessage>("messages", { filters: { chatId }, limit });
 }
 
+const RESTORED_CHECKPOINT_ANCHOR_META_KEY = "gameRestoredCheckpointAnchorMessageId";
+const RESTORED_CHECKPOINT_LEGACY_META_KEY = "gameRestoredCheckpointLegacyAnchorMissing";
+
+function latestMessage(messages: ChatMessage[]): ChatMessage | null {
+  let fallback: ChatMessage | null = null;
+  let latestTimed: { message: ChatMessage; createdAt: string } | null = null;
+  for (const message of messages) {
+    const id = message.id;
+    if (typeof id !== "string" || !id.trim()) continue;
+    fallback = message;
+    const createdAt = typeof message.createdAt === "string" ? message.createdAt : "";
+    if (!createdAt) continue;
+    if (!latestTimed || createdAt >= latestTimed.createdAt) {
+      latestTimed = { message, createdAt };
+    }
+  }
+  return latestTimed?.message ?? fallback;
+}
+
+function messageId(message: ChatMessage | null | undefined): string {
+  const id = message?.id;
+  return typeof id === "string" ? id.trim() : "";
+}
+
+function isCheckpointRestoreMessage(message: ChatMessage | null | undefined): boolean {
+  return message?.role === "system" && /^\[Checkpoint restored:/i.test(String(message.content ?? "").trimStart());
+}
+
+function checkpointAnchorFromMeta(meta: Record<string, unknown>, latest: ChatMessage | null): string {
+  if (!isCheckpointRestoreMessage(latest)) return messageId(latest);
+  const restoredAnchor = meta[RESTORED_CHECKPOINT_ANCHOR_META_KEY];
+  if (typeof restoredAnchor === "string" && restoredAnchor.trim()) return restoredAnchor.trim();
+  if (meta[RESTORED_CHECKPOINT_LEGACY_META_KEY] === true) return "";
+  return messageId(latest);
+}
+
+function checkpointSnapshotMetadata(meta: Record<string, unknown>): Record<string, unknown> {
+  const snapshotMeta = { ...meta };
+  delete snapshotMeta[RESTORED_CHECKPOINT_ANCHOR_META_KEY];
+  delete snapshotMeta[RESTORED_CHECKPOINT_LEGACY_META_KEY];
+  return snapshotMeta;
+}
+
 async function createChatRecord(value: Record<string, unknown>): Promise<Chat> {
   return storageApi.create<Chat>("chats", value);
 }
 
 async function createChatMessage(chatId: string, value: Record<string, unknown>): Promise<ChatMessage> {
   return storageApi.create<ChatMessage>("messages", { ...value, chatId });
+}
+
+async function createGameCheckpoint(data: {
+  chatId: string;
+  label: string;
+  triggerType: string;
+}): Promise<{ id: string }> {
+  const chat = await getChat(data.chatId);
+  const meta = chatMeta(chat);
+  const messages = await listMessages(data.chatId);
+  const messageId = checkpointAnchorFromMeta(meta, latestMessage(messages));
+  const snapshot = await storageApi.create<{ id: string }>("game-state-snapshots", {
+    chatId: data.chatId,
+    messageId: messageId || null,
+    gameState: (chat as { gameState?: unknown }).gameState ?? {},
+    metadata: checkpointSnapshotMetadata(meta),
+  });
+  let record: { id: string };
+  try {
+    record = await storageApi.create<{ id: string }>("game-checkpoints", {
+      chatId: data.chatId,
+      snapshotId: snapshot.id,
+      messageId,
+      label: data.label || "Checkpoint",
+      triggerType: data.triggerType || "manual",
+      location: null,
+      gameState: null,
+      weather: null,
+      timeOfDay: null,
+      turnNumber: null,
+    });
+  } catch (error) {
+    await storageApi.delete("game-state-snapshots", snapshot.id).catch((cleanupError) => {
+      console.warn("[game] Failed to clean up checkpoint snapshot after checkpoint creation failed", cleanupError);
+    });
+    throw error;
+  }
+  return { id: record.id };
+}
+
+async function createAutomaticGameCheckpoint(data: {
+  chatId: string;
+  label: string;
+  triggerType: string;
+}): Promise<GameCheckpointWarning | null> {
+  try {
+    await createGameCheckpoint(data);
+    return null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Automatic checkpoint failed";
+    console.warn("[game] Automatic checkpoint failed", {
+      chatId: data.chatId,
+      triggerType: data.triggerType,
+      error,
+    });
+    return {
+      chatId: data.chatId,
+      triggerType: data.triggerType,
+      label: data.label || "Checkpoint",
+      message,
+    };
+  }
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
@@ -1262,6 +1392,157 @@ function base64File(base64: string, name: string, type: string): File {
   return new File([bytes], name, { type });
 }
 
+const GAME_SCENE_ILLUSTRATION_COOLDOWN_TURNS = 8;
+
+function usableReferenceImage(value: unknown): string {
+  const text = readTrimmed(value);
+  if (!text) return "";
+  if (text.startsWith("data:image/")) return text;
+  if (/^[A-Za-z0-9+/=\s]+$/.test(text) && text.replace(/\s+/g, "").length > 80) return text;
+  return "";
+}
+
+function recordName(record: Record<string, unknown>): string {
+  const data = asRecord(record.data);
+  return readTrimmed(data.name) || readTrimmed(record.name);
+}
+
+function recordAvatar(record: Record<string, unknown>): string {
+  const data = asRecord(record.data);
+  return usableReferenceImage(
+    record.avatarPath ?? record.avatar ?? record.avatarUrl ?? data.avatarPath ?? data.avatar ?? data.avatarUrl,
+  );
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((entry) => readTrimmed(entry)).filter(Boolean) : [];
+}
+
+function matchesIllustrationSubject(
+  subject: IllustrationReferenceSubject,
+  illustration: Record<string, unknown>,
+): boolean {
+  const name = subject.name.toLowerCase();
+  if (!name) return false;
+  const requestedNames = stringArray(illustration.characters).map((entry) => entry.toLowerCase());
+  if (requestedNames.length > 0) {
+    return requestedNames.some(
+      (requested) => requested === name || requested.includes(name) || name.includes(requested),
+    );
+  }
+  const prompt = readTrimmed(illustration.prompt).toLowerCase();
+  if (prompt.includes(name)) return true;
+  return name
+    .split(/\s+/)
+    .filter((part) => part.length > 2)
+    .some((part) => prompt.includes(part));
+}
+
+function fullBodySpriteReference(sprites: Array<Record<string, unknown>>): string {
+  const fullBody = sprites.filter((sprite) => readTrimmed(sprite.expression).toLowerCase().startsWith("full_"));
+  const preferred =
+    fullBody.find((sprite) =>
+      ["full_idle", "full_neutral", "full_default"].includes(readTrimmed(sprite.expression).toLowerCase()),
+    ) ?? fullBody[0];
+  return usableReferenceImage(preferred?.url ?? preferred?.image ?? preferred?.base64);
+}
+
+async function gameIllustrationTurnNumber(chatId: string): Promise<number> {
+  const messages = await listMessages(chatId).catch(() => []);
+  if (!Array.isArray(messages)) return 0;
+  return messages.filter((message) => message.role === "assistant" || message.role === "narrator").length;
+}
+
+function canGenerateSceneIllustration(meta: Record<string, unknown>, turnNumber: number): boolean {
+  const sessionNumber = Number(meta.gameSessionNumber ?? 1);
+  const lastSessionNumber = Number(meta.gameLastIllustrationSessionNumber ?? Number.NaN);
+  const lastTurnNumber = Number(meta.gameLastIllustrationTurn ?? Number.NaN);
+  if (!Number.isFinite(lastSessionNumber) || !Number.isFinite(lastTurnNumber)) return true;
+  if (lastSessionNumber !== sessionNumber) return true;
+  return turnNumber - lastTurnNumber >= GAME_SCENE_ILLUSTRATION_COOLDOWN_TURNS;
+}
+
+async function loadIllustrationReferenceSubjects(
+  chat: Chat,
+  meta: Record<string, unknown>,
+): Promise<IllustrationReferenceSubject[]> {
+  const characterRows = await Promise.all(
+    (Array.isArray(chat.characterIds) ? chat.characterIds : []).map((id) =>
+      storageApi.get<Record<string, unknown>>("characters", id).catch(() => null),
+    ),
+  );
+  const subjects: IllustrationReferenceSubject[] = characterRows
+    .filter((row): row is Record<string, unknown> => !!row)
+    .map((row) => ({
+      id: readTrimmed(row.id),
+      name: recordName(row),
+      avatar: recordAvatar(row),
+      spriteOwnerType: "character",
+    }));
+
+  const personaId = readTrimmed(chat.personaId);
+  const persona = personaId
+    ? await storageApi.get<Record<string, unknown>>("personas", personaId).catch(() => null)
+    : null;
+  if (persona) {
+    subjects.push({
+      id: personaId || readTrimmed(persona.id),
+      name: recordName(persona),
+      avatar: recordAvatar(persona),
+      spriteOwnerType: "persona",
+    });
+  }
+
+  const npcs = Array.isArray(meta.gameNpcs) ? (meta.gameNpcs as Array<Record<string, unknown>>) : [];
+  for (const npc of npcs) {
+    const avatar = usableReferenceImage(npc.avatarUrl ?? npc.avatar ?? npc.image);
+    if (!avatar) continue;
+    subjects.push({
+      id: readTrimmed(npc.id) || readTrimmed(npc.name),
+      name: readTrimmed(npc.name),
+      avatar,
+    });
+  }
+
+  return subjects.filter((subject) => subject.id && subject.name);
+}
+
+async function illustrationReferenceData(args: {
+  chat: Chat;
+  meta: Record<string, unknown>;
+  illustration: Record<string, unknown>;
+}): Promise<{ referenceImages: string[]; referenceSubjectNames: string[] }> {
+  const subjects = await loadIllustrationReferenceSubjects(args.chat, args.meta);
+  const referenceImages: string[] = [];
+  const referenceSubjectNames: string[] = [];
+  for (const subject of subjects.filter((item) => matchesIllustrationSubject(item, args.illustration))) {
+    let spriteReference = "";
+    if (subject.spriteOwnerType) {
+      const sprites = await spriteApi
+        .list<Array<Record<string, unknown>>>(subject.id, { ownerType: subject.spriteOwnerType })
+        .catch(() => []);
+      spriteReference = fullBodySpriteReference(sprites);
+    }
+    const reference = spriteReference || subject.avatar;
+    if (reference && !referenceImages.includes(reference)) referenceImages.push(reference);
+    if (reference && !referenceSubjectNames.includes(subject.name)) referenceSubjectNames.push(subject.name);
+  }
+  return { referenceImages, referenceSubjectNames };
+}
+
+function fallbackSceneBackground(meta: Record<string, unknown>): string | null {
+  const background = readTrimmed(meta.gameSceneBackground);
+  return background && !background.startsWith("backgrounds:illustrations:") ? background : null;
+}
+
+function imageUrlFromGeneration(image: { base64?: string; mimeType?: string; image?: string }): string {
+  const direct = readTrimmed(image.image);
+  if (direct) return direct;
+  const base64 = readTrimmed(image.base64);
+  const mimeType = readTrimmed(image.mimeType) || "image/png";
+  return base64 ? `data:${mimeType};base64,${base64}` : "";
+}
+
 async function uploadGeneratedAsset(
   category: string,
   subcategory: string,
@@ -1297,6 +1578,20 @@ function recentSpotifyTracks(payload: Record<string, unknown>): string[] {
         (uri): uri is string => typeof uri === "string" && uri.startsWith("spotify:track:"),
       )
     : [];
+}
+
+async function gameSpotifySourceSettings(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const chatId = readTrimmed(payload.chatId);
+  if (!chatId) return {};
+  const meta = chatMeta(await getChat(chatId));
+  const setup = asRecord(meta.gameSetupConfig);
+  const sourceType = readTrimmed(meta.gameSpotifySourceType) || readTrimmed(setup.spotifySourceType) || "any";
+  return {
+    sourceType,
+    playlistId: readTrimmed(meta.gameSpotifyPlaylistId) || readTrimmed(setup.spotifyPlaylistId) || null,
+    playlistName: readTrimmed(meta.gameSpotifyPlaylistName) || readTrimmed(setup.spotifyPlaylistName) || null,
+    artist: readTrimmed(meta.gameSpotifyArtist) || readTrimmed(setup.spotifyArtist) || null,
+  };
 }
 
 async function llmJson(input: {
@@ -1353,7 +1648,10 @@ export const gameApi = {
   }): Promise<CreateGameResponse> {
     const gameId = newId("game");
     if (data.chatId) {
-      await patchChat(data.chatId, gameSetupChatPatch(data.setupConfig, data.connectionId ?? null));
+      await patchChat(data.chatId, {
+        ...gameSetupChatPatch(data.setupConfig, data.connectionId ?? null),
+        groupId: gameId,
+      });
       const sessionChat = await patchChatMetadata(data.chatId, {
         gameId,
         gameSessionNumber: 1,
@@ -1367,6 +1665,7 @@ export const gameApi = {
     const sessionChat = await createChatRecord({
       name: data.name || "New Game",
       mode: "game",
+      groupId: gameId,
       characterIds: data.partyCharacterIds ?? chatPatch.characterIds ?? [],
       personaId: data.setupConfig.personaId ?? null,
       folderId: data.folderId ?? null,
@@ -1503,7 +1802,12 @@ export const gameApi = {
       gameSessionStatus: "active",
       gameActiveState: "exploration",
     });
-    return { status: "active", alreadyStarted: false, sessionChat };
+    const checkpointWarning = await createAutomaticGameCheckpoint({
+      chatId: data.chatId,
+      label: "Session started",
+      triggerType: "session_start",
+    });
+    return { status: "active", alreadyStarted: false, sessionChat, ...(checkpointWarning ? { checkpointWarning } : {}) };
   },
 
   async startSession(data: { gameId: string; connectionId?: string }): Promise<StartSessionResponse> {
@@ -1544,6 +1848,7 @@ export const gameApi = {
       id: sessionChatId,
       name: `Game Session ${sessionNumber}`,
       mode: "game",
+      groupId: data.gameId,
       characterIds: Array.isArray(previousChat?.characterIds) ? previousChat.characterIds : [],
       personaId: previousChat?.personaId ?? null,
       folderId: previousChat?.folderId ?? null,
@@ -1569,7 +1874,12 @@ export const gameApi = {
       });
       mirrorGameMessageToDiscord(chatMeta(sessionChat), recap.trim(), "Narrator");
     }
-    return { sessionChat, sessionNumber, recap };
+    const checkpointWarning = await createAutomaticGameCheckpoint({
+      chatId: sessionChat.id,
+      label: "Session started",
+      triggerType: "session_start",
+    });
+    return { sessionChat, sessionNumber, recap, ...(checkpointWarning ? { checkpointWarning } : {}) };
   },
 
   async concludeSession(data: {
@@ -1641,7 +1951,12 @@ export const gameApi = {
       gameCampaignProgression: campaignProgression,
       gameCharacterCards: characterCards,
     });
-    return { summary, sessionChat };
+    const checkpointWarning = await createAutomaticGameCheckpoint({
+      chatId: data.chatId,
+      label: "Session ended",
+      triggerType: "session_end",
+    });
+    return { summary, sessionChat, ...(checkpointWarning ? { checkpointWarning } : {}) };
   },
 
   async regenerateSessionLorebook(data: {
@@ -1834,7 +2149,23 @@ export const gameApi = {
     const previousState = (meta.gameActiveState as GameActiveState | undefined) ?? "exploration";
     const newState = validateTransition(previousState, data.newState);
     const sessionChat = await patchChatMetadata(data.chatId, { gameActiveState: newState });
-    return { previousState, newState, sessionChat };
+    let checkpointWarning: GameCheckpointWarning | null = null;
+    if (previousState !== newState) {
+      if (newState === "combat") {
+        checkpointWarning = await createAutomaticGameCheckpoint({
+          chatId: data.chatId,
+          label: "Combat started",
+          triggerType: "combat_start",
+        });
+      } else if (previousState === "combat") {
+        checkpointWarning = await createAutomaticGameCheckpoint({
+          chatId: data.chatId,
+          label: "Combat ended",
+          triggerType: "combat_end",
+        });
+      }
+    }
+    return { previousState, newState, sessionChat, ...(checkpointWarning ? { checkpointWarning } : {}) };
   },
 
   async generateMap(data: {
@@ -2056,33 +2387,17 @@ export const gameApi = {
   },
 
   async createCheckpoint(data: { chatId: string; label: string; triggerType: string }) {
-    const chat = await getChat(data.chatId);
-    const snapshot = await storageApi.create<{ id: string }>("game-state-snapshots", {
-      chatId: data.chatId,
-      messageId: null,
-      gameState: (chat as { gameState?: unknown }).gameState ?? {},
-      metadata: chatMeta(chat),
-    });
-    const record = await storageApi.create<{ id: string }>("game-checkpoints", {
-      chatId: data.chatId,
-      snapshotId: snapshot.id,
-      messageId: "",
-      label: data.label || "Checkpoint",
-      triggerType: data.triggerType || "manual",
-      location: null,
-      gameState: null,
-      weather: null,
-      timeOfDay: null,
-      turnNumber: null,
-    });
-    return { id: record.id };
+    return createGameCheckpoint(data);
   },
 
   async loadCheckpoint(data: { chatId: string; checkpointId: string }) {
-    const checkpoint = await storageApi.get<{ id: string; chatId?: string; label?: string; snapshotId?: string }>(
-      "game-checkpoints",
-      data.checkpointId,
-    );
+    const checkpoint = await storageApi.get<{
+      id: string;
+      chatId?: string;
+      label?: string;
+      snapshotId?: string;
+      messageId?: string | null;
+    }>("game-checkpoints", data.checkpointId);
     if (!checkpoint) throw new Error("Checkpoint was not found.");
     if (checkpoint.chatId !== data.chatId) throw new Error("Checkpoint does not belong to this chat.");
     if (!checkpoint.snapshotId) throw new Error("Checkpoint is missing its state snapshot.");
@@ -2094,9 +2409,14 @@ export const gameApi = {
     }>("game-state-snapshots", checkpoint.snapshotId);
     if (!snapshot) throw new Error("Checkpoint snapshot was not found.");
     if (snapshot.chatId !== data.chatId) throw new Error("Checkpoint snapshot does not belong to this chat.");
+    const checkpointAnchor = typeof checkpoint.messageId === "string" ? checkpoint.messageId.trim() : "";
     await patchChat(data.chatId, {
       gameState: snapshot.gameState ?? {},
-      metadata: snapshot.metadata ?? {},
+      metadata: {
+        ...(snapshot.metadata ?? {}),
+        [RESTORED_CHECKPOINT_ANCHOR_META_KEY]: checkpointAnchor || null,
+        [RESTORED_CHECKPOINT_LEGACY_META_KEY]: !checkpointAnchor,
+      },
     });
     const message = await createChatMessage(data.chatId, {
       role: "system",
@@ -2104,6 +2424,44 @@ export const gameApi = {
       content: `[Checkpoint restored: ${checkpoint.label || "Checkpoint"}]`,
     });
     return { ok: true, messageId: message.id, gameState: snapshot.gameState ?? {}, metadata: snapshot.metadata ?? {} };
+  },
+
+  async branchFromCheckpoint(data: { chatId: string; checkpointId: string }): Promise<Chat> {
+    const checkpoint = await storageApi.get<{
+      id: string;
+      chatId?: string;
+      label?: string;
+      snapshotId?: string;
+      messageId?: string | null;
+    }>("game-checkpoints", data.checkpointId);
+    if (!checkpoint) throw new Error("Checkpoint was not found.");
+    if (checkpoint.chatId !== data.chatId) throw new Error("Checkpoint does not belong to this chat.");
+    if (!checkpoint.snapshotId) throw new Error("Checkpoint is missing its state snapshot.");
+    const messageId = typeof checkpoint.messageId === "string" ? checkpoint.messageId.trim() : "";
+    if (!messageId) {
+      throw new Error(
+        "This checkpoint was saved before branch anchors were recorded. Load it, save a new checkpoint, then branch from that checkpoint.",
+      );
+    }
+    const snapshot = await storageApi.get<{
+      id: string;
+      chatId?: string;
+      gameState?: unknown;
+      metadata?: Record<string, unknown>;
+    }>("game-state-snapshots", checkpoint.snapshotId);
+    if (!snapshot) throw new Error("Checkpoint snapshot was not found.");
+    if (snapshot.chatId !== data.chatId) throw new Error("Checkpoint snapshot does not belong to this chat.");
+    const branch = await chatCommandApi.branch<Chat>(data.chatId, messageId);
+    return patchChat(branch.id, {
+      gameState: snapshot.gameState ?? {},
+      metadata: {
+        ...(snapshot.metadata ?? {}),
+        branchedFromCheckpointId: checkpoint.id,
+        branchedFromCheckpointLabel: checkpoint.label ?? "Checkpoint",
+        [RESTORED_CHECKPOINT_ANCHOR_META_KEY]: null,
+        [RESTORED_CHECKPOINT_LEGACY_META_KEY]: null,
+      },
+    });
   },
 
   async deleteCheckpoint(id: string) {
@@ -2255,10 +2613,12 @@ export const gameApi = {
 
   async spotifyCandidates(payload: Record<string, unknown>) {
     try {
+      const source = await gameSpotifySourceSettings(payload);
       return await spotifyApi.searchTracks({
         query: spotifyQuery(payload),
         limit: Math.max(1, Math.min(50, Number(payload.limit ?? 50))),
         recentTrackUris: recentSpotifyTracks(payload),
+        ...source,
       });
     } catch (error) {
       return { enabled: false, tracks: [], error: error instanceof Error ? error.message : "Spotify search failed" };
@@ -2271,7 +2631,8 @@ export const gameApi = {
 
   async previewGeneratedAssets(payload: GameAssetGenerationPayload): Promise<{ items: GameImagePromptReviewItem[] }> {
     const record = payload as unknown as Record<string, unknown>;
-    const meta = chatMeta(await getChat(String(record.chatId)));
+    const chat = await getChat(String(record.chatId));
+    const meta = chatMeta(chat);
     const setup = asRecord(meta.gameSetupConfig);
     const artStyle =
       (typeof record.artStylePrompt === "string" && record.artStylePrompt) ||
@@ -2306,7 +2667,10 @@ export const gameApi = {
       });
     }
     const illustration = asRecord(record.illustration);
-    if (Object.keys(illustration).length > 0) {
+    const hasIllustrationRequest = Object.keys(illustration).length > 0;
+    const illustrationAllowed =
+      hasIllustrationRequest && canGenerateSceneIllustration(meta, await gameIllustrationTurnNumber(String(record.chatId)));
+    if (illustrationAllowed) {
       const label =
         (typeof illustration.reason === "string" && illustration.reason) ||
         (typeof illustration.slug === "string" && illustration.slug) ||
@@ -2315,6 +2679,7 @@ export const gameApi = {
       const id = imageReviewId("illustration", label);
       const detail = String(illustration.prompt ?? label);
       const defaultPrompt = sceneAssetPrompt("illustration", label, detail, artStyle, promptSettings);
+      const referenceData = await illustrationReferenceData({ chat, meta, illustration });
       items.push({
         id,
         kind: "illustration",
@@ -2330,6 +2695,8 @@ export const gameApi = {
           })),
         width: imageSize(record, "background", "width", 1280),
         height: imageSize(record, "background", "height", 720),
+        referenceImages: referenceData.referenceImages,
+        referenceSubjectNames: referenceData.referenceSubjectNames,
       });
     }
     const npcs = Array.isArray(record.npcsNeedingAvatars) ? record.npcsNeedingAvatars : [];
@@ -2387,17 +2754,36 @@ export const gameApi = {
 
     const preview = await gameApi.previewGeneratedAssets(payload);
     let generatedBackground: string | null = null;
+    let fallbackBackground: string | null = null;
     let generatedIllustration: GameAssetGenerationResult["generatedIllustration"] = null;
     const generatedNpcAvatars: GameAssetGenerationResult["generatedNpcAvatars"] = [];
 
     for (const item of preview.items) {
       if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
-      const image = await imageGenerationApi.generate<{ base64: string; mimeType: string; image?: string }>({
-        connectionId: imageConnectionId,
-        prompt: item.prompt,
-        width: item.width,
-        height: item.height,
-      });
+      let image: { base64: string; mimeType: string; image?: string; provider?: string; model?: string };
+      try {
+        image = await imageGenerationApi.generate<{
+          base64: string;
+          mimeType: string;
+          image?: string;
+          provider?: string;
+          model?: string;
+        }>({
+          connectionId: imageConnectionId,
+          prompt: item.prompt,
+          width: item.width,
+          height: item.height,
+          ...(item.kind === "illustration" && item.referenceImages?.length
+            ? { referenceImages: item.referenceImages }
+            : {}),
+        });
+      } catch (error) {
+        if (item.kind === "background") {
+          fallbackBackground = fallbackSceneBackground(meta);
+          if (fallbackBackground) continue;
+        }
+        throw error;
+      }
       if (item.kind === "background") {
         const key = typeof record.backgroundTag === "string" ? record.backgroundTag : "generated-background";
         const tag = await uploadGeneratedAsset(
@@ -2410,6 +2796,7 @@ export const gameApi = {
         generatedBackground = tag;
         sessionChat = await patchChatMetadata(chatId, { gameSceneBackground: tag });
       } else if (item.kind === "illustration") {
+        const illustrationTurnNumber = await gameIllustrationTurnNumber(chatId);
         const illustration = asRecord(record.illustration);
         const key = (typeof illustration.slug === "string" && illustration.slug) || item.title || "scene-illustration";
         const tag = await uploadGeneratedAsset(
@@ -2423,6 +2810,32 @@ export const gameApi = {
           tag,
           ...(Number.isInteger(illustration.segment) ? { segment: illustration.segment as number } : {}),
         };
+        const mimeType = image.mimeType || "image/png";
+        const imageUrl = imageUrlFromGeneration(image);
+        const filename = `${generatedAssetSlug(key)}.${imageExt(mimeType)}`;
+        const gallery = await storageApi.create<{ id?: string }>("gallery", {
+          chatId,
+          filePath: filename,
+          filename,
+          url: imageUrl,
+          prompt: item.prompt,
+          provider: image.provider ?? "image_generation",
+          model: image.model ?? null,
+          width: item.width,
+          height: item.height,
+          kind: "illustration",
+          characters: item.referenceSubjectNames?.length
+            ? item.referenceSubjectNames
+            : stringArray(illustration.characters),
+          referenceImageCount: item.referenceImages?.length ?? 0,
+          gameAssetTag: tag,
+        });
+        generatedIllustration.galleryId = gallery?.id ?? null;
+        sessionChat = await patchChatMetadata(chatId, {
+          gameLastIllustrationTurn: illustrationTurnNumber,
+          gameLastIllustrationSessionNumber: Number(meta.gameSessionNumber ?? 1),
+          gameLastIllustrationTag: tag,
+        });
       } else if (item.kind === "portrait") {
         generatedNpcAvatars.push({
           name: item.title.replace(/^Portrait:\s*/, "") || "NPC",
@@ -2455,7 +2868,7 @@ export const gameApi = {
       sessionChat = await patchChatMetadata(chatId, { gameNpcs: npcs });
     }
 
-    return { generatedBackground, fallbackBackground: null, generatedIllustration, generatedNpcAvatars, sessionChat };
+    return { generatedBackground, fallbackBackground, generatedIllustration, generatedNpcAvatars, sessionChat };
   },
 };
 

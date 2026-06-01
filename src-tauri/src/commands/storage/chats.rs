@@ -24,8 +24,10 @@ pub(crate) fn messages_for_chat(state: &AppState, chat_id: &str) -> AppResult<Ve
     Ok(rows)
 }
 
-const PROMPT_SNAPSHOT_KEYS: [&str; 2] =
-    ["generationPromptSnapshot", "generationPromptSnapshotsBySwipe"];
+const PROMPT_SNAPSHOT_KEYS: [&str; 2] = [
+    "generationPromptSnapshot",
+    "generationPromptSnapshotsBySwipe",
+];
 
 /// Drop saved prompt snapshots from an `extra` object, returning the rewritten
 /// object only when something was actually removed. Leaves every other field
@@ -96,7 +98,12 @@ pub(crate) fn evict_prompt_snapshots(
     let assistant_ids: Vec<String> = messages
         .iter()
         .filter(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
-        .filter_map(|message| message.get("id").and_then(Value::as_str).map(str::to_string))
+        .filter_map(|message| {
+            message
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .collect();
     let stale_cutoff = assistant_ids.len().saturating_sub(keep_last);
     let stale: HashSet<&str> = assistant_ids[..stale_cutoff]
@@ -283,6 +290,15 @@ fn active_swipe_update_response(message: &Value) -> Value {
         }
     }
     Value::Object(response)
+}
+
+fn prune_branch_summary_metadata(chat: &mut Value) {
+    let Some(metadata) = chat.get_mut("metadata").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for key in ["summary", "summaryEntries", "daySummaries", "weekSummaries"] {
+        metadata.remove(key);
+    }
 }
 
 fn object_extra(value: Option<&Value>) -> Option<Value> {
@@ -854,6 +870,7 @@ pub(crate) fn branch_chat(state: &AppState, chat_id: &str, body: Value) -> AppRe
         Value::String(format!("{base_name} Branch")),
     );
     object.insert("groupId".to_string(), Value::String(group_id.clone()));
+    prune_branch_summary_metadata(&mut chat);
     let source_has_tracker_snapshots =
         game_state_snapshots::latest_tracker_snapshot(state, chat_id)?.is_some();
     let mut new_chat = state.storage.create("chats", chat)?;
@@ -1444,6 +1461,178 @@ mod tests {
     }
 
     #[test]
+    fn branch_chat_prunes_future_summary_metadata_from_new_branch() {
+        let state = test_state("branch-summary-prune");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "root-1",
+                    "name": "Summarized Chat",
+                    "mode": "conversation",
+                    "characterIds": [],
+                    "metadata": {
+                        "summary": "Future rolling summary",
+                        "summaryEntries": [{ "id": "summary-1", "content": "Future entry" }],
+                        "summaryContextSize": 42,
+                        "summaryPromptTemplates": [{ "id": "template-1", "name": "Short", "prompt": "Summarize." }],
+                        "activeSummaryPromptTemplateId": "template-1",
+                        "daySummaries": { "01.06.2026": { "summary": "Future day", "keyDetails": [] } },
+                        "weekSummaries": { "25.05.2026": { "summary": "Future week", "keyDetails": [] } }
+                    }
+                }),
+            )
+            .expect("source chat should be created");
+        state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "message-1",
+                    "chatId": "root-1",
+                    "role": "user",
+                    "content": "hello"
+                }),
+            )
+            .expect("message should be created");
+
+        let branch = branch_chat(&state, "root-1", json!({ "upToMessageId": "message-1" }))
+            .expect("branch should be created");
+        let metadata = branch
+            .get("metadata")
+            .and_then(Value::as_object)
+            .expect("branch metadata should remain an object");
+
+        for key in ["summary", "summaryEntries", "daySummaries", "weekSummaries"] {
+            assert!(
+                !metadata.contains_key(key),
+                "branch should not inherit {key}"
+            );
+        }
+        assert_eq!(metadata.get("summaryContextSize"), Some(&json!(42)));
+        assert_eq!(
+            metadata.get("activeSummaryPromptTemplateId"),
+            Some(&json!("template-1"))
+        );
+
+        let source = state
+            .storage
+            .get("chats", "root-1")
+            .expect("source lookup should not fail")
+            .expect("source chat should still exist");
+        assert_eq!(source["metadata"]["summary"], "Future rolling summary");
+    }
+
+    #[test]
+    fn branch_chat_sets_game_state_to_selected_tracker_snapshot() {
+        let state = test_state("branch-game-tracker-state");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "game-root",
+                    "name": "Game Run",
+                    "mode": "game",
+                    "characterIds": [],
+                    "gameState": { "location": "future", "recentEvents": ["future turn"] },
+                    "metadata": {}
+                }),
+            )
+            .expect("source game chat should be created");
+        state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "user-1",
+                    "chatId": "game-root",
+                    "role": "user",
+                    "content": "go north",
+                    "createdAt": "2026-06-01T10:00:00.000Z"
+                }),
+            )
+            .expect("first user message should be created");
+        state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "assistant-1",
+                    "chatId": "game-root",
+                    "role": "assistant",
+                    "content": "You reach the fork.",
+                    "createdAt": "2026-06-01T10:01:00.000Z"
+                }),
+            )
+            .expect("selected assistant message should be created");
+        state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "assistant-2",
+                    "chatId": "game-root",
+                    "role": "assistant",
+                    "content": "You enter the future.",
+                    "createdAt": "2026-06-01T10:02:00.000Z"
+                }),
+            )
+            .expect("future assistant message should be created");
+        game_state_snapshots::save_tracker_snapshot(
+            &state,
+            "game-root",
+            json!({
+                "messageId": "assistant-1",
+                "swipeIndex": 0,
+                "location": "Fork point",
+                "recentEvents": ["fork reached"],
+                "committed": true
+            }),
+        )
+        .expect("selected tracker snapshot should be saved");
+        game_state_snapshots::save_tracker_snapshot(
+            &state,
+            "game-root",
+            json!({
+                "messageId": "assistant-2",
+                "swipeIndex": 0,
+                "location": "Future path",
+                "recentEvents": ["future reached"],
+                "committed": true
+            }),
+        )
+        .expect("future tracker snapshot should be saved");
+
+        let branch = branch_chat(
+            &state,
+            "game-root",
+            json!({ "upToMessageId": "assistant-1" }),
+        )
+        .expect("branch should be created");
+
+        assert_eq!(branch["gameState"]["location"], "Fork point");
+        assert_eq!(branch["gameState"]["recentEvents"], json!(["fork reached"]));
+
+        let branch_id = branch["id"].as_str().expect("branch id should be a string");
+        let mut filters = Map::new();
+        filters.insert("chatId".to_string(), Value::String(branch_id.to_string()));
+        let branch_messages = state
+            .storage
+            .list_where("messages", &filters)
+            .expect("branch messages should be readable");
+        assert_eq!(branch_messages.len(), 2);
+        assert!(
+            branch_messages
+                .iter()
+                .all(|message| message.get("content").and_then(Value::as_str)
+                    != Some("You enter the future.")),
+            "branch should not copy messages after the selected turn"
+        );
+    }
+
+    #[test]
     fn update_message_content_if_unchanged_updates_only_matching_content() {
         let state = test_state("conditional-content");
         state
@@ -1754,8 +1943,7 @@ mod tests {
             )
             .expect("swipe should be added");
 
-        let result =
-            evict_prompt_snapshots(&state, "chat-1", 2).expect("eviction should succeed");
+        let result = evict_prompt_snapshots(&state, "chat-1", 2).expect("eviction should succeed");
         assert_eq!(result["evicted"], json!(1));
 
         let get = |id: &str| {
@@ -1769,7 +1957,9 @@ mod tests {
         // Oldest assistant message: snapshot, by-swipe map, and swipe snapshot cleared.
         let old = get("assistant-old");
         assert!(old["extra"].get("generationPromptSnapshot").is_none());
-        assert!(old["extra"].get("generationPromptSnapshotsBySwipe").is_none());
+        assert!(old["extra"]
+            .get("generationPromptSnapshotsBySwipe")
+            .is_none());
         assert!(old["swipes"][0]["extra"]
             .get("generationPromptSnapshot")
             .is_none());
@@ -1783,7 +1973,10 @@ mod tests {
             .is_some());
 
         // User message and its legacy cached prompt are untouched (negative control).
-        assert_eq!(get("user-1")["extra"]["cachedPrompt"][0]["content"], json!("hi"));
+        assert_eq!(
+            get("user-1")["extra"]["cachedPrompt"][0]["content"],
+            json!("hi")
+        );
     }
 
     #[test]

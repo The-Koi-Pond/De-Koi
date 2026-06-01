@@ -10,6 +10,8 @@ import type { GenerationGuideSource } from "../shared/text/generation-guide";
 import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
 import { buildImpersonateInstruction } from "../modes/chat/commands/impersonate-prompt";
+import { getConversationStatus } from "../modes/chat/autonomous/autonomous.service";
+import { getBusyDelay, type WeekSchedule } from "../modes/chat/schedules/schedule.service";
 import {
   activeCharacterIds,
   assertChatHasActiveCharacters,
@@ -46,6 +48,7 @@ import {
   normalizeGenerationReplay,
   type GenerationReplay,
 } from "./generation-replay";
+import { loadPersonaSnapshotForChat } from "./persona-snapshot";
 import { assembleGenerationPrompt, chatSummaryForGeneration } from "./prompt-assembly";
 import type { GenerationCharacterContext, GenerationPersonaContext } from "./prompt-assembly";
 import { generationInfoFromVisibleParameters, providerVisibleLlmParameters } from "./provider-visible-parameters";
@@ -153,6 +156,14 @@ const DEFAULT_LOREBOOK_KEEPER_RUN_INTERVAL = BUILT_IN_AGENT_RUN_INTERVAL_DEFAULT
 const CONTINUE_ASSISTANT_RESPONSE_INSTRUCTION =
   "[Generation instruction: continue from the latest assistant message. Do not repeat or summarize the previous response; pick up naturally from where it stopped.]";
 
+type InternalStartGenerationOptions = {
+  groupTurnChild?: boolean;
+  latestUserInput?: string | null;
+  skipUserMessageSave?: boolean;
+};
+
+const internalStartGenerationOptions = new WeakMap<StartGenerationInput, InternalStartGenerationOptions>();
+
 type MainGenerationPromptSnapshot = Pick<
   GenerationPromptSnapshot,
   "messages" | "parameters" | "tools" | "promptPresetId"
@@ -250,19 +261,28 @@ async function prepareUserInput(storage: StorageGateway, input: StartGenerationI
   };
 }
 
-function shouldSaveUserMessage(input: StartGenerationInput, prepared: PreparedUserInput): boolean {
+function shouldSaveUserMessage(
+  input: StartGenerationInput,
+  prepared: PreparedUserInput,
+  internalOptions: InternalStartGenerationOptions = {},
+): boolean {
+  if (internalOptions.skipUserMessageSave === true) return false;
   return !!prepared.content.trim() && input.impersonate !== true && !readString(input.regenerateMessageId).trim();
 }
 
 async function saveUserMessage(
   storage: StorageGateway,
+  chat: JsonRecord,
   input: StartGenerationInput,
   prepared: PreparedUserInput,
+  internalOptions: InternalStartGenerationOptions = {},
 ): Promise<unknown | null> {
-  if (!shouldSaveUserMessage(input, prepared)) return null;
+  if (!shouldSaveUserMessage(input, prepared, internalOptions)) return null;
   const extra: Record<string, unknown> = {};
   if (prepared.attachments.length) extra.attachments = prepared.attachments;
   if (prepared.mentionedCharacterNames.length) extra.mentionedCharacterNames = prepared.mentionedCharacterNames;
+  const personaSnapshot = await loadPersonaSnapshotForChat(storage, chat);
+  if (personaSnapshot) extra.personaSnapshot = personaSnapshot;
   const generationReplay = buildGenerationReplay({
     userMessage: inputUserMessage(input) || null,
     impersonate: false,
@@ -378,6 +398,22 @@ function mirrorSavedUserMessageToDiscord(args: {
     content: args.prepared.content || inputUserMessage(args.input),
     username: limitedDiscordName(args.persona?.name, "User"),
   });
+}
+
+function savedUserPersonaContext(saved: unknown): GenerationPersonaContext | null {
+  if (!isRecord(saved)) return null;
+  const snapshot = parseRecord(parseRecord(saved.extra).personaSnapshot);
+  const name = readString(snapshot.name).trim();
+  if (!name) return null;
+  return {
+    name,
+    description: readString(snapshot.description),
+    personality: readString(snapshot.personality),
+    backstory: readString(snapshot.backstory),
+    appearance: readString(snapshot.appearance),
+    scenario: readString(snapshot.scenario),
+    tags: [],
+  };
 }
 
 function imageExtension(mimeType: string): string {
@@ -1080,20 +1116,47 @@ async function smartRoleplayGroupTarget(args: {
   activeIds: string[];
   signal?: AbortSignal;
 }): Promise<string | null> {
+  return (
+    (
+      await smartRoleplayGroupTargets({
+        ...args,
+        selectionMode: "single",
+      })
+    )[0] ?? null
+  );
+}
+
+async function smartRoleplayGroupTargets(args: {
+  deps: GenerationEngineDeps;
+  input: StartGenerationInput;
+  chat: JsonRecord;
+  connection: JsonRecord;
+  storedMessages: JsonRecord[];
+  latestUserInput: string;
+  mentionedNames: string[];
+  activeIds: string[];
+  selectionMode: "single" | "multi";
+  signal?: AbortSignal;
+}): Promise<string[]> {
   const candidates = await loadSmartResponderCandidates(args.deps.storage, args.activeIds);
   const mentionedIds = mentionedSmartResponderIds({
     candidates,
     latestUserInput: args.latestUserInput,
     mentionedNames: args.mentionedNames,
   });
-  if (mentionedIds.length > 0) return mentionedIds[0] ?? null;
-  if (candidates.length === 0) return sequentialGroupTarget(args.storedMessages, args.activeIds);
+  if (mentionedIds.length > 0) return args.selectionMode === "single" ? mentionedIds.slice(0, 1) : mentionedIds;
+  const sequentialFallback = sequentialGroupTarget(args.storedMessages, args.activeIds);
+  if (candidates.length === 0) return sequentialFallback ? [sequentialFallback] : [];
 
   const personaId = readString(args.chat.personaId).trim();
   const persona = personaId ? await args.deps.storage.get<JsonRecord>("personas", personaId).catch(() => null) : null;
   const personaData = isRecord(persona) ? characterDataRecord(persona) : {};
   const chatMode = readString(args.chat.mode || args.chat.chatMode, "conversation");
   const chatKind = chatMode === "conversation" ? "conversation group chat" : "individual-mode roleplay group chat";
+  const selectionInstruction =
+    args.selectionMode === "multi"
+      ? "Choose the character or characters who should respond in this send. Return one or more IDs when multiple characters should take turns."
+      : "Choose which character should respond next based on the latest message, direct address, conversation momentum, and talkativeness. Usually choose exactly one character.";
   const candidateLines = candidates
     .map((candidate) =>
       JSON.stringify({
@@ -1116,7 +1179,7 @@ async function smartRoleplayGroupTarget(args: {
         messages: [
           {
             role: "system",
-            content: `You are a hidden response orchestrator for a ${chatKind}. Choose which character should respond next based on the latest message, direct address, conversation momentum, and talkativeness. Usually choose exactly one character. Return only JSON: {"characterIds":["character-id"],"reason":"short"}.`,
+            content: `You are a hidden response orchestrator for a ${chatKind}. ${selectionInstruction} Return only JSON: {"characterIds":["character-id"],"reason":"short"}.`,
           },
           {
             role: "user",
@@ -1134,9 +1197,9 @@ async function smartRoleplayGroupTarget(args: {
   } catch (error) {
     if (isRecord(error) && readString(error.name) === "AbortError") throw error;
   }
-  return (
-    parseSmartGroupSelectionIds(raw, args.activeIds)[0] ?? sequentialGroupTarget(args.storedMessages, args.activeIds)
-  );
+  const selected = parseSmartGroupSelectionIds(raw, args.activeIds);
+  if (selected.length > 0) return args.selectionMode === "single" ? selected.slice(0, 1) : selected;
+  return sequentialFallback ? [sequentialFallback] : [];
 }
 
 async function resolveGroupTargetForGeneration(args: {
@@ -1177,6 +1240,148 @@ async function resolveGroupTargetForGeneration(args: {
     return smartRoleplayGroupTarget({ ...args, activeIds });
   }
   return sequentialGroupTarget(args.storedMessages, activeIds);
+}
+
+async function resolveIndividualGroupTurnIds(args: {
+  deps: GenerationEngineDeps;
+  input: StartGenerationInput;
+  chat: JsonRecord;
+  connection: JsonRecord;
+  storedMessages: JsonRecord[];
+  latestUserInput: string;
+  mentionedNames: string[];
+  signal?: AbortSignal;
+}): Promise<string[] | null> {
+  if (args.input.impersonate === true || readString(args.input.regenerateMessageId).trim()) return null;
+  if (Array.isArray(args.input.messages) && args.input.messages.length > 0) return null;
+  if (readString(args.chat.mode || args.chat.chatMode).trim() !== "roleplay") return null;
+  const metadata = parseRecord(args.chat.metadata);
+  if (readString(metadata.groupChatMode, "merged") !== "individual") return null;
+
+  const activeIds = activeCharacterIds(args.chat);
+  if (activeIds.length <= 1) return null;
+  const explicit = explicitGroupTarget(args.input, args.storedMessages, activeIds);
+  if (explicit) return [explicit];
+
+  const order = readString(metadata.groupResponseOrder, "sequential");
+  if (order === "manual") return [];
+  if (order === "smart") {
+    return smartRoleplayGroupTargets({
+      ...args,
+      activeIds,
+      selectionMode: "multi",
+    });
+  }
+  const sequential = sequentialGroupTarget(args.storedMessages, activeIds);
+  return sequential ? [sequential] : [];
+}
+
+async function* runIndividualGroupTurnLoop(args: {
+  deps: GenerationEngineDeps;
+  input: StartGenerationInput;
+  turnIds: string[];
+  latestUserInput: string;
+  signal?: AbortSignal;
+}): AsyncGenerator<GenerationEvent> {
+  for (let index = 0; index < args.turnIds.length; index += 1) {
+    throwIfAborted(args.signal);
+    const characterId = args.turnIds[index]!;
+    const characterName = (await characterNameById(args.deps.storage, [], characterId)) ?? "Character";
+    yield { type: "group_turn", data: { characterId, characterName, index } };
+
+    const childInput: StartGenerationInput = {
+      ...args.input,
+      userMessage: null,
+      message: "",
+      attachments: [],
+      forCharacterId: characterId,
+    };
+    internalStartGenerationOptions.set(childInput, {
+      groupTurnChild: true,
+      latestUserInput: args.latestUserInput,
+      skipUserMessageSave: true,
+    });
+
+    for await (const event of startGeneration(args.deps, childInput, args.signal)) {
+      if (event.type === "user_message" || event.type === "done") continue;
+      if (event.type === "agent_injection_review") {
+        yield event;
+        yield { type: "done" };
+        return;
+      }
+      yield event;
+    }
+  }
+  yield { type: "done" };
+}
+
+type ConversationAvailabilityStatus = "online" | "idle" | "dnd" | "offline";
+
+type ConversationAvailabilityCharacter = {
+  id: string;
+  name: string;
+  status: ConversationAvailabilityStatus;
+  schedule?: WeekSchedule | null;
+};
+
+function conversationStatus(value: unknown): ConversationAvailabilityStatus {
+  return value === "idle" || value === "dnd" || value === "offline" ? value : "online";
+}
+
+async function resolveConversationAvailability(args: {
+  storage: StorageGateway;
+  chat: JsonRecord;
+  targetCharacterId?: string | null;
+}): Promise<{
+  characters: ConversationAvailabilityCharacter[];
+  allOffline: boolean;
+  delayMs: number;
+  delayStatus: ConversationAvailabilityStatus;
+} | null> {
+  if (readString(args.chat.mode || args.chat.chatMode).trim() !== "conversation") return null;
+  const activeIds = activeCharacterIds(args.chat);
+  if (activeIds.length === 0) return null;
+  const activeSet = new Set(activeIds);
+  const requested = readString(args.targetCharacterId).trim();
+  const respondingIds = requested && activeSet.has(requested) ? [requested] : activeIds;
+  const statusResult = await getConversationStatus(args.storage, readString(args.chat.id).trim());
+  const characters: ConversationAvailabilityCharacter[] = [];
+  for (const id of respondingIds) {
+    const row = statusResult.statuses[id];
+    characters.push({
+      id,
+      name: (await characterNameById(args.storage, [], id)) ?? "Character",
+      status: conversationStatus(row?.status),
+      schedule: isRecord(row?.schedule) ? (row.schedule as unknown as WeekSchedule) : null,
+    });
+  }
+  const allOffline = characters.length > 0 && characters.every((character) => character.status === "offline");
+  let delayMs = 0;
+  let delayStatus: ConversationAvailabilityStatus = "online";
+  for (const character of characters) {
+    const characterDelay = getBusyDelay(character.status, character.schedule ?? undefined);
+    if (characterDelay > delayMs) {
+      delayMs = characterDelay;
+      delayStatus = character.status;
+    }
+  }
+  return { characters, allOffline, delayMs, delayStatus };
+}
+
+function abortableDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (delayMs <= 0) return Promise.resolve();
+  if (signal?.aborted) return Promise.reject(abortGenerationError());
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortGenerationError());
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function sequentialGroupTargetCharacterId(
@@ -1225,6 +1430,7 @@ function shouldContinueAssistantResponse(
   prepared: PreparedUserInput,
   storedMessages: JsonRecord[],
 ): boolean {
+  if (readString(input.forCharacterId).trim()) return false;
   if (!isPassiveGenerationRequest(input, prepared)) return false;
   return readString(latestVisibleMessage(storedMessages)?.role) === "assistant";
 }
@@ -1328,16 +1534,38 @@ async function evictStalePromptSnapshotsSafely(storage: StorageGateway, chatId: 
   }
 }
 
+function shouldRefreshMemoryRecall(chat: JsonRecord): boolean {
+  const meta = parseRecord(chat.metadata);
+  if (typeof meta.enableMemoryRecall === "boolean") return meta.enableMemoryRecall;
+  const mode = readString(chat.mode || chat.chatMode);
+  return mode === "conversation" || meta.sceneStatus === "active";
+}
+
+async function refreshMemoryRecallSafely(storage: StorageGateway, chat: JsonRecord): Promise<void> {
+  if (!storage.refreshChatMemories || !shouldRefreshMemoryRecall(chat)) return;
+  const chatId = readString(chat.id).trim();
+  if (!chatId) return;
+  try {
+    await storage.refreshChatMemories(chatId);
+  } catch (error) {
+    console.warn("[generation] memory recall refresh failed", error);
+  }
+}
+
 async function persistLorebookTimingStatesSafely(
   storage: StorageGateway,
   chatId: string,
   timingStates: Record<string, unknown> | null,
+  entryStateOverrides?: Record<string, unknown> | null,
 ): Promise<void> {
-  if (!timingStates) return;
+  const patch: Record<string, unknown> = {};
+  if (timingStates) patch.entryTimingStates = timingStates;
+  if (entryStateOverrides) patch.entryStateOverrides = entryStateOverrides;
+  if (Object.keys(patch).length === 0) return;
   try {
-    await storage.patchChatMetadata(chatId, { entryTimingStates: timingStates });
+    await storage.patchChatMetadata(chatId, patch);
   } catch (error) {
-    console.warn("[generation] lorebook timing state persist failed", error);
+    console.warn("[generation] lorebook runtime state persist failed", error);
   }
 }
 
@@ -1917,10 +2145,14 @@ async function successfulLorebookKeeperMessageIds(storage: StorageGateway, chatI
   const runs = await storage.list<JsonRecord>("agent-runs").catch(() => []);
   return new Set(
     runs
-      .filter((run) => readString(run.chatId).trim() === chatId)
-      .filter((run) => readString(run.agentType).trim() === LOREBOOK_KEEPER_AGENT_TYPE)
+      .filter((run) => readString(run.chatId || run.chat_id).trim() === chatId)
+      .filter((run) => {
+        const type = readString(run.agentType || run.agent_type || run.type).trim();
+        const configId = readString(run.agentConfigId || run.agent_config_id).trim();
+        return type === LOREBOOK_KEEPER_AGENT_TYPE || configId === `builtin:${LOREBOOK_KEEPER_AGENT_TYPE}`;
+      })
       .filter((run) => boolish(run.success, false))
-      .map((run) => readString(run.messageId).trim())
+      .map((run) => readString(run.messageId || run.message_id).trim())
       .filter(Boolean),
   );
 }
@@ -2042,6 +2274,7 @@ async function runGenerationAgentsForTarget(args: {
     request: input,
     latestUserInput: "",
     embeddingSource: generationEmbeddingSource(deps.llm, connection),
+    persistPromptVariables: true,
   });
   const results: AgentResult[] = [];
   const runtime = await createGenerationAgentRuntime(
@@ -2182,6 +2415,7 @@ export async function* startGeneration(
   throwIfAborted(signal);
   const chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
   throwIfAborted(signal);
+  const internalOptions = internalStartGenerationOptions.get(input) ?? {};
   input = await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input);
   throwIfAborted(signal);
   assertChatCanGenerate(chat, input);
@@ -2189,7 +2423,7 @@ export async function* startGeneration(
   yield { type: "phase", data: "Saving message..." };
   const preparedUserInput = await prepareUserInput(deps.storage, input);
   throwIfAborted(signal);
-  const savesUserMessage = shouldSaveUserMessage(input, preparedUserInput);
+  const savesUserMessage = shouldSaveUserMessage(input, preparedUserInput, internalOptions);
   const messageLoadOptions = generationMessageLoadOptions(chat, input);
   let storedMessages: JsonRecord[] | null = null;
   if (savesUserMessage) {
@@ -2198,7 +2432,7 @@ export async function* startGeneration(
     await commitVisibleTrackerSnapshotSafely(deps.storage, chatId, storedMessages);
     throwIfAborted(signal);
   }
-  const savedUserMessage = await saveUserMessage(deps.storage, input, preparedUserInput);
+  const savedUserMessage = await saveUserMessage(deps.storage, chat, input, preparedUserInput, internalOptions);
   throwIfAborted(signal);
   if (savedUserMessage) yield { type: "user_message", data: savedGenerationEventData(savedUserMessage) };
   const connection = await resolveGenerationConnection(deps.storage, chat, input);
@@ -2211,7 +2445,30 @@ export async function* startGeneration(
   } else {
     storedMessages = await loadChatMessages(deps.storage, chatId, messageLoadOptions);
   }
-  const generationMessages = messagesBeforeRegenerationTarget(storedMessages, input.regenerateMessageId);
+  let generationMessages = messagesBeforeRegenerationTarget(storedMessages, input.regenerateMessageId);
+  const latestUserInput =
+    readString(internalOptions.latestUserInput).trim() || preparedUserInput.content || inputUserMessage(input);
+  if (internalOptions.groupTurnChild !== true) {
+    const groupTurnIds = await resolveIndividualGroupTurnIds({
+      deps,
+      input,
+      chat,
+      connection,
+      storedMessages: generationMessages,
+      latestUserInput,
+      mentionedNames: preparedUserInput.mentionedCharacterNames,
+      signal,
+    });
+    throwIfAborted(signal);
+    if (groupTurnIds) {
+      if (groupTurnIds.length === 0) {
+        yield { type: "done" };
+        return;
+      }
+      yield* runIndividualGroupTurnLoop({ deps, input, turnIds: groupTurnIds, latestUserInput, signal });
+      return;
+    }
+  }
   const sequentialGroupTargetId = sequentialGroupTargetCharacterId(chat, input, storedMessages);
   if (sequentialGroupTargetId) {
     input = { ...input, forCharacterId: sequentialGroupTargetId };
@@ -2224,7 +2481,6 @@ export async function* startGeneration(
     storedMessages,
   );
   const chatForGeneration = generationTrackerBaseline ? { ...chat, gameState: generationTrackerBaseline } : chat;
-  const latestUserInput = preparedUserInput.content || inputUserMessage(input);
   const resolvedGroupTarget = await resolveGroupTargetForGeneration({
     deps,
     input,
@@ -2240,6 +2496,45 @@ export async function* startGeneration(
     input = { ...input, forCharacterId: resolvedGroupTarget };
   }
   const directMessages = requestMessages(input);
+  if (!directMessages && input.impersonate !== true) {
+    const availability = await resolveConversationAvailability({
+      storage: deps.storage,
+      chat,
+      targetCharacterId: readString(input.forCharacterId).trim() || resolvedGroupTarget,
+    });
+    throwIfAborted(signal);
+    const characterNames = availability?.characters.map((character) => character.name) ?? [];
+    const regenerateMessageId = readString(input.regenerateMessageId).trim();
+    if (availability?.allOffline && !regenerateMessageId) {
+      mirrorSavedUserMessageToDiscord({
+        deps,
+        chat,
+        input,
+        prepared: preparedUserInput,
+        persona: savedUserPersonaContext(savedUserMessage),
+      });
+      yield { type: "offline", data: { characters: characterNames } };
+      yield { type: "done" };
+      return;
+    }
+    if (availability && availability.delayMs > 0 && !regenerateMessageId) {
+      yield {
+        type: "delayed",
+        data: {
+          characters: characterNames,
+          status: availability.delayStatus,
+          delayMs: availability.delayMs,
+        },
+      };
+      await abortableDelay(availability.delayMs, signal);
+      throwIfAborted(signal);
+      storedMessages = await loadChatMessages(deps.storage, chatId, messageLoadOptions);
+      generationMessages = messagesBeforeRegenerationTarget(storedMessages, input.regenerateMessageId);
+    }
+    if (characterNames.length > 0) {
+      yield { type: "typing", data: { characters: characterNames } };
+    }
+  }
   const agentEvents: AgentResult[] = [];
   const continueAssistantResponse = shouldContinueAssistantResponse(input, preparedUserInput, generationMessages);
   const agentInjectionOverrides = normalizedAgentInjectionOverrides(input);
@@ -2253,6 +2548,7 @@ export async function* startGeneration(
     request: input,
     latestUserInput,
     embeddingSource: generationEmbeddingSource(deps.llm, connection),
+    persistPromptVariables: true,
   });
   throwIfAborted(signal);
   mirrorSavedUserMessageToDiscord({ deps, chat, input, prepared: preparedUserInput, persona: assembly.persona });
@@ -2312,6 +2608,7 @@ export async function* startGeneration(
       latestUserInput,
       agentData: runtime?.agentData,
       embeddingSource: generationEmbeddingSource(deps.llm, connection),
+      persistPromptVariables: true,
     });
     throwIfAborted(signal);
     await consumePendingConnectedInfluences(deps.storage, chatForGeneration);
@@ -2404,7 +2701,12 @@ export async function* startGeneration(
         });
     let latestSaved = saved;
     if (saved) {
-      await persistLorebookTimingStatesSafely(deps.storage, chatId, assembly.lorebookTimingStates);
+      await persistLorebookTimingStatesSafely(
+        deps.storage,
+        chatId,
+        assembly.lorebookTimingStates,
+        assembly.lorebookEntryStateOverrides,
+      );
     }
     throwIfAborted(signal);
     if (saved && input.impersonate !== true) {
@@ -2493,6 +2795,9 @@ export async function* startGeneration(
         yield { type: "agent_result", data: result };
       }
     }
+    if (saved && input.impersonate !== true) {
+      await refreshMemoryRecallSafely(deps.storage, chat);
+    }
     yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
     return;
   }
@@ -2574,7 +2879,12 @@ export async function* startGeneration(
         promptSnapshot: promptSnapshotDirect,
       });
   if (saved) {
-    await persistLorebookTimingStatesSafely(deps.storage, chatId, assembly.lorebookTimingStates);
+    await persistLorebookTimingStatesSafely(
+      deps.storage,
+      chatId,
+      assembly.lorebookTimingStates,
+      assembly.lorebookEntryStateOverrides,
+    );
   }
   throwIfAborted(signal);
   if (saved && input.impersonate !== true) {
@@ -2606,6 +2916,9 @@ export async function* startGeneration(
     for (const result of autoLorebookResults) {
       yield { type: "agent_result", data: result };
     }
+  }
+  if (saved && input.impersonate !== true) {
+    await refreshMemoryRecallSafely(deps.storage, chat);
   }
   yield { type: "done" };
 }
