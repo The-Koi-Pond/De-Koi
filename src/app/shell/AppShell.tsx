@@ -42,6 +42,9 @@ import {
 const ModeSurface = lazy(() =>
   import("../../features/modes/router/shell").then((module) => ({ default: module.ModeSurface })),
 );
+const DiscoverPanel = lazy(() =>
+  import("../../features/shell/discovery/shell").then((module) => ({ default: module.DiscoverPanel })),
+);
 const BotBrowserView = lazy(() =>
   import("../../features/shell/bot-browser/shell").then((module) => ({ default: module.BotBrowserView })),
 );
@@ -1098,7 +1101,9 @@ export function AppShell() {
                 } as CSSProperties
               }
             >
-              <Suspense fallback={<MainPaneFallback />}>{detailView ?? <ModeSurface />}</Suspense>
+              <Suspense fallback={<MainPaneFallback />}>
+                {detailView ?? <ModeSurface homeDiscoverySurface={<DiscoverPanel />} />}
+              </Suspense>
             </div>
           </div>
           {/* Floating avatar notification bubbles (right edge) */}

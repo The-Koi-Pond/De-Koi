@@ -49,6 +49,18 @@ describe("discovery registry", () => {
     expect(errors.some((error) => error.includes(DISCOVERY_CORE_SURFACE_IDS[0]))).toBe(true);
   });
 
+  it("rejects Discover as a right-panel action target", () => {
+    const errors = validateDiscoveryEntries([
+      {
+        ...validEntry,
+        id: "bad-discover-target",
+        actions: [{ type: "open-panel", panel: "discover", label: "Open Discover" }],
+      },
+    ]);
+
+    expect(errors.some((error) => error.includes("bad-discover-target.actions[0].panel"))).toBe(true);
+  });
+
   it("allows action labels to use default button text", () => {
     const errors = validateDiscoveryEntries([{ ...validEntry, actions: [{ type: "go-home" }] }]);
 

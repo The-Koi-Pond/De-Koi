@@ -1,5 +1,5 @@
 import { useCallback, useState, type ReactNode } from "react";
-import { BookOpen, Compass, HelpCircle, MessageSquare, Theater } from "lucide-react";
+import { BookOpen, HelpCircle, MessageSquare, Theater } from "lucide-react";
 import { APP_VERSION } from "../../../../engine/contracts/constants/defaults";
 import { useConnections } from "../../../catalog/connections/index";
 import { useCreateChat } from "../../../catalog/chats/index";
@@ -8,16 +8,14 @@ import { filterLanguageGenerationConnections } from "../../../../shared/lib/conn
 import { cn } from "../../../../shared/lib/utils";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
-import { HomeFaq } from "./HomeFaq";
 import { RecentChats } from "./RecentChats";
 
 type QuickStartMode = "conversation" | "roleplay" | "game";
 
-export function ModeHomeSurface() {
+export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?: ReactNode }) {
   const { data: connections } = useConnections();
   const createChat = useCreateChat();
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
-  const openRightPanel = useUIStore((state) => state.openRightPanel);
 
   const handleQuickStart = useCallback(
     (mode: QuickStartMode) => {
@@ -108,16 +106,7 @@ export function ModeHomeSurface() {
           </div>
 
           <RecentChats />
-          <button
-            type="button"
-            onClick={() => openRightPanel("discover")}
-            className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--card)]/70 px-3 py-2 text-xs font-semibold text-[var(--foreground)] shadow-sm transition-colors hover:border-[var(--primary)]/45 hover:text-[var(--primary)]"
-            title="Discover features"
-          >
-            <Compass size="0.9rem" aria-hidden />
-            Discover features
-          </button>
-          <HomeFaq />
+          {discoverySurface}
 
           <div
             className={cn("w-48", showEmptyStateEffects ? "retro-divider" : "h-px rounded-[1px] bg-[var(--border)]/40")}

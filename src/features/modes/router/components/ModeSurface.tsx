@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef } from "react";
+import { Suspense, lazy, useEffect, useRef, type ReactNode } from "react";
 import { useChat, type ChatMode } from "../../../catalog/chats/index";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { useChatStore } from "../../../../shared/stores/chat.store";
@@ -19,7 +19,7 @@ const GameModeRoute = lazy(async () => {
   return { default: module.GameModeRoute };
 });
 
-export function ModeSurface() {
+export function ModeSurface({ homeDiscoverySurface = null }: { homeDiscoverySurface?: ReactNode }) {
   const activeChatId = useChatStore((state) => state.activeChatId);
   const setActiveChatId = useChatStore((state) => state.setActiveChatId);
   const { data: chat, error: chatError, isLoading: isChatLoading, isFetching: isChatFetching } = useChat(activeChatId);
@@ -30,7 +30,7 @@ export function ModeSurface() {
     setActiveChatId(null);
   }, [activeChatId, chatError, setActiveChatId]);
 
-  if (!activeChatId) return <ModeHomeSurface />;
+  if (!activeChatId) return <ModeHomeSurface discoverySurface={homeDiscoverySurface} />;
 
   const fallback = <div className="flex flex-1 overflow-hidden" />;
   if (chat?.mode) lastChatRef.current = { id: activeChatId, mode: chat.mode };

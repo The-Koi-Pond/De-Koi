@@ -34,7 +34,6 @@ const DISCOVERY_PANEL_TARGETS = [
   "personas",
   "settings",
   "bot-browser",
-  "discover",
 ] as const satisfies readonly DiscoveryPanelTarget[];
 
 const categorySet = new Set<string>(DISCOVERY_CATEGORIES);
