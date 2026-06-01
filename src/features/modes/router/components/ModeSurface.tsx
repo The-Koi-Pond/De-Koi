@@ -37,7 +37,7 @@ export function ModeSurface({ homeDiscoverySurface = null }: { homeDiscoverySurf
 
   const chatMode = chat?.mode ?? (lastChatRef.current?.id === activeChatId ? lastChatRef.current.mode : null);
   if (!chatMode && (isChatLoading || isChatFetching)) return fallback;
-  if (!chatMode) return <ModeHomeSurface />;
+  if (!chatMode) return <ModeHomeSurface discoverySurface={homeDiscoverySurface} />;
 
   return (
     <Suspense fallback={fallback}>

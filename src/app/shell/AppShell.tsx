@@ -1102,7 +1102,15 @@ export function AppShell() {
               }
             >
               <Suspense fallback={<MainPaneFallback />}>
-                {detailView ?? <ModeSurface homeDiscoverySurface={<DiscoverPanel />} />}
+                {detailView ?? (
+                  <ModeSurface
+                    homeDiscoverySurface={
+                      <Suspense fallback={<ShellLoadingFallback compact />}>
+                        <DiscoverPanel />
+                      </Suspense>
+                    }
+                  />
+                )}
               </Suspense>
             </div>
           </div>

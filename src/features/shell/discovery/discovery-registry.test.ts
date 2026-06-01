@@ -58,7 +58,7 @@ describe("discovery registry", () => {
       },
     ]);
 
-    expect(errors.some((error) => error.includes("bad-discover-target.actions[0].panel"))).toBe(true);
+    expect(errors.some((error) => error.endsWith("panel must target a known right panel."))).toBe(true);
   });
 
   it("allows action labels to use default button text", () => {
