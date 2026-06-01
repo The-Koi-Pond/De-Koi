@@ -16,6 +16,7 @@ import {
   X,
   User,
   Languages,
+  Timer,
 } from "lucide-react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import type { Message, MessageExtra } from "../../../../engine/contracts/types/chat";
@@ -64,6 +65,23 @@ const MESSAGE_EDIT_GESTURE_IGNORE_SELECTOR =
   "button, a, textarea, input, select, label, [role='button'], [contenteditable='true'], .mari-message-actions";
 type ConversationMessageExtra = Partial<MessageExtra> & { hiddenFromAI?: unknown; hiddenFromAi?: unknown };
 const EMPTY_MESSAGE_EXTRA: ConversationMessageExtra = {};
+
+function formatGenerationDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, durationMs / 1000);
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)}s`;
+  const roundedSeconds = Math.round(totalSeconds);
+  const minutes = Math.floor(roundedSeconds / 60);
+  const seconds = roundedSeconds % 60;
+  return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+}
+
+function readGenerationDurationMs(generationInfo: unknown): number | null {
+  if (!generationInfo || typeof generationInfo !== "object") return null;
+  const record = generationInfo as { duration?: unknown; durationMs?: unknown };
+  if (typeof record.durationMs === "number" && record.durationMs > 0) return record.durationMs;
+  if (typeof record.duration === "number" && record.duration > 0) return record.duration * 1000;
+  return null;
+}
 
 function HiddenFromAIConversationButton({
   canCollapse,
@@ -557,6 +575,11 @@ export const ConversationMessage = memo(function ConversationMessage({
   }, [renderedContent, segmentCount]);
 
   const thinking = readStoredThinking(extra);
+  const generationDurationMs = !isUser ? readGenerationDurationMs(extra.generationInfo) : null;
+  const generationDurationLabel = generationDurationMs != null ? formatGenerationDuration(generationDurationMs) : null;
+  const generationDurationTitle = generationDurationLabel
+    ? `Response generated in ${generationDurationLabel}`
+    : "Response generation time";
   const swipeCount = message.swipeCount ?? 0;
   const hasSwipes = swipeCount > 1;
 
@@ -866,42 +889,40 @@ export const ConversationMessage = memo(function ConversationMessage({
         )}
 
         {/* Image attachments (selfies, illustrations) */}
-        {!isHiddenCollapsed &&
-          attachments.length > 0 &&
-          !IMAGE_URL_RE.test(renderedContent.trim()) && (
-            <div className="ml-14 mt-1.5 flex flex-col items-start gap-2">
-              {attachments.map((att, i) => {
-                const imageSource = isImageMessageAttachment(att) ? messageAttachmentImageSource(att) : null;
-                return imageSource ? (
-                  <div key={i} className="group/att relative inline-block">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setImageLightbox({ url: imageSource, prompt: att.prompt });
-                      }}
-                      className="block cursor-zoom-in rounded-lg text-left"
-                      title="Open image"
-                    >
-                      <img
-                        src={imageSource}
-                        alt={messageAttachmentImageAlt(att)}
-                        className="max-h-80 max-w-full rounded-lg"
-                        loading="lazy"
-                      />
-                    </button>
-                    <button
-                      onClick={() => handleRemoveAttachment(i)}
-                      title="Remove from message"
-                      className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 text-white/80 transition-opacity hover:bg-black/80 hover:text-white sm:opacity-0 sm:group-hover/att:opacity-100"
-                    >
-                      <X size="0.875rem" />
-                    </button>
-                  </div>
-                ) : null;
-              })}
-            </div>
-          )}
+        {!isHiddenCollapsed && attachments.length > 0 && !IMAGE_URL_RE.test(renderedContent.trim()) && (
+          <div className="ml-14 mt-1.5 flex flex-col items-start gap-2">
+            {attachments.map((att, i) => {
+              const imageSource = isImageMessageAttachment(att) ? messageAttachmentImageSource(att) : null;
+              return imageSource ? (
+                <div key={i} className="group/att relative inline-block">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setImageLightbox({ url: imageSource, prompt: att.prompt });
+                    }}
+                    className="block cursor-zoom-in rounded-lg text-left"
+                    title="Open image"
+                  >
+                    <img
+                      src={imageSource}
+                      alt={messageAttachmentImageAlt(att)}
+                      className="max-h-80 max-w-full rounded-lg"
+                      loading="lazy"
+                    />
+                  </button>
+                  <button
+                    onClick={() => handleRemoveAttachment(i)}
+                    title="Remove from message"
+                    className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 text-white/80 transition-opacity hover:bg-black/80 hover:text-white sm:opacity-0 sm:group-hover/att:opacity-100"
+                  >
+                    <X size="0.875rem" />
+                  </button>
+                </div>
+              ) : null;
+            })}
+          </div>
+        )}
 
         {!hideActions && hasSwipes && (
           <SwipeJumpControl
@@ -929,6 +950,9 @@ export const ConversationMessage = memo(function ConversationMessage({
             title={translatedText ? "Hide translation" : "Translate"}
             className={translatedText ? "text-blue-400" : undefined}
           />
+          {generationDurationLabel && (
+            <MsgAction icon={<Timer size="0.75rem" />} onClick={() => undefined} title={generationDurationTitle} />
+          )}
           <MsgAction icon={<Pencil size="0.75rem" />} onClick={onEditClick ?? startEditing} title="Edit" />
           <MsgAction
             icon={<RefreshCw size="0.75rem" />}
@@ -1184,42 +1208,40 @@ export const ConversationMessage = memo(function ConversationMessage({
         )}
 
         {/* Image attachments (selfies, illustrations) — skip when content is already an image URL */}
-        {!isHiddenCollapsed &&
-          attachments.length > 0 &&
-          !IMAGE_URL_RE.test(renderedContent.trim()) && (
-            <div className="mt-1.5 flex flex-col items-center gap-2">
-              {attachments.map((att, i) => {
-                const imageSource = isImageMessageAttachment(att) ? messageAttachmentImageSource(att) : null;
-                return imageSource ? (
-                  <div key={i} className="group/att relative inline-block">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setImageLightbox({ url: imageSource, prompt: att.prompt });
-                      }}
-                      className="block cursor-zoom-in rounded-lg text-left"
-                      title="Open image"
-                    >
-                      <img
-                        src={imageSource}
-                        alt={messageAttachmentImageAlt(att)}
-                        className="max-h-80 max-w-full rounded-lg"
-                        loading="lazy"
-                      />
-                    </button>
-                    <button
-                      onClick={() => handleRemoveAttachment(i)}
-                      title="Remove from message"
-                      className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 text-white/80 transition-opacity hover:bg-black/80 hover:text-white sm:opacity-0 sm:group-hover/att:opacity-100"
-                    >
-                      <X size="0.875rem" />
-                    </button>
-                  </div>
-                ) : null;
-              })}
-            </div>
-          )}
+        {!isHiddenCollapsed && attachments.length > 0 && !IMAGE_URL_RE.test(renderedContent.trim()) && (
+          <div className="mt-1.5 flex flex-col items-center gap-2">
+            {attachments.map((att, i) => {
+              const imageSource = isImageMessageAttachment(att) ? messageAttachmentImageSource(att) : null;
+              return imageSource ? (
+                <div key={i} className="group/att relative inline-block">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setImageLightbox({ url: imageSource, prompt: att.prompt });
+                    }}
+                    className="block cursor-zoom-in rounded-lg text-left"
+                    title="Open image"
+                  >
+                    <img
+                      src={imageSource}
+                      alt={messageAttachmentImageAlt(att)}
+                      className="max-h-80 max-w-full rounded-lg"
+                      loading="lazy"
+                    />
+                  </button>
+                  <button
+                    onClick={() => handleRemoveAttachment(i)}
+                    title="Remove from message"
+                    className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 text-white/80 transition-opacity hover:bg-black/80 hover:text-white sm:opacity-0 sm:group-hover/att:opacity-100"
+                  >
+                    <X size="0.875rem" />
+                  </button>
+                </div>
+              ) : null;
+            })}
+          </div>
+        )}
 
         {!hideActions && hasSwipes && (
           <SwipeJumpControl
@@ -1249,6 +1271,9 @@ export const ConversationMessage = memo(function ConversationMessage({
             title={translatedText ? "Hide translation" : "Translate"}
             className={translatedText ? "text-blue-400" : undefined}
           />
+          {generationDurationLabel && (
+            <MsgAction icon={<Timer size="0.75rem" />} onClick={() => undefined} title={generationDurationTitle} />
+          )}
           <MsgAction icon={<Pencil size="0.75rem" />} onClick={onEditClick ?? startEditing} title="Edit" />
           {canRegenerate && (
             <MsgAction

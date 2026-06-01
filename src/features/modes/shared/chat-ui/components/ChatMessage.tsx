@@ -32,6 +32,7 @@ import {
   Loader2,
   Pause,
   Play,
+  Timer,
 } from "lucide-react";
 import type { Message, MessageExtra, MessageSwipe } from "../../../../../engine/contracts/types/chat";
 import {
@@ -141,19 +142,40 @@ function firstGenerationNumber(records: readonly GenerationLabelRecord[], keys: 
   return null;
 }
 
+function generationRecordsForMessage(message: Message): GenerationLabelRecord[] {
+  const extra = generationRecord(message.extra);
+  const snapshot = generationRecord(extra?.generationPromptSnapshot);
+  return [
+    generationRecord(extra?.generationInfo),
+    generationRecord(snapshot?.generationInfo),
+    generationRecord((message as Message & { generationInfo?: unknown }).generationInfo),
+  ].filter((record): record is GenerationLabelRecord => !!record);
+}
+
+function formatGenerationDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, durationMs / 1000);
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)}s`;
+  const roundedSeconds = Math.round(totalSeconds);
+  const minutes = Math.floor(roundedSeconds / 60);
+  const seconds = roundedSeconds % 60;
+  return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+}
+
+function generationDurationMsForMessage(message: Message): number | null {
+  if (message.role === "user") return null;
+  const records = generationRecordsForMessage(message);
+  if (records.length === 0) return null;
+  const durationMs = firstGenerationNumber(records, ["durationMs", "duration_ms"]);
+  return durationMs != null && durationMs > 0 ? durationMs : null;
+}
+
 function formatGenerationLabelForMessage(
   message: Message,
   showModelName: boolean,
   showTokenUsage: boolean,
 ): string | null {
   if (message.role === "user" || (!showModelName && !showTokenUsage)) return null;
-  const extra = generationRecord(message.extra);
-  const snapshot = generationRecord(extra?.generationPromptSnapshot);
-  const records = [
-    generationRecord(extra?.generationInfo),
-    generationRecord(snapshot?.generationInfo),
-    generationRecord((message as Message & { generationInfo?: unknown }).generationInfo),
-  ].filter((record): record is GenerationLabelRecord => !!record);
+  const records = generationRecordsForMessage(message);
   if (records.length === 0) return null;
 
   const parts: string[] = [];
@@ -1211,6 +1233,11 @@ export const ChatMessage = memo(function ChatMessage({
     () => formatGenerationLabelForMessage(message, showModelName, showTokenUsage),
     [message, showModelName, showTokenUsage],
   );
+  const generationDurationMs = useMemo(() => generationDurationMsForMessage(message), [message]);
+  const generationDurationLabel = generationDurationMs != null ? formatGenerationDuration(generationDurationMs) : null;
+  const generationDurationTitle = generationDurationLabel
+    ? `Response generated in ${generationDurationLabel}`
+    : "Response generation time";
   // useLayoutEffect runs after DOM mutation but before browser paint — prevents visible scroll jump
   useLayoutEffect(() => {
     // Restore scroll position saved before the state change
@@ -2138,6 +2165,14 @@ export const ChatMessage = memo(function ChatMessage({
                 className={translatedText ? "text-blue-400/80 hover:text-blue-300" : undefined}
                 dark
               />
+              {generationDurationLabel && (
+                <ActionBtn
+                  icon={<Timer size={MESSAGE_ACTION_ICON_SIZE} />}
+                  onClick={() => undefined}
+                  title={generationDurationTitle}
+                  dark
+                />
+              )}
               {onEdit && (
                 <ActionBtn icon={<Pencil size={MESSAGE_ACTION_ICON_SIZE} />} onClick={startEditing} title="Edit" dark />
               )}
@@ -2594,6 +2629,13 @@ export const ChatMessage = memo(function ChatMessage({
               title={translatedText ? "Hide translation" : "Translate"}
               className={translatedText ? "text-blue-500" : undefined}
             />
+            {generationDurationLabel && (
+              <ActionBtn
+                icon={<Timer size={MESSAGE_ACTION_ICON_SIZE} />}
+                onClick={() => undefined}
+                title={generationDurationTitle}
+              />
+            )}
             {onEdit && (
               <ActionBtn icon={<Pencil size={MESSAGE_ACTION_ICON_SIZE} />} onClick={startEditing} title="Edit" />
             )}
