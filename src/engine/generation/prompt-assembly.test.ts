@@ -583,3 +583,66 @@ describe("assembleGenerationPrompt greeting macro variables", () => {
     }
   });
 });
+
+describe("assembleGenerationPrompt roleplay individual group turns", () => {
+  const roleplayPreset = {
+    id: "roleplay-group-preset",
+    wrapFormat: "none",
+    variableValues: {},
+  };
+  const roleplaySections = [
+    {
+      id: "characters",
+      presetId: "roleplay-group-preset",
+      enabled: true,
+      sortOrder: 0,
+      role: "system",
+      name: "Characters",
+      markerConfig: { type: "character" },
+    },
+    {
+      id: "history",
+      presetId: "roleplay-group-preset",
+      enabled: true,
+      sortOrder: 1,
+      role: "user",
+      name: "Chat History",
+      markerConfig: { type: "chat_history" },
+    },
+  ];
+
+  it("sends only the responding character card for roleplay individual turns", async () => {
+    const chat = {
+      id: "roleplay-group",
+      mode: "roleplay",
+      characterIds: ["alice", "bob"],
+      promptPresetId: "roleplay-group-preset",
+      metadata: { groupChatMode: "individual", groupResponseOrder: "manual" },
+    };
+    const storage = createStorage({
+      chats: [chat],
+      characters: [alice, bob],
+      personas: [persona],
+      prompts: [roleplayPreset],
+      promptSections: roleplaySections,
+    });
+
+    const result = await assembleGenerationPrompt(storage, {
+      chat,
+      storedMessages: [
+        { id: "m1", chatId: chat.id, role: "user", content: "Bob, what do you notice?" },
+        { id: "m2", chatId: chat.id, role: "assistant", characterId: "alice", content: "Alice studies the room." },
+      ],
+      connection,
+      request: { forCharacterId: "bob" },
+      latestUserInput: "Bob, what do you notice?",
+    });
+    const text = result.messages.map((message) => message.content).join("\n\n");
+
+    expect(text).toContain("Name: Bob");
+    expect(text).toContain("Description: A curious friend.");
+    expect(text).not.toContain("Name: Alice");
+    expect(text).not.toContain("Description: A careful friend.");
+    expect(text).toContain("Respond only as Bob");
+  });
+});

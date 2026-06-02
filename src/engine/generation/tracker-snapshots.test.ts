@@ -3,7 +3,7 @@ import type { StorageGateway } from "../capabilities/storage";
 import type { AgentResult, AgentResultType } from "../contracts/types/agent";
 import { getTrackerSnapshotForTarget, persistTrackerSnapshotForTurn } from "./tracker-snapshots";
 
-function agentResult(agentType: string, data: Record<string, unknown>): AgentResult {
+function agentResult(agentType: string, data: unknown): AgentResult {
   const resultTypes: Record<string, AgentResultType> = {
     "character-tracker": "character_tracker_update",
     "persona-stats": "persona_stats_update",
@@ -130,5 +130,45 @@ describe("tracker snapshot row id normalization", () => {
     expect(snapshot?.playerStats?.inventory[0]?.inventoryItemId).toBe("inventory-item-potion-1");
     expect(snapshot?.playerStats?.customTrackerFields?.[0]?.customFieldId).toBe("custom-field-status-1");
     expect(snapshot?.playerStats?.activeQuests[0]?.objectives[0]?.objectiveId).toBe("quest-objective-search-1");
+  });
+
+  it("persists compact freeform world-state agent output", async () => {
+    const savedSnapshots: Record<string, unknown>[] = [];
+    const storage = {
+      list: vi.fn(async () => []),
+      get: vi.fn(async () => ({ id: "chat-1", gameState: null })),
+      saveTrackerSnapshot: vi.fn(async (_chatId: string, snapshot: Record<string, unknown>) => {
+        savedSnapshots.push(snapshot);
+        return snapshot;
+      }),
+      update: vi.fn(async () => null),
+    } as unknown as StorageGateway;
+
+    const saved = await persistTrackerSnapshotForTurn(
+      storage,
+      "chat-1",
+      { messageId: "assistant-1", swipeIndex: 0 },
+      [
+        agentResult(
+          "world-state",
+          "world-state\nPrimary Examination Theater, Dottore's Facility, Snezhnaya Capital - Late Night - Windy",
+        ),
+      ],
+    );
+
+    expect(saved).toEqual(
+      expect.objectContaining({
+        location: "Primary Examination Theater, Dottore's Facility, Snezhnaya Capital",
+        time: "Late Night",
+        weather: "Windy",
+      }),
+    );
+    expect(savedSnapshots[0]).toEqual(
+      expect.objectContaining({
+        location: "Primary Examination Theater, Dottore's Facility, Snezhnaya Capital",
+        time: "Late Night",
+        weather: "Windy",
+      }),
+    );
   });
 });
