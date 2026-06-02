@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { StorageGateway } from "../capabilities/storage";
 import type { AgentResult } from "../contracts/types/agent";
+import type { GameState } from "../contracts/types/game-state";
 import { persistTrackerSnapshotForTurn } from "./tracker-snapshots";
 
-function storageWithRows(rows: Record<string, Record<string, unknown>[]>): StorageGateway {
-  const snapshots: Record<string, unknown>[] = [];
-  return {
-    list: async <T = unknown>(entity: string) => (entity === "game-state-snapshots" ? snapshots : (rows[entity] ?? [])) as T[],
+function storageWithRows(
+  rows: Record<string, Record<string, unknown>[]>,
+  initialSnapshots: Record<string, unknown>[] = [],
+) {
+  const snapshots: Record<string, unknown>[] = [...initialSnapshots];
+  const storage = {
+    list: async <T = unknown>(entity: string) =>
+      (entity === "game-state-snapshots" ? snapshots : (rows[entity] ?? [])) as T[],
     get: async <T = unknown>(entity: string, id: string) =>
       ((rows[entity]?.find((row) => row.id === id) ?? null) as T | null),
     create: async <T = unknown>() => ({} as T),
@@ -27,13 +32,35 @@ function storageWithRows(rows: Record<string, Record<string, unknown>[]>): Stora
     listChatMemories: async <T = unknown>() => [] as T[],
     getWorldState: async <T = unknown>() => null as T | null,
     saveTrackerSnapshot: async <T = unknown>(_chatId: string, snapshot: Record<string, unknown>) => {
-      const saved = { ...snapshot, id: "snapshot-1" };
+      const saved = { ...snapshot, id: snapshot.id || "snapshot-1" };
       snapshots.push(saved);
       return saved as T;
     },
     listLorebookEntries: async <T = unknown>() => [] as T[],
     createLorebookEntries: async <T = unknown>() => [] as T[],
     promptFull: async <T = unknown>() => null as T | null,
+  } as StorageGateway;
+  return { storage, snapshots };
+}
+
+function gameState(overrides: Partial<GameState>): GameState {
+  return {
+    id: "snapshot-1",
+    chatId: "chat-1",
+    messageId: "assistant-1",
+    swipeIndex: 0,
+    date: null,
+    time: null,
+    location: "Apartment",
+    weather: null,
+    temperature: null,
+    presentCharacters: [],
+    recentEvents: [],
+    playerStats: null,
+    personaStats: null,
+    committed: false,
+    createdAt: "2026-06-02T00:00:00.000Z",
+    ...overrides,
   };
 }
 
@@ -50,6 +77,19 @@ function characterTrackerResult(presentCharacters: unknown[]): AgentResult {
   };
 }
 
+function worldStateResult(data: unknown): AgentResult {
+  return {
+    agentId: "world-state",
+    agentType: "world-state",
+    type: "game_state_update",
+    data,
+    tokensUsed: 0,
+    durationMs: 0,
+    success: true,
+    error: null,
+  };
+}
+
 describe("tracker snapshots", () => {
   it("does not persist player persona rows from character tracker output", async () => {
     const chat = {
@@ -59,7 +99,7 @@ describe("tracker snapshots", () => {
         presentCharacters: [{ characterId: "{{user}}", name: "{{user}}" }],
       },
     };
-    const storage = storageWithRows({
+    const { storage } = storageWithRows({
       chats: [chat],
       personas: [{ id: "persona-1", name: "Celia" }],
     });
@@ -84,5 +124,46 @@ describe("tracker snapshots", () => {
       mood: "curious",
     });
     expect((chat.gameState as { presentCharacters?: unknown[] }).presentCharacters).toEqual(saved?.presentCharacters);
+  });
+
+  it("uses the pre-generation baseline to undo optimistic silent drift", async () => {
+    const optimisticSnapshot = gameState({
+      date: "Tuesday",
+      time: "Morning",
+      temperature: "Mild",
+    });
+    const baseline = gameState({
+      id: "baseline-1",
+      messageId: "assistant-0",
+      date: "Monday",
+      time: "7:30 PM",
+      temperature: "68\u00b0F",
+      committed: true,
+    });
+    const { storage, snapshots } = storageWithRows({}, [optimisticSnapshot as unknown as Record<string, unknown>]);
+
+    const saved = await persistTrackerSnapshotForTurn(
+      storage,
+      "chat-1",
+      { messageId: "assistant-1", swipeIndex: 0 },
+      [
+        worldStateResult({
+          date: "Tuesday",
+          time: "Morning",
+          temperature: "Mild",
+        }),
+      ],
+      {
+        baseSnapshot: baseline,
+        sourceText: "They keep talking in the apartment, neither checking the clock nor mentioning the weather.",
+      },
+    );
+
+    expect(snapshots).toHaveLength(2);
+    expect(saved).toMatchObject({
+      date: "Monday",
+      time: "7:30 PM",
+      temperature: "68\u00b0F",
+    });
   });
 });
