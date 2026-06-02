@@ -6,17 +6,33 @@ use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
-use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, RwLock,
+};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const MESSAGE_REVERSE_READ_CHUNK_SIZE: u64 = 1024 * 1024;
+const STORAGE_SAVE_DEBOUNCE_MS: u64 = 750;
+
+#[derive(Default)]
+struct StorageCache {
+    collections: HashMap<String, CachedCollection>,
+}
+
+struct CachedCollection {
+    rows: Vec<Value>,
+    dirty: bool,
+}
 
 #[derive(Clone)]
 pub struct FileStorage {
     root: PathBuf,
     lock: Arc<RwLock<()>>,
+    cache: Arc<RwLock<StorageCache>>,
+    flush_scheduled: Arc<AtomicBool>,
 }
 
 impl FileStorage {
@@ -26,11 +42,21 @@ impl FileStorage {
         Ok(Self {
             root,
             lock: Arc::new(RwLock::new(())),
+            cache: Arc::new(RwLock::new(StorageCache::default())),
+            flush_scheduled: Arc::new(AtomicBool::new(false)),
         })
     }
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    pub fn flush(&self) -> AppResult<()> {
+        let _guard = self
+            .lock
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        self.flush_dirty_collections_locked()
     }
 
     pub fn list(&self, collection: &str) -> AppResult<Vec<Value>> {
@@ -165,7 +191,10 @@ impl FileStorage {
             .entry("updatedAt".to_string())
             .or_insert_with(|| Value::String(now));
         let record = Value::Object(object);
-        if matches!(collection, "messages" | "chats") && !had_id {
+        if matches!(collection, "messages" | "chats")
+            && !had_id
+            && !self.is_collection_cached(collection)?
+        {
             self.append_collection_row(collection, &record)?;
             return Ok(record);
         }
@@ -375,10 +404,6 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        if let Some(deleted) = self.delete_pretty_messages_for_chats(chat_ids)? {
-            return Ok(deleted);
-        }
-
         let mut rows = self.read_collection("messages")?;
         let before = rows.len();
         rows.retain(|row| {
@@ -398,7 +423,7 @@ impl FileStorage {
             .lock
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
-        self.write_collection(collection, &rows)
+        self.write_collection_immediate(collection, &rows)
     }
 
     pub fn replace_all_many(&self, replacements: Vec<(&str, Vec<Value>)>) -> AppResult<()> {
@@ -430,6 +455,7 @@ impl FileStorage {
             fs::remove_dir_all(&collections)?;
         }
         fs::create_dir_all(collections)?;
+        self.clear_collection_cache()?;
         Ok(())
     }
 
@@ -439,6 +465,108 @@ impl FileStorage {
             .root
             .join("collections")
             .join(format!("{collection}.json")))
+    }
+
+    fn cached_rows(&self, collection: &str) -> AppResult<Option<Vec<Value>>> {
+        validate_collection_name(collection)?;
+        let cache = self
+            .cache
+            .read()
+            .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+        Ok(cache
+            .collections
+            .get(collection)
+            .map(|cached| cached.rows.clone()))
+    }
+
+    fn is_collection_cached(&self, collection: &str) -> AppResult<bool> {
+        validate_collection_name(collection)?;
+        let cache = self
+            .cache
+            .read()
+            .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+        Ok(cache.collections.contains_key(collection))
+    }
+
+    fn cache_collection(&self, collection: &str, rows: &[Value], dirty: bool) -> AppResult<()> {
+        validate_collection_name(collection)?;
+        let mut cache = self
+            .cache
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+        cache.collections.insert(
+            collection.to_string(),
+            CachedCollection {
+                rows: rows.to_vec(),
+                dirty,
+            },
+        );
+        Ok(())
+    }
+
+    fn clear_collection_cache(&self) -> AppResult<()> {
+        let mut cache = self
+            .cache
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+        cache.collections.clear();
+        Ok(())
+    }
+
+    fn dirty_collection_count(&self) -> usize {
+        self.cache
+            .read()
+            .map(|cache| {
+                cache
+                    .collections
+                    .values()
+                    .filter(|collection| collection.dirty)
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    fn schedule_dirty_flush(&self) {
+        if self.flush_scheduled.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let storage = self.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(STORAGE_SAVE_DEBOUNCE_MS));
+            if let Err(error) = storage.flush() {
+                eprintln!("[storage] delayed flush failed: {}", error.message);
+            }
+            storage.flush_scheduled.store(false, Ordering::SeqCst);
+            if storage.dirty_collection_count() > 0 {
+                storage.schedule_dirty_flush();
+            }
+        });
+    }
+
+    fn flush_dirty_collections_locked(&self) -> AppResult<()> {
+        let dirty = {
+            let cache = self
+                .cache
+                .read()
+                .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+            cache
+                .collections
+                .iter()
+                .filter(|(_, cached)| cached.dirty)
+                .map(|(collection, cached)| (collection.clone(), cached.rows.clone()))
+                .collect::<Vec<_>>()
+        };
+        for (collection, rows) in dirty {
+            self.write_collection_file(&collection, &rows)?;
+            let mut cache = self
+                .cache
+                .write()
+                .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+            if let Some(cached) = cache.collections.get_mut(&collection) {
+                cached.dirty = false;
+            }
+        }
+        Ok(())
     }
 
     fn read_locked_or_recover<T>(
@@ -467,6 +595,24 @@ impl FileStorage {
     }
 
     fn read_collection(&self, collection: &str) -> AppResult<Vec<Value>> {
+        if let Some(rows) = self.cached_rows(collection)? {
+            return Ok(rows);
+        }
+        let rows = self.read_collection_from_disk(collection)?;
+        self.cache_collection(collection, &rows, false)?;
+        Ok(rows)
+    }
+
+    fn read_collection_no_recovery(&self, collection: &str) -> AppResult<Vec<Value>> {
+        if let Some(rows) = self.cached_rows(collection)? {
+            return Ok(rows);
+        }
+        let rows = self.read_collection_from_disk_no_recovery(collection)?;
+        self.cache_collection(collection, &rows, false)?;
+        Ok(rows)
+    }
+
+    fn read_collection_from_disk(&self, collection: &str) -> AppResult<Vec<Value>> {
         let path = self.collection_path(collection)?;
         if !path.exists() {
             return Ok(Vec::new());
@@ -479,7 +625,7 @@ impl FileStorage {
             .or_else(|error| self.recover_collection_after_read_error(collection, &path, error))
     }
 
-    fn read_collection_no_recovery(&self, collection: &str) -> AppResult<Vec<Value>> {
+    fn read_collection_from_disk_no_recovery(&self, collection: &str) -> AppResult<Vec<Value>> {
         let path = self.collection_path(collection)?;
         if !path.exists() {
             return Ok(Vec::new());
@@ -540,16 +686,23 @@ impl FileStorage {
         field_selections: &Map<String, Value>,
         recover_on_fallback: bool,
     ) -> AppResult<Vec<Value>> {
-        let path = self.collection_path(collection)?;
         if fields.is_empty() {
             return Ok(Vec::new());
         }
+        let field_set: HashSet<String> = fields.iter().cloned().collect();
+        let nested_field_sets = selected_nested_fields(field_selections);
+        if let Some(rows) = self.cached_rows(collection)? {
+            return Ok(rows
+                .into_iter()
+                .map(|row| project_row(row, &field_set, &nested_field_sets))
+                .collect());
+        }
+
+        let path = self.collection_path(collection)?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
             return Ok(Vec::new());
         }
 
-        let field_set: HashSet<String> = fields.iter().cloned().collect();
-        let nested_field_sets = selected_nested_fields(field_selections);
         let file = fs::File::open(path)?;
         let reader = BufReader::new(file);
         let mut deserializer = serde_json::Deserializer::from_reader(reader);
@@ -622,6 +775,11 @@ impl FileStorage {
         id: &str,
         recover_on_fallback: bool,
     ) -> AppResult<Option<Value>> {
+        if let Some(rows) = self.cached_rows(collection)? {
+            return Ok(rows
+                .into_iter()
+                .find(|row| row.get("id").and_then(Value::as_str) == Some(id)));
+        }
         let path = self.collection_path(collection)?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
             return Ok(None);
@@ -661,13 +819,20 @@ impl FileStorage {
             return self.read_collection_find_by_id_inner(collection, id, recover_on_fallback);
         }
 
+        let field_set: HashSet<String> = fields.iter().cloned().collect();
+        let nested_field_sets = selected_nested_fields(field_selections);
+        if let Some(rows) = self.cached_rows(collection)? {
+            return Ok(rows
+                .into_iter()
+                .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
+                .map(|row| project_row(row, &field_set, &nested_field_sets)));
+        }
+
         let path = self.collection_path(collection)?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
             return Ok(None);
         }
 
-        let field_set: HashSet<String> = fields.iter().cloned().collect();
-        let nested_field_sets = selected_nested_fields(field_selections);
         match read_pretty_projected_record_by_id_from_file(
             &path,
             id,
@@ -734,16 +899,24 @@ impl FileStorage {
         field_selections: &Map<String, Value>,
         recover_on_fallback: bool,
     ) -> AppResult<Vec<Value>> {
-        let path = self.collection_path("messages")?;
         if fields.is_empty() {
             return Ok(Vec::new());
         }
+        let field_set: HashSet<String> = fields.iter().cloned().collect();
+        let nested_field_sets = selected_nested_fields(field_selections);
+        if let Some(rows) = self.cached_rows("messages")? {
+            return Ok(rows
+                .into_iter()
+                .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
+                .map(|row| project_row(row, &field_set, &nested_field_sets))
+                .collect());
+        }
+
+        let path = self.collection_path("messages")?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
             return Ok(Vec::new());
         }
 
-        let field_set: HashSet<String> = fields.iter().cloned().collect();
-        let nested_field_sets = selected_nested_fields(field_selections);
         let file = fs::File::open(path)?;
         let reader = BufReader::new(file);
         let mut deserializer = serde_json::Deserializer::from_reader(reader);
@@ -772,6 +945,12 @@ impl FileStorage {
         chat_id: &str,
         recover_on_fallback: bool,
     ) -> AppResult<Vec<Value>> {
+        if let Some(rows) = self.cached_rows("messages")? {
+            return Ok(rows
+                .into_iter()
+                .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
+                .collect());
+        }
         let path = self.collection_path("messages")?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
             return Ok(Vec::new());
@@ -808,6 +987,18 @@ impl FileStorage {
         chat_id: &str,
         recover_on_fallback: bool,
     ) -> AppResult<Vec<Value>> {
+        if let Some(rows) = self.cached_rows("messages")? {
+            return Ok(rows
+                .into_iter()
+                .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
+                .filter_map(|row| {
+                    let id = row.get("id")?.clone();
+                    let mut object = Map::new();
+                    object.insert("id".to_string(), id);
+                    Some(Value::Object(object))
+                })
+                .collect());
+        }
         let path = self.collection_path("messages")?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
             return Ok(Vec::new());
@@ -850,6 +1041,12 @@ impl FileStorage {
         chat_id: &str,
         recover_on_fallback: bool,
     ) -> AppResult<usize> {
+        if let Some(rows) = self.cached_rows("messages")? {
+            return Ok(rows
+                .iter()
+                .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
+                .count());
+        }
         let path = self.collection_path("messages")?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
             return Ok(0);
@@ -900,6 +1097,14 @@ impl FileStorage {
         if limit == 0 {
             return Ok(Vec::new());
         }
+        if let Some(rows) = self.cached_rows("messages")? {
+            let mut rows = rows
+                .into_iter()
+                .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
+                .collect::<Vec<_>>();
+            apply_message_page(&mut rows, limit, before);
+            return Ok(rows);
+        }
         let path = self.collection_path("messages")?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
             return Ok(Vec::new());
@@ -921,6 +1126,18 @@ impl FileStorage {
     }
 
     fn write_collection(&self, collection: &str, rows: &[Value]) -> AppResult<()> {
+        self.cache_collection(collection, rows, true)?;
+        self.schedule_dirty_flush();
+        Ok(())
+    }
+
+    fn write_collection_immediate(&self, collection: &str, rows: &[Value]) -> AppResult<()> {
+        self.write_collection_file(collection, rows)?;
+        self.cache_collection(collection, rows, false)?;
+        Ok(())
+    }
+
+    fn write_collection_file(&self, collection: &str, rows: &[Value]) -> AppResult<()> {
         let path = self.collection_path(collection)?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -936,7 +1153,7 @@ impl FileStorage {
             fs::create_dir_all(parent)?;
         }
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
-            self.write_collection(collection, std::slice::from_ref(record))?;
+            self.write_collection_immediate(collection, std::slice::from_ref(record))?;
             return Ok(());
         }
 
@@ -960,7 +1177,7 @@ impl FileStorage {
                 )),
             )?;
             rows.push(record.clone());
-            self.write_collection(collection, &rows)?;
+            self.write_collection_immediate(collection, &rows)?;
             return Ok(());
         }
 
@@ -998,91 +1215,6 @@ impl FileStorage {
         Ok(())
     }
 
-    fn delete_pretty_messages_for_chats(
-        &self,
-        chat_ids: &HashSet<String>,
-    ) -> AppResult<Option<usize>> {
-        let path = self.collection_path("messages")?;
-        if !path.exists() || fs::metadata(&path)?.len() == 0 {
-            return Ok(Some(0));
-        }
-
-        let file = fs::File::open(&path)?;
-        let mut reader = BufReader::new(file);
-        let tmp = unique_sibling_path(&path, "tmp")?;
-        let output = fs::File::create(&tmp)?;
-        let mut output = BufWriter::new(output);
-        output.write_all(b"[\n")?;
-
-        let mut line = String::new();
-        let mut record_lines: Vec<String> = Vec::new();
-        let mut in_record = false;
-        let mut saw_array_start = false;
-        let mut saw_record = false;
-        let mut wrote_record = false;
-        let mut deleted = 0;
-
-        loop {
-            line.clear();
-            if reader.read_line(&mut line)? == 0 {
-                break;
-            }
-            let trimmed = line.trim_start();
-
-            if !in_record {
-                if trimmed.starts_with('[') {
-                    saw_array_start = true;
-                    continue;
-                }
-                if trimmed.starts_with(']') {
-                    break;
-                }
-                if trimmed.trim().is_empty() {
-                    continue;
-                }
-                if trimmed.starts_with('{') {
-                    in_record = true;
-                    saw_record = true;
-                    record_lines.clear();
-                    record_lines.push(line.clone());
-                    continue;
-                }
-                let _ = fs::remove_file(&tmp);
-                return Ok(None);
-            }
-
-            record_lines.push(line.clone());
-            if is_pretty_top_level_record_end(&line) {
-                if pretty_message_record_matches_chat(&record_lines, chat_ids) {
-                    deleted += 1;
-                } else {
-                    write_pretty_record(&mut output, &record_lines, wrote_record)?;
-                    wrote_record = true;
-                }
-                in_record = false;
-                record_lines.clear();
-            }
-        }
-
-        if !saw_array_start || in_record || (!saw_record && deleted == 0) {
-            let _ = fs::remove_file(&tmp);
-            return Ok(None);
-        }
-
-        output.write_all(b"]\n")?;
-        output.flush()?;
-        output.get_ref().sync_all()?;
-
-        if deleted == 0 {
-            let _ = fs::remove_file(&tmp);
-            return Ok(Some(0));
-        }
-
-        refresh_collection_backup(&path)?;
-        fs::rename(tmp, path)?;
-        Ok(Some(deleted))
-    }
-
     fn recover_collection_after_read_error(
         &self,
         collection: &str,
@@ -1100,7 +1232,7 @@ impl FileStorage {
                         error.message
                     );
                     preserve_corrupt_file(path)?;
-                    self.write_collection(collection, &rows)?;
+                    self.write_collection_immediate(collection, &rows)?;
                     return Ok(rows);
                 }
                 Err(backup_error) => {
@@ -1113,7 +1245,7 @@ impl FileStorage {
                     );
                     preserve_corrupt_file(path)?;
                     preserve_corrupt_file(&backup)?;
-                    self.write_collection(collection, &[])?;
+                    self.write_collection_immediate(collection, &[])?;
                     return Ok(Vec::new());
                 }
             }
@@ -1125,7 +1257,7 @@ impl FileStorage {
             error.message
         );
         preserve_corrupt_file(path)?;
-        self.write_collection(collection, &[])?;
+        self.write_collection_immediate(collection, &[])?;
         Ok(Vec::new())
     }
 
@@ -1137,6 +1269,7 @@ impl FileStorage {
     where
         F: FnOnce() -> AppResult<()>,
     {
+        self.flush_dirty_collections_locked()?;
         let transaction_id = storage_transaction_id();
         let mut pending = Vec::new();
         let mut seen_paths = HashSet::new();
@@ -1207,7 +1340,18 @@ impl FileStorage {
         }
 
         cleanup_pending_collection_transaction_files(&pending);
+        for (collection, rows) in replacements {
+            self.cache_collection(collection, &rows, false)?;
+        }
         Ok(())
+    }
+}
+
+impl Drop for FileStorage {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.cache) == 1 && self.dirty_collection_count() > 0 {
+            let _ = self.flush();
+        }
     }
 }
 
@@ -2146,46 +2290,6 @@ fn count_pretty_messages_for_chat(path: &Path, chat_id: &str) -> AppResult<Optio
 
 fn is_pretty_top_level_record_end(line: &str) -> bool {
     line.starts_with("  }") && matches!(line.trim(), "}" | "},")
-}
-
-fn pretty_message_record_matches_chat(record_lines: &[String], chat_ids: &HashSet<String>) -> bool {
-    record_lines.iter().any(|line| {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("\"chatId\"") {
-            return false;
-        }
-        let Some((_, raw_value)) = trimmed.split_once(':') else {
-            return false;
-        };
-        let value = raw_value.trim().trim_end_matches(',');
-        serde_json::from_str::<String>(value).is_ok_and(|chat_id| chat_ids.contains(&chat_id))
-    })
-}
-
-fn write_pretty_record<W: Write>(
-    writer: &mut W,
-    record_lines: &[String],
-    needs_comma: bool,
-) -> AppResult<()> {
-    if needs_comma {
-        writer.write_all(b",\n")?;
-    }
-
-    for (index, line) in record_lines.iter().enumerate() {
-        if index + 1 == record_lines.len() {
-            writer.write_all(strip_record_trailing_comma(line).as_bytes())?;
-        } else {
-            writer.write_all(line.as_bytes())?;
-        }
-    }
-    Ok(())
-}
-
-fn strip_record_trailing_comma(line: &str) -> String {
-    let newline = if line.ends_with('\n') { "\n" } else { "" };
-    let without_newline = line.trim_end_matches('\n');
-    let without_comma = without_newline.strip_suffix(',').unwrap_or(without_newline);
-    format!("{without_comma}{newline}")
 }
 
 fn read_pretty_message_page_from_file(
