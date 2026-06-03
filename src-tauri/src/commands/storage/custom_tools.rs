@@ -221,7 +221,7 @@ async fn custom_tool_webhook_resolved_addresses(
         ));
     };
     let requires_local_target = url.scheme() == "http" && allow_local_urls;
-    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+    if let Some(ip) = custom_tool_webhook_host_ip(host) {
         if requires_local_target && !is_local_or_reserved_ip(ip) {
             return Err(public_http_webhook_error());
         }
@@ -257,6 +257,14 @@ async fn custom_tool_webhook_resolved_addresses(
         )));
     }
     Ok(Some(resolved_addresses))
+}
+
+fn custom_tool_webhook_host_ip(host: &str) -> Option<std::net::IpAddr> {
+    let unbracketed_host = host
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(host);
+    unbracketed_host.parse::<std::net::IpAddr>().ok()
 }
 
 fn public_http_webhook_error() -> AppError {
@@ -489,6 +497,24 @@ mod tests {
         custom_tool_webhook_resolved_addresses(&local_http, true)
             .await
             .expect("local http target should be allowed with local opt-in");
+
+        let bracketed_local_http =
+            reqwest::Url::parse("http://[::1]:32123/hook").expect("test URL should parse");
+        custom_tool_webhook_resolved_addresses(&bracketed_local_http, true)
+            .await
+            .expect("bracketed local IPv6 http target should be allowed with local opt-in");
+
+        let bracketed_public_http =
+            reqwest::Url::parse("http://[2606:2800:220:1:248:1893:25c8:1946]/hook")
+                .expect("test URL should parse");
+        let error = custom_tool_webhook_resolved_addresses(&bracketed_public_http, true)
+            .await
+            .expect_err("bracketed public IPv6 http target should stay rejected");
+        assert!(
+            error.message.contains("public http"),
+            "error should identify insecure public http, got: {}",
+            error.message
+        );
     }
 
     #[test]
