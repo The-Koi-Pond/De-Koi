@@ -391,21 +391,32 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
     let disposed = false;
     let sdkPlayer: SpotifyWebPlaybackPlayer | null = null;
 
-    void loadSpotifySdk()
-      .then(() => {
-        if (disposed || !window.Spotify?.Player) return;
+    const getStreamingAccessToken = async () => {
+      const token = await spotifyApi.accessToken<SpotifyAccessTokenResponse>();
+      if (!token.hasStreamingScope) {
+        if (!disposed) {
+          setSdkDeviceId(null);
+          setSdkError("Reconnect Spotify to enable in-app playback.");
+        }
+        return null;
+      }
+      return token.accessToken;
+    };
+
+    void getStreamingAccessToken()
+      .then((initialToken) => {
+        if (disposed || !initialToken) return false;
+        setSdkError(null);
+        return loadSpotifySdk().then(() => true);
+      })
+      .then((sdkReady) => {
+        if (!sdkReady || disposed || !window.Spotify?.Player) return;
         sdkPlayer = new window.Spotify.Player({
           name: "Marinara Engine",
           volume: 0.5,
           getOAuthToken: (callback) => {
-            void spotifyApi
-              .accessToken<SpotifyAccessTokenResponse>()
-              .then((token) => {
-                if (!token.hasStreamingScope) {
-                  setSdkError("Reconnect Spotify to enable in-app playback.");
-                }
-                callback(token.accessToken);
-              })
+            void getStreamingAccessToken()
+              .then((accessToken) => callback(accessToken ?? ""))
               .catch(() => callback(""));
           },
         });

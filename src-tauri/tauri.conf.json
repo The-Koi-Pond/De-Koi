@@ -27,7 +27,17 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/**", "$APPLOCALDATA/**", "$APPCONFIG/**"]
+        "scope": [
+          "$APPDATA/**",
+          "$APPDATA/.avatar-thumbnails/**",
+          "$APPDATA/.managed-thumbnails/**",
+          "$APPLOCALDATA/**",
+          "$APPLOCALDATA/.avatar-thumbnails/**",
+          "$APPLOCALDATA/.managed-thumbnails/**",
+          "$APPCONFIG/**",
+          "$APPCONFIG/.avatar-thumbnails/**",
+          "$APPCONFIG/.managed-thumbnails/**"
+        ]
       }
     }
   },

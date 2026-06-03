@@ -2130,13 +2130,22 @@ function scopedIndividualGroupTarget(
   input: PromptAssemblyInput,
   characters: GenerationCharacterContext[],
 ): string | null {
-  const chatMode = readString(input.chat.mode || input.chat.chatMode);
-  if (chatMode !== "roleplay" || characters.length <= 1 || input.request.impersonate === true) return null;
+  const targetId = scopedRoleplayGroupTarget(input, characters);
+  if (!targetId) return null;
   const metadata = parseRecord(input.chat.metadata);
   if (readString(metadata.groupChatMode, "merged") !== "individual") return null;
-  const requestedCharacterId = readString(input.request.forCharacterId).trim();
-  if (!requestedCharacterId) return null;
-  return characters.some((character) => character.id === requestedCharacterId) ? requestedCharacterId : null;
+  return targetId;
+}
+
+function scopedMergedRoleplayGroupTarget(
+  input: PromptAssemblyInput,
+  characters: GenerationCharacterContext[],
+): string | null {
+  const targetId = scopedRoleplayGroupTarget(input, characters);
+  if (!targetId) return null;
+  const metadata = parseRecord(input.chat.metadata);
+  if (readString(metadata.groupChatMode, "merged") === "individual") return null;
+  return targetId;
 }
 
 function scopedConversationGroupTarget(
@@ -2145,6 +2154,22 @@ function scopedConversationGroupTarget(
 ): string | null {
   const chatMode = readString(input.chat.mode || input.chat.chatMode);
   if (chatMode !== "conversation" || characters.length <= 1 || input.request.impersonate === true) return null;
+  return requestedCharacterTarget(input, characters);
+}
+
+function scopedRoleplayGroupTarget(
+  input: PromptAssemblyInput,
+  characters: GenerationCharacterContext[],
+): string | null {
+  const chatMode = readString(input.chat.mode || input.chat.chatMode);
+  if (chatMode !== "roleplay" || characters.length <= 1 || input.request.impersonate === true) return null;
+  return requestedCharacterTarget(input, characters);
+}
+
+function requestedCharacterTarget(
+  input: PromptAssemblyInput,
+  characters: GenerationCharacterContext[],
+): string | null {
   const requestedCharacterId = readString(input.request.forCharacterId).trim();
   if (!requestedCharacterId) return null;
   return characters.some((character) => character.id === requestedCharacterId) ? requestedCharacterId : null;
@@ -2188,6 +2213,23 @@ function conversationGroupTurnPromptMessage(
   return {
     role: "system",
     content: `Respond only as ${name}. Use the other attached character cards and recent messages as context, but do not speak as another character in this turn.`,
+    contextKind: "prompt",
+    displayName: "Turn",
+  };
+}
+
+function mergedRoleplayGroupTurnPromptMessage(
+  input: PromptAssemblyInput,
+  characters: GenerationCharacterContext[],
+): ChatMLMessage | null {
+  const targetId = scopedMergedRoleplayGroupTarget(input, characters);
+  if (!targetId) return null;
+  if (parseRecord(input.chat.metadata).groupTurnPromptEnabled === false) return null;
+  const character = characters.find((candidate) => candidate.id === targetId);
+  const name = character?.name.trim() || "the requested character";
+  return {
+    role: "system",
+    content: `The user manually selected ${name} to respond. Write this turn only from ${name}'s perspective and voice. Use the other attached character cards and recent messages as context, but do not let another character answer this turn. Include only minimal scene narration if it is needed to frame ${name}'s response.`,
     contextKind: "prompt",
     displayName: "Turn",
   };
@@ -2649,7 +2691,9 @@ export async function assembleGenerationPrompt(
     resolveMacros: (value) => resolveMacros(value, macros, { trimResult: false }),
   });
   const turnPrompt =
-    individualGroupTurnPromptMessage(input, characters) ?? conversationGroupTurnPromptMessage(input, characters);
+    individualGroupTurnPromptMessage(input, characters) ??
+    mergedRoleplayGroupTurnPromptMessage(input, characters) ??
+    conversationGroupTurnPromptMessage(input, characters);
   if (turnPrompt) {
     messages.push(turnPrompt);
   }

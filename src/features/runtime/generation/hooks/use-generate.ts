@@ -1138,6 +1138,7 @@ export async function runGenerationWithUi(
 ): Promise<boolean> {
   const chatId = args.chatId;
   const regenerateMessageId = readString(args.regenerateMessageId).trim() || null;
+  const requestedCharacterId = readString(args.forCharacterId).trim() || null;
   await assertChatCanGenerate(queryClient, chatId);
   const chatStore = useChatStore.getState();
   if (chatStore.abortControllers.has(chatId)) {
@@ -1149,6 +1150,7 @@ export async function runGenerationWithUi(
   chatStore.setAbortController(chatId, controller);
   chatStore.setStreaming(true, chatId);
   chatStore.setRegenerateMessageId(regenerateMessageId);
+  chatStore.setStreamingCharacterId(requestedCharacterId);
   chatStore.setGenerationPhase("Starting generation...");
   chatStore.setStreamBuffer("", chatId);
   chatStore.setThinkingBuffer("", chatId);
