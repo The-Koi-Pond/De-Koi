@@ -19,7 +19,7 @@ services:
     ports:
       - "127.0.0.1:8787:8787"
     volumes:
-      - marinara-server-data:/data
+      - ${MARINARA_HOST_DATA_DIR:-marinara-server-data}:/data
 
 volumes:
   marinara-server-data:
