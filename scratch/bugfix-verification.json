@@ -1,55 +1,60 @@
 {
   "schemaVersion": 1,
   "issue": {
-    "number": 2122,
-    "title": "[Issue]: Illustrator \"Send avatars as reference images\" silently does nothing on NovelAI V4.5 (uses V3 Vibe Transfer fields)",
-    "url": "https://github.com/Pasta-Devs/Marinara-Engine/issues/2122"
+    "number": 2128,
+    "title": "Character editor quote formatting misses advanced card fields",
+    "url": "https://github.com/Pasta-Devs/Marinara-Engine/issues/2128"
   },
   "pr": {
-    "number": 2200,
-    "url": "https://github.com/Pasta-Devs/Marinara-Engine/pull/2200"
+    "number": 2201,
+    "url": "https://github.com/Pasta-Devs/Marinara-Engine/pull/2201"
   },
-  "coreClaim": "NovelAI V4.5 image requests include precise/director reference parameters when Illustrator supplies avatar reference images.",
+  "coreClaim": "Character editor save formatting normalizes configured quote style for creator notes, system prompt, post-history instructions, and depth prompt text.",
   "assignment": {
-    "assignee": "@me",
-    "assignedBeforeWork": true
+    "assignee": "cha1latte",
+    "assignedBeforeWork": true,
+    "evidence": "gh issue edit 2128 --repo Pasta-Devs/Marinara-Engine --add-assignee \"@me\" returned the issue URL before reproduction or edits."
   },
   "preflight": {
     "noAssociatedPr": true,
-    "details": "No PRs found for #2122 or reference_image_multiple; NovelAI matches were older merged prompt/settings PRs, not this V4.5 reference payload fix.",
-    "base": "upstream/refactor",
-    "worktree": "C:\\tmp\\Marinara-Engine-issue-2122"
+    "details": "gh PR search for #2128 and the issue title returned no matches; no local branch or worktree for issue 2128 existed before this run."
   },
   "reproduction": {
     "attempted": true,
     "reproducedBeforeFix": true,
-    "command": "cargo test --manifest-path src-tauri\\Cargo.toml novelai_v45_reference_images_use_director_reference_fields -- --nocapture",
-    "evidence": "Failed before fix because the captured V4.5 NovelAI request had director_reference_images as null while the supplied avatar reference image was present."
+    "method": "Focused Vitest regression test against the formatter model before the production patch.",
+    "evidence": [
+      "pnpm exec vitest run src\\features\\catalog\\characters\\lib\\character-editor-model.test.ts failed before the fix.",
+      "creator_notes returned `Creator says \"draft\".` instead of typographic quotes.",
+      "depth_prompt.prompt returned `Remember \"the signal\".` instead of typographic quotes."
+    ]
   },
   "verification": {
     "originalReproPassed": true,
-    "command": "cargo test --manifest-path src-tauri\\Cargo.toml novelai_ -- --nocapture",
-    "evidence": "5 NovelAI-focused Rust tests passed, including V4.5 director-reference request shape, V4.5 no-reference behavior, and V4 legacy vibe-field compatibility.",
-    "edgeCases": [
-      "V4.5 with one avatar reference sends director_reference_images, director_reference_descriptions, director_reference_information_extracted, director_reference_strength_values, and director_reference_secondary_strength_values.",
-      "V4.5 with no avatar references omits both director-reference and legacy vibe-transfer reference fields.",
-      "V4 non-4.5 models keep using reference_image_multiple, reference_information_extracted_multiple, and reference_strength_multiple."
-    ],
-    "visualProof": "scratch/bugfix-verification.json records the before/after command proof for this backend request-shape bug.",
     "baselinePassed": true,
     "baselineCommand": "pnpm check",
-    "baselineEvidence": "pnpm check passed after installing already-locked dependencies in the isolated worktree."
+    "baselineEvidence": "pnpm check passed after the final production diff and again after merging upstream/refactor to resolve PR conflicts.",
+    "focusedProof": [
+      "pnpm exec vitest run src\\features\\catalog\\characters\\lib\\character-editor-model.test.ts passed after the fix and Bunny repair.",
+      "pnpm typecheck passed.",
+      "git diff --check passed."
+    ],
+    "edgeCases": [
+      "creator_notes, system_prompt, and post_history_instructions now use typographic quote formatting.",
+      "creator_notes preserves complete <style>...</style> blocks while formatting surrounding prose.",
+      "depth_prompt.prompt now uses typographic quote formatting.",
+      "depth_prompt.depth, depth_prompt.role, and unrelated extension properties are preserved unchanged."
+    ],
+    "visualProof": "scratch/issue-2128-vitest-after.png",
+    "visualProofNotes": "Local screenshot rendered from the raw passing Vitest output in scratch/issue-2128-vitest-after.txt. There is no meaningful app UI state for this formatter-model proof."
   },
-  "manualBlockers": [
-    {
-      "description": "Real NovelAI generation/Anlas billing was not exercised because this environment does not have NovelAI credentials and the proof uses a local request-capture server instead.",
-      "blockingCoreClaim": false
-    }
-  ],
+  "manualBlockers": [],
+  "riskClaimMatrix": null,
   "finalDoneGate": {
     "didFixBug": true,
     "hasProfessionalVisualProof": true,
     "prWouldBeAccepted": true,
-    "claimBoundariesProven": true
+    "claimBoundariesProven": true,
+    "notes": "Local proof, pnpm check, proof gate, and Bunny pass are complete. A later Bunny finding about creator-notes CSS was repaired with a focused regression row; the branch was merged with upstream/refactor to clear PR conflicts."
   }
 }

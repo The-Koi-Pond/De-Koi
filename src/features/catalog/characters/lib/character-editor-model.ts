@@ -42,10 +42,14 @@ const QUOTE_FORMATTED_CHARACTER_FIELDS = new Set<keyof CharacterData>([
   "scenario",
   "first_mes",
   "mes_example",
+  "creator_notes",
+  "system_prompt",
+  "post_history_instructions",
   "alternate_greetings",
 ]);
 
-const QUOTE_FORMATTED_EXTENSION_FIELDS = new Set(["backstory", "appearance", "altDescriptions"]);
+const QUOTE_FORMATTED_EXTENSION_FIELDS = new Set(["backstory", "appearance", "altDescriptions", "depth_prompt"]);
+const CREATOR_NOTES_STYLE_BLOCK_RE = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
 
 function formatAltDescriptions(value: unknown, quoteFormat: QuoteFormat): unknown {
   if (!Array.isArray(value)) return value;
@@ -59,12 +63,40 @@ function formatAltDescriptions(value: unknown, quoteFormat: QuoteFormat): unknow
   });
 }
 
+function formatDepthPrompt(value: unknown, quoteFormat: QuoteFormat): unknown {
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  return {
+    ...record,
+    prompt: typeof record.prompt === "string" ? formatTextQuotes(record.prompt, quoteFormat) : record.prompt,
+  };
+}
+
+function formatCreatorNotes(value: string, quoteFormat: QuoteFormat): string {
+  let result = "";
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  CREATOR_NOTES_STYLE_BLOCK_RE.lastIndex = 0;
+
+  while ((match = CREATOR_NOTES_STYLE_BLOCK_RE.exec(value)) !== null) {
+    result += formatTextQuotes(value.slice(lastIndex, match.index), quoteFormat);
+    result += match[0];
+    lastIndex = match.index + match[0].length;
+  }
+
+  result += formatTextQuotes(value.slice(lastIndex), quoteFormat);
+  return result;
+}
+
 export function formatCharacterEditorField<K extends keyof CharacterData>(
   key: K,
   value: CharacterData[K],
   quoteFormat: QuoteFormat,
 ): CharacterData[K] {
   if (!QUOTE_FORMATTED_CHARACTER_FIELDS.has(key)) return value;
+  if (key === "creator_notes" && typeof value === "string") {
+    return formatCreatorNotes(value, quoteFormat) as CharacterData[K];
+  }
   if (typeof value === "string") return formatTextQuotes(value, quoteFormat) as CharacterData[K];
   if (key === "alternate_greetings" && Array.isArray(value)) {
     return value.map((greeting) =>
@@ -78,6 +110,7 @@ export function formatCharacterEditorExtension(key: string, value: unknown, quot
   if (!QUOTE_FORMATTED_EXTENSION_FIELDS.has(key)) return value;
   if (typeof value === "string") return formatTextQuotes(value, quoteFormat);
   if (key === "altDescriptions") return formatAltDescriptions(value, quoteFormat);
+  if (key === "depth_prompt") return formatDepthPrompt(value, quoteFormat);
   return value;
 }
 
