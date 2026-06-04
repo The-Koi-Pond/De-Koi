@@ -718,19 +718,6 @@ function formatAgentBubble(result: AgentResult, agentName: string): string | nul
           .join("\n") || null
       );
     }
-    case "echo-chamber": {
-      const reactions = Array.isArray(data.reactions) ? data.reactions : [];
-      const count = reactions.length;
-      return count > 0 ? `${count} echo reaction${count === 1 ? "" : "s"}` : "Echo chamber checked.";
-    }
-    case "background": {
-      const chosen = readString(data.chosen).trim();
-      if (chosen) return `Background: ${chosen}`;
-      const generated = parseMaybeRecord(data.generate);
-      const prompt = readString(generated.prompt).trim();
-      if (prompt) return "Requested generated background.";
-      return "Background checked.";
-    }
     case "html":
       return readString(data.text, "HTML formatting active");
     default:
