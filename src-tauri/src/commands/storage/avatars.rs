@@ -247,11 +247,14 @@ fn persona_avatar_referenced_by_messages(state: &AppState, record: &Value) -> Ap
         {
             return false;
         }
-        if snapshot
-            .get("avatarUrl")
-            .and_then(Value::as_str)
+        // A snapshot may carry the avatar reference under any of the URL-like fields the persona
+        // contract emits, not just `avatarUrl`. Checking only one let a still-referenced avatar
+        // look unused (and risk having its file cleaned up).
+        if ["avatarUrl", "avatarPath", "avatar"]
+            .iter()
+            .filter_map(|field| snapshot.get(*field).and_then(Value::as_str))
             .map(str::trim)
-            .is_some_and(|value| !value.is_empty() && url_candidates.contains(value))
+            .any(|value| !value.is_empty() && url_candidates.contains(value))
         {
             return true;
         }
@@ -921,6 +924,75 @@ mod tests {
         assert!(
             !Path::new(&old_path).exists(),
             "filename-only snapshot matches should not preserve unrelated avatar files"
+        );
+    }
+
+    #[test]
+    fn persona_avatar_update_preserves_snapshot_referenced_by_avatar_path() {
+        let state = test_state("persona-avatar-snapshot-avatar-path");
+        state
+            .storage
+            .create(
+                "personas",
+                json!({
+                    "id": "persona-1",
+                    "name": "Xel"
+                }),
+            )
+            .expect("persona should be created");
+
+        let first = update_character_avatar(
+            &state,
+            "personas",
+            "persona-1",
+            json!({ "avatar": small_png_data_url(), "filename": "first.png" }),
+        )
+        .expect("first avatar should update");
+        let old_path = first
+            .get("avatarFilePath")
+            .and_then(Value::as_str)
+            .expect("first avatar path should be stored")
+            .to_string();
+        let old_url = first
+            .get("avatarPath")
+            .and_then(Value::as_str)
+            .expect("first avatar URL should be stored")
+            .to_string();
+        // The snapshot references the avatar only through `avatarPath` — no `avatarUrl` and no
+        // matching `avatarFilePath` — so preservation must come from the broadened URL-field scan
+        // rather than the file-path fallback. Before that broadening this snapshot looked unused
+        // and the still-referenced file was cleaned up.
+        state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "msg-1",
+                    "chatId": "chat-1",
+                    "role": "user",
+                    "content": "hello",
+                    "extra": {
+                        "personaSnapshot": {
+                            "personaId": "persona-1",
+                            "name": "Xel",
+                            "avatarPath": old_url
+                        }
+                    }
+                }),
+            )
+            .expect("message snapshot should be created");
+
+        update_character_avatar(
+            &state,
+            "personas",
+            "persona-1",
+            json!({ "avatar": small_png_data_url(), "filename": "second.png" }),
+        )
+        .expect("second avatar should update");
+
+        assert!(
+            Path::new(&old_path).is_file(),
+            "persona avatar referenced by a snapshot's avatarPath should remain available"
         );
     }
 
