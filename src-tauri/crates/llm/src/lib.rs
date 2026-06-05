@@ -525,12 +525,18 @@ fn is_claude_opus_adaptive_only_model(model: &str) -> bool {
     claude_version_at_least(model, "opus", 4, 7)
 }
 
+fn is_anthropic_sampling_restricted_model(model: &str) -> bool {
+    claude_version_at_least(model, "opus", 4, 7)
+        || claude_version_at_least(model, "sonnet", 4, 6)
+        || claude_version_at_least(model, "haiku", 4, 5)
+}
+
 fn supports_anthropic_adaptive_thinking(model: &str) -> bool {
     claude_version_at_least(model, "opus", 4, 6) || claude_version_at_least(model, "sonnet", 4, 6)
 }
 
 fn should_send_openai_sampling_parameters(request: &LlmRequest) -> bool {
-    !is_claude_opus_adaptive_only_model(&request.connection.model)
+    !is_anthropic_sampling_restricted_model(&request.connection.model)
 }
 
 fn should_send_temperature(request: &LlmRequest) -> bool {
@@ -581,6 +587,10 @@ fn is_openai_service_tier(value: &str) -> bool {
 
 fn is_openrouter_service_tier(value: &str) -> bool {
     matches!(value, "flex" | "priority")
+}
+
+fn is_anthropic_service_tier(value: &str) -> bool {
+    matches!(value, "auto" | "standard_only")
 }
 
 fn should_apply_custom_parameter(
@@ -2278,19 +2288,27 @@ fn build_anthropic_body(request: &LlmRequest, stream: bool) -> Value {
     if !system.is_empty() {
         body["system"] = json!(system.join("\n\n"));
     }
-    let adaptive_only = is_claude_opus_adaptive_only_model(&request.connection.model);
+    let sampling_restricted = is_anthropic_sampling_restricted_model(&request.connection.model);
     let thinking_effort = anthropic_thinking_effort(&request.connection.model, &request.parameters);
     let adaptive_thinking = should_use_anthropic_adaptive_thinking(
         &request.connection.model,
         &request.parameters,
         thinking_effort,
     );
-    if !adaptive_only && !adaptive_thinking {
+    let send_temperature_and_top_k = !sampling_restricted && !adaptive_thinking;
+    if send_temperature_and_top_k {
         if let Some(temp) = temperature(&request.parameters) {
             body["temperature"] = json!(temp);
         }
     }
-    if !adaptive_only {
+    if !sampling_restricted {
+        if let Some(top_p) = param_f64(&request.parameters, &["topP", "top_p"]) {
+            if !adaptive_thinking || top_p >= 0.95 {
+                body["top_p"] = json!(top_p);
+            }
+        }
+    }
+    if send_temperature_and_top_k {
         if let Some(top_k) = param_i64(&request.parameters, &["topK", "top_k"]) {
             body["top_k"] = json!(top_k);
         }
@@ -2305,16 +2323,19 @@ fn build_anthropic_body(request: &LlmRequest, stream: bool) -> Value {
         body["thinking"] = json!({ "type": "enabled", "budget_tokens": budget_tokens });
         body["max_tokens"] = json!(request_max_tokens(request, 1024) + budget_tokens);
     }
-    if !adaptive_only {
-        if let Some(stop) = stop_sequences(&request.parameters) {
-            body["stop_sequences"] = json!(stop);
-        }
+    if let Some(service_tier) = param_string(&request.parameters, &["serviceTier", "service_tier"])
+        .filter(|value| is_anthropic_service_tier(value))
+    {
+        body["service_tier"] = json!(service_tier);
+    }
+    if let Some(stop) = stop_sequences(&request.parameters) {
+        body["stop_sequences"] = json!(stop);
     }
     apply_custom_parameters_to_object(
         &mut body,
         &request.parameters,
-        adaptive_only,
-        adaptive_only,
+        sampling_restricted || adaptive_thinking,
+        false,
         &[],
     );
     body

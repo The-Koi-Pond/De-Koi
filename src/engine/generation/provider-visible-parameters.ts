@@ -67,12 +67,20 @@ function isClaudeOpusAdaptiveOnlyModel(model: string): boolean {
   return claudeVersionAtLeast(model, "opus", 4, 7);
 }
 
+function isAnthropicSamplingRestrictedModel(model: string): boolean {
+  return (
+    claudeVersionAtLeast(model, "opus", 4, 7) ||
+    claudeVersionAtLeast(model, "sonnet", 4, 6) ||
+    claudeVersionAtLeast(model, "haiku", 4, 5)
+  );
+}
+
 function supportsAnthropicAdaptiveThinking(model: string): boolean {
   return claudeVersionAtLeast(model, "opus", 4, 6) || claudeVersionAtLeast(model, "sonnet", 4, 6);
 }
 
 function shouldSendOpenAiSamplingParameters(model: string): boolean {
-  return !isClaudeOpusAdaptiveOnlyModel(model);
+  return !isAnthropicSamplingRestrictedModel(model);
 }
 
 function isSamplingParameterKey(key: string): boolean {
@@ -190,7 +198,7 @@ function openAiReasoningEffort(model: string, parameters: JsonRecord): string | 
 }
 
 function anthropicThinkingEffort(model: string, parameters: JsonRecord): string | null {
-  const effort = parameterString(parameters, ["reasoningEffort", "reasoning_effort"]);
+  const effort = parameterString(parameters, ["reasoningEffort", "reasoning_effort"])?.toLowerCase();
   if (!effort) return null;
   if (["low", "medium", "high"].includes(effort)) return effort;
   if (effort === "xhigh") return isClaudeOpusAdaptiveOnlyModel(model) ? "xhigh" : "high";
@@ -298,18 +306,21 @@ function visibleAnthropicParameters(
   options: { stream?: boolean },
 ): Record<string, unknown> {
   const model = readString(connection.model);
-  const adaptiveOnly = isClaudeOpusAdaptiveOnlyModel(model);
+  const samplingRestricted = isAnthropicSamplingRestrictedModel(model);
   const effort = anthropicThinkingEffort(model, parameters);
   const adaptiveThinking = shouldUseAnthropicAdaptiveThinking(model, parameters, effort);
+  const sendTemperatureAndTopK = !samplingRestricted && !adaptiveThinking;
   const body: Record<string, unknown> = {
     max_tokens: requestMaxTokens(connection, parameters),
   };
   if (options.stream) body.stream = true;
-  if (!adaptiveOnly && !adaptiveThinking) {
+  if (sendTemperatureAndTopK) {
     const temperature = parameterNumber(parameters, ["temperature"]);
     if (temperature !== null) body.temperature = temperature;
   }
-  if (!adaptiveOnly) {
+  const topP = parameterNumber(parameters, ["topP", "top_p"]);
+  if (!samplingRestricted && topP !== null && (!adaptiveThinking || topP >= 0.95)) body.top_p = topP;
+  if (sendTemperatureAndTopK) {
     const topK = parameterInteger(parameters, ["topK", "top_k"]);
     if (topK !== null) body.top_k = topK;
   }
@@ -321,11 +332,14 @@ function visibleAnthropicParameters(
     body.thinking = { type: "enabled", budget_tokens: budgetTokens };
     body.max_tokens = requestMaxTokens(connection, parameters) + budgetTokens;
   }
-  if (!adaptiveOnly) {
-    const stop = stopSequences(parameters);
-    if (stop) body.stop_sequences = stop;
-  }
-  applyCustomParameters(body, parameters, { stripSampling: adaptiveOnly, stripStop: adaptiveOnly });
+  const serviceTier = parameterString(parameters, ["serviceTier", "service_tier"]);
+  if (serviceTier && isAnthropicServiceTier(serviceTier)) body.service_tier = serviceTier;
+  const stop = stopSequences(parameters);
+  if (stop) body.stop_sequences = stop;
+  applyCustomParameters(body, parameters, {
+    stripSampling: samplingRestricted || adaptiveThinking,
+    stripStop: false,
+  });
   return body;
 }
 
@@ -368,6 +382,10 @@ function isOpenAiServiceTier(value: string): boolean {
 
 function isOpenRouterServiceTier(value: string): boolean {
   return ["flex", "priority"].includes(value);
+}
+
+function isAnthropicServiceTier(value: string): boolean {
+  return ["auto", "standard_only"].includes(value);
 }
 
 function visibleOpenAiCompatibleParameters(
