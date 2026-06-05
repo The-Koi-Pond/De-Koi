@@ -417,8 +417,22 @@ export function GlobalGalleryPanel() {
           folders={folderList}
           onClose={() => setLightbox(null)}
           onMove={(folderId) => {
-            move.mutate({ imageId: lightbox.id, folderId });
+            // Optimistically reflect the move in the lightbox, but roll back (and
+            // warn) if the write fails so the dropdown can't show a folder the
+            // image was never actually filed into.
+            const previousFolderId = lightbox.folderId;
             setLightbox((current) => (current ? { ...current, folderId } : current));
+            move.mutate(
+              { imageId: lightbox.id, folderId },
+              {
+                onError: () => {
+                  toast.error("Couldn't move this image. Putting it back.");
+                  setLightbox((current) =>
+                    current && current.id === lightbox.id ? { ...current, folderId: previousFolderId } : current,
+                  );
+                },
+              },
+            );
           }}
           onDelete={() => void handleDelete(lightbox)}
         />

@@ -2951,8 +2951,14 @@ pub(crate) fn upload_global_gallery_image(
         &uploaded.content_type,
     )?;
     let mut record = Map::new();
+    // Only file under a folder that actually exists. A stale UI race or a remote
+    // caller could otherwise strand the row under a folder that was never created
+    // (or was just deleted) — and folder-delete cleanup only unfiles children of
+    // folders it actually deletes, leaving the orphan unreachable. Fall back to root.
     let folder_value = match folder_id.map(str::trim) {
-        Some(id) if !id.is_empty() => Value::String(id.to_string()),
+        Some(id) if !id.is_empty() && state.storage.get("gallery-folders", id)?.is_some() => {
+            Value::String(id.to_string())
+        }
         _ => Value::Null,
     };
     record.insert("folderId".to_string(), folder_value);
