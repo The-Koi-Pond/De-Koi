@@ -100,6 +100,7 @@ pub async fn complete_rich(request: LlmRequest) -> AppResult<LlmCompletion> {
                     tool_calls: Vec::new(),
                 })
         }
+        "cohere" => complete_cohere_rich(request).await,
         _ => complete_openai_compatible_rich(request).await,
     }
 }
@@ -117,6 +118,8 @@ pub async fn stream_events(
         stream_google(request, &mut emit).await?;
     } else if request.connection.provider == "anthropic" {
         stream_anthropic(request, &mut emit).await?;
+    } else if request.connection.provider == "cohere" {
+        stream_cohere(request, &mut emit).await?;
     } else if request.connection.provider != "claude_subscription" {
         stream_openai_compatible(request, &mut emit).await?;
     } else {
@@ -228,11 +231,33 @@ fn base_url(provider: &str, configured: &str) -> String {
                 .to_string()
         }
         "mistral" => "https://api.mistral.ai/v1".to_string(),
-        "cohere" => "https://api.cohere.ai/compatibility/v1".to_string(),
+        "cohere" => "https://api.cohere.com/v2".to_string(),
         "openrouter" => "https://openrouter.ai/api/v1".to_string(),
         "nanogpt" => "https://nano-gpt.com/api/v1".to_string(),
         "xai" => "https://api.x.ai/v1".to_string(),
         _ => "https://api.openai.com/v1".to_string(),
+    }
+}
+
+fn cohere_base_url(configured: &str) -> String {
+    let base = base_url("cohere", configured);
+    if base.ends_with("/compatibility/v1") {
+        return format!("{}/v2", base.trim_end_matches("/compatibility/v1"));
+    }
+    if base.ends_with("/v1") && base.contains("api.cohere.") {
+        return format!("{}/v2", base.trim_end_matches("/v1"));
+    }
+    base
+}
+
+fn cohere_chat_endpoint(configured: &str) -> String {
+    let base = cohere_base_url(configured).trim_end_matches('/').to_string();
+    if base.ends_with("/v2/chat") {
+        base
+    } else if base.ends_with("/v2") {
+        format!("{base}/chat")
+    } else {
+        format!("{base}/v2/chat")
     }
 }
 
@@ -502,6 +527,59 @@ fn mistral_reasoning_effort(request: &LlmRequest) -> Option<&'static str> {
         .map(|show| if show { "high" } else { "none" })
 }
 
+fn supports_cohere_thinking(model: &str) -> bool {
+    let model = model.to_ascii_lowercase();
+    model.contains("command-a-reasoning") || model.contains("command-a-plus")
+}
+
+fn cohere_thinking_config(request: &LlmRequest) -> Option<Value> {
+    if let Some(thinking) = request
+        .parameters
+        .get("thinking")
+        .filter(|value| value.as_object().is_some_and(|object| !object.is_empty()))
+    {
+        return Some(thinking.clone());
+    }
+    if !supports_cohere_thinking(&request.connection.model) {
+        return None;
+    }
+
+    let effort = param_string(
+        &request.parameters,
+        &["reasoningEffort", "reasoning_effort"],
+    )
+    .map(|value| value.to_ascii_lowercase());
+    if matches!(effort.as_deref(), Some("none" | "minimal" | "low")) {
+        return Some(json!({ "type": "disabled" }));
+    }
+
+    let budget = param_i64(&request.parameters, &["thinkingBudget", "thinking_budget"])
+        .filter(|value| *value > 0);
+    let show_thoughts = param_boolish(&request.parameters, &["showThoughts", "show_thoughts"], true);
+    if let Some(budget) = budget {
+        let mut thinking = json!({ "token_budget": budget });
+        if show_thoughts.unwrap_or(true)
+            || matches!(
+                effort.as_deref(),
+                Some("medium" | "high" | "maximum" | "xhigh")
+            )
+        {
+            thinking["type"] = json!("enabled");
+        }
+        return Some(thinking);
+    }
+    if let Some(show) = show_thoughts {
+        return Some(json!({ "type": if show { "enabled" } else { "disabled" } }));
+    }
+    if matches!(
+        effort.as_deref(),
+        Some("medium" | "high" | "maximum" | "xhigh")
+    ) {
+        return Some(json!({ "type": "enabled" }));
+    }
+    None
+}
+
 fn model_contains(request: &LlmRequest, needle: &str) -> bool {
     request
         .connection
@@ -627,6 +705,45 @@ fn is_mistral_unsupported_custom_parameter_key(key: &str) -> bool {
     )
 }
 
+fn is_cohere_unsupported_custom_parameter_key(key: &str) -> bool {
+    matches!(
+        key,
+        "maxTokens"
+            | "maxOutputTokens"
+            | "max_output_tokens"
+            | "topP"
+            | "top_p"
+            | "topK"
+            | "top_k"
+            | "stop"
+            | "stopSequences"
+            | "frequencyPenalty"
+            | "presencePenalty"
+            | "responseFormat"
+            | "safetyMode"
+            | "toolChoice"
+            | "strictTools"
+            | "reasoningEffort"
+            | "showThoughts"
+            | "show_thoughts"
+            | "thinkingBudget"
+            | "thinking_budget"
+            | "random_seed"
+            | "randomSeed"
+            | "safe_prompt"
+            | "safePrompt"
+            | "prompt_cache_key"
+            | "promptCacheKey"
+            | "prompt_mode"
+            | "promptMode"
+            | "parallel_tool_calls"
+            | "parallelToolCalls"
+            | "service_tier"
+            | "serviceTier"
+            | "prediction"
+    )
+}
+
 fn is_openai_service_tier(value: &str) -> bool {
     matches!(value, "auto" | "default" | "flex" | "scale" | "priority")
 }
@@ -637,6 +754,18 @@ fn is_openrouter_service_tier(value: &str) -> bool {
 
 fn is_anthropic_service_tier(value: &str) -> bool {
     matches!(value, "auto" | "standard_only")
+}
+
+fn is_cohere_safety_mode(value: &str) -> bool {
+    matches!(value, "CONTEXTUAL" | "STRICT" | "OFF")
+}
+
+fn cohere_tool_choice(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "required" | "any" => Some("REQUIRED"),
+        "none" => Some("NONE"),
+        _ => None,
+    }
 }
 
 fn should_apply_custom_parameter(
@@ -1085,6 +1214,204 @@ async fn apply_chatgpt_auth_headers(
         req = req.header("X-OpenAI-Fedramp", "true");
     }
     Ok(req)
+}
+
+fn cohere_message(message: &LlmMessage) -> Value {
+    let mut object = serde_json::Map::new();
+    object.insert("role".to_string(), json!(message.role));
+    if message.images.is_empty() {
+        object.insert("content".to_string(), json!(message.content));
+    } else {
+        let mut content = Vec::new();
+        if !message.content.is_empty() {
+            content.push(json!({ "type": "text", "text": message.content }));
+        }
+        for image in &message.images {
+            content.push(json!({ "type": "image_url", "image_url": { "url": image } }));
+        }
+        object.insert("content".to_string(), Value::Array(content));
+    }
+    if let Some(tool_call_id) = message
+        .tool_call_id
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        object.insert("tool_call_id".to_string(), json!(tool_call_id));
+    }
+    if let Some(tool_calls) = message.tool_calls.as_ref() {
+        object.insert("tool_calls".to_string(), tool_calls.clone());
+    }
+    Value::Object(object)
+}
+
+fn cohere_response_format(parameters: &Value) -> Option<Value> {
+    let value = parameters
+        .get("response_format")
+        .or_else(|| parameters.get("responseFormat"))?;
+    if let Some(format) = value
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(json!({ "type": format }));
+    }
+    value.as_object().map(|_| value.clone())
+}
+
+fn apply_cohere_parameters(body: &mut Value, request: &LlmRequest) {
+    let parameters = &request.parameters;
+    if let Some(temp) = temperature(parameters) {
+        body["temperature"] = json!(temp);
+    }
+    if let Some(top_p) = param_f64(parameters, &["topP", "top_p", "p"]) {
+        body["p"] = json!(top_p);
+    }
+    if let Some(top_k) = param_i64(parameters, &["topK", "top_k", "k"]).filter(|value| *value >= 0)
+    {
+        body["k"] = json!(top_k);
+    }
+    if let Some(frequency_penalty) =
+        param_f64(parameters, &["frequencyPenalty", "frequency_penalty"])
+    {
+        body["frequency_penalty"] = json!(frequency_penalty);
+    }
+    if let Some(presence_penalty) =
+        param_f64(parameters, &["presencePenalty", "presence_penalty"])
+    {
+        body["presence_penalty"] = json!(presence_penalty);
+    }
+    if let Some(seed) = param_i64(parameters, &["seed"]) {
+        body["seed"] = json!(seed);
+    }
+    if let Some(stop) = stop_sequences(parameters) {
+        body["stop_sequences"] = json!(stop);
+    }
+    if request.tools.is_empty() {
+        if let Some(response_format) = cohere_response_format(parameters) {
+            body["response_format"] = response_format;
+        }
+    }
+    if let Some(safety_mode) = param_string(parameters, &["safetyMode", "safety_mode"])
+        .map(|value| value.to_ascii_uppercase())
+        .filter(|value| is_cohere_safety_mode(value))
+    {
+        body["safety_mode"] = json!(safety_mode);
+    }
+    if let Some(logprobs) = param_boolish(parameters, &["logprobs", "logProbs"], false) {
+        body["logprobs"] = json!(logprobs);
+    }
+    if let Some(tool_choice) = param_string(parameters, &["toolChoice", "tool_choice"])
+        .and_then(|value| cohere_tool_choice(&value))
+    {
+        body["tool_choice"] = json!(tool_choice);
+    }
+    if let Some(priority) =
+        param_i64(parameters, &["priority"]).filter(|value| (0..=999).contains(value))
+    {
+        body["priority"] = json!(priority);
+    }
+    if let Some(strict_tools) = param_boolish(parameters, &["strictTools", "strict_tools"], false) {
+        body["strict_tools"] = json!(strict_tools);
+    }
+    if let Some(thinking) = cohere_thinking_config(request) {
+        body["thinking"] = thinking;
+    }
+    apply_custom_parameters_to_object(body, parameters, false, false, &[]);
+    if let Some(body) = body.as_object_mut() {
+        body.retain(|key, _| !is_cohere_unsupported_custom_parameter_key(key));
+    }
+}
+
+fn build_cohere_body(request: &LlmRequest, stream: bool) -> Value {
+    let messages: Vec<Value> = request_messages(request)
+        .iter()
+        .map(cohere_message)
+        .collect();
+    let mut body = json!({
+        "model": request.connection.model,
+        "messages": messages,
+        "stream": stream,
+        "max_tokens": request_max_tokens(request, 1024),
+    });
+    if !request.tools.is_empty() {
+        body["tools"] = Value::Array(
+            request
+                .tools
+                .iter()
+                .map(|tool| json!({ "type": "function", "function": tool }))
+                .collect(),
+        );
+    }
+    apply_cohere_parameters(&mut body, request);
+    body
+}
+
+async fn complete_cohere_rich(request: LlmRequest) -> AppResult<LlmCompletion> {
+    let url = cohere_chat_endpoint(&request.connection.base_url);
+    ensure_url_allowed(&url)?;
+    let body = build_cohere_body(&request, false);
+    log_prompt_connection_request("cohere.v2.chat", &url, &request, &body);
+    let client = reqwest::Client::new();
+    let mut req = client.post(url).json(&body);
+    if !request.connection.api_key.trim().is_empty() {
+        req = req.bearer_auth(request.connection.api_key.trim());
+    }
+    let response = req.send().await.map_err(|error| {
+        AppError::new("llm_network_error", provider_transport_error_message(error))
+    })?;
+    parse_cohere_response_rich(response).await
+}
+
+async fn stream_cohere(
+    request: LlmRequest,
+    emit: &mut (impl FnMut(Value) -> AppResult<()> + Send),
+) -> AppResult<()> {
+    let url = cohere_chat_endpoint(&request.connection.base_url);
+    ensure_url_allowed(&url)?;
+    let body = build_cohere_body(&request, true);
+    log_prompt_connection_request("cohere.v2.chat.stream", &url, &request, &body);
+    let client = reqwest::Client::new();
+    let mut req = client.post(url).json(&body);
+    if !request.connection.api_key.trim().is_empty() {
+        req = req.bearer_auth(request.connection.api_key.trim());
+    }
+    let response = req.send().await.map_err(|error| {
+        AppError::new("llm_network_error", provider_transport_error_message(error))
+    })?;
+    let status = response.status();
+    if !status.is_success() {
+        let error_body = response.json::<Value>().await.unwrap_or_else(|_| json!({}));
+        return Err(provider_http_error(status, error_body));
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    let mut tool_calls = OpenAiToolCallAccumulator::default();
+    let mut completed = false;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| {
+            AppError::new("llm_stream_error", provider_transport_error_message(error))
+        })?;
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+        while let Some(block) = take_sse_block(&mut buffer) {
+            if process_cohere_sse_block(&block, emit, &mut tool_calls)?
+                == SseBlockStatus::Complete
+            {
+                completed = true;
+                break;
+            }
+        }
+        if completed {
+            break;
+        }
+    }
+    if !completed && !buffer.trim().is_empty() {
+        process_cohere_sse_block(&buffer, emit, &mut tool_calls)?;
+    }
+    for tool_call in tool_calls.into_tool_calls() {
+        emit(json!({ "type": "tool_call", "data": tool_call }))?;
+    }
+    Ok(())
 }
 
 async fn complete_openai_compatible_rich(request: LlmRequest) -> AppResult<LlmCompletion> {
@@ -1618,6 +1945,125 @@ fn emit_openai_content_delta(
         _ => {}
     }
     Ok(())
+}
+
+fn cohere_delta_text(value: &Value) -> Option<String> {
+    value
+        .pointer("/delta/message/content/text")
+        .or_else(|| value.pointer("/delta/message/content/thinking"))
+        .or_else(|| value.pointer("/delta/message/content"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn cohere_event_thinking_text(value: &Value) -> Option<String> {
+    value
+        .pointer("/delta/message/content/thinking")
+        .or_else(|| value.pointer("/delta/message/thinking"))
+        .or_else(|| value.pointer("/delta/message/content/text"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn cohere_tool_call_delta(value: &Value) -> Option<Value> {
+    let index = value.get("index").and_then(Value::as_u64).unwrap_or(0);
+    let tool_call = value
+        .pointer("/delta/message/tool_calls")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .or_else(|| value.pointer("/delta/message/tool_calls"))?;
+    let id = tool_call
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string);
+    let function = tool_call.get("function").unwrap_or(tool_call);
+    let name = function
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string);
+    let arguments = function
+        .get("arguments")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let mut call = json!({
+        "index": index,
+        "type": "function",
+        "function": {
+            "arguments": arguments,
+        }
+    });
+    if let Some(id) = id {
+        call["id"] = json!(id);
+    }
+    if let Some(name) = name {
+        call["function"]["name"] = json!(name);
+    }
+    Some(json!({ "tool_calls": [call] }))
+}
+
+fn process_cohere_sse_block(
+    block: &str,
+    emit: &mut (impl FnMut(Value) -> AppResult<()> + Send),
+    tool_calls: &mut OpenAiToolCallAccumulator,
+) -> AppResult<SseBlockStatus> {
+    let payload = block
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("data:"))
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if payload.is_empty() {
+        return Ok(SseBlockStatus::Continue);
+    }
+    let value: Value = serde_json::from_str(&payload)
+        .map_err(|error| AppError::new("llm_stream_parse_error", error.to_string()))?;
+    let event_type = value.get("type").and_then(Value::as_str).unwrap_or("");
+    match event_type {
+        "content-delta" => {
+            if value
+                .pointer("/delta/message/content/type")
+                .and_then(Value::as_str)
+                == Some("thinking")
+            {
+                if let Some(thinking) =
+                    cohere_event_thinking_text(&value).filter(|text| !text.is_empty())
+                {
+                    emit(json!({ "type": "thinking", "text": thinking, "data": thinking }))?;
+                }
+            } else if let Some(text) = cohere_delta_text(&value).filter(|text| !text.is_empty()) {
+                emit(json!({ "type": "token", "text": text, "data": text }))?;
+            }
+        }
+        "tool-plan-delta" => {
+            if let Some(plan) = value
+                .pointer("/delta/message/tool_plan")
+                .and_then(Value::as_str)
+                .filter(|text| !text.is_empty())
+            {
+                emit(json!({ "type": "thinking", "text": plan, "data": plan }))?;
+            }
+        }
+        "tool-call-start" | "tool-call-delta" => {
+            if let Some(delta) = cohere_tool_call_delta(&value) {
+                tool_calls.ingest_delta(&delta);
+            }
+        }
+        "message-end" => {
+            if let Some(usage) = value
+                .pointer("/delta/usage")
+                .or_else(|| value.get("usage"))
+                .filter(|usage| !usage.is_null())
+            {
+                emit(json!({ "type": "usage", "data": usage }))?;
+            }
+            return Ok(SseBlockStatus::Complete);
+        }
+        _ => {}
+    }
+    Ok(SseBlockStatus::Continue)
 }
 
 fn process_openai_sse_block(
@@ -3272,6 +3718,46 @@ fn response_reasoning_text(choice: &Value, message: &Value) -> String {
     .map(content_text)
     .find(|text| !text.trim().is_empty())
     .unwrap_or_default()
+}
+
+async fn parse_cohere_response_rich(response: reqwest::Response) -> AppResult<LlmCompletion> {
+    let (status, json) = read_json_response(response).await?;
+    if !status.is_success() {
+        return Err(provider_http_error(status, json));
+    }
+    let message = json.get("message").unwrap_or(&json);
+    let content = assistant_message_text(message);
+    let tool_calls = message
+        .get("tool_calls")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(normalize_tool_call)
+        .collect::<Vec<_>>();
+    if content.trim().is_empty() && tool_calls.is_empty() {
+        let reasoning = message
+            .get("content")
+            .map(content_thinking_text)
+            .filter(|text| !text.trim().is_empty())
+            .unwrap_or_default();
+        if !reasoning.trim().is_empty() {
+            return Err(AppError::with_details(
+                "llm_response_error",
+                "Provider returned reasoning but no final assistant text. Increase Max Output Tokens or lower Reasoning Effort in this connection's generation controls.",
+                redact_sensitive_json(json),
+            ));
+        }
+        return Err(AppError::with_details(
+            "llm_response_error",
+            "Provider response did not contain assistant text or tool calls",
+            redact_sensitive_json(json),
+        ));
+    }
+    Ok(LlmCompletion {
+        content,
+        tool_calls,
+    })
 }
 
 async fn parse_json_response_rich(response: reqwest::Response) -> AppResult<LlmCompletion> {

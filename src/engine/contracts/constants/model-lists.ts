@@ -304,28 +304,23 @@ const MISTRAL_MODELS: KnownModel[] = [
   { id: "devstral-2512", name: "devstral-2512", context: 256000, maxOutput: 8192 },
 ];
 
-// ── Cohere (from #model_cohere_select) ──
+// ── Cohere (loaded dynamically from API when available) ──
 
 const COHERE_MODELS: KnownModel[] = [
-  // Stable
-  { id: "c4ai-aya-23-8b", name: "c4ai-aya-23-8b", context: 8192, maxOutput: 4096 },
-  { id: "c4ai-aya-23", name: "c4ai-aya-23", context: 8192, maxOutput: 4096 },
-  { id: "c4ai-aya-expanse-8b", name: "c4ai-aya-expanse-8b", context: 8192, maxOutput: 4096 },
-  { id: "c4ai-aya-expanse-32b", name: "c4ai-aya-expanse-32b", context: 128000, maxOutput: 4096 },
-  { id: "c4ai-aya-vision-8b", name: "c4ai-aya-vision-8b", context: 8192, maxOutput: 4096 },
-  { id: "c4ai-aya-vision-32b", name: "c4ai-aya-vision-32b", context: 128000, maxOutput: 4096 },
-  { id: "command-light", name: "command-light", context: 4096, maxOutput: 4096 },
-  { id: "command", name: "command", context: 4096, maxOutput: 4096 },
-  { id: "command-r", name: "command-r", context: 128000, maxOutput: 4096 },
-  { id: "command-r-plus", name: "command-r-plus", context: 128000, maxOutput: 4096 },
+  { id: "command-a-plus-05-2026", name: "command-a-plus-05-2026", context: 128000, maxOutput: 64000 },
+  { id: "command-a-03-2025", name: "command-a-03-2025", context: 256000, maxOutput: 8192 },
+  { id: "command-a-reasoning-08-2025", name: "command-a-reasoning-08-2025", context: 256000, maxOutput: 32000 },
+  { id: "command-a-vision-07-2025", name: "command-a-vision-07-2025", context: 128000, maxOutput: 8192 },
+  { id: "command-a-translate-08-2025", name: "command-a-translate-08-2025", context: 8192, maxOutput: 8192 },
+  { id: "command-r7b-12-2024", name: "command-r7b-12-2024", context: 128000, maxOutput: 4096 },
   { id: "command-r-08-2024", name: "command-r-08-2024", context: 128000, maxOutput: 4096 },
   { id: "command-r-plus-08-2024", name: "command-r-plus-08-2024", context: 128000, maxOutput: 4096 },
-  { id: "command-r7b-12-2024", name: "command-r7b-12-2024", context: 128000, maxOutput: 4096 },
-  { id: "command-a-03-2025", name: "command-a-03-2025", context: 256000, maxOutput: 8192 },
-  { id: "command-a-vision-07-2025", name: "command-a-vision-07-2025", context: 256000, maxOutput: 8192 },
-  // Nightly
-  { id: "command-light-nightly", name: "command-light-nightly", context: 4096, maxOutput: 4096 },
-  { id: "command-nightly", name: "command-nightly", context: 128000, maxOutput: 4096 },
+  { id: "tiny-aya-global", name: "tiny-aya-global", context: 8192, maxOutput: 8192 },
+  { id: "tiny-aya-earth", name: "tiny-aya-earth", context: 8192, maxOutput: 8192 },
+  { id: "tiny-aya-fire", name: "tiny-aya-fire", context: 8192, maxOutput: 8192 },
+  { id: "tiny-aya-water", name: "tiny-aya-water", context: 8192, maxOutput: 8192 },
+  { id: "c4ai-aya-expanse-32b", name: "c4ai-aya-expanse-32b", context: 128000, maxOutput: 4096 },
+  { id: "c4ai-aya-vision-32b", name: "c4ai-aya-vision-32b", context: 16000, maxOutput: 4096 },
 ];
 
 // ── OpenRouter (loaded dynamically from API in SillyTavern — no static list) ──

@@ -818,6 +818,22 @@ fn provider_model_catalog(provider: &str) -> Vec<Value> {
             "codestral-2508",
             "devstral-2512",
         ],
+        "cohere" => &[
+            "command-a-plus-05-2026",
+            "command-a-03-2025",
+            "command-a-reasoning-08-2025",
+            "command-a-vision-07-2025",
+            "command-a-translate-08-2025",
+            "command-r7b-12-2024",
+            "command-r-08-2024",
+            "command-r-plus-08-2024",
+            "tiny-aya-global",
+            "tiny-aya-earth",
+            "tiny-aya-fire",
+            "tiny-aya-water",
+            "c4ai-aya-expanse-32b",
+            "c4ai-aya-vision-32b",
+        ],
         "ollama" => &["llama3.1", "mistral", "nomic-embed-text"],
         "xai" => &["grok-2-latest", "grok-2-mini-latest"],
         _ => &[
@@ -1298,6 +1314,14 @@ fn model_endpoint(provider: &str, base: &str, connection: &Value) -> String {
             let base = base.trim_end_matches("/publishers/google/models");
             format!("{base}/publishers/google/models")
         }
+        "cohere" if base.ends_with("/compatibility/v1") => {
+            format!("{}/v1/models", base.trim_end_matches("/compatibility/v1"))
+        }
+        "cohere" if base.ends_with("/v2") => {
+            format!("{}/v1/models", base.trim_end_matches("/v2"))
+        }
+        "cohere" if base.ends_with("/v1") => format!("{base}/models"),
+        "cohere" => format!("{base}/v1/models"),
         _ => format!("{base}/models"),
     }
 }
@@ -1351,7 +1375,7 @@ fn provider_default_base_url(provider: &str) -> &'static str {
         "nanogpt" => "https://nano-gpt.com/api/v1",
         "ollama" => "http://127.0.0.1:11434",
         "mistral" => "https://api.mistral.ai/v1",
-        "cohere" => "https://api.cohere.ai/v2",
+        "cohere" => "https://api.cohere.com/v2",
         "togetherai" => "https://api.together.xyz/v1",
         _ => "https://api.openai.com/v1",
     }

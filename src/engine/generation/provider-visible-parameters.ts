@@ -136,6 +136,44 @@ function isMistralUnsupportedCustomParameterKey(key: string): boolean {
   ].includes(key);
 }
 
+function isCohereUnsupportedCustomParameterKey(key: string): boolean {
+  return [
+    "maxTokens",
+    "maxOutputTokens",
+    "max_output_tokens",
+    "topP",
+    "top_p",
+    "topK",
+    "top_k",
+    "stop",
+    "stopSequences",
+    "frequencyPenalty",
+    "presencePenalty",
+    "responseFormat",
+    "safetyMode",
+    "toolChoice",
+    "strictTools",
+    "reasoningEffort",
+    "showThoughts",
+    "show_thoughts",
+    "thinkingBudget",
+    "thinking_budget",
+    "random_seed",
+    "randomSeed",
+    "safe_prompt",
+    "safePrompt",
+    "prompt_cache_key",
+    "promptCacheKey",
+    "prompt_mode",
+    "promptMode",
+    "parallel_tool_calls",
+    "parallelToolCalls",
+    "service_tier",
+    "serviceTier",
+    "prediction",
+  ].includes(key);
+}
+
 function shouldSendTopK(provider: string): boolean {
   return !["openai", "openrouter", "xai", "mistral", "cohere", "nanogpt"].includes(provider);
 }
@@ -228,6 +266,40 @@ function mistralReasoningEffort(model: string, parameters: JsonRecord): string |
   if (effort === "high" || effort === "maximum" || effort === "xhigh") return "high";
   const showThoughts = parameters.showThoughts ?? parameters.show_thoughts;
   if (showThoughts != null) return boolish(showThoughts, false) ? "high" : "none";
+  return null;
+}
+
+function supportsCohereThinking(model: string): boolean {
+  const normalized = model.toLowerCase();
+  return normalized.includes("command-a-reasoning") || normalized.includes("command-a-plus");
+}
+
+function cohereThinkingConfig(model: string, parameters: JsonRecord): Record<string, unknown> | null {
+  const explicit = parseRecord(parameters.thinking);
+  if (Object.keys(explicit).length > 0) return explicit;
+  if (!supportsCohereThinking(model)) return null;
+
+  const effort = parameterString(parameters, ["reasoningEffort", "reasoning_effort"])?.toLowerCase();
+  if (effort === "none" || effort === "minimal" || effort === "low") return { type: "disabled" };
+
+  const budget = parameterInteger(parameters, ["thinkingBudget", "thinking_budget"]);
+  const showThoughts = parameters.showThoughts ?? parameters.show_thoughts;
+  if (budget !== null && budget > 0) {
+    const thinking: Record<string, unknown> = { token_budget: budget };
+    if (
+      boolish(showThoughts, true) ||
+      effort === "medium" ||
+      effort === "high" ||
+      effort === "maximum" ||
+      effort === "xhigh"
+    ) {
+      thinking.type = "enabled";
+    }
+    return thinking;
+  }
+  if (showThoughts != null) return boolish(showThoughts, false) ? { type: "enabled" } : { type: "disabled" };
+  if (effort === "medium" || effort === "high" || effort === "maximum" || effort === "xhigh")
+    return { type: "enabled" };
   return null;
 }
 
@@ -491,6 +563,72 @@ function isAnthropicServiceTier(value: string): boolean {
   return ["auto", "standard_only"].includes(value);
 }
 
+function isCohereSafetyMode(value: string): boolean {
+  return ["CONTEXTUAL", "STRICT", "OFF"].includes(value);
+}
+
+function cohereToolChoice(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "required" || normalized === "any") return "REQUIRED";
+  if (normalized === "none") return "NONE";
+  return null;
+}
+
+function visibleCohereParameters(
+  connection: JsonRecord,
+  parameters: JsonRecord,
+  options: { stream?: boolean },
+): Record<string, unknown> {
+  const model = readString(connection.model);
+  const body: Record<string, unknown> = {
+    stream: options.stream === true,
+    max_tokens: requestMaxTokens(connection, parameters),
+  };
+
+  const temperature = parameterNumber(parameters, ["temperature"]);
+  if (temperature !== null) body.temperature = temperature;
+  const topP = parameterNumber(parameters, ["topP", "top_p", "p"]);
+  if (topP !== null) body.p = topP;
+  const topK = parameterInteger(parameters, ["topK", "top_k", "k"]);
+  if (topK !== null && topK >= 0) body.k = topK;
+  const frequencyPenalty = parameterNumber(parameters, ["frequencyPenalty", "frequency_penalty"]);
+  if (frequencyPenalty !== null) body.frequency_penalty = frequencyPenalty;
+  const presencePenalty = parameterNumber(parameters, ["presencePenalty", "presence_penalty"]);
+  if (presencePenalty !== null) body.presence_penalty = presencePenalty;
+  const seed = parameterInteger(parameters, ["seed"]);
+  if (seed !== null) body.seed = seed;
+  const stop = stopSequences(parameters);
+  if (stop) body.stop_sequences = stop;
+
+  const responseFormat = parameters.response_format ?? parameters.responseFormat;
+  if (typeof responseFormat === "string" && responseFormat.trim()) {
+    body.response_format = { type: responseFormat.trim() };
+  } else if (responseFormat && typeof responseFormat === "object" && !Array.isArray(responseFormat)) {
+    body.response_format = responseFormat;
+  }
+
+  const safetyMode = parameterString(parameters, ["safetyMode", "safety_mode"])?.toUpperCase();
+  if (safetyMode && isCohereSafetyMode(safetyMode)) body.safety_mode = safetyMode;
+  const logprobs = parameters.logprobs ?? parameters.logProbs;
+  if (logprobs != null) body.logprobs = boolish(logprobs, false);
+  const toolChoice = parameterString(parameters, ["toolChoice", "tool_choice"]);
+  const cohereChoice = toolChoice ? cohereToolChoice(toolChoice) : null;
+  if (cohereChoice) body.tool_choice = cohereChoice;
+  const priority = parameterInteger(parameters, ["priority"]);
+  if (priority !== null && priority >= 0 && priority <= 999) body.priority = priority;
+  const strictTools = parameters.strictTools ?? parameters.strict_tools;
+  if (strictTools != null) body.strict_tools = boolish(strictTools, false);
+  const thinking = cohereThinkingConfig(model, parameters);
+  if (thinking) body.thinking = thinking;
+
+  applyCustomParameters(body, parameters, {
+    stripSampling: false,
+    stripStop: false,
+    skipKey: isCohereUnsupportedCustomParameterKey,
+  });
+  return body;
+}
+
 function visibleOpenAiCompatibleParameters(
   connection: JsonRecord,
   parameters: JsonRecord,
@@ -632,7 +770,8 @@ export function providerVisibleLlmParameters(
   if (provider === "anthropic") return visibleAnthropicParameters(connection, normalizedParameters, options);
   if (provider === "google" || provider === "google_vertex")
     return visibleGoogleParameters(connection, normalizedParameters);
-  if (["openai", "openai_chatgpt", "openrouter", "xai", "mistral", "cohere", "nanogpt"].includes(provider)) {
+  if (provider === "cohere") return visibleCohereParameters(connection, normalizedParameters, options);
+  if (["openai", "openai_chatgpt", "openrouter", "xai", "mistral", "nanogpt"].includes(provider)) {
     return visibleOpenAiCompatibleParameters(connection, normalizedParameters, options);
   }
 
