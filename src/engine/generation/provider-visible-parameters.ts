@@ -154,6 +154,7 @@ function isCohereUnsupportedCustomParameterKey(key: string): boolean {
     "toolChoice",
     "strictTools",
     "reasoningEffort",
+    "reasoning_effort",
     "showThoughts",
     "show_thoughts",
     "thinkingBudget",
@@ -172,6 +173,11 @@ function isCohereUnsupportedCustomParameterKey(key: string): boolean {
     "serviceTier",
     "prediction",
   ].includes(key);
+}
+
+function isCohereContextBlockedCustomParameterKey(key: string, hasTools: boolean): boolean {
+  if (hasTools) return ["response_format", "safety_mode"].includes(key);
+  return ["tool_choice", "strict_tools"].includes(key);
 }
 
 function shouldSendTopK(provider: string): boolean {
@@ -577,9 +583,10 @@ function cohereToolChoice(value: string): string | null {
 function visibleCohereParameters(
   connection: JsonRecord,
   parameters: JsonRecord,
-  options: { stream?: boolean },
+  options: { stream?: boolean; hasTools?: boolean },
 ): Record<string, unknown> {
   const model = readString(connection.model);
+  const hasTools = options.hasTools === true;
   const body: Record<string, unknown> = {
     stream: options.stream === true,
     max_tokens: requestMaxTokens(connection, parameters),
@@ -600,31 +607,40 @@ function visibleCohereParameters(
   const stop = stopSequences(parameters);
   if (stop) body.stop_sequences = stop;
 
-  const responseFormat = parameters.response_format ?? parameters.responseFormat;
-  if (typeof responseFormat === "string" && responseFormat.trim()) {
-    body.response_format = { type: responseFormat.trim() };
-  } else if (responseFormat && typeof responseFormat === "object" && !Array.isArray(responseFormat)) {
-    body.response_format = responseFormat;
+  if (!hasTools) {
+    const responseFormat = parameters.response_format ?? parameters.responseFormat;
+    if (typeof responseFormat === "string" && responseFormat.trim()) {
+      body.response_format = { type: responseFormat.trim() };
+    } else if (responseFormat && typeof responseFormat === "object" && !Array.isArray(responseFormat)) {
+      body.response_format = responseFormat;
+    }
   }
 
-  const safetyMode = parameterString(parameters, ["safetyMode", "safety_mode"])?.toUpperCase();
-  if (safetyMode && isCohereSafetyMode(safetyMode)) body.safety_mode = safetyMode;
+  if (!hasTools) {
+    const safetyMode = parameterString(parameters, ["safetyMode", "safety_mode"])?.toUpperCase();
+    if (safetyMode && isCohereSafetyMode(safetyMode)) body.safety_mode = safetyMode;
+  }
   const logprobs = parameters.logprobs ?? parameters.logProbs;
   if (logprobs != null) body.logprobs = boolish(logprobs, false);
-  const toolChoice = parameterString(parameters, ["toolChoice", "tool_choice"]);
-  const cohereChoice = toolChoice ? cohereToolChoice(toolChoice) : null;
-  if (cohereChoice) body.tool_choice = cohereChoice;
+  if (hasTools) {
+    const toolChoice = parameterString(parameters, ["toolChoice", "tool_choice"]);
+    const cohereChoice = toolChoice ? cohereToolChoice(toolChoice) : null;
+    if (cohereChoice) body.tool_choice = cohereChoice;
+  }
   const priority = parameterInteger(parameters, ["priority"]);
   if (priority !== null && priority >= 0 && priority <= 999) body.priority = priority;
-  const strictTools = parameters.strictTools ?? parameters.strict_tools;
-  if (strictTools != null) body.strict_tools = boolish(strictTools, false);
+  if (hasTools) {
+    const strictTools = parameters.strictTools ?? parameters.strict_tools;
+    if (strictTools != null) body.strict_tools = boolish(strictTools, false);
+  }
   const thinking = cohereThinkingConfig(model, parameters);
   if (thinking) body.thinking = thinking;
 
   applyCustomParameters(body, parameters, {
     stripSampling: false,
     stripStop: false,
-    skipKey: isCohereUnsupportedCustomParameterKey,
+    skipKey: (key) =>
+      isCohereUnsupportedCustomParameterKey(key) || isCohereContextBlockedCustomParameterKey(key, hasTools),
   });
   return body;
 }
@@ -762,7 +778,7 @@ function visibleGoogleParameters(connection: JsonRecord, parameters: JsonRecord)
 export function providerVisibleLlmParameters(
   connection: JsonRecord,
   parameters: Record<string, unknown>,
-  options: { stream?: boolean } = {},
+  options: { stream?: boolean; hasTools?: boolean } = {},
 ): Record<string, unknown> {
   const normalizedParameters = parseRecord(parameters);
   const provider = readString(connection.provider).trim();

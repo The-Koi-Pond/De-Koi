@@ -3345,8 +3345,11 @@ async function* streamMainGenerationLoop(args: {
       ? fitMessagesToContextWindow(previewMessages, parameters)
       : null;
     const requestParameters = runtimeLlmParameters(connection, input, chat, parameters);
-    const visibleRequestParameters = providerVisibleLlmParameters(connection, requestParameters, { stream: true });
     const requestTools = mainTools?.toolDefs;
+    const visibleRequestParameters = providerVisibleLlmParameters(connection, requestParameters, {
+      stream: true,
+      hasTools: Boolean(requestTools?.length),
+    });
     promptSnapshot = {
       messages: requestMessages.map(clonePromptMessage),
       ...(requestPreviewMessages?.length ? { previewMessages: requestPreviewMessages.map(clonePromptMessage) } : {}),

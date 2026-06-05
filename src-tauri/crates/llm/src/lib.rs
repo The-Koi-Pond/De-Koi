@@ -705,7 +705,7 @@ fn is_mistral_unsupported_custom_parameter_key(key: &str) -> bool {
     )
 }
 
-fn is_cohere_unsupported_custom_parameter_key(key: &str) -> bool {
+fn is_cohere_unsupported_body_parameter_key(key: &str) -> bool {
     matches!(
         key,
         "maxTokens"
@@ -724,6 +724,7 @@ fn is_cohere_unsupported_custom_parameter_key(key: &str) -> bool {
             | "toolChoice"
             | "strictTools"
             | "reasoningEffort"
+            | "reasoning_effort"
             | "showThoughts"
             | "show_thoughts"
             | "thinkingBudget"
@@ -742,6 +743,20 @@ fn is_cohere_unsupported_custom_parameter_key(key: &str) -> bool {
             | "serviceTier"
             | "prediction"
     )
+}
+
+fn scrub_cohere_parameter_body(body: &mut Value, has_tools: bool) {
+    let Some(body) = body.as_object_mut() else {
+        return;
+    };
+    body.retain(|key, _| !is_cohere_unsupported_body_parameter_key(key));
+    if has_tools {
+        body.remove("response_format");
+        body.remove("safety_mode");
+    } else {
+        body.remove("tool_choice");
+        body.remove("strict_tools");
+    }
 }
 
 fn is_openai_service_tier(value: &str) -> bool {
@@ -1291,35 +1306,39 @@ fn apply_cohere_parameters(body: &mut Value, request: &LlmRequest) {
             body["response_format"] = response_format;
         }
     }
-    if let Some(safety_mode) = param_string(parameters, &["safetyMode", "safety_mode"])
-        .map(|value| value.to_ascii_uppercase())
-        .filter(|value| is_cohere_safety_mode(value))
-    {
-        body["safety_mode"] = json!(safety_mode);
+    if request.tools.is_empty() {
+        if let Some(safety_mode) = param_string(parameters, &["safetyMode", "safety_mode"])
+            .map(|value| value.to_ascii_uppercase())
+            .filter(|value| is_cohere_safety_mode(value))
+        {
+            body["safety_mode"] = json!(safety_mode);
+        }
     }
     if let Some(logprobs) = param_boolish(parameters, &["logprobs", "logProbs"], false) {
         body["logprobs"] = json!(logprobs);
     }
-    if let Some(tool_choice) = param_string(parameters, &["toolChoice", "tool_choice"])
-        .and_then(|value| cohere_tool_choice(&value))
-    {
-        body["tool_choice"] = json!(tool_choice);
+    if !request.tools.is_empty() {
+        if let Some(tool_choice) = param_string(parameters, &["toolChoice", "tool_choice"])
+            .and_then(|value| cohere_tool_choice(&value))
+        {
+            body["tool_choice"] = json!(tool_choice);
+        }
     }
     if let Some(priority) =
         param_i64(parameters, &["priority"]).filter(|value| (0..=999).contains(value))
     {
         body["priority"] = json!(priority);
     }
-    if let Some(strict_tools) = param_boolish(parameters, &["strictTools", "strict_tools"], false) {
-        body["strict_tools"] = json!(strict_tools);
+    if !request.tools.is_empty() {
+        if let Some(strict_tools) = param_boolish(parameters, &["strictTools", "strict_tools"], false) {
+            body["strict_tools"] = json!(strict_tools);
+        }
     }
     if let Some(thinking) = cohere_thinking_config(request) {
         body["thinking"] = thinking;
     }
     apply_custom_parameters_to_object(body, parameters, false, false, &[]);
-    if let Some(body) = body.as_object_mut() {
-        body.retain(|key, _| !is_cohere_unsupported_custom_parameter_key(key));
-    }
+    scrub_cohere_parameter_body(body, !request.tools.is_empty());
 }
 
 fn build_cohere_body(request: &LlmRequest, stream: bool) -> Value {
