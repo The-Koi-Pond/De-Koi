@@ -321,6 +321,13 @@ export function useUploadPersonaGalleryImage(personaId: string) {
         (result): result is PromiseFulfilledResult<PersonaGalleryImage> => result.status === "fulfilled",
       );
 
+      // Intentional partial-success-as-failure: if some files succeed and one
+      // fails, the successful rows are already persisted yet we still throw (and a
+      // retry re-uploads everything, duplicating the winners). Kept this way to
+      // match useUploadCharacterGalleryImage and the chat gallery's
+      // useUploadGalleryImage so all gallery uploads behave identically — "fixing"
+      // it only here would split that behavior. If true partial-success semantics
+      // are wanted, change every gallery upload together, not just this one.
       if (successfulUploads.length !== uploads.length) {
         const failedCount = uploads.length - successfulUploads.length;
         throw new Error(
