@@ -122,6 +122,7 @@ export interface PromptAssemblyResult {
   promptPresetId: string | null;
   parameters: StoredGenerationParameters | null;
   wrapFormat: WrapFormat;
+  userRegenerationSourceMessage: ChatMLMessage | null;
   characters: GenerationCharacterContext[];
   persona: GenerationPersonaContext | null;
   activatedLorebookEntries: Array<{
@@ -148,6 +149,7 @@ export interface PromptAssemblyInput {
   connection: JsonRecord;
   request: JsonRecord;
   latestUserInput: string;
+  userRegenerationSourceMessage?: ChatMLMessage | null;
   agentData?: Record<string, string>;
   embeddingSource?: {
     embed(
@@ -180,6 +182,7 @@ interface PromptAssemblyReusableContext {
   memoryRecallBlock: string | null;
   history: ChatMLMessage[];
   greetingPromptVariables: Record<string, string>;
+  userRegenerationSourceFingerprint: string | null;
   macroSensitiveScope: {
     deferCharacterMacros: boolean;
     targetCharacterId: string | null;
@@ -3216,6 +3219,14 @@ function reusableContextMacroScopeMatches(
   );
 }
 
+function userRegenerationSourceFingerprint(message: ChatMLMessage | null): string | null {
+  if (!message) return null;
+  return JSON.stringify({
+    content: readString(message.content),
+    images: (message.images ?? []).filter((image) => typeof image === "string"),
+  });
+}
+
 function characterDepthPromptEntries(
   characters: GenerationCharacterContext[],
   macros: MacroContext,
@@ -3344,6 +3355,11 @@ export async function assembleGenerationPrompt(
   rawInput: PromptAssemblyInput,
 ): Promise<PromptAssemblyResult> {
   let input = rawInput;
+  let promptRegexScripts: JsonRecord[] | null = null;
+  const loadPromptRegexScripts = async () => {
+    promptRegexScripts ??= (await storage.list<JsonRecord>("regex-scripts")).sort(bySortOrder);
+    return promptRegexScripts;
+  };
   const reusableContext = input.reusableContext;
   const chatMeta = reusableContext?.chatMeta ?? parseRecord(input.chat.metadata);
   const chatMode = reusableContext?.chatMode ?? readString(input.chat.mode || input.chat.chatMode, "conversation");
@@ -3387,7 +3403,7 @@ export async function assembleGenerationPrompt(
     deferCharacterMacros,
     individualGroupTarget,
   );
-  const embeddingSource =
+  let embeddingSource =
     reusableContext && canReuseMacroSensitiveContext ? null : memoizedEmbeddingSource(input.embeddingSource);
   const macros = macroContext({
     chat: input.chat,
@@ -3402,6 +3418,35 @@ export async function assembleGenerationPrompt(
   });
   if (selectedPreset)
     resolvePromptChoiceVariableMacros(macros, selectedPreset.choiceVariableNames, deferCharacterMacros);
+  let userRegenerationSourceMessage: ChatMLMessage | null = input.userRegenerationSourceMessage
+    ? {
+        ...input.userRegenerationSourceMessage,
+        role: "user",
+        content: readString(input.userRegenerationSourceMessage.content),
+        contextKind: "history",
+      }
+    : null;
+  if (userRegenerationSourceMessage) {
+    applyRegexScriptsToPromptMessages([userRegenerationSourceMessage], await loadPromptRegexScripts(), {
+      resolveMacros: (value) => resolveMacros(value, macros, { trimResult: false }),
+    });
+    userRegenerationSourceMessage.content = collapseExcessBlankLines(
+      stripPromptComments(userRegenerationSourceMessage.content),
+    ).trim();
+    if (userRegenerationSourceMessage.content || userRegenerationSourceMessage.images?.length) {
+      input = { ...input, latestUserInput: userRegenerationSourceMessage.content };
+      macros.lastInput = userRegenerationSourceMessage.content;
+    } else {
+      userRegenerationSourceMessage = null;
+    }
+  }
+  const regenerationSourceFingerprint = userRegenerationSourceFingerprint(userRegenerationSourceMessage);
+  const canReuseSourceSensitiveContext =
+    canReuseMacroSensitiveContext &&
+    reusableContext?.userRegenerationSourceFingerprint === regenerationSourceFingerprint;
+  if (!canReuseSourceSensitiveContext && !embeddingSource) {
+    embeddingSource = memoizedEmbeddingSource(input.embeddingSource);
+  }
   const greetingPromptVariables =
     canReuseMacroSensitiveContext && reusableContext
       ? reusableContext.greetingPromptVariables
@@ -3415,7 +3460,16 @@ export async function assembleGenerationPrompt(
       chat: input.chat,
       characters,
       persona,
-      storedMessages: input.storedMessages,
+      storedMessages: userRegenerationSourceMessage
+        ? [
+            ...input.storedMessages,
+            {
+              role: "user",
+              content: userRegenerationSourceMessage.content,
+              ...(userRegenerationSourceMessage.images?.length ? { images: userRegenerationSourceMessage.images } : {}),
+            },
+          ]
+        : input.storedMessages,
       request: input.request,
       latestUserInput: input.latestUserInput,
       embeddingSource,
@@ -3426,22 +3480,23 @@ export async function assembleGenerationPrompt(
       },
     });
   let loreScan =
-    canReuseMacroSensitiveContext && reusableContext
+    canReuseSourceSensitiveContext && reusableContext
       ? reusableContext.loreScan
       : await scanLorebooksForPositions(baseLorebookIncludedPositions);
   let processedLore =
-    canReuseMacroSensitiveContext && reusableContext ? reusableContext.processedLore : loreScan.processedLore;
+    canReuseSourceSensitiveContext && reusableContext ? reusableContext.processedLore : loreScan.processedLore;
   const summary = reusableContext?.summary ?? chatSummaryForGeneration(input.chat);
   const memoryRecallBlock =
-    reusableContext?.memoryRecallBlock ??
-    (await buildMemoryRecallBlock(
-      storage,
-      input.chat,
-      input.storedMessages,
-      input.latestUserInput,
-      maxContext || undefined,
-      embeddingSource,
-    ));
+    canReuseSourceSensitiveContext && reusableContext
+      ? reusableContext.memoryRecallBlock
+      : await buildMemoryRecallBlock(
+          storage,
+          input.chat,
+          input.storedMessages,
+          input.latestUserInput,
+          maxContext || undefined,
+          embeddingSource,
+        );
   const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
   const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || 300);
   const historyLimit = Math.max(1, Math.min(300, metadataHistoryLimit || requestedHistoryLimit || 300));
@@ -3633,7 +3688,7 @@ export async function assembleGenerationPrompt(
       : [...processedLore.depthEntries, ...characterDepthEntries],
     chatHistoryDepthInjectionBounds(messages),
   );
-  const regexScripts = (await storage.list<JsonRecord>("regex-scripts")).sort(bySortOrder);
+  const regexScripts = await loadPromptRegexScripts();
   applyRegexScriptsToPromptMessages(messages, regexScripts, {
     resolveMacros: (value) => resolvePromptMacros(value, macros, deferCharacterMacros),
   });
@@ -3671,7 +3726,7 @@ export async function assembleGenerationPrompt(
     messages = collapseToSingleUserMessage(messages);
   }
   const summaryFingerprint = fingerprintChatSummary(summary);
-  const nextReusableContext: PromptAssemblyReusableContext = reusableContext ?? {
+  const nextReusableContext: PromptAssemblyReusableContext = {
     chatMeta,
     chatMode,
     storedMessages: input.storedMessages,
@@ -3691,6 +3746,7 @@ export async function assembleGenerationPrompt(
     memoryRecallBlock,
     history,
     greetingPromptVariables,
+    userRegenerationSourceFingerprint: regenerationSourceFingerprint,
     macroSensitiveScope: {
       deferCharacterMacros,
       targetCharacterId: individualGroupTarget,
@@ -3703,6 +3759,7 @@ export async function assembleGenerationPrompt(
     promptPresetId: presetId,
     parameters: selectedPreset?.parameters ?? null,
     wrapFormat,
+    userRegenerationSourceMessage,
     characters: promptCharacters,
     persona,
     activatedLorebookEntries: processedLore.includedEntries.map(lorebookActivatedEntryForEvent),

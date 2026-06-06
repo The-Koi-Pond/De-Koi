@@ -20,7 +20,11 @@ import {
 import { persistSecretPlotAgentMemory, type SecretPlotRerollMode } from "./agent-memory-runtime";
 import { createGenerationAgentRuntime } from "./agent-runner";
 import { buildBuiltInAgentFallback, canonicalAgentActiveIdSet } from "./built-in-agent-fallback";
-import { consumePendingConnectedInfluences, persistConnectedCommandTags } from "./connected-commands";
+import {
+  consumePendingConnectedInfluences,
+  persistConnectedCommandTags,
+  type ConnectedCommandResult,
+} from "./connected-commands";
 import { fitMessagesToContextWindow } from "./context-window";
 import type { LLMToolCall } from "../generation-core/llm/base-provider";
 import { createInlineThinkingStreamParser } from "../generation-core/llm/inline-thinking";
@@ -40,12 +44,16 @@ import {
 } from "./context";
 import {
   appendReadableAttachmentsToContent,
+  buildUserMessageRegenerationPromptFromSource,
+  buildUserMessageRegenerationSourceMessage,
   getAttachmentFilename,
+  promptAttachmentsFromExtra,
   resolveRegenerationGameStateAnchor,
   resolveRegenerationGameStateFallbackMessageIds,
   resolveVisibleGameStateAnchor,
   shouldPreferLatestVisibleGameState,
   type PromptAttachment,
+  type SimplePromptMessage,
 } from "./generate-route-utils";
 import {
   deletePreparedManagedImageAttachments,
@@ -1336,6 +1344,73 @@ function messagesBeforeRegenerationTarget(
   return targetIndex >= 0 ? storedMessages.slice(0, targetIndex) : storedMessages;
 }
 
+function regenerationTargetFromMessages(
+  storedMessages: JsonRecord[],
+  regenerateMessageId: string | null | undefined,
+): JsonRecord | null {
+  const targetId = readString(regenerateMessageId).trim();
+  if (!targetId) return null;
+  return storedMessages.find((message) => readString(message.id) === targetId) ?? null;
+}
+
+function isUserRegenerationTarget(target: JsonRecord | null): target is JsonRecord {
+  return readString(target?.role).trim() === "user";
+}
+
+function connectedCommandPassthrough(content: string): ConnectedCommandResult {
+  return {
+    displayContent: content,
+    createdNotes: [],
+    executedCommands: [],
+    events: [],
+    assistantAttachments: [],
+    suppressAssistantMessage: false,
+  };
+}
+
+async function loadFullRegenerationTarget(
+  storage: StorageGateway,
+  chatId: string,
+  target: JsonRecord | null,
+): Promise<JsonRecord | null> {
+  const targetId = readString(target?.id).trim();
+  if (!targetId) return null;
+  const loaded = await storage.get<unknown>("messages", targetId);
+  if (!isRecord(loaded)) {
+    throw new Error("Cannot regenerate user message because its full source record was not found");
+  }
+  if (!targetBelongsToChat(loaded, chatId)) {
+    throw new Error("Cannot regenerate user message because its full source record belongs to another chat");
+  }
+  return loaded;
+}
+
+async function userMessageRegenerationSourceMessage(
+  storage: StorageGateway,
+  chatId: string,
+  target: JsonRecord | null,
+): Promise<SimplePromptMessage | null> {
+  if (!isUserRegenerationTarget(target)) return null;
+  if (hiddenFromAi(target)) throw new Error("Cannot regenerate a message hidden from AI");
+
+  const fullTarget = await loadFullRegenerationTarget(storage, chatId, target);
+  if (!fullTarget) return null;
+  if (hiddenFromAi(fullTarget)) throw new Error("Cannot regenerate a message hidden from AI");
+
+  const attachments = promptAttachmentsFromExtra(fullTarget.extra);
+  const images = await resolveImageAttachmentDataUrls(storage, attachments);
+  const source = buildUserMessageRegenerationSourceMessage(fullTarget, images);
+  return source.content.trim() || source.images?.length ? source : null;
+}
+
+function withUserMessageRegenerationRewritePrompt(
+  messages: LlmMessage[],
+  source: SimplePromptMessage | null,
+): LlmMessage[] {
+  if (!source) return messages;
+  return [...messages, buildUserMessageRegenerationPromptFromSource(source)];
+}
+
 async function regenerationTargetExtra(
   storage: StorageGateway,
   chatId: string,
@@ -2350,8 +2425,10 @@ async function saveAssistantMessage(args: {
   spriteExpressions?: Record<string, string> | null;
   contextInjections?: AgentInjectionOverride[] | null;
   existingExtra?: unknown;
+  regenerationTarget?: JsonRecord | null;
 }): Promise<unknown | null> {
   const regenerateMessageId = readString(args.input.regenerateMessageId).trim();
+  const regenerationTargetRole = readString(args.regenerationTarget?.role).trim();
   const generationReplay = buildGenerationReplay(args.input);
   const content = collapseExcessBlankLines(args.content);
   assertVisibleGeneratedContent(content, args.attachments);
@@ -2404,6 +2481,23 @@ async function saveAssistantMessage(args: {
           : {}),
         chatSummaryFingerprint: args.chatSummaryFingerprint,
       },
+    });
+  }
+
+  if (regenerateMessageId && regenerationTargetRole === "user") {
+    return saveRegeneratedMessage({
+      storage: args.storage,
+      chatId: args.input.chatId,
+      messageId: regenerateMessageId,
+      content,
+      characterId: null,
+      thinking: thinking || undefined,
+      generationReplay,
+      chatSummaryFingerprint: args.chatSummaryFingerprint,
+      promptSnapshot,
+      providerMetadata,
+      spriteExpressions: args.spriteExpressions,
+      agentExtra,
     });
   }
 
@@ -2559,8 +2653,12 @@ function generationReplayExtraPatch(args: {
   return extraPatch;
 }
 
-function savedGenerationEventType(input: StartGenerationInput): "assistant_message" | "user_message" {
-  return input.impersonate === true ? "user_message" : "assistant_message";
+function savedGenerationEventType(
+  input: StartGenerationInput,
+  regenerationTarget?: JsonRecord | null,
+): "assistant_message" | "user_message" {
+  if (input.impersonate === true || isUserRegenerationTarget(regenerationTarget ?? null)) return "user_message";
+  return "assistant_message";
 }
 
 function savedGenerationEventData(saved: unknown): unknown {
@@ -2602,6 +2700,7 @@ async function persistPartialOnAbort(args: {
   chatSummaryFingerprint: string | null;
   signal: AbortSignal | undefined;
   existingExtra?: unknown;
+  regenerationTarget?: JsonRecord | null;
 }): Promise<unknown | null> {
   if (!args.signal?.aborted) return null;
   if (!args.partial.content.trim()) return null;
@@ -2620,6 +2719,7 @@ async function persistPartialOnAbort(args: {
       providerMetadata: args.partial.providerMetadata,
       promptSnapshot: args.partial.promptSnapshot,
       existingExtra: args.existingExtra,
+      regenerationTarget: args.regenerationTarget,
     });
   } catch {
     return null;
@@ -3134,9 +3234,18 @@ export async function* startGeneration(
   } else {
     storedMessages = await loadMessagesForGenerationTarget({ storage: deps.storage, chatId, chat, input });
   }
+  let regenerationTarget = regenerationTargetFromMessages(storedMessages, input.regenerateMessageId);
+  const userRegenerationSourceMessage = await userMessageRegenerationSourceMessage(
+    deps.storage,
+    chatId,
+    regenerationTarget,
+  );
   let generationMessages = messagesBeforeRegenerationTarget(storedMessages, input.regenerateMessageId);
   const latestUserInput =
-    readString(internalOptions.latestUserInput).trim() || preparedUserInput.content || inputUserMessage(input);
+    readString(internalOptions.latestUserInput).trim() ||
+    userRegenerationSourceMessage?.content ||
+    preparedUserInput.content ||
+    inputUserMessage(input);
   if (internalOptions.groupTurnChild !== true) {
     const groupTurnIds = await resolveIndividualGroupTurnIds({
       deps,
@@ -3222,12 +3331,14 @@ export async function* startGeneration(
       await abortableDelay(availability.delayMs, signal);
       throwIfAborted(signal);
       storedMessages = await loadMessagesForGenerationTarget({ storage: deps.storage, chatId, chat, input });
+      regenerationTarget = regenerationTargetFromMessages(storedMessages, input.regenerateMessageId);
       generationMessages = messagesBeforeRegenerationTarget(storedMessages, input.regenerateMessageId);
     }
     if (characterNames.length > 0) {
       yield { type: "typing", data: { characters: characterNames } };
     }
   }
+  const isUserMessageRegeneration = isUserRegenerationTarget(regenerationTarget);
   const agentEvents: AgentResult[] = [];
   const continueAssistantResponse = shouldContinueAssistantResponse(input, preparedUserInput, generationMessages);
   const agentInjectionOverrides = normalizedAgentInjectionOverrides(input);
@@ -3241,6 +3352,7 @@ export async function* startGeneration(
     connection,
     request: input,
     latestUserInput,
+    userRegenerationSourceMessage,
     embeddingSource: turnEmbeddingSource,
     visuals: deps.visuals,
     persistPromptVariables: true,
@@ -3249,7 +3361,7 @@ export async function* startGeneration(
   mirrorSavedUserMessageToDiscord({ deps, chat, input, prepared: preparedUserInput, persona: assembly.persona });
 
   if (!directMessages) {
-    const agentsEnabled = input.impersonateBlockAgents !== true;
+    const agentsEnabled = input.impersonateBlockAgents !== true && !isUserMessageRegeneration;
     yield { type: "phase", data: agentsEnabled ? "Running pre-generation agents..." : "Calling model..." };
     const runtime = agentsEnabled
       ? await createGenerationAgentRuntime(
@@ -3308,6 +3420,7 @@ export async function* startGeneration(
         connection,
         request: input,
         latestUserInput,
+        userRegenerationSourceMessage,
         agentData: runtime.agentData,
         embeddingSource: turnEmbeddingSource,
         visuals: deps.visuals,
@@ -3316,8 +3429,10 @@ export async function* startGeneration(
       });
       throwIfAborted(signal);
     }
-    await consumePendingConnectedInfluences(deps.storage, chatForGeneration);
-    throwIfAborted(signal);
+    if (!isUserMessageRegeneration) {
+      await consumePendingConnectedInfluences(deps.storage, chatForGeneration);
+      throwIfAborted(signal);
+    }
     const generationDirectiveMessages = directiveMessages(
       input,
       chat,
@@ -3350,8 +3465,9 @@ export async function* startGeneration(
       chatSummary: assembly.chatSummary,
       hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
     };
-    const baseMessages: LlmMessage[] = [...prompt, generationGuide(input, runtime?.preInjections)].filter(
-      (message): message is LlmMessage => !!message,
+    const baseMessages: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
+      [...prompt, generationGuide(input, runtime?.preInjections)].filter((message): message is LlmMessage => !!message),
+      assembly.userRegenerationSourceMessage,
     );
     const mainPartial: StreamPartialSink = {
       content: "",
@@ -3379,8 +3495,11 @@ export async function* startGeneration(
         chat: chatForGeneration,
         parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
         baseMessages,
-        previewMessages: [...promptPreviewMessages, generationGuide(input, runtime?.preInjections)].filter(
-          (message): message is LlmMessage => !!message,
+        previewMessages: withUserMessageRegenerationRewritePrompt(
+          [...promptPreviewMessages, generationGuide(input, runtime?.preInjections)].filter(
+            (message): message is LlmMessage => !!message,
+          ),
+          assembly.userRegenerationSourceMessage,
         ),
         promptPresetId: assembly.promptPresetId,
         mainTools,
@@ -3401,32 +3520,37 @@ export async function* startGeneration(
         chatSummaryFingerprint: assembly.chatSummaryFingerprint,
         signal,
         existingExtra: await regenerationTargetExtra(deps.storage, chatId, storedMessages, input.regenerateMessageId),
+        regenerationTarget,
       });
       if (savedPartial) {
-        yield { type: savedGenerationEventType(input), data: savedGenerationEventData(savedPartial) };
+        yield {
+          type: savedGenerationEventType(input, regenerationTarget),
+          data: savedGenerationEventData(savedPartial),
+        };
       }
       throw err;
     }
     throwIfAborted(signal);
     let content = streamedContent;
 
-    const preSaveAgentResults = uniqueAgentResults(runtime?.preResults ?? []);
-    const preSaveSpriteExpressions = spriteExpressionsFromAgentResults(
-      preSaveAgentResults,
-      runtime?.availableSprites ?? [],
-    );
+    const preSaveAgentResults = isUserMessageRegeneration ? [] : uniqueAgentResults(runtime?.preResults ?? []);
+    const preSaveSpriteExpressions = isUserMessageRegeneration
+      ? null
+      : spriteExpressionsFromAgentResults(preSaveAgentResults, runtime?.availableSprites ?? []);
     content = await applyRuntimeRegexScripts(deps.storage, "ai_output", content);
     throwIfAborted(signal);
-    const connected = await persistConnectedCommandTags(
-      deps.storage,
-      chat,
-      content,
-      deps.integrations,
-      deps.llm,
-      readString(connection.id) || input.connectionId || null,
-      input.imagePromptSettings,
-      deps.visuals,
-    );
+    const connected = isUserMessageRegeneration
+      ? connectedCommandPassthrough(content)
+      : await persistConnectedCommandTags(
+          deps.storage,
+          chat,
+          content,
+          deps.integrations,
+          deps.llm,
+          readString(connection.id) || input.connectionId || null,
+          input.imagePromptSettings,
+          deps.visuals,
+        );
     throwIfAborted(signal);
     for (const event of connected.events) yield event;
     const displayContent = finalAssistantContent(input, connected.displayContent);
@@ -3450,9 +3574,11 @@ export async function* startGeneration(
           providerMetadata,
           promptSnapshot,
           spriteExpressions: preSaveSpriteExpressions,
-          contextInjections: runtime?.preInjections ?? null,
+          contextInjections: isUserMessageRegeneration ? null : runtime?.preInjections ?? null,
           existingExtra: await regenerationTargetExtra(deps.storage, chatId, storedMessages, input.regenerateMessageId),
+          regenerationTarget,
         });
+    const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
     let latestSaved = saved;
     if (saved) {
       await persistLorebookTimingStatesSafely(
@@ -3463,7 +3589,7 @@ export async function* startGeneration(
       );
     }
     throwIfAborted(signal);
-    if (saved && input.impersonate !== true) {
+    if (savedAssistantGeneration) {
       await mirrorSavedAssistantMessageToDiscord({
         deps,
         chat,
@@ -3473,84 +3599,87 @@ export async function* startGeneration(
         characters: assembly.characters,
       });
     }
-    if (saved) yield { type: savedGenerationEventType(input), data: savedGenerationEventData(saved) };
-    if (saved && input.impersonate !== true) {
+    if (saved)
+      yield { type: savedGenerationEventType(input, regenerationTarget), data: savedGenerationEventData(saved) };
+    if (savedAssistantGeneration) {
       await evictStalePromptSnapshotsSafely(deps.storage, chatId);
     }
     throwIfAborted(signal);
 
-    const parallelResults = await parallelAgents;
-    throwIfAborted(signal);
-    const postResults = runtime ? await runtime.runPost(content) : [];
-    throwIfAborted(signal);
-    let emittedAgentResults = uniqueAgentResults([...parallelResults, ...postResults, ...agentEvents]);
-    emittedAgentResults = await generateTrackerAvatarsForResults({
-      deps,
-      chat: chatForGeneration,
-      results: emittedAgentResults,
-      baseline: generationTrackerBaseline,
-      signal,
-    });
-    for (const result of emittedAgentResults) {
-      yield { type: "agent_result", data: result };
-    }
-    agentEvents.length = 0;
-    const allAgentResults = uniqueAgentResults([...preSaveAgentResults, ...emittedAgentResults]);
-    const spriteExpressions = spriteExpressionsFromAgentResults(allAgentResults, runtime?.availableSprites ?? []);
-    if (saved) {
-      const patched = await patchSavedMessageAgentExtra({
-        storage: deps.storage,
-        saved: latestSaved,
-        results: allAgentResults,
-        contextInjections: runtime?.preInjections ?? null,
-        spriteExpressions,
-      });
-      if (patched) {
-        latestSaved = patched;
-        yield { type: savedGenerationEventType(input), data: savedGenerationEventData(patched) };
-      }
-    }
-
-    const hasIllustrationRequest = emittedAgentResults.some((result) => illustratorPromptData(result) !== null);
-    if (saved && hasIllustrationRequest) {
-      yield { type: "phase", data: "Generating illustration..." };
-      const illustration = await generateIllustrationAttachments({
+    if (!isUserMessageRegeneration) {
+      const parallelResults = await parallelAgents;
+      throwIfAborted(signal);
+      const postResults = runtime && savedAssistantGeneration ? await runtime.runPost(content) : [];
+      throwIfAborted(signal);
+      let emittedAgentResults = uniqueAgentResults([...parallelResults, ...postResults, ...agentEvents]);
+      emittedAgentResults = await generateTrackerAvatarsForResults({
         deps,
-        chat,
+        chat: chatForGeneration,
         results: emittedAgentResults,
+        baseline: generationTrackerBaseline,
         signal,
       });
-      throwIfAborted(signal);
-      for (const event of illustration.events) yield event;
-      const patched = await appendSavedMessageAttachments({
-        storage: deps.storage,
-        saved: latestSaved,
-        attachments: illustration.attachments,
-      });
-      if (patched) {
-        latestSaved = patched;
-        yield { type: savedGenerationEventType(input), data: savedGenerationEventData(patched) };
+      for (const result of emittedAgentResults) {
+        yield { type: "agent_result", data: result };
       }
+      agentEvents.length = 0;
+      const allAgentResults = uniqueAgentResults([...preSaveAgentResults, ...emittedAgentResults]);
+      const spriteExpressions = spriteExpressionsFromAgentResults(allAgentResults, runtime?.availableSprites ?? []);
+      if (saved) {
+        const patched = await patchSavedMessageAgentExtra({
+          storage: deps.storage,
+          saved: latestSaved,
+          results: allAgentResults,
+          contextInjections: runtime?.preInjections ?? null,
+          spriteExpressions,
+        });
+        if (patched) {
+          latestSaved = patched;
+          yield { type: savedGenerationEventType(input, regenerationTarget), data: savedGenerationEventData(patched) };
+        }
+      }
+
+      const hasIllustrationRequest = emittedAgentResults.some((result) => illustratorPromptData(result) !== null);
+      if (savedAssistantGeneration && hasIllustrationRequest) {
+        yield { type: "phase", data: "Generating illustration..." };
+        const illustration = await generateIllustrationAttachments({
+          deps,
+          chat,
+          results: emittedAgentResults,
+          signal,
+        });
+        throwIfAborted(signal);
+        for (const event of illustration.events) yield event;
+        const patched = await appendSavedMessageAttachments({
+          storage: deps.storage,
+          saved: latestSaved,
+          attachments: illustration.attachments,
+        });
+        if (patched) {
+          latestSaved = patched;
+          yield { type: savedGenerationEventType(input, regenerationTarget), data: savedGenerationEventData(patched) };
+        }
+      }
+      throwIfAborted(signal);
+      if (savedAssistantGeneration) {
+        await persistTrackerSnapshotSafely(
+          deps.storage,
+          chatId,
+          latestSaved,
+          allAgentResults,
+          generationTrackerBaseline,
+          readString(parseRecord(latestSaved).content),
+          deps.onTrackerSnapshotSaved,
+          true,
+        );
+      }
+      throwIfAborted(signal);
+      await persistSecretPlotAgentMemorySafely(deps.storage, chatId, allAgentResults);
+      throwIfAborted(signal);
+      await persistAgentResults(deps.storage, chatId, messageId(latestSaved), allAgentResults);
+      throwIfAborted(signal);
     }
-    throwIfAborted(signal);
-    if (saved && input.impersonate !== true) {
-      await persistTrackerSnapshotSafely(
-        deps.storage,
-        chatId,
-        latestSaved,
-        allAgentResults,
-        generationTrackerBaseline,
-        readString(parseRecord(latestSaved).content),
-        deps.onTrackerSnapshotSaved,
-        true,
-      );
-    }
-    throwIfAborted(signal);
-    await persistSecretPlotAgentMemorySafely(deps.storage, chatId, allAgentResults);
-    throwIfAborted(signal);
-    await persistAgentResults(deps.storage, chatId, messageId(latestSaved), allAgentResults);
-    throwIfAborted(signal);
-    if (saved && input.impersonate !== true) {
+    if (savedAssistantGeneration) {
       const autoLorebookBackfill = await runLorebookKeeperBackfill(
         deps,
         {
@@ -3568,7 +3697,7 @@ export async function* startGeneration(
         yield { type: "agent_result", data: result };
       }
     }
-    if (saved && input.impersonate !== true) {
+    if (savedAssistantGeneration) {
       scheduleMemoryRecallRefresh(deps.storage, chat);
     }
     yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
@@ -3605,8 +3734,9 @@ export async function* startGeneration(
     chatSummary: assembly.chatSummary,
     hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
   };
-  const baseMessagesDirect: LlmMessage[] = [...(prompt ?? []), generationGuide(input)].filter(
-    (message): message is LlmMessage => !!message,
+  const baseMessagesDirect: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
+    [...(prompt ?? []), generationGuide(input)].filter((message): message is LlmMessage => !!message),
+    assembly.userRegenerationSourceMessage,
   );
   const directPartial: StreamPartialSink = {
     content: "",
@@ -3634,8 +3764,11 @@ export async function* startGeneration(
       chat: chatForGeneration,
       parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
       baseMessages: baseMessagesDirect,
-      previewMessages: [...(promptPreviewMessagesDirect ?? []), generationGuide(input)].filter(
-        (message): message is LlmMessage => !!message,
+      previewMessages: withUserMessageRegenerationRewritePrompt(
+        [...(promptPreviewMessagesDirect ?? []), generationGuide(input)].filter(
+          (message): message is LlmMessage => !!message,
+        ),
+        assembly.userRegenerationSourceMessage,
       ),
       promptPresetId: assembly.promptPresetId,
       mainTools: mainToolsDirect,
@@ -3656,9 +3789,10 @@ export async function* startGeneration(
       chatSummaryFingerprint: assembly.chatSummaryFingerprint,
       signal,
       existingExtra: await regenerationTargetExtra(deps.storage, chatId, storedMessages, input.regenerateMessageId),
+      regenerationTarget,
     });
     if (savedPartial) {
-      yield { type: savedGenerationEventType(input), data: savedGenerationEventData(savedPartial) };
+      yield { type: savedGenerationEventType(input, regenerationTarget), data: savedGenerationEventData(savedPartial) };
     }
     throw err;
   }
@@ -3666,16 +3800,18 @@ export async function* startGeneration(
   let content = streamedContentDirect;
   content = await applyRuntimeRegexScripts(deps.storage, "ai_output", content);
   throwIfAborted(signal);
-  const connected = await persistConnectedCommandTags(
-    deps.storage,
-    chat,
-    content,
-    deps.integrations,
-    deps.llm,
-    readString(connection.id) || input.connectionId || null,
-    input.imagePromptSettings,
-    deps.visuals,
-  );
+  const connected = isUserMessageRegeneration
+    ? connectedCommandPassthrough(content)
+    : await persistConnectedCommandTags(
+        deps.storage,
+        chat,
+        content,
+        deps.integrations,
+        deps.llm,
+        readString(connection.id) || input.connectionId || null,
+        input.imagePromptSettings,
+        deps.visuals,
+      );
   throwIfAborted(signal);
   for (const event of connected.events) yield event;
   const displayContentDirect = finalAssistantContent(input, connected.displayContent);
@@ -3699,7 +3835,9 @@ export async function* startGeneration(
         providerMetadata,
         promptSnapshot: promptSnapshotDirect,
         existingExtra: await regenerationTargetExtra(deps.storage, chatId, storedMessages, input.regenerateMessageId),
+        regenerationTarget,
       });
+  const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
   if (saved) {
     await persistLorebookTimingStatesSafely(
       deps.storage,
@@ -3709,7 +3847,7 @@ export async function* startGeneration(
     );
   }
   throwIfAborted(signal);
-  if (saved && input.impersonate !== true) {
+  if (savedAssistantGeneration) {
     await mirrorSavedAssistantMessageToDiscord({
       deps,
       chat,
@@ -3719,12 +3857,12 @@ export async function* startGeneration(
       characters: assembly.characters,
     });
   }
-  if (saved) yield { type: savedGenerationEventType(input), data: savedGenerationEventData(saved) };
-  if (saved && input.impersonate !== true) {
+  if (saved) yield { type: savedGenerationEventType(input, regenerationTarget), data: savedGenerationEventData(saved) };
+  if (savedAssistantGeneration) {
     await evictStalePromptSnapshotsSafely(deps.storage, chatId);
   }
   throwIfAborted(signal);
-  if (saved && input.impersonate !== true) {
+  if (savedAssistantGeneration) {
     const autoLorebookBackfill = await runLorebookKeeperBackfill(
       deps,
       {
@@ -3742,7 +3880,7 @@ export async function* startGeneration(
       yield { type: "agent_result", data: result };
     }
   }
-  if (saved && input.impersonate !== true) {
+  if (savedAssistantGeneration) {
     scheduleMemoryRecallRefresh(deps.storage, chat);
   }
   yield { type: "done" };
