@@ -485,7 +485,7 @@ async fn image_response_base64(
         ));
     }
     let bytes = read_limited_response_bytes(response, IMAGE_PROVIDER_RAW_IMAGE_MAX_BYTES).await?;
-    Ok((general_purpose::STANDARD.encode(bytes), content_type))
+    normalized_image_bytes(bytes, Some(&content_type))
 }
 
 fn sanitize_error(text: &str) -> String {
@@ -542,31 +542,97 @@ fn ensure_base64_image_within_limit(base64: &str) -> AppResult<()> {
 
 fn validated_base64_image(base64: &str, mime: &str) -> AppResult<(String, String)> {
     ensure_base64_image_within_limit(base64)?;
-    Ok((base64.to_string(), mime.to_string()))
+    let normalized = base64.split_whitespace().collect::<String>();
+    if normalized.is_empty() {
+        return Err(AppError::new(
+            "image_response_error",
+            "Image provider returned empty image data",
+        ));
+    }
+    let bytes = general_purpose::STANDARD
+        .decode(&normalized)
+        .map_err(|error| {
+            AppError::new(
+                "image_response_error",
+                format!("Image provider returned invalid base64 image data: {error}"),
+            )
+        })?;
+    normalized_image_bytes(bytes, Some(mime))
+}
+
+fn detected_image_mime_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        return Some("image/png");
+    }
+    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        return Some("image/jpeg");
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    None
 }
 
 fn detect_image_mime_type(bytes: &[u8]) -> &'static str {
-    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
-        return "image/png";
+    detected_image_mime_type(bytes).unwrap_or("image/png")
+}
+
+fn normalized_supported_image_mime_type(mime_type: &str) -> Option<&'static str> {
+    match mime_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "image/png" => Some("image/png"),
+        "image/jpeg" | "image/jpg" => Some("image/jpeg"),
+        "image/webp" => Some("image/webp"),
+        "image/gif" => Some("image/gif"),
+        _ => None,
     }
-    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-        return "image/jpeg";
+}
+
+fn normalized_image_mime_type(bytes: &[u8], declared_mime: Option<&str>) -> String {
+    detected_image_mime_type(bytes)
+        .or_else(|| declared_mime.and_then(normalized_supported_image_mime_type))
+        .unwrap_or("image/png")
+        .to_string()
+}
+
+fn normalized_image_bytes(
+    bytes: Vec<u8>,
+    declared_mime: Option<&str>,
+) -> AppResult<(String, String)> {
+    if bytes.is_empty() {
+        return Err(AppError::new(
+            "image_response_error",
+            "Image provider returned empty image data",
+        ));
     }
-    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        return "image/webp";
+    if bytes.len() > IMAGE_PROVIDER_RAW_IMAGE_MAX_BYTES {
+        return Err(image_response_too_large_error(
+            IMAGE_PROVIDER_RAW_IMAGE_MAX_BYTES,
+        ));
     }
-    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
-        return "image/gif";
-    }
-    "image/png"
+    let mime_type = normalized_image_mime_type(&bytes, declared_mime);
+    Ok((general_purpose::STANDARD.encode(bytes), mime_type))
 }
 
 fn detect_base64_mime_type(base64: &str) -> String {
-    let sample = base64.trim().chars().take(96).collect::<String>();
+    let sample = base64
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .take(128)
+        .collect::<String>();
     general_purpose::STANDARD
         .decode(sample)
         .ok()
-        .map(|bytes| detect_image_mime_type(&bytes).to_string())
+        .map(|bytes| normalized_image_mime_type(&bytes, None))
         .unwrap_or_else(|| "image/png".to_string())
 }
 
@@ -578,7 +644,7 @@ struct DecodedReferenceImage {
     bytes: Vec<u8>,
 }
 
-fn image_extension_from_mime_type(mime_type: &str) -> &'static str {
+pub(crate) fn image_extension_from_mime_type(mime_type: &str) -> &'static str {
     if mime_type.contains("jpeg") || mime_type.contains("jpg") {
         "jpg"
     } else if mime_type.contains("webp") {
@@ -1991,7 +2057,7 @@ async fn generate_automatic1111(
         .and_then(Value::as_str)
         .ok_or_else(|| AppError::new("image_response_error", "AUTOMATIC1111 returned no image"))?;
     let (base64, mime) = strip_data_url(image);
-    Ok((base64.to_string(), mime.to_string()))
+    validated_base64_image(base64, mime)
 }
 
 pub(crate) fn automatic1111_sdapi_url(base: &str, endpoint: &str) -> String {
@@ -2115,7 +2181,7 @@ async fn generate_horde(
                 return fetch_image_url(&client, img).await;
             }
             let (base64, mime) = strip_data_url(img);
-            return Ok((base64.to_string(), mime.to_string()));
+            return validated_base64_image(base64, mime);
         }
         if status.get("done").and_then(Value::as_bool).unwrap_or(false) {
             break;
@@ -2773,16 +2839,16 @@ async fn parse_novelai_image_response(
                     IMAGE_PROVIDER_RAW_IMAGE_MAX_BYTES,
                 ));
             }
-            let mime = detect_image_mime_type(&image).to_string();
-            return Ok((general_purpose::STANDARD.encode(image), mime));
+            return normalized_image_bytes(image, None);
         }
     }
     if bytes.starts_with(&[0x89, b'P', b'N', b'G'])
         || bytes.starts_with(&[0xff, 0xd8, 0xff])
         || (bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP")
+        || bytes.starts_with(b"GIF87a")
+        || bytes.starts_with(b"GIF89a")
     {
-        let mime = detect_image_mime_type(&bytes).to_string();
-        return Ok((general_purpose::STANDARD.encode(bytes), mime));
+        return normalized_image_bytes(bytes, Some(content_type));
     }
     if let Ok(json) = serde_json::from_slice::<Value>(&bytes) {
         if let Some(result) = parse_image_json(client, &json).await? {

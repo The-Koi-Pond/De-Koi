@@ -470,6 +470,14 @@ function imageExtension(mimeType: string): string {
   return "png";
 }
 
+function generatedImageExtension(ext: unknown, mimeType: string): string {
+  const normalized = readString(ext).trim().toLowerCase().replace(/^\./, "");
+  if (["png", "jpg", "jpeg", "webp", "gif"].includes(normalized)) {
+    return normalized === "jpeg" ? "jpg" : normalized;
+  }
+  return imageExtension(mimeType);
+}
+
 function illustrationSize(value: unknown): { width: number; height: number } {
   const text = readString(value).trim();
   const match = text.match(/^(\d{2,5})\s*x\s*(\d{2,5})$/i);
@@ -814,6 +822,7 @@ async function generateIllustrationAttachments(args: {
         base64?: string;
         mimeType?: string;
         image?: string;
+        ext?: string;
         provider?: string;
         model?: string;
       }>({
@@ -833,7 +842,7 @@ async function generateIllustrationAttachments(args: {
       const imageUrl = readString(image.image).trim() || (base64 ? `data:${mimeType};base64,${base64}` : "");
       if (!imageUrl) throw new Error("Image provider returned no image data.");
 
-      const filename = `illustration_${Date.now()}_${index + 1}.${imageExtension(mimeType)}`;
+      const filename = `illustration_${Date.now()}_${index + 1}.${generatedImageExtension(image.ext, mimeType)}`;
       const gallery = await args.deps.storage.create<JsonRecord>("gallery", {
         chatId: readString(args.chat.id),
         filePath: filename,
