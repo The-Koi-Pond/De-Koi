@@ -2162,19 +2162,22 @@ fn openai_responses_preserve_encrypted_reasoning(request: &LlmRequest) -> bool {
 }
 
 fn encrypted_reasoning_items_from_metadata(metadata: &Value) -> Vec<Value> {
-    ["encryptedReasoningItems", "openaiResponsesEncryptedReasoningItems"]
-        .into_iter()
-        .filter_map(|key| metadata.get(key).and_then(Value::as_array))
-        .flat_map(|items| items.iter())
-        .filter(|item| {
-            item.get("type").and_then(Value::as_str) == Some("reasoning")
-                && item
-                    .get("encrypted_content")
-                    .and_then(Value::as_str)
-                    .is_some_and(|value| !value.trim().is_empty())
-        })
-        .cloned()
-        .collect()
+    [
+        "encryptedReasoningItems",
+        "openaiResponsesEncryptedReasoningItems",
+    ]
+    .into_iter()
+    .filter_map(|key| metadata.get(key).and_then(Value::as_array))
+    .flat_map(|items| items.iter())
+    .filter(|item| {
+        item.get("type").and_then(Value::as_str) == Some("reasoning")
+            && item
+                .get("encrypted_content")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty())
+    })
+    .cloned()
+    .collect()
 }
 
 fn encrypted_reasoning_items_from_messages(messages: &[LlmMessage]) -> Vec<Value> {
@@ -2225,7 +2228,99 @@ fn ensure_openai_responses_include(body: &mut Value, include: &str) {
     body["include"] = json!([include]);
 }
 
-fn responses_message_input(message: &LlmMessage) -> Value {
+#[derive(Default)]
+struct ResponsesToolCallIdMapper {
+    ids: BTreeMap<String, String>,
+    counter: usize,
+}
+
+impl ResponsesToolCallIdMapper {
+    fn ensure(&mut self, id: &str) -> String {
+        if id.starts_with("fc_") {
+            return id.to_string();
+        }
+        if let Some(mapped) = self.ids.get(id) {
+            return mapped.clone();
+        }
+        self.counter += 1;
+        let mapped = format!("fc_mapped_{}", self.counter);
+        self.ids.insert(id.to_string(), mapped.clone());
+        mapped
+    }
+}
+
+fn tool_call_raw_id(call: &Value) -> Option<&str> {
+    call.get("id")
+        .or_else(|| call.get("call_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn tool_call_function_name(call: &Value) -> Option<&str> {
+    call.pointer("/function/name")
+        .or_else(|| call.get("name"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn tool_call_arguments(call: &Value) -> String {
+    let value = call
+        .pointer("/function/arguments")
+        .or_else(|| call.get("arguments"));
+    match value {
+        Some(Value::String(arguments)) => arguments.clone(),
+        Some(value) => compact_json(value),
+        None => "{}".to_string(),
+    }
+}
+
+fn responses_tool_call_input_items(
+    message: &LlmMessage,
+    id_mapper: &mut ResponsesToolCallIdMapper,
+) -> Vec<Value> {
+    let Some(tool_calls) = message.tool_calls.as_ref().and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    tool_calls
+        .iter()
+        .enumerate()
+        .map(|(index, call)| {
+            let raw_id = tool_call_raw_id(call)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("call_{}", index + 1));
+            let fc_id = id_mapper.ensure(&raw_id);
+            json!({
+                "type": "function_call",
+                "id": fc_id,
+                "call_id": fc_id,
+                "name": tool_call_function_name(call).unwrap_or(""),
+                "arguments": tool_call_arguments(call),
+            })
+        })
+        .collect()
+}
+
+fn responses_message_input(
+    message: &LlmMessage,
+    id_mapper: &mut ResponsesToolCallIdMapper,
+) -> Vec<Value> {
+    if message.role == "tool" {
+        let call_id = message
+            .tool_call_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|id| id_mapper.ensure(id))
+            .unwrap_or_default();
+        return vec![json!({
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": message.content,
+        })];
+    }
+
     let role = if message.role == "assistant" {
         "assistant"
     } else if message.role == "system" {
@@ -2233,8 +2328,11 @@ fn responses_message_input(message: &LlmMessage) -> Value {
     } else {
         "user"
     };
+    let mut items = Vec::new();
     if message.images.is_empty() {
-        json!({ "role": role, "content": message.content })
+        if !message.content.trim().is_empty() || message.role != "assistant" {
+            items.push(json!({ "role": role, "content": message.content }));
+        }
     } else {
         let mut content = Vec::new();
         if !message.content.is_empty() {
@@ -2243,22 +2341,29 @@ fn responses_message_input(message: &LlmMessage) -> Value {
         for image in &message.images {
             content.push(json!({ "type": "input_image", "image_url": image }));
         }
-        json!({ "role": role, "content": content })
+        items.push(json!({ "role": role, "content": content }));
     }
+    if message.role == "assistant" {
+        items.extend(responses_tool_call_input_items(message, id_mapper));
+    }
+    items
+}
+
+fn is_responses_assistant_input_item(item: &Value) -> bool {
+    item.get("role").and_then(Value::as_str) == Some("assistant")
+        || item.get("type").and_then(Value::as_str) == Some("function_call")
 }
 
 fn responses_input(messages: &[LlmMessage], replay_encrypted_reasoning: bool) -> Value {
+    let mut id_mapper = ResponsesToolCallIdMapper::default();
     let mut input = messages
         .iter()
-        .map(responses_message_input)
+        .flat_map(|message| responses_message_input(message, &mut id_mapper))
         .collect::<Vec<_>>();
     if replay_encrypted_reasoning {
         let encrypted_reasoning_items = encrypted_reasoning_items_from_messages(messages);
         if !encrypted_reasoning_items.is_empty() {
-            if let Some(index) = input
-                .iter()
-                .rposition(|item| item.get("role").and_then(Value::as_str) == Some("assistant"))
-            {
+            if let Some(index) = input.iter().rposition(is_responses_assistant_input_item) {
                 input.splice(index..index, encrypted_reasoning_items);
             }
         }
@@ -2419,6 +2524,7 @@ async fn stream_openai_responses(
     }
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
+    let mut tool_calls = ResponsesToolCallAccumulator::default();
     let mut completed = false;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| {
@@ -2426,7 +2532,9 @@ async fn stream_openai_responses(
         })?;
         buffer.push_str(&String::from_utf8_lossy(&chunk));
         while let Some(block) = take_sse_block(&mut buffer) {
-            if process_openai_responses_sse_block(&block, emit)? == SseBlockStatus::Complete {
+            if process_openai_responses_sse_block(&block, emit, &mut tool_calls)?
+                == SseBlockStatus::Complete
+            {
                 completed = true;
                 break;
             }
@@ -2436,7 +2544,10 @@ async fn stream_openai_responses(
         }
     }
     if !completed && !buffer.trim().is_empty() {
-        process_openai_responses_sse_block(&buffer, emit)?;
+        process_openai_responses_sse_block(&buffer, emit, &mut tool_calls)?;
+    }
+    for tool_call in tool_calls.into_tool_calls() {
+        emit(json!({ "type": "tool_call", "data": tool_call }))?;
     }
     Ok(())
 }
@@ -2444,6 +2555,7 @@ async fn stream_openai_responses(
 fn process_openai_responses_sse_block(
     block: &str,
     emit: &mut (impl FnMut(Value) -> AppResult<()> + Send),
+    tool_calls: &mut ResponsesToolCallAccumulator,
 ) -> AppResult<SseBlockStatus> {
     let event_name = block
         .lines()
@@ -2487,10 +2599,32 @@ fn process_openai_responses_sse_block(
                 emit(json!({ "type": "thinking", "text": delta, "data": delta }))?;
             }
         }
+        "response.output_item.added" => {
+            if let Some(item) = value.get("item") {
+                tool_calls.ingest_output_item(item);
+            }
+        }
         "response.function_call_arguments.delta" => {
-            emit(json!({ "type": "tool_call", "data": value }))?;
+            tool_calls.ingest_arguments_delta(&value);
+        }
+        "response.function_call_arguments.done" => {
+            tool_calls.ingest_arguments_done(&value);
+        }
+        "response.output_item.done" => {
+            if let Some(item) = value.get("item") {
+                tool_calls.ingest_output_item(item);
+            }
         }
         "response.completed" => {
+            if let Some(output) = value
+                .pointer("/response/output")
+                .or_else(|| value.get("output"))
+                .and_then(Value::as_array)
+            {
+                for item in output {
+                    tool_calls.ingest_output_item(item);
+                }
+            }
             if let Some(usage) = value
                 .pointer("/response/usage")
                 .or_else(|| value.get("usage"))
@@ -2575,6 +2709,98 @@ impl OpenAiToolCallAccumulator {
                 };
                 Some(json!({
                     "id": parts.id.unwrap_or_else(|| format!("call-{index}")),
+                    "name": name.clone(),
+                    "arguments": arguments.clone(),
+                    "function": {
+                        "name": name,
+                        "arguments": arguments
+                    }
+                }))
+            })
+            .collect()
+    }
+}
+
+#[derive(Default)]
+struct ResponsesToolCallAccumulator {
+    calls: BTreeMap<String, ResponsesToolCallParts>,
+}
+
+#[derive(Default)]
+struct ResponsesToolCallParts {
+    name: Option<String>,
+    arguments: String,
+}
+
+impl ResponsesToolCallAccumulator {
+    fn call_id(value: &Value) -> Option<String> {
+        value
+            .get("call_id")
+            .or_else(|| value.get("id"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    }
+
+    fn entry_mut(&mut self, call_id: String) -> &mut ResponsesToolCallParts {
+        self.calls.entry(call_id).or_default()
+    }
+
+    fn ingest_output_item(&mut self, item: &Value) {
+        if item.get("type").and_then(Value::as_str) != Some("function_call") {
+            return;
+        }
+        let Some(call_id) = Self::call_id(item) else {
+            return;
+        };
+        let entry = self.entry_mut(call_id);
+        if let Some(name) = item
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            entry.name = Some(name.to_string());
+        }
+        if let Some(arguments) = item.get("arguments").and_then(Value::as_str) {
+            entry.arguments = arguments.to_string();
+        }
+    }
+
+    fn ingest_arguments_delta(&mut self, value: &Value) {
+        let Some(call_id) = Self::call_id(value) else {
+            return;
+        };
+        let Some(delta) = value.get("delta").and_then(Value::as_str) else {
+            return;
+        };
+        self.entry_mut(call_id).arguments.push_str(delta);
+    }
+
+    fn ingest_arguments_done(&mut self, value: &Value) {
+        let Some(call_id) = Self::call_id(value) else {
+            return;
+        };
+        if let Some(arguments) = value.get("arguments").and_then(Value::as_str) {
+            self.entry_mut(call_id).arguments = arguments.to_string();
+        }
+    }
+
+    fn into_tool_calls(self) -> Vec<Value> {
+        self.calls
+            .into_iter()
+            .filter_map(|(call_id, parts)| {
+                let name = parts.name.unwrap_or_default();
+                if name.trim().is_empty() && parts.arguments.trim().is_empty() {
+                    return None;
+                }
+                let arguments = if parts.arguments.trim().is_empty() {
+                    "{}".to_string()
+                } else {
+                    parts.arguments
+                };
+                Some(json!({
+                    "id": call_id,
                     "name": name.clone(),
                     "arguments": arguments.clone(),
                     "function": {
@@ -5151,6 +5377,7 @@ mod tests {
     #[test]
     fn openai_responses_completed_event_is_terminal() {
         let mut emitted = Vec::new();
+        let mut tool_calls = ResponsesToolCallAccumulator::default();
         let mut emit = |value: Value| {
             emitted.push(value);
             Ok(())
@@ -5160,6 +5387,7 @@ mod tests {
             r#"event: response.completed
 data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2}}}"#,
             &mut emit,
+            &mut tool_calls,
         )
         .expect("response.completed should parse");
 
@@ -5170,6 +5398,7 @@ data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output
     #[test]
     fn openai_responses_completed_event_emits_encrypted_reasoning_metadata() {
         let mut emitted = Vec::new();
+        let mut tool_calls = ResponsesToolCallAccumulator::default();
         let mut emit = |value: Value| {
             emitted.push(value);
             Ok(())
@@ -5179,11 +5408,15 @@ data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output
             r#"event: response.completed
 data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2},"output":[{"type":"reasoning","id":"rs_1","encrypted_content":"encrypted-payload"},{"type":"message","content":[{"type":"output_text","text":"done"}]}]}}"#,
             &mut emit,
+            &mut tool_calls,
         )
         .expect("response.completed should parse");
 
         assert_eq!(status, SseBlockStatus::Complete);
-        assert_eq!(emitted[0], json!({ "type": "usage", "data": { "input_tokens": 1, "output_tokens": 2 } }));
+        assert_eq!(
+            emitted[0],
+            json!({ "type": "usage", "data": { "input_tokens": 1, "output_tokens": 2 } })
+        );
         assert_eq!(emitted[1]["type"], json!("provider_metadata"));
         assert_eq!(
             emitted[1]["data"]["encryptedReasoningItems"][0],
@@ -5211,13 +5444,15 @@ data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output
         ];
 
         let body = build_openai_responses_body(&request, false);
-        let includes = body["include"].as_array().expect("include should be an array");
+        let includes = body["include"]
+            .as_array()
+            .expect("include should be an array");
         assert!(includes
             .iter()
             .any(|item| item.as_str() == Some("web_search_call.action.sources")));
-        assert!(includes.iter().any(|item| {
-            item.as_str() == Some(OPENAI_RESPONSES_ENCRYPTED_REASONING_INCLUDE)
-        }));
+        assert!(includes
+            .iter()
+            .any(|item| { item.as_str() == Some(OPENAI_RESPONSES_ENCRYPTED_REASONING_INCLUDE) }));
         let input = body["input"].as_array().expect("input should be an array");
         assert_eq!(input[0]["role"], json!("user"));
         assert_eq!(
@@ -5226,6 +5461,119 @@ data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output
         );
         assert_eq!(input[2]["role"], json!("assistant"));
         assert_eq!(input[3]["role"], json!("user"));
+    }
+
+    #[test]
+    fn openai_responses_body_preserves_tool_roundtrip_shape() {
+        let mut request = request_for("openai", "gpt-5", json!({}));
+        let mut assistant = test_message("assistant", "I should use a tool.");
+        assistant.tool_calls = Some(json!([
+            {
+                "id": "call_roll",
+                "function": {
+                    "name": "roll_dice",
+                    "arguments": "{\"notation\":\"1d20\"}"
+                }
+            }
+        ]));
+        let mut tool = test_message("tool", "17");
+        tool.tool_call_id = Some("call_roll".to_string());
+        request.messages = vec![
+            test_message("user", "Roll please."),
+            assistant,
+            tool,
+            test_message("user", "What happened?"),
+        ];
+
+        let body = build_openai_responses_body(&request, false);
+        let input = body["input"].as_array().expect("input should be an array");
+
+        assert_eq!(
+            input[0],
+            json!({ "role": "user", "content": "Roll please." })
+        );
+        assert_eq!(
+            input[1],
+            json!({ "role": "assistant", "content": "I should use a tool." })
+        );
+        assert_eq!(
+            input[2],
+            json!({
+                "type": "function_call",
+                "id": "fc_mapped_1",
+                "call_id": "fc_mapped_1",
+                "name": "roll_dice",
+                "arguments": "{\"notation\":\"1d20\"}"
+            })
+        );
+        assert_eq!(
+            input[3],
+            json!({ "type": "function_call_output", "call_id": "fc_mapped_1", "output": "17" })
+        );
+        assert_eq!(
+            input[4],
+            json!({ "role": "user", "content": "What happened?" })
+        );
+    }
+
+    #[test]
+    fn openai_responses_stream_accumulates_function_call_deltas() {
+        let mut emitted = Vec::new();
+        let mut tool_calls = ResponsesToolCallAccumulator::default();
+        let mut emit = |value: Value| {
+            emitted.push(value);
+            Ok(())
+        };
+
+        process_openai_responses_sse_block(
+            r#"event: response.output_item.added
+data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"fc_1","name":"roll_dice","arguments":""}}"#,
+            &mut emit,
+            &mut tool_calls,
+        )
+        .expect("function_call item should parse");
+        process_openai_responses_sse_block(
+            r#"event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","call_id":"fc_1","delta":"{\"notation\""}"#,
+            &mut emit,
+            &mut tool_calls,
+        )
+        .expect("function_call argument delta should parse");
+        process_openai_responses_sse_block(
+            r#"event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","call_id":"fc_1","delta":":\"1d20\"}"}"#,
+            &mut emit,
+            &mut tool_calls,
+        )
+        .expect("function_call argument delta should parse");
+        process_openai_responses_sse_block(
+            r#"event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","call_id":"fc_1","arguments":"{\"notation\":\"1d20\"}"}"#,
+            &mut emit,
+            &mut tool_calls,
+        )
+        .expect("function_call arguments done should parse");
+        process_openai_responses_sse_block(
+            r#"event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"fc_1","name":"roll_dice"}}"#,
+            &mut emit,
+            &mut tool_calls,
+        )
+        .expect("function_call item done should parse");
+
+        assert!(emitted.is_empty());
+        assert_eq!(
+            tool_calls.into_tool_calls(),
+            vec![json!({
+                "id": "fc_1",
+                "name": "roll_dice",
+                "arguments": "{\"notation\":\"1d20\"}",
+                "function": {
+                    "name": "roll_dice",
+                    "arguments": "{\"notation\":\"1d20\"}"
+                }
+            })]
+        );
     }
 
     #[test]
@@ -5242,7 +5590,9 @@ data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output
         let body = build_openai_responses_body(&request, false);
         assert!(body.get("include").is_none());
         let input = body["input"].as_array().expect("input should be an array");
-        assert!(input.iter().all(|item| item.get("encrypted_content").is_none()));
+        assert!(input
+            .iter()
+            .all(|item| item.get("encrypted_content").is_none()));
     }
 
     #[test]
