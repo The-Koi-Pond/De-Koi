@@ -1713,18 +1713,83 @@ async fn apply_chatgpt_auth_headers(
     req: reqwest::RequestBuilder,
 ) -> AppResult<reqwest::RequestBuilder> {
     let auth = load_openai_chatgpt_auth().await?;
+    Ok(apply_chatgpt_auth_headers_with_auth(req, &auth))
+}
+
+fn apply_chatgpt_auth_headers_with_auth(
+    req: reqwest::RequestBuilder,
+    auth: &ChatGptAuth,
+) -> reqwest::RequestBuilder {
     let mut req = req
-        .bearer_auth(auth.access_token)
+        .bearer_auth(auth.access_token.as_str())
         .header("version", APP_VERSION)
         .header("originator", "Marinara-Engine")
         .header("User-Agent", format!("MarinaraEngine/{APP_VERSION}"));
-    if let Some(account_id) = auth.account_id {
+    if let Some(account_id) = auth.account_id.as_deref() {
         req = req.header("ChatGPT-Account-ID", account_id);
     }
     if auth.is_fedramp {
         req = req.header("X-OpenAI-Fedramp", "true");
     }
-    Ok(req)
+    req
+}
+
+fn openai_chatgpt_models_url() -> String {
+    format!("{OPENAI_CHATGPT_CODEX_BASE_URL}/models?client_version={APP_VERSION}")
+}
+
+fn normalize_openai_chatgpt_models(json: &Value) -> Vec<Value> {
+    json.get("models")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let id = string_value(item.get("slug")).or_else(|| string_value(item.get("id")))?;
+            let name = string_value(item.get("display_name"))
+                .or_else(|| string_value(item.get("name")))
+                .unwrap_or_else(|| id.clone());
+            Some(json!({ "id": id, "name": name, "provider": "openai_chatgpt" }))
+        })
+        .collect()
+}
+
+async fn fetch_openai_chatgpt_models_from_url(
+    url: &str,
+    auth: &ChatGptAuth,
+) -> AppResult<Vec<Value>> {
+    let response = send_provider_request_with_error_code(
+        apply_chatgpt_auth_headers_with_auth(
+            provider_http_client_for_url(url).await?.get(url),
+            auth,
+        ),
+        "models_network_error",
+    )
+    .await?;
+    let (status, json) = read_json_response(response).await?;
+    if !status.is_success() {
+        let details = redact_sensitive_json(json);
+        let message = provider_error_text(&details)
+            .map(|detail| format!("ChatGPT model catalog returned HTTP {status}: {detail}"))
+            .unwrap_or_else(|| format!("ChatGPT model catalog returned HTTP {status}"));
+        return Err(AppError::with_details(
+            "models_provider_error",
+            message,
+            details,
+        ));
+    }
+    let models = normalize_openai_chatgpt_models(&json);
+    if models.is_empty() {
+        return Err(AppError::new(
+            "models_provider_error",
+            "ChatGPT model catalog returned no models",
+        ));
+    }
+    Ok(models)
+}
+
+pub async fn list_openai_chatgpt_models() -> AppResult<Vec<Value>> {
+    let auth = load_openai_chatgpt_auth().await?;
+    fetch_openai_chatgpt_models_from_url(&openai_chatgpt_models_url(), &auth).await
 }
 
 fn cohere_message(message: &LlmMessage) -> Value {
@@ -4663,6 +4728,51 @@ mod tests {
         format!("http://{address}")
     }
 
+    async fn serve_chatgpt_models_response(
+        status: &'static str,
+        body: &'static str,
+        assert_headers: bool,
+    ) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test ChatGPT model server should bind");
+        let address = listener
+            .local_addr()
+            .expect("test ChatGPT model server address should be readable");
+        tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("test ChatGPT model server should accept one request");
+            let mut buffer = [0_u8; 4096];
+            let bytes = stream
+                .read(&mut buffer)
+                .await
+                .expect("test ChatGPT model server should read request");
+            let request = String::from_utf8_lossy(&buffer[..bytes]);
+            assert!(request
+                .lines()
+                .next()
+                .is_some_and(|line| line.starts_with("GET /models?client_version=1.6.1 ")));
+            if assert_headers {
+                let headers = request.to_ascii_lowercase();
+                assert!(headers.contains("authorization: bearer access-secret"));
+                assert!(headers.contains("chatgpt-account-id: account-1"));
+                assert!(headers.contains("x-openai-fedramp: true"));
+                assert!(headers.contains("originator: marinara-engine"));
+            }
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("test ChatGPT model server should write response");
+        });
+        format!("http://{address}/models?client_version=1.6.1")
+    }
+
     async fn serve_chunked_response(
         status: &'static str,
         content_type: &'static str,
@@ -4885,6 +4995,76 @@ data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output
             base_url("openai_chatgpt", "https://api.example.com/v1"),
             OPENAI_CHATGPT_CODEX_BASE_URL
         );
+    }
+
+    #[tokio::test]
+    async fn openai_chatgpt_models_live_success_normalizes_slug_and_name() {
+        let url = serve_chatgpt_models_response(
+            "200 OK",
+            r#"{"models":[{"slug":"gpt-5-codex","display_name":"GPT-5 Codex"},{"id":"o3","name":"o3"}]}"#,
+            true,
+        )
+        .await;
+        let auth = ChatGptAuth {
+            access_token: "access-secret".to_string(),
+            account_id: Some("account-1".to_string()),
+            is_fedramp: true,
+        };
+
+        let models = fetch_openai_chatgpt_models_from_url(&url, &auth)
+            .await
+            .expect("live ChatGPT model discovery should succeed");
+
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0]["id"], "gpt-5-codex");
+        assert_eq!(models[0]["name"], "GPT-5 Codex");
+        assert_eq!(models[0]["provider"], "openai_chatgpt");
+        assert_eq!(models[1]["id"], "o3");
+        assert_eq!(models[1]["name"], "o3");
+    }
+
+    #[tokio::test]
+    async fn openai_chatgpt_models_empty_live_result_returns_fallback_error() {
+        let url = serve_chatgpt_models_response("200 OK", r#"{"models":[]}"#, false).await;
+        let auth = ChatGptAuth {
+            access_token: "access-secret".to_string(),
+            account_id: None,
+            is_fedramp: false,
+        };
+
+        let error = fetch_openai_chatgpt_models_from_url(&url, &auth)
+            .await
+            .expect_err("empty live ChatGPT catalog should trigger curated fallback");
+
+        assert_eq!(error.code, "models_provider_error");
+        assert!(error.message.contains("returned no models"));
+    }
+
+    #[tokio::test]
+    async fn openai_chatgpt_models_provider_error_returns_fallback_error() {
+        let url = serve_chatgpt_models_response(
+            "401 Unauthorized",
+            r#"{"error":{"message":"bad key sk-test-secret"}}"#,
+            false,
+        )
+        .await;
+        let auth = ChatGptAuth {
+            access_token: "access-secret".to_string(),
+            account_id: None,
+            is_fedramp: false,
+        };
+
+        let error = fetch_openai_chatgpt_models_from_url(&url, &auth)
+            .await
+            .expect_err("provider error should trigger curated fallback");
+
+        assert_eq!(error.code, "models_provider_error");
+        assert!(error
+            .message
+            .contains("ChatGPT model catalog returned HTTP 401 Unauthorized"));
+        assert!(!error.message.contains("sk-test-secret"));
+        let details = serde_json::to_string(&error.details).expect("details should serialize");
+        assert!(!details.contains("sk-test-secret"));
     }
 
     #[test]

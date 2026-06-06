@@ -947,7 +947,10 @@ async fn fetch_provider_models(connection: &Value) -> AppResult<Vec<Value>> {
     if provider == "image_generation" {
         return fetch_image_models(connection).await;
     }
-    if provider == "openai_chatgpt" || provider == "claude_subscription" {
+    if provider == "openai_chatgpt" {
+        return marinara_llm::list_openai_chatgpt_models().await;
+    }
+    if provider == "claude_subscription" {
         return Ok(provider_model_catalog(provider));
     }
     if provider == "ollama" {
@@ -1724,6 +1727,29 @@ mod tests {
         AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
     }
 
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set_path(key: &'static str, value: &std::path::Path) -> Self {
+            let previous = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = self.previous.as_ref() {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
     async fn serve_model_failure(status: &'static str, body: impl Into<String>) -> String {
         let body = body.into();
         let listener = TcpListener::bind("127.0.0.1:0")
@@ -2479,6 +2505,47 @@ mod tests {
             .as_str()
             .unwrap_or_default()
             .contains("sk-test-secret"));
+        assert!(result["models"]
+            .as_array()
+            .is_some_and(|models| models.iter().any(|model| model["id"] == "gpt-custom")));
+    }
+
+    #[tokio::test]
+    async fn openai_chatgpt_connection_models_falls_back_when_local_auth_missing() {
+        let state = test_state("chatgpt-missing-auth-models");
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after epoch")
+            .as_nanos();
+        let codex_home = std::env::temp_dir().join(format!("marinara-empty-codex-{nonce}"));
+        std::fs::create_dir_all(&codex_home).expect("empty Codex home should be created");
+        let _codex_home = EnvVarGuard::set_path("CODEX_HOME", &codex_home);
+        state
+            .storage
+            .upsert_with_id(
+                "connections",
+                "chatgpt-local",
+                json!({
+                    "provider": "openai_chatgpt",
+                    "model": "gpt-custom"
+                }),
+            )
+            .expect("connection should be stored");
+
+        let result = connection_models(&state, "chatgpt-local")
+            .await
+            .expect("ChatGPT model lookup should fall back without local auth");
+
+        assert_eq!(result["fromProvider"], false);
+        assert_eq!(result["fallback"], true);
+        assert_eq!(result["providerErrorCode"], "openai_chatgpt_auth_missing");
+        assert!(result["providerError"]
+            .as_str()
+            .is_some_and(|message| message.contains("local Codex auth.json credential file")));
+        assert!(!result["providerError"]
+            .as_str()
+            .unwrap_or_default()
+            .contains(codex_home.to_string_lossy().as_ref()));
         assert!(result["models"]
             .as_array()
             .is_some_and(|models| models.iter().any(|model| model["id"] == "gpt-custom")));
