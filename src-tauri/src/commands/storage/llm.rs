@@ -89,6 +89,10 @@ pub(crate) fn llm_request_from_body(
                     .and_then(Value::as_str)
                     .map(str::to_string),
                 tool_calls: message.get("tool_calls").cloned(),
+                provider_metadata: message
+                    .get("providerMetadata")
+                    .or_else(|| message.get("provider_metadata"))
+                    .cloned(),
             })
         })
         .collect::<AppResult<Vec<_>>>()?;

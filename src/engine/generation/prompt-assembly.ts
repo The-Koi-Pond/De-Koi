@@ -2627,6 +2627,12 @@ function messageStoredReasoning(message: JsonRecord): string {
   return thinking;
 }
 
+function messageProviderMetadata(message: JsonRecord): Record<string, unknown> | undefined {
+  const extra = parseRecord(message.extra);
+  const metadata = parseRecord(extra.providerMetadata ?? extra.provider_metadata);
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
 function historyMessageContent(message: JsonRecord, includePastReasoning: boolean): string {
   const content = collapseExcessBlankLines(readString(message.content).trim());
   if (!includePastReasoning || readString(message.role) !== "assistant") return content;
@@ -2648,13 +2654,18 @@ function historyMessages(storedMessages: JsonRecord[], limit: number, includePas
   return scopedMessages
     .filter((message) => !hiddenFromAi(message))
     .slice(-limit)
-    .map((message) => ({
-      role: normalizeRole(message.role),
-      content: historyMessageContent(message, includePastReasoning),
-      contextKind: "history" as const,
-      characterId: readString(message.characterId).trim() || undefined,
-      name: readString(message.name).trim() || undefined,
-    }))
+    .map((message) => {
+      const role = normalizeRole(message.role);
+      const providerMetadata = role === "assistant" ? messageProviderMetadata(message) : undefined;
+      return {
+        role,
+        content: historyMessageContent(message, includePastReasoning),
+        contextKind: "history" as const,
+        characterId: readString(message.characterId).trim() || undefined,
+        name: readString(message.name).trim() || undefined,
+        ...(providerMetadata ? { providerMetadata } : {}),
+      };
+    })
     .filter((message) => message.content.length > 0);
 }
 

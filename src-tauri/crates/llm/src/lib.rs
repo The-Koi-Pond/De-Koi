@@ -49,6 +49,13 @@ pub struct LlmMessage {
     pub tool_call_id: Option<String>,
     #[serde(default)]
     pub tool_calls: Option<Value>,
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -86,6 +93,13 @@ pub struct LlmCompletion {
     pub content: String,
     #[serde(rename = "toolCalls")]
     pub tool_calls: Vec<Value>,
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<Value>,
 }
 
 pub async fn complete(request: LlmRequest) -> AppResult<String> {
@@ -99,10 +113,12 @@ pub async fn complete_rich(request: LlmRequest) -> AppResult<LlmCompletion> {
             .map(|content| LlmCompletion {
                 content,
                 tool_calls: Vec::new(),
+                provider_metadata: None,
             }),
         "google" | "google_vertex" => complete_google(request).await.map(|content| LlmCompletion {
             content,
             tool_calls: Vec::new(),
+            provider_metadata: None,
         }),
         "claude_subscription" => {
             complete_claude_subscription(request)
@@ -110,6 +126,7 @@ pub async fn complete_rich(request: LlmRequest) -> AppResult<LlmCompletion> {
                 .map(|content| LlmCompletion {
                     content,
                     tool_calls: Vec::new(),
+                    provider_metadata: None,
                 })
         }
         "cohere" if should_use_cohere_compatibility(&request) => {
@@ -146,6 +163,9 @@ pub async fn stream_events(
         }
         for tool_call in result.tool_calls {
             emit(json!({ "type": "tool_call", "data": tool_call }))?;
+        }
+        if let Some(provider_metadata) = result.provider_metadata {
+            emit(json!({ "type": "provider_metadata", "data": provider_metadata }))?;
         }
     }
     emit(json!({ "type": "done" }))?;
@@ -208,7 +228,7 @@ fn log_prompt_connection_request(kind: &str, endpoint: &str, request: &LlmReques
         redacted_endpoint(endpoint),
         messages.len(),
         request.tools.len(),
-        compact_json(&request.parameters),
+        compact_json(&redact_sensitive_json(request.parameters.clone())),
     );
     for (index, message) in messages.iter().enumerate() {
         eprintln!(
@@ -222,10 +242,13 @@ fn log_prompt_connection_request(kind: &str, endpoint: &str, request: &LlmReques
     if !request.tools.is_empty() {
         eprintln!(
             "[prompt-connections] tools={}",
-            compact_json(&json!(&request.tools))
+            compact_json(&redact_sensitive_json(json!(&request.tools)))
         );
     }
-    eprintln!("[prompt-connections] body={}", compact_json(body));
+    eprintln!(
+        "[prompt-connections] body={}",
+        compact_json(&redact_sensitive_json(body.clone()))
+    );
 }
 
 pub fn unavailable_payload(message: impl Into<String>) -> Value {
@@ -1476,6 +1499,7 @@ fn request_messages(request: &LlmRequest) -> Vec<LlmMessage> {
             images: Vec::new(),
             tool_call_id: None,
             tool_calls: None,
+            provider_metadata: None,
         });
     }
     messages
@@ -2131,40 +2155,123 @@ fn take_sse_block(buffer: &mut String) -> Option<String> {
     Some(block)
 }
 
-fn responses_input(messages: &[LlmMessage]) -> Value {
-    Value::Array(
-        messages
+const OPENAI_RESPONSES_ENCRYPTED_REASONING_INCLUDE: &str = "reasoning.encrypted_content";
+
+fn openai_responses_preserve_encrypted_reasoning(request: &LlmRequest) -> bool {
+    request.connection.provider != "openai_chatgpt"
+}
+
+fn encrypted_reasoning_items_from_metadata(metadata: &Value) -> Vec<Value> {
+    ["encryptedReasoningItems", "openaiResponsesEncryptedReasoningItems"]
+        .into_iter()
+        .filter_map(|key| metadata.get(key).and_then(Value::as_array))
+        .flat_map(|items| items.iter())
+        .filter(|item| {
+            item.get("type").and_then(Value::as_str) == Some("reasoning")
+                && item
+                    .get("encrypted_content")
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| !value.trim().is_empty())
+        })
+        .cloned()
+        .collect()
+}
+
+fn encrypted_reasoning_items_from_messages(messages: &[LlmMessage]) -> Vec<Value> {
+    messages
+        .iter()
+        .filter(|message| message.role == "assistant")
+        .filter_map(|message| message.provider_metadata.as_ref())
+        .flat_map(encrypted_reasoning_items_from_metadata)
+        .collect()
+}
+
+fn encrypted_reasoning_items_from_responses_output(json: &Value) -> Vec<Value> {
+    json.get("output")
+        .or_else(|| json.pointer("/response/output"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|item| {
+            item.get("type").and_then(Value::as_str) == Some("reasoning")
+                && item
+                    .get("encrypted_content")
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| !value.trim().is_empty())
+        })
+        .cloned()
+        .collect()
+}
+
+fn openai_responses_provider_metadata(json: &Value) -> Option<Value> {
+    let encrypted_reasoning_items = encrypted_reasoning_items_from_responses_output(json);
+    if encrypted_reasoning_items.is_empty() {
+        None
+    } else {
+        Some(json!({ "encryptedReasoningItems": encrypted_reasoning_items }))
+    }
+}
+
+fn ensure_openai_responses_include(body: &mut Value, include: &str) {
+    if let Some(items) = body.get_mut("include").and_then(Value::as_array_mut) {
+        if !items
             .iter()
-            .map(|message| {
-                let role = if message.role == "assistant" {
-                    "assistant"
-                } else if message.role == "system" {
-                    "system"
-                } else {
-                    "user"
-                };
-                if message.images.is_empty() {
-                    json!({ "role": role, "content": message.content })
-                } else {
-                    let mut content = Vec::new();
-                    if !message.content.is_empty() {
-                        content.push(json!({ "type": "input_text", "text": message.content }));
-                    }
-                    for image in &message.images {
-                        content.push(json!({ "type": "input_image", "image_url": image }));
-                    }
-                    json!({ "role": role, "content": content })
-                }
-            })
-            .collect(),
-    )
+            .any(|item| item.as_str().is_some_and(|value| value == include))
+        {
+            items.push(Value::String(include.to_string()));
+        }
+        return;
+    }
+    body["include"] = json!([include]);
+}
+
+fn responses_message_input(message: &LlmMessage) -> Value {
+    let role = if message.role == "assistant" {
+        "assistant"
+    } else if message.role == "system" {
+        "system"
+    } else {
+        "user"
+    };
+    if message.images.is_empty() {
+        json!({ "role": role, "content": message.content })
+    } else {
+        let mut content = Vec::new();
+        if !message.content.is_empty() {
+            content.push(json!({ "type": "input_text", "text": message.content }));
+        }
+        for image in &message.images {
+            content.push(json!({ "type": "input_image", "image_url": image }));
+        }
+        json!({ "role": role, "content": content })
+    }
+}
+
+fn responses_input(messages: &[LlmMessage], replay_encrypted_reasoning: bool) -> Value {
+    let mut input = messages
+        .iter()
+        .map(responses_message_input)
+        .collect::<Vec<_>>();
+    if replay_encrypted_reasoning {
+        let encrypted_reasoning_items = encrypted_reasoning_items_from_messages(messages);
+        if !encrypted_reasoning_items.is_empty() {
+            if let Some(index) = input
+                .iter()
+                .rposition(|item| item.get("role").and_then(Value::as_str) == Some("assistant"))
+            {
+                input.splice(index..index, encrypted_reasoning_items);
+            }
+        }
+    }
+    Value::Array(input)
 }
 
 fn build_openai_responses_body(request: &LlmRequest, stream: bool) -> Value {
     let messages = request_messages(request);
+    let preserve_encrypted_reasoning = openai_responses_preserve_encrypted_reasoning(request);
     let mut body = json!({
         "model": request.connection.model,
-        "input": responses_input(&messages),
+        "input": responses_input(&messages, preserve_encrypted_reasoning),
         "stream": stream,
         "max_output_tokens": request_max_tokens(request, 1024),
     });
@@ -2214,6 +2321,9 @@ fn build_openai_responses_body(request: &LlmRequest, stream: bool) -> Value {
         false,
         OPENAI_RESPONSES_UNSUPPORTED_CUSTOM_PARAMETER_KEYS,
     );
+    if preserve_encrypted_reasoning {
+        ensure_openai_responses_include(&mut body, OPENAI_RESPONSES_ENCRYPTED_REASONING_INCLUDE);
+    }
     body
 }
 
@@ -2261,6 +2371,7 @@ async fn complete_openai_responses_rich(request: LlmRequest) -> AppResult<LlmCom
         }
     }
     let tool_calls = responses_tool_calls(&json);
+    let provider_metadata = openai_responses_provider_metadata(&json);
     if content.trim().is_empty() && tool_calls.is_empty() {
         return Err(AppError::with_details(
             "llm_response_error",
@@ -2271,6 +2382,7 @@ async fn complete_openai_responses_rich(request: LlmRequest) -> AppResult<LlmCom
     Ok(LlmCompletion {
         content,
         tool_calls,
+        provider_metadata,
     })
 }
 
@@ -2384,6 +2496,9 @@ fn process_openai_responses_sse_block(
                 .or_else(|| value.get("usage"))
             {
                 emit(json!({ "type": "usage", "data": usage }))?;
+            }
+            if let Some(provider_metadata) = openai_responses_provider_metadata(&value) {
+                emit(json!({ "type": "provider_metadata", "data": provider_metadata }))?;
             }
             return Ok(SseBlockStatus::Complete);
         }
@@ -4606,6 +4721,7 @@ async fn parse_cohere_response_rich(response: reqwest::Response) -> AppResult<Ll
     Ok(LlmCompletion {
         content,
         tool_calls,
+        provider_metadata: None,
     })
 }
 
@@ -4667,6 +4783,7 @@ async fn parse_json_response_rich(response: reqwest::Response) -> AppResult<LlmC
     Ok(LlmCompletion {
         content,
         tool_calls,
+        provider_metadata: None,
     })
 }
 
@@ -4731,6 +4848,18 @@ mod tests {
             messages: Vec::new(),
             parameters,
             tools: Vec::new(),
+        }
+    }
+
+    fn test_message(role: &str, content: &str) -> LlmMessage {
+        LlmMessage {
+            role: role.to_string(),
+            content: content.to_string(),
+            name: None,
+            images: Vec::new(),
+            tool_call_id: None,
+            tool_calls: None,
+            provider_metadata: None,
         }
     }
 
@@ -5036,6 +5165,84 @@ data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output
 
         assert_eq!(status, SseBlockStatus::Complete);
         assert_eq!(emitted[0]["type"], json!("usage"));
+    }
+
+    #[test]
+    fn openai_responses_completed_event_emits_encrypted_reasoning_metadata() {
+        let mut emitted = Vec::new();
+        let mut emit = |value: Value| {
+            emitted.push(value);
+            Ok(())
+        };
+
+        let status = process_openai_responses_sse_block(
+            r#"event: response.completed
+data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2},"output":[{"type":"reasoning","id":"rs_1","encrypted_content":"encrypted-payload"},{"type":"message","content":[{"type":"output_text","text":"done"}]}]}}"#,
+            &mut emit,
+        )
+        .expect("response.completed should parse");
+
+        assert_eq!(status, SseBlockStatus::Complete);
+        assert_eq!(emitted[0], json!({ "type": "usage", "data": { "input_tokens": 1, "output_tokens": 2 } }));
+        assert_eq!(emitted[1]["type"], json!("provider_metadata"));
+        assert_eq!(
+            emitted[1]["data"]["encryptedReasoningItems"][0],
+            json!({ "type": "reasoning", "id": "rs_1", "encrypted_content": "encrypted-payload" })
+        );
+    }
+
+    #[test]
+    fn openai_responses_body_requests_and_replays_encrypted_reasoning() {
+        let mut request = request_for(
+            "openai",
+            "gpt-5",
+            json!({ "customParameters": { "include": ["web_search_call.action.sources"] } }),
+        );
+        let mut assistant = test_message("assistant", "Earlier answer.");
+        assistant.provider_metadata = Some(json!({
+            "encryptedReasoningItems": [
+                { "type": "reasoning", "id": "rs_1", "encrypted_content": "encrypted-payload" }
+            ]
+        }));
+        request.messages = vec![
+            test_message("user", "Earlier question."),
+            assistant,
+            test_message("user", "Next question."),
+        ];
+
+        let body = build_openai_responses_body(&request, false);
+        let includes = body["include"].as_array().expect("include should be an array");
+        assert!(includes
+            .iter()
+            .any(|item| item.as_str() == Some("web_search_call.action.sources")));
+        assert!(includes.iter().any(|item| {
+            item.as_str() == Some(OPENAI_RESPONSES_ENCRYPTED_REASONING_INCLUDE)
+        }));
+        let input = body["input"].as_array().expect("input should be an array");
+        assert_eq!(input[0]["role"], json!("user"));
+        assert_eq!(
+            input[1],
+            json!({ "type": "reasoning", "id": "rs_1", "encrypted_content": "encrypted-payload" })
+        );
+        assert_eq!(input[2]["role"], json!("assistant"));
+        assert_eq!(input[3]["role"], json!("user"));
+    }
+
+    #[test]
+    fn openai_chatgpt_responses_body_does_not_replay_encrypted_reasoning() {
+        let mut request = request_for("openai_chatgpt", "gpt-5-codex", json!({}));
+        let mut assistant = test_message("assistant", "Earlier answer.");
+        assistant.provider_metadata = Some(json!({
+            "encryptedReasoningItems": [
+                { "type": "reasoning", "encrypted_content": "encrypted-payload" }
+            ]
+        }));
+        request.messages = vec![test_message("user", "Earlier question."), assistant];
+
+        let body = build_openai_responses_body(&request, false);
+        assert!(body.get("include").is_none());
+        let input = body["input"].as_array().expect("input should be an array");
+        assert!(input.iter().all(|item| item.get("encrypted_content").is_none()));
     }
 
     #[test]
@@ -6047,6 +6254,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
                     images: Vec::new(),
                     tool_call_id: None,
                     tool_calls: None,
+                    provider_metadata: None,
                 },
                 LlmMessage {
                     role: "user".to_string(),
@@ -6055,6 +6263,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
                     images: Vec::new(),
                     tool_call_id: None,
                     tool_calls: None,
+                    provider_metadata: None,
                 },
             ],
             parameters: json!({}),
@@ -6079,6 +6288,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
                     images: Vec::new(),
                     tool_call_id: None,
                     tool_calls: None,
+                    provider_metadata: None,
                 },
                 LlmMessage {
                     role: "assistant".to_string(),
@@ -6087,6 +6297,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
                     images: Vec::new(),
                     tool_call_id: None,
                     tool_calls: None,
+                    provider_metadata: None,
                 },
                 LlmMessage {
                     role: "user".to_string(),
@@ -6095,6 +6306,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
                     images: Vec::new(),
                     tool_call_id: None,
                     tool_calls: None,
+                    provider_metadata: None,
                 },
             ],
             parameters: json!({ "_marinara": { "chatId": "chat-1", "mode": "roleplay" } }),
@@ -6126,6 +6338,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
                 images: Vec::new(),
                 tool_call_id: None,
                 tool_calls: None,
+                provider_metadata: None,
             }],
             parameters: json!({
                 "_marinara": {
@@ -6153,6 +6366,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
                     images: Vec::new(),
                     tool_call_id: None,
                     tool_calls: None,
+                    provider_metadata: None,
                 },
                 LlmMessage {
                     role: "user".to_string(),
@@ -6161,6 +6375,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
                     images: Vec::new(),
                     tool_call_id: None,
                     tool_calls: None,
+                    provider_metadata: None,
                 },
             ],
             parameters: json!({

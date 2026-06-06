@@ -5,6 +5,7 @@ export interface LlmMessage {
   images?: string[];
   tool_call_id?: string;
   tool_calls?: unknown;
+  providerMetadata?: unknown;
 }
 
 export interface LlmToolDefinition {
@@ -29,7 +30,7 @@ export interface LlmEmbeddingRequest {
 }
 
 export interface LlmChunk {
-  type: "start" | "token" | "thinking" | "tool_call" | "usage" | "done" | "error";
+  type: "start" | "token" | "thinking" | "tool_call" | "usage" | "provider_metadata" | "done" | "error";
   text?: string;
   data?: unknown;
   finishReason?: string;
