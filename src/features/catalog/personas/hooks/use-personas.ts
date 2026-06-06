@@ -314,14 +314,7 @@ export function useUploadPersonaGalleryImage(personaId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (files: File[]) =>
-      runGalleryUploadBatch(
-        files,
-        (file) => galleryApi.uploadPersona<PersonaGalleryImage>(personaId, file),
-        (failed) =>
-          failed === 1
-            ? "The persona gallery image failed to upload."
-            : `All ${failed} persona gallery images failed to upload.`,
-      ),
+      runGalleryUploadBatch(files, (file) => galleryApi.uploadPersona<PersonaGalleryImage>(personaId, file)),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: personaKeys.gallery(personaId) });
     },

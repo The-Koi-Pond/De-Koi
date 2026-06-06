@@ -12,6 +12,7 @@ import { ImageUploadDropzone } from "../../../../shared/components/ui/ImageUploa
 import { galleryThumbnailPath, resolveManagedAssetThumbnailFileUrl } from "../../../../shared/api/local-file-api";
 import { showConfirmDialog, showPromptDialog } from "../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../shared/lib/utils";
+import { describeGalleryUploadFailures } from "../../../../shared/lib/gallery-upload";
 import {
   type GalleryFolder,
   type GlobalGalleryImage,
@@ -120,9 +121,9 @@ export function GlobalGalleryPanel() {
       upload.mutate(
         { files, folderId: uploadFolderId },
         {
-          onSuccess: ({ failed }) => {
-            if (failed > 0) {
-              toast.warning(`${failed} image${failed === 1 ? "" : "s"} failed to upload; the rest were saved.`);
+          onSuccess: ({ failures }) => {
+            if (failures.length > 0) {
+              toast.warning(`Some images didn't upload — ${describeGalleryUploadFailures(failures)}`);
             }
           },
           onError: (error) => {

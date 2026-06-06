@@ -418,14 +418,7 @@ export function useUploadCharacterGalleryImage(characterId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (files: File[]) =>
-      runGalleryUploadBatch(
-        files,
-        (file) => galleryApi.uploadCharacter<CharacterGalleryImage>(characterId, file),
-        (failed) =>
-          failed === 1
-            ? "The character gallery image failed to upload."
-            : `All ${failed} character gallery images failed to upload.`,
-      ),
+      runGalleryUploadBatch(files, (file) => galleryApi.uploadCharacter<CharacterGalleryImage>(characterId, file)),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: characterKeys.gallery(characterId) });
     },

@@ -105,15 +105,8 @@ export function useUploadGalleryImage(chatId: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (files: File[]) => {
-      if (!chatId) return Promise.resolve({ uploaded: [] as ChatImage[], failed: 0 });
-      return runGalleryUploadBatch(
-        files,
-        (file) => galleryApi.uploadChat<ChatImage>(chatId, file),
-        (failed) =>
-          failed === 1
-            ? "The chat gallery image failed to upload."
-            : `All ${failed} chat gallery images failed to upload.`,
-      );
+      if (!chatId) return Promise.resolve({ uploaded: [] as ChatImage[], failures: [] });
+      return runGalleryUploadBatch(files, (file) => galleryApi.uploadChat<ChatImage>(chatId, file));
     },
     onSettled: () => {
       if (chatId) {

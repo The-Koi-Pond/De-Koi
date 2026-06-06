@@ -5,6 +5,7 @@ import { Camera, Download, Trash2, Upload, X } from "lucide-react";
 import { ImageUploadDropzone } from "../../../../shared/components/ui/ImageUploadDropzone";
 import { galleryThumbnailPath, resolveManagedAssetThumbnailFileUrl } from "../../../../shared/api/local-file-api";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
+import { describeGalleryUploadFailures } from "../../../../shared/lib/gallery-upload";
 import {
   type CharacterGalleryImage,
   useCharacterGalleryImages,
@@ -67,9 +68,9 @@ export function CharacterGalleryTab({ characterId, characterName }: { characterI
     (files: File[]) => {
       if (files.length === 0) return;
       upload.mutate(files, {
-        onSuccess: ({ failed }) => {
-          if (failed > 0) {
-            toast.warning(`${failed} image${failed === 1 ? "" : "s"} failed to upload; the rest were saved.`);
+        onSuccess: ({ failures }) => {
+          if (failures.length > 0) {
+            toast.warning(`Some images didn't upload — ${describeGalleryUploadFailures(failures)}`);
           }
         },
         onError: (error) => {

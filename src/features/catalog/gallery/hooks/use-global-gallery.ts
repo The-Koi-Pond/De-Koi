@@ -67,12 +67,7 @@ export function useUploadGlobalGalleryImages() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ files, folderId }: { files: File[]; folderId: string | null }) =>
-      runGalleryUploadBatch(
-        files,
-        (file) => galleryApi.uploadGlobal<GlobalGalleryImage>(file, folderId),
-        (failed) =>
-          failed === 1 ? "The gallery image failed to upload." : `All ${failed} gallery images failed to upload.`,
-      ),
+      runGalleryUploadBatch(files, (file) => galleryApi.uploadGlobal<GlobalGalleryImage>(file, folderId)),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: globalGalleryKeys.images });
     },
