@@ -788,6 +788,9 @@ pub(crate) fn prepare_entity_for_create(
     entity: &str,
     value: Value,
 ) -> Result<Value, AppError> {
+    if entity == "messages" {
+        return shared::with_message_create_defaults(value);
+    }
     let value = shared::with_entity_defaults(entity, value)?;
     match entity {
         "connections" => connection_secrets::prepare_connection_for_create(state, value),
@@ -2701,6 +2704,69 @@ mod tests {
     }
 
     #[test]
+    fn storage_create_message_returns_default_extra_and_persists_initial_swipe() {
+        let state = test_state("message-create-default-extra");
+        let created = storage_create_inner(
+            &state,
+            "messages".to_string(),
+            json!({
+                "chatId": "chat-1",
+                "role": "assistant",
+                "content": "first"
+            }),
+        )
+        .expect("message should create");
+        let expected_extra = json!({
+            "displayText": null,
+            "isGenerated": true,
+            "tokenCount": null,
+            "generationInfo": null
+        });
+
+        assert_eq!(created["activeSwipeIndex"], json!(0));
+        assert_eq!(created["swipeCount"], json!(1));
+        assert_eq!(created["extra"], expected_extra);
+        let sidecars = state
+            .storage
+            .list(message_swipes::COLLECTION)
+            .expect("message swipe sidecars should list");
+        assert_eq!(sidecars.len(), 1);
+        assert_eq!(sidecars[0]["content"], json!("first"));
+        assert_eq!(sidecars[0]["extra"], expected_extra);
+    }
+
+    #[test]
+    fn storage_create_message_rejects_malformed_extra_before_defaulting() {
+        for (label, extra) in [
+            ("array-extra", json!([])),
+            ("scalar-extra", json!(42)),
+            ("invalid-json-extra", json!("{not-json")),
+        ] {
+            let state = test_state(label);
+            let error = storage_create_inner(
+                &state,
+                "messages".to_string(),
+                json!({
+                    "chatId": "chat-1",
+                    "role": "assistant",
+                    "content": "first",
+                    "extra": extra
+                }),
+            )
+            .expect_err("malformed message extra should reject");
+
+            assert_eq!(error.code, "invalid_input");
+            assert!(
+                error
+                    .message
+                    .contains("extra must be a JSON object or null"),
+                "unexpected error message: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
     fn chat_metadata_patch_rejects_invalid_discord_webhook_url() {
         let state = test_state("chat-metadata-invalid-discord-webhook");
         storage_create_inner(
@@ -4182,7 +4248,13 @@ mod tests {
         assert_eq!(sidecars.len(), 1);
         assert_eq!(
             sidecars[0]["extra"],
-            json!({ "thinking": "parent thought" })
+            json!({
+                "displayText": null,
+                "isGenerated": true,
+                "tokenCount": null,
+                "generationInfo": null,
+                "thinking": "parent thought"
+            })
         );
     }
 
