@@ -6,7 +6,6 @@ use marinara_security::{
     is_allowed_provider_url, is_forbidden_provider_resolved_ip, is_loopback_provider_host,
     redact_sensitive_json, redact_sensitive_text,
 };
-use ring::{rand::SystemRandom, rsa, signature};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -36,6 +35,12 @@ const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud
 const GOOGLE_OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const GOOGLE_JWT_BEARER_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 const GOOGLE_VERTEX_TOKEN_REFRESH_SKEW_SECONDS: i64 = 60;
+
+#[derive(Debug, Clone)]
+struct GoogleVertexCachedToken {
+    access_token: String,
+    expires_at: i64,
+}
 
 static GOOGLE_VERTEX_TOKEN_CACHE: OnceLock<Mutex<BTreeMap<String, GoogleVertexCachedToken>>> =
     OnceLock::new();
@@ -4441,12 +4446,6 @@ struct GoogleServiceAccountKey {
     token_uri: String,
 }
 
-#[derive(Debug, Clone)]
-struct GoogleVertexCachedToken {
-    access_token: String,
-    expires_at: i64,
-}
-
 fn google_vertex_token_cache() -> &'static Mutex<BTreeMap<String, GoogleVertexCachedToken>> {
     GOOGLE_VERTEX_TOKEN_CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
@@ -4583,18 +4582,18 @@ fn sign_google_service_account_jwt(service_account: &GoogleServiceAccountKey) ->
         base64_url_json(&claims)?
     );
     let der = google_service_account_private_key_der(&service_account.private_key)?;
-    let key_pair = rsa::KeyPair::from_pkcs8(&der)
-        .or_else(|_| rsa::KeyPair::from_der(&der))
+    let key_pair = ring::rsa::KeyPair::from_pkcs8(&der)
+        .or_else(|_| ring::rsa::KeyPair::from_der(&der))
         .map_err(|_| {
             AppError::invalid_input(
                 "Google Vertex service account private_key could not be used for RS256 signing",
             )
         })?;
-    let rng = SystemRandom::new();
+    let rng = ring::rand::SystemRandom::new();
     let mut signature_bytes = vec![0; key_pair.public().modulus_len()];
     key_pair
         .sign(
-            &signature::RSA_PKCS1_SHA256,
+            &ring::signature::RSA_PKCS1_SHA256,
             &rng,
             unsigned_jwt.as_bytes(),
             &mut signature_bytes,
