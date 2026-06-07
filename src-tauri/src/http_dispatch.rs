@@ -687,6 +687,8 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "connection_models" => connection_models(state, &args).await,
         "connection_save_default_parameters" => connection_save_default_parameters(state, &args),
         "character_gallery_upload" => character_gallery_upload(state, &args),
+        "persona_gallery_upload" => persona_gallery_upload(state, &args),
+        "global_gallery_upload" => global_gallery_upload(state, &args),
         "chat_gallery_upload" => chat_gallery_upload(state, &args),
         "sprite_capabilities_command" => sprites::sprite_capabilities(state),
         "sprite_cleanup_status_command" => sprites::sprite_cleanup_status(state),
@@ -1134,6 +1136,24 @@ fn character_gallery_upload(state: &AppState, args: &Map<String, Value>) -> AppR
         "character-gallery",
         "characterId",
         required_string(args, "characterId")?,
+        optional_value(args, "body"),
+    )
+}
+
+fn persona_gallery_upload(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+    shared::upload_gallery_image(
+        state,
+        "persona-gallery",
+        "personaId",
+        required_string(args, "personaId")?,
+        optional_value(args, "body"),
+    )
+}
+
+fn global_gallery_upload(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+    shared::upload_global_gallery_image(
+        state,
+        optional_string(args, "folderId").as_deref(),
         optional_value(args, "body"),
     )
 }

@@ -3,6 +3,7 @@ import { galleryKeys } from "../query-keys";
 import { galleryApi, imageGenerationApi } from "../../../../shared/api/image-generation-api";
 import { resolveGalleryFileUrl } from "../../../../shared/api/local-file-api";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { runGalleryUploadBatch } from "../../../../shared/lib/gallery-upload";
 import type { Chat } from "../../../../engine/contracts/types/chat";
 import type { ChatImage } from "../../../../shared/types/gallery";
 
@@ -100,40 +101,12 @@ export function useGalleryImages(chat: Chat | null) {
   });
 }
 
-function chatGalleryUploadFailureError(fileCount: number, failures: unknown[]): Error {
-  if (fileCount === 1 && failures[0] instanceof Error) {
-    return failures[0];
-  }
-
-  const failedCount = failures.length;
-  return new Error(
-    failedCount === 1
-      ? "One chat gallery image failed to upload."
-      : `${failedCount} chat gallery images failed to upload.`,
-  );
-}
-
 export function useUploadGalleryImage(chatId: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (files: File[]) => {
-      if (!chatId) return [];
-      const uploaded: ChatImage[] = [];
-      const failures: unknown[] = [];
-
-      for (const file of files) {
-        try {
-          uploaded.push(await galleryApi.uploadChat<ChatImage>(chatId, file));
-        } catch (error) {
-          failures.push(error);
-        }
-      }
-
-      if (failures.length > 0) {
-        throw chatGalleryUploadFailureError(files.length, failures);
-      }
-
-      return uploaded;
+    mutationFn: (files: File[]) => {
+      if (!chatId) return Promise.resolve({ uploaded: [] as ChatImage[], failures: [] });
+      return runGalleryUploadBatch(files, (file) => galleryApi.uploadChat<ChatImage>(chatId, file));
     },
     onSettled: () => {
       if (chatId) {

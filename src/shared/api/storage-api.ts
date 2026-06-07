@@ -123,6 +123,8 @@ function storageWriteInvalidationKinds(
   switch (entity) {
     case "gallery":
     case "character-gallery":
+    case "persona-gallery":
+    case "global-gallery":
       return ["gallery"];
     case "background-metadata":
       return ["background"];
@@ -148,6 +150,8 @@ function storageDeleteInvalidationKinds(entity: StorageEntity): RemoteManagedAss
   switch (entity) {
     case "gallery":
     case "character-gallery":
+    case "persona-gallery":
+    case "global-gallery":
       return ["gallery"];
     case "background-metadata":
       return ["background"];
@@ -157,7 +161,7 @@ function storageDeleteInvalidationKinds(entity: StorageEntity): RemoteManagedAss
     case "characters":
       return ["avatar", "avatar-thumbnail", "gallery", "sprite"];
     case "personas":
-      return ["avatar", "avatar-thumbnail", "sprite"];
+      return ["avatar", "avatar-thumbnail", "gallery", "sprite"];
     case "sprites":
       return ["sprite"];
     default:

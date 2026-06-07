@@ -133,6 +133,24 @@ pub fn character_gallery_upload(
 }
 
 #[tauri::command]
+pub fn persona_gallery_upload(
+    state: State<'_, AppState>,
+    persona_id: String,
+    body: Value,
+) -> Result<Value, AppError> {
+    shared::upload_gallery_image(&state, "persona-gallery", "personaId", &persona_id, body)
+}
+
+#[tauri::command]
+pub fn global_gallery_upload(
+    state: State<'_, AppState>,
+    folder_id: Option<String>,
+    body: Value,
+) -> Result<Value, AppError> {
+    shared::upload_global_gallery_image(&state, folder_id.as_deref(), body)
+}
+
+#[tauri::command]
 pub fn chat_gallery_upload(
     state: State<'_, AppState>,
     chat_id: String,

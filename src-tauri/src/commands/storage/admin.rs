@@ -5,7 +5,14 @@ pub(crate) fn admin_clear_all(state: &AppState, body: Value) -> AppResult<Value>
     if body.get("confirm").and_then(Value::as_bool) != Some(true) {
         return Err(AppError::invalid_input("confirm must be true"));
     }
+    // Snapshot gallery file refs, clear all rows first, then delete the files so a
+    // failed clear can't leave live rows pointing at deleted assets.
+    let mut gallery_files = Vec::new();
+    for collection in GALLERY_FILE_COLLECTIONS {
+        gallery_files.extend(gallery_file_rows_snapshot(state, collection)?);
+    }
     state.storage.clear_all()?;
+    remove_gallery_files_from_snapshot(state, &gallery_files);
     clear_runtime_media(state)?;
     Ok(json!({ "success": true, "cleared": "all" }))
 }
@@ -51,7 +58,7 @@ pub(crate) fn admin_expunge(state: &AppState, body: Value) -> AppResult<Value> {
             }
             "personas" => clear_collections(
                 state,
-                &["personas", "persona-groups"],
+                &["personas", "persona-groups", "persona-gallery"],
                 &mut cleared_collections,
             )?,
             "lorebooks" => clear_collections(
@@ -92,6 +99,9 @@ pub(crate) fn admin_expunge(state: &AppState, body: Value) -> AppResult<Value> {
                     &[
                         "gallery",
                         "character-gallery",
+                        "persona-gallery",
+                        "global-gallery",
+                        "gallery-folders",
                         "background-metadata",
                         "sprites",
                         "knowledge-sources",
@@ -112,13 +122,41 @@ pub(crate) fn admin_expunge(state: &AppState, body: Value) -> AppResult<Value> {
     Ok(json!({ "success": true, "clearedCollections": cleared_collections }))
 }
 
+/// Gallery collections whose rows reference managed image files in the shared
+/// `gallery` asset folder. Their files must be removed when the rows are cleared,
+/// or expunge/clear-all leaves orphaned files behind. Per-row removal (rather
+/// than nuking the whole folder) is what lets a per-scope expunge — e.g.
+/// "personas" — drop only its own gallery's files without touching the others.
+const GALLERY_FILE_COLLECTIONS: &[&str] =
+    &["gallery", "character-gallery", "persona-gallery", "global-gallery"];
+
+/// Snapshot a gallery collection's rows so their files can be deleted AFTER the
+/// rows are cleared. Returns empty for non-gallery collections.
+fn gallery_file_rows_snapshot(state: &AppState, collection: &str) -> AppResult<Vec<Value>> {
+    if !GALLERY_FILE_COLLECTIONS.contains(&collection) {
+        return Ok(Vec::new());
+    }
+    state.storage.list(collection)
+}
+
+fn remove_gallery_files_from_snapshot(state: &AppState, rows: &[Value]) {
+    for row in rows {
+        media_uploads::remove_managed_record_file(state, "gallery", row, "filePath", "filename");
+    }
+}
+
 fn clear_collections(
     state: &AppState,
     collections: &[&str],
     cleared: &mut Vec<String>,
 ) -> AppResult<()> {
     for collection in collections {
+        // Snapshot file refs, clear the ROWS first, then delete the files. If the
+        // row clear fails, the rows still point at intact files (no broken refs);
+        // a later file-removal hiccup only orphans files, the lesser evil.
+        let files = gallery_file_rows_snapshot(state, collection)?;
         state.storage.replace_all(collection, Vec::new())?;
+        remove_gallery_files_from_snapshot(state, &files);
         cleared.push((*collection).to_string());
     }
     Ok(())

@@ -14,7 +14,9 @@ import { characterApi } from "../../../../shared/api/character-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 import { galleryApi } from "../../../../shared/api/image-generation-api";
+import { runGalleryUploadBatch } from "../../../../shared/lib/gallery-upload";
 import { resolveGalleryFileUrl } from "../../../../shared/api/local-file-api";
+import type { CustomKind, CustomTagPatch } from "../../../../shared/lib/custom-emoji";
 import type { CharacterCardVersion } from "../../../../engine/contracts/types/character";
 import {
   invalidateCharacterCollectionQueries,
@@ -389,6 +391,9 @@ export interface CharacterGalleryImage {
   height: number | null;
   createdAt: string;
   url: string;
+  /** Set when this image is tagged as a custom emoji or sticker. */
+  customKind?: CustomKind | null;
+  customName?: string | null;
 }
 
 async function normalizeCharacterGalleryImage(image: CharacterGalleryImage): Promise<CharacterGalleryImage> {
@@ -416,26 +421,8 @@ export function useCharacterGalleryImages(characterId: string | null) {
 export function useUploadCharacterGalleryImage(characterId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (files: File[]) => {
-      const uploads = await Promise.allSettled(
-        files.map((file) => galleryApi.uploadCharacter<CharacterGalleryImage>(characterId, file)),
-      );
-
-      const successfulUploads = uploads.filter(
-        (result): result is PromiseFulfilledResult<CharacterGalleryImage> => result.status === "fulfilled",
-      );
-
-      if (successfulUploads.length !== uploads.length) {
-        const failedCount = uploads.length - successfulUploads.length;
-        throw new Error(
-          failedCount === 1
-            ? "One character gallery image failed to upload."
-            : `${failedCount} character gallery images failed to upload.`,
-        );
-      }
-
-      return successfulUploads.map((result) => result.value);
-    },
+    mutationFn: (files: File[]) =>
+      runGalleryUploadBatch(files, (file) => galleryApi.uploadCharacter<CharacterGalleryImage>(characterId, file)),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: characterKeys.gallery(characterId) });
     },
@@ -446,6 +433,17 @@ export function useDeleteCharacterGalleryImage(characterId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (imageId: string) => storageApi.delete("character-gallery", imageId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: characterKeys.gallery(characterId) });
+    },
+  });
+}
+
+export function useTagCharacterGalleryImage(characterId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ imageId, patch }: { imageId: string; patch: CustomTagPatch }) =>
+      storageApi.update("character-gallery", imageId, patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: characterKeys.gallery(characterId) });
     },

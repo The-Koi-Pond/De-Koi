@@ -21,6 +21,7 @@ const validPanels = new Set([
   "connections",
   "agents",
   "personas",
+  "gallery",
   "settings",
   "bot-browser",
   "discover",

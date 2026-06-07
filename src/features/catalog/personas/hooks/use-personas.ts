@@ -1,7 +1,11 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { personaKeys } from "../query-keys";
 import { personaApi } from "../../../../shared/api/persona-api";
+import { galleryApi } from "../../../../shared/api/image-generation-api";
+import { resolveGalleryFileUrl } from "../../../../shared/api/local-file-api";
+import type { CustomKind, CustomTagPatch } from "../../../../shared/lib/custom-emoji";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { runGalleryUploadBatch } from "../../../../shared/lib/gallery-upload";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 import { personaAvatarUrl, type PersonaAvatarSource } from "../lib/persona-avatar-url";
 import { PERSONA_SUMMARY_FIELDS } from "../lib/persona-summary-fields";
@@ -258,6 +262,86 @@ export function useUploadPersonaAvatar() {
       qc.invalidateQueries({ queryKey: personaKeys.detail(variables.id) });
       qc.invalidateQueries({ queryKey: personaKeys.summaryDetail(variables.id) });
       qc.invalidateQueries({ queryKey: personaKeys.activeSummary });
+    },
+  });
+}
+
+// ── Persona Gallery ──
+// Mirrors the character gallery: images live in their own `persona-gallery`
+// collection keyed by personaId, so they persist independently of any chat and
+// are cleaned up when the persona is deleted (DeletePersonaGallery cleanup).
+
+export interface PersonaGalleryImage {
+  id: string;
+  personaId: string;
+  filePath: string;
+  filename?: string | null;
+  prompt: string;
+  provider: string;
+  model: string;
+  width: number | null;
+  height: number | null;
+  createdAt: string;
+  url: string;
+  /** Set when this image is tagged as a custom emoji or sticker. */
+  customKind?: CustomKind | null;
+  customName?: string | null;
+}
+
+function readTrimmedValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+async function normalizePersonaGalleryImage(image: PersonaGalleryImage): Promise<PersonaGalleryImage> {
+  const managedUrl = await resolveGalleryFileUrl(image.filename, image.filePath).catch(() => null);
+  return {
+    ...image,
+    url: managedUrl || readTrimmedValue(image.url) || readTrimmedValue(image.filePath),
+  };
+}
+
+export function usePersonaGalleryImages(personaId: string | null) {
+  return useQuery({
+    queryKey: personaKeys.gallery(personaId ?? ""),
+    queryFn: async () =>
+      Promise.all(
+        (await storageApi.list<PersonaGalleryImage>("persona-gallery", { filters: { personaId } })).map(
+          normalizePersonaGalleryImage,
+        ),
+      ),
+    enabled: !!personaId,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useUploadPersonaGalleryImage(personaId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (files: File[]) =>
+      runGalleryUploadBatch(files, (file) => galleryApi.uploadPersona<PersonaGalleryImage>(personaId, file)),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: personaKeys.gallery(personaId) });
+    },
+  });
+}
+
+export function useDeletePersonaGalleryImage(personaId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (imageId: string) => storageApi.delete("persona-gallery", imageId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: personaKeys.gallery(personaId) });
+    },
+  });
+}
+
+export function useTagPersonaGalleryImage(personaId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ imageId, patch }: { imageId: string; patch: CustomTagPatch }) =>
+      storageApi.update("persona-gallery", imageId, patch),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: personaKeys.gallery(personaId) });
     },
   });
 }

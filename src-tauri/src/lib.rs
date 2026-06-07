@@ -255,6 +255,8 @@ pub fn run() {
             storage_commands::media_commands::avatar_generation_command,
             storage_commands::media_commands::image_generate,
             storage_commands::media_commands::character_gallery_upload,
+            storage_commands::media_commands::persona_gallery_upload,
+            storage_commands::media_commands::global_gallery_upload,
             storage_commands::media_commands::chat_gallery_upload,
             storage_commands::media_commands::connection_test,
             storage_commands::media_commands::connection_test_message,

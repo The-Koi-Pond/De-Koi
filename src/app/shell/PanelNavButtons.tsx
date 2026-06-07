@@ -1,10 +1,10 @@
-import { BookOpen, Bot, FileText, Link, Settings, Sparkles, User, Users } from "lucide-react";
+import { BookOpen, Bot, FileText, Images, Link, Settings, Sparkles, User, Users } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useAgentStore } from "../../shared/stores/agent.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 import { cn } from "../../shared/lib/utils";
 
-export const RIGHT_PANEL_BUTTONS = [
+const RIGHT_PANEL_BUTTONS = [
   {
     panel: "bot-browser" as const,
     icon: Bot,
@@ -60,6 +60,14 @@ export const RIGHT_PANEL_BUTTONS = [
     activeClass: "text-emerald-500",
     hoverClass: "hover:text-emerald-300",
     underlineClass: "from-emerald-500 to-teal-500",
+  },
+  {
+    panel: "gallery" as const,
+    icon: Images,
+    label: "Gallery",
+    activeClass: "text-fuchsia-500",
+    hoverClass: "hover:text-fuchsia-300",
+    underlineClass: "from-fuchsia-500 to-pink-500",
   },
   {
     panel: "settings" as const,

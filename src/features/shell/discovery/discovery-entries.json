@@ -364,6 +364,17 @@
     "coverage": "advanced"
   },
   {
+    "id": "global-gallery",
+    "title": "Gallery",
+    "category": "Library",
+    "summary": "Keep a profile-wide image library organized into folders, reusable across the whole app and independent of any chat.",
+    "keywords": ["gallery", "global gallery", "image library", "images", "media", "folders", "pictures", "library"],
+    "audience": "Users who want a central place to collect and organize images instead of scattering them across chats.",
+    "where": "Gallery button in the right-side panel navigation.",
+    "actions": [{ "type": "open-panel", "panel": "gallery", "label": "Open Gallery" }],
+    "coverage": "advanced"
+  },
+  {
     "id": "core-modules",
     "title": "Plugins",
     "category": "Settings",

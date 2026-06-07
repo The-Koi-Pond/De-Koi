@@ -32,6 +32,7 @@ const DISCOVERY_PANEL_TARGETS = [
   "connections",
   "agents",
   "personas",
+  "gallery",
   "settings",
   "bot-browser",
 ] as const satisfies readonly DiscoveryPanelTarget[];

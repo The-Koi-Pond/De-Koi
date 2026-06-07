@@ -2,7 +2,7 @@
 // Layout: Right Panel (polished with panel transitions)
 // ──────────────────────────────────────────────
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
-import { X, Users, BookOpen, FileText, Link, Sparkles, Settings, User, Bot } from "lucide-react";
+import { X, Users, BookOpen, FileText, Link, Sparkles, Settings, User, Bot, Images } from "lucide-react";
 import { useUIStore } from "../../shared/stores/ui.store";
 
 const CharactersPanel = lazy(() =>
@@ -23,6 +23,9 @@ const AgentsPanel = lazy(() =>
 const PersonasPanel = lazy(() =>
   import("../../features/catalog/personas/shell").then((module) => ({ default: module.PersonasPanel })),
 );
+const GlobalGalleryPanel = lazy(() =>
+  import("../../features/catalog/gallery/shell").then((module) => ({ default: module.GlobalGalleryPanel })),
+);
 const SettingsPanel = lazy(() =>
   import("../../features/shell/settings/shell").then((module) => ({ default: module.SettingsPanel })),
 );
@@ -38,6 +41,7 @@ const PANEL_CONFIG: Record<string, { title: string; icon: ReactNode; gradient: s
   connections: { title: "Connections", icon: <Link size="0.875rem" />, gradient: "from-sky-400 to-blue-500" },
   agents: { title: "Agents", icon: <Sparkles size="0.875rem" />, gradient: "from-pink-300 to-purple-400" },
   personas: { title: "Personas", icon: <User size="0.875rem" />, gradient: "from-emerald-400 to-teal-500" },
+  gallery: { title: "Gallery", icon: <Images size="0.875rem" />, gradient: "from-fuchsia-400 to-pink-500" },
   settings: { title: "Settings", icon: <Settings size="0.875rem" />, gradient: "from-gray-400 to-gray-500" },
 };
 
@@ -49,6 +53,7 @@ const PANELS: Record<string, LazyExoticComponent<ComponentType>> = {
   connections: ConnectionsPanel,
   agents: AgentsPanel,
   personas: PersonasPanel,
+  gallery: GlobalGalleryPanel,
   settings: SettingsPanel,
 };
 

@@ -689,6 +689,7 @@ pub(crate) fn storage_create_inner(
     validate_chat_folder_for_create(state, &entity, &value)?;
     validate_connection_folder_for_create(state, &entity, &value)?;
     validate_lorebook_folder_for_create(state, &entity, &value)?;
+    validate_gallery_folder_for_create(state, &entity, &value)?;
     if entity == "messages" {
         return Ok(shared::project_timeline_message(
             message_swipes::create_message(
@@ -769,6 +770,7 @@ pub(crate) fn storage_update_inner(
     validate_chat_folder_for_patch(state, &entity, &id, &patch)?;
     validate_connection_folder_for_patch(state, &entity, &patch)?;
     validate_lorebook_folder_for_patch(state, &entity, &id, &patch)?;
+    validate_gallery_folder_for_patch(state, &entity, &patch)?;
     let mut normalized_patch =
         normalize_chat_for_update(&entity, shared::normalize_update_patch(&entity, patch)?)?;
     if entity == "chats" {
@@ -806,7 +808,9 @@ pub(crate) fn prepare_entity_for_create(
         "chats" => normalize_chat_for_create(value),
         "chat-folders" => chat_folder_defaults_for_create(value),
         "connection-folders" => connection_folder_defaults_for_create(state, value),
-        "gallery" | "character-gallery" => gallery_defaults_for_create(state, value),
+        "gallery" | "character-gallery" | "persona-gallery" | "global-gallery" => {
+            gallery_defaults_for_create(state, value)
+        }
         _ => Ok(value),
     }
 }
@@ -1050,7 +1054,10 @@ fn gallery_defaults_for_create(state: &AppState, value: Value) -> Result<Value, 
 }
 
 fn gallery_create_persists_inline_image(entity: &str, value: &Value) -> bool {
-    matches!(entity, "gallery" | "character-gallery")
+    matches!(
+        entity,
+        "gallery" | "character-gallery" | "persona-gallery" | "global-gallery"
+    )
         && value
             .get("url")
             .and_then(Value::as_str)
@@ -1434,6 +1441,55 @@ fn validate_lorebook_folder_parent(
     Ok(())
 }
 
+/// Reject a `global-gallery` row whose `folderId` points at a `gallery-folders`
+/// row that does not exist. The dedicated upload command coerces a missing
+/// folder to root, but the generic create/update path (used by the lightbox
+/// move and any remote caller) must guard the reference itself so a stale UI
+/// race or remote write can't strand an image under a ghost folder.
+pub(crate) fn validate_gallery_folder_for_create(
+    state: &AppState,
+    entity: &str,
+    value: &Value,
+) -> Result<(), AppError> {
+    if entity != "global-gallery" {
+        return Ok(());
+    }
+    validate_gallery_folder_assignment(state, parse_chat_folder_id(value.get("folderId"))?)
+}
+
+pub(crate) fn validate_gallery_folder_for_patch(
+    state: &AppState,
+    entity: &str,
+    patch: &Value,
+) -> Result<(), AppError> {
+    if entity != "global-gallery" {
+        return Ok(());
+    }
+    let Some(object) = patch.as_object() else {
+        return Err(AppError::invalid_input("Patch must be an object"));
+    };
+    if !object.contains_key("folderId") {
+        return Ok(());
+    }
+    validate_gallery_folder_assignment(state, parse_chat_folder_id(patch.get("folderId"))?)
+}
+
+fn validate_gallery_folder_assignment(
+    state: &AppState,
+    folder_id: Option<String>,
+) -> Result<(), AppError> {
+    let Some(folder_id) = folder_id else {
+        return Ok(());
+    };
+    if state.storage.get("gallery-folders", &folder_id)?.is_some() {
+        Ok(())
+    } else {
+        Err(AppError::invalid_input(format!(
+            "gallery-folders/{folder_id} was not found"
+        )))
+    }
+}
+
 fn parse_chat_folder_id(folder_id: Option<&Value>) -> Result<Option<String>, AppError> {
     let Some(folder_id) = folder_id else {
         return Ok(None);
@@ -1678,11 +1734,17 @@ fn apply_delete_cleanup(
             contracts::DeleteCleanup::ClearConnectionFolder => {
                 unfile_connections_in_folder(state, id)?
             }
+            contracts::DeleteCleanup::ClearGalleryFolder => {
+                unfile_records_in_folder(state, "global-gallery", id)?
+            }
             contracts::DeleteCleanup::ClearLorebookReferences => {
                 clear_deleted_lorebook_references(state, id)?;
             }
             contracts::DeleteCleanup::DeleteCharacterGallery => {
                 delete_character_gallery(state, id)?
+            }
+            contracts::DeleteCleanup::DeletePersonaGallery => {
+                delete_persona_gallery(state, id)?
             }
             contracts::DeleteCleanup::DeleteLorebookChildren => {
                 delete_lorebook_children(state, id)?
@@ -2105,6 +2167,20 @@ fn delete_character_gallery(state: &AppState, character_id: &str) -> Result<(), 
         remove_gallery_file(state, row);
     }
     state.storage.delete_where("character-gallery", &filters)?;
+    Ok(())
+}
+
+fn delete_persona_gallery(state: &AppState, persona_id: &str) -> Result<(), AppError> {
+    let mut filters = Map::new();
+    filters.insert(
+        "personaId".to_string(),
+        Value::String(persona_id.to_string()),
+    );
+    let rows = state.storage.list_where("persona-gallery", &filters)?;
+    for row in &rows {
+        remove_gallery_file(state, row);
+    }
+    state.storage.delete_where("persona-gallery", &filters)?;
     Ok(())
 }
 
@@ -2821,7 +2897,9 @@ fn remove_owned_media(state: &AppState, entity: &str, record: &Value) {
             }
         }
         "lorebooks" => lorebook_images::remove_lorebook_image_file(state, record),
-        "gallery" | "character-gallery" => remove_gallery_file(state, record),
+        "gallery" | "character-gallery" | "persona-gallery" | "global-gallery" => {
+            remove_gallery_file(state, record)
+        }
         _ => {}
     }
 }
@@ -4852,6 +4930,101 @@ mod tests {
             !image_path.exists(),
             "managed gallery file should be removed"
         );
+    }
+
+    #[test]
+    fn deleting_persona_removes_persona_gallery_records_and_managed_files() {
+        let state = test_state("persona-gallery-delete");
+        state
+            .storage
+            .create(
+                "personas",
+                json!({
+                    "id": "persona-1",
+                    "data": { "name": "Gallery Persona" }
+                }),
+            )
+            .expect("persona should be created");
+        let gallery_dir = state.data_dir.join("gallery");
+        std::fs::create_dir_all(&gallery_dir).expect("gallery dir should be created");
+        let image_path = gallery_dir.join("persona.png");
+        std::fs::write(&image_path, b"managed").expect("managed image should be written");
+        state
+            .storage
+            .create(
+                "persona-gallery",
+                json!({
+                    "id": "persona-image-1",
+                    "personaId": "persona-1",
+                    "filePath": "persona.png",
+                    "filename": "persona.png",
+                    "url": "data:image/png;base64,bWFuYWdlZA=="
+                }),
+            )
+            .expect("persona gallery row should be created");
+
+        delete_entity(&state, "personas", "persona-1", false)
+            .expect("persona delete should succeed");
+
+        let mut filters = Map::new();
+        filters.insert(
+            "personaId".to_string(),
+            Value::String("persona-1".to_string()),
+        );
+        assert!(
+            state
+                .storage
+                .list_where("persona-gallery", &filters)
+                .expect("persona gallery should be readable")
+                .is_empty(),
+            "persona gallery rows should be removed"
+        );
+        assert!(
+            !image_path.exists(),
+            "managed gallery file should be removed"
+        );
+    }
+
+    #[test]
+    fn deleting_gallery_folder_unfiles_its_images() {
+        let state = test_state("gallery-folder-unfile");
+        state
+            .storage
+            .create("gallery-folders", json!({ "id": "folder-1", "name": "Reactions" }))
+            .expect("gallery folder should be created");
+        for id in ["image-1", "image-2"] {
+            state
+                .storage
+                .create(
+                    "global-gallery",
+                    json!({ "id": id, "folderId": "folder-1", "filePath": "x.png", "filename": "x.png" }),
+                )
+                .expect("global gallery row should be created");
+        }
+
+        delete_entity(&state, "gallery-folders", "folder-1", false)
+            .expect("gallery folder delete should succeed");
+
+        let mut folder_filters = Map::new();
+        folder_filters.insert("id".to_string(), Value::String("folder-1".to_string()));
+        assert!(
+            state
+                .storage
+                .list_where("gallery-folders", &folder_filters)
+                .expect("gallery folders should be readable")
+                .is_empty(),
+            "deleted folder row should be gone"
+        );
+
+        let images = state.storage.list("global-gallery").expect("images should be readable");
+        assert_eq!(images.len(), 2, "images must survive folder deletion");
+        for image in &images {
+            assert_eq!(
+                image.get("folderId"),
+                Some(&Value::Null),
+                "image should be re-filed to the root level"
+            );
+        }
     }
 
     #[test]

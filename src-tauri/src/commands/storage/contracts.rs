@@ -18,10 +18,12 @@ pub(crate) enum DeleteCleanup {
     ActivateDefaultChatPreset,
     ClearChatFolder,
     ClearConnectionFolder,
+    ClearGalleryFolder,
     ClearLorebookReferences,
     DeleteCharacterGallery,
     DeleteLorebookChildren,
     DeleteMessageTrackerSnapshots,
+    DeletePersonaGallery,
     DeletePromptChildren,
     RemoveOwnedMedia,
 }
@@ -194,9 +196,14 @@ const PROMPT_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::DeletePromptChildren];
 const CHAT_PRESET_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::ActivateDefaultChatPreset];
 const CHAT_FOLDER_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::ClearChatFolder];
 const CONNECTION_FOLDER_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::ClearConnectionFolder];
+const GALLERY_FOLDER_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::ClearGalleryFolder];
 const CHARACTER_CLEANUP: &[DeleteCleanup] = &[
     DeleteCleanup::RemoveOwnedMedia,
     DeleteCleanup::DeleteCharacterGallery,
+];
+const PERSONA_CLEANUP: &[DeleteCleanup] = &[
+    DeleteCleanup::RemoveOwnedMedia,
+    DeleteCleanup::DeletePersonaGallery,
 ];
 const CHARACTER_VERSION_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::RemoveOwnedMedia];
 const MEDIA_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::RemoveOwnedMedia];
@@ -233,7 +240,7 @@ pub(crate) const COLLECTIONS: &[StorageCollectionContract] = &[
         true,
         PERSONA_DEFAULTS,
         PERSONA_FIELDS,
-        MEDIA_CLEANUP,
+        PERSONA_CLEANUP,
     ),
     contract(
         "persona-groups",
@@ -450,6 +457,30 @@ pub(crate) const COLLECTIONS: &[StorageCollectionContract] = &[
         EMPTY_DEFAULTS,
         EMPTY_FIELDS,
         MEDIA_CLEANUP,
+    ),
+    contract(
+        "persona-gallery",
+        true,
+        false,
+        EMPTY_DEFAULTS,
+        EMPTY_FIELDS,
+        MEDIA_CLEANUP,
+    ),
+    contract(
+        "global-gallery",
+        true,
+        false,
+        EMPTY_DEFAULTS,
+        EMPTY_FIELDS,
+        MEDIA_CLEANUP,
+    ),
+    contract(
+        "gallery-folders",
+        true,
+        false,
+        EMPTY_DEFAULTS,
+        EMPTY_FIELDS,
+        GALLERY_FOLDER_CLEANUP,
     ),
     contract(
         "background-metadata",

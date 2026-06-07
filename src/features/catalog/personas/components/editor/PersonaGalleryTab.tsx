@@ -2,26 +2,26 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Camera, Download, Trash2, Upload, X } from "lucide-react";
 
-import { ImageUploadDropzone } from "../../../../shared/components/ui/ImageUploadDropzone";
-import { CustomEmojiTagButton } from "../../../../shared/components/ui/CustomEmojiTagButton";
-import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
-import { galleryThumbnailPath, resolveManagedAssetThumbnailFileUrl } from "../../../../shared/api/local-file-api";
-import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
-import { describeGalleryUploadFailures } from "../../../../shared/lib/gallery-upload";
+import { ImageUploadDropzone } from "../../../../../shared/components/ui/ImageUploadDropzone";
+import { CustomEmojiTagButton } from "../../../../../shared/components/ui/CustomEmojiTagButton";
+import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
+import { galleryThumbnailPath, resolveManagedAssetThumbnailFileUrl } from "../../../../../shared/api/local-file-api";
+import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
+import { describeGalleryUploadFailures } from "../../../../../shared/lib/gallery-upload";
 import {
-  type CharacterGalleryImage,
-  useCharacterGalleryImages,
-  useDeleteCharacterGalleryImage,
-  useTagCharacterGalleryImage,
-  useUploadCharacterGalleryImage,
-} from "../hooks/use-characters";
+  type PersonaGalleryImage,
+  usePersonaGalleryImages,
+  useDeletePersonaGalleryImage,
+  useTagPersonaGalleryImage,
+  useUploadPersonaGalleryImage,
+} from "../../hooks/use-personas";
 
-export function CharacterGalleryTab({ characterId, characterName }: { characterId: string; characterName?: string }) {
-  const { data: images, isLoading } = useCharacterGalleryImages(characterId);
-  const upload = useUploadCharacterGalleryImage(characterId);
-  const remove = useDeleteCharacterGalleryImage(characterId);
-  const tag = useTagCharacterGalleryImage(characterId);
-  const [lightbox, setLightbox] = useState<CharacterGalleryImage | null>(null);
+export function PersonaGalleryTab({ personaId, personaName }: { personaId: string; personaName?: string }) {
+  const { data: images, isLoading } = usePersonaGalleryImages(personaId);
+  const upload = useUploadPersonaGalleryImage(personaId);
+  const remove = useDeletePersonaGalleryImage(personaId);
+  const tag = useTagPersonaGalleryImage(personaId);
+  const [lightbox, setLightbox] = useState<PersonaGalleryImage | null>(null);
   const lightboxDialogRef = useRef<HTMLDivElement>(null);
   const lightboxCloseButtonRef = useRef<HTMLButtonElement>(null);
   const lightboxPreviousFocusRef = useRef<HTMLElement | null>(null);
@@ -77,7 +77,7 @@ export function CharacterGalleryTab({ characterId, characterName }: { characterI
           }
         },
         onError: (error) => {
-          toast.error(error instanceof Error ? error.message : "Failed to upload character gallery images.");
+          toast.error(error instanceof Error ? error.message : "Failed to upload persona gallery images.");
         },
       });
     },
@@ -85,11 +85,11 @@ export function CharacterGalleryTab({ characterId, characterName }: { characterI
   );
 
   const handleDelete = useCallback(
-    async (image: CharacterGalleryImage) => {
+    async (image: PersonaGalleryImage) => {
       if (
         !(await showConfirmDialog({
-          title: "Delete Character Image",
-          message: "Delete this character gallery image?",
+          title: "Delete Persona Image",
+          message: "Delete this persona gallery image?",
           confirmLabel: "Delete",
           tone: "destructive",
         }))
@@ -106,20 +106,20 @@ export function CharacterGalleryTab({ characterId, characterName }: { characterI
     <div className="space-y-6">
       <div className="mb-4">
         <h2 className="flex items-center gap-1.5 text-lg font-bold">
-          Character Gallery
+          Persona Gallery
           <HelpTooltip text="Tag an image as a custom emoji or sticker with the tag button on its corner. Emojis must be ≤256×256px, stickers ≤512×512px — larger images flash red." />
         </h2>
         <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
-          Keep reference art, alternate outfits, and other character images attached to this character even if chats get
+          Keep reference art, alternate outfits, and other persona images attached to this persona even if chats get
           deleted.
         </p>
       </div>
 
       <ImageUploadDropzone
-        label="Upload Character Images"
+        label="Upload Persona Images"
         pending={upload.isPending}
         pendingLabel="Uploading…"
-        dragLabel="Drop character images to upload"
+        dragLabel="Drop persona images to upload"
         onFilesSelected={handleUpload}
         icon={<Upload size="1rem" />}
         className="w-full"
@@ -143,7 +143,7 @@ export function CharacterGalleryTab({ characterId, characterName }: { characterI
                 className="block aspect-square w-full bg-[var(--secondary)]"
                 onClick={() => setLightbox(image)}
               >
-                <CharacterGalleryThumbnail image={image} alt={image.prompt || characterName || "Character image"} />
+                <PersonaGalleryThumbnail image={image} alt={image.prompt || personaName || "Persona image"} />
               </button>
               <CustomEmojiTagButton
                 image={image}
@@ -180,28 +180,19 @@ export function CharacterGalleryTab({ characterId, characterName }: { characterI
         <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-[var(--border)] py-12 text-center">
           <Camera size="1.75rem" className="text-[var(--muted-foreground)]/40" />
           <div>
-            <p className="text-sm font-medium text-[var(--muted-foreground)]">No character images yet</p>
+            <p className="text-sm font-medium text-[var(--muted-foreground)]">No persona images yet</p>
             <p className="mt-0.5 text-xs text-[var(--muted-foreground)]/60">
-              Upload images here to keep them tied to {characterName || "this character"} instead of a specific chat.
+              Upload images here to keep them tied to {personaName || "this persona"} instead of a specific chat.
             </p>
           </div>
         </div>
       )}
 
-      <div className="rounded-xl bg-[var(--card)] p-4 ring-1 ring-[var(--border)]">
-        <h4 className="mb-1.5 text-xs font-semibold">How this differs from chat gallery</h4>
-        <ul className="space-y-1 text-[0.6875rem] text-[var(--muted-foreground)]">
-          <li>• These images belong to the character, so deleting a chat does not remove them.</li>
-          <li>• Use this for reference sheets, outfit variants, or imported ST-style character image packs.</li>
-          <li>• Chat gallery is still best for scene-specific illustrations and generated message attachments.</li>
-        </ul>
-      </div>
-
       {lightbox && (
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={lightbox.prompt || characterName || "Character image preview"}
+          aria-label={lightbox.prompt || personaName || "Persona image preview"}
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 max-md:pt-[env(safe-area-inset-top)]"
           onClick={closeLightbox}
         >
@@ -213,7 +204,7 @@ export function CharacterGalleryTab({ characterId, characterName }: { characterI
           >
             <img
               src={lightbox.url}
-              alt={lightbox.prompt || characterName || "Character image"}
+              alt={lightbox.prompt || personaName || "Persona image"}
               className="max-h-[85vh] w-full rounded-lg object-contain shadow-2xl"
             />
             <div className="absolute right-2 top-2 flex gap-2">
@@ -240,11 +231,11 @@ export function CharacterGalleryTab({ characterId, characterName }: { characterI
   );
 }
 
-function CharacterGalleryThumbnail({
+function PersonaGalleryThumbnail({
   image,
   alt,
 }: {
-  image: CharacterGalleryImage;
+  image: PersonaGalleryImage;
   alt: string;
 }) {
   const [src, setSrc] = useState<string | null>(null);

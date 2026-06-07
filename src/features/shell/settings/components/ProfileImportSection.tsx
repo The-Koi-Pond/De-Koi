@@ -42,6 +42,9 @@ type ProfileImportStats = {
   "app-settings"?: number;
   gallery?: number;
   "character-gallery"?: number;
+  "persona-gallery"?: number;
+  "global-gallery"?: number;
+  "gallery-folders"?: number;
   "background-metadata"?: number;
   sprites?: number;
   "knowledge-sources"?: number;
@@ -122,6 +125,9 @@ const PROFILE_IMPORT_STAT_LABELS: Array<{ key: string; aliases?: string[]; singu
   { key: "app-settings", singular: "app setting", plural: "app settings" },
   { key: "gallery", singular: "gallery item", plural: "gallery items" },
   { key: "character-gallery", singular: "character gallery item", plural: "character gallery items" },
+  { key: "persona-gallery", singular: "persona gallery item", plural: "persona gallery items" },
+  { key: "global-gallery", singular: "gallery image", plural: "gallery images" },
+  { key: "gallery-folders", singular: "gallery folder", plural: "gallery folders" },
   { key: "background-metadata", singular: "background", plural: "backgrounds" },
   { key: "sprites", singular: "sprite", plural: "sprites" },
   { key: "knowledge-sources", singular: "knowledge source", plural: "knowledge sources" },

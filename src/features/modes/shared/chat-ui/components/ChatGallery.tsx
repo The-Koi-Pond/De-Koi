@@ -25,6 +25,7 @@ import {
 } from "../../../../catalog/gallery/index";
 import { useGalleryStore } from "../../../../../shared/stores/gallery.store";
 import { ImageUploadDropzone } from "../../../../../shared/components/ui/ImageUploadDropzone";
+import { describeGalleryUploadFailures } from "../../../../../shared/lib/gallery-upload";
 import { ImagePromptPanel } from "./ImagePromptPanel";
 import type { ChatImage } from "../../../../../shared/types/gallery";
 import type { Chat } from "../../../../../engine/contracts/types/chat";
@@ -68,6 +69,11 @@ export function ChatGallery({ chat, onIllustrate }: ChatGalleryProps) {
     (files: File[]) => {
       if (files.length === 0) return;
       upload.mutate(files, {
+        onSuccess: ({ failures }) => {
+          if (failures.length > 0) {
+            toast.warning(`Some images didn't upload — ${describeGalleryUploadFailures(failures)}`);
+          }
+        },
         onError: (error) => {
           toast.error(error instanceof Error ? error.message : "Failed to upload chat gallery images.");
         },

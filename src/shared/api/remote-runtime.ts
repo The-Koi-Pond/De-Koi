@@ -155,6 +155,8 @@ const REMOTE_COMMANDS = new Set([
   "avatar_generation_command",
   "image_generate",
   "character_gallery_upload",
+  "persona_gallery_upload",
+  "global_gallery_upload",
   "chat_gallery_upload",
   "connection_test",
   "connection_test_message",

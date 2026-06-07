@@ -163,6 +163,16 @@ export const galleryApi = {
       "gallery",
     );
   },
+  uploadPersona: async <T = unknown>(personaId: string, file: File) => {
+    const payload = await fileToUploadPayload(file, {
+      maxBytes: MAX_IMAGE_UPLOAD_BYTES,
+      tooLargeMessage: IMAGE_UPLOAD_SIZE_ERROR,
+    });
+    return invalidateRemoteManagedAssetObjectUrlsAfter(
+      invokeTauri<T>("persona_gallery_upload", { personaId, body: { file: payload } }),
+      "gallery",
+    );
+  },
   uploadChat: async <T = unknown>(chatId: string, file: File) => {
     const payload = await fileToUploadPayload(file, {
       maxBytes: MAX_IMAGE_UPLOAD_BYTES,
@@ -170,6 +180,16 @@ export const galleryApi = {
     });
     return invalidateRemoteManagedAssetObjectUrlsAfter(
       invokeTauri<T>("chat_gallery_upload", { chatId, body: { file: payload } }),
+      "gallery",
+    );
+  },
+  uploadGlobal: async <T = unknown>(file: File, folderId?: string | null) => {
+    const payload = await fileToUploadPayload(file, {
+      maxBytes: MAX_IMAGE_UPLOAD_BYTES,
+      tooLargeMessage: IMAGE_UPLOAD_SIZE_ERROR,
+    });
+    return invalidateRemoteManagedAssetObjectUrlsAfter(
+      invokeTauri<T>("global_gallery_upload", { folderId: folderId ?? null, body: { file: payload } }),
       "gallery",
     );
   },

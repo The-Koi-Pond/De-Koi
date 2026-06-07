@@ -14,6 +14,7 @@ export type Panel =
   | "connections"
   | "agents"
   | "personas"
+  | "gallery"
   | "settings"
   | "bot-browser";
 export type FontSize = 12 | 14 | 16 | 17 | 19 | 22;

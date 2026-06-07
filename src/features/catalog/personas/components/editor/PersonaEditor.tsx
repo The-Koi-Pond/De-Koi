@@ -43,6 +43,7 @@ import {
 } from "../../lib/persona-editor-model";
 import { PersonaColorsTab } from "./PersonaColorsTab";
 import { PersonaDescriptionTab } from "./PersonaDescriptionTab";
+import { PersonaGalleryTab } from "./PersonaGalleryTab";
 import { PersonaSpritesTab } from "../sprites/PersonaSpritesTab";
 import { PersonaStatsTab } from "./PersonaStatsTab";
 
@@ -54,6 +55,7 @@ const TABS = [
   { id: "appearance", label: "Appearance", icon: Eye },
   { id: "scenario", label: "Scenario", icon: MapPin },
   { id: "sprites", label: "Sprites", icon: Image },
+  { id: "gallery", label: "Gallery", icon: Camera },
   { id: "colors", label: "Colors", icon: Palette },
   { id: "stats", label: "Stats", icon: Activity },
 ] as const;
@@ -478,6 +480,9 @@ export function PersonaEditor() {
                 defaultAvatarUrl={avatarPreview}
                 imageConnections={imageConnections}
               />
+            )}
+            {activeTab === "gallery" && personaId && (
+              <PersonaGalleryTab personaId={personaId} personaName={formData.name} />
             )}
             {activeTab === "stats" && <PersonaStatsTab formData={formData} updateField={updateField} />}
           </div>

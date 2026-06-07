@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Mobile shell actions shared between app shell and mode surfaces
 // ──────────────────────────────────────────────
-import { Bot, BookOpen, FileText, Link, Settings, Sparkles, User, Users } from "lucide-react";
+import { Bot, BookOpen, FileText, Images, Link, Settings, Sparkles, User, Users } from "lucide-react";
 import { createContext, useContext, useState, type ReactNode } from "react";
 
 interface TopBarActionsContextValue {
@@ -35,6 +35,7 @@ export const TOOLS_PANELS = [
   { panel: "connections" as const, icon: Link, label: "Connections", gradient: "from-sky-500 to-blue-500", color: "text-sky-400" },
   { panel: "agents" as const, icon: Sparkles, label: "Agents", gradient: "from-pink-500 to-purple-500", color: "text-pink-400" },
   { panel: "personas" as const, icon: User, label: "Personas", gradient: "from-emerald-500 to-teal-500", color: "text-emerald-400" },
+  { panel: "gallery" as const, icon: Images, label: "Gallery", gradient: "from-fuchsia-500 to-pink-500", color: "text-fuchsia-400" },
   { panel: "settings" as const, icon: Settings, label: "Settings", gradient: "from-zinc-400 to-zinc-500", color: "text-zinc-300" },
 ] as const;
 
