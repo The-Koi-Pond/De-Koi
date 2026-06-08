@@ -11,9 +11,11 @@ license text, is:
 
 Copyright (C) 2025-2026 Spicy Marinara
 
-De-Koi is developed independently by The Koi Pond contributors. De-Koi is not
-affiliated with, sponsored by, endorsed by, or maintained by Marinara Engine,
-Spicy Marinara, Pasta Devs, or the original Marinara Engine maintainers.
+De-Koi is a separate project and is not an official Marinara Engine release,
+support channel, or distribution.
+
+De-Koi is not sponsored by, endorsed by, or released on behalf of Marinara
+Engine, Spicy Marinara, Pasta Devs, or the Marinara Engine project.
 
 ## License
 
@@ -44,11 +46,11 @@ For any binary, installer, Docker image, APK, pre-release build, or hosted
 network service, users should be given access to the exact corresponding source
 code for the version they receive or interact with.
 
-## Trademarks And Branding
+## Names And Notices
 
-This project does not claim any trademark rights in Marinara Engine, Spicy
-Marinara, Pasta Devs, Professor Mari, or any other original project names,
-logos, mascots, or branding.
+This project does not claim ownership of the Marinara Engine name, Spicy
+Marinara name, Pasta Devs name, Professor Mari name, or any related project
+names, logos, images, or other materials.
 
 Any remaining references to Marinara Engine are retained only for attribution,
 license compliance, compatibility, migration, or historical context, unless

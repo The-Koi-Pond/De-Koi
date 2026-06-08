@@ -1,5 +1,22 @@
 # De-Koi
 
+> [!IMPORTANT]
+> De-Koi is an unofficial modified fork of
+> [Marinara Engine](https://github.com/Pasta-Devs/Marinara-Engine).
+> It is a separate project and is not an official Marinara Engine release,
+> support channel, or distribution.
+>
+> De-Koi is not sponsored by, endorsed by, or released on behalf of Marinara
+> Engine, Spicy Marinara, Pasta Devs, or the Marinara Engine project.
+>
+> De-Koi is licensed under the GNU Affero General Public License version 3.
+> See [`LICENSE.txt`](./LICENSE.txt) for the full license and
+> [`NOTICE.md`](./NOTICE.md) for fork, attribution, source, and other notices.
+>
+> If you receive or use a De-Koi binary, installer, Docker image, APK,
+> pre-release build, or hosted network service, you should also have access to
+> the exact corresponding source code for that version.
+
 De-Koi is a local-first AI chat, roleplay, and game engine built as a Tauri desktop app. It combines a React interface, a TypeScript product engine, and Rust capability modules for local storage, managed assets, provider transport, integrations, and an optional hostable runtime.
 
 This repository is an active refactor branch. The app is usable from source, but public release packaging and end-user installation guides are still being rebuilt around the new architecture.
