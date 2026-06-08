@@ -107,6 +107,16 @@ jobs:
               `- Version: \`${process.env.APP_VERSION}\``,
               `- Short SHA: \`${process.env.SHORT_SHA}\``,
               '',
+              '## License And Source',
+              '',
+              'De-Koi is an unofficial modified fork of Marinara Engine. It is a separate project and is not an official Marinara Engine release, support channel, or distribution.',
+              '',
+              'De-Koi is not sponsored by, endorsed by, or released on behalf of Marinara Engine, Spicy Marinara, Pasta Devs, or the Marinara Engine project.',
+              '',
+              'De-Koi is licensed under the GNU Affero General Public License version 3. The corresponding source code for this build is available from this repository at the source commit listed above.',
+              '',
+              'See `LICENSE.txt` and `NOTICE.md` in the repository for license, attribution, source, and other notices.',
+              '',
             ];
 
             if (extraNotes) {
