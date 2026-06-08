@@ -40,6 +40,9 @@ const INVOKE_PRE_EXTRACTION_API_RATE_LIMIT: u32 = DEFAULT_API_RATE_LIMIT * 10;
 const DEFAULT_API_RATE_WINDOW: Duration = Duration::from_secs(60);
 const RATE_LIMIT_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 const HEALTH_WRITABLE_PROBE_TTL: Duration = Duration::from_secs(5);
+const LICENSE_TEXT: &str = include_str!("../../LICENSE.txt");
+const NOTICE_TEXT: &str = include_str!("../../NOTICE.md");
+const SOURCE_REPOSITORY_URL: &str = "https://github.com/The-Koi-Pond/De-Koi";
 const DEFAULT_CORS_ORIGINS: [&str; 7] = [
     "http://localhost:1420",
     "http://127.0.0.1:1420",
@@ -135,6 +138,9 @@ pub fn router(state: AppState) -> Router {
     let controls = HttpControls::new(security.clone());
     Router::new()
         .route("/health", get(health))
+        .route("/license", get(license_text))
+        .route("/notice", get(notice_text))
+        .route("/source", get(source_info))
         .route("/api/invoke", post(invoke))
         .route("/api/profile/export", get(profile_export_download))
         .route(
@@ -196,6 +202,36 @@ async fn health(State(state): State<HttpState>, Query(query): Query<HealthQuery>
     }
 
     Json(json!({ "ok": true, "runtime": "de-koi-server" }))
+}
+
+async fn license_text() -> Response {
+    static_text_response("text/plain; charset=utf-8", LICENSE_TEXT)
+}
+
+async fn notice_text() -> Response {
+    static_text_response("text/markdown; charset=utf-8", NOTICE_TEXT)
+}
+
+async fn source_info() -> Json<Value> {
+    Json(json!({
+        "name": "De-Koi",
+        "runtime": "de-koi-server",
+        "version": env!("CARGO_PKG_VERSION"),
+        "sourceRepository": SOURCE_REPOSITORY_URL,
+        "sourceCommit": option_env!("DE_KOI_SOURCE_COMMIT"),
+        "license": "AGPL-3.0-or-later",
+        "licensePath": "LICENSE.txt",
+        "noticePath": "NOTICE.md",
+        "correspondingSource": "Use the source repository and release source commit for the exact version you received or interact with."
+    }))
+}
+
+fn static_text_response(content_type: &'static str, body: &'static str) -> Response {
+    let mut response = body.into_response();
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    response
 }
 
 fn health_probe_filename() -> String {
@@ -1760,7 +1796,7 @@ impl SecurityConfig {
     fn evaluate_request(&self, request: &Request<Body>) -> Result<(), SecurityRejection> {
         let path = request.uri().path();
         let method = request.method();
-        if method == Method::OPTIONS || path == "/health" {
+        if method == Method::OPTIONS || is_public_runtime_info_path(path) {
             return Ok(());
         }
 
@@ -1914,6 +1950,10 @@ impl SecurityConfig {
                 trusted == "*" || normalize_origin(trusted).as_deref() == Some(origin.as_str())
             })
     }
+}
+
+fn is_public_runtime_info_path(path: &str) -> bool {
+    matches!(path, "/health" | "/license" | "/notice" | "/source")
 }
 
 impl SecurityRejection {
@@ -2777,6 +2817,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn license_endpoint_serves_embedded_agpl_text() {
+        let response = license_text().await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("text/plain; charset=utf-8")
+        );
+
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("license response should be readable");
+        let body = String::from_utf8(bytes.to_vec()).expect("license should be UTF-8 text");
+        assert!(body.contains("GNU Affero General Public License"));
+    }
+
+    #[tokio::test]
+    async fn notice_endpoint_serves_fork_notice() {
+        let response = notice_text().await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("text/markdown; charset=utf-8")
+        );
+
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("notice response should be readable");
+        let body = String::from_utf8(bytes.to_vec()).expect("notice should be UTF-8 text");
+        assert!(body.contains("De-Koi is an unofficial modified fork"));
+        assert!(body.contains("not an official Marinara Engine release"));
+    }
+
+    #[tokio::test]
+    async fn source_endpoint_reports_repository_and_license_metadata() {
+        let Json(payload) = source_info().await;
+
+        assert_eq!(payload.get("name").and_then(Value::as_str), Some("De-Koi"));
+        assert_eq!(
+            payload.get("sourceRepository").and_then(Value::as_str),
+            Some(SOURCE_REPOSITORY_URL)
+        );
+        assert_eq!(
+            payload.get("license").and_then(Value::as_str),
+            Some("AGPL-3.0-or-later")
+        );
+        assert_eq!(
+            payload.get("licensePath").and_then(Value::as_str),
+            Some("LICENSE.txt")
+        );
+        assert_eq!(
+            payload.get("noticePath").and_then(Value::as_str),
+            Some("NOTICE.md")
+        );
+    }
+
+    #[tokio::test]
     async fn api_invoke_router_preserves_command_specific_rate_limit_headers() {
         let listener =
             tokio::net::TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -3092,6 +3194,25 @@ mod tests {
             .expect_err("public remote IP should require auth");
         assert_eq!(rejection.status, StatusCode::FORBIDDEN);
         assert_eq!(rejection.code, "remote_auth_required");
+    }
+
+    #[test]
+    fn hostable_security_allows_public_runtime_info_without_auth() {
+        let security = test_security();
+
+        for path in ["/health", "/license", "/notice", "/source"] {
+            let request = request(
+                Method::GET,
+                path,
+                IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10)),
+                &[],
+            );
+
+            assert!(
+                security.evaluate_request(&request).is_ok(),
+                "{path} should be public runtime info"
+            );
+        }
     }
 
     #[test]
