@@ -4,6 +4,7 @@ import { delimiter, join } from "node:path";
 
 const cargoHome = process.env.CARGO_HOME || (process.env.HOME ? join(process.env.HOME, ".cargo") : "");
 const cargoBin = cargoHome ? join(cargoHome, "bin") : "";
+const localTauriCli = join(process.cwd(), "node_modules", "@tauri-apps", "cli", "tauri.js");
 
 const env = { ...process.env };
 const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") || "PATH";
@@ -83,10 +84,14 @@ if (isTauriDev) {
   }
 }
 
-const tauriBin = process.platform === "win32" ? "tauri.cmd" : "tauri";
-const child = spawn(tauriBin, tauriArgs, {
+if (!existsSync(localTauriCli)) {
+  console.error("Missing local @tauri-apps/cli. Run `pnpm install` first.");
+  process.exit(1);
+}
+
+const child = spawn(process.execPath, [localTauriCli, ...tauriArgs], {
   env,
-  shell: process.platform === "win32",
+  shell: false,
   stdio: "inherit",
 });
 
