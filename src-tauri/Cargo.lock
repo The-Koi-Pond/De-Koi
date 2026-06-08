@@ -1447,6 +1447,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "de-koi"
+version = "1.6.1"
+dependencies = [
+ "aes-gcm",
+ "autoagents",
+ "axum 0.7.9",
+ "base64 0.22.1",
+ "buttplug",
+ "buttplug_core",
+ "chrono",
+ "criterion",
+ "image",
+ "libc",
+ "log",
+ "marinara-assets",
+ "marinara-core",
+ "marinara-llm",
+ "marinara-security",
+ "marinara-storage",
+ "pdf-extract",
+ "png 0.17.16",
+ "rand 0.8.6",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-devtools",
+ "tauri-plugin-dialog",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tauri-plugin-window-state",
+ "tokio",
+ "tokio-stream",
+ "tower-http 0.6.10",
+ "zip",
+]
+
+[[package]]
 name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3366,46 +3406,6 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
-]
-
-[[package]]
-name = "marinara-engine"
-version = "1.6.1"
-dependencies = [
- "aes-gcm",
- "autoagents",
- "axum 0.7.9",
- "base64 0.22.1",
- "buttplug",
- "buttplug_core",
- "chrono",
- "criterion",
- "image",
- "libc",
- "log",
- "marinara-assets",
- "marinara-core",
- "marinara-llm",
- "marinara-security",
- "marinara-storage",
- "pdf-extract",
- "png 0.17.16",
- "rand 0.8.6",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-devtools",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tauri-plugin-window-state",
- "tokio",
- "tokio-stream",
- "tower-http 0.6.10",
- "zip",
 ]
 
 [[package]]

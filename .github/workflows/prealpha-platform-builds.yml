@@ -16,9 +16,9 @@ env:
   NODE_VERSION: "22"
   PNPM_VERSION: "10.33.2"
   PREALPHA_CONFIG: src-tauri/tauri.prealpha.conf.json
-  PREALPHA_PRODUCT_NAME: Marinara Engine Pre-Alpha
-  PREALPHA_ANDROID_APPLICATION_ID: com.marinara_engine.prealpha
-  PREALPHA_ANDROID_APP_NAME: Marinara Engine Pre-Alpha
+  PREALPHA_PRODUCT_NAME: De-Koi Pre-Alpha
+  PREALPHA_ANDROID_APPLICATION_ID: com.de_koi.prealpha
+  PREALPHA_ANDROID_APP_NAME: De-Koi Pre-Alpha
 
 jobs:
   refactor-only:
@@ -55,7 +55,7 @@ jobs:
           version="$(node -p "require('./package.json').version")"
           short_sha="${GITHUB_SHA::7}"
           tag_name="prealpha-refactor-v${version}-run${GITHUB_RUN_NUMBER}-attempt${GITHUB_RUN_ATTEMPT}-${short_sha}"
-          release_name="Marinara Engine Pre-Alpha Test Build v${version} #${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          release_name="De-Koi Pre-Alpha Test Build v${version} #${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
           {
             echo "version=${version}"
             echo "tag_name=${tag_name}"
@@ -77,14 +77,14 @@ jobs:
             const extraNotes = (process.env.EXTRA_RELEASE_NOTES || '').trim();
             const branch = context.ref.replace('refs/heads/', '');
             const bodyLines = [
-              '# ⚠️ MARINARA ENGINE PRE-ALPHA TEST BUILD — EXPECT BREAKAGE ⚠️',
+              '# ⚠️ DE-KOI PRE-ALPHA TEST BUILD — EXPECT BREAKAGE ⚠️',
               '',
               'This is a **manual refactor-branch test build** for team testing. It is marked as a **GitHub pre-release** and forced to **not be the latest release**.',
               '',
               '## 🚨 Read before downloading',
               '',
               '- **Almost everything may be broken.** Expect crashes, missing behavior, unfinished UI, incomplete migration paths, broken imports/exports, provider/runtime issues, and platform-specific failures.',
-              '- **Use throwaway data only.** Back up existing Marinara data before launching this build. Do not use this for real saves, production stories, or important chats.',
+              '- **Use throwaway data only.** Back up existing De-Koi data before launching this build. Do not use this for real saves, production stories, or important chats.',
               '- **Unsigned and unnotarized.** Windows SmartScreen, macOS Gatekeeper, Linux package trust warnings, and Android debug-build warnings are expected.',
               '- **No stable-update promise.** These artifacts do not publish updater metadata and should not be treated as an official update channel.',
               '- **Built only from the `refactor` branch.** This workflow does not publish from `main` and does not replace the main branch or stable releases.',
@@ -95,13 +95,13 @@ jobs:
               '- Windows x64 desktop Tauri bundles, unsigned, using the pre-alpha app identity.',
               '- macOS Intel and Apple Silicon Tauri bundles, unsigned/unnotarized, using the pre-alpha app identity.',
               '- Linux x64 desktop Tauri bundles, unsigned, using the pre-alpha app identity.',
-              '- Android universal debug APK, debug-signed by Android tooling, using `com.marinara_engine.prealpha` as the test application id.',
+              '- Android universal debug APK, debug-signed by Android tooling, using `com.de_koi.prealpha` as the test application id.',
               '',
               '## Build identity',
               '',
-              '- App label: **Marinara Engine Pre-Alpha**',
-              '- Desktop Tauri identifier: `com.marinara-engine.prealpha`',
-              '- Android application id: `com.marinara_engine.prealpha`',
+              '- App label: **De-Koi Pre-Alpha**',
+              '- Desktop Tauri identifier: `com.de-koi.prealpha`',
+              '- Android application id: `com.de_koi.prealpha`',
               `- Source branch: \`${branch}\``,
               `- Source commit: \`${context.sha}\``,
               `- Version: \`${process.env.APP_VERSION}\``,
@@ -215,7 +215,7 @@ jobs:
           includeUpdaterJson: false
           updaterJsonPreferNsis: true
           tauriScript: pnpm tauri
-          assetNamePattern: "Marinara-Engine-PreAlpha-${{ matrix.asset_slug }}_[version]_[arch][setup][ext]"
+          assetNamePattern: "De-Koi-PreAlpha-${{ matrix.asset_slug }}_[version]_[arch][setup][ext]"
           args: "--ci --no-sign --config ${{ env.PREALPHA_CONFIG }} --target ${{ matrix.rust_target }}"
 
   build-android:
@@ -269,8 +269,8 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-          MARINARA_ANDROID_APPLICATION_ID: ${{ env.PREALPHA_ANDROID_APPLICATION_ID }}
-          MARINARA_ANDROID_APP_NAME: ${{ env.PREALPHA_ANDROID_APP_NAME }}
+          DE_KOI_ANDROID_APPLICATION_ID: ${{ env.PREALPHA_ANDROID_APPLICATION_ID }}
+          DE_KOI_ANDROID_APP_NAME: ${{ env.PREALPHA_ANDROID_APP_NAME }}
         # Keep Android on the generated source package from tauri.conf.json; Gradle applies the pre-alpha app id/name.
         run: pnpm tauri android build --debug --apk --ci
 
@@ -281,7 +281,7 @@ jobs:
           mkdir -p release-assets
           while IFS= read -r -d '' file; do
             base="$(basename "${file}" | tr ' ' '-' | tr -cd '[:alnum:]._+-')"
-            cp "${file}" "release-assets/Marinara-Engine-PreAlpha-android-universal-debug-${base}"
+            cp "${file}" "release-assets/De-Koi-PreAlpha-android-universal-debug-${base}"
           done < <(find src-tauri/gen/android/app/build/outputs -type f \( -name '*.apk' -o -name '*.aab' \) -print0)
 
           echo "Collected assets:"

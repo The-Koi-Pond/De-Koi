@@ -510,8 +510,8 @@ async fn check_openrouter_key(connection: &Value) -> AppResult<String> {
         request
             .header("accept", "application/json")
             .bearer_auth(&api_key)
-            .header("HTTP-Referer", "https://marinara.local")
-            .header("X-Title", "Marinara Engine")
+            .header("HTTP-Referer", "https://de-koi.local")
+            .header("X-Title", "De-Koi")
     })
     .await?;
     let remaining = json
@@ -563,7 +563,7 @@ async fn check_image_generation_connection(connection: &Value) -> AppResult<Stri
                             api_key.trim()
                         },
                     )
-                    .header("Client-Agent", "Marinara-Engine")
+                    .header("Client-Agent", "De-Koi")
             })
             .await?;
             Ok("Stable Horde endpoint is reachable.".to_string())
@@ -604,8 +604,8 @@ async fn check_openrouter_key_for_base(connection: &Value, base: &str) -> AppRes
         request
             .header("accept", "application/json")
             .bearer_auth(&api_key)
-            .header("HTTP-Referer", "https://marinara.local")
-            .header("X-Title", "Marinara Engine")
+            .header("HTTP-Referer", "https://de-koi.local")
+            .header("X-Title", "De-Koi")
     })
     .await?;
     Ok("OpenRouter API key is valid.".to_string())

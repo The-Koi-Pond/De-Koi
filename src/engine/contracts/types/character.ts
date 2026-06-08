@@ -35,31 +35,31 @@ export interface CharacterExtensions {
   fav: boolean;
   world: string;
   depth_prompt: DepthPrompt;
-  /** Marinara Engine extension: character backstory / lore */
+  /** De-Koi extension: character backstory / lore */
   backstory: string;
-  /** Marinara Engine extension: physical appearance description */
+  /** De-Koi extension: physical appearance description */
   appearance: string;
-  /** Marinara Engine: toggleable additions appended to the main character description */
+  /** De-Koi: toggleable additions appended to the main character description */
   altDescriptions?: AltDescription[];
-  /** Marinara Engine: Name display color/gradient (CSS value, e.g. "linear-gradient(90deg, #ff6b6b, #ffd93d)" or "#ff6b6b") */
+  /** De-Koi: Name display color/gradient (CSS value, e.g. "linear-gradient(90deg, #ff6b6b, #ffd93d)" or "#ff6b6b") */
   nameColor?: string;
-  /** Marinara Engine: Dialogue highlight color — text in quotation marks is bold + colored with this */
+  /** De-Koi: Dialogue highlight color - text in quotation marks is bold + colored with this */
   dialogueColor?: string;
-  /** Marinara Engine: Chat bubble / dialogue box background color */
+  /** De-Koi: Chat bubble / dialogue box background color */
   boxColor?: string;
-  /** Marinara Engine: RPG stats toggle + custom attributes */
+  /** De-Koi: RPG stats toggle + custom attributes */
   rpgStats?: RPGStatsConfig;
-  /** Marinara Engine: Conversation-mode availability status */
+  /** De-Koi: Conversation-mode availability status */
   conversationStatus?: "online" | "idle" | "dnd" | "offline";
-  /** Marinara Engine: Conversation-mode avatar override (Default / Hide / Emoji / Sprite / Gallery) */
+  /** De-Koi: Conversation-mode avatar override (Default / Hide / Emoji / Sprite / Gallery) */
   conversationAvatar?: ConversationAvatarOverride;
   [key: string]: unknown;
 }
 
-/** Marinara Engine: Conversation-mode avatar override modes. */
+/** De-Koi: Conversation-mode avatar override modes. */
 export type ConversationAvatarMode = "default" | "hide" | "emoji" | "sprite" | "gallery";
 
-/** Marinara Engine: per-character avatar override applied only in Conversation mode. */
+/** De-Koi: per-character avatar override applied only in Conversation mode. */
 export interface ConversationAvatarOverride {
   mode: ConversationAvatarMode;
   /**

@@ -27,7 +27,7 @@ COPY src-tauri/capabilities ./src-tauri/capabilities
 COPY src-tauri/icons ./src-tauri/icons
 COPY src-tauri/resources ./src-tauri/resources
 
-RUN cargo build --manifest-path src-tauri/Cargo.toml --release --bin marinara-server
+RUN cargo build --manifest-path src-tauri/Cargo.toml --release --bin de-koi-server
 
 FROM debian:bookworm-slim AS runtime
 
@@ -43,13 +43,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY --from=builder /app/src-tauri/target/release/marinara-server /usr/local/bin/marinara-server
+COPY --from=builder /app/src-tauri/target/release/de-koi-server /usr/local/bin/de-koi-server
 COPY --from=builder /app/src-tauri/resources /app/src-tauri/resources
 
-ENV MARINARA_SERVER_ADDR=0.0.0.0:8787
-ENV MARINARA_DATA_DIR=/data
+ENV DE_KOI_SERVER_ADDR=0.0.0.0:8787
+ENV DE_KOI_DATA_DIR=/data
 
 EXPOSE 8787
 VOLUME ["/data"]
 
-CMD ["marinara-server"]
+CMD ["de-koi-server"]

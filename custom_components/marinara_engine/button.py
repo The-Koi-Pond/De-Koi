@@ -1,4 +1,4 @@
-"""Button platform for Marinara Engine."""
+"""Button platform for De-Koi."""
 
 from __future__ import annotations
 
@@ -38,14 +38,14 @@ class MarinaraAbortButton(CoordinatorEntity[MarinaraCoordinator], ButtonEntity):
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_abort_generation"
-        self._attr_name = "Marinara Abort Generation"
+        self._attr_name = "De-Koi Abort Generation"
 
     @property
     def device_info(self) -> dict:
         return {
             "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": "Marinara Engine",
-            "manufacturer": "Marinara Engine",
+            "name": "De-Koi",
+            "manufacturer": "De-Koi",
             "model": "Local AI Engine",
         }
 
@@ -54,7 +54,7 @@ class MarinaraAbortButton(CoordinatorEntity[MarinaraCoordinator], ButtonEntity):
 
 
 class MarinaraSyncToolsButton(CoordinatorEntity[MarinaraCoordinator], ButtonEntity):
-    """Push all 21 HA tool definitions into Marinara's Custom Tools."""
+    """Push all 21 HA tool definitions into De-Koi's Custom Tools."""
 
     _attr_icon = "mdi:cloud-sync-outline"
 
@@ -62,14 +62,14 @@ class MarinaraSyncToolsButton(CoordinatorEntity[MarinaraCoordinator], ButtonEnti
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_sync_tools"
-        self._attr_name = "Marinara Sync HA Tools"
+        self._attr_name = "De-Koi Sync HA Tools"
 
     @property
     def device_info(self) -> dict:
         return {
             "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": "Marinara Engine",
-            "manufacturer": "Marinara Engine",
+            "name": "De-Koi",
+            "manufacturer": "De-Koi",
             "model": "Local AI Engine",
         }
 

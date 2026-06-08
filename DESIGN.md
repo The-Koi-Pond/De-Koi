@@ -1,5 +1,5 @@
 ---
-name: "Marinara Engine"
+name: "De-Koi"
 description: "A playful immersive AI chat, roleplay, and game engine with visual novel warmth."
 colors:
   void-night: "#050312"
@@ -82,13 +82,13 @@ components:
     padding: "8px 12px"
 ---
 
-# Design System: Marinara Engine
+# Design System: De-Koi
 
 ## 1. Overview
 
 **Creative North Star: "The Velvet Game Console"**
 
-Marinara should feel like a lovingly built story machine: visual, intimate, a little magical, and still practical enough for power users who live in settings panels. The default surface is dark because the main play moment is long-form chat, roleplay, or game mode in a focused evening setting, where bright white UI would fight the scene. Light mode exists for comfort and accessibility, but the brand signal lives in blush, violet, soft glow, character art, and compact tools.
+De-Koi should feel like a lovingly built story machine: visual, intimate, a little magical, and still practical enough for power users who live in settings panels. The default surface is dark because the main play moment is long-form chat, roleplay, or game mode in a focused evening setting, where bright white UI would fight the scene. Light mode exists for comfort and accessibility, but the brand signal lives in blush, violet, soft glow, character art, and compact tools.
 
 The system rejects sterile SaaS dashboards, bland SillyTavern cloning, generic Discord surfaces, and developer-only control panels. Even dense controls should feel like part of an immersive engine, not a spreadsheet of toggles.
 
@@ -116,7 +116,7 @@ The palette is a nocturne of near-black violet, soft silver, rose-blush primary 
 ### Tertiary
 
 - **Muted Orchid** (`#d4adfc`): Secondary emphasis, borders, quiet metadata, and decorative highlights.
-- **SillyTavern Blue** (`#4a72b0`): Compatibility theme primary color only. Do not let it overtake the Marinara default identity.
+- **SillyTavern Blue** (`#4a72b0`): Compatibility theme primary color only. Do not let it overtake the De-Koi default identity.
 
 ### Neutral
 
@@ -132,7 +132,7 @@ The palette is a nocturne of near-black violet, soft silver, rose-blush primary 
 
 **The Blush Is Earned Rule.** Blush primary is for actions, selection, and emotional emphasis. Do not flood every panel with pink.
 
-**The Compatibility Theme Rule.** The SillyTavern visual theme is a compatibility skin, not the source of Marinara's default visual identity.
+**The Compatibility Theme Rule.** The SillyTavern visual theme is a compatibility skin, not the source of De-Koi's default visual identity.
 
 ## 3. Typography
 
@@ -158,7 +158,7 @@ The palette is a nocturne of near-black violet, soft silver, rose-blush primary 
 
 ## 4. Elevation
 
-Marinara uses a hybrid of tonal layering, soft glow, and selective frosted surfaces. Core reading areas should stay stable and legible; blur and glow belong to shell chrome, overlays, and special immersive moments.
+De-Koi uses a hybrid of tonal layering, soft glow, and selective frosted surfaces. Core reading areas should stay stable and legible; blur and glow belong to shell chrome, overlays, and special immersive moments.
 
 ### Shadow Vocabulary
 
@@ -220,8 +220,8 @@ Conversation mode can use familiar message bubbles, but roleplay and game mode s
 
 ### Don't:
 
-- **Don't** turn Marinara into a sterile SaaS dashboard with gray card grids and dry enterprise spacing.
-- **Don't** make it a bland SillyTavern clone. Compatibility themes may exist, but Marinara's default should keep its own blush-violet visual novel identity.
+- **Don't** turn De-Koi into a sterile SaaS dashboard with gray card grids and dry enterprise spacing.
+- **Don't** make it a bland SillyTavern clone. Compatibility themes may exist, but De-Koi's default should keep its own blush-violet visual novel identity.
 - **Don't** make it feel like a generic Discord clone. Chat familiarity is useful, but roleplay and game mode need their own atmosphere.
 - **Don't** build developer-only control panels that assume technical confidence. Advanced settings still need clear labels, forgiving defaults, and helpful validation.
 - **Don't** use colored side-stripe borders, decorative gradient text, nested cards, or glassmorphism as the default layout answer.

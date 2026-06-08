@@ -317,7 +317,7 @@ If you're not comfortable writing CSS by hand, you can ask an AI assistant to ge
 
 ---
 
-> I'm creating a character card for Marinara Engine (a Tauri-based AI chat app). The card has a "creator notes" field where I can embed `<style>` blocks with custom CSS. I need CSS that themes the character's messages.
+> I'm creating a character card for De-Koi (a Tauri-based AI chat app). The card has a "creator notes" field where I can embed `<style>` blocks with custom CSS. I need CSS that themes the character's messages.
 >
 > **Character concept:** [describe your character's aesthetic — e.g., "cyberpunk hacker with neon green terminal vibes" or "soft cottagecore fairy with pink pastels"]
 >

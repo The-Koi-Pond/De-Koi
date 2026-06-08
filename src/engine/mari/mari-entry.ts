@@ -71,7 +71,7 @@ export type MariEntryAction =
     };
 
 const MARI_DEFAULT_ACTION_REASON =
-  "Professor Mari can inspect Marinara Engine's codebase, create extension/custom-agent records, and apply exact code edits through approved workspace tools.";
+  "Professor Mari can inspect De-Koi's codebase, create extension/custom-agent records, and apply exact code edits through approved workspace tools.";
 
 const MARI_DEFAULT_ACTION: MariEntryAction = {
   type: "none",

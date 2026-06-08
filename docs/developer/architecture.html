@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Marinara Architecture</title>
+    <title>De-Koi Architecture</title>
     <link rel="stylesheet" href="./docs.css" />
   </head>
   <body>
     <div class="shell">
       <aside class="sidebar">
         <div class="brand">
-          <strong>Marinara Engine</strong>
+          <strong>De-Koi</strong>
           <span>Developer docs</span>
         </div>
         <nav class="nav" aria-label="Documentation">
@@ -27,7 +27,7 @@
         <p class="eyebrow">Architecture</p>
         <h1>The current tree is layered by ownership, not by convenience.</h1>
         <p class="lead">
-          Marinara is a Tauri desktop app with a React feature tree, a React-free TypeScript product engine, typed
+          De-Koi is a Tauri desktop app with a React feature tree, a React-free TypeScript product engine, typed
           frontend runtime adapters, embedded Tauri commands, a hostable Rust HTTP runtime, and focused Rust capability
           crates. The current feature tree is physically split into <code>catalog</code>, <code>runtime</code>,
           <code>modes</code>, and <code>shell</code>, with dependency direction enforced by
@@ -78,7 +78,7 @@ flowchart TB
   subgraph Tauri[src-tauri]
     TauriApp[src/lib.rs and app/state<br/>Tauri host]
     RuntimeTransport[tauri-client and remote-runtime<br/>embedded invoke or HTTP]
-    ServerBin[src/bin/marinara-server.rs<br/>hostable binary]
+    ServerBin[src/bin/de-koi-server.rs<br/>hostable binary]
     HttpServer[src/http_server.rs<br/>HTTP routes and SSE]
     HttpDispatch[src/http_dispatch.rs<br/>allowlisted invoke dispatch]
     CommandFacades[src/commands/storage.rs<br/>public command groups]
@@ -595,7 +595,7 @@ flowchart TB
   TauriClient[tauri-client.ts<br/>embedded invoke or remote routing]
   RemoteRuntime[remote-runtime.ts<br/>allowlist, fetch, SSE]
   Lib[src-tauri/src/lib.rs<br/>invoke handler registration]
-  Server[src/bin/marinara-server.rs<br/>hostable binary]
+  Server[src/bin/de-koi-server.rs<br/>hostable binary]
   HttpServer[src-tauri/src/http_server.rs<br/>HTTP routes]
   HttpDispatch[src-tauri/src/http_dispatch.rs<br/>explicit invoke dispatch]
   CommandGroups[src-tauri/src/commands/storage.rs<br/>public command modules]
@@ -651,7 +651,7 @@ flowchart TB
             <tr>
               <td>Hostable HTTP runtime</td>
               <td>
-                <code>src-tauri/src/bin/marinara-server.rs</code>, <code>http_server.rs</code>, and
+                <code>src-tauri/src/bin/de-koi-server.rs</code>, <code>http_server.rs</code>, and
                 <code>http_dispatch.rs</code>.
               </td>
               <td>
@@ -759,7 +759,7 @@ flowchart TB
         <h2>Runtime Host Scope</h2>
         <p>
           The implemented hosts are the embedded Tauri desktop runtime and the hostable
-          <code>marinara-server</code> Rust runtime. The shared API layer owns the transport decision: when
+          <code>de-koi-server</code> Rust runtime. The shared API layer owns the transport decision: when
           <code>remoteRuntimeUrl</code> is set, supported storage/import/connection/LLM calls route through HTTP;
           unsupported desktop-native actions stay on embedded Tauri and must not grow silent browser fallbacks.
         </p>
@@ -769,7 +769,7 @@ flowchart LR
   RuntimeApi[src/shared/api<br/>typed runtime wrappers]
   TauriHost[Tauri desktop host]
   RemoteTransport[remote-runtime.ts<br/>HTTP allowlist]
-  RustHttp[marinara-server<br/>HTTP API]
+  RustHttp[de-koi-server<br/>HTTP API]
   RustServices[Rust capability services]
 
   Product --> RuntimeApi

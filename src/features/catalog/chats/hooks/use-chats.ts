@@ -223,7 +223,7 @@ async function readChatMemoryRecallImportFile(
   }
 
   if (!isMemoryRecallExportEnvelope(payload)) {
-    throw new Error("Choose a Memory Recall export from Marinara Engine.");
+    throw new Error("Choose a Memory Recall export from De-Koi.");
   }
 
   return payload;

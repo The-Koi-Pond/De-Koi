@@ -574,6 +574,9 @@ function getChatActiveAgentIds(chat: Chat): string[] {
   return Array.isArray(activeIds) ? activeIds.filter((id): id is string => typeof id === "string") : [];
 }
 
+const isLiteBuild =
+  import.meta.env.VITE_DE_KOI_LITE === "true" || import.meta.env.VITE_MARINARA_LITE === "true";
+
 export function ChatSettingsDrawer(props: ChatSettingsDrawerProps) {
   const contentReady = useDeferredDrawerContent(props.open, props.chat.id);
 
@@ -5489,7 +5492,7 @@ function ChatSettingsDrawerInner({
           )}
 
           {/* Memory Recall — conversation mode: show here; roleplay: shown after Function Calling */}
-          {isConversation && import.meta.env.VITE_MARINARA_LITE !== "true" && (
+          {isConversation && !isLiteBuild && (
             <Section
               label="Memory Recall"
               icon={<Brain size="0.875rem" />}
@@ -5791,7 +5794,7 @@ function ChatSettingsDrawerInner({
           </Section>
 
           {/* Memory Recall — roleplay/game modes: show after Function Calling */}
-          {!isConversation && import.meta.env.VITE_MARINARA_LITE !== "true" && (
+          {!isConversation && !isLiteBuild && (
             <Section
               label="Memory Recall"
               icon={<Brain size="0.875rem" />}

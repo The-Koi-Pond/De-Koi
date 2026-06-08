@@ -1,7 +1,7 @@
 send_message:
   name: Send Message
   description: >
-    Send a message to a Marinara Engine chat. If no chat_id is provided, the
+    Send a message to a De-Koi chat. If no chat_id is provided, the
     primary chat configured in the integration options is used.
   fields:
     chat_id:
@@ -35,7 +35,7 @@ send_message:
       name: Trigger Generation
       description: >
         Refactor compatibility field. The hostable runtime stores the message,
-        but desktop generation still happens from the Marinara app.
+        but desktop generation still happens from the De-Koi app.
       required: false
       default: false
       selector:
@@ -46,7 +46,7 @@ trigger_generation:
   description: >
     Refactor compatibility service. If user_message is provided, it is stored
     in the target chat. The Tauri refactor does not expose the desktop
-    generation loop through marinara-server.
+    generation loop through de-koi-server.
   fields:
     chat_id:
       name: Chat ID

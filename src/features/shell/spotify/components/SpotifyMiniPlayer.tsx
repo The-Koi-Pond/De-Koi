@@ -189,7 +189,7 @@ function getShuffleTitle(shuffle: boolean) {
 }
 
 function isBrowserSpotifyDeviceName(name: string | null | undefined): boolean {
-  return name === "Marinara Engine";
+  return name === "De-Koi" || name === "Marinara Engine";
 }
 
 function isPersonalMobileSpotifyDeviceType(type: string | null | undefined): boolean {
@@ -412,7 +412,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
       .then((sdkReady) => {
         if (!sdkReady || disposed || !window.Spotify?.Player) return;
         sdkPlayer = new window.Spotify.Player({
-          name: "Marinara Engine",
+          name: "De-Koi",
           volume: 0.5,
           getOAuthToken: (callback) => {
             void getStreamingAccessToken()

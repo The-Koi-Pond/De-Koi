@@ -1,7 +1,6 @@
 # Release Update Strategy
 
-Marinara Engine refactor desktop builds use a manual GitHub Releases update
-handoff.
+De-Koi refactor desktop builds use a manual GitHub Releases update handoff.
 
 The in-app update check may tell the user that a newer release exists and open
 the matching GitHub Release page, but the app must not silently download or
@@ -10,7 +9,7 @@ behavior until maintainers explicitly add signed Tauri updater support.
 
 ## Current Policy
 
-- GitHub Releases are the source of truth for desktop release downloads.
+- GitHub Releases in `The-Koi-Pond/De-Koi` are the source of truth for desktop release downloads.
 - The app update UI should describe updates as manual installs.
 - `update_check` may compare the current version against GitHub Releases.
 - `update_apply` should open the release page or return a manual-update result.

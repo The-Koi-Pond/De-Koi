@@ -8,13 +8,13 @@
     <application
         android:icon="@mipmap/ic_launcher"
         android:label="${appName}"
-        android:theme="@style/Theme.marinara_engine"
+        android:theme="@style/Theme.de_koi"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:launchMode="singleTask"
             android:label="${mainActivityTitle}"
-            android:name="com.marinara_engine.app.MainActivity"
+            android:name="com.de_koi.app.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

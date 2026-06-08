@@ -1,6 +1,6 @@
-# Contributing to Marinara Engine
+# Contributing to De-Koi
 
-Marinara Engine is currently being rebuilt on the `refactor` branch as a local-first Tauri desktop app with a React UI, a React-free TypeScript product engine, and Rust capability modules. Use this guide with `README.md`, `AGENTS.md`, and the developer docs under `docs/developer/`.
+De-Koi is currently being rebuilt on the `refactor` branch as a local-first Tauri desktop app with a React UI, a React-free TypeScript product engine, and Rust capability modules. Use this guide with `README.md`, `AGENTS.md`, and the developer docs under `docs/developer/`.
 
 ## Branches
 
@@ -24,8 +24,8 @@ Prerequisites:
 Typical local setup:
 
 ```sh
-git clone https://github.com/Pasta-Devs/Marinara-Engine.git
-cd Marinara-Engine
+git clone https://github.com/The-Koi-Pond/De-Koi.git
+cd De-Koi
 git checkout refactor
 pnpm install
 pnpm tauri dev
@@ -38,23 +38,23 @@ pnpm tauri dev
 pnpm dev
 pnpm build
 pnpm tauri build
-cargo run --manifest-path src-tauri/Cargo.toml --bin marinara-server
+cargo run --manifest-path src-tauri/Cargo.toml --bin de-koi-server
 docker compose up --build
 ```
 
 - `pnpm tauri dev` is the normal desktop development command.
 - `pnpm dev` runs the web shell only. Tauri-only capabilities will not all work there.
-- `marinara-server` runs the hostable Rust HTTP runtime. It hosts the Rust API only, not the React UI.
+- `de-koi-server` runs the hostable Rust HTTP runtime. It hosts the Rust API only, not the React UI.
 - `docker compose up --build` builds and starts the remote Rust runtime container. Its `/data`
-  directory uses the Compose-managed `marinara-server-data` volume by default; set
-  `MARINARA_HOST_DATA_DIR` to a copied app data directory when validating Docker migration parity.
+  directory uses the Compose-managed `de-koi-server-data` volume by default; set
+  `DE_KOI_HOST_DATA_DIR` to a copied app data directory when validating Docker migration parity.
   Because the runtime stores records under `/data/data`, legacy Node data from
   `packages/server/data/` should be copied into the host folder as a `data/` child, not mounted as
   `/data` itself.
   Binding live app data directly can leave root-owned files on the host, so use the named volume
   or a throwaway copied directory for Docker tests.
-  If you already tested with a host folder such as `.docker-marinara-data/`, set
-  `MARINARA_HOST_DATA_DIR=./.docker-marinara-data` to keep using that folder.
+  If you already tested with a host folder such as `.docker-de-koi-data/`, set
+  `DE_KOI_HOST_DATA_DIR=./.docker-de-koi-data` to keep using that folder.
 
 ## Current Source Shape
 

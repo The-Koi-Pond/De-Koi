@@ -26,7 +26,7 @@ const MARI_AVATAR_URL = "/sprites/mari/Mari_profile.png";
 const MARI_CHIBI_URL = "/sprites/mari/chibi-professor-mari.png";
 const MARI_CHARACTER_ID = "__professor_mari_shell__";
 const MARI_WELCOME_CONTENT =
-  "Howdy, welcome to Marinara Engine!\n\nFeeling a little lost? It's not a skill issue yet, I'm here to help! If you have any questions, feel free to ask. I'm also knowledgeable about how the entire application works and can even edit it to meet your needs! Am I not the best? 😎";
+  "Howdy, welcome to De-Koi!\n\nFeeling a little lost? It's not a skill issue yet, I'm here to help! If you have any questions, feel free to ask. I'm also knowledgeable about how the entire application works and can even edit it to meet your needs! Am I not the best? 😎";
 const MARI_CONNECTION_SETUP_CONTENT =
   "Oh, whoops! Looks like you're trying to talk to me without having a model connection set up yet. I'm afraid I need the sweet GPU juice to run. Let me take you to the Connections tab first…";
 const MARI_NO_CONNECTION_SELECTED_ERROR =

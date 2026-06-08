@@ -31,9 +31,9 @@ Default behavior: review only. Do not edit files, create commits, push branches,
    - Existing analyzer output or check failures when available; treat them as evidence to verify, not as final findings.
 5. For standard or large diffs, review in logical order: entrypoint/config, shared contracts, data flow, UI/runtime consumers, proof/docs.
 
-## Marinara Context
+## De-Koi Context
 
-For Marinara Engine reviews, use current repo sources as truth:
+For De-Koi reviews, use current repo sources as truth:
 
 - Keep root `AGENTS.md` and repo-local `marinara-agent-workflow` in force.
 - Load `marinara-architecture-guard` for imports, ownership, shared modules, adapters, Tauri/HTTP, Rust capabilities, or file layout.

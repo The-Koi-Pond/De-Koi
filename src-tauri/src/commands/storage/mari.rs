@@ -297,7 +297,7 @@ struct SearchMarinaraCodeArgs {
 
 #[tool(
     name = "search_marinara_code",
-    description = "Search Marinara Engine source files for a literal text query. Use this before answering questions about how the app works. Search concise symbols, file names, or path fragments from the user's question rather than the whole sentence. For example, search AppShell for a question about where AppShell is defined. The optional path must be relative to the repository, for example src/engine, src/features/shell/mari, src-tauri, or AGENTS.md.",
+    description = "Search De-Koi source files for a literal text query. Use this before answering questions about how the app works. Search concise symbols, file names, or path fragments from the user's question rather than the whole sentence. For example, search AppShell for a question about where AppShell is defined. The optional path must be relative to the repository, for example src/engine, src/features/shell/mari, src-tauri, or AGENTS.md.",
     input = SearchMarinaraCodeArgs,
 )]
 struct SearchMarinaraCodeTool {}
@@ -320,7 +320,7 @@ struct ReadMarinaraCodeFileArgs {
 
 #[tool(
     name = "read_marinara_code_file",
-    description = "Read one UTF-8 Marinara Engine source or guidance file by repository-relative path. Use this after search_marinara_code when exact source context is needed.",
+    description = "Read one UTF-8 De-Koi source or guidance file by repository-relative path. Use this after search_marinara_code when exact source context is needed.",
     input = ReadMarinaraCodeFileArgs,
 )]
 struct ReadMarinaraCodeFileTool {}
@@ -347,7 +347,7 @@ struct EditMarinaraCodeFileArgs {
 
 #[tool(
     name = "edit_marinara_code_file",
-    description = "Edit one existing Marinara Engine source or guidance file by replacing an exact old_text with new_text. The path must be repository-relative, old_text must occur exactly once, and destructive broad rewrites are rejected.",
+    description = "Edit one existing De-Koi source or guidance file by replacing an exact old_text with new_text. The path must be repository-relative, old_text must occur exactly once, and destructive broad rewrites are rejected.",
     input = EditMarinaraCodeFileArgs,
 )]
 struct EditMarinaraCodeFileTool {}
@@ -382,7 +382,7 @@ struct CreateMarinaraExtensionArgs {
 
 #[tool(
     name = "create_marinara_extension",
-    description = "Create a user-installed Marinara extension record with optional CSS and JavaScript. Prefer this for user-facing tweaks before editing application source code.",
+    description = "Create a user-installed De-Koi extension record with optional CSS and JavaScript. Prefer this for user-facing tweaks before editing application source code.",
     input = CreateMarinaraExtensionArgs,
 )]
 struct CreateMarinaraExtensionTool {
@@ -432,7 +432,7 @@ struct CreateMarinaraCustomAgentArgs {
 
 #[tool(
     name = "create_marinara_custom_agent",
-    description = "Create a custom Marinara agent configuration record. Use this when the user asks Professor Mari to make an agent for conversation, roleplay, game, writing, tracking, or post-processing behavior.",
+    description = "Create a custom De-Koi agent configuration record. Use this when the user asks Professor Mari to make an agent for conversation, roleplay, game, writing, tracking, or post-processing behavior.",
     input = CreateMarinaraCustomAgentArgs,
 )]
 struct CreateMarinaraCustomAgentTool {
@@ -454,7 +454,7 @@ impl ToolRuntime for CreateMarinaraCustomAgentTool {
 
 #[agent(
     name = "professor_mari",
-    description = "You are Professor Mari, Marinara's standalone assistant. You can inspect the app's codebase, read files, apply exact source edits, create extension records, create custom agent records, and inspect the creative library through tools. Use tools for factual answers about Marinara internals.",
+    description = "You are Professor Mari, De-Koi's standalone assistant. You can inspect the app's codebase, read files, apply exact source edits, create extension records, create custom agent records, and inspect the creative library through tools. Use tools for factual answers about De-Koi internals.",
     tools = [
         ReadMarinaraLibraryTool { state: self.state.clone() },
         SearchMarinaraCodeTool {},
@@ -538,7 +538,7 @@ fn read_only_mari_action_contract() -> Value {
     json!({
         "type": "none",
         "capability": "workspace_agent",
-        "reason": "Professor Mari can inspect Marinara Engine's codebase and creative library. Write tools require an explicit approval flow and are disabled for autonomous tool runs.",
+        "reason": "Professor Mari can inspect De-Koi's codebase and creative library. Write tools require an explicit approval flow and are disabled for autonomous tool runs.",
     })
 }
 
@@ -602,10 +602,10 @@ fn marinara_tool_call_to_autoagents(value: Value) -> Option<ToolCall> {
 
 fn build_system_prompt(persona: Option<&MariPersonaContext>) -> String {
     let mut parts = vec![
-        "You are Professor Mari, a standalone assistant inside Marinara Engine.".to_string(),
+        "You are Professor Mari, a standalone assistant inside De-Koi.".to_string(),
         "Personality: helpful, candid, playful, direct, technically sharp, and a little proudly adorable. Explain clearly, nudge users toward practical next steps, and keep your confidence warm rather than formal.".to_string(),
-        "You can chat with the user, inspect Marinara Engine source code with search_marinara_code and read_marinara_code_file, and apply narrow exact-match code edits with edit_marinara_code_file.".to_string(),
-        "For questions about Marinara internals, architecture, UI behavior, agent behavior, storage, imports, providers, or bugs, search the codebase before answering. Prefer AGENTS.md and the relevant owner files over memory. Never cite package-era paths unless search/read tools confirm they exist in the current repository.".to_string(),
+        "You can chat with the user, inspect De-Koi source code with search_marinara_code and read_marinara_code_file, and apply narrow exact-match code edits with edit_marinara_code_file.".to_string(),
+        "For questions about De-Koi internals, architecture, UI behavior, agent behavior, storage, imports, providers, or bugs, search the codebase before answering. Prefer AGENTS.md and the relevant owner files over memory. Never cite package-era paths unless search/read tools confirm they exist in the current repository.".to_string(),
         "You can create user extensions with create_marinara_extension and custom agent configurations with create_marinara_custom_agent. Prefer those record-creation tools when the user asks for an extension or agent.".to_string(),
         "You can inspect the creative library through read_marinara_library when the user asks about their characters, personas, lorebooks, prompt presets, or groups.".to_string(),
         "You cannot run shell commands, inspect private chats/messages/memories, access secrets, edit files outside the repository, or perform broad/destructive rewrites. If an edit needs runtime verification, say what should be checked.".to_string(),
@@ -937,7 +937,7 @@ fn marinara_repo_root() -> AppResult<PathBuf> {
     let Some(root) = manifest_dir.parent() else {
         return Err(AppError::new(
             "mari_repo_root_unavailable",
-            "Could not resolve Marinara Engine repository root",
+            "Could not resolve De-Koi repository root",
         ));
     };
     let root = root.canonicalize().map_err(AppError::from)?;

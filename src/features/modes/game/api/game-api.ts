@@ -2562,7 +2562,7 @@ export const gameApi = {
       (await llmJson({
         connectionId: data.connectionId,
         fallback,
-        system: "Create one Marinara Engine Game mode party character card. Return valid JSON only.",
+        system: "Create one De-Koi Game mode party character card. Return valid JSON only.",
         user: buildPartyRecruitCardPrompt({
           targetCharacterName: characterName,
           targetCharacterCard: await targetPartyCardPromptContext(chat, meta, characterName, data.characterId),
@@ -2688,7 +2688,7 @@ export const gameApi = {
         (await llmJson({
           connectionId: data.connectionId,
           fallback: fallbackMap as unknown as Record<string, unknown>,
-          system: "You generate compact RPG map JSON for Marinara Engine Game mode.",
+          system: "You generate compact RPG map JSON for De-Koi Game mode.",
           user: buildMapGenerationPrompt(data.locationType || "Area", data.context || ""),
           repair: gameMapJsonRepairContext(data),
         }));

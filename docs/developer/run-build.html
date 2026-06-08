@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Run and Build Marinara</title>
+    <title>Run and Build De-Koi</title>
     <link rel="stylesheet" href="./docs.css" />
   </head>
   <body>
     <div class="shell">
       <aside class="sidebar">
         <div class="brand">
-          <strong>Marinara Engine</strong>
+          <strong>De-Koi</strong>
           <span>Developer docs</span>
         </div>
         <nav class="nav" aria-label="Documentation">
@@ -76,7 +76,7 @@
           <code>pnpm tauri dev</code> enables the optional <code>devtools</code> Cargo feature and registers
           <a href="https://docs.crabnebula.dev/devtools/get-started/">CrabNebula DevTools</a> instrumentation for that
           development run. Regular builds keep the feature disabled. Open the CrabNebula DevTools desktop app and
-          connect it to the running Marinara process. Use its
+          connect it to the running De-Koi process. Use its
           <a href="https://docs.crabnebula.dev/devtools/tabs/calls/">Calls tab</a> to inspect Tauri command timing,
           payloads, responses, and IPC spans.
         </p>
@@ -141,7 +141,7 @@
         <p>
           The public app name for bundles and the desktop window comes from
           <code>src-tauri/tauri.conf.json</code>. Keep <code>productName</code> and the main window
-          <code>title</code> set to <code>Marinara Engine</code>.
+          <code>title</code> set to <code>De-Koi</code>.
         </p>
 
         <h2>Manual Pre-Alpha Platform Builds</h2>
@@ -211,7 +211,7 @@
                 <code>pnpm tauri android build --debug --apk --ci</code> with Gradle-provided pre-alpha app id/name
                 overrides
               </td>
-              <td>Debug-signed APK on the GitHub pre-release using <code>com.marinara_engine.prealpha</code>.</td>
+              <td>Debug-signed APK on the GitHub pre-release using <code>com.de_koi.prealpha</code>.</td>
             </tr>
             <tr>
               <td>iOS</td>
@@ -228,14 +228,14 @@
           &gt; Advanced &gt; Remote Runtime URL at this server to route supported storage, import, connection,
           model-list, and LLM calls through HTTP.
         </p>
-        <pre><code>cargo run --manifest-path src-tauri/Cargo.toml --bin marinara-server</code></pre>
+        <pre><code>cargo run --manifest-path src-tauri/Cargo.toml --bin de-koi-server</code></pre>
         <p>By default it listens on:</p>
         <pre><code>http://127.0.0.1:8787</code></pre>
         <p>Check the server with:</p>
         <pre><code>curl http://127.0.0.1:8787/health</code></pre>
         <p>
           Legacy local-sidecar embedding clients can use the compatibility endpoint at
-          <code>/api/sidecar/v1/embeddings</code>. In the Tauri refactor this route is backed by the configured Marinara
+          <code>/api/sidecar/v1/embeddings</code>. In the Tauri refactor this route is backed by the configured De-Koi
           embedding connection, not by the old managed sidecar process. Pass <code>connectionId</code> to target a
           specific connection, or configure a connection with <code>embeddingModel</code> and
           <code>embeddingBaseUrl</code> for local OpenAI-compatible, Ollama, or provider embeddings.
@@ -245,16 +245,16 @@
   -d '{"connectionId":"your-connection-id","model":"text-embedding-3-small","input":"hello"}'</code></pre>
         <h3>Managed Local Sidecar Status</h3>
         <p>
-          The Node-era managed local model sidecar is intentionally retired in the Tauri refactor. Marinara no longer
+          The Node-era managed local model sidecar is intentionally retired in the Tauri refactor. De-Koi no longer
           downloads curated Hugging Face models, starts or stops a bundled inference process, or exposes the old
-          <code>LOCAL_SIDECAR_CONNECTION_ID</code> path. Use a normal Marinara connection for local models instead:
+          <code>LOCAL_SIDECAR_CONNECTION_ID</code> path. Use a normal De-Koi connection for local models instead:
           OpenAI-compatible local servers such as LM Studio and KoboldCpp can use the Custom provider, and Ollama can be
           reached through its OpenAI-compatible <code>/v1</code> endpoint or through dedicated embedding settings. The
           only retained sidecar URL is the compatibility embedding route above, backed by the configured connection.
         </p>
         <p>Override the bind address and data directory with:</p>
-        <pre><code>MARINARA_SERVER_ADDR=0.0.0.0:8787
-MARINARA_DATA_DIR=/path/to/data</code></pre>
+        <pre><code>DE_KOI_SERVER_ADDR=0.0.0.0:8787
+DE_KOI_DATA_DIR=/path/to/data</code></pre>
         <p>
           For prompt/model/connection troubleshooting, start the runtime with
           <code>LOG_PRESET=prompt-connections</code>. This enables Rust LLM prompt diagnostics and suppresses routine
@@ -264,7 +264,7 @@ MARINARA_DATA_DIR=/path/to/data</code></pre>
         <p>
           Autonomous conversation scheduling is owned by the desktop/web client pollers in the refactor architecture.
           The remote Rust runtime stores autonomous unread state and serves the shared generation/storage APIs, but it
-          does not run a privileged background scheduler when no client is connected. Keep a Marinara client open if
+          does not run a privileged background scheduler when no client is connected. Keep a De-Koi client open if
           autonomous messages should continue to trigger.
         </p>
         <p>
@@ -289,9 +289,9 @@ MARINARA_DATA_DIR=/path/to/data</code></pre>
         <pre><code>http://127.0.0.1:8787</code></pre>
         <p>
           Compose stores <code>/data</code> in the Compose-managed
-          <code>marinara-server-data</code> volume by default.
+          <code>de-koi-server-data</code> volume by default.
           To verify migration against app data, copy that data into a throwaway
-          host folder and set <code>MARINARA_HOST_DATA_DIR</code> to the copy
+          host folder and set <code>DE_KOI_HOST_DATA_DIR</code> to the copy
           before starting Compose so the container and host share the same data
           tree without rewriting live desktop data. The runtime stores records
           under <code>/data/data</code>, so legacy Node data from
@@ -300,8 +300,8 @@ MARINARA_DATA_DIR=/path/to/data</code></pre>
           itself. Binding live app data directly can leave root-owned files on
           the host, so use the named volume or a throwaway copied directory for
           Docker tests. If you already tested with a host folder such as
-          <code>.docker-marinara-data/</code>, set
-          <code>MARINARA_HOST_DATA_DIR=./.docker-marinara-data</code> to keep
+          <code>.docker-de-koi-data/</code>, set
+          <code>DE_KOI_HOST_DATA_DIR=./.docker-de-koi-data</code> to keep
           using that folder.
         </p>
         <p>
@@ -311,8 +311,8 @@ MARINARA_DATA_DIR=/path/to/data</code></pre>
           explicit remote access opt-in.
         </p>
         <p>To build directly from GitHub, use Docker's remote git context:</p>
-        <pre><code>docker build -t marinara-engine-server https://github.com/Pasta-Devs/Marinara-Engine.git#refactor
-docker run --rm -p 127.0.0.1:8787:8787 -v "$(pwd)/.docker-marinara-data:/data" marinara-engine-server</code></pre>
+        <pre><code>docker build -t de-koi-server .
+docker run --rm -p 127.0.0.1:8787:8787 -v "$(pwd)/.docker-de-koi-data:/data" de-koi-server</code></pre>
 
         <h2>Checks</h2>
         <table>
@@ -371,7 +371,7 @@ sequenceDiagram
   participant Tauri as pnpm tauri dev
   participant Vite as Vite dev server :1420
   participant Rust as Rust Tauri host
-  participant Remote as marinara-server HTTP runtime
+  participant Remote as de-koi-server HTTP runtime
   participant UI as React webview
 
   Dev->>Tauri: pnpm tauri dev

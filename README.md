@@ -1,10 +1,10 @@
-# Marinara Engine
+# De-Koi
 
-Marinara Engine is a local-first AI chat, roleplay, and game engine built as a Tauri desktop app. It combines a React interface, a TypeScript product engine, and Rust capability modules for local storage, managed assets, provider transport, integrations, and an optional hostable runtime.
+De-Koi is a local-first AI chat, roleplay, and game engine built as a Tauri desktop app. It combines a React interface, a TypeScript product engine, and Rust capability modules for local storage, managed assets, provider transport, integrations, and an optional hostable runtime.
 
 This repository is an active refactor branch. The app is usable from source, but public release packaging and end-user installation guides are still being rebuilt around the new architecture.
 Use the `refactor` branch copy of this documentation for current development and integration work. `main` and historical `staging` branch docs may describe legacy architecture and should not be treated as authoritative for the refactor build unless a maintainer explicitly asks for that branch context.
-The refactor build keeps an explicit in-app update check in Settings > Advanced. It checks Marinara Engine GitHub releases and opens the matching release page for manual install; signed Tauri auto-install artifacts are not configured on this branch yet. See [Release Update Strategy](docs/release-update-strategy.md) for the stable refactor update policy.
+The refactor build keeps an explicit in-app update check in Settings > Advanced. It opens the matching release page for manual install; signed Tauri auto-install artifacts are not configured on this branch yet. See [Release Update Strategy](docs/release-update-strategy.md) for the stable refactor update policy.
 Token budget displays and prompt budget paths currently use deterministic estimates rather than provider-exact tokenizers. See [Token Budget Estimates](docs/token-budget-estimates.md) for the tokenizer support decision and future requirements.
 
 ## Screenshots
@@ -24,7 +24,7 @@ Screenshots are coming soon. The previous screenshot set was removed from this r
 
 ## Architecture
 
-Marinara is split so product behavior, UI, runtime adapters, and privileged capabilities have clear owners:
+De-Koi is split so product behavior, UI, runtime adapters, and privileged capabilities have clear owners:
 
 - `src/app` - React bootstrap, shell, providers, and startup effects.
 - `src/features` - React feature UI for catalog resources, runtime systems, concrete modes, and shell tools.
@@ -79,7 +79,7 @@ pnpm tauri build
 Start the hostable Rust runtime:
 
 ```sh
-cargo run --manifest-path src-tauri/Cargo.toml --bin marinara-server
+cargo run --manifest-path src-tauri/Cargo.toml --bin de-koi-server
 ```
 
 By default it listens on:
@@ -113,16 +113,16 @@ docker compose up --build
 ```
 
 Docker Compose stores remote-runtime data in its Compose-managed
-`marinara-server-data` volume by default. To test migration against app data,
+`de-koi-server-data` volume by default. To test migration against app data,
 copy that app data into a throwaway host folder and point
-`MARINARA_HOST_DATA_DIR` at the copy before starting Compose so the container and
+`DE_KOI_HOST_DATA_DIR` at the copy before starting Compose so the container and
 host read the same `/data` tree without rewriting live desktop data. The runtime
 stores records under `/data/data`, so legacy Node data from `packages/server/data/`
 should be copied into the host folder as a `data/` child, for example
-`.docker-marinara-data/data/`; do not point `MARINARA_HOST_DATA_DIR` directly at
+`.docker-de-koi-data/data/`; do not point `DE_KOI_HOST_DATA_DIR` directly at
 the `packages/server/data/` folder. If you already tested with a host folder such
-as `.docker-marinara-data/`, keep using that folder by setting
-`MARINARA_HOST_DATA_DIR=./.docker-marinara-data`.
+as `.docker-de-koi-data/`, keep using that folder by setting
+`DE_KOI_HOST_DATA_DIR=./.docker-de-koi-data`.
 
 The Compose file is intended for same-machine browser access by default. It binds
 the host port to `127.0.0.1:8787` and enables the Docker bridge auth bypass so a

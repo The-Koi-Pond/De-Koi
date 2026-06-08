@@ -249,7 +249,8 @@ fn prompt_connection_diagnostics_enabled_values(
 
 fn prompt_connection_diagnostics_enabled() -> bool {
     let log_preset = normalize_env_value(env::var("LOG_PRESET").ok());
-    let explicit = normalize_env_value(env::var("MARINARA_PROMPT_CONNECTION_DIAGNOSTICS").ok());
+    let explicit = normalize_env_value(env::var("DE_KOI_PROMPT_CONNECTION_DIAGNOSTICS").ok())
+        .or_else(|| normalize_env_value(env::var("MARINARA_PROMPT_CONNECTION_DIAGNOSTICS").ok()));
     prompt_connection_diagnostics_enabled_values(log_preset.as_deref(), explicit.as_deref())
 }
 
@@ -1775,8 +1776,8 @@ fn apply_openai_auth_headers(
     }
     if request.connection.provider == "openrouter" {
         req = req
-            .header("HTTP-Referer", "https://marinara.local")
-            .header("X-Title", "Marinara Engine");
+            .header("HTTP-Referer", "https://de-koi.local")
+            .header("X-Title", "De-Koi");
     }
     req
 }
@@ -1795,8 +1796,8 @@ fn apply_chatgpt_auth_headers_with_auth(
     let mut req = req
         .bearer_auth(auth.access_token.as_str())
         .header("version", APP_VERSION)
-        .header("originator", "Marinara-Engine")
-        .header("User-Agent", format!("MarinaraEngine/{APP_VERSION}"));
+        .header("originator", "De-Koi")
+        .header("User-Agent", format!("DeKoi/{APP_VERSION}"));
     if let Some(account_id) = auth.account_id.as_deref() {
         req = req.header("ChatGPT-Account-ID", account_id);
     }
@@ -2103,8 +2104,8 @@ async fn complete_openai_compatible_rich(request: LlmRequest) -> AppResult<LlmCo
     }
     if request.connection.provider == "openrouter" {
         req = req
-            .header("HTTP-Referer", "https://marinara.local")
-            .header("X-Title", "Marinara Engine");
+            .header("HTTP-Referer", "https://de-koi.local")
+            .header("X-Title", "De-Koi");
     }
     let response = send_provider_request(req).await?;
     parse_json_response_rich(response).await
@@ -2149,8 +2150,8 @@ async fn stream_openai_compatible(
     }
     if request.connection.provider == "openrouter" {
         req = req
-            .header("HTTP-Referer", "https://marinara.local")
-            .header("X-Title", "Marinara Engine");
+            .header("HTTP-Referer", "https://de-koi.local")
+            .header("X-Title", "De-Koi");
     }
     let response = send_provider_request(req).await?;
     let status = response.status();
@@ -5616,7 +5617,7 @@ mod tests {
                 assert!(headers.contains("authorization: bearer access-secret"));
                 assert!(headers.contains("chatgpt-account-id: account-1"));
                 assert!(headers.contains("x-openai-fedramp: true"));
-                assert!(headers.contains("originator: marinara-engine"));
+                assert!(headers.contains("originator: de-koi"));
             }
             let response = format!(
                 "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",

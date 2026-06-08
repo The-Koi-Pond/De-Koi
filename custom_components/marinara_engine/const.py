@@ -1,4 +1,4 @@
-"""Constants for the Marinara Engine integration."""
+"""Constants for the De-Koi integration."""
 
 DOMAIN = "marinara_engine"
 

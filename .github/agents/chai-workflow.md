@@ -1,16 +1,16 @@
-# Marinara Agent Workflow Overlay
+# De-Koi Agent Workflow Overlay
 
-This is Marinara Engine's adapted workflow overlay for AI coding agents.
+This is De-Koi's adapted workflow overlay for AI coding agents.
 
 Source inspiration: `cha1latte/chai-agent-workflow-pack`. This overlay adapts
-that workflow for Marinara's `AGENTS.md`, `CONTRIBUTING.md`, PR/issue templates,
+that workflow for De-Koi's `AGENTS.md`, `CONTRIBUTING.md`, PR/issue templates,
 and validation commands; it is not a vendor copy.
 
 ## Priority
 
 Follow instructions in this order:
 
-1. Marinara repo rules: `CONTRIBUTING.md`, `AGENTS.md`, package instructions, and templates.
+1. De-Koi repo rules: `CONTRIBUTING.md`, `AGENTS.md`, package instructions, and templates.
 2. The user's latest request.
 3. This workflow overlay.
 4. Assistant defaults.

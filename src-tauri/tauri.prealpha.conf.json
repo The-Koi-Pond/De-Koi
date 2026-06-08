@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Marinara Engine Pre-Alpha",
-  "identifier": "com.marinara-engine.prealpha",
+  "productName": "De-Koi Pre-Alpha",
+  "identifier": "com.de-koi.prealpha",
   "app": {
     "windows": [
       {
-        "title": "Marinara Engine Pre-Alpha",
+        "title": "De-Koi Pre-Alpha",
         "width": 800,
         "height": 600,
         "center": true,

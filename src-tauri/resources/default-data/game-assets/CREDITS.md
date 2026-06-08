@@ -18,7 +18,7 @@ All assets in this directory are licensed under **CC0 (Public Domain)** and are 
 | ------------------------------------------------------------------ | -------------------- | ------------------ | ------------------------------------------------------------------- |
 | `sfx/ui/`, `sfx/exploration/` (partial)                            | 50 RPG Sound Effects | Kenney (kenney.nl) | [OpenGameArt](https://opengameart.org/content/50-rpg-sound-effects) |
 | `sfx/combat/`, `sfx/ui/` (partial), `sfx/exploration/` (partial)   | RPG Sound Pack       | artisticdude       | [OpenGameArt](https://opengameart.org/content/rpg-sound-pack)       |
-| `sfx/exploration/bed-creak.wav`, `sfx/exploration/wet-squelch.wav` | Procedural SFX       | Marinara Engine    | Generated procedurally, CC0                                         |
+| `sfx/exploration/bed-creak.wav`, `sfx/exploration/wet-squelch.wav` | Procedural SFX       | De-Koi             | Generated procedurally, CC0                                         |
 
 ## Ambient Sounds
 

@@ -1,10 +1,10 @@
 {
   "domain": "marinara_engine",
-  "name": "Marinara Engine",
+  "name": "De-Koi",
   "version": "1.0.0",
   "config_flow": true,
-  "documentation": "https://github.com/Pasta-Devs/Marinara-Engine/blob/refactor/docs/integrations/home-assistant.md",
-  "issue_tracker": "https://github.com/Pasta-Devs/Marinara-Engine/issues",
+  "documentation": "https://github.com/The-Koi-Pond/De-Koi/blob/main/docs/integrations/home-assistant.md",
+  "issue_tracker": "https://github.com/The-Koi-Pond/De-Koi/issues",
   "requirements": [],
   "dependencies": ["webhook"],
   "iot_class": "local_polling",

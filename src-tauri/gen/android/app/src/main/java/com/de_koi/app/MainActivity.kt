@@ -1,4 +1,4 @@
-package com.marinara_engine.app
+package com.de_koi.app
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge

@@ -1,13 +1,13 @@
 ---
 name: frontend-design
-description: "Create distinctive, production-grade frontend UI direction for Marinara Engine. Use when the user asks to design or build a new UI surface, page, component, dashboard, app shell, modal, onboarding flow, editor, settings view, mode surface, visual treatment, or wants bland UI made more distinctive. In this repo, use frontend-design for initial concept, layout, and implementation direction; use impeccable afterward for critique, accessibility, responsive hardening, polish, and live iteration."
+description: "Create distinctive, production-grade frontend UI direction for De-Koi. Use when the user asks to design or build a new UI surface, page, component, dashboard, app shell, modal, onboarding flow, editor, settings view, mode surface, visual treatment, or wants bland UI made more distinctive. In this repo, use frontend-design for initial concept, layout, and implementation direction; use impeccable afterward for critique, accessibility, responsive hardening, polish, and live iteration."
 ---
 
 # Frontend Design
 
-Use this as Marinara's creative frontend builder lens. It helps choose the visual direction and first strong implementation shape; it does not replace repo architecture, mode boundaries, Impeccable polish, or native proof.
+Use this as De-Koi's creative frontend builder lens. It helps choose the visual direction and first strong implementation shape; it does not replace repo architecture, mode boundaries, Impeccable polish, or native proof.
 
-## Marinara Order
+## De-Koi Order
 
 1. Keep root `AGENTS.md`, `skills/marinara-agent-workflow`, and the matching workflow card in force.
 2. Load `PRODUCT.md` and `DESIGN.md` before choosing visual direction.

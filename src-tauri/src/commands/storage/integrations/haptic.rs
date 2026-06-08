@@ -77,7 +77,7 @@ async fn connect(body: Value) -> AppResult<Value> {
         .clone()
         .or_else(|| runtime.preferred_server_url.clone())
         .unwrap_or_else(|| DEFAULT_INTIFACE_URL.to_string());
-    let client = ButtplugClient::new("Marinara Engine");
+    let client = ButtplugClient::new("De-Koi");
     let transport = if target.starts_with("wss://") {
         ButtplugWebsocketClientTransport::new_secure_connector(&target, true)
     } else {

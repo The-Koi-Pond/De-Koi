@@ -1,4 +1,4 @@
-"""Marinara Engine Home Assistant Integration."""
+"""De-Koi Home Assistant Integration."""
 
 from __future__ import annotations
 
@@ -100,15 +100,15 @@ async def _async_sync_tools(
     try:
         created, updated = await coordinator.sync_tools(webhook_url, enabled_categories)
         _LOGGER.info(
-            "Marinara Engine: tool sync complete — %d created, %d updated",
+            "De-Koi: tool sync complete — %d created, %d updated",
             created,
             updated,
         )
         agent_status = await coordinator.sync_agent(enabled_categories)
         if agent_status != "unchanged":
-            _LOGGER.info("Marinara Engine: Home Assistant agent %s", agent_status)
+            _LOGGER.info("De-Koi: Home Assistant agent %s", agent_status)
     except Exception as err:
-        _LOGGER.warning("Marinara Engine: could not auto-sync tools: %s", err)
+        _LOGGER.warning("De-Koi: could not auto-sync tools: %s", err)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

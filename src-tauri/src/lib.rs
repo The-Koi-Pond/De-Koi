@@ -40,7 +40,9 @@ fn center_main_window_on_primary_monitor(app: &tauri::App) {
 
 #[cfg(all(debug_assertions, not(any(target_os = "android", target_os = "ios"))))]
 fn open_main_window_devtools_if_requested(app: &tauri::App) {
-    if std::env::var("MARINARA_TAURI_AUTO_DEVTOOLS").as_deref() != Ok("1") {
+    let auto_devtools = std::env::var("DE_KOI_TAURI_AUTO_DEVTOOLS")
+        .or_else(|_| std::env::var("MARINARA_TAURI_AUTO_DEVTOOLS"));
+    if auto_devtools.as_deref() != Ok("1") {
         return;
     }
     let Some(window) = app.get_webview_window("main") else {

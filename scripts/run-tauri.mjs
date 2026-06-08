@@ -9,7 +9,8 @@ const env = { ...process.env };
 const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") || "PATH";
 const tauriArgs = process.argv.slice(2);
 const isTauriDev = tauriArgs[0] === "dev";
-const autoDevtoolsEnv = "MARINARA_TAURI_AUTO_DEVTOOLS";
+const autoDevtoolsEnv = "DE_KOI_TAURI_AUTO_DEVTOOLS";
+const legacyAutoDevtoolsEnv = "MARINARA_TAURI_AUTO_DEVTOOLS";
 const webview2DebugArg = "--remote-debugging-port=9222";
 const devtoolsFeature = "devtools";
 
@@ -58,7 +59,7 @@ if (cargoBin && existsSync(cargoBin)) {
 }
 
 if (isTauriDev) {
-  env[autoDevtoolsEnv] ??= "1";
+  env[autoDevtoolsEnv] ??= env[legacyAutoDevtoolsEnv] ?? "1";
   if (!hasCargoFeature(tauriArgs, devtoolsFeature)) {
     insertBeforeRunnerArgs(tauriArgs, ["--features", devtoolsFeature]);
   }

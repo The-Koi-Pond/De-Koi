@@ -21,17 +21,17 @@ const BACKUP_DIRS: &[&str] = &[
 ];
 
 const RESTORE_NOTES: &str = "\
-Marinara Engine backup
+De-Koi backup
 
-This archive contains a managed backup for Marinara Engine recovery.
+This archive contains a managed backup for De-Koi recovery.
 
 Preferred restore path:
-1. Open Marinara Settings -> Import.
+1. Open De-Koi Settings -> Import.
 2. Use Import Profile and select this zip archive, or select marinara-profile.json if the archive was extracted.
 
 Manual recovery path:
-1. Close Marinara before copying files.
-2. Copy the archive folders into your Marinara app data directory.
+1. Close De-Koi before copying files.
+2. Copy the archive folders into your De-Koi app data directory.
 3. In the refactor app layout, JSON collections live in data/collections. Keep companion files beside them, including *.json.bak collection backups.
 4. Managed asset folders are avatars, sprites, backgrounds, gallery, game-assets, fonts, knowledge-sources, and lorebooks/images.
 5. Legacy raw backups used storage/ for JSON data; current refactor backups use data/.

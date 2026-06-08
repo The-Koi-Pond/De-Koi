@@ -1,4 +1,4 @@
-"""DataUpdateCoordinator for Marinara Engine."""
+"""DataUpdateCoordinator for De-Koi."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def _is_enabled(value: object) -> bool:
 
 
 class MarinaraCoordinator(DataUpdateCoordinator[dict]):
-    """Polls Marinara Engine for chats and agents."""
+    """Polls De-Koi for chats and agents."""
 
     def __init__(
         self,
@@ -123,9 +123,9 @@ class MarinaraCoordinator(DataUpdateCoordinator[dict]):
 
             return {"chats": chats, "agents": agents}
         except aiohttp.ClientConnectionError as err:
-            raise UpdateFailed(f"Cannot reach Marinara Engine: {err}") from err
+            raise UpdateFailed(f"Cannot reach De-Koi: {err}") from err
         except aiohttp.ClientResponseError as err:
-            raise UpdateFailed(f"Marinara Engine returned error {err.status}") from err
+            raise UpdateFailed(f"De-Koi returned error {err.status}") from err
         except Exception as err:
             raise UpdateFailed(f"Unexpected error: {err}") from err
 
@@ -145,7 +145,7 @@ class MarinaraCoordinator(DataUpdateCoordinator[dict]):
             )
         except Exception as err:
             raise ConfigEntryNotReady(
-                f"Cannot connect to Marinara Engine at {self.base_url}: {err}"
+                f"Cannot connect to De-Koi at {self.base_url}: {err}"
             ) from err
 
     async def send_message(self, chat_id: str, content: str, role: str = "user") -> None:
@@ -170,15 +170,15 @@ class MarinaraCoordinator(DataUpdateCoordinator[dict]):
         if user_message:
             await self.send_message(chat_id, user_message)
         _LOGGER.warning(
-            "Marinara Engine refactor does not expose the desktop generation loop "
-            "through marinara-server; open the chat in the desktop client to generate."
+            "De-Koi refactor does not expose the desktop generation loop "
+            "through de-koi-server; open the chat in the desktop client to generate."
         )
 
     async def abort_generation(self) -> None:
         """Legacy compatibility hook; remote generation is not hostable."""
         _LOGGER.warning(
-            "Marinara Engine refactor does not expose desktop generation aborts "
-            "through marinara-server."
+            "De-Koi refactor does not expose desktop generation aborts "
+            "through de-koi-server."
         )
 
     async def set_agent_enabled(self, agent_id: str, enabled: bool) -> None:

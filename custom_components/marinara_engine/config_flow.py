@@ -1,4 +1,4 @@
-"""Config flow for Marinara Engine."""
+"""Config flow for De-Koi."""
 
 from __future__ import annotations
 
@@ -163,7 +163,7 @@ async def _test_connection(
 
 
 class MarinaraConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Marinara Engine."""
+    """Handle a config flow for De-Koi."""
 
     VERSION = 1
 
@@ -186,7 +186,7 @@ class MarinaraConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
 
                 return self.async_create_entry(
-                    title=f"Marinara Engine ({host}:{port})",
+                    title=f"De-Koi ({host}:{port})",
                     data={
                         CONF_HOST: host,
                         CONF_PORT: port,

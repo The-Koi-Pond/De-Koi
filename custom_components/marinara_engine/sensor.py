@@ -1,4 +1,4 @@
-"""Sensor platform for Marinara Engine."""
+"""Sensor platform for De-Koi."""
 
 from __future__ import annotations
 
@@ -45,15 +45,15 @@ class _MarinaraEntity(CoordinatorEntity[MarinaraCoordinator]):
     def device_info(self) -> dict:
         return {
             "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": "Marinara Engine",
-            "manufacturer": "Marinara Engine",
+            "name": "De-Koi",
+            "manufacturer": "De-Koi",
             "model": "Local AI Engine",
             "configuration_url": self.coordinator.base_url,
         }
 
 
 class MarinaraChatCountSensor(_MarinaraEntity, SensorEntity):
-    """Total number of chats in Marinara Engine."""
+    """Total number of chats in De-Koi."""
 
     _attr_icon = "mdi:chat-outline"
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -62,7 +62,7 @@ class MarinaraChatCountSensor(_MarinaraEntity, SensorEntity):
     def __init__(self, coordinator: MarinaraCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_chat_count"
-        self._attr_name = "Marinara Chat Count"
+        self._attr_name = "De-Koi Chat Count"
 
     @property
     def native_value(self) -> int:
@@ -88,7 +88,7 @@ class MarinaraActiveAgentCountSensor(_MarinaraEntity, SensorEntity):
     def __init__(self, coordinator: MarinaraCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_active_agent_count"
-        self._attr_name = "Marinara Active Agent Count"
+        self._attr_name = "De-Koi Active Agent Count"
 
     @property
     def native_value(self) -> int:

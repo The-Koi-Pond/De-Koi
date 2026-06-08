@@ -13,14 +13,16 @@ val tauriProperties = Properties().apply {
     }
 }
 
-val androidApplicationId = providers.environmentVariable("MARINARA_ANDROID_APPLICATION_ID")
-    .orElse("com.marinara_engine.app")
-val androidAppName = providers.environmentVariable("MARINARA_ANDROID_APP_NAME")
-    .orElse("Marinara Engine")
+val androidApplicationId = providers.environmentVariable("DE_KOI_ANDROID_APPLICATION_ID")
+    .orElse(providers.environmentVariable("MARINARA_ANDROID_APPLICATION_ID"))
+    .orElse("com.de_koi.app")
+val androidAppName = providers.environmentVariable("DE_KOI_ANDROID_APP_NAME")
+    .orElse(providers.environmentVariable("MARINARA_ANDROID_APP_NAME"))
+    .orElse("De-Koi")
 
 android {
     compileSdk = 36
-    namespace = "com.marinara_engine.app"
+    namespace = "com.de_koi.app"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         manifestPlaceholders["appName"] = androidAppName.get()

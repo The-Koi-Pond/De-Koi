@@ -1,11 +1,11 @@
 [package]
-name = "marinara-engine"
+name = "de-koi"
 version = "1.6.1"
-description = "Marinara Engine"
+description = "De-Koi"
 authors = ["you"]
 edition = "2021"
 publish = false
-default-run = "marinara-engine"
+default-run = "de-koi"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -28,7 +28,7 @@ source = "Rust domain crates own Tauri boundary DTOs and export TypeScript bindi
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "marinara_engine_lib"
+name = "de_koi_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]

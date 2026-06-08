@@ -1701,7 +1701,7 @@ function fallbackSystemPrompt(
 
   if (mode === "roleplay" || meta.sceneStatus === "active") {
     return [
-      "You are roleplaying in Marinara Engine. Stay in character, respect the scenario, and continue the scene naturally.",
+      "You are roleplaying in De-Koi. Stay in character, respect the scenario, and continue the scene naturally.",
       "Treat this as the roleplay path: focus on scene continuity, character action, dialogue, and immersive narration without using game-mode mechanics unless explicitly present in the chat.",
       ...common,
     ]

@@ -192,10 +192,10 @@ async fn health(State(state): State<HttpState>, Query(query): Query<HealthQuery>
             .health_probe_cache
             .data_dir_writable(&state.app.data_dir.join("data"), Instant::now())
             .await;
-        return Json(json!({ "ok": true, "runtime": "marinara-server", "writable": writable }));
+        return Json(json!({ "ok": true, "runtime": "de-koi-server", "writable": writable }));
     }
 
-    Json(json!({ "ok": true, "runtime": "marinara-server" }))
+    Json(json!({ "ok": true, "runtime": "de-koi-server" }))
 }
 
 fn health_probe_filename() -> String {
@@ -203,7 +203,7 @@ fn health_probe_filename() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or_default();
-    format!(".marinara-health-{}-{suffix}.tmp", std::process::id())
+    format!(".de-koi-health-{}-{suffix}.tmp", std::process::id())
 }
 
 async fn probe_data_dir_writable(data_dir: &FsPath) -> bool {
@@ -1049,7 +1049,10 @@ fn require_admin_access_for_command(
     if !is_privileged_remote_command(command) {
         return Ok(());
     }
-    if is_loopback(ip) && !env_flag_enabled("MARINARA_REQUIRE_ADMIN_SECRET_ON_LOOPBACK") {
+    if is_loopback(ip)
+        && !env_flag_enabled("DE_KOI_REQUIRE_ADMIN_SECRET_ON_LOOPBACK")
+        && !env_flag_enabled("MARINARA_REQUIRE_ADMIN_SECRET_ON_LOOPBACK")
+    {
         return Ok(());
     }
 
@@ -1152,7 +1155,7 @@ async fn sidecar_embeddings_inner(state: &AppState, body: Value) -> Result<Value
             "total_tokens": prompt_tokens
         },
         "marinara": {
-            "runtime": "marinara-server",
+            "runtime": "de-koi-server",
             "replacementFor": "/api/sidecar/v1/embeddings",
             "embeddingConnectionId": connection_id
         }
@@ -1719,7 +1722,7 @@ impl SecurityConfig {
         let user = env_value("BASIC_AUTH_USER");
         let pass = env_value("BASIC_AUTH_PASS");
         let basic_auth_realm =
-            env_value("BASIC_AUTH_REALM").unwrap_or_else(|| "Marinara Engine".to_string());
+            env_value("BASIC_AUTH_REALM").unwrap_or_else(|| "De-Koi".to_string());
         let basic_auth = match (user, pass) {
             (Some(user), Some(pass)) => Some(BasicAuthConfig {
                 expected_header: format!(
@@ -2219,7 +2222,7 @@ mod tests {
                 .map(|value| value.to_string())
                 .collect(),
             basic_auth: None,
-            basic_auth_realm: "Marinara Engine".to_string(),
+            basic_auth_realm: "De-Koi".to_string(),
             ip_allowlist: None,
             trusted_private_networks: default_private_networks(),
             allow_unauthenticated_private_network: false,
@@ -2732,7 +2735,7 @@ mod tests {
         assert_eq!(payload.get("ok").and_then(Value::as_bool), Some(true));
         assert_eq!(
             payload.get("runtime").and_then(Value::as_str),
-            Some("marinara-server")
+            Some("de-koi-server")
         );
         assert!(payload.get("writable").is_none());
         assert!(!data_path.exists());

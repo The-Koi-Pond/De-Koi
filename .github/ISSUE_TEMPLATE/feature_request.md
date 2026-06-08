@@ -12,7 +12,7 @@ assignees: ""
 
 ## Proposed behavior
 
-<!-- What should Marinara Engine add or change? -->
+<!-- What should De-Koi add or change? -->
 
 ## Expected owner or impact area
 

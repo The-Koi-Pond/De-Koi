@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to Marinara Engine",
-        "description": "Enter the host and port where marinara-server is running (default: localhost:8787).",
+        "title": "Connect to De-Koi",
+        "description": "Enter the host and port where de-koi-server is running (default: localhost:8787).",
         "data": {
           "host": "Host",
           "port": "Port",
@@ -13,24 +13,24 @@
       }
     },
     "error": {
-      "cannot_connect": "Cannot connect to Marinara Engine. Verify the host and port and that marinara-server is running.",
+      "cannot_connect": "Cannot connect to De-Koi. Verify the host and port and that de-koi-server is running.",
       "unknown": "An unexpected error occurred."
     },
     "abort": {
-      "already_configured": "Marinara Engine at this address is already configured."
+      "already_configured": "De-Koi at this address is already configured."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Marinara Engine Options",
-        "description": "Choose the primary chat and which tool categories Marinara is allowed to use.",
+        "title": "De-Koi Options",
+        "description": "Choose the primary chat and which tool categories De-Koi is allowed to use.",
         "data": {
           "primary_chat_id": "Primary Chat",
           "enabled_categories": "Exposed Tool Categories"
         },
         "data_description": {
-          "enabled_categories": "Only the selected categories will be synced as tools into Marinara Engine. Changes take effect after pressing the Sync HA Tools button or restarting Home Assistant."
+          "enabled_categories": "Only the selected categories will be synced as tools into De-Koi. Changes take effect after pressing the Sync HA Tools button or restarting Home Assistant."
         }
       }
     }

@@ -1877,7 +1877,7 @@ async fn generate_dj_mari_playlist_plan(
             marinara_llm::LlmMessage {
                 role: "system".to_string(),
                 content: [
-                    "You are DJ Mari, a taste-aware Spotify playlist curator for Marinara Engine.",
+                    "You are DJ Mari, a taste-aware Spotify playlist curator for De-Koi.",
                     "Compose a private Spotify playlist for the user from their persona, characters, freshest chat context, and liked-song taste samples.",
                     "Pick 25-50 specific real songs that are likely to exist in Spotify's catalogue. Prefer strong emotional fit, roleplay/game atmosphere, repeat-listening value, and a coherent flow.",
                     "Do not include podcasts, local files, playlists, albums, duplicate songs, or fictional track names.",
@@ -2209,7 +2209,7 @@ async fn create_dj_mari_spotify_playlist(
             "name": name,
             "public": false,
             "collaborative": false,
-            "description": "Created by DJ Mari in Marinara Engine."
+            "description": "Created by DJ Mari in De-Koi."
         })),
     )
     .await?;

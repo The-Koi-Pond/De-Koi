@@ -1,11 +1,11 @@
 ---
 name: marinara-legacy-parity-audit
-description: "Compare Marinara Engine refactor behavior against legacy Marinara to find regressions, parity gaps, current refactor defects, remote/embedded drift, and legacy-better workflows. Trigger keyword: parityscan. Use for full, static-trace, row-only, follow-up, or report-only parity scans across product surfaces, contracts, schemas, storage, migrations, import/export, settings, providers, modes, agents, tools, sprites, runtime behavior, and performance paths."
+description: "Compare De-Koi refactor behavior against legacy Marinara to find regressions, parity gaps, current refactor defects, remote/embedded drift, and legacy-better workflows. Trigger keyword: parityscan. Use for full, static-trace, row-only, follow-up, or report-only parity scans across product surfaces, contracts, schemas, storage, migrations, import/export, settings, providers, modes, agents, tools, sprites, runtime behavior, and performance paths."
 ---
 
 # Marinara Legacy Parity Audit
 
-Use this skill to compare the current Marinara Engine refactor repo with legacy Marinara for one feature, contract, schema, storage format, runtime behavior, or product area. Focus on product-important missing behavior, likely accidental regressions, current refactor defects, and legacy flows that still work better.
+Use this skill to compare the current De-Koi refactor repo with legacy Marinara for one feature, contract, schema, storage format, runtime behavior, or product area. Focus on product-important missing behavior, likely accidental regressions, current refactor defects, and legacy flows that still work better.
 
 Activation keyword: `parityscan`.
 

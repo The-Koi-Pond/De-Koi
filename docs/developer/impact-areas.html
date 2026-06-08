@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Marinara Impact Areas</title>
+    <title>De-Koi Impact Areas</title>
     <link rel="stylesheet" href="./docs.css" />
   </head>
   <body>
     <div class="shell">
       <aside class="sidebar">
         <div class="brand">
-          <strong>Marinara Engine</strong>
+          <strong>De-Koi</strong>
           <span>Developer docs</span>
         </div>
         <nav class="nav" aria-label="Documentation">
@@ -359,7 +359,7 @@ flowchart LR
   RustApi[Rust API facade<br/>Tauri commands, /api/invoke, or dedicated HTTP routes]
   HttpDispatch[http_dispatch.rs<br/>explicit handlers]
   RustServices[Rust capability crates]
-  Server[marinara-server<br/>hostable Rust binary or Docker service]
+  Server[de-koi-server<br/>hostable Rust binary or Docker service]
 
   Feature --> SharedApi
   SharedApi --> RuntimeTransport
@@ -397,7 +397,7 @@ flowchart LR
               <td>
                 <code>pnpm typecheck</code>, <code>pnpm build</code>,
                 <code>cargo check --manifest-path src-tauri/Cargo.toml --workspace</code>, and an HTTP smoke check when
-                practical: run <code>marinara-server</code>, hit <code>/health</code>, then exercise the supported
+                practical: run <code>de-koi-server</code>, hit <code>/health</code>, then exercise the supported
                 shared API path from Settings &gt; Advanced &gt; Remote Runtime URL.
               </td>
             </tr>

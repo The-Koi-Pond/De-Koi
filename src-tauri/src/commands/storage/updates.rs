@@ -5,11 +5,11 @@ use std::cmp::Ordering;
 use std::time::Duration;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const GITHUB_REPO: &str = "Pasta-Devs/Marinara-Engine";
-const GITHUB_REPO_URL: &str = "https://github.com/Pasta-Devs/Marinara-Engine";
-const GITHUB_RELEASES_URL: &str = "https://github.com/Pasta-Devs/Marinara-Engine/releases/latest";
+const GITHUB_REPO: &str = "The-Koi-Pond/De-Koi";
+const GITHUB_REPO_URL: &str = "https://github.com/The-Koi-Pond/De-Koi";
+const GITHUB_RELEASES_URL: &str = "https://github.com/The-Koi-Pond/De-Koi/releases/latest";
 const GITHUB_TAGS_API: &str =
-    "https://api.github.com/repos/Pasta-Devs/Marinara-Engine/git/matching-refs/tags/v";
+    "https://api.github.com/repos/The-Koi-Pond/De-Koi/git/matching-refs/tags/v";
 
 #[derive(Debug, Deserialize)]
 struct TagRef {
@@ -92,7 +92,7 @@ fn platform_label() -> &'static str {
 }
 
 fn manual_update_hint() -> &'static str {
-    "Download the latest Marinara Engine release asset for this platform, run the installer or replace the app bundle, then restart Marinara Engine."
+    "Download the latest release asset for this platform, run the installer or replace the app bundle, then restart De-Koi."
 }
 
 fn release_payload(release: &ReleaseInfo) -> Value {
@@ -137,7 +137,7 @@ fn is_trusted_release_url(value: &str) -> bool {
         && url.host_str() == Some("github.com")
         && url
             .path()
-            .starts_with("/Pasta-Devs/Marinara-Engine/releases/")
+            .starts_with("/The-Koi-Pond/De-Koi/releases/")
 }
 
 async fn fetch_latest_release() -> AppResult<ReleaseInfo> {
@@ -149,10 +149,7 @@ async fn fetch_latest_release() -> AppResult<ReleaseInfo> {
     let tags = client
         .get(GITHUB_TAGS_API)
         .header(reqwest::header::ACCEPT, "application/vnd.github.v3+json")
-        .header(
-            reqwest::header::USER_AGENT,
-            format!("MarinaraEngine/{APP_VERSION}"),
-        )
+        .header(reqwest::header::USER_AGENT, format!("DeKoi/{APP_VERSION}"))
         .send()
         .await
         .map_err(|error| AppError::new("update_check_failed", error.to_string()))?;
@@ -185,10 +182,7 @@ async fn fetch_latest_release() -> AppResult<ReleaseInfo> {
     let release = client
         .get(release_url)
         .header(reqwest::header::ACCEPT, "application/vnd.github.v3+json")
-        .header(
-            reqwest::header::USER_AGENT,
-            format!("MarinaraEngine/{APP_VERSION}"),
-        )
+        .header(reqwest::header::USER_AGENT, format!("DeKoi/{APP_VERSION}"))
         .send()
         .await
         .map_err(|error| AppError::new("update_check_failed", error.to_string()))?;
@@ -249,7 +243,7 @@ pub fn apply_update(input: Value) -> AppResult<Value> {
 
     Ok(json!({
         "status": "manual_update_required",
-        "message": "Automatic Tauri update installation is not configured for this build. Open the release page, install the latest asset, then restart Marinara Engine.",
+        "message": "Automatic Tauri update installation is not configured for this build. Open the release page, install the latest asset, then restart De-Koi.",
         "currentVersion": APP_VERSION,
         "latestVersion": latest_version,
         "releaseTag": release_tag,
@@ -297,7 +291,7 @@ mod tests {
             "confirm": true,
             "latestVersion": "1.6.2",
             "releaseTag": "v1.6.2",
-            "releaseUrl": "https://github.com/Pasta-Devs/Marinara-Engine/releases/tag/v1.6.2"
+            "releaseUrl": "https://github.com/The-Koi-Pond/De-Koi/releases/tag/v1.6.2"
         }))
         .expect("confirmed apply should return manual instructions");
 
@@ -316,7 +310,7 @@ mod tests {
 
         assert_eq!(
             response["releaseUrl"],
-            "https://github.com/Pasta-Devs/Marinara-Engine/releases/latest"
+            "https://github.com/The-Koi-Pond/De-Koi/releases/latest"
         );
     }
 
@@ -324,7 +318,7 @@ mod tests {
     fn apply_update_rejects_prefix_spoofed_release_urls() {
         let response = apply_update(json!({
             "confirm": true,
-            "releaseUrl": "https://github.com/Pasta-Devs/Marinara-Engine.evil.example/releases/tag/v9.9.9"
+            "releaseUrl": "https://github.com/The-Koi-Pond/De-Koi.evil.example/releases/tag/v9.9.9"
         }))
         .expect("confirmed apply should return manual instructions");
 

@@ -274,7 +274,7 @@ function isMobileGameViewport(): boolean {
 }
 
 function isBrowserSpotifyDeviceName(name: string | null | undefined): boolean {
-  return name === "Marinara Engine";
+  return name === "De-Koi" || name === "Marinara Engine";
 }
 
 function isPersonalMobileSpotifyDeviceType(type: string | null | undefined): boolean {

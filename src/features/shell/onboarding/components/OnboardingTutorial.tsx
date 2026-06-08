@@ -31,7 +31,7 @@ interface OnboardingTutorialProps {
 const STEPS: TourStep[] = [
   {
     target: null,
-    title: "Welcome to Marinara Engine!",
+    title: "Welcome to De-Koi!",
     body: "Howdy! Here's a quick tutorial to show you around. Confident in your skill? Feel free to skip it!\n\n**Warning:** skipping the tutorial will make me cry.",
     sprite: { src: "/sprites/mari/Mari_wave.png" },
   },
@@ -59,7 +59,7 @@ const STEPS: TourStep[] = [
   {
     target: null,
     title: "Three Ways to Chat",
-    body: "Marinara Engine has three chat modes:\n\n**Conversation:** Like Discord DMs. Casual texting, character schedules, statuses, and autonomous messaging. Great for slice-of-life and hanging out.\n\n**Roleplay:** Creative writing and storytelling. Rich narration, AI agents that handle tracking, narrative, and more. Perfect for adventures and immersive stories.\n\n**Game:** An RPG-flavored visual novel layer on top of your story, directed by an AI Game Master. Visual effects, tactical combat, party management, a developed plot line, and more. The most immersive experience out of all the available ones.\n\nUpon selecting any of these options, you will be presented with a setup wizard, so don't worry about anything, we'll guide you through the process step by step!",
+    body: "De-Koi has three chat modes:\n\n**Conversation:** Like Discord DMs. Casual texting, character schedules, statuses, and autonomous messaging. Great for slice-of-life and hanging out.\n\n**Roleplay:** Creative writing and storytelling. Rich narration, AI agents that handle tracking, narrative, and more. Perfect for adventures and immersive stories.\n\n**Game:** An RPG-flavored visual novel layer on top of your story, directed by an AI Game Master. Visual effects, tactical combat, party management, a developed plot line, and more. The most immersive experience out of all the available ones.\n\nUpon selecting any of these options, you will be presented with a setup wizard, so don't worry about anything, we'll guide you through the process step by step!",
     sprite: { src: "/sprites/mari/Mari_explaining.png" },
   },
   {

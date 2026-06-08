@@ -102,7 +102,7 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
             >
               <img
                 src={showEmptyStateEffects ? "/logo-splash.gif" : "/logo.png"}
-                alt="Marinara Engine"
+                alt="De-Koi"
                 width={80}
                 height={80}
                 decoding="async"
@@ -112,7 +112,7 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
           </div>
 
           <div className="text-center">
-            <h3 className="retro-glow-text text-base sm:text-xl font-bold tracking-tight">✧ Marinara Engine ✧</h3>
+            <h3 className="retro-glow-text text-base sm:text-xl font-bold tracking-tight">✧ De-Koi ✧</h3>
             <p className="mt-1.5 sm:mt-2 max-w-xs text-xs sm:text-sm text-[var(--muted-foreground)]">
               To get started, choose the type of chat you'd like to have with the AI
             </p>

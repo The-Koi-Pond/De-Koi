@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    marinara_engine_lib::run()
+    de_koi_lib::run()
 }

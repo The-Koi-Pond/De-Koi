@@ -1,7 +1,7 @@
 """HTTP view that serves tool definitions pre-filled with the webhook URL.
 
 Visit GET /api/marinara_engine/tools/<webhook_id> to download a JSON array
-of custom tool objects ready to paste into Marinara Engine's Custom Tools UI.
+of custom tool objects ready to paste into De-Koi's Custom Tools UI.
 The list is filtered to the categories enabled in the integration options.
 """
 
@@ -21,7 +21,7 @@ class MarinaraToolManifestView(HomeAssistantView):
 
     url = "/api/marinara_engine/tools/{webhook_id}"
     name = "api:marinara_engine:tools"
-    requires_auth = False  # Marinara needs to fetch this without a token
+    requires_auth = False  # De-Koi needs to fetch this without a token
 
     def __init__(self, webhook_id: str, entry_id: str) -> None:
         self._webhook_id = webhook_id

@@ -1,4 +1,4 @@
-"""Select platform for Marinara Engine — pick the active/primary chat."""
+"""Select platform for De-Koi - pick the active/primary chat."""
 
 from __future__ import annotations
 
@@ -30,14 +30,14 @@ class MarinaraActiveChatSelect(CoordinatorEntity[MarinaraCoordinator], SelectEnt
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_active_chat"
-        self._attr_name = "Marinara Active Chat"
+        self._attr_name = "De-Koi Active Chat"
 
     @property
     def device_info(self) -> dict:
         return {
             "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": "Marinara Engine",
-            "manufacturer": "Marinara Engine",
+            "name": "De-Koi",
+            "manufacturer": "De-Koi",
             "model": "Local AI Engine",
         }
 

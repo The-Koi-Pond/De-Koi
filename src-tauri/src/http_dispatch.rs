@@ -2114,7 +2114,7 @@ mod tests {
                         "confirm": true,
                         "latestVersion": "1.6.2",
                         "releaseTag": "v1.6.2",
-                        "releaseUrl": "https://github.com/Pasta-Devs/Marinara-Engine/releases/tag/v1.6.2"
+                        "releaseUrl": "https://github.com/The-Koi-Pond/De-Koi/releases/tag/v1.6.2"
                     }
                 })),
             },

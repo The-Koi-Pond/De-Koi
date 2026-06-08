@@ -1,4 +1,4 @@
-"""Webhook handler: receives tool calls from Marinara Engine and executes HA actions."""
+"""Webhook handler: receives tool calls from De-Koi and executes HA actions."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def async_register_webhook(hass: HomeAssistant, webhook_id: str) -> None:
     async_register(
         hass,
         DOMAIN,
-        "Marinara Engine",
+        "De-Koi",
         webhook_id,
         _handle_webhook,
         allowed_methods=["POST"],

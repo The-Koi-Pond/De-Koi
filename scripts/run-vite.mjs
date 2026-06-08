@@ -30,6 +30,7 @@ function findModernNode() {
   }
 
   const candidates = [
+    process.env.DE_KOI_NODE,
     process.env.MARINARA_NODE,
     "/opt/homebrew/opt/node@24/bin/node",
     "/usr/local/opt/node@24/bin/node",
