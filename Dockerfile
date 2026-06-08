@@ -31,6 +31,10 @@ RUN cargo build --manifest-path src-tauri/Cargo.toml --release --bin de-koi-serv
 
 FROM debian:bookworm-slim AS runtime
 
+LABEL org.opencontainers.image.title="De-Koi Server"
+LABEL org.opencontainers.image.source="https://github.com/The-Koi-Pond/De-Koi"
+LABEL org.opencontainers.image.licenses="AGPL-3.0-or-later"
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libgtk-3-0 \
@@ -43,6 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+COPY LICENSE.txt NOTICE.md README.md /app/
 COPY --from=builder /app/src-tauri/target/release/de-koi-server /usr/local/bin/de-koi-server
 COPY --from=builder /app/src-tauri/resources /app/src-tauri/resources
 
