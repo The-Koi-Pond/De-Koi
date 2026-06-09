@@ -20,8 +20,6 @@ interface TourStep {
   actionLabel?: string;
   /** Key used internally to trigger special step actions */
   actionKey?: string;
-  /** Professor Mari sprite to display */
-  sprite?: { src: string; flip?: boolean };
 }
 
 interface OnboardingTutorialProps {
@@ -32,47 +30,35 @@ const STEPS: TourStep[] = [
   {
     target: null,
     title: "Welcome to Marinara Engine!",
-    body: "Howdy! Here's a quick tutorial to show you around. Confident in your skill? Feel free to skip it!\n\n**Warning:** skipping the tutorial will make me cry.",
-    sprite: { src: "/sprites/mari/Mari_wave.png" },
+    body: "Here's a quick tutorial to show you around. Confident in your skill? Feel free to skip it; you can replay it later from Discover.",
   },
   {
     target: "sidebar-toggle",
     title: "Chats Sidebar",
     body: "This is where all your conversations live. Create new chats, search through them, and organize your history. You can have as many chats as you want!",
     side: "right",
-    sprite: { src: "/sprites/mari/Mari_point_middle_left.png" },
   },
   {
     target: "panel-buttons",
     title: "Tab Buttons",
     body: "These buttons (from left to right) open panels for:\n- **Browser:** browse for downloadable cards and more,\n- **Characters:** view and manage all your character cards,\n- **Lorebooks:** lorebooks with all the information you want,\n- **Presets:** manage prompts and prompt sections,\n- **Connections:** set up your model connections here,\n- **Agents:** manage chat helpers that can track details, create images, and more,\n- **Personas:** personas you play as,\n- **Settings:** settings for the entire application.\n\nCheck them all out!",
     side: "bottom",
-    sprite: { src: "/sprites/mari/Mari_point_up_left.png", flip: true },
   },
   {
     target: "chat-area",
     title: "Chat Area",
     body: "This is your main workspace, where you chat with AI characters, enjoy roleplay, and read generated stories. Messages appear here in real time.",
     side: "left",
-    sprite: { src: "/sprites/mari/Mari_point_middle_left.png" },
   },
   {
     target: null,
     title: "Three Ways to Chat",
     body: "Marinara Engine has three chat modes:\n\n**Conversation:** Like Discord DMs. Casual texting, character schedules, statuses, and autonomous messaging. Great for slice-of-life and hanging out.\n\n**Roleplay:** Creative writing and storytelling. Rich narration, AI agents that handle tracking, narrative, and more. Perfect for adventures and immersive stories.\n\n**Game:** An RPG-flavored visual novel layer on top of your story, directed by an AI Game Master. Visual effects, tactical combat, party management, a developed plot line, and more. The most immersive experience out of all the available ones.\n\nUpon selecting any of these options, you will be presented with a setup wizard, so don't worry about anything, we'll guide you through the process step by step!",
-    sprite: { src: "/sprites/mari/Mari_explaining.png" },
-  },
-  {
-    target: null,
-    title: "Meet Professor Mari!",
-    body: "That's Professor Mari. She lives in her own screen now, separate from chats and modes. She can inspect your creative library, search and read app source, make narrow exact-match source edits, and create extension or custom agent records when you ask. Use the Mari button in the title bar whenever you want that assistant space, and review any write-capable changes before keeping them.",
-    sprite: { src: "/sprites/mari/Mari_greet.png" },
   },
   {
     target: null,
     title: "Set Up a Connection",
     body: "Before you start chatting, you'll need to connect an AI provider. Click the chain-link icon (🔗) in the top-right tab buttons, then add your API key for OpenAI, Anthropic, or another provider.",
-    sprite: { src: "/sprites/mari/Mari_explaining.png" },
   },
   {
     target: null,
@@ -80,13 +66,11 @@ const STEPS: TourStep[] = [
     body: "If you have characters, chats, or presets from SillyTavern, you can import them all in one go from the Settings panel.",
     actionLabel: "Take Me There",
     actionKey: "import",
-    sprite: { src: "/sprites/mari/Mari_thinking.png" },
   },
   {
     target: null,
     title: "You're All Set!",
     body: "Look for the (?) icons throughout the app. Hover over them at any time to learn what each option does. Have fun exploring!\n\nAnd if you have any further questions, need help, or want to report a bug, feel free to join our Discord server! You can find the invite link on the home page.",
-    sprite: { src: "/sprites/mari/Mari_greet.png" },
   },
 ];
 
@@ -317,19 +301,6 @@ function TourCardContent({
 }) {
   return (
     <>
-      {/* Professor Mari sprite */}
-      {currentStep.sprite && (
-        <div className="mb-2 flex justify-center">
-          <img
-            src={currentStep.sprite.src}
-            alt="Professor Mari"
-            className="h-32 max-h-[15vh] w-auto object-contain drop-shadow-lg"
-            style={currentStep.sprite.flip ? { transform: "scaleX(-1)" } : undefined}
-            draggable={false}
-          />
-        </div>
-      )}
-
       {/* Header */}
       <div className="mb-3">
         <h3 className="text-sm font-semibold text-[var(--foreground)]">{currentStep.title}</h3>
