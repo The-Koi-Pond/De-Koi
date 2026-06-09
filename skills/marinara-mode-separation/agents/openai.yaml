@@ -1,4 +1,0 @@
-interface:
-  display_name: "Marinara Mode Separation"
-  short_description: "Keep chat, roleplay, and game as isolated product modes."
-  default_prompt: "Use this skill when changing chat, roleplay, game, generation prompts, autonomous flows, scene logic, or mode UI."

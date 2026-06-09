@@ -9,11 +9,11 @@ Use this as De-Koi's creative frontend builder lens. It helps choose the visual 
 
 ## De-Koi Order
 
-1. Keep root `AGENTS.md`, `skills/marinara-agent-workflow`, and the matching workflow card in force.
+1. Keep root `AGENTS.md`, `skills/de-koi-agent-workflow`, and the matching workflow card in force.
 2. Load `PRODUCT.md` and `DESIGN.md` before choosing visual direction.
 3. Load `skills/impeccable/SKILL.md` after the first design pass when critique, accessibility, responsive behavior, hardening, polish, or live iteration matters.
-4. Load `marinara-architecture-guard` for ownership/import/shared API questions.
-5. Load `marinara-mode-separation` for chat, roleplay, game, prompt, generation, or shared mode UI.
+4. Load `de-koi-architecture-guard` for ownership/import/shared API questions.
+5. Load `de-koi-mode-separation` for chat, roleplay, game, prompt, generation, or shared mode UI.
 
 ## Role Split
 
@@ -27,10 +27,10 @@ Before editing, name:
 
 - Surface owner: shell, catalog, runtime, chat, roleplay, game, settings, modal, or shared UI.
 - Primary user path and state: what the user is trying to do and what must stay easy.
-- Aesthetic sentence: how this surface should feel inside Marinara's product context.
+- Aesthetic sentence: how this surface should feel inside De-Koi's product context.
 - Proof path: browser, native Tauri, screenshot, typecheck, or manual QA needed.
 
-Favor Marinara's product register: dense, scannable, tactile roleplay/editor tools with blush-violet identity, readable controls, and room for character/story/game atmosphere. Use marketing/hero-page drama only when the user asks for a public or promotional surface.
+Favor De-Koi's product register: dense, scannable, tactile roleplay/editor tools with blush-violet identity, readable controls, and room for character/story/game atmosphere. Use marketing/hero-page drama only when the user asks for a public or promotional surface.
 
 ## Implementation Rules
 

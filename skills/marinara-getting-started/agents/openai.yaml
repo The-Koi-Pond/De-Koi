@@ -1,4 +1,0 @@
-interface:
-  display_name: "Marinara Getting Started"
-  short_description: "Onboard agents into Marinara workflows."
-  default_prompt: "Use this skill when someone asks how to get started, wants a repo tour, needs to run the app, or wants a guided bug-testing workflow."

@@ -32,12 +32,12 @@ const baseRequiredDocs = [
 ];
 
 const expectedSkillFiles = [
-  "skills/marinara-architecture-guard/SKILL.md",
-  "skills/marinara-mode-separation/SKILL.md",
-  "skills/marinara-bugfix-discipline/SKILL.md",
-  "skills/marinara-getting-started/SKILL.md",
-  "skills/marinara-agent-workflow/SKILL.md",
-  "skills/marinara-legacy-parity-audit/SKILL.md",
+  "skills/de-koi-architecture-guard/SKILL.md",
+  "skills/de-koi-mode-separation/SKILL.md",
+  "skills/de-koi-bugfix-discipline/SKILL.md",
+  "skills/de-koi-getting-started/SKILL.md",
+  "skills/de-koi-agent-workflow/SKILL.md",
+  "skills/de-koi-legacy-parity-audit/SKILL.md",
 ];
 
 const skillDocs = (await collectFiles("skills")).filter(

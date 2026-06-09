@@ -1,13 +1,13 @@
 ---
 name: impeccable
-description: Use for frontend critique, audit, polish, hardening, UX copy, accessibility, responsiveness, performance, layout refinement, visual hierarchy, design-system extraction, live browser iteration, and final UI quality passes. In ME-Refactor, prefer frontend-design for first-pass concept/build work, then use impeccable to review and improve product fit, edge states, anti-patterns, theming, typography, spacing, motion, interaction quality, i18n, and AI-slop risk. Not for backend-only or non-UI tasks.
+description: Use for frontend critique, audit, polish, hardening, UX copy, accessibility, responsiveness, performance, layout refinement, visual hierarchy, design-system extraction, live browser iteration, and final UI quality passes. In De-Koi, prefer frontend-design for first-pass concept/build work, then use impeccable to review and improve product fit, edge states, anti-patterns, theming, typography, spacing, motion, interaction quality, i18n, and AI-slop risk. Not for backend-only or non-UI tasks.
 ---
 
 Designs and iterates production-grade frontend interfaces. Real working code, committed design choices, exceptional craft.
 
-## Marinara Adaptation
+## De-Koi Adaptation
 
-In ME-Refactor, this skill adds UI critique, hardening, polish, and product-fit judgment; it does not replace repo workflow or architecture rules. Use `skills/frontend-design` first when a task needs initial visual direction or first-pass UI implementation. Keep root `AGENTS.md`, `skills/marinara-agent-workflow`, `skills/marinara-architecture-guard`, `skills/marinara-mode-separation`, and native Tauri proof requirements in force when they apply. Product behavior still belongs in `src/engine`, React UI in `src/features`, runtime wrappers in `src/shared/api`, and privileged capabilities in `src-tauri`.
+In De-Koi, this skill adds UI critique, hardening, polish, and product-fit judgment; it does not replace repo workflow or architecture rules. Use `skills/frontend-design` first when a task needs initial visual direction or first-pass UI implementation. Keep root `AGENTS.md`, `skills/de-koi-agent-workflow`, `skills/de-koi-architecture-guard`, `skills/de-koi-mode-separation`, and native Tauri proof requirements in force when they apply. Product behavior still belongs in `src/engine`, React UI in `src/features`, runtime wrappers in `src/shared/api`, and privileged capabilities in `src-tauri`.
 
 ## Setup (non-optional)
 

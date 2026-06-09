@@ -1,4 +1,0 @@
-interface:
-  display_name: "Marinara Architecture Guard"
-  short_description: "Protect Marinara layered module boundaries and ownership."
-  default_prompt: "Use this skill before changing Marinara architecture, imports, folders, shared modules, Rust capabilities, or feature boundaries."

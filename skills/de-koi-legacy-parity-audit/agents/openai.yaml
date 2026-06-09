@@ -1,0 +1,4 @@
+interface:
+  display_name: "De-Koi Legacy Parity Audit"
+  short_description: "Compare refactor features against legacy behavior"
+  default_prompt: "Use $de-koi-legacy-parity-audit, or say parityscan, for a full audit or a cheaper row-only, follow-up, static-trace, or report-only legacy parity scan."

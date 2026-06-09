@@ -1,0 +1,4 @@
+interface:
+  display_name: "De-Koi Architecture Guard"
+  short_description: "Protect De-Koi layered module boundaries and ownership."
+  default_prompt: "Use this skill before changing De-Koi architecture, imports, folders, shared modules, Rust capabilities, or feature boundaries."

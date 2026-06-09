@@ -1,0 +1,4 @@
+interface:
+  display_name: "De-Koi Agent Workflow"
+  short_description: "Proof and review workflow gates"
+  default_prompt: "Use $de-koi-agent-workflow to plan and prove a De-Koi change with the repo's module boundaries."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "De-Koi Bugfix Discipline"
+  short_description: "Fix root causes with clear impact and verification."
+  default_prompt: "Use this skill for De-Koi bug fixes, regressions, failing checks, broken UI actions, or behavior repair work."

@@ -35,10 +35,10 @@ Default behavior: review only. Do not edit files, create commits, push branches,
 
 For De-Koi reviews, use current repo sources as truth:
 
-- Keep root `AGENTS.md` and repo-local `marinara-agent-workflow` in force.
-- Load `marinara-architecture-guard` for imports, ownership, shared modules, adapters, Tauri/HTTP, Rust capabilities, or file layout.
-- Load `marinara-mode-separation` for chat, roleplay, game, prompt assembly, generation routing, scenes, summaries, autonomous flows, or game turns.
-- Load `marinara-bugfix-discipline` for bugfixes, regressions, failing checks, storage/provider/import/generation fixes, or dependent caller changes.
+- Keep root `AGENTS.md` and repo-local `de-koi-agent-workflow` in force.
+- Load `de-koi-architecture-guard` for imports, ownership, shared modules, adapters, Tauri/HTTP, Rust capabilities, or file layout.
+- Load `de-koi-mode-separation` for chat, roleplay, game, prompt assembly, generation routing, scenes, summaries, autonomous flows, or game turns.
+- Load `de-koi-bugfix-discipline` for bugfixes, regressions, failing checks, storage/provider/import/generation fixes, or dependent caller changes.
 - Read developer docs only when the diff touches or claims behavior they define.
 
 Review against the changed owner: `src/app`, `src/features`, `src/shared`, `src/engine`, `src-tauri`, docs/skills, package/scripts/config/CI/release files.

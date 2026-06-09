@@ -1,0 +1,4 @@
+interface:
+  display_name: "De-Koi Getting Started"
+  short_description: "Onboard agents into De-Koi workflows."
+  default_prompt: "Use this skill when someone asks how to get started, wants a repo tour, needs to run the app, or wants a guided bug-testing workflow."

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Marinara Agent Workflow"
-  short_description: "Proof and review workflow gates"
-  default_prompt: "Use $marinara-agent-workflow to plan and prove a Marinara change with the repo's module boundaries."
