@@ -512,11 +512,21 @@ pub(super) fn restore_profile_zip_assets<R: Read + Seek>(
                         "Could not read profile asset {entry_name}: {error}"
                     ))
                 })?;
-                validate_profile_zip_asset_declared_size(&entry_name, entry.size())?;
-                add_profile_archive_asset_bytes(&mut total_bytes, &entry_name, entry.size())?;
+                let declared_size = entry.size();
+                validate_profile_zip_asset_declared_size(&entry_name, declared_size)?;
+                add_profile_archive_asset_bytes(&mut total_bytes, &entry_name, declared_size)?;
                 let mut output = File::create(target)?;
-                copy_limited_profile_zip_asset(&entry_name, &mut entry, &mut output)?;
+                let copied = copy_limited_profile_zip_asset(&entry_name, &mut entry, &mut output)?;
                 output.flush()?;
+                // The declared size comes from the attacker-controlled zip directory;
+                // charge the actual decompressed bytes against the aggregate cap too.
+                if copied > declared_size {
+                    add_profile_archive_asset_bytes(
+                        &mut total_bytes,
+                        &entry_name,
+                        copied - declared_size,
+                    )?;
+                }
             }
         }
     }
@@ -550,9 +560,18 @@ pub(super) fn preview_profile_zip_assets<R: Read + Seek>(
                         "Could not read profile asset {entry_name}: {error}"
                     ))
                 })?;
-                validate_profile_zip_asset_declared_size(entry_name, entry.size())?;
-                add_profile_archive_asset_bytes(&mut total_bytes, entry_name, entry.size())?;
-                copy_limited_profile_zip_asset(entry_name, &mut entry, std::io::sink())?;
+                let declared_size = entry.size();
+                validate_profile_zip_asset_declared_size(entry_name, declared_size)?;
+                add_profile_archive_asset_bytes(&mut total_bytes, entry_name, declared_size)?;
+                let copied =
+                    copy_limited_profile_zip_asset(entry_name, &mut entry, std::io::sink())?;
+                if copied > declared_size {
+                    add_profile_archive_asset_bytes(
+                        &mut total_bytes,
+                        entry_name,
+                        copied - declared_size,
+                    )?;
+                }
             }
         }
     }
