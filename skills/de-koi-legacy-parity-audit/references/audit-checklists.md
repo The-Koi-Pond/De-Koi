@@ -20,7 +20,7 @@ risky boundary. Escalate to a full axis scan only after one concrete risk appear
 - Performance and payload shape: cold/warm behavior, full vs projected reads, large embedded fields, serialization format, deserialization shape, and high-traffic UI latency.
 - Remote/embedded parity: same command behavior and optimization through embedded Tauri, remote `/api/invoke`, shared API wrappers, and duplicated dispatch code.
 - UX quality: click count, discoverability, information density, previews, undo/recovery, keyboard support, empty/loading/error states.
-- Architecture and ownership: refactor separation, shared API wrapper use, hostable/runtime routing, forbidden imports, feature or contract boundaries.
+- Architecture and ownership: De-Koi layer separation, shared API wrapper use, hostable/runtime routing, forbidden imports, feature or contract boundaries.
 - Tests/proof surfaces: existing checks, harnesses, app proof, or lack of proof around high-risk behavior.
 
 For storage, catalog data, chats/messages, avatars, cold-load, projection,

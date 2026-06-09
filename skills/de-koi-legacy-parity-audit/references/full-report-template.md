@@ -5,7 +5,7 @@ Use this shape for broad target audits. Remove sections that do not apply.
 ## Audit Gate
 
 - Feature:
-- Refactor path:
+- De-Koi path:
 - Legacy path:
 - Risk:
 - Proof:
@@ -20,19 +20,19 @@ Order by severity and confidence.
 
 ### Confirmed Regressions
 
-| Finding | Refactor evidence | Legacy evidence | User impact | Suggested next action |
+| Finding | De-Koi evidence | Legacy evidence | User impact | Suggested next action |
 | --- | --- | --- | --- | --- |
 |  |  |  |  |  |
 
 ### Likely Parity Gaps
 
-| Gap | Refactor evidence | Legacy evidence | Why likely unintentional | Suggested next action |
+| Gap | De-Koi evidence | Legacy evidence | Why likely unintentional | Suggested next action |
 | --- | --- | --- | --- | --- |
 |  |  |  |  |  |
 
 ### Legacy Does Better
 
-| Workflow | Refactor behavior | Legacy behavior | Why legacy is better | Suggested next action |
+| Workflow | De-Koi behavior | Legacy behavior | Why legacy is better | Suggested next action |
 | --- | --- | --- | --- | --- |
 |  |  |  |  |  |
 
@@ -42,7 +42,7 @@ Order by severity and confidence.
 | --- | --- | --- |
 |  |  |  |
 
-### Refactor Better
+### De-Koi Better
 
 | Area | Evidence | Why it is better |
 | --- | --- | --- |

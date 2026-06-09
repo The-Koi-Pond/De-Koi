@@ -4,7 +4,7 @@ Use this shape for `row-only`, `follow-up`, `static-trace`, and `report-only`
 scans.
 
 - Claim:
-- Refactor evidence:
+- De-Koi evidence:
 - Legacy evidence:
 - Classification:
 - Next action:

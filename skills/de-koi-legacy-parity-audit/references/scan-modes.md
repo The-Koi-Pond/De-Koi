@@ -16,7 +16,7 @@ Use the cheapest mode that can prove the user's claim. Escalate only when a conc
 | --- | --- |
 | Exact tracker row, issue bullet, symbol, command, or file | `row-only` + `static-trace` + `report-only` |
 | "Continue", "follow-up", "same target", or nearby row IDs | `follow-up` + `static-trace` unless runtime proof is requested |
-| Current refactor bug/risk with legacy only as context | `static-trace`; legacy lookup is optional until parity classification depends on it |
+| Current De-Koi bug/risk with legacy only as context | `static-trace`; legacy lookup is optional until parity classification depends on it |
 | Broad target, target refresh, issue update, PR support, or unclear/risky scope | `full` |
 
 User wording can set the mode directly, for example:
@@ -34,5 +34,5 @@ Escalate out of row-only/follow-up when:
 
 - Evidence crosses storage, import/export, prompt assembly, provider transport, hostability, user data, destructive action, or security boundaries.
 - Static evidence cannot distinguish a real gap from dead code, disabled UI, migration behavior, or runtime-only behavior.
-- The row depends on target status, proof level, linked follow-up issue state, or #1904 tracker wording not present in the prompt.
+- The row depends on target status, proof level, linked follow-up issue state, or De-Koi tracker issue #2 wording not present in the prompt.
 - The user asks for a tracker refresh, issue update, PR support, fix, or ready-for-review handoff.

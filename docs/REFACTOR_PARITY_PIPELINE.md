@@ -56,15 +56,11 @@ Work proceeds in these lanes, one slice at a time. A lane only moves to complete
 
 ## Known Intentional Divergences
 
-Use this ledger to keep future parity scans from re-raising documented product decisions as likely gaps.
+The live intentional-divergence ledger moved to the De-Koi parity tracker:
+https://github.com/The-Koi-Pond/De-Koi/issues/2#known-intentional-divergences.
 
-| Area | Legacy behavior | Refactor behavior | Reason | Source |
-| --- | --- | --- | --- | --- |
-| Agents: unset temperature | Legacy defaulted unset agent temperature to `0.3`. | Refactor leaves unset agent temperature undefined so connection/provider defaults apply unless the user configures an agent-specific temperature. | Connection setup now owns provider parameters, and a fixed low agent temperature worked poorly for some writing agents. | [#1899](https://github.com/Pasta-Devs/Marinara-Engine/issues/1899) |
-| Custom tools: script execution | Legacy custom tools allowed `executionType: "script"` with persisted `scriptBody`, and could execute JavaScript server-side when script tools were enabled. | Refactor custom tool create/update contracts only support `static` and `webhook`; imported or existing script rows are shown as unsupported, and native execution returns `custom_tool_script_unsupported` with convert-to-static-or-webhook guidance. | Local script execution is a deliberate refactor compatibility and safety boundary. Legacy script tools should be preserved enough for user review, but must be converted to static results or webhooks before execution. | [#1907](https://github.com/Pasta-Devs/Marinara-Engine/issues/1907), [#2011](https://github.com/Pasta-Devs/Marinara-Engine/issues/2011) |
-| Remote runtime: haptic device commands | Legacy server haptic routes could execute haptic commands remotely when remote haptics were explicitly enabled and privileged access allowed it. | Refactor treats haptics as embedded-shell/device-bound in Remote Runtime and web-shell mode; remote calls surface unsupported/disconnected status and do not execute device commands. | Haptic hardware control is intentionally kept local to the embedded device runtime instead of allowing hostable remote browser sessions to actuate devices. | [#1921](https://github.com/Pasta-Devs/Marinara-Engine/issues/1921), [#2050](https://github.com/Pasta-Devs/Marinara-Engine/issues/2050) |
-| Remote runtime: managed local sidecar | Legacy Node runtime managed a bundled local model sidecar with install/download/start/restart/unload/delete and related inference endpoints. | Refactor retires the managed sidecar process and retains only `/api/sidecar/v1/embeddings` as a compatibility route backed by configured Marinara embedding connections. | Local models now belong to explicit provider/connection setup instead of a hidden Node-era sidecar manager. | [#2050](https://github.com/Pasta-Devs/Marinara-Engine/issues/2050) |
-| Modes: Visual Novel | Legacy exposed `visual_novel` as a distinct chat mode in shared schemas, storage rows, sidebar labels, presets, and roleplay-like generation paths. | Refactor's canonical chat modes are `conversation`, `roleplay`, and `game`; legacy `visual_novel` inputs are accepted as a compatibility alias and normalized to `roleplay`. | Visual Novel is intentionally folded into the Roleplay scene surface instead of remaining a separate product mode, while preserving legacy data compatibility. | [#2011](https://github.com/Pasta-Devs/Marinara-Engine/issues/2011) |
+Update that issue before relying on a legacy/De-Koi difference as an accepted
+product decision during a parityscan.
 
 ## Completed Slice: Connected Conversation Notes And Influences
 
