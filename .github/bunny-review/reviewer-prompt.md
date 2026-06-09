@@ -91,7 +91,7 @@ For each real defect finding, include one compact repair contract that helps the
 
 When the packet includes prior Bunny findings or repair contracts from earlier heads, judge follow-up fixes against those contracts first. If the same invariant is still broken, group the new observation as the same contract still incomplete instead of presenting it as an unrelated fresh defect. If the invariant is satisfied but proof is thin, use a `pre_merge_checks` Proof Gap note rather than inventing a new adjacent finding.
 
-Treat these as high-signal Marinara review concerns:
+Treat these as high-signal De-Koi review concerns:
 
 - Product behavior placed outside its owner.
 - Engine code importing React, Zustand stores, Tauri APIs, feature internals, or concrete shared API adapters.

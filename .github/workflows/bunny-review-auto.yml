@@ -16,9 +16,7 @@ concurrency:
 
 jobs:
   dispatch:
-    if: >
-      github.event.pull_request.base.ref == 'refactor' ||
-      github.event.pull_request.base.ref == 'main'
+    if: github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch trusted Bunny reviewer
@@ -35,7 +33,7 @@ jobs:
           # This pull_request_target workflow is intentionally a dispatcher only.
           # It must not checkout, install, or execute code from the pull request.
           TARGET_REF="$PR_BASE_REF"
-          if [ "$TARGET_REF" != "refactor" ] && [ "$TARGET_REF" != "main" ]; then
+          if [ "$TARGET_REF" != "main" ]; then
             echo "::error::Unsupported Bunny review base ref: $TARGET_REF"
             exit 1
           fi
