@@ -9,8 +9,13 @@ import {
   updateConnectionSchema,
 } from "../../../../engine/contracts/schemas/connection.schema";
 import { connectionCommandApi } from "../../../../shared/api/connection-command-api";
+import { localSidecarApi } from "../../../../shared/api/local-sidecar-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
+import {
+  LOCAL_SIDECAR_CONNECTION_ID,
+  type LocalSidecarStatusResponse,
+} from "../../../../engine/contracts/types/sidecar";
 import type { ConnectionRow, ConnectionTestResult } from "../types";
 
 export { connectionKeys } from "../query-keys";
@@ -27,6 +32,8 @@ export type ClaudeSubscriptionDiagnosis = {
 };
 
 type CreateConnectionVariables = Partial<CreateConnectionInput> & Pick<CreateConnectionInput, "name" | "provider">;
+const CONNECTION_LIST_STALE_TIME_MS = 5_000;
+const CONNECTION_LIST_REFETCH_INTERVAL_MS = 5_000;
 
 const CONNECTION_SUMMARY_OPTIONS = {
   fields: [
@@ -61,12 +68,49 @@ export type ConnectionSummary = Pick<
   embeddingModel?: string | null;
 };
 
+function canAdvertiseLocalSidecar(status: LocalSidecarStatusResponse): boolean {
+  const hasRuntime = status.runtime.installed || !!status.config.executablePath?.trim();
+  return (
+    status.configured &&
+    status.enabled &&
+    status.modelDownloaded &&
+    hasRuntime &&
+    status.status === "ready" &&
+    status.ready &&
+    !!status.baseUrl
+  );
+}
+
 export function useConnections(enabled = true) {
   return useQuery({
     queryKey: connectionKeys.list(),
-    queryFn: () => storageApi.list<ConnectionSummary>("connections", CONNECTION_SUMMARY_OPTIONS),
+    queryFn: async () => {
+      const [rows, sidecarStatus] = await Promise.all([
+        storageApi.list<ConnectionSummary>("connections", CONNECTION_SUMMARY_OPTIONS),
+        localSidecarApi.status().catch(() => null),
+      ]);
+      if (!sidecarStatus || !canAdvertiseLocalSidecar(sidecarStatus)) return rows;
+      return [
+        {
+          id: LOCAL_SIDECAR_CONNECTION_ID,
+          name: "Local Model",
+          provider: "custom",
+          model: sidecarStatus.config.model,
+          baseUrl: sidecarStatus.baseUrl ?? "",
+          useForRandom: false,
+          isDefault: false,
+          defaultForAgents: false,
+          embeddingModel: sidecarStatus.config.model,
+          createdAt: "",
+          updatedAt: "",
+        },
+        ...rows,
+      ];
+    },
     enabled,
-    staleTime: 5 * 60_000,
+    staleTime: CONNECTION_LIST_STALE_TIME_MS,
+    refetchInterval: CONNECTION_LIST_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   });
 }
 
