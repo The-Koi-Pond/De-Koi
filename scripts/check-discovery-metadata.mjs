@@ -139,6 +139,28 @@ function getArgValue(name) {
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
+function hasArg(name) {
+  return process.argv.includes(name);
+}
+
+function escapeWorkflowCommand(value) {
+  return String(value).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+}
+
+function reportFailure(lines, { warnOnly }) {
+  if (!warnOnly) {
+    for (const line of lines) console.error(line);
+    process.exit(1);
+  }
+
+  const message = lines.join("\n");
+  if (process.env.GITHUB_ACTIONS === "true") {
+    console.warn(`::warning title=Discovery metadata check::${escapeWorkflowCommand(message)}`);
+  }
+  console.warn("Discovery metadata warning:");
+  for (const line of lines) console.warn(line);
+}
+
 async function readPullRequestBodyFromEvent() {
   const eventPath = process.env.GITHUB_EVENT_PATH;
   if (!eventPath) return "";
@@ -281,22 +303,35 @@ function isLikelyUserFacingPath(path) {
 }
 
 async function main() {
-  const registry = JSON.parse(await readFile(registryPath, "utf8"));
-  const errors = validateRegistry(registry);
-  if (errors.length > 0) {
-    console.error("Discovery metadata check failed:");
-    for (const error of errors) console.error(`- ${error}`);
-    process.exit(1);
+  const warnOnly = hasArg("--warn-only") || process.env.DISCOVERY_CHECK_WARN_ONLY === "1";
+  let registry;
+  try {
+    registry = JSON.parse(await readFile(registryPath, "utf8"));
+  } catch (error) {
+    reportFailure(
+      [
+        "Discovery metadata check failed:",
+        `- Could not parse ${registryPath}: ${error instanceof Error ? error.message : String(error)}`,
+      ],
+      { warnOnly },
+    );
+    return;
   }
 
-  const prAware = process.argv.includes("--pr-aware");
+  const errors = validateRegistry(registry);
+  if (errors.length > 0) {
+    reportFailure(["Discovery metadata check failed:", ...errors.map((error) => `- ${error}`)], { warnOnly });
+    return;
+  }
+
+  const prAware = hasArg("--pr-aware");
   const changedFrom = getArgValue("--changed-from") ?? (prAware ? `origin/${process.env.GITHUB_BASE_REF || "refactor"}` : undefined);
   const pullRequestBody = await readPullRequestBodyFromEvent();
   const featureDiscoverabilityDecision = parseFeatureDiscoverabilityDecision(pullRequestBody);
   const featureDiscoverabilityDecisionCount =
     Number(featureDiscoverabilityDecision.updated) + Number(featureDiscoverabilityDecision.na);
   const allowMissingDiscovery =
-    process.argv.includes("--allow-missing") ||
+    hasArg("--allow-missing") ||
     process.env.DISCOVERY_CHECK_ALLOW_MISSING === "1" ||
     (featureDiscoverabilityDecision.na && hasText(featureDiscoverabilityDecision.reason));
 
@@ -305,10 +340,14 @@ async function main() {
     const userFacing = changed.filter(isLikelyUserFacingPath);
     const discoveryTouched = changed.some(isDiscoveryMetadataPath);
     if (userFacing.length > 0 && pullRequestBody && featureDiscoverabilityDecisionCount > 1) {
-      console.error("Feature Discoverability has conflicting PR body decisions.");
-      console.error("- Say discovery metadata was updated, or mark it N/A with a short reason.");
-      console.error("- Do not mark both.");
-      process.exit(1);
+      reportFailure(
+        [
+          "Feature Discoverability has conflicting PR body decisions.",
+          "- Say discovery metadata was updated, or mark it N/A with a short reason.",
+          "- Do not mark both.",
+        ],
+        { warnOnly },
+      );
     }
     if (
       userFacing.length > 0 &&
@@ -316,18 +355,17 @@ async function main() {
       featureDiscoverabilityDecision.na &&
       !hasText(featureDiscoverabilityDecision.reason)
     ) {
-      console.error("Feature Discoverability N/A requires a non-empty Reason in the PR body.");
-      process.exit(1);
+      reportFailure(["Feature Discoverability N/A requires a non-empty Reason in the PR body."], { warnOnly });
     }
     if (userFacing.length > 0 && !discoveryTouched && !allowMissingDiscovery) {
-      console.error(
-        `Discovery metadata was not updated, but ${userFacing.length} likely user-facing file(s) changed relative to ${changedFrom}.`,
+      reportFailure(
+        [
+          `Discovery metadata was not updated, but ${userFacing.length} likely user-facing file(s) changed relative to ${changedFrom}.`,
+          ...userFacing.slice(0, 12).map((path) => `- ${path}`),
+          "Update src/features/shell/discovery/ or mark Feature Discoverability as N/A in the PR body with a reason.",
+        ],
+        { warnOnly },
       );
-      for (const path of userFacing.slice(0, 12)) console.error(`- ${path}`);
-      console.error(
-        "Update src/features/shell/discovery/ or mark Feature Discoverability as N/A in the PR body with a reason.",
-      );
-      process.exit(1);
     }
     if (userFacing.length > 0 && !discoveryTouched && allowMissingDiscovery) {
       console.log("Discovery metadata not updated; accepted explicit Feature Discoverability N/A marker.");

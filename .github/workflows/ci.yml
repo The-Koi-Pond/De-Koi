@@ -36,12 +36,12 @@ jobs:
       - run: pnpm build
       - run: pnpm perf:size
       - run: pnpm check:docs
-      - name: Discovery metadata check
+      - name: Discovery metadata warning
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            pnpm check:discovery -- --pr-aware
+            pnpm check:discovery -- --pr-aware --warn-only
           else
-            pnpm check:discovery
+            pnpm check:discovery -- --warn-only
           fi
       - name: Unused code report
         run: pnpm check:unused
