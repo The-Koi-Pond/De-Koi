@@ -103,7 +103,7 @@ export function Modal({ open, onClose, title, children, width = "max-w-md", onEx
 
       {/* Panel - OS Window style */}
       <div
-        className={`mari-modal-panel os-window relative flex w-full flex-col ${width} max-h-[calc(100dvh-1.5rem)] sm:max-h-[min(90dvh,52rem)] shadow-2xl shadow-black/50`}
+        className={`mari-modal-panel os-window relative flex w-full max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden ${width} max-h-[calc(100dvh-1.5rem)] sm:max-h-[min(90dvh,52rem)] shadow-2xl shadow-black/50`}
         style={{
           opacity: isEntering ? 1 : 0,
           transform: isEntering ? "scale(1) translateY(0)" : "scale(0.97) translateY(6px)",
@@ -124,7 +124,9 @@ export function Modal({ open, onClose, title, children, width = "max-w-md", onEx
         </div>
 
         {/* Content */}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">{children}</div>
+        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-5 py-4">
+          {children}
+        </div>
       </div>
     </div>
   );

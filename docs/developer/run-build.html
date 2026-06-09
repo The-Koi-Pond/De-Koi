@@ -235,22 +235,20 @@
         <pre><code>curl http://127.0.0.1:8787/health</code></pre>
         <p>
           Legacy local-sidecar embedding clients can use the compatibility endpoint at
-          <code>/api/sidecar/v1/embeddings</code>. In the Tauri refactor this route is backed by the configured De-Koi
-          embedding connection, not by the old managed sidecar process. Pass <code>connectionId</code> to target a
-          specific connection, or configure a connection with <code>embeddingModel</code> and
-          <code>embeddingBaseUrl</code> for local OpenAI-compatible, Ollama, or provider embeddings.
+          <code>/api/sidecar/v1/embeddings</code>. Pass <code>connectionId</code> to target a specific embedding
+          connection. When the Local Model sidecar is configured and enabled, <code>connectionId:"sidecar:local"</code>
+          starts the managed loopback sidecar and uses its OpenAI-compatible embeddings endpoint.
         </p>
         <pre><code>curl http://127.0.0.1:8787/api/sidecar/v1/embeddings \
   -H 'content-type: application/json' \
-  -d '{"connectionId":"your-connection-id","model":"text-embedding-3-small","input":"hello"}'</code></pre>
+  -d '{"connectionId":"sidecar:local","model":"local-sidecar","input":"hello"}'</code></pre>
         <h3>Managed Local Sidecar Status</h3>
         <p>
-          The Node-era managed local model sidecar is intentionally retired in the Tauri refactor. De-Koi no longer
-          downloads curated Hugging Face models, starts or stops a bundled inference process, or exposes the old
-          <code>LOCAL_SIDECAR_CONNECTION_ID</code> path. Use a normal De-Koi connection for local models instead:
-          OpenAI-compatible local servers such as LM Studio and KoboldCpp can use the Custom provider, and Ollama can be
-          reached through its OpenAI-compatible <code>/v1</code> endpoint or through dedicated embedding settings. The
-          only retained sidecar URL is the compatibility embedding route above, backed by the configured connection.
+          The Tauri refactor manages the Local Model sidecar as a Rust host capability. Configure a
+          <code>llama-server</code>-compatible executable path and GGUF model path from the Connections panel's Local
+          Model card, or install the managed llama.cpp runtime and download a curated Gemma/custom Hugging Face GGUF
+          from that card. When enabled, De-Koi exposes a synthetic <code>sidecar:local</code> connection for
+          generation, embeddings, agents, and game scene analysis.
         </p>
         <p>Override the bind address and data directory with:</p>
         <pre><code>DE_KOI_SERVER_ADDR=0.0.0.0:8787

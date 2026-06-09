@@ -1,4 +1,5 @@
 use super::shared::*;
+use super::sidecar;
 use super::*;
 use marinara_security::is_allowed_provider_url;
 use std::collections::{HashMap, HashSet};
@@ -177,16 +178,8 @@ pub(crate) async fn vectorize_lorebook(
     lorebook_id: &str,
     body: Value,
 ) -> AppResult<Value> {
-    let (embedding_connection_id, mut connection) =
-        if let Some(connection_id) = optional_body_string(&body, "connectionId") {
-            resolve_embedding_connection_for_id(state, connection_id)?
-        } else {
-            resolve_default_configured_embedding_connection(state)?
-        };
-    let model = embedding_model(&connection, body.get("model").and_then(Value::as_str))?;
-    if let Some(object) = connection.as_object_mut() {
-        object.insert("model".to_string(), Value::String(model.clone()));
-    }
+    let requested_model = optional_body_string(&body, "model").map(ToOwned::to_owned);
+    let result_model = requested_model.clone().unwrap_or_default();
     let only_missing = body
         .get("onlyMissing")
         .and_then(Value::as_bool)
@@ -222,7 +215,7 @@ pub(crate) async fn vectorize_lorebook(
         return Ok(json!({
             "success": true,
             "lorebookId": lorebook_id,
-            "model": model,
+            "model": result_model,
             "total": total,
             "vectorized": 0,
             "skipped": entries.len()
@@ -257,6 +250,26 @@ pub(crate) async fn vectorize_lorebook(
             continue;
         }
         pending.push((entry_id.to_string(), text));
+    }
+    if pending.is_empty() {
+        return Ok(json!({
+            "success": true,
+            "lorebookId": lorebook_id,
+            "model": result_model,
+            "total": total,
+            "vectorized": 0,
+            "skipped": skipped
+        }));
+    }
+    let (embedding_connection_id, mut connection) =
+        if let Some(connection_id) = optional_body_string(&body, "connectionId") {
+            resolve_embedding_connection_for_id_async(state, connection_id).await?
+        } else {
+            resolve_default_embedding_connection_async(state).await?
+        };
+    let model = embedding_model(&connection, requested_model.as_deref())?;
+    if let Some(object) = connection.as_object_mut() {
+        object.insert("model".to_string(), Value::String(model.clone()));
     }
     for chunk in pending.chunks(EMBEDDING_BATCH_SIZE) {
         let texts = chunk
@@ -305,48 +318,7 @@ fn optional_body_string_set(body: &Value, key: &str) -> Option<HashSet<String>> 
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .collect::<HashSet<_>>();
-    (!ids.is_empty()).then_some(ids)
-}
-
-fn resolve_default_configured_embedding_connection(state: &AppState) -> AppResult<(String, Value)> {
-    let connections = connection_secrets::connections_for_runtime(state)?;
-    let embedding_candidates = connections
-        .iter()
-        .filter(|connection| !is_legacy_local_sidecar_connection(connection))
-        .collect::<Vec<_>>();
-    let mut ranked = embedding_candidates
-        .iter()
-        .copied()
-        .filter(|connection| {
-            connection
-                .get("isDefault")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-        })
-        .chain(embedding_candidates.iter().copied().filter(|connection| {
-            !connection
-                .get("isDefault")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-        }));
-
-    for candidate in ranked.by_ref() {
-        let Some(connection_id) = candidate.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        let Ok((embedding_connection_id, embedding_connection)) =
-            resolve_embedding_connection_for_id(state, connection_id)
-        else {
-            continue;
-        };
-        if has_embedding_model(&embedding_connection) {
-            return Ok((embedding_connection_id, embedding_connection));
-        }
-    }
-
-    Err(AppError::invalid_input(
-        "No embedding connection with an embedding model is configured",
-    ))
+    Some(ids)
 }
 
 pub(crate) fn resolve_embedding_connection_for_id(
@@ -363,6 +335,54 @@ pub(crate) fn resolve_embedding_connection_for_id(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
+        if is_legacy_local_sidecar_connection_id(embedding_connection_id) {
+            return Err(legacy_local_sidecar_embedding_error());
+        }
+        let embedding_connection =
+            connection_secrets::connection_for_runtime(state, embedding_connection_id)?;
+        if is_openai_chatgpt_connection(&embedding_connection) {
+            return Err(openai_chatgpt_embedding_error());
+        }
+        if is_claude_subscription_connection(&embedding_connection) {
+            return Err(claude_subscription_embedding_error());
+        }
+        return Ok((embedding_connection_id.to_string(), embedding_connection));
+    }
+    if is_openai_chatgpt_connection(&connection) {
+        return Err(openai_chatgpt_embedding_error());
+    }
+    if is_claude_subscription_connection(&connection) {
+        return Err(claude_subscription_embedding_error());
+    }
+    Ok((connection_id.to_string(), connection))
+}
+
+pub(crate) async fn resolve_embedding_connection_for_id_async(
+    state: &AppState,
+    connection_id: &str,
+) -> AppResult<(String, Value)> {
+    if sidecar::is_sidecar_connection_id(connection_id) {
+        return Ok((
+            sidecar::SIDECAR_CONNECTION_ID.to_string(),
+            sidecar::runtime_connection_value(state, true).await?,
+        ));
+    }
+    if is_legacy_local_sidecar_connection_id(connection_id) {
+        return Err(legacy_local_sidecar_embedding_error());
+    }
+    let connection = connection_secrets::connection_for_runtime(state, connection_id)?;
+    if let Some(embedding_connection_id) = connection
+        .get("embeddingConnectionId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if sidecar::is_sidecar_connection_id(embedding_connection_id) {
+            return Ok((
+                sidecar::SIDECAR_CONNECTION_ID.to_string(),
+                sidecar::runtime_connection_value(state, true).await?,
+            ));
+        }
         if is_legacy_local_sidecar_connection_id(embedding_connection_id) {
             return Err(legacy_local_sidecar_embedding_error());
         }
@@ -422,6 +442,119 @@ pub(crate) fn resolve_default_embedding_connection(state: &AppState) -> AppResul
         .and_then(Value::as_str)
         .ok_or_else(|| AppError::invalid_input("Embedding connection is missing an id"))?;
     resolve_embedding_connection_for_id(state, connection_id)
+}
+
+pub(crate) async fn resolve_default_embedding_connection_async(
+    state: &AppState,
+) -> AppResult<(String, Value)> {
+    let connections = connection_secrets::connections_for_runtime(state)?;
+    let embedding_candidates = connections
+        .iter()
+        .filter(|connection| !is_legacy_local_sidecar_connection(connection))
+        .collect::<Vec<_>>();
+    let mut ranked = embedding_candidates
+        .iter()
+        .copied()
+        .filter(|connection| {
+            connection
+                .get("isDefault")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .chain(embedding_candidates.iter().copied().filter(|connection| {
+            !connection
+                .get("isDefault")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        }));
+    let mut last_error = None;
+
+    for candidate in ranked.by_ref() {
+        let Some(connection_id) = candidate.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        match resolve_embedding_connection_for_id_async(state, connection_id).await {
+            Ok((embedding_connection_id, embedding_connection))
+                if has_embedding_model(&embedding_connection) =>
+            {
+                return Ok((embedding_connection_id, embedding_connection));
+            }
+            Ok(_) => continue,
+            Err(error) => {
+                last_error = Some(error);
+                continue;
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        AppError::invalid_input("No embedding connection with an embedding model is configured")
+    }))
+}
+
+pub(crate) async fn resolve_default_embedding_connection_for_request_model_async(
+    state: &AppState,
+    explicit_model: Option<&str>,
+) -> AppResult<(String, Value)> {
+    let Some(_) = explicit_model
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return resolve_default_embedding_connection_async(state).await;
+    };
+
+    let connections = connection_secrets::connections_for_runtime(state)?;
+    let embedding_candidates = connections
+        .iter()
+        .filter(|connection| !is_legacy_local_sidecar_connection(connection))
+        .collect::<Vec<_>>();
+    let mut ranked = embedding_candidates
+        .iter()
+        .copied()
+        .filter(|connection| {
+            connection
+                .get("isDefault")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .chain(embedding_candidates.iter().copied().filter(|connection| {
+            !connection
+                .get("isDefault")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        }));
+    let mut last_error = None;
+
+    for candidate in ranked.by_ref() {
+        let Some(connection_id) = candidate.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let has_dedicated_embedding_connection = candidate
+            .get("embeddingConnectionId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty());
+        let result = if sidecar::is_sidecar_connection_id(connection_id)
+            || has_dedicated_embedding_connection
+        {
+            resolve_embedding_connection_for_id_async(state, connection_id).await
+        } else {
+            resolve_embedding_connection_for_id(state, connection_id)
+        };
+
+        match result {
+            Ok((embedding_connection_id, embedding_connection)) => {
+                return Ok((embedding_connection_id, embedding_connection));
+            }
+            Err(error) => {
+                last_error = Some(error);
+                continue;
+            }
+        }
+    }
+
+    Err(last_error
+        .unwrap_or_else(|| AppError::invalid_input("No embedding connection is configured")))
 }
 
 pub(crate) fn embedding_model(connection: &Value, explicit: Option<&str>) -> AppResult<String> {
@@ -1480,6 +1613,133 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn resolve_default_embedding_connection_async_skips_invalid_default_target() {
+        let state = test_state("async-default-skips-invalid-target");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "chat-connection",
+                    "name": "Chat",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "embeddingConnectionId": "missing-embedding",
+                    "isDefault": true
+                }),
+            )
+            .expect("default chat connection should insert");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "embedding-connection",
+                    "name": "Embeddings",
+                    "provider": "custom",
+                    "model": "chat-model",
+                    "embeddingModel": "text-embedding-3-small"
+                }),
+            )
+            .expect("fallback embedding connection should insert");
+
+        let (id, connection) = resolve_default_embedding_connection_async(&state)
+            .await
+            .expect("valid fallback embedding connection should be selected");
+
+        assert_eq!(id, "embedding-connection");
+        assert_eq!(
+            embedding_model(&connection, None).unwrap(),
+            "text-embedding-3-small"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_default_embedding_connection_async_preserves_unsupported_provider_error() {
+        let state = test_state("async-default-unsupported-provider");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "chatgpt-connection",
+                    "name": "ChatGPT",
+                    "provider": "openai_chatgpt",
+                    "model": "gpt-5",
+                    "embeddingModel": "text-embedding-3-small",
+                    "isDefault": true
+                }),
+            )
+            .expect("chatgpt connection should insert");
+
+        let error = resolve_default_embedding_connection_async(&state)
+            .await
+            .expect_err("unsupported provider should remain rejected when no fallback exists");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("does not support embeddings"));
+    }
+
+    #[tokio::test]
+    async fn request_model_default_allows_supported_connection_without_embedding_model() {
+        let state = test_state("request-model-default-without-embedding-model");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "chat-connection",
+                    "name": "Chat",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "isDefault": true
+                }),
+            )
+            .expect("default chat connection should insert");
+
+        let (id, connection) = resolve_default_embedding_connection_for_request_model_async(
+            &state,
+            Some("text-embedding-3-small"),
+        )
+        .await
+        .expect("explicit embedding model should allow a supported default connection");
+
+        assert_eq!(id, "chat-connection");
+        assert_eq!(
+            embedding_model(&connection, Some("text-embedding-3-small")).unwrap(),
+            "text-embedding-3-small"
+        );
+    }
+
+    #[tokio::test]
+    async fn request_model_default_embedding_connection_rejects_unsupported_default_provider() {
+        let state = test_state("request-model-unsupported-default-provider");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "chatgpt-connection",
+                    "name": "ChatGPT",
+                    "provider": "openai_chatgpt",
+                    "model": "gpt-5",
+                    "isDefault": true
+                }),
+            )
+            .expect("chatgpt connection should insert");
+
+        let error = resolve_default_embedding_connection_for_request_model_async(
+            &state,
+            Some("text-embedding-3-small"),
+        )
+        .await
+        .expect_err("unsupported providers should remain rejected for explicit embedding models");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("does not support embeddings"));
+    }
+
     #[test]
     fn resolve_default_embedding_connection_rejects_only_legacy_local_sidecar() {
         let state = test_state("default-only-legacy-sidecar");
@@ -1545,6 +1805,54 @@ mod tests {
         assert_eq!(result["total"], json!(1));
         assert_eq!(result["vectorized"], json!(0));
         assert_eq!(result["skipped"], json!(2));
+    }
+
+    #[tokio::test]
+    async fn vectorize_lorebook_does_not_start_sidecar_when_no_entries_need_embedding() {
+        let state = test_state("sidecar-no-pending-vectorization");
+        let lorebook_id = create_lorebook(&state, json!(false));
+        create_entry(&state, &lorebook_id, json!(false), json!([0.1, 0.2]));
+
+        let result = vectorize_lorebook(
+            &state,
+            &lorebook_id,
+            json!({
+                "connectionId": sidecar::SIDECAR_CONNECTION_ID,
+                "model": "local-sidecar",
+                "onlyMissing": true
+            }),
+        )
+        .await
+        .expect("no pending entries should not start or validate the local sidecar");
+
+        assert_eq!(result["model"], json!("local-sidecar"));
+        assert_eq!(result["total"], json!(1));
+        assert_eq!(result["vectorized"], json!(0));
+        assert_eq!(result["skipped"], json!(1));
+    }
+
+    #[tokio::test]
+    async fn vectorize_lorebook_empty_entry_ids_do_not_start_sidecar() {
+        let state = test_state("sidecar-empty-entry-ids");
+        let lorebook_id = create_lorebook(&state, json!(false));
+        create_entry(&state, &lorebook_id, json!(false), Value::Null);
+
+        let result = vectorize_lorebook(
+            &state,
+            &lorebook_id,
+            json!({
+                "connectionId": sidecar::SIDECAR_CONNECTION_ID,
+                "model": "local-sidecar",
+                "entryIds": []
+            }),
+        )
+        .await
+        .expect("empty entryIds should be a no-op before sidecar resolution");
+
+        assert_eq!(result["model"], json!("local-sidecar"));
+        assert_eq!(result["total"], json!(0));
+        assert_eq!(result["vectorized"], json!(0));
+        assert_eq!(result["skipped"], json!(0));
     }
 
     #[tokio::test]

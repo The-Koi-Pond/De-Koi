@@ -1,4 +1,4 @@
-use super::prompts;
+use super::{prompts, sidecar};
 use super::*;
 use marinara_security::{
     is_allowed_provider_url, is_forbidden_provider_resolved_ip, is_loopback_provider_host,
@@ -22,6 +22,11 @@ pub(crate) fn resolve_llm_connection_for_request(
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
     {
+        if sidecar::is_sidecar_connection_id(connection_id) {
+            return Err(AppError::invalid_input(
+                "Local Model is only available through async LLM runtime commands",
+            ));
+        }
         return connection_secrets::connection_for_runtime(state, connection_id);
     }
     if body.get("provider").is_some() && body.get("model").is_some() {
@@ -46,11 +51,62 @@ pub(crate) fn resolve_llm_connection_for_request(
         .ok_or_else(|| AppError::invalid_input("No LLM connection is configured"))
 }
 
-pub(crate) fn llm_request_from_body(
+async fn resolve_llm_connection_for_request_async(
+    state: &AppState,
+    body: &Value,
+) -> AppResult<Value> {
+    if let Some(connection) = body.get("connection").filter(|value| value.is_object()) {
+        return Ok(connection.clone());
+    }
+    if let Some(connection_id) = body
+        .get("connectionId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+    {
+        if sidecar::is_sidecar_connection_id(connection_id) {
+            return sidecar::runtime_connection_value(state, true).await;
+        }
+        return connection_secrets::connection_for_runtime(state, connection_id);
+    }
+    if body.get("provider").is_some() && body.get("model").is_some() {
+        return Ok(body.clone());
+    }
+    let connections = connection_secrets::connections_for_runtime(state)?;
+    if let Some(default) = connections
+        .iter()
+        .find(|connection| {
+            connection
+                .get("isDefault")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .cloned()
+    {
+        return Ok(default);
+    }
+    connections
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::invalid_input("No LLM connection is configured"))
+}
+
+pub(crate) async fn llm_request_from_body(
     state: &AppState,
     body: Value,
 ) -> AppResult<marinara_llm::LlmRequest> {
-    let connection = resolve_llm_connection_for_request(state, &body)?;
+    let messages = llm_messages_from_body(&body)?;
+    let parameters = llm_parameters_from_body(&body)?;
+    let tools = llm_tools_from_body(&body)?;
+    let connection = resolve_llm_connection_for_request_async(state, &body).await?;
+    Ok(marinara_llm::LlmRequest {
+        connection: llm_connection_from_value(&connection)?,
+        messages,
+        parameters,
+        tools,
+    })
+}
+
+fn llm_messages_from_body(body: &Value) -> AppResult<Vec<marinara_llm::LlmMessage>> {
     let messages = body
         .get("messages")
         .and_then(Value::as_array)
@@ -96,20 +152,32 @@ pub(crate) fn llm_request_from_body(
             })
         })
         .collect::<AppResult<Vec<_>>>()?;
-    Ok(marinara_llm::LlmRequest {
-        connection: llm_connection_from_value(&connection)?,
-        messages,
-        parameters: body.get("parameters").cloned().unwrap_or_else(|| json!({})),
-        tools: body
-            .get("tools")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default(),
-    })
+    if messages.is_empty() {
+        return Err(AppError::invalid_input("messages must not be empty"));
+    }
+    Ok(messages)
+}
+
+fn llm_parameters_from_body(body: &Value) -> AppResult<Value> {
+    match body.get("parameters") {
+        Some(parameters) if !parameters.is_object() => {
+            Err(AppError::invalid_input("parameters must be an object"))
+        }
+        Some(parameters) => Ok(parameters.clone()),
+        None => Ok(json!({})),
+    }
+}
+
+fn llm_tools_from_body(body: &Value) -> AppResult<Vec<Value>> {
+    match body.get("tools") {
+        Some(Value::Array(tools)) => Ok(tools.clone()),
+        Some(_) => Err(AppError::invalid_input("tools must be an array")),
+        None => Ok(Vec::new()),
+    }
 }
 
 pub(crate) async fn llm_complete(state: &AppState, body: Value) -> AppResult<Value> {
-    let completion = marinara_llm::complete_rich(llm_request_from_body(state, body)?).await?;
+    let completion = marinara_llm::complete_rich(llm_request_from_body(state, body).await?).await?;
     serde_json::to_value(completion)
         .map_err(|error| AppError::new("llm_response_error", error.to_string()))
 }
@@ -128,9 +196,13 @@ pub(crate) async fn llm_embed(state: &AppState, body: Value) -> AppResult<Value>
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            prompts::resolve_embedding_connection_for_id(state, connection_id)?
+            prompts::resolve_embedding_connection_for_id_async(state, connection_id).await?
         } else {
-            prompts::resolve_default_embedding_connection(state)?
+            prompts::resolve_default_embedding_connection_for_request_model_async(
+                state,
+                body.get("model").and_then(Value::as_str),
+            )
+            .await?
         };
     let model = prompts::embedding_model(&connection, body.get("model").and_then(Value::as_str))?;
     if let Some(object) = connection.as_object_mut() {
@@ -201,8 +273,26 @@ pub(crate) async fn llm_stream_events(
     body: Value,
     mut emit: impl FnMut(Value) -> AppResult<()> + Send,
 ) -> AppResult<()> {
-    let request = llm_request_from_body(state, body)?;
     let mut cancellation = state.register_llm_stream(&stream_id)?;
+    if *cancellation.borrow() {
+        state.unregister_llm_stream(&stream_id);
+        return Ok(());
+    }
+    let request_result = tokio::select! {
+        result = llm_request_from_body(state, body) => result.map(Some),
+        _ = cancellation.changed() => Ok(None),
+    };
+    let request = match request_result {
+        Ok(None) => {
+            state.unregister_llm_stream(&stream_id);
+            return Ok(());
+        }
+        Err(error) => {
+            state.unregister_llm_stream(&stream_id);
+            return Err(error);
+        }
+        Ok(Some(request)) => request,
+    };
     if *cancellation.borrow() {
         state.unregister_llm_stream(&stream_id);
         return Ok(());
@@ -227,6 +317,9 @@ struct ModelLookupResult {
 }
 
 pub(crate) async fn llm_models(state: &AppState, connection_id: Option<&str>) -> AppResult<Value> {
+    if connection_id.is_some_and(sidecar::is_sidecar_connection_id) {
+        return sidecar::models(state).await;
+    }
     let lookup = lookup_llm_models(state, connection_id).await?;
     Ok(Value::Array(lookup.models))
 }
@@ -368,6 +461,13 @@ pub(crate) fn llm_connection_from_value(value: &Value) -> AppResult<marinara_llm
 }
 
 pub(crate) async fn connection_models(state: &AppState, id: &str) -> AppResult<Value> {
+    if sidecar::is_sidecar_connection_id(id) {
+        return Ok(json!({
+            "models": sidecar::models(state).await?,
+            "fromProvider": false,
+            "fallback": false
+        }));
+    }
     let lookup = lookup_llm_models(state, Some(id)).await?;
     let mut response = json!({
         "models": lookup.models,
@@ -383,6 +483,63 @@ pub(crate) async fn connection_models(state: &AppState, id: &str) -> AppResult<V
 
 pub(crate) async fn connection_auth_check(state: &AppState, id: &str) -> AppResult<Value> {
     let started = std::time::Instant::now();
+    if sidecar::is_sidecar_connection_id(id) {
+        let status = sidecar::status(state).await?;
+        let configured = status
+            .get("configured")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let enabled = status
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let ready = status
+            .get("ready")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            && status.get("status").and_then(Value::as_str) == Some("ready");
+        let model_downloaded = status
+            .get("modelDownloaded")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let has_runtime = status
+            .pointer("/runtime/installed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            || status
+                .pointer("/config/executablePath")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty());
+        let current_status = status
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("not_configured");
+        let message = if ready {
+            "Local Model sidecar is ready."
+        } else if !configured {
+            "Local Model needs a model path before it can be used."
+        } else if !enabled {
+            "Local Model is configured but disabled."
+        } else if !model_downloaded {
+            "Local Model needs a downloaded or selected model before it can be verified."
+        } else if !has_runtime {
+            "Local Model needs an installed runtime or custom executable before it can be verified."
+        } else if current_status == "server_error" {
+            status
+                .get("startupError")
+                .and_then(Value::as_str)
+                .unwrap_or("Local Model failed to start.")
+        } else {
+            "Local Model is configured but has not been verified. Use Test Message to start and verify the sidecar."
+        };
+        return Ok(json!({
+            "success": ready,
+            "warning": !ready,
+            "message": message,
+            "latencyMs": started.elapsed().as_millis(),
+            "modelName": status.pointer("/config/model").and_then(Value::as_str)
+        }));
+    }
     let connection = connection_secrets::connection_for_runtime(state, id)?;
     let model_name = connection
         .get("model")
@@ -2630,6 +2787,78 @@ mod tests {
         assert!(result["message"]
             .as_str()
             .is_some_and(|message| message.contains("does not verify generation auth/payment")));
+    }
+
+    #[tokio::test]
+    async fn llm_stream_cancelled_before_sidecar_resolution_does_not_start_sidecar() {
+        let state = test_state("sidecar-stream-pre-cancel");
+        let stream_id = "sidecar-pre-cancel";
+        assert!(!state
+            .cancel_llm_stream(stream_id)
+            .expect("pending cancellation should register"));
+        let mut emitted = false;
+
+        llm_stream_events(
+            &state,
+            stream_id.to_string(),
+            json!({
+                "connectionId": sidecar::SIDECAR_CONNECTION_ID,
+                "messages": [{ "role": "user", "content": "hello" }]
+            }),
+            |_| {
+                emitted = true;
+                Ok(())
+            },
+        )
+        .await
+        .expect("pre-cancelled stream should exit before sidecar resolution");
+
+        assert!(!emitted);
+        assert!(!state
+            .cancel_llm_stream(stream_id)
+            .expect("completed stream should be unregistered"));
+        state.unregister_llm_stream(stream_id);
+    }
+
+    #[tokio::test]
+    async fn llm_stream_request_construction_error_unregisters_stream() {
+        let state = test_state("stream-construction-error-unregisters");
+        let stream_id = "bad-stream-request";
+
+        let error = llm_stream_events(&state, stream_id.to_string(), json!({}), |_| Ok(()))
+            .await
+            .expect_err("invalid stream request should fail before provider call");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(!state
+            .cancel_llm_stream(stream_id)
+            .expect("failed stream should be unregistered"));
+        state.unregister_llm_stream(stream_id);
+    }
+
+    #[tokio::test]
+    async fn sidecar_connection_auth_check_missing_runtime_is_warning_not_success() {
+        let state = test_state("sidecar-auth-missing-runtime");
+        let model_path = state.data_dir.join("local-model.gguf");
+        std::fs::write(&model_path, b"gguf").expect("model fixture should be writable");
+        sidecar::update_config(
+            &state,
+            json!({
+                "enabled": true,
+                "modelPath": model_path.to_string_lossy(),
+                "model": sidecar::SIDECAR_MODEL
+            }),
+        )
+        .await
+        .expect("sidecar config should update");
+
+        let result = connection_auth_check(&state, sidecar::SIDECAR_CONNECTION_ID)
+            .await
+            .expect("sidecar auth check should report readiness");
+
+        assert_eq!(result["success"], json!(false));
+        assert_eq!(result["warning"], json!(true));
+        assert!(result["message"].as_str().unwrap_or("").contains("runtime"));
     }
 
     #[tokio::test]

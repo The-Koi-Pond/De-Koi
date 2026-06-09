@@ -1,4 +1,5 @@
 import type { LlmChunk, LlmRequest } from "../../engine/capabilities/llm";
+import { LOCAL_SIDECAR_CONNECTION_ID } from "../../engine/contracts/types/sidecar";
 import { useUIStore } from "../stores/ui.store";
 import { ApiError, parseRetryAfterMs } from "./api-errors";
 import { ignoreLlmStreamCancelFailure } from "./llm-cancel-logging";
@@ -177,6 +178,18 @@ const REMOTE_COMMANDS = new Set([
   "llm_embed",
   "llm_stream_cancel",
   "llm_list_models",
+  "local_sidecar_status",
+  "local_sidecar_update_config",
+  "local_sidecar_runtime_install",
+  "local_sidecar_download_curated",
+  "local_sidecar_list_huggingface_models",
+  "local_sidecar_download_custom",
+  "local_sidecar_download_cancel",
+  "local_sidecar_delete_model",
+  "local_sidecar_start",
+  "local_sidecar_stop",
+  "local_sidecar_restart",
+  "local_sidecar_test_message",
   "professor_mari_prompt",
   "update_check",
   "update_apply",
@@ -194,6 +207,17 @@ const PRIVILEGED_REMOTE_COMMANDS = new Set([
   "admin_expunge_command",
   "admin_clear_all_command",
   "update_apply",
+  "local_sidecar_status",
+  "local_sidecar_update_config",
+  "local_sidecar_runtime_install",
+  "local_sidecar_download_curated",
+  "local_sidecar_download_custom",
+  "local_sidecar_download_cancel",
+  "local_sidecar_delete_model",
+  "local_sidecar_start",
+  "local_sidecar_stop",
+  "local_sidecar_restart",
+  "local_sidecar_test_message",
 ]);
 const ADMIN_SECRET_STORAGE_KEY = "marinara-admin-secret";
 const LEGACY_ADMIN_SECRET_STORAGE_KEY = "marinara_admin_secret";
@@ -327,10 +351,25 @@ function adminSecretHeader(): HeadersInit {
   return secret ? { "X-Admin-Secret": secret } : {};
 }
 
-function remoteInvokeHeaders(target: RuntimeTarget, command: string): HeadersInit {
+function requestUsesLocalSidecar(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return (
+    readString(value.connectionId) === LOCAL_SIDECAR_CONNECTION_ID ||
+    readString(value.connection_id) === LOCAL_SIDECAR_CONNECTION_ID
+  );
+}
+
+function remoteInvokeRequiresAdmin(command: string, args?: Record<string, unknown>): boolean {
+  if (PRIVILEGED_REMOTE_COMMANDS.has(command)) return true;
+  if (command === "llm_complete") return requestUsesLocalSidecar(args?.request);
+  if (command === "llm_embed") return requestUsesLocalSidecar(args?.body);
+  return false;
+}
+
+function remoteInvokeHeaders(target: RuntimeTarget, command: string, args?: Record<string, unknown>): HeadersInit {
   return remoteHeaders(target, {
     "content-type": "application/json",
-    ...(PRIVILEGED_REMOTE_COMMANDS.has(command) ? adminSecretHeader() : {}),
+    ...(remoteInvokeRequiresAdmin(command, args) ? adminSecretHeader() : {}),
   });
 }
 
@@ -462,7 +501,7 @@ export async function invokeRemote<T>(command: string, args?: Record<string, unk
   if (!target) throw new ApiError("Remote runtime URL is not configured", 400);
   const response = await fetch(`${target.baseUrl}/api/invoke`, remoteFetchInit({
     method: "POST",
-    headers: remoteInvokeHeaders(target, command),
+    headers: remoteInvokeHeaders(target, command, args),
     body: JSON.stringify({ command, args: args ?? null }),
   }));
   if (!response.ok) throw await readRemoteError(response);
@@ -583,7 +622,11 @@ export async function* streamRemoteLlm(
 ): AsyncGenerator<LlmChunk> {
   const response = await fetch(`${target.baseUrl}/api/llm/stream`, remoteFetchInit({
     method: "POST",
-    headers: remoteHeaders(target, { "content-type": "application/json", accept: "text/event-stream" }),
+    headers: remoteHeaders(target, {
+      "content-type": "application/json",
+      accept: "text/event-stream",
+      ...(requestUsesLocalSidecar(request) ? adminSecretHeader() : {}),
+    }),
     body: JSON.stringify({ streamId, request }),
     signal,
   }));

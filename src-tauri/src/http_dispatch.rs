@@ -3,7 +3,7 @@ use crate::storage_commands::{
     admin, agents, avatars, backgrounds, backup, bot_browser, characters, chats, custom_tools,
     entity_commands, exports, fonts, game_assets, game_state_snapshots, generation, http, images,
     imports, integrations, knowledge, llm, lorebook_images, managed_thumbnails, mari, personas,
-    profile, profile_commands, prompts, shared, sprites, translation, updates,
+    profile, profile_commands, prompts, shared, sidecar, sprites, translation, updates,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -781,6 +781,28 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             llm::llm_models(state, optional_string(&args, "connectionId").as_deref()).await
         }
         "llm_stream_cancel" => llm_stream_cancel(state, &args),
+        "local_sidecar_status" => sidecar::status(state).await,
+        "local_sidecar_update_config" => {
+            sidecar::update_config(state, optional_value(&args, "body")).await
+        }
+        "local_sidecar_runtime_install" => {
+            sidecar::runtime_install(state, optional_value(&args, "body")).await
+        }
+        "local_sidecar_download_curated" => {
+            sidecar::download_curated(state, optional_value(&args, "body")).await
+        }
+        "local_sidecar_list_huggingface_models" => {
+            sidecar::list_huggingface_models(state, optional_value(&args, "body")).await
+        }
+        "local_sidecar_download_custom" => {
+            sidecar::download_custom(state, optional_value(&args, "body")).await
+        }
+        "local_sidecar_download_cancel" => sidecar::download_cancel(state).await,
+        "local_sidecar_delete_model" => sidecar::delete_model(state).await,
+        "local_sidecar_start" => sidecar::start(state).await,
+        "local_sidecar_stop" => sidecar::stop(state).await,
+        "local_sidecar_restart" => sidecar::restart(state).await,
+        "local_sidecar_test_message" => sidecar::test_message(state).await,
         "professor_mari_prompt" => {
             mari::professor_mari_prompt(state, optional_value(&args, "request")).await
         }
