@@ -1,3 +1,8 @@
+## De-Koi Naming Policy
+
+- De-Koi is the project and fork identity. Public repository, documentation, support, issue, and release references should point to De-Koi and clearly state that De-Koi is an unofficial Marinara Engine fork under AGPL-3.0.
+- Do not rename compatibility-sensitive identifiers such as `marinara-server`, `marinara_engine`, Tauri bundle identifiers, storage/export labels, backup text, provider headers, Home Assistant domains, or existing app data paths without an explicit migration plan.
+
 ## Hard Rules
 
 - Product behavior belongs in `src/engine`; React UI belongs in `src/features`; runtime wrappers belong in `src/shared/api`; privileged/hostable capabilities belong in `src-tauri`.
