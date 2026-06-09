@@ -71,6 +71,7 @@ Load references only when their condition applies:
 | --- | --- |
 | mode choice, row-only/follow-up/report-only guardrails, prompt examples | `references/scan-modes.md` |
 | target numbers, status terms, proof levels, De-Koi tracker issue #2 updates | `references/tracker-context.md` |
+| splitting a tracker issue, detail issue, or large target into small parityscan batches without running the scans | `references/parity-scan-batching.md` |
 | exact search strategy, audit path, commands, absence wording, evidence standard | `references/search-and-evidence.md` |
 | CRUD, editors, import/export, runtime, media, storage, performance, UX, architecture, proof coverage | `references/audit-checklists.md` |
 | storage, catalog data, chats/messages, avatars, cold-load, projection, pagination, payload, media latency | `references/storage-hot-paths.md` |
