@@ -47,5 +47,5 @@ The JSON and PR proof templates are kept source-shaped. `status-snippets.md` is 
 - Issue templates: `.github/ISSUE_TEMPLATE/issue_report.md` and `.github/ISSUE_TEMPLATE/feature_request.md`.
 - Architecture docs: `docs/developer/architecture.html`, `modules.html`, and `impact-areas.html`.
 - Durable bug/work tracking: GitHub issues and PRs, not repo-local update files.
-- Current refactor workflow target: `Pasta-Devs/Marinara-Engine`, branch `refactor`.
+- Current refactor workflow target: `The-Koi-Pond/De-Koi`, branch `refactor`.
 - No root `CHANGELOG.md` and no `.agents/automation/scripts` are present in this checkout.

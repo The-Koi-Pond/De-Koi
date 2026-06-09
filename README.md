@@ -1,5 +1,7 @@
 # Marinara Engine
 
+De-Koi is an unofficial fork of Marinara Engine maintained by The Koi Pond. It is not affiliated with or endorsed by the Official Marinara Engine project. De-Koi remains licensed under the GNU Affero General Public License v3.0.
+
 Marinara Engine is a local-first AI chat, roleplay, and game engine built as a Tauri desktop app. It combines a React interface, a TypeScript product engine, and Rust capability modules for local storage, managed assets, provider transport, integrations, and an optional hostable runtime.
 
 This repository is an active refactor branch. The app is usable from source, but public release packaging and end-user installation guides are still being rebuilt around the new architecture.

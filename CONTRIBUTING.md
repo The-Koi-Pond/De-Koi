@@ -23,8 +23,8 @@ Prerequisites:
 Typical local setup:
 
 ```sh
-git clone https://github.com/Pasta-Devs/Marinara-Engine.git
-cd Marinara-Engine
+git clone https://github.com/The-Koi-Pond/De-Koi.git
+cd De-Koi
 git checkout refactor
 pnpm install
 pnpm tauri dev

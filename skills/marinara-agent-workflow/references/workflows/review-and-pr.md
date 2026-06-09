@@ -25,7 +25,7 @@ Before push or PR creation:
 
 Open new PRs as draft unless the user or target workflow says it should be ready for review. Never push directly to protected branches or force-push without explicit approval.
 
-For new implementation work on the refactor line, start from current `origin/refactor` on a fresh topic branch unless the user explicitly says to continue the current branch.
+For new implementation work on the refactor line, start from current `origin/refactor` on a fresh De-Koi topic branch unless the user explicitly says to continue the current branch.
 
 ## After Push
 

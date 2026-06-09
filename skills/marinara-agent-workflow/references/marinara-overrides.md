@@ -41,7 +41,7 @@ Do not treat missing pack automation as a blocker. Treat it as a reason to make 
 
 ## Branches And PR Targets
 
-The source pack has Marinara assumptions about legacy `staging` and team-branch workflow. This checkout is `Pasta-Devs/Marinara-Engine` on the `refactor` branch unless the current task says otherwise.
+The source pack has Marinara assumptions about legacy `staging` and team-branch workflow. This checkout targets `The-Koi-Pond/De-Koi` on the `refactor` branch unless the current task says otherwise.
 
 Always verify `git status --short --branch`, `git branch --show-current`, and `git remote -v` before shipping. Do not assume `staging`, `main`, fork workflow, or team-branch workflow unless the current repo and user request confirm it.
 
