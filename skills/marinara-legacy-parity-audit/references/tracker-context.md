@@ -26,8 +26,8 @@ updates or full status refreshes.
 Useful commands:
 
 ```powershell
-gh issue view <number> --repo Pasta-Devs/Marinara-Engine --json number,title,body,url
-gh issue view 1904 --repo Pasta-Devs/Marinara-Engine --json body --jq ".body" | Select-String -Pattern "<row id>|<target>" -Context 2,4
+gh issue view <number> --repo The-Koi-Pond/De-Koi --json number,title,body,url
+gh issue view <tracker-number> --repo The-Koi-Pond/De-Koi --json body --jq ".body" | Select-String -Pattern "<row id>|<target>" -Context 2,4
 ```
 
 ## Status Vocabulary

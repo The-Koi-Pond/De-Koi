@@ -42,9 +42,8 @@ Resolve legacy from the first available source:
 1. A path provided by the user.
 2. `$env:MARINARA_LEGACY_PATH`.
 3. A nearby checkout named `MarinaraEngine`, `Marinara-Engine-legacy`, or `legacy-Marinara-Engine`.
-4. The `main` branch of `https://github.com/Pasta-Devs/Marinara-Engine.git`, currently treated as legacy.
 
-If no local legacy path is available and network access or cloning/fetching is blocked, ask one focused question for a usable legacy checkout path. Follow active workspace rules before creating any new checkout or persistent copy.
+Do not clone, fetch, query, or otherwise contact the Official Marinara Engine repository for parity work unless the user explicitly approves that specific read-only provenance research. If no local legacy path is available, ask one focused question for a usable legacy checkout path or continue with current De-Koi evidence only.
 
 ## Required Context
 

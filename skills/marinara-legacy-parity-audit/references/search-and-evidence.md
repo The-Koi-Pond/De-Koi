@@ -29,15 +29,15 @@ rg -l -F "<exact symbol or label>" src src-tauri public skills
 rg -n -F "<exact symbol or label>" <top refactor files from rg -l>
 rg -l -F "<exact symbol or label>" <legacy-root>
 rg -n -F "<exact symbol or label>" <top legacy files from rg -l>
-gh issue list --repo Pasta-Devs/Marinara-Engine --state open --search "<target terms>" --json number,title,labels,url
-gh pr list --repo Pasta-Devs/Marinara-Engine --state open --search "<target terms>" --json number,title,labels,url
+gh issue list --repo The-Koi-Pond/De-Koi --state open --search "<target terms>" --json number,title,labels,url
+gh pr list --repo The-Koi-Pond/De-Koi --state open --search "<target terms>" --json number,title,labels,url
 ```
 
 When one exact issue or tracker row is needed:
 
 ```powershell
-gh issue view <number> --repo Pasta-Devs/Marinara-Engine --json number,title,body,url
-gh issue view 1904 --repo Pasta-Devs/Marinara-Engine --json body --jq ".body" | Select-String -Pattern "<row id>|<target>" -Context 2,4
+gh issue view <number> --repo The-Koi-Pond/De-Koi --json number,title,body,url
+gh issue view <tracker-number> --repo The-Koi-Pond/De-Koi --json body --jq ".body" | Select-String -Pattern "<row id>|<target>" -Context 2,4
 ```
 
 ## Evidence Standard
