@@ -1,6 +1,6 @@
 # Refactor Parity Pipeline
 
-This tracker is the working ledger for bringing the Tauri refactor branch back to Marinara Engine v1.6.1 functionality. The reference behavior is the current `main` line at v1.6.1; the implementation target is `refactor`.
+This tracker is the working ledger for checking De-Koi parity against legacy Marinara behavior. The legacy reference target is the Pasta staging branch: https://github.com/Pasta-Devs/Marinara-Engine/tree/staging.
 
 ## Ground Rules
 
@@ -14,7 +14,7 @@ This tracker is the working ledger for bringing the Tauri refactor branch back t
 
 For each feature slice:
 
-1. Investigate the v1.6.1 behavior and the current refactor behavior.
+1. Investigate the legacy staging behavior and the current De-Koi behavior.
 2. Implement the missing or broken behavior in the correct Tauri/refactor layer.
 3. Verify with focused automated checks and, where needed, app-level manual testing.
 4. Mark the slice complete or document the remaining gap before moving on.
@@ -24,7 +24,7 @@ For each feature slice:
 - Embedded Tauri IPC currently has handlers for every frontend `invokeTauri` command found in `src`.
 - Hostable remote runtime coverage is incomplete. Many embedded commands are not in the remote allowlist or HTTP dispatcher yet.
 - Initial chat message loading is already paginated through `list_messages_for_chat_page`; freezes are likely caused by adjacent bulk reads, invalidations, derived counts, imports, deletes, or focus/refetch behavior rather than the first message page alone.
-- Refactor has a TypeScript generation spine and Rust/native capability wrappers, but agents, streaming, prompt assembly, game mode, autonomous behavior, and imports still need proof against v1.6.1.
+- De-Koi has a TypeScript generation spine and Rust/native capability wrappers, but agents, streaming, prompt assembly, game mode, autonomous behavior, and imports still need proof against the Pasta staging branch.
 
 ## Ordered Pipeline
 
@@ -34,7 +34,7 @@ Work proceeds in these lanes, one slice at a time. A lane only moves to complete
 2. Agent parity: built-in/custom activation, prompt injection, custom tools, run cadence, memories/runs, and visible error state.
 3. Game parity: setup, start, turn generation, repair/retry, tracker/game-state snapshots, assets, and UI affordances.
 4. Autonomous conversation parity: background polling, cadence, idle/active status, schedules, unread state, and surfaced errors.
-5. Profile/data migration parity: v1.6.1 imports for chats, messages, characters, personas, settings, presets, agents, memories, assets, and odd legacy rows.
+5. Profile/data migration parity: legacy staging imports for chats, messages, characters, personas, settings, presets, agents, memories, assets, and odd legacy rows.
 6. UI/settings/integration parity: remaining stale controls, loading states, haptics, knowledge sources, GIFs, image generation, sprites, and app-level browser passes.
 7. Runtime substrate parity: embedded and hostable remote command coverage, capability boundaries, and precise unsupported-capability errors.
 
@@ -43,12 +43,13 @@ Work proceeds in these lanes, one slice at a time. A lane only moves to complete
 | Slice                       | Scope                                                                                            | Status      | Proof                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Runtime substrate           | Embedded command coverage, remote command coverage, capability boundaries                        | In progress | Embedded coverage checked: no missing frontend handlers. Remote coverage still partial.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Profile/data migration      | Import v1.6.1 chats, messages, characters, settings, presets, personas, agents, memories, assets | In progress | Legacy connected conversation notes and OOC influences now import into target chat notes. Rust checks can now run locally.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Profile/data migration      | Import legacy staging chats, messages, characters, settings, presets, personas, agents, memories, assets | In progress | Legacy connected conversation notes and OOC influences now import into target chat notes. Rust checks can now run locally.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Chat/generation performance | Lazy chat open, deletion, list summaries, focus/refetch behavior, generation message loading     | In progress | Normal generation now loads a bounded recent history window instead of the full chat; regeneration still loads broadly so old targets remain addressable.                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Generation spine            | Streaming, cancellation, prompt assembly, history roles, preset formatting, summaries, regex     | In progress | Connected conversation prompt injection ported; stored chat/game generation parameters now merge into LLM requests; selected prompt preset params, wrap format, and choice variables now apply. Focused tests pass.                                                                                                                                                                                                                                                                                                                                                        |
 | Agents                      | Agent enablement, prompt injection, tool calls, custom tools, agent memory/runs, UI state        | In progress | Custom tools support static results and webhooks in the refactor runtime; legacy script tools are preserved as unsupported rows with a convert-to-static-or-webhook migration path and must not execute. Secret Plot memory now loads into agent prompts and persists fresh arc/direction output; saved agent runs include config IDs and display names for UI parity; chat-scoped built-in fallback agents now resolve without DB rows and per-chat selection overrides disabled global rows; empty agent responses now surface as failures; preset `agent_data` markers receive runtime output; parallel agent results are not double-counted. Focused tests pass. |
 | Roleplay                    | Roleplay prompt assembly, typewriter streaming, character roles, scene/encounter/tracker hooks   | In progress | Expression avatars restored; streaming views now read per-chat buffers. Need app/browser pass.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Game mode                   | Game services, start path, turn generation, repair flow, UI state, assets                        | In progress | Start guard restored and game turns now inherit stored generation parameters. Focused generation tests pass.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Local sidecar               | Managed local model process, synthetic connection, embeddings compatibility                       | In progress | `feature/local-sidecar` restores a Rust/Tauri local sidecar manager for configured or managed `llama-server` runtimes and GGUF model paths. Enabled sidecars surface as the synthetic `sidecar:local` connection, and LLM generation, embeddings, model lookup, connection tests, and `/api/sidecar/v1/embeddings` resolve that ID through the managed loopback process. Curated Gemma GGUF downloads, custom Hugging Face GGUF listing/download, runtime install, cancel, and model deletion are restored through the Connections Local Model card. MLX-native legacy backend parity remains open. |
 | Autonomous conversation     | Client polling, background cadence, idle behavior, schedules, error display                      | Not started | Need focused tests and app run.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Professor Mari              | Persistent history, connection/tool requirements, compaction, loading state, animation           | In progress | History no longer flashes welcome before load; persona and connection preferences persist; compaction/history tests pass. Need app/browser pass.                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | UI parity                   | Stale controls, input buttons, loading surfaces, status indicators                               | In progress | Chat bulk export format menu and several missing settings restored. Need app/browser pass.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -56,18 +57,25 @@ Work proceeds in these lanes, one slice at a time. A lane only moves to complete
 
 ## Known Intentional Divergences
 
-The live intentional-divergence ledger moved to the De-Koi parity tracker:
-https://github.com/The-Koi-Pond/De-Koi/issues/2#known-intentional-divergences.
+This table mirrors the live intentional-divergence ledger in the De-Koi parity
+tracker: https://github.com/The-Koi-Pond/De-Koi/issues/2#known-intentional-divergences.
+Keep both locations aligned before relying on a legacy/De-Koi difference as an
+accepted product decision during a parityscan.
 
-Update that issue before relying on a legacy/De-Koi difference as an accepted
-product decision during a parityscan.
+| Area | Legacy behavior | De-Koi behavior | Reason | Source |
+| --- | --- | --- | --- | --- |
+| Agents: unset temperature | Legacy defaulted unset agent temperature to `0.3`. | De-Koi leaves unset agent temperature undefined so connection/provider defaults apply unless the user configures an agent-specific temperature. | Connection setup now owns provider parameters, and a fixed low agent temperature worked poorly for some writing agents. | Historical Pasta source: https://github.com/Pasta-Devs/Marinara-Engine/issues/1899 |
+| Custom tools: script execution | Legacy custom tools allowed `executionType: "script"` with persisted `scriptBody`, and could execute JavaScript server-side when script tools were enabled. | De-Koi custom tool create/update contracts only support `static` and `webhook`; imported or existing script rows are shown as unsupported, and native execution returns `custom_tool_script_unsupported` with convert-to-static-or-webhook guidance. | Local script execution is a deliberate compatibility and safety boundary. Legacy script tools should be preserved enough for user review, but must be converted to static results or webhooks before execution. | Historical Pasta sources: https://github.com/Pasta-Devs/Marinara-Engine/issues/1907 and https://github.com/Pasta-Devs/Marinara-Engine/issues/2011 |
+| Remote runtime: haptic device commands | Legacy server haptic routes could execute haptic commands remotely when remote haptics were explicitly enabled and privileged access allowed it. | De-Koi treats haptics as embedded-shell/device-bound in Remote Runtime and web-shell mode; remote calls surface unsupported/disconnected status and do not execute device commands. | Haptic hardware control is intentionally kept local to the embedded device runtime instead of allowing hostable remote browser sessions to actuate devices. | Historical Pasta sources: https://github.com/Pasta-Devs/Marinara-Engine/issues/1921 and https://github.com/Pasta-Devs/Marinara-Engine/issues/2050 |
+| Remote runtime: local sidecar implementation | Legacy Node runtime managed a bundled local model sidecar with install/download/start/restart/unload/delete and related inference endpoints. | De-Koi restores a managed local sidecar through Rust/Tauri host capabilities: configured or managed llama.cpp `llama-server` runtimes, GGUF model paths, curated Gemma GGUF downloads, custom Hugging Face GGUF listing/download, runtime install, model deletion, synthetic `sidecar:local` connection, generation, embeddings, model lookup, connection tests, and `/api/sidecar/v1/embeddings`. | The sidecar is no longer retired. Process and downloader ownership belongs in privileged Rust/Tauri host capabilities. MLX-native Python backend parity remains separate from the restored llama.cpp/GGUF path. | De-Koi source: `feature/local-sidecar`; historical Pasta source: https://github.com/Pasta-Devs/Marinara-Engine/issues/2050 |
+| Modes: Visual Novel | Legacy exposed `visual_novel` as a distinct chat mode in shared schemas, storage rows, sidebar labels, presets, and roleplay-like generation paths. | De-Koi canonical chat modes are `conversation`, `roleplay`, and `game`; legacy `visual_novel` inputs are accepted as a compatibility alias and normalized to `roleplay`. | Visual Novel is intentionally folded into the Roleplay scene surface instead of remaining a separate product mode, while preserving legacy data compatibility. | Historical Pasta source: https://github.com/Pasta-Devs/Marinara-Engine/issues/2011 |
 
 ## Completed Slice: Connected Conversation Notes And Influences
 
 This was the first completed parity slice because it crossed migration, prompt assembly, and generation behavior:
 
 - Conversation `<note>` and `<influence>` tags are stored on the linked roleplay/game chat instead of being stranded on the source conversation.
-- Roleplay/game prompt assembly injects durable notes and unconsumed one-shot influences using the v1.6.1 XML blocks.
+- Roleplay/game prompt assembly injects durable notes and unconsumed one-shot influences using the legacy XML blocks.
 - One-shot influences are marked consumed after they enter the prompt.
 - Legacy `conversation_notes` and `ooc_influences` tables import into the target chat's `notes` array.
 
@@ -77,7 +85,7 @@ Next target: prove and fill the remaining agent path after the preset fix:
 
 - Verify built-in and custom agents trigger from normal roleplay generation, manual retry, and configured run intervals.
 - Confirm remaining webhook app pass after static/webhook custom-tool dispatch proof.
-- Audit remaining non-Secret-Plot memory-like outputs against v1.6.1.
+- Audit remaining non-Secret-Plot memory-like outputs against the Pasta staging branch.
 - Check app-level visibility for agent failures, debug entries, and retry affordances.
 
 ## Completed Slice: Bounded Generation History Load
@@ -86,7 +94,7 @@ Normal generation no longer asks storage for every message in a chat before prom
 
 ## Completed Slice: Settings And Tool Parity Batch
 
-This batch restored several v1.6.1 surfaces that had regressed in the Tauri refactor:
+This batch restored several legacy surfaces that had regressed in the Tauri refactor:
 
 - TTS audio format is back in settings and the Rust TTS proxy now forwards MP3/WAV to OpenAI-compatible and local TTS providers.
 - OpenRouter service tier is back in generation parameters and is sent as `service_tier` for OpenRouter requests.
@@ -106,12 +114,12 @@ This slice tightened the next broken user-facing paths:
 
 ## Completed Slice: Agent Activation Fallbacks
 
-The Tauri runtime now matches the important v1.6.1 agent behavior for chat-scoped built-ins:
+The Tauri runtime now matches the important legacy agent behavior for chat-scoped built-ins:
 
 - Built-in agents explicitly listed in a chat's `activeAgentIds` run even when no saved `agents` config row exists yet.
 - A per-chat active agent selection overrides a disabled global config row, so disabling an agent globally does not silently suppress a chat that explicitly enabled it.
 - Manual agent retries can resolve built-in fallback configs when only an agent type is requested.
-- Synthetic fallback configs use the built-in default settings and default tool list, then fall back to the chat connection/model just like v1.6.1.
+- Synthetic fallback configs use the built-in default settings and default tool list, then fall back to the chat connection/model like the legacy runtime.
 - Empty agent LLM responses are reported as failed agent results instead of successful no-op outputs.
 - Preset `agent_data` markers receive pre-generation runtime output before the main model call.
 - Parallel/post agent results are de-duplicated across callback and return paths before UI emission and generation metadata counting.
@@ -128,7 +136,7 @@ Agent tool-calling now has focused parity proof in the refactor runtime:
 
 ## Completed Slice: Secret Plot Memory
 
-The Secret Plot Driver now carries its v1.6.1 long-running state through the Tauri generation runtime:
+The Secret Plot Driver now carries its legacy long-running state through the Tauri generation runtime:
 
 - Saved `overarchingArc`, active `sceneDirections`, `pacing`, `recentlyFulfilled`, and `staleDetected` memory are rebuilt into the agent-only `<secret_plot_state>` prompt block.
 - Successful `secret_plot` results persist fresh arc and direction state back to `agent-memory`.
@@ -138,7 +146,7 @@ The Secret Plot Driver now carries its v1.6.1 long-running state through the Tau
 
 ## Completed Slice: Prompt Preset Parameters And Variables
 
-Preset-driven roleplay/visual-novel generation now restores the v1.6.1 behavior that was missing in the Tauri spine:
+Preset-driven roleplay/visual-novel generation now restores the legacy behavior that was missing in the Tauri spine:
 
 - The selected prompt preset's `parameters` merge into the outgoing LLM request between connection defaults and per-chat/request overrides.
 - Prompt assembly uses the selected preset's `wrapFormat` before falling back to chat/connection/default wrapping.

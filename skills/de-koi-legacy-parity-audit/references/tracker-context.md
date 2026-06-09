@@ -4,10 +4,14 @@ De-Koi tracker issue: https://github.com/The-Koi-Pond/De-Koi/issues/2
 
 Historical upstream seed: https://github.com/Pasta-Devs/Marinara-Engine/issues/1904
 
+Legacy source target: https://github.com/Pasta-Devs/Marinara-Engine/tree/staging
+
 Use De-Koi issue #2 as the live source of truth for target order, target
 status, status vocabulary, report links, follow-up state, and accepted
 intentional divergences. Pasta #1904 and its linked reports are historical
 search leads only; do not copy their status forward as De-Koi proof.
+Compare current De-Koi behavior against the Pasta `staging` branch unless the
+user explicitly names another legacy source.
 
 ## Tracker Rules
 

@@ -42,6 +42,10 @@ gh issue view 2 --repo The-Koi-Pond/De-Koi --json body --jq ".body" | Select-Str
 gh issue view 1904 --repo Pasta-Devs/Marinara-Engine --json body,url
 ```
 
+Legacy code evidence should come from the Pasta `staging` branch:
+https://github.com/Pasta-Devs/Marinara-Engine/tree/staging. If a local legacy
+checkout is used, verify or fetch that branch before comparing.
+
 ## Evidence Standard
 
 Every finding needs evidence from both sides when possible:

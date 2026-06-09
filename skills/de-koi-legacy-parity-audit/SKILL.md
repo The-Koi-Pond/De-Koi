@@ -5,7 +5,7 @@ description: "Compare current De-Koi behavior against legacy Marinara to find re
 
 # De-Koi Legacy Parity Audit
 
-Use this skill to compare the current De-Koi repo with legacy Marinara for one feature, contract, schema, storage format, runtime behavior, or product area. Focus on product-important missing behavior, likely accidental regressions, current De-Koi defects, and legacy flows that still work better.
+Use this skill to compare the current De-Koi repo with legacy Marinara from the Pasta staging branch for one feature, contract, schema, storage format, runtime behavior, or product area. Focus on product-important missing behavior, likely accidental regressions, current De-Koi defects, and legacy flows that still work better.
 
 Activation keyword: `parityscan`.
 
@@ -42,7 +42,9 @@ Resolve legacy from the first available source:
 1. A path provided by the user.
 2. `$env:MARINARA_LEGACY_PATH`.
 3. A nearby checkout named `MarinaraEngine`, `Marinara-Engine-legacy`, or `legacy-Marinara-Engine`.
-4. The `main` branch of `https://github.com/Pasta-Devs/Marinara-Engine.git`, currently treated as legacy.
+4. The `staging` branch of `https://github.com/Pasta-Devs/Marinara-Engine.git`, currently treated as legacy: https://github.com/Pasta-Devs/Marinara-Engine/tree/staging.
+
+When using a local legacy checkout, verify it is on or fetched from Pasta `staging` unless the user explicitly asks for another legacy source.
 
 If no local legacy path is available and network access or cloning/fetching is blocked, ask one focused question for a usable legacy checkout path. Follow active workspace rules before creating any new checkout or persistent copy.
 
