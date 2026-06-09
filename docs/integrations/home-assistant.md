@@ -2,7 +2,7 @@
 
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 
-Connects [Marinara Engine](https://github.com/Pasta-Devs/Marinara-Engine) to Home Assistant so your AI characters can control real-world devices — lights, climate, locks, covers, media players, and more — directly from chat, roleplay, and game sessions.
+Connects [Marinara Engine](https://github.com/The-Koi-Pond/De-Koi) to Home Assistant so your AI characters can control real-world devices — lights, climate, locks, covers, media players, and more — directly from chat, roleplay, and game sessions.
 
 ## How it works
 
@@ -38,7 +38,7 @@ The Tauri desktop app can still be open, but the Home Assistant integration talk
 ### 1. Add to HACS
 
 1. Open HACS → three-dot menu → **Custom repositories**
-2. URL: `https://github.com/Pasta-Devs/Marinara-Engine`
+2. URL: `https://github.com/The-Koi-Pond/De-Koi`
 3. Category: **Integration**
 4. Click **Add**, then search for **Marinara Engine** and install it
 5. Restart Home Assistant
