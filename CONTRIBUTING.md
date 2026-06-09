@@ -1,6 +1,6 @@
-# Contributing to Marinara Engine
+# Contributing to De-Koi
 
-Marinara Engine is currently being rebuilt on the `refactor` branch as a local-first Tauri desktop app with a React UI, a React-free TypeScript product engine, and Rust capability modules. Use this guide with `README.md`, `AGENTS.md`, and the developer docs under `docs/developer/`.
+De-Koi is an unofficial Marinara Engine fork currently being rebuilt on the `refactor` branch as a local-first Tauri desktop app with a React UI, a React-free TypeScript product engine, and Rust capability modules. Use this guide with `README.md`, `AGENTS.md`, and the developer docs under `docs/developer/`.
 
 ## Branches
 

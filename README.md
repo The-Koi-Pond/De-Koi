@@ -1,11 +1,11 @@
-# Marinara Engine
+# De-Koi
 
 De-Koi is an unofficial fork of Marinara Engine maintained by The Koi Pond. It is not affiliated with or endorsed by the Official Marinara Engine project. De-Koi remains licensed under the GNU Affero General Public License v3.0.
 
-Marinara Engine is a local-first AI chat, roleplay, and game engine built as a Tauri desktop app. It combines a React interface, a TypeScript product engine, and Rust capability modules for local storage, managed assets, provider transport, integrations, and an optional hostable runtime.
+De-Koi is a local-first AI chat, roleplay, and game engine built as a Tauri desktop app. It combines a React interface, a TypeScript product engine, and Rust capability modules for local storage, managed assets, provider transport, integrations, and an optional hostable runtime.
 
 This repository is an active refactor branch. The app is usable from source, but public release packaging and end-user installation guides are still being rebuilt around the new architecture.
-The refactor build keeps an explicit in-app update check in Settings > Advanced. It checks Marinara Engine GitHub releases and opens the matching release page for manual install; signed Tauri auto-install artifacts are not configured on this branch yet.
+The refactor build keeps an explicit in-app update check in Settings > Advanced. It checks De-Koi GitHub releases and opens the matching release page for manual install; signed Tauri auto-install artifacts are not configured on this branch yet.
 
 ## Screenshots
 
@@ -24,7 +24,7 @@ Screenshots are coming soon. The previous screenshot set was removed from this r
 
 ## Architecture
 
-Marinara is split so product behavior, UI, runtime adapters, and privileged capabilities have clear owners:
+De-Koi is split so product behavior, UI, runtime adapters, and privileged capabilities have clear owners:
 
 - `src/app` - React bootstrap, shell, providers, and startup effects.
 - `src/features` - React feature UI for catalog resources, runtime systems, concrete modes, and shell tools.
