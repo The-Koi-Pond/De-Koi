@@ -5,6 +5,7 @@ use marinara_security::is_allowed_provider_url;
 use std::collections::{HashMap, HashSet};
 
 const LEGACY_LOCAL_SIDECAR_CONNECTION_ID: &str = "__local_sidecar__";
+const EMBEDDING_PROVIDER_LOCAL_URLS_ENABLED_FLAG: &str = "EMBEDDING_PROVIDER_LOCAL_URLS_ENABLED";
 
 pub(crate) fn duplicate_prompt_preset(state: &AppState, preset_id: &str) -> AppResult<Value> {
     let mut preset = get_required(state, "prompts", preset_id)?;
@@ -988,76 +989,47 @@ fn embedding_base_url(connection: &Value, fallback: &str) -> String {
         .to_string()
 }
 
+/// Mirrors the LLM provider client's connect timeout
+/// (PROVIDER_RESPONSE_HEADERS_TIMEOUT_SECS in the llm crate).
+const EMBEDDING_CONNECT_TIMEOUT_SECS: u64 = 5 * 60;
+
 /// Resolve and SSRF-screen an outbound embedding URL, then build a reqwest client pinned to
 /// the validated resolved addresses so a public-looking host cannot rebind to a private, LAN,
 /// metadata, or reserved IP between the allow-list check and the connect. Mirrors the LLM
-/// provider path (validate_provider_url_resolution + resolve_to_addrs pinning).
+/// provider path (validate_provider_url_resolution + resolve_to_addrs pinning); private,
+/// LAN, or reserved targets require the EMBEDDING_PROVIDER_LOCAL_URLS_ENABLED opt-in.
 async fn embedding_http_client(url: &str) -> AppResult<reqwest::Client> {
     let parsed = reqwest::Url::parse(url).map_err(|error| {
-        AppError::invalid_input(format!("Outbound embedding URL is invalid: {error}"))
+        AppError::invalid_input(format!(
+            "Outbound embedding URL is invalid: {}",
+            marinara_security::redact_sensitive_text(&error.to_string())
+        ))
     })?;
-    if !is_allowed_provider_url(parsed.as_str(), false) {
-        return Err(AppError::invalid_input(format!(
-            "Outbound embedding URL is not allowed: {url}"
-        )));
+    let allow_private_or_reserved =
+        provider_local_urls_enabled(EMBEDDING_PROVIDER_LOCAL_URLS_ENABLED_FLAG);
+    if !is_allowed_provider_url(parsed.as_str(), allow_private_or_reserved) {
+        return Err(provider_url_not_allowed_error(
+            parsed.as_str(),
+            EMBEDDING_PROVIDER_LOCAL_URLS_ENABLED_FLAG,
+        ));
     }
-    let resolved = embedding_resolved_addresses(&parsed).await?;
-    let mut builder = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none());
+    let resolved = validate_provider_url_resolution(
+        &parsed,
+        allow_private_or_reserved,
+        EMBEDDING_PROVIDER_LOCAL_URLS_ENABLED_FLAG,
+    )
+    .await?;
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(
+            EMBEDDING_CONNECT_TIMEOUT_SECS,
+        ))
+        .redirect(reqwest::redirect::Policy::none());
     if let (Some(host), Some(addresses)) = (parsed.host_str(), resolved.as_deref()) {
         builder = builder.resolve_to_addrs(host, addresses);
     }
     builder
         .build()
         .map_err(|error| AppError::new("embedding_client_error", error.to_string()))
-}
-
-/// Resolve a hostname and reject (then pin) it so a public-looking name cannot rebind to a
-/// reserved IP between the allow-list check and the connect. Loopback hosts (local providers
-/// like ollama) and IP-literal hosts are already screened by is_allowed_provider_url and need
-/// no DNS resolution or pinning.
-async fn embedding_resolved_addresses(
-    url: &reqwest::Url,
-) -> AppResult<Option<Vec<std::net::SocketAddr>>> {
-    let Some(host) = url.host_str() else {
-        return Err(AppError::invalid_input(
-            "Outbound embedding URL is missing a hostname",
-        ));
-    };
-    if marinara_security::is_loopback_provider_host(host) {
-        return Ok(None);
-    }
-    if host
-        .strip_prefix('[')
-        .and_then(|value| value.strip_suffix(']'))
-        .unwrap_or(host)
-        .parse::<std::net::IpAddr>()
-        .is_ok()
-    {
-        return Ok(None);
-    }
-    let port = url.port_or_known_default().unwrap_or(443);
-    let addresses = tokio::net::lookup_host((host, port))
-        .await
-        .map_err(|error| {
-            AppError::invalid_input(format!(
-                "Outbound embedding URL host '{host}' did not resolve: {error}"
-            ))
-        })?
-        .collect::<Vec<_>>();
-    if addresses.is_empty() {
-        return Err(AppError::invalid_input(format!(
-            "Outbound embedding URL host '{host}' did not resolve"
-        )));
-    }
-    if addresses
-        .iter()
-        .any(|address| marinara_security::is_forbidden_provider_resolved_ip(address.ip(), false))
-    {
-        return Err(AppError::invalid_input(format!(
-            "Outbound embedding URL is not allowed: {url}"
-        )));
-    }
-    Ok(Some(addresses))
 }
 
 #[cfg(test)]
