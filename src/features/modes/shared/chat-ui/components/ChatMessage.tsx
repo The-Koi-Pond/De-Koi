@@ -768,6 +768,17 @@ function sanitizeInlineStyleAttributes(html: string): string {
   });
 }
 
+// Reverse-tabnabbing guard: any anchor that survives sanitization with a `target`
+// (e.g. target="_blank") must carry rel="noopener noreferrer", mirroring the
+// markdown render path in src/shared/lib/markdown.tsx. DOMPurify hooks are
+// instance-global, but every other sanitize config in this app strips <a> tags
+// entirely, so this hook only ever fires for chat HTML.
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  if (node.tagName === "A" && node.hasAttribute("target")) {
+    node.setAttribute("rel", "noopener noreferrer");
+  }
+});
+
 function sanitizeChatHtml(html: string, options: { allowStyle?: boolean } = {}) {
   const allowedAttr = options.allowStyle
     ? [...CHAT_HTML_ALLOWED_ATTR]
