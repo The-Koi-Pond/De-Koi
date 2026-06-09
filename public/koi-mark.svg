@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Koi mark">
+  <path
+    d="M5.5 17.2c4.2-6.6 10.7-8.6 16-4.8 1.9 1.4 3.3 3.2 4.2 5.3-2.8-1.2-5.1-1-7.1.6-4 3.2-8.6 2.8-13.1-1.1Z"
+    fill="none"
+    stroke="#ff7a44"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="2.4"
+  />
+  <path
+    d="M7.6 16.7c3.2 2 6.2 2.1 9 .3m5.2-4.3 4.2-5.1m-3.1 7 5.6 1.5"
+    fill="none"
+    stroke="#65d1c3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="2.1"
+  />
+</svg>

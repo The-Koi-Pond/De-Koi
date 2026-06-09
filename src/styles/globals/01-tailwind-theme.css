@@ -1,0 +1,140 @@
+/* Tailwind custom variant plus @theme token mapping. */
+
+/* ── Tailwind v4: Wire dark: variant to our data-theme attribute ── */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ═══════════════════════════════════════════════
+   De-Koi - Master Stylesheet
+   ═══════════════════════════════════════════════
+
+   TABLE OF CONTENTS
+   ─────────────────
+    1.  Tailwind @theme Mapping ........... CSS vars → Tailwind utility names
+    2.  Dark Theme Variables .............. colors, palette, fonts
+    3.  Light Theme Variables ............. light-mode overrides
+    4.  Light Theme Component Overrides ... glass, grid, scrollbar tweaks
+    5.  Base Reset & Body ................. border reset, body defaults
+    6.  Custom Cursors .................... Y2K SVG cursors
+    7.  Scrollbars ........................ retro scrollbar styling
+    8.  Glass / Frosted Panels ............ .glass, .glass-strong
+    9.  Glow & Shadow Effects ............. .glow-primary, .glow-sm
+   10.  UI Components ..................... badges, cards, stars, buttons
+   11.  Keyframe Animations ............... gradient borders, OS window, scanlines
+   12.  Chat Animations & Utilities ....... message-in, shimmer, grid, etc.
+   13.  Chat: Glimmer Theme ............... roleplay bubbles (Rivelle-inspired)
+   14.  Chat: Conversation Mode ........... iMessage / texting bubbles
+   15.  Chat: Roleplay Mode ............... immersive dark RPG
+   16.  Sprites & Game HUD ................ character sprites, stat bars
+   17.  Function Call Cards ............... tool-use result display
+   18.  Responsive / Mobile ............... breakpoints + touch targets
+   19.  SillyTavern Visual Theme .......... (separate file import)
+   20.  Accessibility — Reduced Motion .... prefers-reduced-motion
+   21.  Performance — GPU Hints ........... will-change compositing
+
+   QUICK CUSTOMIZATION GUIDE
+   ─────────────────────────
+   • Change the app's accent color → edit --primary in §2
+   • Change the background color   → edit --background in §2
+   • Change the font               → edit --font-y2k in §2
+   • Change the cursor SVG         → edit --cursor-pink in §2
+   • Disable the custom cursor     → delete or comment out §6
+   • Disable glow / scanlines      → delete or comment out §9 + §11
+   • Tweak chat bubble look        → §13 (glimmer), §14 (texting), §15 (RPG)
+   • Add/change breakpoints        → §18
+
+   VARIABLE ARCHITECTURE
+   ─────────────────────
+   Variables fall into two tiers:
+
+   SEMANTIC (used by components — change these to re-theme the UI):
+     --primary / --primary-foreground   Main accent (buttons, hovers, links)
+     --background / --foreground        Page background & default text
+     --card / --card-foreground         Panel/card surfaces
+     --secondary / --secondary-foreground  Subtle backgrounds
+     --muted / --muted-foreground       De-emphasized text & surfaces
+     --accent / --accent-foreground     Highlighted areas (active tabs, etc.)
+     --destructive / --destructive-foreground  Danger / delete
+     --border, --input, --ring          Borders, inputs, focus rings
+     --sidebar-*                        Left & right sidebar tones
+     --glow-primary, --glow-accent      Glow effect bases
+
+   PALETTE (decorative flavor — components should NOT reference these
+   directly; they exist for the CSS effects layer and user customization):
+     --y2k-pink, --y2k-purple, --y2k-blue, --y2k-mint, etc.
+     --pastel-rose, --pastel-lilac, --pastel-sky, etc.
+     --rgb-red, --rgb-orange, --rgb-yellow, etc.
+
+   If you want to change the primary interactive color, edit --primary.
+   The y2k/pastel/rgb palettes are for background effects, decorations,
+   gradients, and data visualization — not for button hovers or active states.
+
+   ═══════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────
+   1. TAILWIND @theme MAPPING
+   Map CSS variables to Tailwind utility names.
+   Lets you write bg-background, text-primary, etc.
+   instead of bg-[var(--background)].
+   ───────────────────────────────────────────── */
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+
+  --color-y2k-pink: var(--y2k-pink);
+  --color-y2k-purple: var(--y2k-purple);
+  --color-y2k-blue: var(--y2k-blue);
+  --color-y2k-mint: var(--y2k-mint);
+  --color-y2k-peach: var(--y2k-peach);
+  --color-y2k-lavender: var(--y2k-lavender);
+  --color-y2k-yellow: var(--y2k-yellow);
+
+  --color-pastel-rose: var(--pastel-rose);
+  --color-pastel-lilac: var(--pastel-lilac);
+  --color-pastel-sky: var(--pastel-sky);
+  --color-pastel-mint: var(--pastel-mint);
+  --color-pastel-coral: var(--pastel-coral);
+  --color-pastel-peach: var(--pastel-peach);
+  --color-pastel-lavender: var(--pastel-lavender);
+  --color-pastel-periwinkle: var(--pastel-periwinkle);
+
+  --color-rgb-red: var(--rgb-red);
+  --color-rgb-orange: var(--rgb-orange);
+  --color-rgb-yellow: var(--rgb-yellow);
+  --color-rgb-green: var(--rgb-green);
+  --color-rgb-cyan: var(--rgb-cyan);
+  --color-rgb-blue: var(--rgb-blue);
+  --color-rgb-indigo: var(--rgb-indigo);
+  --color-rgb-violet: var(--rgb-violet);
+
+  --color-glow-primary: var(--glow-primary);
+  --color-glow-accent: var(--glow-accent);
+
+  --radius-sm: calc(var(--radius) - 0.25rem);
+  --radius-md: calc(var(--radius) - 0.125rem);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 0.25rem);
+
+  --font-y2k: var(--font-y2k);
+}

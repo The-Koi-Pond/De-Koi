@@ -1,0 +1,413 @@
+/* Glass panels, side panels, home/start cards, discovery, settings, and reusable component surfaces. */
+
+/* ─────────────────────────────────────────────
+   8. GLASS / FROSTED PANELS
+   ───────────────────────────────────────────── */
+.glass {
+  backdrop-filter: blur(20px) saturate(180%);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+}
+
+.glass-strong {
+  backdrop-filter: blur(32px) saturate(200%);
+  background: var(--glass-strong-bg);
+  border: 1px solid var(--glass-strong-border);
+  box-shadow: var(--glass-strong-shadow);
+}
+
+.mari-sidebar,
+.mari-right-panel {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--sidebar) 88%, transparent),
+      color-mix(in srgb, var(--sidebar) 96%, transparent) 58%,
+      color-mix(in srgb, var(--background) 98%, transparent)
+    ),
+    var(--sidebar);
+  backdrop-filter: blur(18px) saturate(145%);
+}
+
+.mari-sidebar {
+  box-shadow:
+    1px 0 0 color-mix(in srgb, var(--sidebar-border) 88%, transparent),
+    20px 0 46px rgba(0, 0, 0, 0.42),
+    inset -1px 0 color-mix(in srgb, var(--foreground) 3%, transparent);
+}
+
+.mari-right-panel {
+  box-shadow:
+    -1px 0 0 color-mix(in srgb, var(--sidebar-border) 88%, transparent),
+    -20px 0 46px rgba(0, 0, 0, 0.42),
+    inset 1px 0 color-mix(in srgb, var(--foreground) 3%, transparent);
+}
+
+.mari-chat-sidebar,
+.mari-right-panel-content {
+  background: transparent;
+}
+
+.mari-sidebar-header,
+.mari-sidebar-footer,
+.mari-right-panel-header {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--card) 58%, var(--sidebar) 42%),
+    color-mix(in srgb, var(--sidebar) 88%, var(--accent) 12%)
+  ) !important;
+  backdrop-filter: blur(14px) saturate(135%) !important;
+  box-shadow:
+    inset 0 1px color-mix(in srgb, var(--foreground) 5%, transparent),
+    inset 0 -1px color-mix(in srgb, var(--sidebar-border) 72%, transparent);
+}
+
+.de-koi-settings-tabs {
+  gap: 0.125rem;
+  padding: 0.375rem 0.5rem 0.25rem;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--card) 70%, var(--sidebar) 30%),
+    color-mix(in srgb, var(--background) 68%, var(--card) 32%)
+  ) !important;
+}
+
+.de-koi-settings-tab {
+  min-height: 2.25rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+}
+
+.de-koi-settings-tab:hover {
+  background: color-mix(in srgb, var(--secondary) 46%, transparent);
+}
+
+.de-koi-settings-tab-active {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--primary) 13%, transparent), transparent),
+    color-mix(in srgb, var(--secondary) 56%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 22%, var(--border));
+  box-shadow:
+    inset 0 1px color-mix(in srgb, var(--foreground) 7%, transparent),
+    0 0 14px color-mix(in srgb, var(--primary) 9%, transparent);
+}
+
+.de-koi-settings-body {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--background) 92%, transparent), var(--background));
+}
+
+/* Firefox on Windows can rasterize text inside large blurred/translucent layout layers,
+   which shows up most clearly on high-DPI displays. Fall back to opaque shell chrome there. */
+@supports (-moz-appearance: none) {
+  .mari-app-chrome,
+  .mari-topbar,
+  .mari-sidebar,
+  .mari-sidebar-header,
+  .mari-sidebar-footer,
+  .mari-right-panel,
+  .mari-right-panel-header {
+    backdrop-filter: none !important;
+  }
+
+  .mari-app-chrome,
+  .mari-topbar,
+  .mari-sidebar-header,
+  .mari-sidebar-footer,
+  .mari-right-panel-header {
+    background: var(--card) !important;
+  }
+
+  .mari-sidebar,
+  .mari-right-panel {
+    background: var(--sidebar) !important;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   9. GLOW & SHADOW EFFECTS
+   ───────────────────────────────────────────── */
+.glow-primary {
+  box-shadow:
+    0 0 8px var(--glow-color-1),
+    0 0 16px var(--glow-color-2),
+    0 0 24px var(--glow-color-3);
+}
+
+.glow-sm {
+  box-shadow:
+    0 0 8px var(--glow-sm-1),
+    0 0 16px var(--glow-sm-2);
+}
+
+/* ─────────────────────────────────────────────
+   10. UI COMPONENTS
+   ───────────────────────────────────────────── */
+.retro-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03125rem;
+  color: #0a0a0a;
+  background: linear-gradient(90deg, var(--y2k-pink), var(--y2k-lavender));
+  border: 2px solid var(--y2k-purple);
+  border-radius: 1rem;
+}
+
+.retro-card {
+  backdrop-filter: blur(10px);
+  background: #141414b3;
+  border: 2px solid var(--rgb-red);
+  border-radius: 0.75rem;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s;
+  animation: rgb-pulse-border 20s ease-in-out infinite;
+}
+
+.retro-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+}
+
+@keyframes twinkle-glow {
+  0%,
+  100% {
+    opacity: 0.6;
+    filter: blur(0);
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.2;
+    filter: blur(0.5px);
+    transform: scale(0.9);
+  }
+}
+
+.y2k-star,
+.y2k-star-md,
+.y2k-star-lg {
+  position: fixed;
+  pointer-events: none;
+  border-radius: 50%;
+  animation: twinkle-glow 4s ease-in-out infinite;
+}
+
+.y2k-star {
+  width: 0.125rem;
+  height: 0.125rem;
+  background: var(--y2k-pink);
+  box-shadow:
+    0 0 7px 2px rgba(255, 137, 87, 0.28),
+    0 0 14px 5px rgba(255, 137, 87, 0.12);
+}
+
+.y2k-star-md {
+  width: 0.1875rem;
+  height: 0.1875rem;
+  background: var(--y2k-purple);
+  box-shadow:
+    0 0 8px 3px rgba(82, 225, 218, 0.32),
+    0 0 16px 6px rgba(82, 225, 218, 0.14);
+  animation-duration: 5s;
+}
+
+.y2k-star-lg {
+  width: 0.25rem;
+  height: 0.25rem;
+  background: #fff0dc;
+  box-shadow:
+    0 0 9px 4px rgba(255, 240, 220, 0.34),
+    0 0 18px 8px rgba(255, 240, 220, 0.14);
+  animation-duration: 6s;
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 6px rgba(82, 225, 218, 0.1),
+      0 0 12px rgba(255, 137, 87, 0.08);
+  }
+  50% {
+    box-shadow:
+      0 0 9px rgba(82, 225, 218, 0.18),
+      0 0 18px rgba(255, 137, 87, 0.14);
+  }
+}
+
+.pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+.retro-glow-text {
+  color: var(--primary);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.koi-glow-text {
+  color: var(--primary);
+  text-shadow:
+    0 1px 0 rgba(255, 224, 180, 0.18),
+    0 0 0.35rem rgba(255, 137, 87, 0.28),
+    0 0 1rem rgba(255, 137, 87, 0.12);
+}
+
+.koi-logo-tile {
+  background:
+    radial-gradient(circle at 50% 22%, rgba(82, 225, 218, 0.24), transparent 40%) padding-box,
+    linear-gradient(145deg, rgba(9, 20, 25, 0.95), rgba(5, 10, 14, 0.99)) padding-box,
+    linear-gradient(145deg, rgba(82, 225, 218, 0.46), rgba(255, 214, 166, 0.34) 48%, rgba(255, 137, 87, 0.38))
+      border-box;
+  border: 1px solid transparent;
+  box-shadow:
+    0 18px 46px rgba(0, 0, 0, 0.48),
+    0 0 24px rgba(82, 225, 218, 0.1),
+    0 0 18px rgba(255, 137, 87, 0.08),
+    inset 0 1px rgba(255, 225, 190, 0.14);
+}
+
+.koi-start-card {
+  background:
+    radial-gradient(circle at 50% 8%, color-mix(in srgb, var(--quick-start-border) 10%, transparent), transparent 38%)
+      padding-box,
+    linear-gradient(150deg, rgba(13, 24, 29, 0.9) 0%, rgba(6, 12, 17, 0.98) 58%, rgba(14, 23, 26, 0.94) 100%)
+      padding-box,
+    linear-gradient(
+        145deg,
+        color-mix(in srgb, var(--quick-start-border) 58%, transparent),
+        color-mix(in srgb, var(--quick-start-border) 18%, transparent) 58%,
+        rgba(255, 230, 194, 0.12)
+      )
+      border-box;
+  border-color: transparent;
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, 0.36),
+    0 0 0 1px color-mix(in srgb, var(--quick-start-border) 12%, transparent) inset,
+    0 0 22px color-mix(in srgb, var(--quick-start-shadow, rgba(255, 137, 87, 0.12)) 42%, transparent);
+}
+
+.koi-start-card:hover {
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.42),
+    0 0 0 1px color-mix(in srgb, var(--quick-start-border) 22%, transparent) inset,
+    0 0 28px color-mix(in srgb, var(--quick-start-shadow, rgba(255, 137, 87, 0.14)) 56%, transparent);
+}
+
+.koi-start-icon {
+  border: 1px solid rgba(255, 230, 194, 0.2);
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.28),
+    0 0 14px color-mix(in srgb, var(--quick-start-shadow, rgba(255, 137, 87, 0.12)) 42%, transparent),
+    inset 0 1px rgba(255, 255, 255, 0.28);
+}
+
+.koi-start-label {
+  color: var(--quick-start-label, var(--muted-foreground));
+  text-shadow: 0 0 0.45rem color-mix(in srgb, var(--quick-start-shadow, rgba(255, 137, 87, 0.1)) 35%, transparent);
+}
+
+.koi-start-card.btn-scanlines::after {
+  z-index: 0;
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--quick-start-border) 14%, transparent), transparent 48%),
+    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 0, 0, 0.05) 2px, rgba(0, 0, 0, 0.05) 4px);
+  opacity: 0.8;
+}
+
+.de-koi-discover {
+  max-width: 48rem;
+  margin-inline: auto;
+}
+
+.de-koi-discover-card,
+.de-koi-discover-row {
+  background:
+    linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--card) 82%, transparent),
+        color-mix(in srgb, var(--card) 64%, var(--background))
+      )
+      padding-box,
+    linear-gradient(
+        145deg,
+        color-mix(in srgb, var(--primary) 24%, var(--border)),
+        color-mix(in srgb, var(--secondary-foreground) 18%, var(--border))
+      )
+      border-box;
+  border-color: transparent;
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.24),
+    inset 0 1px color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+
+.de-koi-discover-search {
+  background: color-mix(in srgb, var(--background) 76%, var(--secondary) 24%);
+  border-color: color-mix(in srgb, var(--sidebar-border) 54%, var(--border));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 4%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--background) 66%, transparent);
+}
+
+.de-koi-discover-chip {
+  border-color: color-mix(in srgb, var(--border) 82%, transparent);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+.de-koi-discover-chip:focus-visible,
+.de-koi-discover-action:focus-visible,
+.de-koi-discover-browse:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 56%, transparent);
+  outline-offset: 2px;
+}
+
+.de-koi-discover-action,
+.de-koi-discover-browse {
+  background:
+    linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--secondary) 72%, transparent),
+        color-mix(in srgb, var(--background) 72%, var(--secondary))
+      )
+      padding-box,
+    linear-gradient(145deg, color-mix(in srgb, var(--secondary-foreground) 22%, var(--border)), var(--border))
+      border-box;
+  border-color: transparent;
+  box-shadow: inset 0 1px color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+
+.os-button-pastel {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border: none;
+  border-radius: 0.375rem;
+  padding: 8px 20px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  transition: all 0.2s;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.os-button-pastel:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
+}
+
+.os-button-pastel:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.card-3d-tilt {
+  transform-style: preserve-3d;
+  transition:
+    transform 0.3s,
+    box-shadow 0.3s;
+}
+
+.card-3d-tilt:hover {
+  transform: perspective(1000px) rotateX(2deg) rotateY(5deg) translateZ(10px);
+}

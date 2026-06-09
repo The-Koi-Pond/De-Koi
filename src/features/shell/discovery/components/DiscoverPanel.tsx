@@ -29,7 +29,7 @@ const DEFAULT_PREVIEW_COUNT = 0;
 
 function DiscoveryEntryRow({ entry }: { entry: DiscoveryEntry }) {
   return (
-    <article className="rounded-lg border border-[var(--border)] bg-[var(--card)]/70 p-3 shadow-sm">
+    <article className="de-koi-discover-row rounded-lg border border-[var(--border)] bg-[var(--card)]/70 p-3 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -64,7 +64,7 @@ function DiscoveryEntryRow({ entry }: { entry: DiscoveryEntry }) {
               key={`${entry.id}-${action.type}-${getDiscoveryActionLabel(action)}`}
               type="button"
               onClick={() => runDiscoveryAction(action)}
-              className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--secondary)]/65 px-2.5 py-1 text-[0.72rem] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
+              className="de-koi-discover-action inline-flex min-h-8 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--secondary)]/65 px-2.5 py-1 text-[0.72rem] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
             >
               <Sparkles size="0.75rem" aria-hidden />
               {getDiscoveryActionLabel(action)}
@@ -91,21 +91,21 @@ export function DiscoverPanel() {
   const visibleEntries = shouldShowPreview ? entries.slice(0, DEFAULT_PREVIEW_COUNT) : entries;
 
   return (
-    <div className="flex w-full flex-col gap-3 p-3">
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--card)]/65 p-3 shadow-sm">
+    <div className="de-koi-discover flex w-full flex-col gap-3 p-3">
+      <div className="de-koi-discover-card rounded-lg border border-[var(--border)] bg-[var(--card)]/65 p-3 shadow-sm">
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--primary)]/25 bg-[var(--primary)]/10 text-[var(--primary)]">
             <Compass size="1rem" aria-hidden />
           </div>
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold tracking-tight text-[var(--foreground)]">Discover Marinara</h2>
+            <h2 className="text-sm font-semibold text-[var(--foreground)]">Discover Marinara</h2>
             <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
               Search by what you want to do, then jump to the surface that owns it.
             </p>
           </div>
         </div>
 
-        <label className="mt-3 flex min-h-10 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--background)]/55 px-3 text-sm text-[var(--foreground)] focus-within:border-[var(--primary)]/45">
+        <label className="de-koi-discover-search mt-3 flex min-h-10 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--background)]/55 px-3 text-sm text-[var(--foreground)] focus-within:border-[var(--primary)]/45">
           <Search size="0.9rem" className="shrink-0 text-[var(--muted-foreground)]" aria-hidden />
           <input
             value={query}
@@ -126,7 +126,7 @@ export function DiscoverPanel() {
                 type="button"
                 onClick={() => setCategory(item)}
                 className={cn(
-                  "shrink-0 rounded-md border px-2.5 py-1.5 text-[0.68rem] font-medium transition-colors",
+                  "de-koi-discover-chip shrink-0 rounded-md border px-2.5 py-1.5 text-[0.68rem] font-medium transition-colors",
                   selected
                     ? "border-[var(--primary)]/45 bg-[var(--primary)]/12 text-[var(--primary)]"
                     : "border-[var(--border)] bg-[var(--card)]/60 text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
@@ -147,7 +147,7 @@ export function DiscoverPanel() {
                 type="button"
                 onClick={() => setCoverage(item)}
                 className={cn(
-                  "shrink-0 rounded-md border px-2.5 py-1.5 text-[0.68rem] font-medium transition-colors",
+                  "de-koi-discover-chip shrink-0 rounded-md border px-2.5 py-1.5 text-[0.68rem] font-medium transition-colors",
                   selected
                     ? "border-[var(--primary)]/45 bg-[var(--primary)]/12 text-[var(--primary)]"
                     : "border-[var(--border)] bg-[var(--card)]/60 text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
@@ -180,7 +180,7 @@ export function DiscoverPanel() {
             <button
               type="button"
               onClick={() => setShowAllEntries((value) => !value)}
-              className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--secondary)]/65 px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
+              className="de-koi-discover-browse inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--secondary)]/65 px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
             >
               {showAllEntries ? <ChevronUp size="0.85rem" aria-hidden /> : <ChevronDown size="0.85rem" aria-hidden />}
               {showAllEntries ? "Show fewer" : `Browse all ${entries.length}`}
@@ -188,7 +188,7 @@ export function DiscoverPanel() {
           )}
         </div>
       ) : (
-        <div className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--card)]/45 p-5 text-center">
+        <div className="de-koi-discover-row rounded-lg border border-dashed border-[var(--border)] bg-[var(--card)]/45 p-5 text-center">
           <HelpCircle size="1.25rem" className="mx-auto text-[var(--muted-foreground)]" aria-hidden />
           <p className="mt-2 text-sm font-semibold text-[var(--foreground)]">No matching features</p>
           <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
@@ -197,7 +197,7 @@ export function DiscoverPanel() {
           <button
             type="button"
             onClick={() => runDiscoveryAction({ type: "open-professor-mari", label: "Ask Professor Mari" })}
-            className="mt-3 inline-flex min-h-8 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--secondary)]/70 px-3 py-1 text-xs font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
+            className="de-koi-discover-action mt-3 inline-flex min-h-8 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--secondary)]/70 px-3 py-1 text-xs font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
           >
             <Sparkles size="0.8rem" aria-hidden />
             Ask Professor Mari

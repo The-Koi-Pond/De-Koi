@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { BookOpen, HelpCircle, MessageSquare, Theater } from "lucide-react";
 import { APP_VERSION } from "../../../../engine/contracts/constants/defaults";
 import { useConnections } from "../../../catalog/connections/index";
@@ -90,42 +90,56 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
     <>
       <div
         data-component="ChatArea.EmptyState"
-        className="flex flex-1 flex-col items-center overflow-y-auto p-3 sm:p-5 lg:p-6"
+        className="koi-pond-surface flex flex-1 flex-col items-center overflow-y-auto p-3 sm:p-5 lg:p-6"
       >
-        <div className="flex w-full max-w-2xl flex-col items-center gap-3 py-2 sm:gap-4 sm:py-3 lg:pt-4 lg:pb-5">
+        <div className="flex w-full max-w-3xl flex-col items-center gap-4 py-3 sm:gap-5 sm:py-5 lg:pt-6 lg:pb-7">
           <div className="relative">
             <div
               className={cn(
-                "flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl shadow-xl shadow-orange-500/20 sm:h-20 sm:w-20",
+                "koi-logo-tile flex h-16 w-16 items-center justify-center overflow-hidden rounded-[1.35rem] sm:h-24 sm:w-24",
                 showEmptyStateEffects && "animate-pulse-ring bunny-glow",
               )}
             >
               <img
-                src={showEmptyStateEffects ? "/logo-splash.gif" : "/logo.png"}
+                src="/logo.png"
                 alt="De-Koi"
                 width={80}
                 height={80}
                 decoding="async"
-                className={cn("h-full w-full", showEmptyStateEffects ? "object-cover" : "object-contain p-1.5 sm:p-2")}
+                className="h-full w-full object-contain p-1.5 sm:p-2"
               />
             </div>
           </div>
 
           <div className="text-center">
-            <h3 className="retro-glow-text text-base sm:text-xl font-bold tracking-tight">✧ De-Koi ✧</h3>
-            <p className="mt-1.5 sm:mt-2 max-w-xs text-xs sm:text-sm text-[var(--muted-foreground)]">
+            <h3 className="koi-glow-text inline-flex items-center justify-center gap-1 text-2xl font-black sm:gap-2 sm:text-4xl">
+              <img src="/koi-mark.svg" alt="" aria-hidden="true" className="h-5 w-10 shrink-0 sm:h-7 sm:w-16" />
+              <span>De-Koi</span>
+              <img
+                src="/koi-mark.svg"
+                alt=""
+                aria-hidden="true"
+                className="h-5 w-10 shrink-0 -scale-x-100 sm:h-7 sm:w-16"
+              />
+            </h3>
+            <p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--foreground)]/80 sm:mt-3 sm:text-lg">
               To get started, choose the type of chat you'd like to have with the AI
             </p>
           </div>
 
           <div
-            className={cn("grid w-full grid-cols-3 gap-2 px-3 sm:flex sm:w-auto sm:justify-center sm:gap-3 sm:px-0", showEmptyStateEffects && "stagger-children")}
+            className={cn(
+              "grid w-full grid-cols-3 gap-2 px-2 sm:flex sm:w-auto sm:justify-center sm:gap-5 sm:px-0",
+              showEmptyStateEffects && "stagger-children",
+            )}
           >
             <QuickStartCard
               icon={<MessageSquare size="1.125rem" />}
               label="Conversation"
-              bg="linear-gradient(135deg, #4de5dd, #3ab8b1)"
-              shadowColor="rgba(77,229,221,0.15)"
+              bg="linear-gradient(135deg, #ff9a66 0%, #ff7a4a 54%, #9c3c27 100%)"
+              iconColor="#fff4e8"
+              labelColor="#ff8957"
+              shadowColor="rgba(255,137,87,0.2)"
               tooltip="General chat with one or more characters, or a model itself"
               onPrewarm={() => prewarmQuickStartMode("conversation")}
               onClick={() => handleQuickStart("conversation")}
@@ -133,8 +147,10 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
             <QuickStartCard
               icon={<BookOpen size="1.125rem" />}
               label="Roleplay"
-              bg="linear-gradient(135deg, #eb8951, #d97530)"
-              shadowColor="rgba(235,137,81,0.15)"
+              bg="linear-gradient(135deg, #5ce7df 0%, #22b8b5 52%, #086873 100%)"
+              iconColor="#f4eadb"
+              labelColor="#52e1da"
+              shadowColor="rgba(82,225,218,0.16)"
               tooltip="For roleplaying or creative writing with one or more characters"
               onPrewarm={() => prewarmQuickStartMode("roleplay")}
               onClick={() => handleQuickStart("roleplay")}
@@ -142,8 +158,10 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
             <QuickStartCard
               icon={<Theater size="1.125rem" />}
               label="Game"
-              bg="linear-gradient(135deg, #e15c8c, #c94776)"
-              shadowColor="rgba(225,92,140,0.15)"
+              bg="linear-gradient(135deg, #ffd78d 0%, #d9aa57 52%, #80612d 100%)"
+              iconColor="#130d07"
+              labelColor="#d9aa57"
+              shadowColor="rgba(217,170,87,0.18)"
               tooltip="AI-managed singleplayer RPG with a Game Master, party, dice, maps, and quests"
               onPrewarm={() => prewarmQuickStartMode("game")}
               onClick={() => handleQuickStart("game")}
@@ -253,6 +271,8 @@ function QuickStartCard({
   icon,
   label,
   bg,
+  iconColor = "#0a0a0a",
+  labelColor,
   shadowColor,
   onClick,
   onPrewarm,
@@ -262,6 +282,8 @@ function QuickStartCard({
   icon: ReactNode;
   label: string;
   bg: string;
+  iconColor?: string;
+  labelColor?: string;
   shadowColor?: string;
   onClick?: () => void;
   onPrewarm?: () => void;
@@ -280,6 +302,12 @@ function QuickStartCard({
     onClick?.();
   };
 
+  const quickStartStyle = {
+    "--quick-start-label": labelColor ?? "var(--muted-foreground)",
+    "--quick-start-border": labelColor ?? "var(--border)",
+    "--quick-start-shadow": shadowColor ?? "rgba(255,137,87,0.12)",
+  } as CSSProperties;
+
   return (
     <button
       type="button"
@@ -289,11 +317,11 @@ function QuickStartCard({
       title={tooltip}
       aria-label={`${comingSoon && !onClick ? "Show status for" : "Start"} ${label} chat`}
       className={cn(
-        "group card-3d-tilt btn-scanlines relative flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-[var(--border)] bg-[var(--card)] p-2.5 text-center transition-all",
-        "sm:w-28 sm:gap-2 sm:p-4",
-        "cursor-pointer hover:-translate-y-1 hover:border-[var(--primary)]/40 hover:shadow-lg",
+        "koi-start-card group card-3d-tilt btn-scanlines koi-ripple relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl border p-2.5 text-center transition-all",
+        "sm:h-36 sm:w-36 sm:gap-3 sm:p-5",
+        "cursor-pointer hover:-translate-y-1",
       )}
-      style={shadowColor ? { ["--tw-shadow-color" as string]: shadowColor } : undefined}
+      style={quickStartStyle}
     >
       {showComingSoon && (
         <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-[var(--secondary)] px-2 py-0.5 text-[0.5625rem] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] shadow-md animate-fade-in-up">
@@ -301,12 +329,12 @@ function QuickStartCard({
         </span>
       )}
       <div
-        className="flex h-8 w-8 items-center justify-center rounded-xl text-white shadow-sm transition-transform group-hover:scale-110 sm:h-10 sm:w-10"
-        style={{ background: bg }}
+        className="koi-start-icon flex h-10 w-10 items-center justify-center rounded-xl transition-transform group-hover:scale-110 sm:h-16 sm:w-16 sm:rounded-2xl"
+        style={{ background: bg, color: iconColor }}
       >
         {icon}
       </div>
-      <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)] sm:text-xs">{label}</span>
+      <span className="koi-start-label text-[0.7rem] font-bold sm:text-lg">{label}</span>
     </button>
   );
 }

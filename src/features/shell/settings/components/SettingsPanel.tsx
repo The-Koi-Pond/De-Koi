@@ -28,7 +28,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { gameAssetsApi } from "../../../../shared/api/assets-api";
 import { openExternalUrl } from "../../../../shared/api/external-link-api";
 import { importApi } from "../../../../shared/api/import-api";
-import { backupApi, profileApi, type ManagedBackup, type ProfileExportFormat } from "../../../../shared/api/profile-api";
+import {
+  backupApi,
+  profileApi,
+  type ManagedBackup,
+  type ProfileExportFormat,
+} from "../../../../shared/api/profile-api";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { updatesApi, type UpdateCheckResponse } from "../../../../shared/api/updates-api";
 import { backgroundsApi, fontsApi } from "../../../../shared/api/settings-assets-api";
@@ -719,17 +724,17 @@ export function SettingsPanel() {
   const ActiveSettings = SETTINGS_COMPONENTS[activeTab.id];
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="de-koi-settings-panel flex h-full flex-col">
       {/* Tab bar */}
-      <div className="flex flex-shrink-0 flex-wrap border-b border-[var(--border)] bg-[var(--card)]/40">
+      <div className="de-koi-settings-tabs flex flex-shrink-0 flex-wrap border-b border-[var(--border)] bg-[var(--card)]/40">
         {TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setSettingsTab(tab.id)}
             className={cn(
-              "relative px-3 py-2.5 text-xs font-medium transition-colors",
+              "de-koi-settings-tab relative px-3 py-2.5 text-xs font-medium transition-colors",
               settingsTab === tab.id
-                ? "text-[var(--foreground)]"
+                ? "de-koi-settings-tab-active text-[var(--foreground)]"
                 : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
             )}
           >
@@ -741,7 +746,7 @@ export function SettingsPanel() {
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="de-koi-settings-body min-h-0 flex-1 overflow-y-auto p-3">
         <ActiveSettings />
       </div>
     </div>
@@ -3410,7 +3415,8 @@ function AdvancedSettings() {
     if (!(err instanceof ApiError) || !err.details || typeof err.details !== "object") return null;
     const payload = err.details as { code?: unknown; details?: unknown };
     if (payload.code !== "PROFILE_EXPORT_JSON_TOO_LARGE") return null;
-    const details = payload.details && typeof payload.details === "object" ? (payload.details as Record<string, unknown>) : {};
+    const details =
+      payload.details && typeof payload.details === "object" ? (payload.details as Record<string, unknown>) : {};
     return details.fallbackFormat === "zip" ? "zip" : null;
   };
 

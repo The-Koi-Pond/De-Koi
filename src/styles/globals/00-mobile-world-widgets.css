@@ -1,0 +1,21 @@
+/* Mobile world/tracker widget sizing overrides. */
+
+/* World state & tracker widgets: equal flex sizing on mobile */
+@media (max-width: 767px) {
+  .world-widget {
+    min-width: 0 !important;
+    width: 0 !important;
+    max-width: none !important;
+    flex: 1 1 0% !important;
+    height: 2rem !important;
+  }
+  /* Nested wrappers inside composite widgets (e.g. tracker's "relative" div) */
+  .world-widget > div {
+    width: 100%;
+  }
+  /* Make the WIDGET button inside a wrapper fill its parent */
+  .world-widget > div > button {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+}

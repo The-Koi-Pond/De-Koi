@@ -1,0 +1,264 @@
+/* Default dark/light theme tokens and light-mode overrides. */
+
+/* ─────────────────────────────────────────────
+   2. DARK THEME VARIABLES
+   Default color tokens, palette, and font.
+   ───────────────────────────────────────────── */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: #020a12;
+  --foreground: #f2e6d4;
+  --card: #061722ec;
+  --card-foreground: #f2e6d4;
+  --popover: #061722f2;
+  --popover-foreground: #f2e6d4;
+  --primary: #ff8957;
+  --primary-foreground: #130804;
+  --secondary: #082733;
+  --secondary-foreground: #52e1da;
+  --muted: #071b26;
+  --muted-foreground: #a8a196;
+  --accent: #0e4b58;
+  --accent-foreground: #fff0dc;
+  --destructive: #ff755f;
+  --destructive-foreground: #160807;
+  --border: #37d5ca34;
+  --input: #37d5ca38;
+  --ring: #ff8957;
+  --radius: 0.75rem;
+  --sidebar: #01070d;
+  --sidebar-foreground: #d8cec0;
+  --sidebar-border: #1a536166;
+  --sidebar-accent: #ff895726;
+  --sidebar-accent-foreground: #ff9a66;
+  --glow-primary: rgba(255, 137, 87, 0.16);
+  --glow-accent: rgba(82, 225, 218, 0.12);
+  --tracker-card-neutral-surface-top: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--secondary) 66%, var(--accent) 34%) 91%,
+    var(--primary) 9%
+  );
+  --tracker-card-neutral-surface-bottom: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--secondary) 78%, var(--accent) 22%) 94%,
+    var(--muted-foreground) 6%
+  );
+  --tracker-card-neutral-material: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--secondary) 68%, var(--accent) 32%) 89%,
+    var(--primary) 11%
+  );
+  --tracker-card-neutral-lift: color-mix(in srgb, var(--muted-foreground) 72%, var(--primary) 28%);
+  --tracker-card-active-surface-top: color-mix(in srgb, var(--card) 72%, var(--background) 28%);
+  --tracker-card-active-surface-bottom: color-mix(in srgb, var(--background) 74%, var(--card) 26%);
+  --tracker-card-active-surface-material: color-mix(in srgb, var(--card) 52%, var(--background) 48%);
+  --tracker-card-active-surface-lift: color-mix(in srgb, var(--card) 90%, var(--card-foreground) 10%);
+  --tracker-card-material-bright-target: oklch(0.975 0.012 315);
+  --tracker-card-material-dark-target: oklch(0.055 0.014 300);
+  --tracker-card-readable-light-ink: oklch(0.94 0.012 315);
+  --tracker-card-readable-dark-ink: oklch(0.18 0.024 300);
+  --tracker-card-muted-light-ink: oklch(0.76 0.018 315);
+  --tracker-card-muted-dark-ink: oklch(0.36 0.026 300);
+  --tracker-card-nameplate-base-top: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--card) 72%, var(--background) 28%) 90%,
+    var(--primary) 10%
+  );
+  --tracker-card-nameplate-base-mid: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--card) 56%, var(--background) 44%) 92%,
+    var(--primary) 8%
+  );
+  --tracker-card-nameplate-base-bottom: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--background) 82%, var(--card) 18%) 94%,
+    var(--primary) 6%
+  );
+  --tracker-card-nameplate-text-base: color-mix(in srgb, var(--card-foreground) 92%, var(--primary) 8%);
+
+  --glass-bg: linear-gradient(145deg, rgba(4, 14, 21, 0.88) 0%, rgba(8, 42, 54, 0.68) 52%, rgba(44, 78, 84, 0.28) 100%);
+  --glass-border: rgba(55, 213, 202, 0.2);
+  --glass-strong-bg: linear-gradient(
+    145deg,
+    rgba(4, 14, 21, 0.96) 0%,
+    rgba(8, 42, 54, 0.78) 52%,
+    rgba(79, 58, 41, 0.34) 100%
+  );
+  --glass-strong-border: rgba(82, 225, 218, 0.2);
+  --glass-strong-shadow: 0 18px 46px rgba(0, 0, 0, 0.48), inset 0 1px rgba(255, 230, 194, 0.12);
+
+  --glow-color-1: rgba(255, 137, 87, 0.24);
+  --glow-color-2: rgba(82, 225, 218, 0.16);
+  --glow-color-3: rgba(255, 216, 150, 0.08);
+  --glow-sm-1: rgba(255, 137, 87, 0.16);
+  --glow-sm-2: rgba(82, 225, 218, 0.1);
+
+  --scrollbar-track: #071b2640;
+  --scrollbar-border: #0a0a0a66;
+
+  --cursor-pink: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 3L10 20L12 12L20 10L3 3Z' fill='%23FF8957' stroke='%23000' stroke-width='1'/%3E%3C/svg%3E");
+
+  --y2k-pink: #ff8957;
+  --y2k-pink-rgb: 255, 137, 87;
+  --y2k-purple: #52e1da;
+  --y2k-blue: #a8a196;
+  --y2k-mint: #8af2ea;
+  --y2k-peach: #ffd6a6;
+  --y2k-lavender: #fff0dc;
+  --y2k-yellow: #d9aa57;
+
+  --pastel-rose: #ff9e70;
+  --pastel-lilac: #52e1da;
+  --pastel-sky: #8af2ea;
+  --pastel-mint: #b5f7f1;
+  --pastel-coral: #ff755f;
+  --pastel-peach: #ffd6a6;
+  --pastel-lavender: #fff0dc;
+  --pastel-periwinkle: #9fb0ad;
+
+  --rgb-red: #ff755f;
+  --rgb-orange: #ff8957;
+  --rgb-yellow: #d9aa57;
+  --rgb-green: #8af2ea;
+  --rgb-cyan: #52e1da;
+  --rgb-blue: #6fb8d8;
+  --rgb-indigo: #0f6475;
+  --rgb-violet: #ffd6a6;
+
+  --font-y2k:
+    "Straight Quotes", var(--font-user, "Inter"), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --app-font-size: 0.875rem;
+  --mobile-navbar-height: 3.5rem;
+}
+
+/* ─────────────────────────────────────────────
+   3. LIGHT THEME VARIABLES
+   ───────────────────────────────────────────── */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --background: #faf6ee;
+  --foreground: #1a2a2e;
+  --card: #ffffffee;
+  --card-foreground: #1a2a2e;
+  --popover: #ffffffee;
+  --popover-foreground: #1a2a2e;
+  --primary: #c75a26;
+  --primary-foreground: #ffffff;
+  --secondary: #e8efe9;
+  --secondary-foreground: #2f5f5a;
+  --muted: #e8efe9;
+  --muted-foreground: #5a7570;
+  --accent: #dde9e7;
+  --accent-foreground: #1a2a2e;
+  --destructive: #d9563d;
+  --destructive-foreground: #ffffff;
+  --border: #6aa8a044;
+  --input: #6aa8a044;
+  --ring: #c75a26;
+  --sidebar: #edf4f1;
+  --sidebar-foreground: #2f5f5a;
+  --sidebar-border: #6aa8a033;
+  --sidebar-accent: #c75a2618;
+  --sidebar-accent-foreground: #c75a26;
+  --glow-primary: rgba(199, 90, 38, 0.1);
+  --glow-accent: rgba(95, 178, 168, 0.08);
+  --tracker-card-neutral-surface-top: color-mix(in srgb, var(--card) 84%, var(--accent) 16%);
+  --tracker-card-neutral-surface-bottom: color-mix(in srgb, var(--secondary) 86%, var(--primary) 14%);
+  --tracker-card-neutral-material: color-mix(in srgb, var(--secondary) 88%, var(--primary) 12%);
+  --tracker-card-neutral-lift: color-mix(in srgb, var(--muted-foreground) 70%, var(--primary) 30%);
+  --tracker-card-active-surface-top: color-mix(in srgb, var(--card) 92%, var(--background) 8%);
+  --tracker-card-active-surface-bottom: color-mix(in srgb, var(--background) 90%, var(--card-foreground) 10%);
+  --tracker-card-active-surface-material: color-mix(in srgb, var(--card) 94%, var(--card-foreground) 6%);
+  --tracker-card-active-surface-lift: color-mix(in srgb, var(--card) 90%, var(--card-foreground) 10%);
+  --tracker-card-readable-dark-ink: oklch(0.17 0.026 300);
+  --tracker-card-muted-dark-ink: oklch(0.34 0.028 300);
+  --tracker-card-nameplate-base-top: color-mix(in srgb, var(--card) 84%, var(--primary) 16%);
+  --tracker-card-nameplate-base-mid: color-mix(in srgb, var(--secondary) 88%, var(--card) 12%);
+  --tracker-card-nameplate-base-bottom: color-mix(in srgb, var(--secondary) 92%, var(--card-foreground) 8%);
+  --tracker-card-nameplate-text-base: color-mix(in srgb, var(--card-foreground) 94%, var(--primary) 6%);
+
+  --glass-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.64) 0%, rgba(232, 239, 233, 0.68) 100%);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-strong-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.78) 0%, rgba(232, 239, 233, 0.78) 100%);
+  --glass-strong-border: rgba(0, 0, 0, 0.08);
+  --glass-strong-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), inset 0 1px rgba(255, 255, 255, 0.5);
+
+  --glow-color-1: rgba(199, 90, 38, 0.2);
+  --glow-color-2: rgba(95, 178, 168, 0.15);
+  --glow-color-3: rgba(90, 117, 112, 0.08);
+  --glow-sm-1: rgba(199, 90, 38, 0.15);
+  --glow-sm-2: rgba(95, 178, 168, 0.08);
+
+  --scrollbar-track: rgba(95, 178, 168, 0.12);
+  --scrollbar-border: rgba(0, 0, 0, 0.1);
+
+  --y2k-pink: #c75a26;
+  --y2k-pink-rgb: 199, 90, 38;
+  --y2k-purple: #5a9d94;
+  --y2k-blue: #5a7570;
+  --y2k-mint: #74b8af;
+  --y2k-peach: #d8b77b;
+  --y2k-lavender: #f2e5d2;
+  --y2k-yellow: #d4a94a;
+}
+
+/* ─────────────────────────────────────────────
+   4. LIGHT THEME — COMPONENT OVERRIDES
+   ───────────────────────────────────────────── */
+[data-theme="light"] .glass {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.64) 0%, rgba(232, 239, 233, 0.68) 100%);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .glass-strong {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.78) 0%, rgba(232, 239, 233, 0.78) 100%);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.06),
+    inset 0 1px rgba(255, 255, 255, 0.5);
+}
+
+[data-theme="light"] .geometric-grid {
+  background-image:
+    linear-gradient(rgba(95, 178, 168, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(95, 178, 168, 0.08) 1px, transparent 1px);
+}
+
+[data-theme="light"] .texting-bubble-other {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .retro-glow-text {
+  text-shadow:
+    0 0 5px rgba(199, 90, 38, 0.25),
+    0 0 10px rgba(95, 178, 168, 0.15);
+}
+
+[data-theme="light"] .os-window-btn {
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .retro-scanlines::after {
+  opacity: 0;
+}
+[data-theme="light"] .noise-bg::before {
+  opacity: 0;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--y2k-pink) 0%, var(--y2k-purple) 100%);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .shimmer {
+  background: linear-gradient(90deg, #e8efe9 25%, #dde9e7 50%, #e8efe9 75%);
+  background-size: 200% 100%;
+}

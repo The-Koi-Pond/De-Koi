@@ -80,31 +80,40 @@ function toSearchText(value: unknown): string {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
-
-
 const MODE_CONFIG: Record<
   string,
-  { icon: React.ReactNode; label: string; shortLabel: string; bg: string; description: string; comingSoon?: boolean }
+  {
+    icon: React.ReactNode;
+    label: string;
+    shortLabel: string;
+    bg: string;
+    iconForeground: string;
+    description: string;
+    comingSoon?: boolean;
+  }
 > = {
   conversation: {
     icon: <MessageSquare size="0.875rem" />,
     label: CHAT_MODES.conversation.name,
     shortLabel: "CONVO",
-    bg: "linear-gradient(135deg, #4de5dd, #3ab8b1)",
+    bg: "linear-gradient(135deg, #ff9a66 0%, #ff7a4a 54%, #9c3c27 100%)",
+    iconForeground: "#fff4e8",
     description: CHAT_MODES.conversation.description,
   },
   roleplay: {
     icon: <BookOpen size="0.875rem" />,
     label: CHAT_MODES.roleplay.name,
     shortLabel: "RP",
-    bg: "linear-gradient(135deg, #eb8951, #d97530)",
+    bg: "linear-gradient(135deg, #5ce7df 0%, #22b8b5 52%, #086873 100%)",
+    iconForeground: "#f4eadb",
     description: CHAT_MODES.roleplay.description,
   },
   game: {
     icon: <Theater size="0.875rem" />,
     label: CHAT_MODES.game.name,
     shortLabel: "GM",
-    bg: "linear-gradient(135deg, #e15c8c, #c94776)",
+    bg: "linear-gradient(135deg, #ffd78d 0%, #d9aa57 52%, #80612d 100%)",
+    iconForeground: "#130d07",
     description: CHAT_MODES.game.description,
   },
 };
@@ -730,9 +739,9 @@ export function ChatSidebar({
                 <div
                   className={cn(
                     "flex h-7 w-7 items-center justify-center rounded-lg text-xs transition-transform group-active:scale-90",
-                    isActive ? "text-white shadow-sm" : "bg-[var(--secondary)] text-[var(--muted-foreground)]",
+                    isActive ? "shadow-sm" : "bg-[var(--secondary)] text-[var(--muted-foreground)]",
                   )}
-                  style={isActive ? { background: cfg.bg } : undefined}
+                  style={isActive ? { background: cfg.bg, color: cfg.iconForeground } : undefined}
                 >
                   {cfg.icon}
                 </div>
@@ -907,7 +916,7 @@ export function ChatSidebar({
       {/* Header */}
       <div className="mari-sidebar-header relative flex h-12 items-center justify-between bg-[var(--card)]/80 px-4 backdrop-blur-sm">
         <div className="absolute inset-x-0 bottom-0 h-px bg-[var(--border)]/30" />
-        <h2 className="retro-glow-text truncate text-sm font-bold tracking-tight">✧ Chats</h2>
+        <h2 className="retro-glow-text truncate text-sm font-bold">✧ Chats</h2>
         <button
           onClick={() => setSidebarOpen(false)}
           className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90 md:hidden"
