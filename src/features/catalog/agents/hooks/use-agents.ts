@@ -63,7 +63,6 @@ const agentResultTypeValues = [
   "custom_tracker_update",
   "chat_summary",
   "spotify_control",
-  "haptic_command",
   "cyoa_choices",
   "secret_plot",
   "game_master_narration",

@@ -40,41 +40,6 @@ pub async fn discord_webhook_send(body: Value) -> Result<Value, AppError> {
     integrations::discord_webhook_send(body).await
 }
 
-#[tauri::command]
-pub async fn haptic_status() -> Result<Value, AppError> {
-    integrations::haptic_call(&["status"], Value::Null).await
-}
-
-#[tauri::command]
-pub async fn haptic_connect(body: Option<Value>) -> Result<Value, AppError> {
-    integrations::haptic_call(&["connect"], body.unwrap_or(Value::Null)).await
-}
-
-#[tauri::command]
-pub async fn haptic_disconnect() -> Result<Value, AppError> {
-    integrations::haptic_call(&["disconnect"], Value::Null).await
-}
-
-#[tauri::command]
-pub async fn haptic_start_scan() -> Result<Value, AppError> {
-    integrations::haptic_call(&["scan", "start"], Value::Null).await
-}
-
-#[tauri::command]
-pub async fn haptic_stop_scan() -> Result<Value, AppError> {
-    integrations::haptic_call(&["scan", "stop"], Value::Null).await
-}
-
-#[tauri::command]
-pub async fn haptic_command(command: Value) -> Result<Value, AppError> {
-    integrations::haptic_call(&["command"], command).await
-}
-
-#[tauri::command]
-pub async fn haptic_stop_all() -> Result<Value, AppError> {
-    integrations::haptic_call(&["stop-all"], Value::Null).await
-}
-
 async fn spotify_direct(
     state: State<'_, AppState>,
     method: &str,

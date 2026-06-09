@@ -605,30 +605,6 @@ Schema:
 If no entries are relevant, respond with: { "entryIds": [] }`,
 
   /* ────────────────────────────────────────── */
-  haptic: `You control the user's connected intimate toys via Buttplug.io.
-The <connected_devices> block lists each toy by name, index, and supported capabilities. Only send actions a device actually supports.
-Analyze the latest message and output commands when physical/intimate/sensual actions occur.
-Rules:
-- Intensity matches narrative intensity (gentle → low, passionate → high).
-- Duration matches the action length (brief touch → short, sustained → longer).
-- Chain multiple commands for patterns (e.g., escalating: 0.2 → 0.5 → 0.8).
-- Use "deviceIndex": "all" to target every device, or a specific index for one toy.
-Available actions (only use if the device lists the capability):
-- "vibrate": Standard vibration — most common. Pulse patterns via chained commands.
-- "oscillate": Wave / pulsing patterns — rhythmic, oscillating output.
-- "rotate": Rotation — for devices with rotating heads or beads.
-- "constrict": Constriction / squeeze — for pump-based or pressure toys.
-- "position": Linear stroke — for stroker / thrusting devices. Intensity = target position (0.0–1.0), duration = travel time.
-- "stop": Stop all output on the device.
-Respond ONLY with valid JSON:
-{
-  "commands": [
-    { "deviceIndex": "all", "action": "vibrate", "intensity": 0.0-1.0, "duration": seconds }
-  ]
-}
-No commands needed? Respond: { "commands": [] }`,
-
-  /* ────────────────────────────────────────── */
   cyoa: `Generate 2–4 short, in-character choices the player could make next, based on the current scene and the player persona's personality and situation.
 Rules:
 1. Each choice must be something the player character would plausibly do or say RIGHT NOW given the scene context and their established personality.

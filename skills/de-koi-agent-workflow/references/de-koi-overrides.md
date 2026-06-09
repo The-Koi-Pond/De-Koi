@@ -87,7 +87,7 @@ responsive behavior, screenshots, console/network behavior, or browser-only
 behavior is the claim. Name the runtime in every UI/runtime proof: `Chrome web
 shell`, `Chrome + Remote Runtime`, `Tauri dev app`, or `scratch/backend harness`.
 Chrome web-shell proof is enough for React/UI-only claims, but not for storage,
-imports/exports, managed files/assets, providers, LLM streaming, haptics, native
+imports/exports, managed files/assets, providers, LLM streaming, native
 dialogs, updater behavior, app data paths, window controls, Tauri commands, or
 Rust-backed behavior. Commit screenshots only when they are intentional
 docs/reference assets, not temporary proof clutter.

@@ -85,7 +85,7 @@ Test one workflow at a time and write down exact steps.
 - Game: create game, start session, send a turn, retry, use dice/check/combat/map/journal/weather/time flows, test asset/music behavior.
 - Settings/providers: create connection, test connection, send test message, verify provider-specific errors are visible.
 - Imports/assets: import a character/lorebook/preset/persona, upload avatars/backgrounds/assets, export a current-format package.
-- Integrations: test TTS, translation, Spotify, haptics only when credentials/devices are available.
+- Integrations: test TTS, translation, and Spotify only when credentials are available.
 
 ## 5. Bug Report Shape
 

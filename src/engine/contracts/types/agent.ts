@@ -31,7 +31,6 @@ export type AgentResultType =
   | "custom_tracker_update"
   | "chat_summary"
   | "spotify_control"
-  | "haptic_command"
   | "cyoa_choices"
   | "secret_plot"
   | "game_master_narration"
@@ -227,7 +226,6 @@ export const BUILT_IN_AGENT_IDS = {
   RESPONSE_ORCHESTRATOR: "response-orchestrator",
   AUTONOMOUS_MESSENGER: "autonomous-messenger",
   CUSTOM_TRACKER: "custom-tracker",
-  HAPTIC: "haptic",
   CYOA: "cyoa",
   SECRET_PLOT_DRIVER: "secret-plot-driver",
 } as const;
@@ -478,15 +476,6 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     category: "misc",
   },
   {
-    id: "haptic",
-    name: "Love Toys Control",
-    description:
-      "Analyzes narrative content and controls connected intimate toys in real time. Requires Intiface Central running locally — connect your toy there first, then enable this agent.",
-    phase: "post_processing",
-    enabledByDefault: false,
-    category: "misc",
-  },
-  {
     id: "cyoa",
     name: "CYOA Choices",
     description:
@@ -582,7 +571,6 @@ export const DEFAULT_AGENT_TOOLS: Record<string, string[]> = {
   "response-orchestrator": [],
   "autonomous-messenger": [],
   "custom-tracker": ["update_game_state"],
-  haptic: [],
   cyoa: [],
   "secret-plot-driver": [],
 };

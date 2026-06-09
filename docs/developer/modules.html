@@ -162,11 +162,6 @@
               <td>World state API, shared stores, mode state.</td>
             </tr>
             <tr>
-              <td><code>features/runtime/haptics</code></td>
-              <td>Haptic capability hook for UI workflows.</td>
-              <td>Integration Tauri commands.</td>
-            </tr>
-            <tr>
               <td><code>features/modes/shared/chat-ui</code></td>
               <td>Shared transcript, message, input, branch, settings, overlay, gallery, and quick-switcher UI.</td>
               <td>Catalog chat data, runtime visuals, generation replay, shared components.</td>
@@ -378,7 +373,7 @@ flowchart LR
   Storage[crates/storage<br/>local records and atomic writes]
   Assets[crates/assets<br/>managed media and assets]
   LLM[crates/llm<br/>provider transport]
-  Integrations[crates/integrations<br/>spotify, tts, translation, haptics]
+  Integrations[crates/integrations<br/>spotify, tts, translation]
 
   Tauri --> Commands
   Server --> Commands
@@ -446,7 +441,7 @@ flowchart LR
                 and <code>translation-api.ts</code>
               </td>
               <td>
-                TTS and translation command wrappers, Spotify and haptics gateway ports, knowledge sources, and
+                TTS and translation command wrappers, Spotify gateway ports, knowledge sources, and
                 connection utilities.
               </td>
             </tr>
@@ -551,7 +546,7 @@ flowchart LR
             </tr>
             <tr>
               <td><code>integrations</code></td>
-              <td>Spotify, TTS, haptics, OAuth callback, and DJ Mari playlist helpers.</td>
+              <td>Spotify, TTS, OAuth callback, and DJ Mari playlist helpers.</td>
             </tr>
             <tr>
               <td><code>mari</code></td>

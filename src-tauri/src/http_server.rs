@@ -1658,12 +1658,6 @@ fn rate_limit_rule_for_invoke_command(command: &str) -> ApiRateLimitRule {
             limit: 20,
             window: DEFAULT_API_RATE_WINDOW,
         }
-    } else if command == "haptic_command" {
-        ApiRateLimitRule {
-            key: "command-haptic",
-            limit: 30,
-            window: DEFAULT_API_RATE_WINDOW,
-        }
     } else {
         default_api_rate_limit_rule()
     }
@@ -2674,10 +2668,6 @@ mod tests {
         assert_eq!(
             rate_limit_rule_for_invoke_command("import_st_bulk_run").limit,
             20
-        );
-        assert_eq!(
-            rate_limit_rule_for_invoke_command("haptic_command").limit,
-            30
         );
         assert_eq!(
             rate_limit_rule_for_invoke_command("storage_list").limit,

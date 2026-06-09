@@ -29,7 +29,6 @@
     "src/engine/contracts/types/core-module.ts": ["types"],
     "src/engine/contracts/types/export.ts": ["types"],
     "src/engine/contracts/types/game.ts": ["types"],
-    "src/engine/contracts/types/haptic.ts": ["types"],
     "src/engine/contracts/types/lorebook.ts": ["types"],
     "src/engine/contracts/types/persona.ts": ["types"],
     "src/engine/contracts/types/prompt.ts": ["exports", "types"],

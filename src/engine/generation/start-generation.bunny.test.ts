@@ -80,20 +80,6 @@ const noopIntegrations: IntegrationGateway = {
       return asStorageValue({});
     },
   },
-  haptic: {
-    async status() {
-      return asStorageValue({});
-    },
-    async connect() {
-      return asStorageValue({});
-    },
-    async command() {
-      return asStorageValue({});
-    },
-    async stopAll() {
-      return asStorageValue({});
-    },
-  },
   customTools: {
     async execute() {
       return asStorageValue({});

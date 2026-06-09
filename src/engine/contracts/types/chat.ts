@@ -225,8 +225,6 @@ export interface ChatMetadata {
   roleplayDmCommandsEnabled?: boolean;
   /** Per-chat roleplay narration voice/style guidance. */
   narratorStyleInstructions?: string | null;
-  /** Chat-scoped Intiface Central WebSocket URL for haptic manual and auto-connect. */
-  hapticIntifaceUrl?: string | null;
   /** Music source constraint for Spotify DJ in roleplay and visual novel chats. */
   spotifySourceType?: SpotifySourceType;
   /** Spotify playlist ID used when spotifySourceType is "playlist". */

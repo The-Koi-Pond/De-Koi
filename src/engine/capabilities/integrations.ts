@@ -8,13 +8,6 @@ export interface SpotifyGateway {
   volume<T = unknown>(input: Record<string, unknown>): Promise<T>;
 }
 
-export interface HapticGateway {
-  status<T = unknown>(): Promise<T>;
-  connect<T = unknown>(input?: { url?: string | null }): Promise<T>;
-  command<T = unknown>(input: Record<string, unknown>): Promise<T>;
-  stopAll<T = unknown>(): Promise<T>;
-}
-
 export interface CustomToolsGateway {
   execute<T = unknown>(input: { toolName: string; arguments: unknown }): Promise<T>;
 }
@@ -34,7 +27,6 @@ export interface DiscordGateway {
 
 export interface IntegrationGateway {
   spotify: SpotifyGateway;
-  haptic: HapticGateway;
   customTools: CustomToolsGateway;
   image: ImageGenerationGateway;
   discord?: DiscordGateway;

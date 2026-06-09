@@ -419,17 +419,6 @@
     "coverage": "advanced"
   },
   {
-    "id": "haptics",
-    "title": "Haptics",
-    "category": "Advanced",
-    "summary": "Connect compatible haptic devices or agents so chat and scene events can trigger tactile feedback.",
-    "keywords": ["haptic", "haptics", "device", "feedback", "vibration", "toy", "connection", "agent"],
-    "audience": "Users with compatible hardware or custom haptic workflows who want physical feedback from chats.",
-    "where": "Chat Settings > Agents and supported haptic connection controls.",
-    "actions": [{ "type": "open-panel", "panel": "agents", "label": "Open Agents" }],
-    "coverage": "needs-polish"
-  },
-  {
     "id": "roleplay-context-panels",
     "title": "Roleplay Context Panels",
     "category": "Chat modes",

@@ -67,7 +67,6 @@ import {
 import { filterPlayerPersonaPresentCharacters } from "../../../../engine/shared/game-state/present-character-filter";
 import type { AgentDebugEntry } from "../../../../engine/contracts/types/agent";
 import type { IntegrationGateway } from "../../../../engine/capabilities/integrations";
-import type { HapticStatus } from "../../../../engine/contracts/types/haptic";
 
 export type GenerateArgs = GenerationReplayInput & {
   chatId: string;
@@ -88,7 +87,6 @@ type AgentResultEffectOptions = {
   // re-run path leaves them visible (mirrors the engine persist split).
   autoRemoveFullyCompletedQuests?: boolean;
 };
-const HAPTIC_COMMAND_INTERVAL_MS = 225;
 const TYPEWRITER_MAX_FRAME_MS = 120;
 const STREAM_BUFFER_COMMIT_INTERVAL_MS = 45;
 const AGENT_DEBUG_FLUSH_DELAY_MS = 80;
@@ -1033,43 +1031,6 @@ function applyAssistantAction(rawData: unknown) {
   }
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-async function applyHapticAgentResult(rawData: unknown) {
-  const status = await integrationGateway.haptic.status<HapticStatus>().catch(() => null);
-  if (!status?.connected || !Array.isArray(status.devices) || status.devices.length === 0) return;
-  const data = parseMaybeRecord(rawData);
-  const rawCommands = Array.isArray(data.commands) ? data.commands : [];
-  for (const rawCommand of rawCommands) {
-    if (!isRecord(rawCommand)) continue;
-    const action = readString(rawCommand.action).trim();
-    if (!action) continue;
-    try {
-      await integrationGateway.haptic.command({
-        deviceIndex:
-          rawCommand.deviceIndex === "all" || typeof rawCommand.deviceIndex === "number"
-            ? rawCommand.deviceIndex
-            : "all",
-        action,
-        ...(typeof rawCommand.intensity === "number" ? { intensity: rawCommand.intensity } : {}),
-        ...(typeof rawCommand.duration === "number" ? { duration: rawCommand.duration } : {}),
-      });
-      await delay(HAPTIC_COMMAND_INTERVAL_MS);
-    } catch (error) {
-      console.warn("Failed to send haptic agent command", error);
-    }
-  }
-}
-
-async function hapticFeedbackEnabledForChat(queryClient: QueryClient, chatId: string): Promise<boolean> {
-  const cachedChat =
-    queryClient.getQueryData<Chat>(chatKeys.detail(chatId)) ??
-    ((await storageApi.get<Chat>("chats", chatId).catch(() => null)) as Chat | null);
-  return parseMaybeRecord(cachedChat?.metadata).enableHapticFeedback === true;
-}
-
 async function applyAgentResultEffects(
   queryClient: ReturnType<typeof useQueryClient>,
   chatId: string,
@@ -1149,9 +1110,6 @@ async function applyAgentResultEffects(
     }
   }
 
-  if (result.type === "haptic_command" || result.agentType === "haptic") {
-    if (await hapticFeedbackEnabledForChat(queryClient, chatId)) await applyHapticAgentResult(result.data);
-  }
   if (result.type === "background_change" || result.agentType === "background") {
     await applyBackgroundChoice(chatId, data.chosen);
   }

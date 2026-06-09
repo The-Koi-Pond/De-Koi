@@ -1779,7 +1779,6 @@ const AGENT_RESULT_TYPE_MAP: Record<string, AgentResultType> = {
   spotify: "spotify_control",
   editor: "text_rewrite",
   "knowledge-retrieval": "context_injection",
-  haptic: "haptic_command",
   cyoa: "cyoa_choices",
   "secret-plot-driver": "secret_plot",
 };
@@ -1803,7 +1802,6 @@ const AGENT_RESULT_TYPES = new Set<AgentResultType>([
   "custom_tracker_update",
   "chat_summary",
   "spotify_control",
-  "haptic_command",
   "cyoa_choices",
   "secret_plot",
   "game_master_narration",
@@ -1860,7 +1858,6 @@ const JSON_AGENTS = new Set([
   "chat-summary",
   "spotify",
   "editor",
-  "haptic",
   "cyoa",
   "secret-plot-driver",
 ]);

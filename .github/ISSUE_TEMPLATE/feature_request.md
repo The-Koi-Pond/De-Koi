@@ -24,7 +24,7 @@ assignees: ""
 - [ ] Roleplay mode
 - [ ] Game mode
 - [ ] Shared mode UI
-- [ ] Runtime systems: generation, world-state, visuals, tracker, or haptics
+- [ ] Runtime systems: generation, world-state, visuals, or tracker
 - [ ] Professor Mari or shell tools
 - [ ] React-free engine behavior, contracts, agents, or capability ports
 - [ ] Shared API wrapper or remote runtime routing

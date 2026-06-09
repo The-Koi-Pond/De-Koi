@@ -36,7 +36,6 @@ import {
   Globe,
   Maximize2,
   Languages,
-  Vibrate,
   LetterText,
   Feather,
   Activity,
@@ -188,7 +187,6 @@ import {
   useCustomTools,
   type CustomToolRow,
 } from "../../../../catalog/agents/index";
-import { HapticConnectionPanel } from "./settings/HapticConnectionPanel";
 import { normalizeSpritePlacements } from "../../../../runtime/visuals/sprite-placement";
 import {
   getCharacterIdFromSpriteOwnerKey,
@@ -220,7 +218,6 @@ const HIDDEN_ROLEPLAY_AGENTS = new Set([
   "response-orchestrator",
   "autonomous-messenger",
 ]);
-const HAPTIC_AGENT_ID = "haptic";
 
 type SpotifySourceType = "liked" | "playlist" | "artist" | "any";
 
@@ -750,7 +747,6 @@ function ChatSettingsDrawerInner({
   const agentsEnabled = activeAgentIds.length > 0;
   const toolsEnabled = isEnabledFlag(metadata.enableTools, false);
   const manualTrackersEnabled = isEnabledFlag(metadata.manualTrackers, false);
-  const hapticFeedbackEnabled = isEnabledFlag(metadata.enableHapticFeedback, false);
   const spriteGenerationEnabled = isEnabledFlag(metadata.enableSpriteGeneration, false);
   const autonomousMessagesEnabled = isEnabledFlag(metadata.autonomousMessages, false);
   const characterExchangesEnabled = isEnabledFlag(metadata.characterExchanges, false);
@@ -777,7 +773,6 @@ function ChatSettingsDrawerInner({
   const scopedRegexScripts = useMemo(() => (allRegexScripts ?? []).filter((s) => !!s.characterId), [allRegexScripts]);
   const scopedRegexCount = scopedRegexScripts.length;
   const spotifyActive = activeAgentIds.includes("spotify");
-  const hapticAgentActive = activeAgentIds.includes(HAPTIC_AGENT_ID);
   const gameLorebookKeeperLorebook = gameLorebookKeeperLorebookId
     ? ((lorebooks ?? []) as Array<{ id: string; name: string }>).find(
         (book) => book.id === gameLorebookKeeperLorebookId,
@@ -4949,55 +4944,6 @@ function ChatSettingsDrawerInner({
                       />
                     </div>
                   </button>
-                )}
-
-                {/* Love Toys Control — not for game mode */}
-                {agentsEnabled && !isGame && hapticAgentActive && (
-                  <div className="space-y-1.5">
-                    <button
-                      onClick={() => {
-                        updateMeta.mutate({ id: chat.id, enableHapticFeedback: !hapticFeedbackEnabled });
-                      }}
-                      className={cn(
-                        "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
-                        hapticFeedbackEnabled
-                          ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
-                          : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
-                      )}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[0.6875rem] font-medium flex items-center gap-1.5">
-                          <Vibrate size="0.75rem" /> Love Toys Control
-                        </span>
-                        <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                          Control connected intimate toys based on narrative content
-                        </p>
-                      </div>
-                      <div
-                        className={cn(
-                          "h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
-                          hapticFeedbackEnabled ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
-                            hapticFeedbackEnabled && "translate-x-3.5",
-                          )}
-                        />
-                      </div>
-                    </button>
-                    {hapticFeedbackEnabled && (
-                      <HapticConnectionPanel
-                        intifaceUrl={
-                          typeof metadata.hapticIntifaceUrl === "string" ? metadata.hapticIntifaceUrl : undefined
-                        }
-                        onIntifaceUrlChange={(hapticIntifaceUrl) =>
-                          updateMeta.mutate({ id: chat.id, hapticIntifaceUrl })
-                        }
-                      />
-                    )}
-                  </div>
                 )}
 
                 {/* Image Generation — game mode only */}

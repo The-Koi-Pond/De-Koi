@@ -49,7 +49,7 @@ flowchart TB
   subgraph Features[src/features]
     ShellLayer[shell<br/>settings, connections UI, Mari,<br/>imports, bot browser, onboarding,<br/>notifications, Spotify]
     ModesLayer[modes<br/>router, shared chat UI, shared scene UI,<br/>conversation, roleplay, game, game-assets]
-    RuntimeLayer[runtime<br/>generation, world-state,<br/>visuals, tracker, haptics]
+    RuntimeLayer[runtime<br/>generation, world-state,<br/>visuals, tracker]
     CatalogLayer[catalog<br/>chats, characters, personas, sprites,<br/>lorebooks, presets, chat-presets,<br/>connections data, agents, gallery, knowledge]
   end
 
@@ -140,7 +140,7 @@ flowchart TB
 flowchart TB
   Shell[features/shell<br/>app-level tools and panels]
   Modes[features/modes<br/>conversation, roleplay, game, router,<br/>shared mode UI, game assets]
-  Runtime[features/runtime<br/>generation, world-state, visuals,<br/>tracker, haptics]
+  Runtime[features/runtime<br/>generation, world-state, visuals,<br/>tracker]
   Catalog[features/catalog<br/>resource data, hooks, query keys,<br/>library/editor surfaces]
 
   Shell --> Modes
@@ -178,7 +178,7 @@ flowchart TB
             <tr>
               <td><code>features/runtime</code></td>
               <td>
-                <code>generation</code>, <code>haptics</code>, <code>tracker</code>, <code>visuals</code>,
+                <code>generation</code>, <code>tracker</code>, <code>visuals</code>,
                 <code>world-state</code>.
               </td>
               <td>Own shared runtime systems used by modes and shell.</td>
@@ -350,11 +350,10 @@ flowchart TB
               <td>Visual display contracts are shared here instead of copied across modes.</td>
             </tr>
             <tr>
-              <td><code>runtime/tracker</code> and <code>runtime/haptics</code></td>
-              <td>Tracker sidebar/panels/model hooks and the haptic capability hook.</td>
+              <td><code>runtime/tracker</code></td>
+              <td>Tracker sidebar/panels/model hooks.</td>
               <td>
-                Tracker is runtime UI over world-state data; haptics calls integration commands through shared API
-                transport.
+                Tracker is runtime UI over world-state data.
               </td>
             </tr>
             <tr>

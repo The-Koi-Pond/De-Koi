@@ -15,7 +15,7 @@ src/features/catalog/
   Resource and data owners: chats, characters, personas, lorebooks, presets, chat-presets, connections, agents, gallery, knowledge.
 
 src/features/runtime/
-  Shared runtime systems: generation, world-state, visuals, tracker, haptics.
+  Shared runtime systems: generation, world-state, visuals, tracker.
 
 src/features/modes/
   User mode surfaces and mode-specific UI: shared, conversation, roleplay, game, game-assets, router.
@@ -80,7 +80,7 @@ src-tauri/crates/llm/
   provider transport, streaming, request shaping requiring secrets/network.
 
 src-tauri/crates/integrations/
-  Spotify, TTS, translation, haptics, and external integration transport.
+  Spotify, TTS, translation, and external integration transport.
 ```
 
 Rust owns capability execution. TypeScript owns product meaning.
@@ -105,7 +105,7 @@ Important feature owners:
 - `features/catalog/sprites`: shared sprite query keys, types, and React Query hooks for character and persona sprite owners.
 - `features/catalog/connections`, `features/catalog/agents`, `features/catalog/gallery`, `features/catalog/knowledge`: data owners and resource hooks.
 - `features/runtime/generation`: generation hook binding UI state and capability adapters to engine generation.
-- `features/runtime/world-state`, `features/runtime/visuals`, `features/runtime/tracker`, `features/runtime/haptics`: shared runtime systems used by modes and shell.
+- `features/runtime/world-state`, `features/runtime/visuals`, `features/runtime/tracker`: shared runtime systems used by modes and shell.
 - `features/modes/shared/chat-ui`: shared transcript, message, input, overlay, settings, branch, summary, gallery, and quick-switcher UI.
 - `features/modes/shared/scene-ui`: shared scene banner UI.
 - `features/modes/conversation`: conversation surface, setup, recent chats, and autonomous conversation UI.

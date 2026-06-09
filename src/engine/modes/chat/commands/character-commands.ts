@@ -12,7 +12,6 @@
 // - [memory: target="CharName", summary="description of the memory"]
 // - [scene: scenario="...", background="...", plan="..."] (initiate a mini-roleplay scene)
 // - [spotify: title="Song title", artist="Artist"] (play a song on the user's active Spotify player)
-// - [haptic: action="vibrate", intensity=0.5, duration=3] (haptic device feedback)
 // - <influence>text</influence> (OOC influence for connected roleplay, one-shot)
 // - <note>text</note> (durable note for connected roleplay, persists until cleared)
 // - [dm: character="CharName", message="text"] (Roleplay-only: open a direct-message conversation)
@@ -85,16 +84,6 @@ export interface DirectMessageCommand {
   character: string;
   /** Text the character sends in the generated conversation DM */
   message: string;
-}
-
-interface HapticCommand {
-  type: "haptic";
-  /** Device action */
-  action: "vibrate" | "oscillate" | "rotate" | "constrict" | "position" | "stop";
-  /** Intensity / speed (0.0-1.0) */
-  intensity?: number;
-  /** Duration in seconds */
-  duration?: number;
 }
 
 interface SpotifyCommand {
@@ -252,7 +241,6 @@ export type CharacterCommand =
   | InfluenceCommand
   | NoteCommand
   | DirectMessageCommand
-  | HapticCommand
   | SpotifyCommand
   | AssistantCommand;
 
@@ -270,7 +258,6 @@ const CROSS_POST_RE = /\[cross_post:\s*target="([^"]+)"\]/gi;
 const SELFIE_RE = /\[selfie(?::\s*(?:context="([^"]*)"|"([^"]*)"|([^\]\r\n"]+)))?\]/gi;
 const MEMORY_RE = /\[memory:\s*target="([^"]+)"\s*,\s*summary="([^"]+)"\]/gi;
 const SCENE_RE = new RegExp(`\\[scene:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
-const HAPTIC_RE = new RegExp(`\\[haptic:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const SPOTIFY_RE = new RegExp(`\\[spotify:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const DIRECT_MESSAGE_RE = new RegExp(`\\[dm:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const INFLUENCE_RE = /<influence>([\s\S]*?)<\/influence>/gi;
@@ -621,30 +608,6 @@ export function parseCharacterCommands(content: string): {
     if (text) commands.push({ type: "note", content: text });
   }
 
-  // Parse haptic commands
-  for (const match of content.matchAll(HAPTIC_RE)) {
-    const params = match[1]!;
-    const cmd: HapticCommand = { type: "haptic", action: "vibrate" };
-    const actionMatch = params.match(/action="([^"]+)"/);
-    if (actionMatch) {
-      const a = actionMatch[1]!.toLowerCase();
-      if (["vibrate", "oscillate", "rotate", "constrict", "position", "stop"].includes(a)) {
-        cmd.action = a as HapticCommand["action"];
-      }
-    }
-    const intensityMatch = params.match(/intensity=([0-9.]+)/);
-    if (intensityMatch) {
-      const v = parseFloat(intensityMatch[1]!);
-      if (Number.isFinite(v)) cmd.intensity = Math.max(0, Math.min(1, v));
-    }
-    const durationMatch = params.match(/duration=([0-9.]+)/);
-    if (durationMatch) {
-      const v = parseFloat(durationMatch[1]!);
-      if (Number.isFinite(v)) cmd.duration = Math.max(0, v);
-    }
-    commands.push(cmd);
-  }
-
   // Parse Spotify song commands
   for (const match of content.matchAll(SPOTIFY_RE)) {
     const params = match[1]!;
@@ -775,7 +738,6 @@ export function parseCharacterCommands(content: string): {
     .replace(SELFIE_RE, "")
     .replace(MEMORY_RE, "")
     .replace(SCENE_RE, "")
-    .replace(HAPTIC_RE, "")
     .replace(SPOTIFY_RE, "")
     .replace(INFLUENCE_RE, "")
     .replace(NOTE_RE, "")
