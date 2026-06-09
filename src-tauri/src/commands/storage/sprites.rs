@@ -8,7 +8,7 @@ use crate::storage_commands::media_uploads::{
     decode_image_payload, extension_for_image_mime, file_path_asset_url,
 };
 
-use image::{DynamicImage, GenericImageView, ImageFormat, Rgba, RgbaImage};
+use image::{DynamicImage, GenericImageView, ImageFormat, ImageReader, Limits, Rgba, RgbaImage};
 use std::collections::VecDeque;
 use std::env;
 use std::io::Cursor;
@@ -18,6 +18,9 @@ use std::time::UNIX_EPOCH;
 
 const SPRITE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "avif", "svg"];
 const CLEANUP_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp"];
+const MAX_SPRITE_IMAGE_DIMENSION: u32 = 8192;
+const MAX_SPRITE_IMAGE_PIXELS: u64 = 50_000_000;
+const MAX_SPRITE_IMAGE_ALLOC_BYTES: u64 = 256 * 1024 * 1024;
 const SPRITE_CLEANUP_RESTORE_POINTS_DIR: &str = ".cleanup-restore-points";
 const SPRITE_CLEANUP_RESTORE_POINT_LIMIT: usize = 5;
 const SPRITE_PORTRAIT_SINGLE_PROMPT_KEY: &str = "sprite.portraitSingle";
@@ -1062,13 +1065,43 @@ fn sprite_prompt_review_id(kind: &str, sprite_type: &str, label: &str) -> String
     )
 }
 
+fn sprite_decode_limits() -> Limits {
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_SPRITE_IMAGE_DIMENSION);
+    limits.max_image_height = Some(MAX_SPRITE_IMAGE_DIMENSION);
+    limits.max_alloc = Some(MAX_SPRITE_IMAGE_ALLOC_BYTES);
+    limits
+}
+
+fn decode_sprite_image(bytes: &[u8]) -> AppResult<DynamicImage> {
+    let (width, height) = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(AppError::from)?
+        .into_dimensions()
+        .map_err(image_error)?;
+    let pixels = u64::from(width) * u64::from(height);
+    if width > MAX_SPRITE_IMAGE_DIMENSION
+        || height > MAX_SPRITE_IMAGE_DIMENSION
+        || pixels > MAX_SPRITE_IMAGE_PIXELS
+    {
+        return Err(AppError::invalid_input(
+            "Sprite image dimensions are too large",
+        ));
+    }
+    let mut reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(AppError::from)?;
+    reader.limits(sprite_decode_limits());
+    reader.decode().map_err(image_error)
+}
+
 fn slice_sprite_sheet(sheet_base64: &str, plan: &SpritePlan) -> AppResult<Vec<Value>> {
     let bytes = general_purpose::STANDARD
         .decode(extract_base64_image_data(sheet_base64))
         .map_err(|error| {
             AppError::invalid_input(format!("Invalid generated sheet image: {error}"))
         })?;
-    let image = image::load_from_memory(&bytes).map_err(image_error)?;
+    let image = decode_sprite_image(&bytes)?;
     let (width, height) = image.dimensions();
     let cell_width = width / plan.cols.max(1);
     let cell_height = height / plan.rows.max(1);
@@ -1129,7 +1162,7 @@ fn cleanup_image_bytes(
             });
         }
     }
-    let image = image::load_from_memory(bytes).map_err(image_error)?;
+    let image = decode_sprite_image(bytes)?;
     Ok(SpriteCleanupOutput {
         bytes: encode_png(cleanup_image(image, strength))?,
         engine: "builtin".to_string(),
@@ -2301,7 +2334,7 @@ fn try_remove_background_with_backgroundremover(
     fs::create_dir_all(&work_dir)?;
     let input_path = work_dir.join("input.png");
     let output_path = work_dir.join("output.png");
-    let png_input = encode_png(image::load_from_memory(input).map_err(image_error)?)?;
+    let png_input = encode_png(decode_sprite_image(input)?)?;
     fs::write(&input_path, png_input)?;
 
     let mut args = command.args_prefix.clone();
@@ -2385,6 +2418,35 @@ fn validate_safe_segment(value: &str, label: &str) -> AppResult<()> {
 
 fn image_error(error: image::ImageError) -> AppError {
     AppError::new("image_processing_error", error.to_string())
+}
+
+#[cfg(test)]
+mod sprite_decode_guard_tests {
+    use super::*;
+
+    fn encode_test_png(width: u32, height: u32) -> Vec<u8> {
+        let image = RgbaImage::from_pixel(width, height, Rgba([255, 0, 0, 255]));
+        let mut bytes = Vec::new();
+        image
+            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+            .expect("test image should encode");
+        bytes
+    }
+
+    #[test]
+    fn rejects_oversized_sprite_dimensions_before_decode() {
+        let error = decode_sprite_image(&encode_test_png(MAX_SPRITE_IMAGE_DIMENSION + 1, 1))
+            .expect_err("oversized sprite image should reject");
+        assert_eq!(error.code, "invalid_input");
+        assert!(error
+            .message
+            .contains("Sprite image dimensions are too large"));
+    }
+
+    #[test]
+    fn decodes_in_bounds_sprite_image() {
+        assert!(decode_sprite_image(&encode_test_png(4, 4)).is_ok());
+    }
 }
 
 #[cfg(test)]
