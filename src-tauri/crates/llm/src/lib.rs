@@ -2042,6 +2042,7 @@ async fn stream_cohere(
             AppError::new("llm_stream_error", provider_transport_error_message(error))
         })?;
         decoder.push_chunk(&chunk, &mut buffer);
+        ensure_sse_buffer_within_limit(&buffer)?;
         while let Some(block) = take_sse_block(&mut buffer) {
             if process_cohere_sse_block(&block, emit, &mut tool_calls)? == SseBlockStatus::Complete
             {
@@ -2170,6 +2171,7 @@ async fn stream_openai_compatible(
             AppError::new("llm_stream_error", provider_transport_error_message(error))
         })?;
         decoder.push_chunk(&chunk, &mut buffer);
+        ensure_sse_buffer_within_limit(&buffer)?;
         while let Some(block) = take_sse_block(&mut buffer) {
             if process_openai_sse_block(&block, emit, &mut tool_calls)? == SseBlockStatus::Complete
             {
@@ -2210,6 +2212,18 @@ fn take_sse_block(buffer: &mut String) -> Option<String> {
     let block = buffer[..index].to_string();
     buffer.drain(..index + delimiter_len);
     Some(block)
+}
+
+fn ensure_sse_buffer_within_limit(buffer: &str) -> AppResult<()> {
+    if buffer.len() > PROVIDER_RESPONSE_MAX_BYTES {
+        return Err(AppError::new(
+            "llm_stream_error",
+            format!(
+                "Provider stream buffered more than {PROVIDER_RESPONSE_MAX_BYTES} bytes without an SSE event boundary"
+            ),
+        ));
+    }
+    Ok(())
 }
 
 const OPENAI_RESPONSES_ENCRYPTED_REASONING_INCLUDE: &str = "reasoning.encrypted_content";
@@ -2603,6 +2617,7 @@ async fn stream_openai_responses(
             AppError::new("llm_stream_error", provider_transport_error_message(error))
         })?;
         decoder.push_chunk(&chunk, &mut buffer);
+        ensure_sse_buffer_within_limit(&buffer)?;
         while let Some(block) = take_sse_block(&mut buffer) {
             if process_openai_responses_sse_block(&block, emit, &mut tool_calls)?
                 == SseBlockStatus::Complete
@@ -4342,6 +4357,7 @@ async fn stream_anthropic(
             AppError::new("llm_stream_error", provider_transport_error_message(error))
         })?;
         decoder.push_chunk(&chunk, &mut buffer);
+        ensure_sse_buffer_within_limit(&buffer)?;
         while let Some(block) = take_sse_block(&mut buffer) {
             if process_anthropic_sse_block(&block, emit)? == SseBlockStatus::Complete {
                 completed = true;
@@ -5059,6 +5075,7 @@ async fn stream_google(
             AppError::new("llm_stream_error", provider_transport_error_message(error))
         })?;
         decoder.push_chunk(&chunk, &mut buffer);
+        ensure_sse_buffer_within_limit(&buffer)?;
         while let Some(block) = take_sse_block(&mut buffer) {
             if process_google_sse_block(&block, emit)? == SseBlockStatus::Complete {
                 completed = true;
@@ -6803,6 +6820,17 @@ data: {"type":"response.output_item.done","item":{"type":"function_call","call_i
         assert!(error
             .message
             .contains("ended before Gemini sent a finish reason"));
+    }
+
+    #[test]
+    fn sse_stream_buffer_cap_rejects_boundaryless_stream() {
+        let at_limit = "x".repeat(PROVIDER_RESPONSE_MAX_BYTES);
+        assert!(ensure_sse_buffer_within_limit(&at_limit).is_ok());
+
+        let over_limit = "x".repeat(PROVIDER_RESPONSE_MAX_BYTES + 1);
+        let error = ensure_sse_buffer_within_limit(&over_limit)
+            .expect_err("un-terminated SSE buffer over the cap should abort the stream");
+        assert_eq!(error.code, "llm_stream_error");
     }
 
     #[test]
