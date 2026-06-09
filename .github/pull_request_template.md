@@ -1,4 +1,4 @@
-<!-- Target branch: `refactor`. Change the base to `refactor` before submitting unless a maintainer explicitly asked for another base. -->
+<!-- Target branch: `main`. Change the base to `main` before submitting unless a maintainer explicitly asked for another base. -->
 <!-- Keep all checkboxes unchecked until a human has actually verified them. -->
 
 ## Linked issue

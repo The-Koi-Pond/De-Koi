@@ -1,15 +1,15 @@
 # Contributing to De-Koi
 
-De-Koi is an unofficial Marinara Engine fork currently being rebuilt on the `refactor` branch as a local-first Tauri desktop app with a React UI, a React-free TypeScript product engine, and Rust capability modules. Use this guide with `README.md`, `AGENTS.md`, and the developer docs under `docs/developer/`.
+De-Koi is an unofficial Marinara Engine fork currently carrying its refactor code line on the `main` branch as a local-first Tauri desktop app with a React UI, a React-free TypeScript product engine, and Rust capability modules. Use this guide with `README.md`, `AGENTS.md`, and the developer docs under `docs/developer/`.
 
 ## Branches
 
-Current development targets `refactor`.
+Current development targets `main`.
 
-- Base feature, bug fix, and documentation branches on `refactor`.
-- Open pull requests against `refactor`.
-- Do not target `main` unless a maintainer explicitly asks for a mainline or release change.
-- Treat `refactor` docs as the only authoritative docs for current work. Do not use `main` or historical `staging` docs for refactor implementation, integrations, or release guidance unless a maintainer explicitly asks for that branch context.
+- Base feature, bug fix, and documentation branches on `main`.
+- Open pull requests against `main`.
+- Do not target historical `refactor` or `staging` branches unless a maintainer explicitly asks for that branch context.
+- Treat `main` docs as the only authoritative docs for current work. Do not use historical `refactor` or `staging` docs for implementation, integrations, or release guidance unless a maintainer explicitly asks for that branch context.
 - Keep PRs focused. Separate architecture moves, product behavior, UI polish, and docs-only work when they can be reviewed independently.
 
 ## Development Setup
@@ -26,7 +26,6 @@ Typical local setup:
 ```sh
 git clone https://github.com/The-Koi-Pond/De-Koi.git
 cd De-Koi
-git checkout refactor
 pnpm install
 pnpm tauri dev
 ```
