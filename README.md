@@ -146,7 +146,11 @@ the host port to `127.0.0.1:8787` and enables the Docker bridge auth bypass so a
 host browser can reach the container through the mapped local port. For LAN or
 reverse-proxy access, intentionally change the bind address and configure
 `BASIC_AUTH_USER`/`BASIC_AUTH_PASS`, `IP_ALLOWLIST`, or another explicit remote
-access opt-in.
+access opt-in. When a reverse proxy fronts the runtime, also set
+`TRUSTED_PROXIES` to the proxy's IP or CIDR so auth decisions use the
+forwarded client address (`X-Forwarded-For`) instead of the proxy's loopback
+connection; proxied requests from peers outside `TRUSTED_PROXIES` are treated
+as unauthenticated remote clients.
 
 ## Developer Docs
 

@@ -1651,6 +1651,7 @@ struct SecurityConfig {
     basic_auth: Option<BasicAuthConfig>,
     basic_auth_realm: String,
     ip_allowlist: Option<Vec<CidrEntry>>,
+    trusted_proxies: Option<Vec<CidrEntry>>,
     trusted_private_networks: Vec<CidrEntry>,
     allow_unauthenticated_private_network: bool,
     allow_unauthenticated_remote: bool,
@@ -1721,10 +1722,22 @@ impl Default for ApiRateLimiter {
 
 async fn api_controls_middleware(
     State(controls): State<HttpControls>,
-    request: Request<Body>,
+    mut request: Request<Body>,
     next: Next,
 ) -> Response {
     let path = request.uri().path().to_string();
+    let peer = remote_ip(&request);
+    let client_ip = controls.security.resolve_client_ip(peer, request.headers());
+    if client_ip != peer {
+        let port = request
+            .extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ConnectInfo(addr)| addr.port())
+            .unwrap_or(0);
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(SocketAddr::new(client_ip, port)));
+    }
     if let Some(response) = reject_oversized_api_body(&request) {
         return response;
     }
@@ -2046,6 +2059,7 @@ impl SecurityConfig {
             } else {
                 parse_cidr_list("IP_ALLOWLIST")
             },
+            trusted_proxies: parse_cidr_list("TRUSTED_PROXIES"),
             trusted_private_networks: parse_cidr_list("TRUSTED_PRIVATE_NETWORKS")
                 .unwrap_or_else(default_private_networks),
             allow_unauthenticated_private_network: env_flag_enabled(
@@ -2057,6 +2071,23 @@ impl SecurityConfig {
             require_auth_for_docker_proxy: env_flag_enabled("REQUIRE_AUTH_FOR_DOCKER_PROXY"),
             csrf_trusted_origins,
         }
+    }
+
+    fn resolve_client_ip(&self, peer: IpAddr, headers: &HeaderMap) -> IpAddr {
+        if let Some(trusted) = self
+            .trusted_proxies
+            .as_deref()
+            .filter(|trusted| cidr_list_contains(trusted, peer))
+        {
+            return forwarded_client_ip(headers, trusted)
+                .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+        }
+        if is_loopback(peer) && forwarded_headers_present(headers) {
+            // Proxy-style headers from an untrusted loopback peer mean the real
+            // client is unknown; never extend the loopback bypass to it.
+            return IpAddr::V4(Ipv4Addr::UNSPECIFIED);
+        }
+        peer
     }
 
     fn evaluate_request(&self, request: &Request<Body>) -> Result<(), SecurityRejection> {
@@ -2348,6 +2379,49 @@ fn remote_ip(request: &Request<Body>) -> IpAddr {
         .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST))
 }
 
+fn forwarded_headers_present(headers: &HeaderMap) -> bool {
+    ["x-forwarded-for", "forwarded", "x-real-ip"]
+        .iter()
+        .any(|name| headers.contains_key(HeaderName::from_static(name)))
+}
+
+fn forwarded_client_ip(headers: &HeaderMap, trusted_proxies: &[CidrEntry]) -> Option<IpAddr> {
+    let mut hops: Vec<IpAddr> = Vec::new();
+    for value in headers
+        .get_all(HeaderName::from_static("x-forwarded-for"))
+        .iter()
+    {
+        let value = value.to_str().ok()?;
+        for hop in value.split(',') {
+            let hop = hop.trim();
+            if hop.is_empty() {
+                continue;
+            }
+            hops.push(parse_forwarded_hop(hop)?);
+        }
+    }
+    let leftmost = *hops.first()?;
+    Some(
+        hops.iter()
+            .rev()
+            .copied()
+            .find(|hop| !cidr_list_contains(trusted_proxies, *hop))
+            .unwrap_or(leftmost),
+    )
+}
+
+fn parse_forwarded_hop(raw: &str) -> Option<IpAddr> {
+    if let Ok(ip) = raw.parse::<IpAddr>() {
+        return Some(ip);
+    }
+    if let Ok(addr) = raw.parse::<SocketAddr>() {
+        return Some(addr.ip());
+    }
+    raw.strip_prefix('[')
+        .and_then(|rest| rest.split(']').next())
+        .and_then(|inner| inner.parse::<IpAddr>().ok())
+}
+
 fn env_value(key: &str) -> Option<String> {
     std::env::var(key)
         .ok()
@@ -2537,6 +2611,7 @@ mod tests {
             basic_auth: None,
             basic_auth_realm: "De-Koi".to_string(),
             ip_allowlist: None,
+            trusted_proxies: None,
             trusted_private_networks: default_private_networks(),
             allow_unauthenticated_private_network: false,
             allow_unauthenticated_remote: false,
@@ -3500,6 +3575,43 @@ mod tests {
         );
 
         assert!(security.evaluate_request(&request).is_ok());
+    }
+
+    #[test]
+    fn hostable_security_demotes_loopback_peer_with_untrusted_forwarded_headers() {
+        let security = test_security();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-forwarded-for"),
+            HeaderValue::from_static("203.0.113.10"),
+        );
+        assert_eq!(
+            security.resolve_client_ip(IpAddr::V4(Ipv4Addr::LOCALHOST), &headers),
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        );
+    }
+
+    #[test]
+    fn hostable_security_resolves_forwarded_client_through_trusted_proxy() {
+        let security = SecurityConfig {
+            trusted_proxies: Some(vec![parse_cidr("127.0.0.1/32").expect("valid cidr")]),
+            ..test_security()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-forwarded-for"),
+            HeaderValue::from_static("203.0.113.10, 127.0.0.1"),
+        );
+        // Rightmost untrusted hop wins; the proxied internet client is not loopback.
+        assert_eq!(
+            security.resolve_client_ip(IpAddr::V4(Ipv4Addr::LOCALHOST), &headers),
+            IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10))
+        );
+        // Missing/unparsable forwarding info from a trusted proxy fails closed.
+        assert_eq!(
+            security.resolve_client_ip(IpAddr::V4(Ipv4Addr::LOCALHOST), &HeaderMap::new()),
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        );
     }
 
     #[test]
