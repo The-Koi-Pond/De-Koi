@@ -97,6 +97,7 @@ fn background_tags(state: &AppState) -> AppResult<Value> {
 
 fn patch_background_tags(state: &AppState, id: &str, body: Value) -> AppResult<Value> {
     let filename = decode_path(id);
+    require_background_file(state, &filename)?;
     let tags = body.get("tags").cloned().unwrap_or_else(|| json!([]));
     let meta = upsert_background_meta(
         state,
@@ -110,6 +111,18 @@ fn patch_background_tags(state: &AppState, id: &str, body: Value) -> AppResult<V
     Ok(
         json!({ "tags": meta.get("tags").cloned().unwrap_or_else(|| json!([])), "item": background_item(state, &filename, &meta)? }),
     )
+}
+
+fn require_background_file(state: &AppState, filename: &str) -> AppResult<()> {
+    let path = state.backgrounds.absolute_path(filename)?;
+    match fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => Ok(()),
+        Ok(_) => Err(AppError::not_found("Background was not found")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(AppError::not_found("Background was not found"))
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn rename_background(state: &AppState, id: &str, body: Value) -> AppResult<Value> {
@@ -415,14 +428,34 @@ mod tests {
             game_row.get("url").and_then(Value::as_str),
             Some("marinara-game-asset:backgrounds%2Ffantasy%2Fcastle.png")
         );
-        assert_eq!(
-            game_row.get("tags").cloned(),
-            Some(json!(["fantasy"]))
-        );
+        assert_eq!(game_row.get("tags").cloned(), Some(json!(["fantasy"])));
         assert!(
             rows.iter()
                 .all(|row| row.get("path").and_then(Value::as_str) != Some("music/theme.mp3")),
             "non-background game assets should not be listed as picker backgrounds"
+        );
+    }
+
+    #[test]
+    fn background_tag_update_rejects_missing_file_without_metadata() {
+        let state = test_state("missing-tags");
+
+        let error = backgrounds_call(
+            &state,
+            "PATCH",
+            &["missing.png", "tags"],
+            json!({ "tags": ["orphan"] }),
+        )
+        .expect_err("missing background should reject tag updates");
+
+        assert_eq!(error.code, "not_found");
+        assert!(
+            state
+                .storage
+                .list("background-metadata")
+                .expect("background metadata should be readable")
+                .is_empty(),
+            "failed tag update must not create metadata"
         );
     }
 }
