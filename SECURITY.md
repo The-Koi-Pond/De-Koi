@@ -18,13 +18,19 @@ discussions, or pull request comments.**
 
 Instead:
 
-1. **GitHub Security Advisories (preferred):** Go to the repository's
-   **Security** tab and use **"Report a vulnerability"** to open a private
-   advisory. If that option is not available to you, contact a maintainer
-   directly (see below).
-2. **Direct contact:** Reach out privately to a member of the
-   [The-Koi-Pond](https://github.com/The-Koi-Pond) organization and ask for a
-   private channel before sharing any details.
+1. **GitHub Security Advisories (preferred, if available to you):** Go to the
+   repository's **Security** tab and use **"Report a vulnerability"** to open
+   a private advisory. Note that on a private repository this option may not
+   be available to all collaborators — if you don't see it, use direct
+   contact below.
+2. **Direct contact:** Message a maintainer privately and ask for a private
+   channel before sharing any details. The security contact is
+   [@Romuromylus](https://github.com/Romuromylus); as backup, any
+   organization owner: [@cha1latte](https://github.com/cha1latte),
+   [@Decidetto](https://github.com/Decidetto),
+   [@munimunigamer](https://github.com/munimunigamer),
+   [@Xelvanis](https://github.com/Xelvanis). Reports through either path get
+   an acknowledgement within 7 days (see "What to Expect" below).
 
 When reporting, please include as much of the following as you can:
 
