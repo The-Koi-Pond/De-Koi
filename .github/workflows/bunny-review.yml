@@ -47,7 +47,7 @@ concurrency:
 
 jobs:
   review:
-    runs-on: [self-hosted, linux, xel-wsl]
+    runs-on: [self-hosted, linux]
     timeout-minutes: 30
     env:
       PR_NUM: ${{ github.event.pull_request.number || inputs.pr_number }}
