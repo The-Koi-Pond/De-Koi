@@ -1,4 +1,4 @@
-name: Bunny Review Auto Dispatch
+﻿name: Bunny Review Auto Dispatch
 
 on:
   pull_request_target:
@@ -17,7 +17,7 @@ concurrency:
 jobs:
   dispatch:
     if: github.event.pull_request.base.ref == 'main'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Dispatch trusted Bunny reviewer
         env:

@@ -1,4 +1,4 @@
-name: Bunny Review Command
+﻿name: Bunny Review Command
 
 on:
   issue_comment:
@@ -17,7 +17,7 @@ jobs:
       startsWith(github.event.comment.body, '/bunny-review') &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
                github.event.comment.author_association)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Dispatch trusted Bunny reviewer
         env:
