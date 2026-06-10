@@ -1,3 +1,4 @@
+use super::connection_secrets;
 use super::http::{http_binary, http_json};
 use super::images::percent_encode_component;
 use super::shared::*;
@@ -598,20 +599,44 @@ fn hex_value(byte: u8) -> Option<u8> {
 }
 
 fn provider_secret(state: &AppState, key: &str) -> AppResult<String> {
-    Ok(state
-        .storage
-        .get("app-settings", key)?
-        .and_then(|record| {
-            record
-                .get("value")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
-        })
-        .unwrap_or_default())
+    let Some(record) = state.storage.get("app-settings", key)? else {
+        return Ok(String::new());
+    };
+    if let Some(encrypted) = record
+        .get("encryptedValue")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let secret = connection_secrets::decrypt_secret(state, encrypted)?;
+        if record.get("value").is_some() {
+            store_provider_secret(state, key, &secret)?;
+        }
+        return Ok(secret);
+    }
+    let Some(legacy_value) = record
+        .get("value")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+    else {
+        return Ok(String::new());
+    };
+    store_provider_secret(state, key, &legacy_value)?;
+    Ok(legacy_value)
 }
 
 fn store_setting_value(state: &AppState, key: &str, value: Value) -> AppResult<Value> {
     state.storage.upsert_with_id("app-settings", key, value)
+}
+
+fn store_provider_secret(state: &AppState, key: &str, value: &str) -> AppResult<Value> {
+    state.storage.upsert_with_id(
+        "app-settings",
+        key,
+        json!({ "encryptedValue": connection_secrets::encrypt_secret(state, value)? }),
+    )
 }
 
 fn clear_setting(state: &AppState, key: &str) -> AppResult<()> {
@@ -1186,11 +1211,7 @@ fn set_chartavern_cookie(state: &AppState, body: &Value) -> AppResult<Value> {
             "Invalid cookie value. Paste only the session cookie value.",
         ));
     }
-    store_setting_value(
-        state,
-        CT_COOKIE_KEY,
-        json!({ "value": format!("session={value}") }),
-    )?;
+    store_provider_secret(state, CT_COOKIE_KEY, &format!("session={value}"))?;
     Ok(json!({ "ok": true, "stored": true }))
 }
 
@@ -1412,7 +1433,7 @@ fn set_pygmalion_token(state: &AppState, body: &Value) -> AppResult<Value> {
             "Invalid token value. Paste only the token string.",
         ));
     }
-    store_setting_value(state, PYGMALION_TOKEN_KEY, json!({ "value": value }))?;
+    store_provider_secret(state, PYGMALION_TOKEN_KEY, value)?;
     Ok(json!({ "ok": true, "stored": true }))
 }
 
@@ -1571,7 +1592,7 @@ async fn datacat_json_get(state: &AppState, path: &str) -> AppResult<Value> {
         if response.status() == StatusCode::UNAUTHORIZED && attempt == 0 {
             clear_setting(state, DATACAT_SESSION_KEY)?;
             token = mint_datacat_session_token().await?;
-            store_setting_value(state, DATACAT_SESSION_KEY, json!({ "value": token }))?;
+            store_provider_secret(state, DATACAT_SESSION_KEY, &token)?;
             continue;
         }
         return upstream_json(response).await;
@@ -1588,7 +1609,7 @@ async fn get_datacat_session_token(state: &AppState) -> AppResult<String> {
         return Ok(token);
     }
     let token = mint_datacat_session_token().await?;
-    store_setting_value(state, DATACAT_SESSION_KEY, json!({ "value": token }))?;
+    store_provider_secret(state, DATACAT_SESSION_KEY, &token)?;
     Ok(token)
 }
 
@@ -1623,4 +1644,133 @@ fn datacat_headers(token: &str) -> Vec<Header> {
         header("Referer", format!("{DATACAT_API_BASE}/")),
         header("X-Session-Token", token),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempRoot(PathBuf);
+
+    impl Drop for TempRoot {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn test_state(label: &str) -> (TempRoot, AppState) {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after epoch")
+            .as_nanos();
+        let root =
+            TempRoot(std::env::temp_dir().join(format!("marinara-bot-browser-{label}-{nonce}")));
+        let state =
+            AppState::from_data_dir(&root.0, Vec::new()).expect("test app state should initialize");
+        (root, state)
+    }
+
+    fn stored_setting_value(state: &AppState, key: &str) -> Value {
+        state
+            .storage
+            .get("app-settings", key)
+            .expect("setting should be readable")
+            .expect("setting should exist")
+    }
+
+    #[test]
+    fn chartavern_cookie_is_encrypted_at_rest_and_decrypts_for_runtime() {
+        let (_root, state) = test_state("chartavern-secret");
+
+        set_chartavern_cookie(&state, &json!({ "cookie": "session=ct-secret" }))
+            .expect("cookie should store");
+
+        let raw = stored_setting_value(&state, CT_COOKIE_KEY);
+        assert_ne!(
+            raw.get("value").and_then(Value::as_str),
+            Some("session=ct-secret")
+        );
+        assert_ne!(
+            raw.get("encryptedValue").and_then(Value::as_str),
+            Some("session=ct-secret")
+        );
+        assert_eq!(
+            provider_secret(&state, CT_COOKIE_KEY).expect("cookie should decrypt"),
+            "session=ct-secret"
+        );
+    }
+
+    #[test]
+    fn pygmalion_token_is_encrypted_at_rest_and_decrypts_for_runtime() {
+        let (_root, state) = test_state("pygmalion-secret");
+
+        set_pygmalion_token(&state, &json!({ "token": "Bearer pyg-secret" }))
+            .expect("token should store");
+
+        let raw = stored_setting_value(&state, PYGMALION_TOKEN_KEY);
+        assert_ne!(raw.get("value").and_then(Value::as_str), Some("pyg-secret"));
+        assert_ne!(
+            raw.get("encryptedValue").and_then(Value::as_str),
+            Some("pyg-secret")
+        );
+        assert_eq!(
+            provider_secret(&state, PYGMALION_TOKEN_KEY).expect("token should decrypt"),
+            "pyg-secret"
+        );
+    }
+
+    #[test]
+    fn legacy_plaintext_provider_secret_migrates_to_encrypted_storage() {
+        let (_root, state) = test_state("legacy-secret");
+        state
+            .storage
+            .upsert_with_id(
+                "app-settings",
+                PYGMALION_TOKEN_KEY,
+                json!({ "value": "legacy-pyg-secret" }),
+            )
+            .expect("legacy setting should store");
+
+        assert_eq!(
+            provider_secret(&state, PYGMALION_TOKEN_KEY).expect("legacy token should read"),
+            "legacy-pyg-secret"
+        );
+
+        let raw = stored_setting_value(&state, PYGMALION_TOKEN_KEY);
+        assert!(raw.get("value").is_none());
+        assert_ne!(
+            raw.get("encryptedValue").and_then(Value::as_str),
+            Some("legacy-pyg-secret")
+        );
+        assert_eq!(
+            provider_secret(&state, PYGMALION_TOKEN_KEY).expect("migrated token should decrypt"),
+            "legacy-pyg-secret"
+        );
+    }
+
+    #[test]
+    fn missing_and_blank_provider_secret_returns_empty() {
+        let (_root, state) = test_state("empty-secret");
+
+        assert_eq!(
+            provider_secret(&state, PYGMALION_TOKEN_KEY).expect("missing setting should read"),
+            ""
+        );
+
+        state
+            .storage
+            .upsert_with_id(
+                "app-settings",
+                PYGMALION_TOKEN_KEY,
+                json!({ "value": "   " }),
+            )
+            .expect("blank setting should store");
+
+        assert_eq!(
+            provider_secret(&state, PYGMALION_TOKEN_KEY).expect("blank setting should read"),
+            ""
+        );
+    }
 }
