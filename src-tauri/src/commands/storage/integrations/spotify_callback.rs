@@ -1,12 +1,13 @@
 use super::super::*;
 use super::spotify::exchange;
 use super::spotify_query::parse_query;
+use std::collections::HashMap;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const SPOTIFY_CALLBACK_HOST: &str = "127.0.0.1";
 const SPOTIFY_CALLBACK_PORT: u16 = 8754;
-const SPOTIFY_CALLBACK_PATH: &str = "/spotify/callback";
+pub(super) const SPOTIFY_CALLBACK_PATH: &str = "/spotify/callback";
 const AUTH_TTL_MS: u128 = 10 * 60_000;
 
 pub(super) fn start_callback_listener(state: AppState) -> bool {
@@ -38,22 +39,12 @@ async fn run_callback_listener(
     let mut buffer = vec![0_u8; 8192];
     let read = stream.read(&mut buffer).await?;
     let request = String::from_utf8_lossy(&buffer[..read]).to_string();
-    let result = handle_callback_request(&state, &request).await;
-    let (status, title, body) = match result {
-        Ok(()) => (
-            "200 OK",
-            "Spotify connected",
-            "Spotify is connected. You can close this browser tab and return to Marinara."
-                .to_string(),
-        ),
-        Err(message) => ("400 Bad Request", "Spotify connection failed", message),
+    let (status_code, body) = callback_response(handle_callback_request(&state, &request).await);
+    let status = if status_code == 200 {
+        "200 OK"
+    } else {
+        "400 Bad Request"
     };
-    let body = format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title></head><body><h1>{}</h1><p>{}</p></body></html>",
-        html_escape(title),
-        html_escape(title),
-        html_escape(&body),
-    );
     let response = format!(
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         body.len(),
@@ -77,9 +68,15 @@ async fn handle_callback_request(state: &AppState, request: &str) -> Result<(), 
     }
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
     if path != SPOTIFY_CALLBACK_PATH {
-        return Err("Spotify callback path did not match Marinara's redirect URL.".to_string());
+        return Err("Spotify callback path did not match De-Koi's redirect URL.".to_string());
     }
-    let params = parse_query(query);
+    handle_callback_params(state, parse_query(query)).await
+}
+
+pub(super) async fn handle_callback_params(
+    state: &AppState,
+    params: HashMap<String, String>,
+) -> Result<(), String> {
     if let Some(error) = params.get("error") {
         return Err(format!("Spotify returned an error: {error}"));
     }
@@ -97,6 +94,27 @@ async fn handle_callback_request(state: &AppState, request: &str) -> Result<(), 
         .map_err(|error| error.message)
 }
 
+pub(super) fn callback_response(result: Result<(), String>) -> (u16, String) {
+    let (status, title, body) = match result {
+        Ok(()) => (
+            200,
+            "Spotify connected",
+            "Spotify is connected. You can close this browser tab and return to De-Koi."
+                .to_string(),
+        ),
+        Err(message) => (400, "Spotify connection failed", message),
+    };
+    (
+        status,
+        format!(
+            "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title></head><body><h1>{}</h1><p>{}</p></body></html>",
+            html_escape(title),
+            html_escape(title),
+            html_escape(&body),
+        ),
+    )
+}
+
 fn html_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -104,4 +122,18 @@ fn html_escape(value: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn callback_response_escapes_error_html() {
+        let (status, html) = callback_response(Err("<script>alert(1)</script>".to_string()));
+
+        assert_eq!(status, 400);
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(!html.contains("<script>alert(1)</script>"));
+    }
 }

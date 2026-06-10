@@ -104,7 +104,7 @@ function createCustomAgentType(name: string): string {
 
 const SPOTIFY_NATIVE_REDIRECT_URI = "http://127.0.0.1:8754/spotify/callback";
 
-// Mirrors the native Spotify redirect rule used by the Rust callback listener.
+// Fallback before status loads; Rust may return an env-configured redirect URI.
 function getDisplayedSpotifyRedirectUri(): string {
   return SPOTIFY_NATIVE_REDIRECT_URI;
 }
@@ -1687,7 +1687,7 @@ export function AgentEditor() {
                     {spotifyPasteOpen && (
                       <div className="space-y-2 pt-1">
                         <p className="text-white/40 leading-relaxed">
-                          If you&apos;re running Marinara on a different machine, the popup probably failed to load
+                          If you&apos;re running De-Koi on a different machine, the popup probably failed to load
                           (Spotify only allows <code className="text-white/50">127.0.0.1</code> or HTTPS callbacks).
                           Copy the full URL from the popup&apos;s address bar and paste it here:
                         </p>
@@ -1789,9 +1789,9 @@ export function AgentEditor() {
                   </p>
                   <p className="text-[0.625rem] text-white/30 leading-relaxed">
                     Spotify only accepts <code className="text-white/40">https://</code> redirect URIs or loopback (
-                    <code className="text-white/40">http://127.0.0.1</code>). If you&apos;re running Marinara on another
+                    <code className="text-white/40">http://127.0.0.1</code>). If you&apos;re running De-Koi on another
                     machine over plain HTTP, register the loopback URI anyway and use the paste-back fallback that
-                    appears under the Connect button — or set{" "}
+                    appears under the Connect button. For HTTPS runtime hosts, set{" "}
                     <code className="text-white/40">SPOTIFY_REDIRECT_URI</code> to your HTTPS URL.
                   </p>
                 </div>

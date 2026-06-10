@@ -1,5 +1,6 @@
 use super::shared::ParsedPath;
 use super::*;
+use std::collections::HashMap;
 
 #[path = "integrations/discord.rs"]
 mod discord;
@@ -29,6 +30,17 @@ pub(crate) async fn spotify_call(
     body: Value,
 ) -> AppResult<Value> {
     spotify::spotify_call(state, method, rest, route, body).await
+}
+
+pub(crate) async fn spotify_callback_params(
+    state: &AppState,
+    params: HashMap<String, String>,
+) -> Result<(), String> {
+    spotify_callback::handle_callback_params(state, params).await
+}
+
+pub(crate) fn spotify_callback_response(result: Result<(), String>) -> (u16, String) {
+    spotify_callback::callback_response(result)
 }
 
 pub(crate) async fn discord_webhook_send(body: Value) -> AppResult<Value> {

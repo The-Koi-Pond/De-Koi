@@ -23,7 +23,8 @@ fn spotify_refresh_lock(agent_id: &str) -> Arc<tokio::sync::Mutex<()>> {
 }
 
 const SPOTIFY_SCOPES: &str = "streaming user-modify-playback-state user-read-playback-state user-read-currently-playing user-read-private playlist-read-private playlist-modify-public playlist-modify-private user-library-read";
-const SPOTIFY_REDIRECT_URI: &str = "http://127.0.0.1:8754/spotify/callback";
+const SPOTIFY_DEFAULT_REDIRECT_URI: &str = "http://127.0.0.1:8754/spotify/callback";
+const SPOTIFY_REDIRECT_URI_ENV: &str = "SPOTIFY_REDIRECT_URI";
 const AUTH_TTL_MS: u128 = 10 * 60_000;
 const DJ_MARI_MIN_TRACKS: usize = 25;
 const DJ_MARI_MAX_TRACKS: usize = 50;
@@ -1171,6 +1172,7 @@ fn authorize(state: &AppState, route: &ParsedPath, body: &Value) -> AppResult<Va
         .ok_or_else(|| AppError::invalid_input("clientId is required"))?;
     let agent_id = string_param(route, body, "agentId")
         .ok_or_else(|| AppError::invalid_input("agentId is required"))?;
+    let redirect_uri = spotify_redirect_uri()?;
     let code_verifier = random_token(64);
     let code_challenge = code_challenge(&code_verifier);
     let auth_state = random_token(32);
@@ -1182,7 +1184,7 @@ fn authorize(state: &AppState, route: &ParsedPath, body: &Value) -> AppResult<Va
                 "codeVerifier": code_verifier,
                 "clientId": client_id,
                 "agentId": agent_id,
-                "redirectUri": SPOTIFY_REDIRECT_URI,
+                "redirectUri": redirect_uri.clone(),
                 "createdAt": now_millis()
             }
         }),
@@ -1194,12 +1196,12 @@ fn authorize(state: &AppState, route: &ParsedPath, body: &Value) -> AppResult<Va
         ("scope", SPOTIFY_SCOPES),
         ("code_challenge_method", "S256"),
         ("code_challenge", &code_challenge),
-        ("redirect_uri", SPOTIFY_REDIRECT_URI),
+        ("redirect_uri", redirect_uri.as_str()),
         ("state", &auth_state),
     ]);
     Ok(json!({
         "authUrl": format!("https://accounts.spotify.com/authorize?{params}"),
-        "redirectUri": SPOTIFY_REDIRECT_URI,
+        "redirectUri": redirect_uri,
         "callbackListenerStarted": callback_listener_started
     }))
 }
@@ -1242,7 +1244,7 @@ pub(super) async fn exchange(state: &AppState, body: Value) -> AppResult<Value> 
     let redirect_uri = pending
         .get("redirectUri")
         .and_then(Value::as_str)
-        .unwrap_or(SPOTIFY_REDIRECT_URI)
+        .unwrap_or(SPOTIFY_DEFAULT_REDIRECT_URI)
         .to_string();
     let token = spotify_token_request(&[
         ("client_id", client_id.as_str()),
@@ -1261,6 +1263,7 @@ pub(super) async fn exchange(state: &AppState, body: Value) -> AppResult<Value> 
 fn status(state: &AppState, route: &ParsedPath, body: &Value) -> AppResult<Value> {
     let agent_id = string_param(route, body, "agentId")
         .ok_or_else(|| AppError::invalid_input("agentId is required"))?;
+    let redirect_uri = spotify_redirect_uri()?;
     let agent = get_required(state, "agents", &agent_id)?;
     let mut settings = agent_settings(&agent);
     migrate_legacy_spotify_tokens(state, &agent_id, &mut settings)?;
@@ -1296,7 +1299,7 @@ fn status(state: &AppState, route: &ParsedPath, body: &Value) -> AppResult<Value
         "connected": has_token && has_refresh,
         "expired": expires_at > 0 && now_millis() > expires_at,
         "clientId": settings.get("spotifyClientId").cloned().unwrap_or(Value::Null),
-        "redirectUri": SPOTIFY_REDIRECT_URI,
+        "redirectUri": redirect_uri,
         "scopes": scopes,
         "missingScopes": missing_scopes
     }))
@@ -3119,6 +3122,49 @@ fn form_urlencoded(params: &[(&str, &str)]) -> String {
         .join("&")
 }
 
+fn spotify_redirect_uri() -> AppResult<String> {
+    match std::env::var(SPOTIFY_REDIRECT_URI_ENV) {
+        Ok(value) => spotify_redirect_uri_from_env(Some(value)),
+        Err(std::env::VarError::NotPresent) => spotify_redirect_uri_from_env(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(AppError::invalid_input(format!(
+            "{SPOTIFY_REDIRECT_URI_ENV} must be valid Unicode"
+        ))),
+    }
+}
+
+fn spotify_redirect_uri_from_env(value: Option<String>) -> AppResult<String> {
+    let Some(value) = value
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+    else {
+        return Ok(SPOTIFY_DEFAULT_REDIRECT_URI.to_string());
+    };
+    if is_supported_spotify_redirect_uri(&value) {
+        Ok(value)
+    } else {
+        Err(AppError::invalid_input(format!(
+            "{SPOTIFY_REDIRECT_URI_ENV} must be an https:// URL or a loopback http://127.0.0.1 URL"
+        )))
+    }
+}
+
+fn is_supported_spotify_redirect_uri(value: &str) -> bool {
+    if value.chars().any(char::is_whitespace) {
+        return false;
+    }
+    let Ok(parsed) = reqwest::Url::parse(value) else {
+        return false;
+    };
+    if !parsed.username().is_empty() || parsed.password().is_some() || parsed.fragment().is_some() {
+        return false;
+    }
+    match parsed.scheme() {
+        "https" => parsed.host_str().is_some(),
+        "http" => parsed.host_str() == Some("127.0.0.1"),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3187,6 +3233,54 @@ mod tests {
         assert_ne!(first, second);
         assert!(first.starts_with("spotify:"));
         assert!(first.ends_with(":playlist-1"));
+    }
+
+    #[test]
+    fn spotify_redirect_uri_uses_default_without_override() {
+        assert_eq!(
+            spotify_redirect_uri_from_env(None).expect("default redirect should resolve"),
+            SPOTIFY_DEFAULT_REDIRECT_URI
+        );
+        assert_eq!(
+            spotify_redirect_uri_from_env(Some("   ".to_string()))
+                .expect("blank override should resolve default"),
+            SPOTIFY_DEFAULT_REDIRECT_URI
+        );
+    }
+
+    #[test]
+    fn spotify_redirect_uri_accepts_https_override() {
+        assert_eq!(
+            spotify_redirect_uri_from_env(Some(
+                " https://de-koi.example.com/spotify/callback ".to_string()
+            ))
+            .expect("https redirect should be accepted"),
+            "https://de-koi.example.com/spotify/callback"
+        );
+    }
+
+    #[test]
+    fn spotify_redirect_uri_rejects_non_https_non_loopback_override() {
+        let error = spotify_redirect_uri_from_env(Some(
+            "http://de-koi.example.com/spotify/callback".to_string(),
+        ))
+        .expect_err("plain remote http redirect should be rejected");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains(SPOTIFY_REDIRECT_URI_ENV));
+    }
+
+    #[test]
+    fn spotify_redirect_uri_rejects_loopback_lookalike() {
+        assert!(spotify_redirect_uri_from_env(Some(
+            "http://127.0.0.1.evil/spotify/callback".to_string()
+        ))
+        .is_err());
+    }
+
+    #[test]
+    fn spotify_redirect_uri_rejects_malformed_https_override() {
+        assert!(spotify_redirect_uri_from_env(Some("https://?x".to_string())).is_err());
     }
 
     #[test]
