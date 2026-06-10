@@ -1,0 +1,80 @@
+{
+  "coreClaim": "Knowledge source uploads reject files larger than 50 MB before reading browser bytes, base64-encoding, or invoking the upload command.",
+  "scope": {
+    "inScope": [
+      "Add a knowledge-source-specific upload size limit to the shared API wrapper.",
+      "Keep existing JSON/base64 upload behavior for files within the configured limit.",
+      "Add a focused unit test for oversized and in-limit knowledge source uploads."
+    ],
+    "outOfScope": [
+      "Replace the upload transport with multipart or streaming.",
+      "Change Rust storage write behavior or accepted knowledge source extensions.",
+      "Change import/export, backup, or profile migration behavior."
+    ],
+    "intendedFiles": [
+      "src/engine/contracts/constants/defaults.ts",
+      "src/shared/api/file-payload.ts",
+      "src/shared/api/integration-utility-api.ts",
+      "src/shared/api/integration-utility-api.test.ts"
+    ],
+    "riskFlags": ["user-file-upload", "remote-capable-json-payload", "browser-memory"]
+  },
+  "reproduction": {
+    "steps": [
+      "Inspect origin/refactor:src/shared/api/integration-utility-api.ts.",
+      "Confirm knowledgeSourcesApi.upload calls fileToUploadPayload(file) without maxBytes or tooLargeMessage.",
+      "Trace fileToUploadPayload reads file.arrayBuffer() after only enforcing size when maxBytes is provided."
+    ],
+    "reproducedBeforeFix": true,
+    "beforeEvidence": [
+      "git show origin/refactor:src/shared/api/integration-utility-api.ts shows knowledgeSourcesApi.upload calling fileToUploadPayload(file) with no options.",
+      "src/shared/api/file-payload.ts only rejects oversized uploads when options.maxBytes is defined."
+    ]
+  },
+  "riskClaimMatrix": {
+    "coreClaim": "Oversized knowledge source uploads fail before browser memory/base64 expansion.",
+    "riskType": "user-file-upload and remote-capable JSON payload",
+    "entrypoints": ["knowledgeSourcesApi.upload(file)", "knowledge_source_upload"],
+    "currentPathsOrFormats": ["File -> UploadFilePayload JSON body -> invokeTauri(\"knowledge_source_upload\")"],
+    "legacyPathsOrFormats": [
+      "No legacy data format changed; existing accepted knowledge source files under the limit still use the same JSON payload shape."
+    ],
+    "positiveRowsTested": [
+      "4-byte text/plain file encodes to base64 and invokes knowledge_source_upload with the existing payload shape."
+    ],
+    "negativeRowsTested": [
+      "Should-not-match row: 50 MB + 1 byte file rejects with the knowledge-source size error, arrayBuffer call count remains 0, and invokeTauri is not called."
+    ],
+    "groundTruthFacts": [
+      "Harness-proven: MAX_KNOWLEDGE_SOURCE_UPLOAD_BYTES + 1 rejects with the knowledge-source size error in src/shared/api/integration-utility-api.test.ts.",
+      "Harness-proven: the oversized upload leaves arrayBuffer call count at 0 and invokeTauri call count at 0."
+    ],
+    "userActionCopy": [],
+    "manualBlockers": []
+  },
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Oversized file: rejects before reading bytes and before storage invocation.",
+      "In-limit file: still encodes and calls knowledge_source_upload with name, type, size, and base64."
+    ],
+    "negativeRowsTested": [
+      "Oversized file does not call file.arrayBuffer().",
+      "Oversized file does not call invokeTauri()."
+    ],
+    "afterEvidence": [
+      "pnpm exec vitest run src/shared/api/integration-utility-api.test.ts: 1 test file passed, 2 tests passed.",
+      "pnpm typecheck: passed.",
+      "pnpm check: passed."
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "manualBlockers": [],
+  "pr": {
+    "url": "",
+    "evidencePublished": false,
+    "checks": "not run",
+    "automatedReview": "not checked"
+  }
+}

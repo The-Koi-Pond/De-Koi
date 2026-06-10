@@ -17,6 +17,8 @@ export const IMAGE_UPLOAD_SIZE_ERROR = `Image uploads must be ${formatUploadSize
 
 export const CHAT_IMPORT_SIZE_ERROR = `Chat imports must be ${formatUploadSize(MAX_FILE_SIZES.CHAT_JSONL)} or smaller`;
 export const GAME_ASSET_SIZE_ERROR = `Game assets must be ${formatUploadSize(MAX_FILE_SIZES.GAME_ASSET)} or smaller`;
+export const MAX_KNOWLEDGE_SOURCE_UPLOAD_BYTES = MAX_FILE_SIZES.KNOWLEDGE_SOURCE;
+export const KNOWLEDGE_SOURCE_UPLOAD_SIZE_ERROR = `Knowledge source uploads must be ${formatUploadSize(MAX_KNOWLEDGE_SOURCE_UPLOAD_BYTES)} or smaller`;
 
 export interface FilePayloadOptions {
   maxBytes?: number;
