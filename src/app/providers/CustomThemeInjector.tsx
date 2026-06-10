@@ -7,6 +7,7 @@ import { useThemes } from "../../features/shell/settings/index";
 import { useExtensions } from "../../features/shell/settings/index";
 import { storageApi } from "../../shared/api/storage-api";
 import { stripDangerousCss } from "../../shared/lib/chat-css";
+import { createExtensionStorageApi } from "./extension-storage-api";
 
 type ExtensionGlobal = typeof globalThis & {
   __marinaraExtensionApis?: Map<string, unknown>;
@@ -167,13 +168,7 @@ export function CustomThemeInjector() {
             return el;
           },
 
-          storage: {
-            list: storageApi.list,
-            get: storageApi.get,
-            create: storageApi.create,
-            update: storageApi.update,
-            delete: storageApi.delete,
-          },
+          storage: createExtensionStorageApi(storageApi),
 
           // addEventListener with auto-cleanup
           on: (target: EventTarget, event: string, handler: EventListenerOrEventListenerObject) => {
