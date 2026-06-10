@@ -1,48 +1,87 @@
 # Dependabot configuration for De-Koi
 # Docs: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 version: 2
+multi-ecosystem-groups:
+  routine-dependencies:
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "11:00"
+      timezone: "America/New_York"
+
 updates:
   # pnpm workspace (root package.json + pnpm-lock.yaml)
   - package-ecosystem: "npm"
     directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
+    multi-ecosystem-group: "routine-dependencies"
+    open-pull-requests-limit: 1
+    cooldown:
+      default-days: 7
     groups:
-      npm-minor-and-patch:
+      npm-routine:
+        patterns:
+          - "*"
         update-types:
+          - "major"
           - "minor"
           - "patch"
 
   # Rust / Cargo workspace (Tauri backend)
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
+    multi-ecosystem-group: "routine-dependencies"
+    open-pull-requests-limit: 1
+    cooldown:
+      default-days: 7
     groups:
-      cargo-minor-and-patch:
+      cargo-routine:
+        patterns:
+          - "*"
         update-types:
+          - "major"
           - "minor"
           - "patch"
 
   # GitHub Actions workflows
   - package-ecosystem: "github-actions"
     directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
+    multi-ecosystem-group: "routine-dependencies"
+    open-pull-requests-limit: 1
+    cooldown:
+      default-days: 7
+    groups:
+      actions-routine:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
 
   # Dockerfile base images
   - package-ecosystem: "docker"
     directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
+    multi-ecosystem-group: "routine-dependencies"
+    open-pull-requests-limit: 1
+    cooldown:
+      default-days: 7
+    groups:
+      docker-routine:
+        patterns:
+          - "*"
 
   # Python tooling for bunny-review
   - package-ecosystem: "pip"
     directory: "/.github/bunny-review"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
+    multi-ecosystem-group: "routine-dependencies"
+    open-pull-requests-limit: 1
+    cooldown:
+      default-days: 7
+    groups:
+      bunny-python-routine:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
