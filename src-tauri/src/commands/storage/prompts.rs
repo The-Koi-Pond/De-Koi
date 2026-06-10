@@ -5,6 +5,7 @@ use marinara_security::is_allowed_provider_url;
 use std::collections::{HashMap, HashSet};
 
 const LEGACY_LOCAL_SIDECAR_CONNECTION_ID: &str = "__local_sidecar__";
+const EMBEDDING_PROVIDER_LOCAL_URLS_ENABLED_FLAG: &str = "EMBEDDING_PROVIDER_LOCAL_URLS_ENABLED";
 
 pub(crate) fn duplicate_prompt_preset(state: &AppState, preset_id: &str) -> AppResult<Value> {
     let mut preset = get_required(state, "prompts", preset_id)?;
@@ -754,8 +755,8 @@ async fn embed_openai_compatible_batch(
 ) -> AppResult<Vec<Vec<f64>>> {
     let base = embedding_base_url(connection, "https://api.openai.com/v1");
     let url = format!("{base}/embeddings");
-    ensure_embedding_url_allowed(&url)?;
-    let mut request = reqwest::Client::new()
+    let mut request = embedding_http_client(&url)
+        .await?
         .post(url)
         .json(&json!({ "model": model, "input": texts }));
     if let Some(api_key) = connection
@@ -796,8 +797,8 @@ async fn embed_google(connection: &Value, model: &str, text: &str) -> AppResult<
     } else {
         format!("{base}/v1beta/models/{model}:embedContent?key={api_key}")
     };
-    ensure_embedding_url_allowed(&url)?;
-    let mut request = reqwest::Client::new()
+    let mut request = embedding_http_client(&url)
+        .await?
         .post(url)
         .json(&json!({ "content": { "parts": [{ "text": text }] } }));
     if provider == "google_vertex" {
@@ -821,8 +822,8 @@ async fn embed_google(connection: &Value, model: &str, text: &str) -> AppResult<
 async fn embed_ollama(connection: &Value, model: &str, text: &str) -> AppResult<Vec<f64>> {
     let base = embedding_base_url(connection, "http://127.0.0.1:11434");
     let url = format!("{base}/api/embeddings");
-    ensure_embedding_url_allowed(&url)?;
-    let response = reqwest::Client::new()
+    let response = embedding_http_client(&url)
+        .await?
         .post(url)
         .json(&json!({ "model": model, "prompt": text }))
         .send()
@@ -988,14 +989,47 @@ fn embedding_base_url(connection: &Value, fallback: &str) -> String {
         .to_string()
 }
 
-fn ensure_embedding_url_allowed(url: &str) -> AppResult<()> {
-    if is_allowed_provider_url(url, false) {
-        Ok(())
-    } else {
-        Err(AppError::invalid_input(format!(
-            "Outbound embedding URL is not allowed: {url}"
-        )))
+/// Mirrors the LLM provider client's connect timeout
+/// (PROVIDER_RESPONSE_HEADERS_TIMEOUT_SECS in the llm crate).
+const EMBEDDING_CONNECT_TIMEOUT_SECS: u64 = 5 * 60;
+
+/// Resolve and SSRF-screen an outbound embedding URL, then build a reqwest client pinned to
+/// the validated resolved addresses so a public-looking host cannot rebind to a private, LAN,
+/// metadata, or reserved IP between the allow-list check and the connect. Mirrors the LLM
+/// provider path (validate_provider_url_resolution + resolve_to_addrs pinning); private,
+/// LAN, or reserved targets require the EMBEDDING_PROVIDER_LOCAL_URLS_ENABLED opt-in.
+async fn embedding_http_client(url: &str) -> AppResult<reqwest::Client> {
+    let parsed = reqwest::Url::parse(url).map_err(|error| {
+        AppError::invalid_input(format!(
+            "Outbound embedding URL is invalid: {}",
+            marinara_security::redact_sensitive_text(&error.to_string())
+        ))
+    })?;
+    let allow_private_or_reserved =
+        provider_local_urls_enabled(EMBEDDING_PROVIDER_LOCAL_URLS_ENABLED_FLAG);
+    if !is_allowed_provider_url(parsed.as_str(), allow_private_or_reserved) {
+        return Err(provider_url_not_allowed_error(
+            parsed.as_str(),
+            EMBEDDING_PROVIDER_LOCAL_URLS_ENABLED_FLAG,
+        ));
     }
+    let resolved = validate_provider_url_resolution(
+        &parsed,
+        allow_private_or_reserved,
+        EMBEDDING_PROVIDER_LOCAL_URLS_ENABLED_FLAG,
+    )
+    .await?;
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(
+            EMBEDDING_CONNECT_TIMEOUT_SECS,
+        ))
+        .redirect(reqwest::redirect::Policy::none());
+    if let (Some(host), Some(addresses)) = (parsed.host_str(), resolved.as_deref()) {
+        builder = builder.resolve_to_addrs(host, addresses);
+    }
+    builder
+        .build()
+        .map_err(|error| AppError::new("embedding_client_error", error.to_string()))
 }
 
 #[cfg(test)]

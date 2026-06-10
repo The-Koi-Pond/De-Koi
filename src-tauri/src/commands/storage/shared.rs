@@ -53,19 +53,19 @@ pub(crate) async fn validate_provider_url_for_request(
     Ok(url)
 }
 
-async fn validate_provider_url_resolution(
+pub(crate) async fn validate_provider_url_resolution(
     url: &reqwest::Url,
     allow_private_or_reserved: bool,
     allow_flag: &str,
-) -> AppResult<()> {
+) -> AppResult<Option<Vec<std::net::SocketAddr>>> {
     if allow_private_or_reserved {
-        return Ok(());
+        return Ok(None);
     }
     let Some(host) = url.host_str() else {
         return Err(provider_url_not_allowed_error(url.as_str(), allow_flag));
     };
     if marinara_security::is_loopback_provider_host(host) {
-        return Ok(());
+        return Ok(None);
     }
     if let Ok(address) = host
         .strip_prefix('[')
@@ -77,7 +77,7 @@ async fn validate_provider_url_resolution(
         {
             return Err(provider_url_not_allowed_error(url.as_str(), allow_flag));
         }
-        return Ok(());
+        return Ok(None);
     }
     let port = url.port_or_known_default().unwrap_or(443);
     let addresses = tokio::net::lookup_host((host, port))
@@ -104,10 +104,10 @@ async fn validate_provider_url_resolution(
     }) {
         return Err(provider_url_not_allowed_error(url.as_str(), allow_flag));
     }
-    Ok(())
+    Ok(Some(addresses))
 }
 
-fn provider_url_not_allowed_error(url: &str, allow_flag: &str) -> AppError {
+pub(crate) fn provider_url_not_allowed_error(url: &str, allow_flag: &str) -> AppError {
     AppError::invalid_input(format!(
         "Outbound URL points to a private, LAN, metadata, or reserved target: {}. Set {allow_flag}=true only if you trust that provider target.",
         marinara_security::redact_sensitive_text(url)
