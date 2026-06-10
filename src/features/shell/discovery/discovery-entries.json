@@ -213,11 +213,14 @@
     "id": "image-generation",
     "title": "Image Generation",
     "category": "Media",
-    "summary": "Use image connections for selfies, sprites, backgrounds, NPC portraits, and Game scene illustrations.",
-    "keywords": ["image", "images", "pictures", "sprites", "selfie", "background", "illustration", "portrait", "novelai", "dall-e"],
+    "summary": "Use image connections and style profiles for selfies, sprites, backgrounds, NPC portraits, and Game scene illustrations.",
+    "keywords": ["image", "images", "pictures", "sprites", "selfie", "background", "illustration", "portrait", "style profile", "danbooru", "negative prompt", "novelai", "dall-e"],
     "audience": "Users who want visual scenes and character art generated from chat context.",
-    "where": "Connections, Settings, chat settings, Game controls, and relevant agents.",
-    "actions": [{ "type": "open-panel", "panel": "connections", "label": "Open Connections" }],
+    "where": "Connections, Settings > General, chat settings, Game controls, and relevant agents.",
+    "actions": [
+      { "type": "open-panel", "panel": "connections", "label": "Open Connections" },
+      { "type": "open-settings", "tab": "general", "label": "Open Image Settings" }
+    ],
     "coverage": "advanced"
   },
   {

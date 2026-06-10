@@ -46,6 +46,7 @@ import {
   type PromptAttachment,
 } from "../../../../shared/api/message-attachment-api";
 import { makeManualTrackerRowId } from "../../../../engine/shared/game-state/tracker-row-ids";
+import type { ImageStyleProfileSettings } from "../../../../engine/generation/image-style-profiles";
 import {
   useSyncGameState,
   useCreateGame,
@@ -218,6 +219,8 @@ type GameAssetGenerationPayload = {
   imagePromptSettings?: {
     includeAppearances?: boolean;
     format?: "descriptive" | "tags";
+    styleProfileId?: string | null;
+    styleProfiles?: ImageStyleProfileSettings;
   };
   promptOverrides?: GameImagePromptOverride[];
 };
@@ -4182,6 +4185,8 @@ export function GameSurface({
         imagePromptSettings: {
           includeAppearances: useUIStore.getState().imagePromptIncludeAppearances,
           format: useUIStore.getState().imagePromptFormat,
+          styleProfileId: useUIStore.getState().imageStyleProfiles.defaultProfileId,
+          styleProfiles: useUIStore.getState().imageStyleProfiles,
         },
       };
 
