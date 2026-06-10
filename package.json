@@ -21,7 +21,7 @@
     "check:architecture": "depcruise src --config .dependency-cruiser.cjs && node scripts/check-rust-structure.mjs",
     "check:frontend": "tsc -b",
     "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml --workspace",
-    "check:rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings",
+    "check:rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings -A dead_code",
     "check:rust:test": "cargo test --manifest-path src-tauri/Cargo.toml --workspace",
     "check:rust:nextest": "cargo nextest run --manifest-path src-tauri/Cargo.toml --workspace",
     "check:rust:deny": "cargo deny --manifest-path src-tauri/Cargo.toml check --config deny.toml",

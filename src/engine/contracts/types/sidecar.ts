@@ -88,7 +88,19 @@ export interface LocalSidecarStatusResponse {
   download: LocalSidecarDownloadProgress | null;
 }
 
-export type LocalSidecarConfigPatch = Partial<LocalSidecarConfig>;
+export interface LocalSidecarConfigPatch {
+  enabled?: boolean;
+  executablePath?: string | null;
+  modelPath?: string | null;
+  model?: string;
+  contextSize?: number;
+  maxTokens?: number;
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  gpuLayers?: number;
+  runtimePreference?: LocalSidecarRuntimePreference;
+}
 
 export interface LocalSidecarTestMessageResult {
   success: boolean;

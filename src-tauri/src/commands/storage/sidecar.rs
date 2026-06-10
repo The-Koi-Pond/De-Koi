@@ -1148,14 +1148,14 @@ fn assert_supported_llama_cpp_model_path(model_path: &str) -> AppResult<()> {
     Ok(())
 }
 
-fn huggingface_download_url(repo: &str, model_path: &str) -> String {
+fn huggingface_download_url(repo: &str, branch: &str, model_path: &str) -> String {
     let encoded = model_path
         .split('/')
         .filter(|segment| !segment.is_empty())
         .map(percent_encode_path_segment)
         .collect::<Vec<_>>()
         .join("/");
-    format!("https://huggingface.co/{repo}/resolve/main/{encoded}")
+    format!("https://huggingface.co/{repo}/resolve/{branch}/{encoded}")
 }
 
 fn percent_encode_path_segment(segment: &str) -> String {
@@ -1185,43 +1185,62 @@ fn extract_quantization_label(filename: &str) -> Option<String> {
     None
 }
 
-async fn fetch_huggingface_tree(repo: &str) -> AppResult<Vec<HuggingFaceTreeEntry>> {
+struct HuggingFaceTree {
+    branch: &'static str,
+    entries: Vec<HuggingFaceTreeEntry>,
+}
+
+async fn fetch_huggingface_tree(repo: &str) -> AppResult<HuggingFaceTree> {
     let main_url = format!("https://huggingface.co/api/models/{repo}/tree/main?recursive=1");
     match fetch_json::<Vec<HuggingFaceTreeEntry>>(&main_url).await {
-        Ok(entries) => Ok(entries),
+        Ok(entries) => Ok(HuggingFaceTree {
+            branch: "main",
+            entries,
+        }),
         Err(main_error) => {
             let master_url =
                 format!("https://huggingface.co/api/models/{repo}/tree/master?recursive=1");
             fetch_json::<Vec<HuggingFaceTreeEntry>>(&master_url)
                 .await
+                .map(|entries| HuggingFaceTree {
+                    branch: "master",
+                    entries,
+                })
                 .map_err(|_| main_error)
         }
     }
 }
 
+fn custom_model_entry_from_tree_entry(
+    repo: &str,
+    branch: &str,
+    entry: HuggingFaceTreeEntry,
+) -> Option<CustomModelEntry> {
+    let path = entry.path?;
+    if entry.entry_type.as_deref() != Some("file")
+        || !is_supported_llama_cpp_model_filename(&path)
+    {
+        return None;
+    }
+    let filename = Path::new(&path)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())?;
+    Some(CustomModelEntry {
+        download_url: huggingface_download_url(repo, branch, &path),
+        quantization_label: extract_quantization_label(&filename),
+        size_bytes: entry.size.or_else(|| entry.lfs.and_then(|lfs| lfs.size)),
+        path,
+        filename,
+    })
+}
+
 async fn list_huggingface_models_inner(repo_input: &str) -> AppResult<Vec<CustomModelEntry>> {
     let repo = validate_huggingface_repo(repo_input)?;
-    let entries = fetch_huggingface_tree(&repo).await?;
-    let mut models = entries
+    let tree = fetch_huggingface_tree(&repo).await?;
+    let mut models = tree
+        .entries
         .into_iter()
-        .filter_map(|entry| {
-            let path = entry.path?;
-            if entry.entry_type.as_deref() != Some("file")
-                || !is_supported_llama_cpp_model_filename(&path)
-            {
-                return None;
-            }
-            let filename = Path::new(&path)
-                .file_name()
-                .map(|name| name.to_string_lossy().to_string())?;
-            Some(CustomModelEntry {
-                download_url: huggingface_download_url(&repo, &path),
-                quantization_label: extract_quantization_label(&filename),
-                size_bytes: entry.size.or_else(|| entry.lfs.and_then(|lfs| lfs.size)),
-                path,
-                filename,
-            })
-        })
+        .filter_map(|entry| custom_model_entry_from_tree_entry(&repo, tree.branch, entry))
         .collect::<Vec<_>>();
     models.sort_by(|left, right| left.filename.cmp(&right.filename));
     Ok(models)
@@ -2720,6 +2739,29 @@ mod tests {
         assert_ne!(left, right);
         assert!(left.ends_with("alpha/model.gguf"));
         assert!(right.ends_with("beta/model.gguf"));
+    }
+
+    #[test]
+    fn custom_model_download_url_preserves_discovery_branch() {
+        let entry = HuggingFaceTreeEntry {
+            entry_type: Some("file".to_string()),
+            path: Some("nested/My Model.Q4_K_M.gguf".to_string()),
+            size: Some(123),
+            lfs: None,
+        };
+        let main = custom_model_entry_from_tree_entry("owner/repo", "main", entry.clone())
+            .expect("main branch GGUF should produce a custom model entry");
+        let master = custom_model_entry_from_tree_entry("owner/repo", "master", entry)
+            .expect("master branch GGUF should produce a custom model entry");
+
+        assert_eq!(
+            main.download_url,
+            "https://huggingface.co/owner/repo/resolve/main/nested/My%20Model.Q4_K_M.gguf"
+        );
+        assert_eq!(
+            master.download_url,
+            "https://huggingface.co/owner/repo/resolve/master/nested/My%20Model.Q4_K_M.gguf"
+        );
     }
 
     #[test]
