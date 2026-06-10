@@ -2077,6 +2077,11 @@ impl SecurityConfig {
     /// (loopback, Docker/Tailscale bypass interface, IP allowlist, or the
     /// unauthenticated-private-network opt-in). A forwarded client must never
     /// inherit one of these by resolving to such an address.
+    /// True when `ip` would receive an auth bypass purely from its address
+    /// (loopback, Docker/Tailscale interface, IP allowlist, or the
+    /// unauthenticated-private-network opt-in). Used to demote an untrusted peer
+    /// that presents forwarded headers, so its forwarded clients cannot inherit
+    /// that bypass.
     fn ip_has_bypass_privilege(&self, ip: IpAddr) -> bool {
         is_loopback(ip)
             || self.is_trusted_interface_ip(ip)
@@ -2085,26 +2090,37 @@ impl SecurityConfig {
                 && cidr_list_contains(&self.trusted_private_networks, ip))
     }
 
+    /// True when `ip` is proxy machinery rather than a client: a loopback or
+    /// unspecified address, or one in the Docker/Tailscale interface-bypass
+    /// space. A trusted proxy must never resolve a forwarded client to such an
+    /// address (it would resurrect an address bypass), but a legitimately
+    /// allowlisted or private-network forwarded client is NOT machinery and must
+    /// be preserved for the downstream allowlist/private-network gates to admit.
+    fn ip_is_proxy_machinery(&self, ip: IpAddr) -> bool {
+        is_loopback(ip) || ip.is_unspecified() || self.is_trusted_interface_ip(ip)
+    }
+
     fn resolve_client_ip(&self, peer: IpAddr, headers: &HeaderMap) -> IpAddr {
         if let Some(trusted) = self
             .trusted_proxies
             .as_deref()
             .filter(|trusted| cidr_list_contains(trusted, peer))
         {
-            // A proxy-resolved identity that is itself a trusted proxy or would
-            // get a bypass from its address is machinery, not a client; it must
-            // never inherit those ranges' auth privileges.
+            // Reject only machinery identities (another trusted proxy or a
+            // bypass-address); a real forwarded client, including an allowlisted
+            // or private-network one, is preserved for the auth gates to judge.
             return forwarded_client_ip(headers, trusted)
                 .filter(|ip| {
-                    !cidr_list_contains(trusted, *ip) && !self.ip_has_bypass_privilege(*ip)
+                    !cidr_list_contains(trusted, *ip) && !self.ip_is_proxy_machinery(*ip)
                 })
                 .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         }
         if self.ip_has_bypass_privilege(peer) && forwarded_headers_present(headers) {
-            // Proxy-style headers from a peer that would otherwise bypass auth by
-            // its address (loopback, Docker/Tailscale interface, allowlist, or
-            // private-network opt-in) mean the real client is unknown; never
-            // extend that bypass to it without a configured trusted proxy.
+            // Proxy-style headers from an untrusted peer that would otherwise
+            // bypass auth by its address (loopback, Docker/Tailscale interface,
+            // allowlist, or private-network opt-in) mean the real client is
+            // unknown; never extend that bypass to it without a configured
+            // trusted proxy.
             return IpAddr::V4(Ipv4Addr::UNSPECIFIED);
         }
         peer
@@ -3779,6 +3795,48 @@ mod tests {
         // bridge-gateway peer keeps its interface bypass.
         let peer = IpAddr::V4(Ipv4Addr::new(172, 17, 0, 1));
         assert_eq!(security.resolve_client_ip(peer, &HeaderMap::new()), peer);
+    }
+
+    #[test]
+    fn hostable_security_preserves_allowlisted_client_through_trusted_proxy() {
+        let security = SecurityConfig {
+            trusted_proxies: Some(vec![parse_cidr("203.0.113.1/32").expect("valid cidr")]),
+            ip_allowlist: Some(vec![parse_cidr("198.51.100.20/32").expect("valid cidr")]),
+            ..test_security()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-forwarded-for"),
+            HeaderValue::from_static("198.51.100.20"),
+        );
+        // A trusted proxy forwarding an allowlisted client must resolve to that
+        // client so the allowlist gate admits it; it is not machinery.
+        let resolved =
+            security.resolve_client_ip(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 1)), &headers);
+        assert_eq!(resolved, IpAddr::V4(Ipv4Addr::new(198, 51, 100, 20)));
+        assert!(security.enforce_ip_allowlist(resolved).is_ok());
+    }
+
+    #[test]
+    fn hostable_security_preserves_private_network_client_through_trusted_proxy() {
+        let security = SecurityConfig {
+            trusted_proxies: Some(vec![parse_cidr("203.0.113.1/32").expect("valid cidr")]),
+            allow_unauthenticated_private_network: true,
+            ..test_security()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-forwarded-for"),
+            HeaderValue::from_static("192.168.1.77"),
+        );
+        // A trusted proxy forwarding an eligible private-network client must
+        // preserve that client IP so the explicit opt-in admits it.
+        let resolved =
+            security.resolve_client_ip(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 1)), &headers);
+        assert_eq!(resolved, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 77)));
+        assert!(security
+            .enforce_basic_auth(resolved, &HeaderMap::new())
+            .is_ok());
     }
 
     #[test]
