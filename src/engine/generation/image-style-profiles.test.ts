@@ -60,4 +60,26 @@ describe("image style profiles", () => {
     expect(compiled.negativePrompt).toContain("text");
     expect(compiled.diagnostics.movedNegativeFragments).toEqual(expect.arrayContaining(["avoid watermark", "no text"]));
   });
+
+  it("preserves required portrait details when compact profile tags exceed the soft budget", () => {
+    const settings = createDefaultImageStyleProfileSettings();
+    const compiled = compileImagePrompt({
+      kind: "portrait",
+      prompt:
+        "Portrait of Mira. Appearance: statuesque, silver hair, amber eyes, sharp cheekbones, black blazer, burgundy blouse, slim trousers, heeled boots, reading glasses, statement ring, dark red nails.",
+      generatedStyle:
+        "Visual direction: adult woman with moonlit rim lighting, readable silhouette, clear face, confident expression, and polished anime character art.",
+      userPositive:
+        "scar across left cheek, freckles, bronze armor, crystal sword, wide hat, velvet gloves, embroidered collar",
+      styleProfileId: "danbooru",
+      styleProfiles: settings,
+    });
+
+    expect(compiled.prompt).toContain("dark red nails");
+    expect(compiled.prompt).toContain("statement ring");
+    expect(compiled.prompt).toContain("crystal sword");
+    expect(compiled.prompt).toContain("1girl");
+    expect(compiled.prompt).toContain("upper body");
+    expect(compiled.prompt).not.toContain("masterpiece");
+  });
 });

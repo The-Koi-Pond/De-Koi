@@ -24,7 +24,7 @@ import {
 import type { UIState } from "./model";
 
 export const UI_STORE_NAME = "marinara-engine-ui-tauri";
-export const UI_STORE_VERSION = 6;
+export const UI_STORE_VERSION = 7;
 
 const LEGACY_SIDEBAR_WIDTH_DEFAULT = 280;
 
@@ -249,11 +249,16 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
 
 function normalizeLegacyImageStyleProfiles(raw: unknown, format: unknown): ImageStyleProfileSettings {
   const normalized = normalizeImageStyleProfileSettings(raw);
-  if (isRecord(raw)) return normalized;
+  if (hasPersistedImageStyleProfiles(raw)) return normalized;
   return {
     ...normalized,
     defaultProfileId: format === "tags" ? "danbooru" : normalized.defaultProfileId,
   };
+}
+
+function hasPersistedImageStyleProfiles(raw: unknown): boolean {
+  if (!isRecord(raw) || typeof raw.defaultProfileId !== "string" || !Array.isArray(raw.profiles)) return false;
+  return raw.profiles.some((profile) => isRecord(profile) && typeof profile.id === "string" && !!profile.id.trim());
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

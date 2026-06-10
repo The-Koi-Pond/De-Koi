@@ -61,6 +61,17 @@ export interface CompileImagePromptInput {
   hardNegative?: string | null;
 }
 
+interface PositivePromptPart {
+  value: string | null | undefined;
+  sourcePrompt: boolean;
+  required: boolean;
+}
+
+interface PositivePromptFragment {
+  value: string;
+  required: boolean;
+}
+
 const DEFAULT_IMAGE_STYLE_PROFILE_ID = "auto";
 
 const DEFAULT_RULES: ImageStyleProfileRules = {
@@ -354,24 +365,24 @@ export function compileImagePrompt(input: CompileImagePromptInput): CompiledImag
           ? ""
           : profile.styleText;
 
-  const positiveParts = compactPrompt
+  const positiveParts: PositivePromptPart[] = compactPrompt
     ? [
-        { value: generatedStyle, sourcePrompt: true },
-        { value: input.prompt, sourcePrompt: true },
-        { value: input.userPositive, sourcePrompt: true },
-        { value: profileSubjectTags, sourcePrompt: false },
-        { value: profile.positiveTags, sourcePrompt: false },
+        { value: generatedStyle, sourcePrompt: true, required: true },
+        { value: input.prompt, sourcePrompt: true, required: true },
+        { value: input.userPositive, sourcePrompt: true, required: true },
+        { value: profileSubjectTags, sourcePrompt: false, required: true },
+        { value: profile.positiveTags, sourcePrompt: false, required: false },
       ]
     : [
-        { value: profile.positiveTags, sourcePrompt: false },
-        { value: profileSubjectTags, sourcePrompt: false },
-        { value: profileStyleText, sourcePrompt: false },
-        { value: generatedStyle, sourcePrompt: false },
-        { value: input.prompt, sourcePrompt: true },
-        { value: input.userPositive, sourcePrompt: true },
+        { value: profile.positiveTags, sourcePrompt: false, required: false },
+        { value: profileSubjectTags, sourcePrompt: false, required: false },
+        { value: profileStyleText, sourcePrompt: false, required: false },
+        { value: generatedStyle, sourcePrompt: false, required: false },
+        { value: input.prompt, sourcePrompt: true, required: true },
+        { value: input.userPositive, sourcePrompt: true, required: true },
       ];
   const negativeParts = [profile.negativeTags, input.negativePrompt, input.userNegative, input.hardNegative];
-  const positiveFragments: string[] = [];
+  const positiveFragments: PositivePromptFragment[] = [];
   const negativeFragments: string[] = [];
 
   for (const part of positiveParts) {
@@ -381,7 +392,7 @@ export function compileImagePrompt(input: CompileImagePromptInput): CompiledImag
         negativeFragments.push(negative);
         movedNegativeFragments.push(fragment);
       } else {
-        positiveFragments.push(cleanPromptFragment(fragment, promptMode));
+        positiveFragments.push({ value: cleanPromptFragment(fragment, promptMode), required: part.required });
       }
     }
   }
@@ -393,7 +404,7 @@ export function compileImagePrompt(input: CompileImagePromptInput): CompiledImag
   }
 
   const positive = compactPromptFragments(
-    dedupeFragments(positiveFragments, profile.rules.dedupeStrength, positiveDiagnostics),
+    dedupePositiveFragments(positiveFragments, profile.rules.dedupeStrength, positiveDiagnostics),
     compactPrompt,
   );
   const negative = dedupeFragments(negativeFragments, profile.rules.dedupeStrength, negativeDiagnostics);
@@ -616,13 +627,20 @@ function hasVisualCue(value: string): boolean {
   );
 }
 
-function compactPromptFragments(fragments: string[], compactPrompt: boolean, maxChars = 260): string[] {
-  if (!compactPrompt) return fragments;
+function compactPromptFragments(fragments: PositivePromptFragment[], compactPrompt: boolean, maxChars = 260): string[] {
+  if (!compactPrompt) return fragments.map((fragment) => fragment.value);
 
   const result: string[] = [];
   let length = 0;
+
+  for (const fragment of fragments.filter((item) => item.required)) {
+    result.push(fragment.value);
+    length += (length ? 2 : 0) + fragment.value.length;
+  }
+
   for (const fragment of fragments
-    .map((value, index) => ({ value, index, priority: compactTagPriority(value) }))
+    .map((fragment, index) => ({ ...fragment, index, priority: compactTagPriority(fragment.value) }))
+    .filter((fragment) => !fragment.required)
     .sort((a, b) => a.priority - b.priority || a.index - b.index)) {
     if (isLowPriorityCompactTag(fragment.value) && length > 90) continue;
     const nextLength = length + (result.length ? 2 : 0) + fragment.value.length;
@@ -707,6 +725,30 @@ function dedupeFragments(fragments: string[], strength: ImagePromptDedupeStrengt
     }
     seen.add(key);
     result.push(fragment);
+  }
+
+  return result;
+}
+
+function dedupePositiveFragments(
+  fragments: PositivePromptFragment[],
+  strength: ImagePromptDedupeStrength,
+  diagnostics: string[],
+): PositivePromptFragment[] {
+  const seen = new Set<string>();
+  const result: PositivePromptFragment[] = [];
+
+  for (const raw of fragments) {
+    const fragment = raw.value.trim();
+    if (!fragment) continue;
+    const key = fragmentKey(fragment, strength);
+    if (!key) continue;
+    if (seen.has(key)) {
+      diagnostics.push(fragment);
+      continue;
+    }
+    seen.add(key);
+    result.push({ value: fragment, required: raw.required });
   }
 
   return result;
