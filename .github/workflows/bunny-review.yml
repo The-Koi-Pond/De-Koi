@@ -1,4 +1,4 @@
-# .github/workflows/bunny-review.yml
+﻿# .github/workflows/bunny-review.yml
 name: Bunny Review
 
 on:
@@ -47,7 +47,7 @@ concurrency:
 
 jobs:
   review:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 30
     env:
       PR_NUM: ${{ github.event.pull_request.number || inputs.pr_number }}
