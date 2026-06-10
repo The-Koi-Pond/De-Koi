@@ -707,20 +707,34 @@ fn validate_profile_zip_asset_declared_size_with_limit(
 
 fn copy_limited_profile_zip_asset_with_limit<R: Read, W: Write>(
     entry_name: &str,
-    reader: R,
+    mut reader: R,
     mut writer: W,
     limit: u64,
 ) -> AppResult<u64> {
-    let mut limited = reader.take(limit.saturating_add(1));
-    let copied = std::io::copy(&mut limited, &mut writer).map_err(|error| {
-        AppError::invalid_input(format!(
-            "Could not read profile asset {entry_name}: {error}"
-        ))
-    })?;
-    if copied > limit {
-        return Err(profile_asset_too_large_error(entry_name, copied, limit));
+    // Charge each chunk against the budget BEFORE forwarding it, so not even a
+    // single over-budget byte reaches the destination (no take(limit+1) sentinel).
+    let mut buffer = [0_u8; 8192];
+    let mut written: u64 = 0;
+    loop {
+        let read = reader.read(&mut buffer).map_err(|error| {
+            AppError::invalid_input(format!("Could not read profile asset {entry_name}: {error}"))
+        })?;
+        if read == 0 {
+            break;
+        }
+        if written.saturating_add(read as u64) > limit {
+            return Err(profile_asset_too_large_error(
+                entry_name,
+                written.saturating_add(read as u64),
+                limit,
+            ));
+        }
+        writer.write_all(&buffer[..read]).map_err(|error| {
+            AppError::invalid_input(format!("Could not write profile asset {entry_name}: {error}"))
+        })?;
+        written += read as u64;
     }
-    Ok(copied)
+    Ok(written)
 }
 
 fn profile_asset_too_large_error(entry_name: &str, size: u64, limit: u64) -> AppError {
@@ -1529,9 +1543,61 @@ mod tests {
         .expect_err("second entry overflows the aggregate budget");
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("too large"));
-        // Only the remaining budget (10) plus the take(limit+1) sentinel byte
-        // may be written before the overflow aborts; never a full per-entry quota.
-        assert!(second.len() <= 11, "wrote {} bytes past the budget", second.len());
+        // Not one byte past the remaining budget (10) may reach the writer.
+        assert!(second.len() <= 10, "wrote {} bytes past the budget", second.len());
+    }
+
+    #[test]
+    fn profile_zip_entry_with_zero_remaining_budget_writes_nothing() {
+        // The first entry consumes the entire aggregate budget; the second has
+        // zero remaining and must reach the writer with no bytes at all.
+        let mut total = 0_u64;
+        let mut first = Vec::new();
+        stream_profile_zip_entry_within_budget(
+            "avatars/a.png",
+            std::io::repeat(1).take(50),
+            &mut first,
+            50,
+            1_000,
+            50,
+            &mut total,
+        )
+        .expect("first entry exactly fills the aggregate budget");
+        assert_eq!(total, 50);
+
+        let mut second = Vec::new();
+        let error = stream_profile_zip_entry_within_budget(
+            "avatars/b.png",
+            std::io::repeat(1).take(8),
+            &mut second,
+            1,
+            1_000,
+            50,
+            &mut total,
+        )
+        .expect_err("no aggregate budget remains");
+        assert_eq!(error.code, "invalid_input");
+        assert!(second.is_empty(), "wrote {} bytes with zero budget", second.len());
+    }
+
+    #[test]
+    fn profile_zip_entry_crossing_per_entry_cap_writes_no_overflow_byte() {
+        // The per-entry cap (not the aggregate budget) is the binding limit; the
+        // writer must still never receive a byte past that cap.
+        let mut total = 0_u64;
+        let mut out = Vec::new();
+        let error = stream_profile_zip_entry_within_budget(
+            "avatars/huge.png",
+            std::io::repeat(1).take(64),
+            &mut out,
+            1,
+            16,
+            1_000,
+            &mut total,
+        )
+        .expect_err("entry exceeds the per-entry cap");
+        assert_eq!(error.code, "invalid_input");
+        assert!(out.len() <= 16, "wrote {} bytes past the per-entry cap", out.len());
     }
 
     #[test]
