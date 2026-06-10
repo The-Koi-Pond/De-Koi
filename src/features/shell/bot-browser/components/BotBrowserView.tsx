@@ -1474,9 +1474,9 @@ export function BotBrowserView() {
           if (!cached) invalidateCharacterCollectionQueries(qc);
           if (data.lorebook) qc.invalidateQueries({ queryKey: lorebookKeys.all });
           if (data.character) {
-            const charRecord = data.character as { id?: string; data?: Record<string, unknown> };
-            if (charRecord.id && charRecord.data) {
-              void importRegexScriptsForCharacter({ characterId: charRecord.id, character: charRecord }).catch(
+            const characterId = data.characterId || data.character.id;
+            if (characterId && data.character.data) {
+              void importRegexScriptsForCharacter({ characterId, character: data.character }).catch(
                 (error) => console.warn("[bot-browser] Failed to import embedded regex scripts.", error),
               );
             }
@@ -1534,9 +1534,9 @@ export function BotBrowserView() {
           if (!cached) invalidateCharacterCollectionQueries(qc);
           if (data.lorebook) qc.invalidateQueries({ queryKey: lorebookKeys.all });
           if (data.character) {
-            const charRecord = data.character as { id?: string; data?: Record<string, unknown> };
-            if (charRecord.id && charRecord.data) {
-              void importRegexScriptsForCharacter({ characterId: charRecord.id, character: charRecord }).catch(
+            const characterId = data.characterId || data.character.id;
+            if (characterId && data.character.data) {
+              void importRegexScriptsForCharacter({ characterId, character: data.character }).catch(
                 (error) => console.warn("[bot-browser] Failed to import embedded regex scripts.", error),
               );
             }

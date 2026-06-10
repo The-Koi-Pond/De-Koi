@@ -7,10 +7,29 @@ const JANNY_SEARCH_URL = "https://search.jannyai.com/multi-search";
 
 export interface ImportCharacterResult {
   success?: boolean;
+  characterId?: string | null;
   name?: string;
-  character?: unknown;
-  lorebook?: unknown;
+  filename?: string | null;
+  character?: ImportedCharacterRecord;
+  lorebook?: ImportedLorebookRecord | null;
+  embeddedLorebook?: ImportedEmbeddedLorebookSummary;
   error?: string;
+}
+
+type ImportedCharacterRecord = Record<string, unknown> & {
+  id?: string;
+  data?: Record<string, unknown>;
+};
+
+type ImportedLorebookRecord = Record<string, unknown> & {
+  lorebookId?: string;
+};
+
+interface ImportedEmbeddedLorebookSummary {
+  hasEmbeddedLorebook: boolean;
+  entries: number;
+  imported: boolean;
+  skipped: boolean;
 }
 
 type BinaryPayload =
