@@ -57,6 +57,14 @@ import {
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import { AUDIO_MIME_MAP, IMAGE_MIME_MAP } from "../../../../engine/contracts/constants/game-assets";
+import {
+  findImageStyleProfile,
+  normalizeImageStyleProfileSettings,
+  type ImagePromptDedupeStrength,
+  type ImagePromptKind,
+  type ImagePromptMode,
+  type ImageStyleProfile,
+} from "../../../../engine/generation/image-style-profiles";
 import type { Theme } from "../../../../engine/contracts/types/theme";
 import {
   findDuplicateTheme,
@@ -228,6 +236,28 @@ const QUOTE_FORMAT_OPTIONS: Array<{ id: QuoteFormat; label: string; sample: stri
   id,
   ...QUOTE_FORMAT_OPTION_COPY[id],
 }));
+
+const IMAGE_PROMPT_KIND_OPTIONS: Array<{ id: ImagePromptKind; label: string }> = [
+  { id: "portrait", label: "Portrait" },
+  { id: "selfie", label: "Selfie" },
+  { id: "background", label: "Background" },
+  { id: "illustration", label: "Illustration" },
+  { id: "sprite", label: "Sprite" },
+  { id: "avatar", label: "Avatar" },
+];
+
+const IMAGE_PROMPT_MODE_OPTIONS: Array<{ id: ImagePromptMode; label: string }> = [
+  { id: "natural", label: "Natural" },
+  { id: "tagged", label: "Tagged" },
+  { id: "danbooru", label: "Danbooru" },
+  { id: "hybrid", label: "Hybrid" },
+];
+
+const IMAGE_PROMPT_DEDUPE_OPTIONS: Array<{ id: ImagePromptDedupeStrength; label: string }> = [
+  { id: "light", label: "Light" },
+  { id: "normal", label: "Normal" },
+  { id: "strict", label: "Strict" },
+];
 
 const TRACKER_PANEL_SIZE_PROFILE_COPY: Record<TrackerPanelSizeProfile, { label: string; desc: string }> = {
   compact: { label: "Compact", desc: `${getTrackerPanelWidthForProfile("compact")} px` },
@@ -773,6 +803,9 @@ function GeneralSettings() {
   const setImagePromptIncludeAppearances = useUIStore((s) => s.setImagePromptIncludeAppearances);
   const imagePromptFormat = useUIStore((s) => s.imagePromptFormat);
   const setImagePromptFormat = useUIStore((s) => s.setImagePromptFormat);
+  const imageStyleProfiles = useUIStore((s) => s.imageStyleProfiles);
+  const setImageStyleProfiles = useUIStore((s) => s.setImageStyleProfiles);
+  const setImageStyleProfileId = useUIStore((s) => s.setImageStyleProfileId);
   const imageBackgroundWidth = useUIStore((s) => s.imageBackgroundWidth);
   const imageBackgroundHeight = useUIStore((s) => s.imageBackgroundHeight);
   const setImageBackgroundDimensions = useUIStore((s) => s.setImageBackgroundDimensions);
@@ -821,6 +854,51 @@ function GeneralSettings() {
   const [assetFiles, setAssetFiles] = useState<File[]>([]);
   const [assetUploading, setAssetUploading] = useState(false);
   const assetCategoryMeta = GAME_ASSET_CATEGORY_BY_ID.get(assetCategory) ?? GAME_ASSET_CATEGORIES[0];
+  const selectedImageStyleProfile = findImageStyleProfile(imageStyleProfiles, imageStyleProfiles.defaultProfileId);
+  const imageStyleProfileIsCustom = selectedImageStyleProfile.builtIn !== true;
+
+  const updateImageStyleProfile = (patch: Partial<ImageStyleProfile>) => {
+    if (!imageStyleProfileIsCustom) return;
+    setImageStyleProfiles(
+      normalizeImageStyleProfileSettings({
+        ...imageStyleProfiles,
+        profiles: imageStyleProfiles.profiles.map((profile) =>
+          profile.id === selectedImageStyleProfile.id
+            ? {
+                ...profile,
+                ...patch,
+                subjectTags: patch.subjectTags ? { ...profile.subjectTags, ...patch.subjectTags } : profile.subjectTags,
+                rules: patch.rules ? { ...profile.rules, ...patch.rules } : profile.rules,
+              }
+            : profile,
+        ),
+      }),
+    );
+  };
+
+  const duplicateImageStyleProfile = () => {
+    const id = `custom-${Date.now().toString(36)}`;
+    setImageStyleProfiles(
+      normalizeImageStyleProfileSettings({
+        ...imageStyleProfiles,
+        defaultProfileId: id,
+        profiles: [
+          ...imageStyleProfiles.profiles,
+          {
+            ...selectedImageStyleProfile,
+            id,
+            name: `${selectedImageStyleProfile.name} Custom`,
+            baseStyle: "custom",
+            builtIn: false,
+          },
+        ],
+      }),
+    );
+  };
+
+  const resetImageStyleProfiles = () => {
+    setImageStyleProfiles(normalizeImageStyleProfileSettings(null));
+  };
 
   const handleAssetCategoryChange = (nextCategory: GameAssetCategoryId) => {
     setAssetCategory(nextCategory);
@@ -1192,6 +1270,145 @@ function GeneralSettings() {
               <option value="tags">Tags</option>
             </select>
           </label>
+          <div className="flex flex-col gap-2 rounded-xl bg-[var(--background)]/50 p-3 ring-1 ring-[var(--border)]">
+            <div className="flex items-center justify-between gap-2">
+              <label className="min-w-0 flex-1">
+                <span className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">Image style profile</span>
+                <select
+                  value={imageStyleProfiles.defaultProfileId}
+                  onChange={(event) => setImageStyleProfileId(event.target.value)}
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                >
+                  {imageStyleProfiles.profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="mt-5 flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  onClick={duplicateImageStyleProfile}
+                  title="Duplicate selected profile"
+                  aria-label="Duplicate selected profile"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--secondary)] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-colors hover:text-[var(--foreground)]"
+                >
+                  <Plus size="0.875rem" />
+                </button>
+                <button
+                  type="button"
+                  onClick={resetImageStyleProfiles}
+                  title="Reset image style profiles"
+                  aria-label="Reset image style profiles"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--secondary)] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-colors hover:text-[var(--foreground)]"
+                >
+                  <RotateCcw size="0.875rem" />
+                </button>
+              </div>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Mode</span>
+                <select
+                  value={selectedImageStyleProfile.promptMode}
+                  disabled={!imageStyleProfileIsCustom}
+                  onChange={(event) => updateImageStyleProfile({ promptMode: event.target.value as ImagePromptMode })}
+                  className="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)] disabled:opacity-60"
+                >
+                  {IMAGE_PROMPT_MODE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Dedupe</span>
+                <select
+                  value={selectedImageStyleProfile.rules.dedupeStrength}
+                  disabled={!imageStyleProfileIsCustom}
+                  onChange={(event) =>
+                    updateImageStyleProfile({
+                      rules: {
+                        ...selectedImageStyleProfile.rules,
+                        dedupeStrength: event.target.value as ImagePromptDedupeStrength,
+                      },
+                    })
+                  }
+                  className="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)] disabled:opacity-60"
+                >
+                  {IMAGE_PROMPT_DEDUPE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Profile name</span>
+              <input
+                value={selectedImageStyleProfile.name}
+                disabled={!imageStyleProfileIsCustom}
+                onChange={(event) => updateImageStyleProfile({ name: event.target.value })}
+                className="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)] disabled:opacity-60"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Style text</span>
+              <textarea
+                value={selectedImageStyleProfile.styleText}
+                disabled={!imageStyleProfileIsCustom}
+                onChange={(event) => updateImageStyleProfile({ styleText: event.target.value })}
+                rows={2}
+                className="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)] disabled:opacity-60"
+              />
+            </label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Positive tags</span>
+                <textarea
+                  value={selectedImageStyleProfile.positiveTags}
+                  disabled={!imageStyleProfileIsCustom}
+                  onChange={(event) => updateImageStyleProfile({ positiveTags: event.target.value })}
+                  rows={2}
+                  className="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)] disabled:opacity-60"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Negative tags</span>
+                <textarea
+                  value={selectedImageStyleProfile.negativeTags}
+                  disabled={!imageStyleProfileIsCustom}
+                  onChange={(event) => updateImageStyleProfile({ negativeTags: event.target.value })}
+                  rows={2}
+                  className="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)] disabled:opacity-60"
+                />
+              </label>
+            </div>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {IMAGE_PROMPT_KIND_OPTIONS.map((option) => (
+                <label key={option.id} className="flex flex-col gap-1">
+                  <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">
+                    {option.label} tags
+                  </span>
+                  <input
+                    value={selectedImageStyleProfile.subjectTags[option.id] ?? ""}
+                    disabled={!imageStyleProfileIsCustom}
+                    onChange={(event) =>
+                      updateImageStyleProfile({
+                        subjectTags: { [option.id]: event.target.value },
+                      })
+                    }
+                    className="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)] disabled:opacity-60"
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
 
           <ImageDimensionRow
             label="Backgrounds"

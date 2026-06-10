@@ -1,4 +1,8 @@
 import { createJSONStorage } from "zustand/middleware";
+import {
+  normalizeImageStyleProfileSettings,
+  type ImageStyleProfileSettings,
+} from "../../../engine/generation/image-style-profiles";
 import { normalizeQuoteFormat } from "../../lib/dialogue-quotes";
 import { normalizeCustomNotificationSound, normalizeNotificationSoundId } from "../../lib/notification-sound";
 import { normalizeCustomTextBlipSound } from "../../lib/text-blip-sound";
@@ -26,6 +30,7 @@ const LEGACY_SIDEBAR_WIDTH_DEFAULT = 280;
 
 type PersistedUiState = Partial<UIState> & {
   trackerPanelWidth?: unknown;
+  imageStyleProfiles?: unknown;
 };
 
 function normalizePersistedWidth(value: unknown, fallback: number, min: number, max: number): number {
@@ -115,6 +120,7 @@ export function partializeUiState(state: UIState) {
     reviewImagePromptsBeforeSend: state.reviewImagePromptsBeforeSend,
     imagePromptIncludeAppearances: state.imagePromptIncludeAppearances,
     imagePromptFormat: state.imagePromptFormat,
+    imageStyleProfiles: state.imageStyleProfiles,
     imageBackgroundWidth: state.imageBackgroundWidth,
     imageBackgroundHeight: state.imageBackgroundHeight,
     imagePortraitWidth: state.imagePortraitWidth,
@@ -224,6 +230,10 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
   persisted.editMessagesOnDoubleClick = persisted.editMessagesOnDoubleClick !== false;
   persisted.imagePromptIncludeAppearances = persisted.imagePromptIncludeAppearances !== false;
   persisted.imagePromptFormat = persisted.imagePromptFormat === "tags" ? "tags" : "descriptive";
+  persisted.imageStyleProfiles = normalizeLegacyImageStyleProfiles(
+    persisted.imageStyleProfiles,
+    persisted.imagePromptFormat,
+  );
   persisted.echoChamberDismissedChatIds = normalizeBooleanRecord(persisted.echoChamberDismissedChatIds);
   persisted.userStatusManual = persisted.userStatusManual === "dnd" ? "dnd" : "active";
   persisted.userStatus = persisted.userStatusManual === "dnd" ? "dnd" : "active";
@@ -235,4 +245,17 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
   delete persisted.trackerPanelWidth;
 
   return persisted;
+}
+
+function normalizeLegacyImageStyleProfiles(raw: unknown, format: unknown): ImageStyleProfileSettings {
+  const normalized = normalizeImageStyleProfileSettings(raw);
+  if (isRecord(raw)) return normalized;
+  return {
+    ...normalized,
+    defaultProfileId: format === "tags" ? "danbooru" : normalized.defaultProfileId,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }

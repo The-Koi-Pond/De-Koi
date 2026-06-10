@@ -7,6 +7,10 @@ import { normalizeQuoteFormat } from "../lib/dialogue-quotes";
 import { normalizeCustomNotificationSound, normalizeNotificationSoundId } from "../lib/notification-sound";
 import { normalizeCustomTextBlipSound } from "../lib/text-blip-sound";
 import {
+  createDefaultImageStyleProfileSettings,
+  normalizeImageStyleProfileSettings,
+} from "../../engine/generation/image-style-profiles";
+import {
   DEFAULT_GAME_SETUP_LEARNED_OPTIONS,
   DEFAULT_GAME_SETUP_REMEMBERED_TEXT,
   DEFAULT_SUMMARY_POPOVER_SETTINGS,
@@ -148,6 +152,7 @@ export const useUIStore = create<UIState>()(
       reviewImagePromptsBeforeSend: false,
       imagePromptIncludeAppearances: true,
       imagePromptFormat: "descriptive" as ImagePromptFormat,
+      imageStyleProfiles: createDefaultImageStyleProfileSettings(),
       imageBackgroundWidth: 1280,
       imageBackgroundHeight: 720,
       imagePortraitWidth: 1024,
@@ -399,6 +404,14 @@ export const useUIStore = create<UIState>()(
       setReviewImagePromptsBeforeSend: (v) => set({ reviewImagePromptsBeforeSend: v }),
       setImagePromptIncludeAppearances: (v) => set({ imagePromptIncludeAppearances: v }),
       setImagePromptFormat: (format) => set({ imagePromptFormat: format }),
+      setImageStyleProfiles: (settings) => set({ imageStyleProfiles: normalizeImageStyleProfileSettings(settings) }),
+      setImageStyleProfileId: (profileId) =>
+        set((state) => ({
+          imageStyleProfiles: normalizeImageStyleProfileSettings({
+            ...state.imageStyleProfiles,
+            defaultProfileId: profileId,
+          }),
+        })),
       setImageBackgroundDimensions: (width, height) =>
         set({
           imageBackgroundWidth: clampImageDimension(width),

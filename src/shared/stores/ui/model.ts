@@ -3,6 +3,7 @@ import { normalizeTemperatureUnit, type TemperatureUnit } from "../../lib/temper
 import type { QuoteFormat } from "../../lib/dialogue-quotes";
 import type { CustomNotificationSound, NotificationSoundId } from "../../lib/notification-sound";
 import type { CustomTextBlipSound, TextBlipMode } from "../../lib/text-blip-sound";
+import type { ImageStyleProfileSettings } from "../../../engine/generation/image-style-profiles";
 
 export type { QuoteFormat, TextBlipMode };
 
@@ -355,6 +356,8 @@ export interface UIState {
   imagePromptIncludeAppearances: boolean;
   /** Preferred prompt wording for image prompt generation. */
   imagePromptFormat: ImagePromptFormat;
+  /** Reusable image prompt style profiles and global default selection. */
+  imageStyleProfiles: ImageStyleProfileSettings;
   imageBackgroundWidth: number;
   imageBackgroundHeight: number;
   imagePortraitWidth: number;
@@ -592,6 +595,8 @@ export interface UIState {
   setReviewImagePromptsBeforeSend: (v: boolean) => void;
   setImagePromptIncludeAppearances: (v: boolean) => void;
   setImagePromptFormat: (format: ImagePromptFormat) => void;
+  setImageStyleProfiles: (settings: ImageStyleProfileSettings) => void;
+  setImageStyleProfileId: (profileId: string) => void;
   setImageBackgroundDimensions: (width: number, height: number) => void;
   setImagePortraitDimensions: (width: number, height: number) => void;
   setImageSelfieDimensions: (width: number, height: number) => void;

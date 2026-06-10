@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { AgentContext } from "../contracts/types/agent";
+import type { ImageStyleProfileSettings } from "./image-style-profiles";
 import { GENERATION_GUIDE_SOURCES, type GenerationGuideSource } from "../shared/text/generation-guide";
 import type { PromptAttachment } from "./generate-route-utils";
 import type { JsonRecord } from "./runtime-records";
@@ -43,6 +44,8 @@ export interface StartGenerationInput extends JsonRecord {
   imagePromptSettings?: {
     includeAppearances?: boolean;
     format?: "descriptive" | "tags";
+    styleProfileId?: string | null;
+    styleProfiles?: ImageStyleProfileSettings;
   };
   debugMode?: boolean;
   debugSink?: AgentContext["debugSink"];
@@ -100,6 +103,8 @@ const optionalImagePromptSettingsSchema = z
   .object({
     includeAppearances: z.boolean().optional(),
     format: z.enum(["descriptive", "tags"]).optional(),
+    styleProfileId: z.string().nullable().optional(),
+    styleProfiles: z.record(z.unknown()).optional(),
   })
   .passthrough()
   .optional();

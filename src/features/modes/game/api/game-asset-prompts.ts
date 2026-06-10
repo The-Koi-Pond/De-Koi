@@ -1,8 +1,17 @@
+import {
+  compileImagePrompt,
+  createDefaultImageStyleProfileSettings,
+  normalizeImageStyleProfileSettings,
+  type ImageStyleProfileSettings,
+} from "../../../../engine/generation/image-style-profiles";
+
 export type GameImageAssetKind = "background" | "illustration" | "portrait";
 
 type ImagePromptSettings = {
   includeAppearances?: boolean;
   format?: "descriptive" | "tags";
+  styleProfileId?: string | null;
+  styleProfiles?: ImageStyleProfileSettings;
 };
 
 export type GameImageGenerationPromptItem = {
@@ -35,7 +44,7 @@ function joinedImageTags(parts: string[]): string {
     .join(", ");
 }
 
-export function gameAssetNegativePrompt(kind: GameImageAssetKind): string {
+function gameAssetNegativePrompt(kind: GameImageAssetKind): string {
   if (kind === "background") return GAME_BACKGROUND_NEGATIVE_PROMPT;
   if (kind === "illustration") return GAME_ILLUSTRATION_NEGATIVE_PROMPT;
   return GAME_PORTRAIT_NEGATIVE_PROMPT;
@@ -51,9 +60,7 @@ export function gameImageGenerationRequest(
     negativePrompt: item.negativePrompt,
     width: item.width,
     height: item.height,
-    ...(item.kind === "illustration" && item.referenceImages?.length
-      ? { referenceImages: item.referenceImages }
-      : {}),
+    ...(item.kind === "illustration" && item.referenceImages?.length ? { referenceImages: item.referenceImages } : {}),
   };
 }
 
@@ -106,7 +113,7 @@ export function sceneAssetPrompt(
   if (settings.format === "tags") {
     const detailPart = kind === "portrait" && settings.includeAppearances === false ? "" : detail;
     if (kind === "background") {
-      return joinedImageTags([
+      return compileSceneAssetPrompt(kind, settings, gameAssetNegativePrompt(kind), artStyle, [
         "wide establishing background",
         label,
         detail,
@@ -117,7 +124,7 @@ export function sceneAssetPrompt(
       ]);
     }
     if (kind === "illustration") {
-      return joinedImageTags([
+      return compileSceneAssetPrompt(kind, settings, gameAssetNegativePrompt(kind), artStyle, [
         "cinematic scene illustration",
         label,
         detail,
@@ -127,7 +134,7 @@ export function sceneAssetPrompt(
         "high detail",
       ]);
     }
-    return joinedImageTags([
+    return compileSceneAssetPrompt(kind, settings, gameAssetNegativePrompt(kind), artStyle, [
       "portrait",
       label,
       detailPart,
@@ -140,13 +147,73 @@ export function sceneAssetPrompt(
     ]);
   }
   if (kind === "background") {
-    return `Wide establishing background of ${label}. ${detail}. ${style}. No characters, no text, immersive environment art.`;
+    return compileSceneAssetPrompt(
+      kind,
+      settings,
+      gameAssetNegativePrompt(kind),
+      artStyle,
+      `Wide establishing background of ${label}. ${detail}. ${style}. No characters, no text, immersive environment art.`,
+    );
   }
   if (kind === "illustration") {
-    return `Cinematic scene illustration: ${label}. ${detail}. ${style}. Dynamic composition, no text, high detail.`;
+    return compileSceneAssetPrompt(
+      kind,
+      settings,
+      gameAssetNegativePrompt(kind),
+      artStyle,
+      `Cinematic scene illustration: ${label}. ${detail}. ${style}. Dynamic composition, no text, high detail.`,
+    );
   }
   if (settings.includeAppearances === false) {
-    return `Portrait of ${label}. ${style}. ${speciesRule} Centered bust portrait, expressive face, clean readable silhouette, no text.`;
+    return compileSceneAssetPrompt(
+      kind,
+      settings,
+      gameAssetNegativePrompt(kind),
+      artStyle,
+      `Portrait of ${label}. ${style}. ${speciesRule} Centered bust portrait, expressive face, clean readable silhouette, no text.`,
+    );
   }
-  return `Portrait of ${label}. ${detail}. ${style}. ${speciesRule} Centered bust portrait, expressive face, clean readable silhouette, no text.`;
+  return compileSceneAssetPrompt(
+    kind,
+    settings,
+    gameAssetNegativePrompt(kind),
+    artStyle,
+    `Portrait of ${label}. ${detail}. ${style}. ${speciesRule} Centered bust portrait, expressive face, clean readable silhouette, no text.`,
+  );
+}
+
+function compileSceneAssetPrompt(
+  kind: GameImageAssetKind,
+  settings: ImagePromptSettings,
+  negativePrompt: string,
+  generatedStyle: string,
+  prompt: string | string[],
+): string {
+  const seedPrompt = Array.isArray(prompt) ? joinedImageTags(prompt) : prompt;
+  return compileImagePrompt({
+    kind,
+    prompt: seedPrompt,
+    negativePrompt,
+    generatedStyle,
+    styleProfileId: settings.styleProfileId,
+    styleProfiles: normalizeImageStyleProfileSettings(
+      settings.styleProfiles ?? createDefaultImageStyleProfileSettings(),
+    ),
+  }).prompt;
+}
+
+export function compiledSceneAssetNegativePrompt(
+  kind: GameImageAssetKind,
+  settings: ImagePromptSettings,
+  negativePrompt = gameAssetNegativePrompt(kind),
+): string {
+  return compileImagePrompt({
+    kind,
+    prompt: "",
+    negativePrompt,
+    styleProfileId: settings.styleProfileId,
+    styleProfiles: normalizeImageStyleProfileSettings(
+      settings.styleProfiles ?? createDefaultImageStyleProfileSettings(),
+    ),
+  }).negativePrompt;
 }

@@ -113,11 +113,12 @@ import {
 import { clonePlayerStats } from "../../../../engine/shared/game-state/player-stats";
 import { parsePartyDialogue } from "../lib/party-dialogue-parser";
 import {
-  gameAssetNegativePrompt,
+  compiledSceneAssetNegativePrompt,
   gameImageGenerationRequest,
   sceneAssetPrompt,
   type GameImageAssetKind,
 } from "./game-asset-prompts";
+import type { ImageStyleProfileSettings } from "../../../../engine/generation/image-style-profiles";
 
 const DEFAULT_COMBAT_ENCOUNTER_SETTINGS: EncounterSettings = {
   combatNarrative: {
@@ -237,6 +238,8 @@ export interface GameAssetGenerationResult {
 type ImagePromptSettings = {
   includeAppearances?: boolean;
   format?: "descriptive" | "tags";
+  styleProfileId?: string | null;
+  styleProfiles?: ImageStyleProfileSettings;
 };
 
 export type GameAssetGenerationPayload = {
@@ -1445,6 +1448,11 @@ function imagePromptSettings(payload: Record<string, unknown>): ImagePromptSetti
   return {
     includeAppearances: raw.includeAppearances !== false,
     format: raw.format === "tags" ? "tags" : "descriptive",
+    styleProfileId: typeof raw.styleProfileId === "string" ? raw.styleProfileId : null,
+    styleProfiles:
+      raw.styleProfiles && typeof raw.styleProfiles === "object" && !Array.isArray(raw.styleProfiles)
+        ? (raw.styleProfiles as ImageStyleProfileSettings)
+        : undefined,
   };
 }
 
@@ -3120,7 +3128,7 @@ export const gameApi = {
             artStyle,
             promptSettings,
           })),
-        negativePrompt: gameAssetNegativePrompt("background"),
+        negativePrompt: compiledSceneAssetNegativePrompt("background", promptSettings),
         width: imageSize(record, "background", "width", 1280),
         height: imageSize(record, "background", "height", 720),
       });
@@ -3153,7 +3161,7 @@ export const gameApi = {
             artStyle,
             promptSettings,
           })),
-        negativePrompt: gameAssetNegativePrompt("illustration"),
+        negativePrompt: compiledSceneAssetNegativePrompt("illustration", promptSettings),
         width: imageSize(record, "background", "width", 1280),
         height: imageSize(record, "background", "height", 720),
         referenceImages: referenceData.referenceImages,
@@ -3183,7 +3191,7 @@ export const gameApi = {
             artStyle,
             promptSettings,
           })),
-        negativePrompt: gameAssetNegativePrompt("portrait"),
+        negativePrompt: compiledSceneAssetNegativePrompt("portrait", promptSettings),
         width: imageSize(record, "portrait", "width", 768),
         height: imageSize(record, "portrait", "height", 1024),
       });

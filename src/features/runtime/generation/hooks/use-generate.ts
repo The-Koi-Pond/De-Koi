@@ -1752,6 +1752,8 @@ export function useGenerate() {
               imagePromptSettings: {
                 includeAppearances: useUIStore.getState().imagePromptIncludeAppearances,
                 format: useUIStore.getState().imagePromptFormat,
+                styleProfileId: useUIStore.getState().imageStyleProfiles.defaultProfileId,
+                styleProfiles: useUIStore.getState().imageStyleProfiles,
               },
               hideAutomatedSummarySourceMessages: useUIStore.getState().summaryPopoverSettings.hideSummarizedMessages,
               trimIncompleteModelOutput: useUIStore.getState().trimIncompleteModelOutput,
@@ -1819,6 +1821,8 @@ export function useGenerate() {
             imagePromptSettings: {
               includeAppearances: useUIStore.getState().imagePromptIncludeAppearances,
               format: useUIStore.getState().imagePromptFormat,
+              styleProfileId: useUIStore.getState().imageStyleProfiles.defaultProfileId,
+              styleProfiles: useUIStore.getState().imageStyleProfiles,
             },
             options: { ...(options ?? {}), bypassActivation: options?.bypassActivation ?? true },
           },

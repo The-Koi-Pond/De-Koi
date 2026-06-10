@@ -16,6 +16,12 @@ import {
 import { createRoleplayScene, planRoleplayScene } from "../modes/roleplay/scene/scene-service";
 import { resolveConversationSelfieSystemPrompt } from "./prompt-overrides";
 import {
+  compileImagePrompt,
+  createDefaultImageStyleProfileSettings,
+  normalizeImageStyleProfileSettings,
+  type ImageStyleProfileSettings,
+} from "./image-style-profiles";
+import {
   boolish,
   isRecord,
   newId,
@@ -48,6 +54,8 @@ export interface ConnectedCommandResult {
 type ImagePromptSettings = {
   includeAppearances?: boolean;
   format?: "descriptive" | "tags";
+  styleProfileId?: string | null;
+  styleProfiles?: ImageStyleProfileSettings;
 };
 
 function parseData(row: JsonRecord | null | undefined): JsonRecord {
@@ -330,7 +338,7 @@ async function buildSelfiePrompt(args: {
   commandContext?: string;
   characterId: string | null;
   imagePromptSettings?: ImagePromptSettings;
-}): Promise<{ prompt: string; characterName: string }> {
+}): Promise<{ prompt: string; negativePrompt: string; characterName: string }> {
   const character = args.characterId ? await args.storage.get<JsonRecord>("characters", args.characterId) : null;
   const data = parseData(character ?? undefined);
   const characterName = nameOf(character ?? {}) || readString(data.name, "character") || "character";
@@ -400,7 +408,17 @@ async function buildSelfiePrompt(args: {
       .filter((part) => readString(part).trim())
       .join(", ");
   }
-  return { prompt, characterName };
+  const compiled = compileImagePrompt({
+    kind: "selfie",
+    prompt,
+    negativePrompt: readString(metadata.selfieNegativePrompt).trim(),
+    styleProfileId: args.imagePromptSettings?.styleProfileId,
+    styleProfiles: normalizeImageStyleProfileSettings(
+      args.imagePromptSettings?.styleProfiles ?? createDefaultImageStyleProfileSettings(),
+    ),
+    userPositive: positive,
+  });
+  return { prompt: compiled.prompt, negativePrompt: compiled.negativePrompt, characterName };
 }
 
 async function generateSelfie(args: {
@@ -427,7 +445,7 @@ async function generateSelfie(args: {
   }
 
   try {
-    const { prompt, characterName } = await buildSelfiePrompt({
+    const { prompt, negativePrompt, characterName } = await buildSelfiePrompt({
       storage: args.storage,
       llm: args.llm,
       llmConnectionId: args.llmConnectionId,
@@ -436,7 +454,6 @@ async function generateSelfie(args: {
       characterId,
       imagePromptSettings: args.imagePromptSettings,
     });
-    const negativePrompt = readString(metadata.selfieNegativePrompt).trim();
     const size = parseSelfieSize(metadata.selfieResolution);
     const image = await args.integrations.image.generate<{
       base64?: string;
