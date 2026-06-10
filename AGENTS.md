@@ -71,12 +71,14 @@ For code changes, final responses must include behavior changed, primary files/m
 - `src/engine/mari`: TypeScript request/response contract for the Professor Mari entrypoint.
 - `src-tauri/src/commands/storage/mari.rs`: Privileged Professor Mari agent execution, tool definitions, codebase search/read/edit access, and extension/custom-agent creation.
 - `src/shared/api/mari-api.ts`: Focused frontend runtime wrapper for the Professor Mari command.
+- `src/shared/api/local-sidecar-api.ts`: Focused frontend runtime wrapper for Local Model sidecar status, config, runtime/model downloads, process control, and smoke tests.
 - `src/shared/api/plugin-memory-api.ts`: Focused frontend wrapper for namespaced plugin memory stored in the `plugin-memory` collection and routed through embedded or remote runtime storage.
 - `src/engine`: React-free product behavior and mode orchestration.
 - `src/features`: React UI packages. Shell tools live in `src/features/shell`, catalog/resource editors live in `src/features/catalog`, mode surfaces live in `src/features/modes`, shared runtime UI lives in `src/features/runtime`.
 - `src/features/catalog/sprites`: Shared catalog sprite query keys, types, and React Query hooks used by character and persona sprite editors plus runtime sprite consumers.
 - `src/shared/api`: Embedded Tauri and hostable runtime wrappers. Feature code should call these wrappers instead of raw Tauri or raw remote-runtime fetch.
 - `src-tauri`: Rust command facades, hostable runtime dispatch, storage, LLM/provider transport, assets, imports, integrations, and other privileged capabilities.
+- `src-tauri/src/commands/storage/sidecar.rs`: Rust-owned Local Model sidecar config, curated GGUF/runtime downloader, loopback process management, synthetic `sidecar:local` connection materialization, and sidecar smoke tests.
 - `public/sprites/mari`: Professor Mari visual assets used by onboarding, FAQ, title controls, and the Mari shell surface.
 - `.github/workflows/bunny-review.yml`, `.github/workflows/bunny-review-auto.yml`, `.github/workflows/bunny-review-command.yml`, `.github/bunny-review`: Bunny Review PR comment automation, trusted auto and slash-command dispatchers, review packet builder, CI dependencies, path rules, and model reviewer prompt.
 - `skills/frontend-design`: Repo-local frontend concept, layout, visual direction, and first-pass UI implementation workflow that pairs with Impeccable.

@@ -70,6 +70,8 @@ pub(crate) mod prompt_overrides;
 pub(crate) mod prompts;
 #[path = "storage/shared.rs"]
 pub(crate) mod shared;
+#[path = "storage/sidecar.rs"]
+pub(crate) mod sidecar;
 #[path = "storage/sprites.rs"]
 pub(crate) mod sprites;
 #[path = "storage/startup_migrations.rs"]
