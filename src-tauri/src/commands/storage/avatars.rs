@@ -567,12 +567,7 @@ fn avatar_thumbnail_is_fresh(source: &Path, target: &Path) -> AppResult<bool> {
 }
 
 pub(crate) fn update_npc_avatar(state: &AppState, chat_id: &str, body: Value) -> AppResult<Value> {
-    let name = body
-        .get("name")
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or("npc")
-        .to_string();
+    let name = required_npc_avatar_name(&body)?;
     let stored = persist_image_upload(
         state,
         "avatars/npc",
@@ -592,6 +587,19 @@ pub(crate) fn update_npc_avatar(state: &AppState, chat_id: &str, body: Value) ->
         "avatarFilePath": stored.absolute_path,
         "avatarFilename": stored.filename
     }))
+}
+
+fn required_npc_avatar_name(body: &Value) -> AppResult<String> {
+    let name = body
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::invalid_input("NPC name is required"))?;
+    if !name.chars().any(char::is_alphanumeric) {
+        return Err(AppError::invalid_input("NPC name is invalid"));
+    }
+    Ok(name.to_string())
 }
 
 /// Best-effort cleanup of older NPC avatar files for one chat+name, preserving the
@@ -823,6 +831,61 @@ mod tests {
                 || avatar_path.starts_with("http://asset.localhost"),
             "NPC avatarPath should point at the managed asset file"
         );
+        let avatar_file_path = updated
+            .get("avatarFilePath")
+            .and_then(Value::as_str)
+            .expect("avatarFilePath should be present");
+        assert!(Path::new(avatar_file_path).is_file());
+    }
+
+    #[test]
+    fn npc_avatar_upload_rejects_invalid_names_before_writing_file() {
+        for (label, body, expected_message) in [
+            (
+                "missing-name",
+                json!({ "avatar": small_png_data_url() }),
+                "NPC name is required",
+            ),
+            (
+                "blank-name",
+                json!({ "name": "   ", "avatar": small_png_data_url() }),
+                "NPC name is required",
+            ),
+            (
+                "symbol-only-name",
+                json!({ "name": "\u{1F525}\u{1F525}", "avatar": small_png_data_url() }),
+                "NPC name is invalid",
+            ),
+        ] {
+            let state = test_state(label);
+
+            let error = update_npc_avatar(&state, "chat-1", body)
+                .expect_err("invalid NPC name should be rejected");
+
+            assert_eq!(error.code, "invalid_input");
+            assert_eq!(error.message, expected_message);
+            assert!(
+                !state.data_dir.join("avatars").join("npc").exists(),
+                "invalid NPC name should be rejected before writing managed avatar files"
+            );
+        }
+    }
+
+    #[test]
+    fn npc_avatar_upload_accepts_unicode_names() {
+        let state = test_state("npc-avatar-unicode-name");
+
+        let updated = update_npc_avatar(
+            &state,
+            "chat-1",
+            json!({
+                "name": "\u{685C}",
+                "avatar": small_png_data_url()
+            }),
+        )
+        .expect("unicode NPC name should update");
+
+        assert_eq!(updated.get("name").and_then(Value::as_str), Some("\u{685C}"));
         let avatar_file_path = updated
             .get("avatarFilePath")
             .and_then(Value::as_str)
