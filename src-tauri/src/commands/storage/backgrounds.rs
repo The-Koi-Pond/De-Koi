@@ -202,6 +202,13 @@ fn game_asset_background_item(item: &Value) -> Option<Value> {
         .or_else(|| path.rsplit('/').next())
         .unwrap_or(path);
     let tag = item.get("tag").and_then(Value::as_str);
+    let tags = item
+        .get("subcategory")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|subcategory| !subcategory.is_empty())
+        .map(|subcategory| json!([subcategory]))
+        .unwrap_or_else(|| json!([]));
     Some(json!({
         "id": tag.unwrap_or(path),
         "filename": name,
@@ -210,7 +217,7 @@ fn game_asset_background_item(item: &Value) -> Option<Value> {
         "absolutePath": item.get("absolutePath").cloned().unwrap_or(Value::Null),
         "url": format!("marinara-game-asset:{}", percent_encode_component(path)),
         "originalName": name,
-        "tags": [],
+        "tags": tags,
         "source": "game_asset",
         "tag": tag,
         "type": "file",
@@ -407,6 +414,10 @@ mod tests {
         assert_eq!(
             game_row.get("url").and_then(Value::as_str),
             Some("marinara-game-asset:backgrounds%2Ffantasy%2Fcastle.png")
+        );
+        assert_eq!(
+            game_row.get("tags").cloned(),
+            Some(json!(["fantasy"]))
         );
         assert!(
             rows.iter()
