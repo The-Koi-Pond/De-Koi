@@ -2079,7 +2079,13 @@ impl SecurityConfig {
             .as_deref()
             .filter(|trusted| cidr_list_contains(trusted, peer))
         {
+            // A proxy-resolved identity inside trusted-proxy or bypass-interface
+            // space is machinery, not a client; it must never inherit those
+            // ranges' auth privileges.
             return forwarded_client_ip(headers, trusted)
+                .filter(|ip| {
+                    !cidr_list_contains(trusted, *ip) && !self.is_trusted_interface_ip(*ip)
+                })
                 .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         }
         if (is_loopback(peer) || self.is_trusted_interface_ip(peer))
@@ -3705,6 +3711,46 @@ mod tests {
         );
         // Every hop is a trusted proxy and loopback; the loopback bypass must
         // not resurrect through the leftmost-hop fallback.
+        assert_eq!(
+            security.resolve_client_ip(IpAddr::V4(Ipv4Addr::LOCALHOST), &headers),
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        );
+    }
+
+    #[test]
+    fn hostable_security_demotes_forwarded_chain_resolving_to_bypass_interface() {
+        let security = SecurityConfig {
+            bypass_docker: true,
+            require_auth_for_docker_proxy: false,
+            trusted_proxies: Some(vec![parse_cidr("172.17.0.1/32").expect("valid cidr")]),
+            ..test_security()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-forwarded-for"),
+            HeaderValue::from_static("172.17.0.99"),
+        );
+        // A forwarded identity inside a bypass-interface range must not become
+        // an authenticated client through trusted-proxy resolution.
+        assert_eq!(
+            security.resolve_client_ip(IpAddr::V4(Ipv4Addr::new(172, 17, 0, 1)), &headers),
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        );
+    }
+
+    #[test]
+    fn hostable_security_demotes_x_real_ip_resolving_to_bypass_interface() {
+        let security = SecurityConfig {
+            bypass_docker: true,
+            require_auth_for_docker_proxy: false,
+            trusted_proxies: Some(vec![parse_cidr("127.0.0.1/32").expect("valid cidr")]),
+            ..test_security()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-real-ip"),
+            HeaderValue::from_static("172.17.0.99"),
+        );
         assert_eq!(
             security.resolve_client_ip(IpAddr::V4(Ipv4Addr::LOCALHOST), &headers),
             IpAddr::V4(Ipv4Addr::UNSPECIFIED)
