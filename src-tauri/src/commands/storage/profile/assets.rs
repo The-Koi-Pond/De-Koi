@@ -712,11 +712,16 @@ fn copy_limited_profile_zip_asset_with_limit<R: Read, W: Write>(
     limit: u64,
 ) -> AppResult<u64> {
     // Charge each chunk against the budget BEFORE forwarding it, so not even a
-    // single over-budget byte reaches the destination (no take(limit+1) sentinel).
+    // single over-budget byte reaches the destination. The read is also capped at
+    // one byte past the remaining budget, so an over-budget (zip-bomb) stream is
+    // never decompressed beyond limit+1 bytes regardless of chunk size. The final
+    // probe byte is the established take(limit+1) idiom (read_zip_entry_with_limit).
     let mut buffer = [0_u8; 8192];
     let mut written: u64 = 0;
     loop {
-        let read = reader.read(&mut buffer).map_err(|error| {
+        let allowed = limit.saturating_sub(written).saturating_add(1);
+        let want = (buffer.len() as u64).min(allowed) as usize;
+        let read = reader.read(&mut buffer[..want]).map_err(|error| {
             AppError::invalid_input(format!("Could not read profile asset {entry_name}: {error}"))
         })?;
         if read == 0 {
@@ -1598,6 +1603,30 @@ mod tests {
         .expect_err("entry exceeds the per-entry cap");
         assert_eq!(error.code, "invalid_input");
         assert!(out.len() <= 16, "wrote {} bytes past the per-entry cap", out.len());
+    }
+
+    #[test]
+    fn profile_zip_entry_does_not_decompress_past_budget() {
+        // A 4 KiB stream with a 1-byte budget must not be pulled from the reader
+        // beyond limit+1 bytes, so a zip bomb is never fully decompressed even on
+        // the preview sink path.
+        let mut reader = std::io::Cursor::new(vec![1_u8; 4096]);
+        let mut total = 0_u64;
+        stream_profile_zip_entry_within_budget(
+            "avatars/bomb.png",
+            &mut reader,
+            std::io::sink(),
+            1,
+            1_000_000,
+            1,
+            &mut total,
+        )
+        .expect_err("over-budget entry is rejected");
+        assert!(
+            reader.position() <= 2,
+            "decompressed {} bytes past the budget",
+            reader.position()
+        );
     }
 
     #[test]
