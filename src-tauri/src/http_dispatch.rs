@@ -240,9 +240,9 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             Ok(json!({ "deleted": true }))
         }
         "game_assets_delete_file" => {
-            state
-                .game_assets
-                .remove(required_string(&args, "path")?, false)?;
+            let path = required_string(&args, "path")?;
+            remove_game_asset_managed_thumbnail(state, path);
+            state.game_assets.remove(path, false)?;
             Ok(json!({ "deleted": true }))
         }
         "game_assets_read_text" => Ok(json!({
@@ -255,37 +255,50 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             )?;
             Ok(json!({ "saved": true }))
         }
-        "game_assets_rename" => state.game_assets.rename(
-            required_string(&args, "path")?,
-            required_string(&args, "newName")?,
-        ),
-        "game_assets_move" => state.game_assets.move_to_folder(
-            required_string(&args, "path")?,
-            optional_string(&args, "targetFolder")
-                .as_deref()
-                .unwrap_or(""),
-        ),
+        "game_assets_rename" => {
+            let path = required_string(&args, "path")?;
+            remove_game_asset_managed_thumbnail(state, path);
+            state
+                .game_assets
+                .rename(path, required_string(&args, "newName")?)
+        }
+        "game_assets_move" => {
+            let path = required_string(&args, "path")?;
+            remove_game_asset_managed_thumbnail(state, path);
+            state.game_assets.move_to_folder(
+                path,
+                optional_string(&args, "targetFolder")
+                    .as_deref()
+                    .unwrap_or(""),
+            )
+        }
         "game_assets_copy" => state.game_assets.copy_to_folder(
             required_string(&args, "path")?,
             optional_string(&args, "targetFolder")
                 .as_deref()
                 .unwrap_or(""),
         ),
-        "game_assets_move_bulk" => Ok(state.game_assets.move_many(
-            &required_string_vec(&args, "paths")?,
-            optional_string(&args, "targetFolder")
-                .as_deref()
-                .unwrap_or(""),
-        )),
+        "game_assets_move_bulk" => {
+            let paths = required_string_vec(&args, "paths")?;
+            remove_game_asset_managed_thumbnails(state, &paths);
+            Ok(state.game_assets.move_many(
+                &paths,
+                optional_string(&args, "targetFolder")
+                    .as_deref()
+                    .unwrap_or(""),
+            ))
+        }
         "game_assets_copy_bulk" => Ok(state.game_assets.copy_many(
             &required_string_vec(&args, "paths")?,
             optional_string(&args, "targetFolder")
                 .as_deref()
                 .unwrap_or(""),
         )),
-        "game_assets_delete_bulk" => Ok(state
-            .game_assets
-            .delete_many(&required_string_vec(&args, "paths")?)),
+        "game_assets_delete_bulk" => {
+            let paths = required_string_vec(&args, "paths")?;
+            remove_game_asset_managed_thumbnails(state, &paths);
+            Ok(state.game_assets.delete_many(&paths))
+        }
         "game_assets_file_info" => state.game_assets.file_info(required_string(&args, "path")?),
         "game_assets_folder_description" => game_assets::game_assets_folder_description(
             state,
@@ -851,6 +864,20 @@ fn game_assets_list(state: &AppState, args: &Map<String, Value>) -> AppResult<Va
     }))
 }
 
+fn remove_game_asset_managed_thumbnail(state: &AppState, path: &str) {
+    managed_thumbnails::remove_managed_thumbnail_files(
+        state,
+        managed_thumbnails::ManagedThumbnailKind::Game,
+        path,
+    );
+}
+
+fn remove_game_asset_managed_thumbnails(state: &AppState, paths: &[String]) {
+    for path in paths {
+        remove_game_asset_managed_thumbnail(state, path);
+    }
+}
+
 async fn gif_search(args: &Map<String, Value>) -> AppResult<Value> {
     let mut query = HashMap::new();
     if let Some(q) = optional_string(args, "q") {
@@ -1221,6 +1248,7 @@ mod tests {
     use base64::{engine::general_purpose, Engine as _};
     use std::collections::BTreeSet;
     use std::io::Cursor;
+    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     // Commands that stay out of /api/invoke because they require the client shell,
@@ -1299,6 +1327,49 @@ mod tests {
             .get("characters", id)
             .expect("characters should be readable")
             .is_some()
+    }
+
+    fn write_game_asset_png(state: &AppState, path: &str) {
+        let absolute = PathBuf::from(
+            state
+                .game_assets
+                .absolute_path_string(path)
+                .expect("asset path should be valid"),
+        );
+        if let Some(parent) = absolute.parent() {
+            std::fs::create_dir_all(parent).expect("asset parent should be created");
+        }
+        image::RgbaImage::from_pixel(32, 32, image::Rgba([255, 0, 0, 255]))
+            .save(&absolute)
+            .expect("game asset fixture should write");
+    }
+
+    async fn create_remote_game_thumbnail(state: &AppState, path: &str) -> PathBuf {
+        let response = dispatch(
+            state,
+            InvokeRequest {
+                command: "managed_asset_thumbnail_file_path".to_string(),
+                args: Some(json!({
+                    "kind": "game",
+                    "path": path,
+                    "size": 128
+                })),
+            },
+        )
+        .await
+        .expect("remote managed thumbnail should be created");
+
+        let thumbnail = PathBuf::from(
+            response
+                .get("path")
+                .and_then(Value::as_str)
+                .expect("thumbnail path should be returned"),
+        );
+        assert!(
+            thumbnail.is_file(),
+            "thumbnail should exist before mutation"
+        );
+        thumbnail
     }
 
     fn quoted_commands(source: &str) -> BTreeSet<String> {
@@ -1992,6 +2063,67 @@ mod tests {
             error.message.contains("size"),
             "size validation error should mention size"
         );
+    }
+
+    #[tokio::test]
+    async fn dispatch_game_asset_mutations_clear_managed_game_thumbnails() {
+        for (label, command, args) in [
+            (
+                "delete-file",
+                "game_assets_delete_file",
+                json!({ "path": "sprites/delete-file.png" }),
+            ),
+            (
+                "rename",
+                "game_assets_rename",
+                json!({ "path": "sprites/rename.png", "newName": "renamed.png" }),
+            ),
+            (
+                "move",
+                "game_assets_move",
+                json!({ "path": "sprites/move.png", "targetFolder": "backgrounds" }),
+            ),
+            (
+                "delete-bulk",
+                "game_assets_delete_bulk",
+                json!({ "paths": ["sprites/delete-bulk.png"] }),
+            ),
+            (
+                "move-bulk",
+                "game_assets_move_bulk",
+                json!({ "paths": ["sprites/move-bulk.png"], "targetFolder": "backgrounds" }),
+            ),
+        ] {
+            let state = test_state(label);
+            let path = args
+                .get("path")
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    args.get("paths")
+                        .and_then(Value::as_array)
+                        .and_then(|paths| paths.first())
+                        .and_then(Value::as_str)
+                })
+                .expect("test args should include a source path");
+            write_game_asset_png(&state, path);
+            let thumbnail = create_remote_game_thumbnail(&state, path).await;
+
+            dispatch(
+                &state,
+                InvokeRequest {
+                    command: command.to_string(),
+                    args: Some(args),
+                },
+            )
+            .await
+            .expect("remote game asset mutation should dispatch");
+
+            assert!(
+                !thumbnail.exists(),
+                "{command} should remove managed game thumbnail {}",
+                thumbnail.display()
+            );
+        }
     }
 
     #[tokio::test]
