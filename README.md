@@ -148,9 +148,14 @@ reverse-proxy access, intentionally change the bind address and configure
 `BASIC_AUTH_USER`/`BASIC_AUTH_PASS`, `IP_ALLOWLIST`, or another explicit remote
 access opt-in. When a reverse proxy fronts the runtime, also set
 `TRUSTED_PROXIES` to the proxy's IP or CIDR so auth decisions use the
-forwarded client address (`X-Forwarded-For`) instead of the proxy's loopback
-connection; proxied requests from peers outside `TRUSTED_PROXIES` are treated
-as unauthenticated remote clients.
+forwarded client address instead of the proxy's local connection; the proxy
+must send that address via `X-Forwarded-For` or `X-Real-IP` (RFC 7239
+`Forwarded` is not parsed), and proxied requests from peers outside
+`TRUSTED_PROXIES` are treated as unauthenticated remote clients. When the
+runtime runs in Docker behind a reverse proxy, the container sees the Docker
+bridge gateway as its TCP peer rather than the proxy's loopback address, so
+`TRUSTED_PROXIES` must cover the bridge CIDR (for example `172.16.0.0/12`) or
+`BYPASS_AUTH_DOCKER` must be disabled.
 
 ## Developer Docs
 

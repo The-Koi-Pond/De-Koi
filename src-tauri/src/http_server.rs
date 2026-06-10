@@ -2082,9 +2082,12 @@ impl SecurityConfig {
             return forwarded_client_ip(headers, trusted)
                 .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         }
-        if is_loopback(peer) && forwarded_headers_present(headers) {
-            // Proxy-style headers from an untrusted loopback peer mean the real
-            // client is unknown; never extend the loopback bypass to it.
+        if (is_loopback(peer) || self.is_trusted_interface_ip(peer))
+            && forwarded_headers_present(headers)
+        {
+            // Proxy-style headers from an untrusted loopback or bypass-eligible
+            // interface peer (Docker bridge, Tailscale) mean the real client is
+            // unknown; never extend an auth bypass to it.
             return IpAddr::V4(Ipv4Addr::UNSPECIFIED);
         }
         peer
@@ -2393,21 +2396,42 @@ fn forwarded_client_ip(headers: &HeaderMap, trusted_proxies: &[CidrEntry]) -> Op
     {
         let value = value.to_str().ok()?;
         for hop in value.split(',') {
-            let hop = hop.trim();
-            if hop.is_empty() {
-                continue;
+            // Non-IP tokens such as `unknown` carry no client identity; spoof
+            // resistance comes from rightmost-untrusted selection over the
+            // IP-valued hops, so skipping them never picks a more attacker-
+            // controlled hop.
+            if let Some(ip) = parse_forwarded_hop(hop.trim()) {
+                hops.push(ip);
             }
-            hops.push(parse_forwarded_hop(hop)?);
         }
     }
-    let leftmost = *hops.first()?;
-    Some(
-        hops.iter()
+    let selected = match hops.first() {
+        Some(leftmost) => hops
+            .iter()
             .rev()
             .copied()
             .find(|hop| !cidr_list_contains(trusted_proxies, *hop))
-            .unwrap_or(leftmost),
-    )
+            .unwrap_or(*leftmost),
+        None => x_real_ip_client(headers, trusted_proxies)?,
+    };
+    // A proxy-resolved client must never inherit loopback or unspecified-IP
+    // privileges, even from an all-trusted chain.
+    if is_loopback(selected) || selected.is_unspecified() {
+        return None;
+    }
+    Some(selected)
+}
+
+fn x_real_ip_client(headers: &HeaderMap, trusted_proxies: &[CidrEntry]) -> Option<IpAddr> {
+    let value = headers
+        .get(HeaderName::from_static("x-real-ip"))?
+        .to_str()
+        .ok()?;
+    let ip = parse_forwarded_hop(value.trim())?;
+    if cidr_list_contains(trusted_proxies, ip) {
+        return None;
+    }
+    Some(ip)
 }
 
 fn parse_forwarded_hop(raw: &str) -> Option<IpAddr> {
@@ -3610,6 +3634,79 @@ mod tests {
         // Missing/unparsable forwarding info from a trusted proxy fails closed.
         assert_eq!(
             security.resolve_client_ip(IpAddr::V4(Ipv4Addr::LOCALHOST), &HeaderMap::new()),
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        );
+    }
+
+    #[test]
+    fn hostable_security_demotes_trusted_interface_peer_with_untrusted_forwarded_headers() {
+        let security = SecurityConfig {
+            bypass_docker: true,
+            require_auth_for_docker_proxy: false,
+            ..test_security()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-forwarded-for"),
+            HeaderValue::from_static("203.0.113.10"),
+        );
+        // A Docker bridge peer relaying proxy-style headers without
+        // TRUSTED_PROXIES must not keep its interface bypass.
+        assert_eq!(
+            security.resolve_client_ip(IpAddr::V4(Ipv4Addr::new(172, 17, 0, 1)), &headers),
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        );
+    }
+
+    #[test]
+    fn hostable_security_resolves_x_real_ip_client_through_trusted_proxy() {
+        let security = SecurityConfig {
+            trusted_proxies: Some(vec![parse_cidr("127.0.0.1/32").expect("valid cidr")]),
+            ..test_security()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-real-ip"),
+            HeaderValue::from_static("203.0.113.10"),
+        );
+        assert_eq!(
+            security.resolve_client_ip(IpAddr::V4(Ipv4Addr::LOCALHOST), &headers),
+            IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10))
+        );
+    }
+
+    #[test]
+    fn hostable_security_skips_non_ip_forwarded_hops() {
+        let security = SecurityConfig {
+            trusted_proxies: Some(vec![parse_cidr("127.0.0.1/32").expect("valid cidr")]),
+            ..test_security()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-forwarded-for"),
+            HeaderValue::from_static("unknown, 203.0.113.10, 127.0.0.1"),
+        );
+        assert_eq!(
+            security.resolve_client_ip(IpAddr::V4(Ipv4Addr::LOCALHOST), &headers),
+            IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10))
+        );
+    }
+
+    #[test]
+    fn hostable_security_demotes_all_trusted_loopback_forwarded_chain() {
+        let security = SecurityConfig {
+            trusted_proxies: Some(vec![parse_cidr("127.0.0.1/32").expect("valid cidr")]),
+            ..test_security()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-forwarded-for"),
+            HeaderValue::from_static("127.0.0.1, 127.0.0.1"),
+        );
+        // Every hop is a trusted proxy and loopback; the loopback bypass must
+        // not resurrect through the leftmost-hop fallback.
+        assert_eq!(
+            security.resolve_client_ip(IpAddr::V4(Ipv4Addr::LOCALHOST), &headers),
             IpAddr::V4(Ipv4Addr::UNSPECIFIED)
         );
     }
