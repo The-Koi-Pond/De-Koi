@@ -47,7 +47,7 @@ concurrency:
 
 jobs:
   review:
-    runs-on: [self-hosted, linux]
+    runs-on: [self-hosted, linux, bunny]
     timeout-minutes: 30
     env:
       PR_NUM: ${{ github.event.pull_request.number || inputs.pr_number }}
@@ -112,6 +112,10 @@ jobs:
           HEAD_SHA=$(gh pr view "$PR_NUM" --json headRefOid -q .headRefOid)
           echo "PR_HEAD_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Mark Bunny status in progress
         env:
           GH_TOKEN: ${{ github.token }}
@@ -123,10 +127,6 @@ jobs:
             -f context="Bunny Review" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             -f description="The trusted Bunny reviewer is inspecting this pull request." >/dev/null
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
 
       - name: Install dependencies
         run: pip install -r /tmp/bunny-review-tool/.github/bunny-review/requirements.txt

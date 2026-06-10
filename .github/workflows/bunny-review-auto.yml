@@ -17,7 +17,7 @@ concurrency:
 jobs:
   dispatch:
     if: github.event.pull_request.base.ref == 'main'
-    runs-on: [self-hosted, linux]
+    runs-on: [self-hosted, linux, bunny]
     steps:
       - name: Dispatch trusted Bunny reviewer
         env:
