@@ -12,7 +12,7 @@ concurrency:
 jobs:
   frontend:
     name: Frontend, Architecture, and Organization
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,7 +52,7 @@ jobs:
 
   rust:
     name: Rust Capability Layer
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -89,7 +89,7 @@ jobs:
 
   smoke:
     name: Browser Smoke and Performance
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
