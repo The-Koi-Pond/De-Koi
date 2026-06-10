@@ -2103,7 +2103,7 @@ function AppearanceSettings() {
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium inline-flex items-center gap-1">
             Chat Background{" "}
-            <HelpTooltip text="Import one or more custom images, or choose from your game asset backgrounds. Supports JPG, PNG, GIF, WebP, and AVIF. Remove to use the default background." />
+            <HelpTooltip text="Import one or more custom images, or choose from your game asset backgrounds. Supports JPG, PNG, GIF, and WebP. Remove to use the default background." />
           </span>
           {chatBackground && (
             <button
