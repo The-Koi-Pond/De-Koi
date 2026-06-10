@@ -1,4 +1,5 @@
 use super::llm::{connection_auth_check, llm_connection_from_value};
+use super::sidecar;
 use super::*;
 
 fn stored_generation_parameters(connection: &Value) -> Value {
@@ -18,6 +19,9 @@ pub(crate) async fn test_connection(state: &AppState, id: &str) -> AppResult<Val
 
 pub(crate) async fn test_message(state: &AppState, id: &str) -> AppResult<Value> {
     let started = std::time::Instant::now();
+    if sidecar::is_sidecar_connection_id(id) {
+        return sidecar::test_message(state).await;
+    }
     let connection = connection_secrets::connection_for_runtime(state, id)?;
     let request = marinara_llm::LlmRequest {
         connection: llm_connection_from_value(&connection)?,
