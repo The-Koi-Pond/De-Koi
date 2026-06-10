@@ -311,7 +311,7 @@ const STRING_OR_ESCAPE = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|\\(?:[0-9a-fA-F]
  * an identifier character, not a declaration separator, an `!important` delimiter, or a `</style`
  * breakout. Escapes inside string literals are always preserved.
  */
-function canonicalizeKeywordEscapes(css: string): string {
+export function canonicalizeKeywordEscapes(css: string): string {
   return css.replace(STRING_OR_ESCAPE, (match: string, stringLiteral: string | undefined) => {
     if (stringLiteral !== undefined) return stringLiteral;
     const decoded = decodeCssEscapes(match);

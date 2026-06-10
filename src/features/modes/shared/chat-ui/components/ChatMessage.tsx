@@ -52,6 +52,7 @@ import { chatKeys } from "../../../../catalog/chats/index";
 import { useShallow } from "zustand/react/shallow";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { createMessageMacroResolver } from "../../../../../shared/lib/chat-macros";
+import { canonicalizeKeywordEscapes } from "../../../../../shared/lib/chat-css";
 import { useApplyRegex } from "../../../../catalog/agents/regex-application";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { playTextBlip } from "../../../../../shared/lib/text-blip-sound";
@@ -733,7 +734,7 @@ function isRunawaySizeValue(value: string): boolean {
 }
 
 function sanitizeChatStyleDeclarations(style: string): string {
-  return style
+  return canonicalizeKeywordEscapes(style)
     .split(";")
     .map((declaration) => {
       const separatorIndex = declaration.indexOf(":");
@@ -804,7 +805,7 @@ function extractChatStyleBlocks(html: string): { html: string; css: string } {
 
 function sanitizeChatCss(css: string): string {
   return sanitizeChatCssDeclarationBlocks(
-    css
+    canonicalizeKeywordEscapes(css)
       .replace(/<\/?style\b[^>]*>/gi, "")
       .replace(/@import\s+[^;]+;?/gi, "")
       .replace(/@namespace\s+[^;]+;?/gi, "")
