@@ -122,9 +122,16 @@ pub(super) fn rollback_records_by_field_collect(
             return;
         }
         for row in matched_rows {
-            crate::storage_commands::media_uploads::remove_managed_record_file(
-                state, "gallery", &row, "filePath", "filename",
-            );
+            if let Err(error) =
+                crate::storage_commands::media_uploads::remove_managed_record_file_checked(
+                    state, "gallery", &row, "filePath", "filename",
+                )
+            {
+                let row_id = row.get("id").and_then(Value::as_str).unwrap_or("<unknown>");
+                rollback_errors.push(format!(
+                    "{collection} {row_id} file cleanup after row removal: {error}"
+                ));
+            }
         }
         return;
     }

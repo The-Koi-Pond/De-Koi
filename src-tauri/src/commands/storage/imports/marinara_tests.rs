@@ -460,6 +460,54 @@ fn native_marinara_character_import_rollback_keeps_gallery_files_when_row_delete
 }
 
 #[test]
+fn native_marinara_character_import_rollback_reports_gallery_file_cleanup_failure() {
+    let state = test_state("native-character-gallery-rollback-file-failure");
+    let gallery_dir = state.data_dir.join("gallery");
+    fs::create_dir_all(&gallery_dir).expect("gallery dir should be created");
+    let directory_path = gallery_dir.join("rollback-file-failure.png");
+    fs::create_dir(&directory_path).expect("managed path fixture should block file deletion");
+    crate::storage_commands::entity_commands::storage_create_inner(
+        &state,
+        "character-gallery".to_string(),
+        json!({
+            "characterId": "character-rollback",
+            "filePath": directory_path.to_string_lossy(),
+            "filename": "rollback-file-failure.png",
+            "url": "asset://localhost/rollback-file-failure.png"
+        }),
+    )
+    .expect("gallery row should be seeded");
+
+    let mut rollback_errors = Vec::new();
+    rollback_records_by_field_collect(
+        &state,
+        "character-gallery",
+        "characterId",
+        "character-rollback",
+        &mut rollback_errors,
+    );
+
+    assert!(
+        !rollback_errors.is_empty(),
+        "gallery rollback should report post-delete file cleanup failures"
+    );
+    assert!(
+        state
+            .storage
+            .list("character-gallery")
+            .expect("character gallery should list")
+            .is_empty(),
+        "gallery rollback should still remove rows before reporting file cleanup failure"
+    );
+    assert!(
+        rollback_errors
+            .iter()
+            .any(|error| error.contains("file cleanup after row removal")),
+        "rollback error should identify the cleanup phase: {rollback_errors:?}"
+    );
+}
+
+#[test]
 fn native_marinara_character_import_rolls_back_avatar_when_record_write_fails() {
     let state = test_state("native-character-avatar-rollback");
     block_collection_writes(&state, "characters");

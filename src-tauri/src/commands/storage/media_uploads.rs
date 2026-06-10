@@ -147,22 +147,37 @@ pub(crate) fn remove_managed_record_file(
     path_key: &str,
     filename_key: &str,
 ) {
-    let Ok(Some(path)) = managed_record_file_path(state, folder, record, path_key, filename_key)
-    else {
-        return;
-    };
-    if path.exists() && path.is_file() {
-        if let Err(error) = fs::remove_file(&path) {
-            let record_id = record
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or("<unknown>");
-            eprintln!(
-                "warn: failed to remove managed file for {folder}/{record_id} at {}: {error}",
-                path.display()
-            );
-        }
+    if let Err(error) =
+        remove_managed_record_file_checked(state, folder, record, path_key, filename_key)
+    {
+        let record_id = record
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("<unknown>");
+        eprintln!("warn: failed to remove managed file for {folder}/{record_id}: {error}");
     }
+}
+
+pub(crate) fn remove_managed_record_file_checked(
+    state: &AppState,
+    folder: &str,
+    record: &Value,
+    path_key: &str,
+    filename_key: &str,
+) -> AppResult<()> {
+    let Some(path) = managed_record_file_path(state, folder, record, path_key, filename_key)?
+    else {
+        return Ok(());
+    };
+    fs::remove_file(&path).map_err(|error| {
+        AppError::new(
+            "storage_file_delete_failed",
+            format!(
+                "failed to remove managed file at {}: {error}",
+                path.display()
+            ),
+        )
+    })
 }
 
 pub(crate) fn remove_copied_file_path(path: Option<&str>, context: &str) {
