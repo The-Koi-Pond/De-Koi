@@ -1640,7 +1640,7 @@ fn provider_default_base_url(provider: &str) -> &'static str {
         "nanogpt" => "https://nano-gpt.com/api/v1",
         "ollama" => "http://127.0.0.1:11434",
         "mistral" => "https://api.mistral.ai/v1",
-        "cohere" => "https://api.cohere.com/compatibility/v1",
+        "cohere" => "https://api.cohere.ai/compatibility/v1",
         "togetherai" => "https://api.together.xyz/v1",
         _ => "https://api.openai.com/v1",
     }
@@ -2244,15 +2244,15 @@ mod tests {
     fn cohere_model_lookup_uses_compatibility_models_path() {
         assert_eq!(
             provider_default_base_url("cohere"),
-            "https://api.cohere.com/compatibility/v1"
+            "https://api.cohere.ai/compatibility/v1"
         );
         assert_eq!(
             model_endpoint(
                 "cohere",
-                "https://api.cohere.com/compatibility/v1",
+                "https://api.cohere.ai/compatibility/v1",
                 &json!({ "apiKey": "sk-test-key" })
             ),
-            "https://api.cohere.com/compatibility/v1/models"
+            "https://api.cohere.ai/compatibility/v1/models"
         );
     }
 

@@ -320,7 +320,7 @@ fn base_url(provider: &str, configured: &str) -> String {
                 .to_string()
         }
         "mistral" => "https://api.mistral.ai/v1".to_string(),
-        "cohere" => "https://api.cohere.com/compatibility/v1".to_string(),
+        "cohere" => "https://api.cohere.ai/compatibility/v1".to_string(),
         "openrouter" => "https://openrouter.ai/api/v1".to_string(),
         "nanogpt" => "https://nano-gpt.com/api/v1".to_string(),
         "xai" => "https://api.x.ai/v1".to_string(),
@@ -6248,12 +6248,12 @@ data: {"type":"response.output_item.done","item":{"type":"function_call","call_i
 
         assert_eq!(
             base_url("cohere", ""),
-            "https://api.cohere.com/compatibility/v1"
+            "https://api.cohere.ai/compatibility/v1"
         );
         assert!(should_use_cohere_compatibility(&request));
         assert_eq!(
             openai_compatible_chat_endpoint(&request),
-            "https://api.cohere.com/compatibility/v1/chat/completions"
+            "https://api.cohere.ai/compatibility/v1/chat/completions"
         );
 
         request.connection.base_url = "https://api.cohere.com/v2".to_string();

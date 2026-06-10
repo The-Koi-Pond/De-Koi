@@ -82,7 +82,7 @@ export const PROVIDERS: Record<APIProvider, ProviderDefinition> = {
   cohere: {
     id: "cohere",
     name: "Cohere",
-    defaultBaseUrl: "https://api.cohere.com/compatibility/v1",
+    defaultBaseUrl: "https://api.cohere.ai/compatibility/v1",
     modelsEndpoint: "/models",
     supportsStreaming: true,
     usesAuthHeader: true,
