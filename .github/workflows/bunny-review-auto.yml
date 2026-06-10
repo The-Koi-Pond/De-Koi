@@ -2,7 +2,7 @@
 
 on:
   pull_request_target:
-    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, edited]
+    types: [opened, reopened, ready_for_review]
 
 permissions:
   actions: write
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   dispatch:
-    if: github.event.pull_request.base.ref == 'main'
+    if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch trusted Bunny reviewer

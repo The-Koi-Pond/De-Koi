@@ -10,8 +10,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  draft:
+    name: Draft Lightweight Checks
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Workflow metadata name check
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+        run: pnpm check:workflow-names
+      - run: pnpm check:line-endings
+      - run: pnpm check:architecture
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test:allow-empty
+
   frontend:
     name: Frontend, Architecture, and Organization
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +81,7 @@ jobs:
 
   rust:
     name: Rust Capability Layer
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,6 +119,7 @@ jobs:
 
   smoke:
     name: Browser Smoke and Performance
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
