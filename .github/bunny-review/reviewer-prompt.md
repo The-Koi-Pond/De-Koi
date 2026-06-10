@@ -54,15 +54,17 @@ One rule: critique code, contracts, proof, and behavior only. Never personalize 
    - `git merge-base HEAD <base>`.
    - `git diff --stat <base>...HEAD`.
    - `git diff --name-only <base>...HEAD`.
-2. Read `AGENTS.md`.
-3. Load only guidance that matches touched areas:
-   - Architecture or ownership changes: `skills/marinara-architecture-guard/SKILL.md`.
-   - Chat, roleplay, or game mode changes: `skills/marinara-mode-separation/SKILL.md`.
-   - Bug fixes or regressions: `skills/marinara-bugfix-discipline/SKILL.md`.
-   - Onboarding/docs/run-build guidance: `skills/marinara-getting-started/SKILL.md`.
-4. Read the changed patch overview, per-file patch context, Bunny path rules, and focused guidance included in the packet.
-5. Inspect callers, contracts, existing tests/proof, and adjacent implementations from the packet before reporting a finding. If a concrete suspected issue needs missing caller, schema, or contract context, request that focused context once. If context remains missing after the extra batch, say so instead of inventing certainty.
-6. Review mode matters:
+2. Read `AGENTS.md` and `skills/de-koi-agent-workflow/SKILL.md`.
+3. Treat current De-Koi docs and repo-local skill references as the source of truth. Old Marinara or source-pack wording is historical context unless a changed file is explicitly documenting legacy parity.
+4. Load only guidance that matches touched areas:
+   - Architecture or ownership changes: `skills/de-koi-architecture-guard/SKILL.md`.
+   - Chat, roleplay, or game mode changes: `skills/de-koi-mode-separation/SKILL.md`.
+   - Bug fixes or regressions: `skills/de-koi-bugfix-discipline/SKILL.md`.
+   - Onboarding/docs/run-build guidance: `skills/de-koi-getting-started/SKILL.md` plus the relevant `docs/developer/` page when the diff changes or claims behavior from it.
+   - Workflow-pack assumptions or migrated agent guidance: `skills/de-koi-agent-workflow/references/de-koi-overrides.md`.
+5. Read the changed patch overview, per-file patch context, Bunny path rules, and focused guidance included in the packet.
+6. Inspect callers, contracts, existing tests/proof, and adjacent implementations from the packet before reporting a finding. If a concrete suspected issue needs missing caller, schema, or contract context, request that focused context once. If context remains missing after the extra batch, say so instead of inventing certainty.
+7. Review mode matters:
    - `full` reviews the whole PR diff.
    - `incremental` reviews only changes since Bunny's last reviewed head.
    - `custom` reviews the explicitly supplied base.

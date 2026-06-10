@@ -355,7 +355,7 @@ def load_rules():
 
 
 def guidance_from_rules(files, rules):
-    guidance = ["AGENTS.md"]
+    guidance = ["AGENTS.md", "skills/de-koi-agent-workflow/SKILL.md"]
     for item in rules.get("path_instructions", []):
         prefixes = item.get("prefixes", [])
         if any(any(path.startswith(prefix) for prefix in prefixes) for path in files):
@@ -367,13 +367,13 @@ def select_guidance(files):
     rules = load_rules()
     if rules and "_load_error" not in rules:
         return guidance_from_rules(files, rules)
-    guidance = ["AGENTS.md"]
+    guidance = ["AGENTS.md", "skills/de-koi-agent-workflow/SKILL.md"]
     joined = "\n".join(files)
     if any(
         marker in joined
         for marker in ("src/engine/", "src/features/", "src/shared/api/", "src-tauri/")
     ):
-        guidance.append("skills/marinara-architecture-guard/SKILL.md")
+        guidance.append("skills/de-koi-architecture-guard/SKILL.md")
     if any(
         marker in joined
         for marker in (
@@ -387,14 +387,14 @@ def select_guidance(files):
             "memory",
         )
     ):
-        guidance.append("skills/marinara-mode-separation/SKILL.md")
+        guidance.append("skills/de-koi-mode-separation/SKILL.md")
     if any(
         marker in joined
         for marker in ("fix/", "storage", "imports", "provider", "transport", "commands")
     ):
-        guidance.append("skills/marinara-bugfix-discipline/SKILL.md")
+        guidance.append("skills/de-koi-bugfix-discipline/SKILL.md")
     if any(marker in joined for marker in ("README", "docs/", "skills/", "AGENTS.md")):
-        guidance.append("skills/marinara-getting-started/SKILL.md")
+        guidance.append("skills/de-koi-getting-started/SKILL.md")
     return list(dict.fromkeys(guidance))
 
 
