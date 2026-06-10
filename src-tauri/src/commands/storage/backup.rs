@@ -421,6 +421,11 @@ mod tests {
             br#"[{"id":"connection-1","apiKeyEncrypted":"v1:secret"}]"#,
         )
         .expect("sidecar fixture should write");
+        fs::write(
+            collections_dir.join("connections.json.corrupted-123"),
+            br#"[{"id":"connection-1","apiKeyEncrypted":"v1:secret"}]"#,
+        )
+        .expect("corrupted sidecar fixture should write");
 
         let created = create_backup(&state).expect("managed backup should be created");
         let name = created["backupName"].as_str().expect("backup name");
@@ -433,6 +438,9 @@ mod tests {
             .expect("masked connections should exist");
         assert!(!masked.contains("apiKeyEncrypted"));
         assert!(!backup_collections.join("connections.json.bak").exists());
+        assert!(!backup_collections
+            .join("connections.json.corrupted-123")
+            .exists());
 
         // Legacy backup folders may still hold a raw sidecar; the zip must drop it.
         fs::write(
@@ -445,10 +453,18 @@ mod tests {
             .decode(downloaded["base64"].as_str().expect("zip base64"))
             .expect("zip should decode");
         let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("zip should open");
+        let mut masked_archived = false;
         for index in 0..archive.len() {
             let entry = archive.by_index(index).expect("zip entry should read");
-            assert!(!entry.name().ends_with("connections.json.bak"));
+            let entry_name = entry.name().to_string();
+            assert!(!entry_name.contains("connections.json."));
+            if entry_name.ends_with("data/collections/connections.json") {
+                masked_archived = true;
+            }
         }
+        // The sidecar skip must never widen into dropping the masked
+        // connections.json itself from downloaded archives.
+        assert!(masked_archived);
     }
 
     #[test]
