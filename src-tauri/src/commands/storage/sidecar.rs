@@ -10,14 +10,11 @@ use std::io;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, LazyLock,
-};
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 
 pub(crate) const SIDECAR_CONNECTION_ID: &str = "sidecar:local";
 pub(crate) const SIDECAR_MODEL: &str = "local-sidecar";
@@ -177,7 +174,7 @@ struct SidecarDownloadProgress {
 struct SidecarDownloadState {
     active: bool,
     progress: Option<SidecarDownloadProgress>,
-    cancel: Option<Arc<AtomicBool>>,
+    cancel: Option<watch::Sender<bool>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -958,7 +955,7 @@ async fn wait_for_ready(base_url: &str, child: &mut Child) -> AppResult<()> {
     ))
 }
 
-async fn begin_download_job(phase: &str, label: &str) -> AppResult<Arc<AtomicBool>> {
+async fn begin_download_job(phase: &str, label: &str) -> AppResult<watch::Receiver<bool>> {
     let mut state = SIDECAR_DOWNLOAD.lock().await;
     if state.active {
         return Err(AppError::new(
@@ -966,9 +963,9 @@ async fn begin_download_job(phase: &str, label: &str) -> AppResult<Arc<AtomicBoo
             "Another Local Model download or install is already running",
         ));
     }
-    let cancel = Arc::new(AtomicBool::new(false));
+    let (cancel_tx, cancel_rx) = watch::channel(false);
     state.active = true;
-    state.cancel = Some(cancel.clone());
+    state.cancel = Some(cancel_tx);
     state.progress = Some(SidecarDownloadProgress {
         phase: phase.to_string(),
         status: "downloading".to_string(),
@@ -978,7 +975,7 @@ async fn begin_download_job(phase: &str, label: &str) -> AppResult<Arc<AtomicBoo
         label: Some(label.to_string()),
         error: None,
     });
-    Ok(cancel)
+    Ok(cancel_rx)
 }
 
 async fn set_download_progress(progress: SidecarDownloadProgress) {
@@ -1015,9 +1012,17 @@ async fn finish_download_job(result: AppResult<()>, phase: &str, label: &str) {
 async fn cancel_download() -> AppResult<Value> {
     let state = SIDECAR_DOWNLOAD.lock().await;
     if let Some(cancel) = &state.cancel {
-        cancel.store(true, Ordering::SeqCst);
+        let _ = cancel.send(true);
     }
     Ok(json!({ "ok": true }))
+}
+
+fn download_cancelled_error() -> AppError {
+    AppError::new("sidecar_download_cancelled", "Download cancelled")
+}
+
+fn download_cancel_requested(cancel: &watch::Receiver<bool>) -> bool {
+    *cancel.borrow()
 }
 
 async fn download_url_to_path(
@@ -1025,7 +1030,7 @@ async fn download_url_to_path(
     destination: &Path,
     phase: &str,
     label: &str,
-    cancel: Arc<AtomicBool>,
+    mut cancel: watch::Receiver<bool>,
 ) -> AppResult<()> {
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent)?;
@@ -1041,14 +1046,31 @@ async fn download_url_to_path(
         let _ = fs::remove_file(&temp_path);
     }
 
-    let response = reqwest::Client::builder()
+    let client = reqwest::Client::builder()
         .build()
-        .map_err(|error| AppError::new("sidecar_download_failed", error.to_string()))?
+        .map_err(|error| AppError::new("sidecar_download_failed", error.to_string()))?;
+    if download_cancel_requested(&cancel) {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return Err(download_cancelled_error());
+    }
+    let request = client
         .get(url)
         .header(USER_AGENT, MARINARA_USER_AGENT)
-        .send()
-        .await
-        .map_err(|error| AppError::new("sidecar_download_failed", error.to_string()))?;
+        .send();
+    tokio::pin!(request);
+    let response = loop {
+        tokio::select! {
+            result = &mut request => {
+                break result.map_err(|error| AppError::new("sidecar_download_failed", error.to_string()))?;
+            }
+            changed = cancel.changed() => {
+                if changed.is_ok() && download_cancel_requested(&cancel) {
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                    return Err(download_cancelled_error());
+                }
+            }
+        }
+    };
     if !response.status().is_success() {
         let status = response.status();
         let raw = response.text().await.unwrap_or_default();
@@ -1068,18 +1090,29 @@ async fn download_url_to_path(
     let mut file = tokio::fs::File::create(&temp_path).await?;
     let mut response = response;
 
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| AppError::new("sidecar_download_failed", error.to_string()))?
-    {
-        if cancel.load(Ordering::SeqCst) {
+    loop {
+        if download_cancel_requested(&cancel) {
             let _ = tokio::fs::remove_file(&temp_path).await;
-            return Err(AppError::new(
-                "sidecar_download_cancelled",
-                "Download cancelled",
-            ));
+            return Err(download_cancelled_error());
         }
+        let next_chunk = response.chunk();
+        tokio::pin!(next_chunk);
+        let chunk = loop {
+            tokio::select! {
+                result = &mut next_chunk => {
+                    break result.map_err(|error| AppError::new("sidecar_download_failed", error.to_string()))?;
+                }
+                changed = cancel.changed() => {
+                    if changed.is_ok() && download_cancel_requested(&cancel) {
+                        let _ = tokio::fs::remove_file(&temp_path).await;
+                        return Err(download_cancelled_error());
+                    }
+                }
+            }
+        };
+        let Some(chunk) = chunk else {
+            break;
+        };
         file.write_all(&chunk).await?;
         downloaded = downloaded.saturating_add(chunk.len() as u64);
 
@@ -1331,7 +1364,7 @@ fn curated_model_for_quantization(
 async fn download_curated_model_inner(
     state: &AppState,
     quantization: SidecarQuantization,
-    cancel: Arc<AtomicBool>,
+    cancel: watch::Receiver<bool>,
 ) -> AppResult<()> {
     let model = curated_model_for_quantization(quantization)?;
     let destination = model_path_inside_models_dir(state, model.filename)?;
@@ -1364,7 +1397,7 @@ async fn download_custom_model_inner(
     state: &AppState,
     repo_input: &str,
     model_path: Option<&str>,
-    cancel: Arc<AtomicBool>,
+    cancel: watch::Receiver<bool>,
 ) -> AppResult<()> {
     let repo = validate_huggingface_repo(repo_input)?;
     let models = list_huggingface_models_inner(&repo).await?;
@@ -1816,7 +1849,7 @@ async fn resolve_executable(state: &AppState, config: &LocalSidecarConfig) -> Ap
 async fn install_runtime_inner(
     state: &AppState,
     reinstall: bool,
-    cancel: Arc<AtomicBool>,
+    cancel: watch::Receiver<bool>,
 ) -> AppResult<()> {
     let config = read_config(state)?;
     if config.runtime_preference == "system" {
@@ -2354,6 +2387,7 @@ mod tests {
     use crate::state::AppState;
     use flate2::{write::GzEncoder, Compression};
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tokio::io::AsyncReadExt;
 
     fn temp_dir(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -2706,6 +2740,64 @@ mod tests {
                 .model_path,
             config.model_path
         );
+    }
+
+    #[tokio::test]
+    async fn download_cancel_aborts_stalled_chunk_read() {
+        let root = temp_dir("cancel-stalled-download");
+        let destination = root.join("model.gguf");
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("stalled test server should bind");
+        let addr = listener
+            .local_addr()
+            .expect("stalled test server address should resolve");
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener
+                .accept()
+                .await
+                .expect("stalled test server should accept one request");
+            let mut request = [0u8; 1024];
+            let _ = socket
+                .read(&mut request)
+                .await
+                .expect("request should be readable");
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n")
+                .await
+                .expect("headers should be writable");
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        });
+        let (cancel_tx, cancel_rx) = watch::channel(false);
+        let download = tokio::spawn({
+            let destination = destination.clone();
+            async move {
+                download_url_to_path(
+                    &format!("http://{addr}/model.gguf"),
+                    &destination,
+                    "model",
+                    "Stalled model",
+                    cancel_rx,
+                )
+                .await
+            }
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        cancel_tx
+            .send(true)
+            .expect("active download should receive cancel");
+        let result = tokio::time::timeout(Duration::from_secs(2), download)
+            .await
+            .expect("cancel should abort the stalled chunk read")
+            .expect("download task should not panic");
+
+        let error = result.expect_err("stalled download should return a cancel error");
+        assert_eq!(error.code, "sidecar_download_cancelled");
+        assert!(!destination.exists());
+        assert!(!destination.with_extension("gguf.download").exists());
+        server.abort();
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
