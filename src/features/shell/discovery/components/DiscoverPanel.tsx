@@ -91,14 +91,14 @@ export function DiscoverPanel() {
   const visibleEntries = shouldShowPreview ? entries.slice(0, DEFAULT_PREVIEW_COUNT) : entries;
 
   return (
-    <div className="de-koi-discover flex w-full flex-col gap-3 p-3">
+    <div className="de-koi-discover flex w-full min-w-0 flex-col gap-3 overflow-hidden p-3">
       <div className="de-koi-discover-card rounded-lg border border-[var(--border)] bg-[var(--card)]/65 p-3 shadow-sm">
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--primary)]/25 bg-[var(--primary)]/10 text-[var(--primary)]">
             <Compass size="1rem" aria-hidden />
           </div>
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-[var(--foreground)]">Discover Marinara</h2>
+            <h2 className="text-sm font-semibold text-[var(--foreground)]">Discover De-Koi</h2>
             <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
               Search by what you want to do, then jump to the surface that owns it.
             </p>
@@ -117,7 +117,7 @@ export function DiscoverPanel() {
       </div>
 
       <div className="flex flex-col gap-2">
-        <div className="flex gap-1 overflow-x-auto pb-1">
+        <div className="flex w-full min-w-0 gap-1 overflow-x-auto pb-1">
           {(["All", ...DISCOVERY_CATEGORIES] as const).map((item) => {
             const selected = category === item;
             return (
@@ -138,7 +138,7 @@ export function DiscoverPanel() {
           })}
         </div>
 
-        <div className="flex gap-1 overflow-x-auto pb-1">
+        <div className="flex w-full min-w-0 gap-1 overflow-x-auto pb-1">
           {(["All", ...DISCOVERY_COVERAGE] as const).map((item) => {
             const selected = coverage === item;
             return (

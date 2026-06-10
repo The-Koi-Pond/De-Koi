@@ -93,25 +93,25 @@ const MODE_CONFIG: Record<
   }
 > = {
   conversation: {
-    icon: <MessageSquare size="0.875rem" />,
+    icon: <MessageSquare size="0.75rem" />,
     label: CHAT_MODES.conversation.name,
-    shortLabel: "CONVO",
+    shortLabel: CHAT_MODES.conversation.name,
     bg: "linear-gradient(135deg, #ff9a66 0%, #ff7a4a 54%, #9c3c27 100%)",
     iconForeground: "#fff4e8",
     description: CHAT_MODES.conversation.description,
   },
   roleplay: {
-    icon: <BookOpen size="0.875rem" />,
+    icon: <BookOpen size="0.75rem" />,
     label: CHAT_MODES.roleplay.name,
-    shortLabel: "RP",
+    shortLabel: CHAT_MODES.roleplay.name,
     bg: "linear-gradient(135deg, #5ce7df 0%, #22b8b5 52%, #086873 100%)",
     iconForeground: "#f4eadb",
     description: CHAT_MODES.roleplay.description,
   },
   game: {
-    icon: <Theater size="0.875rem" />,
+    icon: <Theater size="0.75rem" />,
     label: CHAT_MODES.game.name,
-    shortLabel: "GM",
+    shortLabel: CHAT_MODES.game.name,
     bg: "linear-gradient(135deg, #ffd78d 0%, #d9aa57 52%, #80612d 100%)",
     iconForeground: "#130d07",
     description: CHAT_MODES.game.description,
@@ -939,14 +939,14 @@ export function ChatSidebar({
               key={tab}
               onClick={() => onActiveTabChange(tab)}
               className={cn(
-                "relative flex min-h-[2.125rem] flex-1 items-center justify-center gap-1.5 overflow-visible rounded-lg px-2 py-2 text-xs leading-normal font-medium transition-all",
+                "relative flex min-h-[2.125rem] min-w-0 flex-1 items-center justify-center gap-1 overflow-visible rounded-lg px-1 py-2 text-[0.625rem] leading-normal font-medium transition-all",
                 isActive
                   ? "bg-[var(--sidebar-accent)] text-[var(--sidebar-accent-foreground)] shadow-sm"
                   : "text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/50 hover:text-[var(--sidebar-foreground)]",
               )}
             >
               <span className="shrink-0 leading-none">{cfg.icon}</span>
-              <span className="inline-flex min-h-[1rem] items-center whitespace-nowrap pb-px leading-normal">
+              <span className="inline-flex min-h-[1rem] min-w-0 items-center truncate pb-px leading-normal">
                 {cfg.shortLabel}
               </span>
               {tabUnread > 0 && !isActive && (
@@ -1109,7 +1109,7 @@ export function ChatSidebar({
       </div>
 
       {/* Chat list */}
-      <div className="flex-1 overflow-y-auto px-2 py-1">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-1">
         {isLoading && (
           <div className="flex flex-col gap-2 px-2 py-4">
             {[1, 2, 3].map((i) => (
@@ -1119,12 +1119,12 @@ export function ChatSidebar({
         )}
 
         {chatsError && !isLoading && (
-          <div className="flex flex-col items-center gap-2 px-3 py-12 text-center">
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-3 py-6 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--destructive)]/10">
               <AlertTriangle size="1.25rem" className="text-[var(--destructive)]" />
             </div>
             <p className="text-xs text-[var(--muted-foreground)]">
-              Marinara is still waking up. Chats should appear in a moment.
+              De-Koi is still waking up. Chats should appear in a moment.
             </p>
             <button
               onClick={() => void refetchChats()}
@@ -1137,7 +1137,7 @@ export function ChatSidebar({
         )}
 
         {displayChats.length === 0 && !isLoading && !chatsError && (
-          <div className="flex flex-col items-center gap-2 px-3 py-12 text-center">
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-3 py-6 text-center">
             <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--secondary)]">
               {activeTab === "conversation" ? (
                 <MessageSquare size="1.25rem" className="text-[var(--muted-foreground)]" />
