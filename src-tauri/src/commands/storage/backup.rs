@@ -111,6 +111,9 @@ fn copy_backup_file(source_path: &Path, target_path: &Path) -> AppResult<()> {
             _ => {}
         }
         fs::write(target_path, serde_json::to_vec_pretty(&value)?)?;
+    } else if is_connections_sidecar_file(source_path) {
+        // Durability sidecars (.bak / .corrupted-* / .tmp-*) duplicate raw
+        // apiKeyEncrypted material; keep them out of portable backups.
     } else {
         fs::copy(source_path, target_path)?;
     }
@@ -124,6 +127,25 @@ fn is_connections_collection_file(path: &Path) -> bool {
             .and_then(Path::file_name)
             .and_then(|value| value.to_str())
             == Some("collections")
+}
+
+fn is_connections_sidecar_file(path: &Path) -> bool {
+    let collections = path.parent();
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .is_some_and(|name| name.starts_with("connections.json."))
+        && collections
+            .and_then(Path::file_name)
+            .and_then(|value| value.to_str())
+            == Some("collections")
+        // Scope strictly to the real `data/collections` store; an unrelated
+        // managed file like `knowledge-sources/collections/connections.json.notes`
+        // must not be dropped from the backup or zip.
+        && collections
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .and_then(|value| value.to_str())
+            == Some("data")
 }
 
 fn write_backup_payload(state: &AppState, target: &Path) -> AppResult<()> {
@@ -236,6 +258,9 @@ fn zip_dir_contents(
             if metadata.is_dir() {
                 stack.push((path, zip_entry));
             } else if metadata.is_file() {
+                if is_connections_sidecar_file(&path) {
+                    continue;
+                }
                 zip.start_file(zip_entry, options).map_err(zip_error)?;
                 let mut file = fs::File::open(path)?;
                 std::io::copy(&mut file, zip).map_err(zip_io_error)?;
@@ -385,6 +410,121 @@ mod tests {
         let deleted = delete_backup(&state, name).expect("managed backup should delete");
         assert_eq!(deleted["deleted"], true);
         assert!(!backup_dir.exists());
+    }
+
+    #[test]
+    fn backups_exclude_connections_secret_sidecars() {
+        let state = test_state("connections-sidecars");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({ "id": "connection-1", "apiKeyEncrypted": "v1:secret" }),
+            )
+            .expect("fixture connection should write");
+        state.storage.flush().expect("storage should flush");
+        let collections_dir = state.data_dir.join("data/collections");
+        fs::write(
+            collections_dir.join("connections.json.bak"),
+            br#"[{"id":"connection-1","apiKeyEncrypted":"v1:secret"}]"#,
+        )
+        .expect("sidecar fixture should write");
+        fs::write(
+            collections_dir.join("connections.json.corrupted-123"),
+            br#"[{"id":"connection-1","apiKeyEncrypted":"v1:secret"}]"#,
+        )
+        .expect("corrupted sidecar fixture should write");
+
+        let created = create_backup(&state).expect("managed backup should be created");
+        let name = created["backupName"].as_str().expect("backup name");
+        let backup_collections = state
+            .data_dir
+            .join("backups")
+            .join(name)
+            .join("data/collections");
+        let masked = fs::read_to_string(backup_collections.join("connections.json"))
+            .expect("masked connections should exist");
+        assert!(!masked.contains("apiKeyEncrypted"));
+        assert!(!backup_collections.join("connections.json.bak").exists());
+        assert!(!backup_collections
+            .join("connections.json.corrupted-123")
+            .exists());
+
+        // Legacy backup folders may still hold raw sidecars; the zip must drop
+        // the whole family, not just .bak.
+        fs::write(
+            backup_collections.join("connections.json.bak"),
+            br#"[{"id":"connection-1","apiKeyEncrypted":"v1:secret"}]"#,
+        )
+        .expect("legacy sidecar fixture should write");
+        fs::write(
+            backup_collections.join("connections.json.corrupted-456"),
+            br#"[{"id":"connection-1","apiKeyEncrypted":"v1:secret"}]"#,
+        )
+        .expect("legacy corrupted sidecar fixture should write");
+        let downloaded = download_backup(&state, Some(name)).expect("backup should download");
+        let bytes = general_purpose::STANDARD
+            .decode(downloaded["base64"].as_str().expect("zip base64"))
+            .expect("zip should decode");
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("zip should open");
+        let mut masked_archived = false;
+        for index in 0..archive.len() {
+            let entry = archive.by_index(index).expect("zip entry should read");
+            let entry_name = entry.name().to_string();
+            assert!(!entry_name.contains("connections.json."));
+            if entry_name.ends_with("data/collections/connections.json") {
+                masked_archived = true;
+            }
+        }
+        // The sidecar skip must never widen into dropping the masked
+        // connections.json itself from downloaded archives.
+        assert!(masked_archived);
+    }
+
+    #[test]
+    fn backups_keep_unrelated_connections_lookalike_files() {
+        let state = test_state("connections-lookalike");
+        // A managed file that merely shares the basename pattern but lives
+        // outside data/collections must be backed up and shipped, not dropped.
+        let lookalike_dir = state.data_dir.join("knowledge-sources/collections");
+        fs::create_dir_all(&lookalike_dir).expect("lookalike dir should be created");
+        fs::write(
+            lookalike_dir.join("connections.json.notes"),
+            b"not a secret sidecar",
+        )
+        .expect("lookalike fixture should write");
+
+        let created = create_backup(&state).expect("managed backup should be created");
+        let name = created["backupName"].as_str().expect("backup name");
+        let backup_lookalike = state
+            .data_dir
+            .join("backups")
+            .join(name)
+            .join("knowledge-sources/collections/connections.json.notes");
+        assert!(
+            backup_lookalike.exists(),
+            "unrelated lookalike must survive the fresh backup"
+        );
+
+        let downloaded = download_backup(&state, Some(name)).expect("backup should download");
+        let bytes = general_purpose::STANDARD
+            .decode(downloaded["base64"].as_str().expect("zip base64"))
+            .expect("zip should decode");
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("zip should open");
+        let mut lookalike_archived = false;
+        for index in 0..archive.len() {
+            let entry = archive.by_index(index).expect("zip entry should read");
+            if entry
+                .name()
+                .ends_with("knowledge-sources/collections/connections.json.notes")
+            {
+                lookalike_archived = true;
+            }
+        }
+        assert!(
+            lookalike_archived,
+            "unrelated lookalike must survive the downloaded zip"
+        );
     }
 
     #[test]
