@@ -512,10 +512,17 @@ pub(super) fn restore_profile_zip_assets<R: Read + Seek>(
                         "Could not read profile asset {entry_name}: {error}"
                     ))
                 })?;
-                validate_profile_zip_asset_declared_size(&entry_name, entry.size())?;
-                add_profile_archive_asset_bytes(&mut total_bytes, &entry_name, entry.size())?;
+                let declared_size = entry.size();
                 let mut output = File::create(target)?;
-                copy_limited_profile_zip_asset(&entry_name, &mut entry, &mut output)?;
+                stream_profile_zip_entry_within_budget(
+                    &entry_name,
+                    &mut entry,
+                    &mut output,
+                    declared_size,
+                    MAX_PROFILE_ASSET_BYTES,
+                    PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES,
+                    &mut total_bytes,
+                )?;
                 output.flush()?;
             }
         }
@@ -550,9 +557,16 @@ pub(super) fn preview_profile_zip_assets<R: Read + Seek>(
                         "Could not read profile asset {entry_name}: {error}"
                     ))
                 })?;
-                validate_profile_zip_asset_declared_size(entry_name, entry.size())?;
-                add_profile_archive_asset_bytes(&mut total_bytes, entry_name, entry.size())?;
-                copy_limited_profile_zip_asset(entry_name, &mut entry, std::io::sink())?;
+                let declared_size = entry.size();
+                stream_profile_zip_entry_within_budget(
+                    entry_name,
+                    &mut entry,
+                    std::io::sink(),
+                    declared_size,
+                    MAX_PROFILE_ASSET_BYTES,
+                    PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES,
+                    &mut total_bytes,
+                )?;
             }
         }
     }
@@ -616,24 +630,66 @@ fn profile_asset_manifest_path(asset: &Value, index: usize) -> AppResult<&str> {
         })
 }
 
-fn validate_profile_zip_asset_declared_size(entry_name: &str, size: u64) -> AppResult<()> {
-    validate_profile_zip_asset_declared_size_with_limit(entry_name, size, MAX_PROFILE_ASSET_BYTES)
+fn add_profile_archive_asset_bytes(total: &mut u64, entry_name: &str, size: u64) -> AppResult<()> {
+    add_profile_archive_asset_bytes_with_limit(
+        total,
+        entry_name,
+        size,
+        PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES,
+    )
 }
 
-fn add_profile_archive_asset_bytes(total: &mut u64, entry_name: &str, size: u64) -> AppResult<()> {
-    *total = total.checked_add(size).ok_or_else(|| {
-        profile_archive_too_large_error(
+fn add_profile_archive_asset_bytes_with_limit(
+    total: &mut u64,
+    entry_name: &str,
+    size: u64,
+    limit: u64,
+) -> AppResult<()> {
+    *total = total
+        .checked_add(size)
+        .ok_or_else(|| profile_archive_too_large_error(entry_name, u64::MAX, limit))?;
+    if *total > limit {
+        return Err(profile_archive_too_large_error(entry_name, *total, limit));
+    }
+    Ok(())
+}
+
+/// Charge a zip entry against both the per-entry and the aggregate caps while
+/// streaming it, clipping the copy at the remaining aggregate budget so a forged
+/// declared size cannot write a full per-entry quota past the aggregate cap
+/// before the post-copy accounting runs. Honest entries (declared == actual)
+/// never trip the clipped limit because the declared-size charge already
+/// guarantees declared <= remaining budget at copy time.
+fn stream_profile_zip_entry_within_budget<R: Read, W: Write>(
+    entry_name: &str,
+    reader: R,
+    writer: W,
+    declared_size: u64,
+    per_entry_limit: u64,
+    aggregate_limit: u64,
+    total_bytes: &mut u64,
+) -> AppResult<()> {
+    validate_profile_zip_asset_declared_size_with_limit(entry_name, declared_size, per_entry_limit)?;
+    add_profile_archive_asset_bytes_with_limit(
+        total_bytes,
+        entry_name,
+        declared_size,
+        aggregate_limit,
+    )?;
+    let remaining_budget = aggregate_limit.saturating_sub(total_bytes.saturating_sub(declared_size));
+    let copied = copy_limited_profile_zip_asset_with_limit(
+        entry_name,
+        reader,
+        writer,
+        per_entry_limit.min(remaining_budget),
+    )?;
+    if copied > declared_size {
+        add_profile_archive_asset_bytes_with_limit(
+            total_bytes,
             entry_name,
-            u64::MAX,
-            PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES,
-        )
-    })?;
-    if *total > PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES {
-        return Err(profile_archive_too_large_error(
-            entry_name,
-            *total,
-            PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES,
-        ));
+            copied - declared_size,
+            aggregate_limit,
+        )?;
     }
     Ok(())
 }
@@ -649,30 +705,43 @@ fn validate_profile_zip_asset_declared_size_with_limit(
     Ok(())
 }
 
-fn copy_limited_profile_zip_asset<R: Read, W: Write>(
-    entry_name: &str,
-    reader: R,
-    writer: W,
-) -> AppResult<u64> {
-    copy_limited_profile_zip_asset_with_limit(entry_name, reader, writer, MAX_PROFILE_ASSET_BYTES)
-}
-
 fn copy_limited_profile_zip_asset_with_limit<R: Read, W: Write>(
     entry_name: &str,
-    reader: R,
+    mut reader: R,
     mut writer: W,
     limit: u64,
 ) -> AppResult<u64> {
-    let mut limited = reader.take(limit.saturating_add(1));
-    let copied = std::io::copy(&mut limited, &mut writer).map_err(|error| {
-        AppError::invalid_input(format!(
-            "Could not read profile asset {entry_name}: {error}"
-        ))
-    })?;
-    if copied > limit {
-        return Err(profile_asset_too_large_error(entry_name, copied, limit));
+    // Charge each chunk against the budget BEFORE forwarding it, so not even a
+    // single over-budget byte reaches the destination. The read is also capped at
+    // one byte past the remaining budget, so an over-budget (zip-bomb) stream is
+    // never decompressed beyond limit+1 bytes regardless of chunk size. The final
+    // probe byte is the established take(limit+1) idiom (read_zip_entry_with_limit):
+    // a streaming reader cannot detect "more than limit" without reading one byte,
+    // and a read-ahead buffer would consume MORE, not less.
+    let mut buffer = [0_u8; 8192];
+    let mut written: u64 = 0;
+    loop {
+        let allowed = limit.saturating_sub(written).saturating_add(1);
+        let want = (buffer.len() as u64).min(allowed) as usize;
+        let read = reader.read(&mut buffer[..want]).map_err(|error| {
+            AppError::invalid_input(format!("Could not read profile asset {entry_name}: {error}"))
+        })?;
+        if read == 0 {
+            break;
+        }
+        if written.saturating_add(read as u64) > limit {
+            return Err(profile_asset_too_large_error(
+                entry_name,
+                written.saturating_add(read as u64),
+                limit,
+            ));
+        }
+        writer.write_all(&buffer[..read]).map_err(|error| {
+            AppError::invalid_input(format!("Could not write profile asset {entry_name}: {error}"))
+        })?;
+        written += read as u64;
     }
-    Ok(copied)
+    Ok(written)
 }
 
 fn profile_asset_too_large_error(entry_name: &str, size: u64, limit: u64) -> AppError {
@@ -1443,6 +1512,143 @@ mod tests {
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("avatars/huge.png"));
         assert!(error.message.contains("too large"));
+    }
+
+    #[test]
+    fn profile_zip_entry_inflating_past_aggregate_budget_is_rejected() {
+        // Two entries each declare 1 byte but inflate to 40; with a 50-byte
+        // aggregate cap the second entry must be rejected, and no more than the
+        // remaining budget (plus the one-byte sentinel) may reach the writer.
+        let per_entry_limit = 1_000;
+        let aggregate_limit = 50;
+        let mut total = 0_u64;
+
+        let mut first = Vec::new();
+        stream_profile_zip_entry_within_budget(
+            "avatars/a.png",
+            std::io::repeat(1).take(40),
+            &mut first,
+            1,
+            per_entry_limit,
+            aggregate_limit,
+            &mut total,
+        )
+        .expect("first entry fits within the aggregate budget");
+        assert_eq!(first.len(), 40);
+        assert_eq!(total, 40);
+
+        let mut second = Vec::new();
+        let error = stream_profile_zip_entry_within_budget(
+            "avatars/b.png",
+            std::io::repeat(1).take(40),
+            &mut second,
+            1,
+            per_entry_limit,
+            aggregate_limit,
+            &mut total,
+        )
+        .expect_err("second entry overflows the aggregate budget");
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("too large"));
+        // Not one byte past the remaining budget (10) may reach the writer.
+        assert!(second.len() <= 10, "wrote {} bytes past the budget", second.len());
+    }
+
+    #[test]
+    fn profile_zip_entry_with_zero_remaining_budget_writes_nothing() {
+        // The first entry consumes the entire aggregate budget; the second has
+        // zero remaining and must reach the writer with no bytes at all.
+        let mut total = 0_u64;
+        let mut first = Vec::new();
+        stream_profile_zip_entry_within_budget(
+            "avatars/a.png",
+            std::io::repeat(1).take(50),
+            &mut first,
+            50,
+            1_000,
+            50,
+            &mut total,
+        )
+        .expect("first entry exactly fills the aggregate budget");
+        assert_eq!(total, 50);
+
+        let mut second = Vec::new();
+        let error = stream_profile_zip_entry_within_budget(
+            "avatars/b.png",
+            std::io::repeat(1).take(8),
+            &mut second,
+            1,
+            1_000,
+            50,
+            &mut total,
+        )
+        .expect_err("no aggregate budget remains");
+        assert_eq!(error.code, "invalid_input");
+        assert!(second.is_empty(), "wrote {} bytes with zero budget", second.len());
+    }
+
+    #[test]
+    fn profile_zip_entry_crossing_per_entry_cap_writes_no_overflow_byte() {
+        // The per-entry cap (not the aggregate budget) is the binding limit; the
+        // writer must still never receive a byte past that cap.
+        let mut total = 0_u64;
+        let mut out = Vec::new();
+        let error = stream_profile_zip_entry_within_budget(
+            "avatars/huge.png",
+            std::io::repeat(1).take(64),
+            &mut out,
+            1,
+            16,
+            1_000,
+            &mut total,
+        )
+        .expect_err("entry exceeds the per-entry cap");
+        assert_eq!(error.code, "invalid_input");
+        assert!(out.len() <= 16, "wrote {} bytes past the per-entry cap", out.len());
+    }
+
+    #[test]
+    fn profile_zip_entry_does_not_decompress_past_budget() {
+        // A 4 KiB stream with a 1-byte budget must not be pulled from the reader
+        // beyond limit+1 bytes, so a zip bomb is never fully decompressed even on
+        // the preview sink path.
+        let mut reader = std::io::Cursor::new(vec![1_u8; 4096]);
+        let mut total = 0_u64;
+        stream_profile_zip_entry_within_budget(
+            "avatars/bomb.png",
+            &mut reader,
+            std::io::sink(),
+            1,
+            1_000_000,
+            1,
+            &mut total,
+        )
+        .expect_err("over-budget entry is rejected");
+        assert!(
+            reader.position() <= 2,
+            "decompressed {} bytes past the budget",
+            reader.position()
+        );
+    }
+
+    #[test]
+    fn profile_zip_entry_honest_size_is_byte_identical() {
+        // An honest entry (declared == actual) is charged once and streamed in
+        // full; the budget clip never trips because declared <= remaining.
+        let mut total = 0_u64;
+        let mut out = Vec::new();
+        stream_profile_zip_entry_within_budget(
+            "avatars/ok.png",
+            std::io::repeat(7).take(32),
+            &mut out,
+            32,
+            1_000,
+            1_000,
+            &mut total,
+        )
+        .expect("honest entry streams fully");
+        assert_eq!(out.len(), 32);
+        assert_eq!(total, 32);
     }
 
     #[test]
