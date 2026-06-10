@@ -350,7 +350,9 @@ fn validate_persisted_config_value(value: &Value) -> AppResult<()> {
         if !is_runtime_preference(runtime_preference) {
             return Err(AppError::new(
                 "sidecar_config_error",
-                format!("Local Model sidecar runtimePreference is unsupported: {runtime_preference}"),
+                format!(
+                    "Local Model sidecar runtimePreference is unsupported: {runtime_preference}"
+                ),
             ));
         }
     }
@@ -397,7 +399,10 @@ fn normalize_optional_string(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn optional_patch_string(patch: &Map<String, Value>, key: &str) -> AppResult<Option<Option<String>>> {
+fn optional_patch_string(
+    patch: &Map<String, Value>,
+    key: &str,
+) -> AppResult<Option<Option<String>>> {
     let Some(value) = patch.get(key) else {
         return Ok(None);
     };
@@ -411,7 +416,9 @@ fn optional_patch_string(patch: &Map<String, Value>, key: &str) -> AppResult<Opt
                 Some(trimmed.to_string())
             }))
         }
-        _ => Err(AppError::invalid_input(format!("{key} must be a string or null"))),
+        _ => Err(AppError::invalid_input(format!(
+            "{key} must be a string or null"
+        ))),
     }
 }
 
@@ -443,13 +450,17 @@ fn patch_u32(patch: &Map<String, Value>, key: &str) -> AppResult<Option<u32>> {
         None => Ok(None),
         Some(Value::Number(value)) => {
             let Some(value) = value.as_u64() else {
-                return Err(AppError::invalid_input(format!("{key} must be a non-negative integer")));
+                return Err(AppError::invalid_input(format!(
+                    "{key} must be a non-negative integer"
+                )));
             };
             u32::try_from(value)
                 .map(Some)
                 .map_err(|_| AppError::invalid_input(format!("{key} is too large")))
         }
-        Some(_) => Err(AppError::invalid_input(format!("{key} must be a non-negative integer"))),
+        Some(_) => Err(AppError::invalid_input(format!(
+            "{key} must be a non-negative integer"
+        ))),
     }
 }
 
@@ -458,14 +469,14 @@ fn patch_i32(patch: &Map<String, Value>, key: &str) -> AppResult<Option<i32>> {
         None => Ok(None),
         Some(Value::Number(value)) => {
             if let Some(value) = value.as_i64() {
-                return i32::try_from(value)
-                    .map(Some)
-                    .map_err(|_| AppError::invalid_input(format!("{key} is outside the supported range")));
+                return i32::try_from(value).map(Some).map_err(|_| {
+                    AppError::invalid_input(format!("{key} is outside the supported range"))
+                });
             }
             if let Some(value) = value.as_u64() {
-                return i32::try_from(value)
-                    .map(Some)
-                    .map_err(|_| AppError::invalid_input(format!("{key} is outside the supported range")));
+                return i32::try_from(value).map(Some).map_err(|_| {
+                    AppError::invalid_input(format!("{key} is outside the supported range"))
+                });
             }
             Err(AppError::invalid_input(format!("{key} must be an integer")))
         }
@@ -629,21 +640,26 @@ fn model_path_inside_models_dir(state: &AppState, relative_path: &str) -> AppRes
         return Err(AppError::invalid_input("Invalid managed model path"));
     }
     let target = root.join(normalized);
-    ensure_inside_dir(&root, &target, "Managed model path escaped the sidecar models directory")?;
+    ensure_inside_dir(
+        &root,
+        &target,
+        "Managed model path escaped the sidecar models directory",
+    )?;
     Ok(target)
 }
 
 fn ensure_inside_dir(root: &Path, target: &Path, message: &str) -> AppResult<()> {
-    let root = root
-        .canonicalize()
-        .unwrap_or_else(|_| root.to_path_buf());
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let target_parent = target
         .parent()
         .unwrap_or(target)
         .canonicalize()
         .unwrap_or_else(|_| target.parent().unwrap_or(target).to_path_buf());
     if target_parent != root && !target_parent.starts_with(&root) {
-        let lexical_root = root.to_string_lossy().trim_start_matches(r"\\?\").to_string();
+        let lexical_root = root
+            .to_string_lossy()
+            .trim_start_matches(r"\\?\")
+            .to_string();
         let lexical_target = target_parent
             .to_string_lossy()
             .trim_start_matches(r"\\?\")
@@ -689,16 +705,23 @@ fn current_runtime_install(state: &AppState) -> AppResult<Option<SidecarRuntimeI
             .system_path
             .as_deref()
             .map(PathBuf::from)
-            .ok_or_else(|| AppError::new("sidecar_runtime_error", "System runtime path is missing"))?
+            .ok_or_else(|| {
+                AppError::new("sidecar_runtime_error", "System runtime path is missing")
+            })?
     } else {
-        runtime_dir(state)?
-            .join(&record.directory_name)
-            .join(record.server_relative_path.replace('/', std::path::MAIN_SEPARATOR_STR))
+        runtime_dir(state)?.join(&record.directory_name).join(
+            record
+                .server_relative_path
+                .replace('/', std::path::MAIN_SEPARATOR_STR),
+        )
     };
     if !server_path.is_file() {
         return Ok(None);
     }
-    Ok(Some(SidecarRuntimeInstall { record, server_path }))
+    Ok(Some(SidecarRuntimeInstall {
+        record,
+        server_path,
+    }))
 }
 
 fn current_runtime_install_for_config(
@@ -817,7 +840,9 @@ fn validate_model_path(config: &LocalSidecarConfig) -> AppResult<String> {
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| AppError::invalid_input("Select a local model before starting the sidecar"))?;
+        .ok_or_else(|| {
+            AppError::invalid_input("Select a local model before starting the sidecar")
+        })?;
     if !Path::new(model_path).is_file() {
         return Err(AppError::invalid_input(
             "Configured sidecar model path does not exist",
@@ -1029,7 +1054,10 @@ async fn download_url_to_path(
         let raw = response.text().await.unwrap_or_default();
         return Err(AppError::new(
             "sidecar_download_failed",
-            format!("HTTP {status}: {}", raw.chars().take(240).collect::<String>()),
+            format!(
+                "HTTP {status}: {}",
+                raw.chars().take(240).collect::<String>()
+            ),
         ));
     }
 
@@ -1112,7 +1140,10 @@ async fn fetch_json<T: for<'de> Deserialize<'de>>(url: &str) -> AppResult<T> {
         let raw = response.text().await.unwrap_or_default();
         return Err(AppError::new(
             "sidecar_http_failed",
-            format!("HTTP {status}: {}", raw.chars().take(240).collect::<String>()),
+            format!(
+                "HTTP {status}: {}",
+                raw.chars().take(240).collect::<String>()
+            ),
         ));
     }
     response
@@ -1217,8 +1248,7 @@ fn custom_model_entry_from_tree_entry(
     entry: HuggingFaceTreeEntry,
 ) -> Option<CustomModelEntry> {
     let path = entry.path?;
-    if entry.entry_type.as_deref() != Some("file")
-        || !is_supported_llama_cpp_model_filename(&path)
+    if entry.entry_type.as_deref() != Some("file") || !is_supported_llama_cpp_model_filename(&path)
     {
         return None;
     }
@@ -1289,7 +1319,9 @@ fn custom_model_payload(models: Vec<CustomModelEntry>) -> Value {
     })
 }
 
-fn curated_model_for_quantization(quantization: SidecarQuantization) -> AppResult<&'static CuratedSidecarModel> {
+fn curated_model_for_quantization(
+    quantization: SidecarQuantization,
+) -> AppResult<&'static CuratedSidecarModel> {
     CURATED_MODELS
         .iter()
         .find(|model| model.quantization == quantization)
@@ -1304,7 +1336,14 @@ async fn download_curated_model_inner(
     let model = curated_model_for_quantization(quantization)?;
     let destination = model_path_inside_models_dir(state, model.filename)?;
     if !destination.exists() {
-        download_url_to_path(model.download_url, &destination, "model", model.label, cancel).await?;
+        download_url_to_path(
+            model.download_url,
+            &destination,
+            "model",
+            model.label,
+            cancel,
+        )
+        .await?;
     }
 
     let mut process = SIDECAR_PROCESS.lock().await;
@@ -1365,7 +1404,9 @@ fn commit_model_switch(
     previous_path: Option<&str>,
 ) -> AppResult<()> {
     write_config(state, config)?;
-    if let Err(error) = cleanup_previous_managed_model(state, previous_path, config.model_path.as_deref()) {
+    if let Err(error) =
+        cleanup_previous_managed_model(state, previous_path, config.model_path.as_deref())
+    {
         eprintln!(
             "Local Model sidecar previous managed model cleanup failed after config commit: {error}"
         );
@@ -1396,11 +1437,7 @@ fn runtime_asset_candidates(preference: &str) -> Vec<&'static str> {
     runtime_asset_candidates_for(current_platform(), current_arch(), preference)
 }
 
-fn runtime_asset_candidates_for(
-    platform: &str,
-    arch: &str,
-    preference: &str,
-) -> Vec<&'static str> {
+fn runtime_asset_candidates_for(platform: &str, arch: &str, preference: &str) -> Vec<&'static str> {
     match (platform, arch, preference) {
         ("win32", "x64", "nvidia") => vec!["win-x64-cuda"],
         ("win32", "x64", "amd") => vec!["win-x64-hip"],
@@ -1482,7 +1519,9 @@ fn safe_release_asset_filename(name: &str) -> AppResult<String> {
         || filename.contains('\\')
         || filename.contains(':')
     {
-        return Err(AppError::invalid_input("Runtime release asset name is unsafe"));
+        return Err(AppError::invalid_input(
+            "Runtime release asset name is unsafe",
+        ));
     }
     Ok(filename.to_string())
 }
@@ -1498,8 +1537,8 @@ fn runtime_install_matches_preference(install: &SidecarRuntimeInstall, preferenc
                     &install.record.arch,
                     preference,
                 )
-                    .into_iter()
-                    .any(|variant| variant == install.record.variant)
+                .into_iter()
+                .any(|variant| variant == install.record.variant)
         }
         _ => false,
     }
@@ -1540,7 +1579,10 @@ fn windows_cuda_dependency_asset(
 
 async fn find_system_llama_server() -> Option<PathBuf> {
     let candidates: Vec<(&str, Vec<&str>)> = if current_platform() == "win32" {
-        vec![("where", vec!["llama-server.exe"]), ("where", vec!["llama-server"])]
+        vec![
+            ("where", vec!["llama-server.exe"]),
+            ("where", vec!["llama-server"]),
+        ]
     } else {
         vec![("which", vec!["llama-server"])]
     };
@@ -1585,7 +1627,12 @@ fn find_executable_recursive(root: &Path, name: &str) -> AppResult<PathBuf> {
                 .map(|file_name| file_name.to_string_lossy().eq_ignore_ascii_case(name))
                 .unwrap_or(false)
         })
-        .ok_or_else(|| AppError::new("sidecar_runtime_error", format!("Could not find {name} in runtime archive")))
+        .ok_or_else(|| {
+            AppError::new(
+                "sidecar_runtime_error",
+                format!("Could not find {name} in runtime archive"),
+            )
+        })
 }
 
 fn extract_runtime_archive(archive_path: &Path, extract_dir: &Path) -> AppResult<()> {
@@ -1816,7 +1863,8 @@ async fn install_runtime_inner(
     .await;
     extract_runtime_archive(&archive_path, &extract_dir)?;
     if variant == "win-x64-cuda" {
-        if let Some(dependency_asset) = windows_cuda_dependency_asset(&release.assets, &asset.name) {
+        if let Some(dependency_asset) = windows_cuda_dependency_asset(&release.assets, &asset.name)
+        {
             let dependency_filename = safe_release_asset_filename(&dependency_asset.name)?;
             let dependency_path = runtime_root.join(&dependency_filename);
             download_url_to_path(
@@ -1839,7 +1887,12 @@ async fn install_runtime_inner(
     let executable_path = find_executable_recursive(&extract_dir, executable_name)?;
     let server_relative_path = executable_path
         .strip_prefix(&extract_dir)
-        .map_err(|_| AppError::new("sidecar_runtime_error", "Runtime executable escaped the extraction directory"))?
+        .map_err(|_| {
+            AppError::new(
+                "sidecar_runtime_error",
+                "Runtime executable escaped the extraction directory",
+            )
+        })?
         .to_path_buf();
     fs::rename(&extract_dir, &final_dir)?;
     let final_executable = final_dir.join(&server_relative_path);
@@ -1974,14 +2027,12 @@ impl SidecarProcessState {
             command.creation_flags(CREATE_NO_WINDOW);
         }
 
-        let mut child = command
-            .spawn()
-            .map_err(|error| {
-                AppError::new(
-                    "sidecar_start_failed",
-                    format!("Failed to start local sidecar executable at {executable}: {error}"),
-                )
-            })?;
+        let mut child = command.spawn().map_err(|error| {
+            AppError::new(
+                "sidecar_start_failed",
+                format!("Failed to start local sidecar executable at {executable}: {error}"),
+            )
+        })?;
 
         match wait_for_ready(&base_url, &mut child).await {
             Ok(()) => {
@@ -2013,13 +2064,21 @@ async fn status_payload(state: &AppState) -> AppResult<Value> {
     process.refresh_exit()?;
     let download = SIDECAR_DOWNLOAD.lock().await;
     let status = if download.active {
-        match download.progress.as_ref().map(|progress| progress.phase.as_str()) {
+        match download
+            .progress
+            .as_ref()
+            .map(|progress| progress.phase.as_str())
+        {
             Some("runtime") => "downloading_runtime",
             Some("model") => "downloading_model",
             _ => "downloading_model",
         }
     } else if process.status.is_empty() {
-        if configured(&config) { "downloaded" } else { "not_configured" }
+        if configured(&config) {
+            "downloaded"
+        } else {
+            "not_configured"
+        }
     } else {
         process.status.as_str()
     };
@@ -2055,7 +2114,9 @@ pub(crate) async fn update_config(state: &AppState, body: Value) -> AppResult<Va
 
     let mut process = SIDECAR_PROCESS.lock().await;
     process.refresh_exit()?;
-    if process.child.is_some() && process.signature.as_deref() != Some(config_signature(state, &next).as_str()) {
+    if process.child.is_some()
+        && process.signature.as_deref() != Some(config_signature(state, &next).as_str())
+    {
         process.stop_locked().await?;
     }
     drop(process);
@@ -2094,7 +2155,9 @@ pub(crate) async fn list_huggingface_models(_state: &AppState, body: Value) -> A
         .get("repo")
         .and_then(Value::as_str)
         .ok_or_else(|| AppError::invalid_input("repo is required"))?;
-    Ok(custom_model_payload(list_huggingface_models_inner(repo).await?))
+    Ok(custom_model_payload(
+        list_huggingface_models_inner(repo).await?,
+    ))
 }
 
 pub(crate) async fn download_custom(state: &AppState, body: Value) -> AppResult<Value> {
@@ -2306,10 +2369,14 @@ mod tests {
     }
 
     fn test_state(label: &str) -> AppState {
-        AppState::from_data_dir(temp_dir(label), Vec::new()).expect("test app state should initialize")
+        AppState::from_data_dir(temp_dir(label), Vec::new())
+            .expect("test app state should initialize")
     }
 
-    fn write_fake_bundled_runtime_install(state: &AppState, variant: &str) -> SidecarRuntimeInstall {
+    fn write_fake_bundled_runtime_install(
+        state: &AppState,
+        variant: &str,
+    ) -> SidecarRuntimeInstall {
         write_fake_bundled_runtime_install_for(state, variant, current_platform(), current_arch())
     }
 
@@ -2325,8 +2392,12 @@ mod tests {
             .expect("runtime dir should resolve")
             .join(&directory_name)
             .join(&executable_relative);
-        fs::create_dir_all(executable_path.parent().expect("executable should have parent"))
-            .expect("runtime executable parent should be creatable");
+        fs::create_dir_all(
+            executable_path
+                .parent()
+                .expect("executable should have parent"),
+        )
+        .expect("runtime executable parent should be creatable");
         fs::write(&executable_path, b"server").expect("runtime executable should be writable");
         let install = SidecarRuntimeInstall {
             record: SidecarRuntimeRecord {
@@ -2426,17 +2497,17 @@ mod tests {
 
         assert_eq!(read_error.code, "sidecar_config_error");
         assert_eq!(patch_error.code, "sidecar_config_error");
-        assert!(
-            fs::read_to_string(&path)
-                .expect("invalid config should remain readable")
-                .contains("unsupported")
-        );
+        assert!(fs::read_to_string(&path)
+            .expect("invalid config should remain readable")
+            .contains("unsupported"));
 
         let missing_field_state = test_state("missing-runtime-preference");
-        let missing_field_path = config_path(&missing_field_state).expect("config path should resolve");
+        let missing_field_path =
+            config_path(&missing_field_state).expect("config path should resolve");
         fs::write(&missing_field_path, json!({ "enabled": true }).to_string())
             .expect("legacy config should be writable");
-        let legacy_config = read_config(&missing_field_state).expect("missing runtimePreference should default");
+        let legacy_config =
+            read_config(&missing_field_state).expect("missing runtimePreference should default");
 
         assert!(legacy_config.enabled);
         assert_eq!(legacy_config.runtime_preference, "auto");
@@ -2528,7 +2599,8 @@ mod tests {
             json!({ "runtimePreference": 7 }),
             json!({ "runtimePreference": "unsupported" }),
         ] {
-            let error = patch_config(config.clone(), patch).expect_err("bad scalar patch should fail");
+            let error =
+                patch_config(config.clone(), patch).expect_err("bad scalar patch should fail");
             assert_eq!(error.code, "invalid_input");
         }
 
@@ -2629,7 +2701,9 @@ mod tests {
 
         assert!(!previous_path.exists());
         assert_eq!(
-            read_config(&state).expect("committed config should be readable").model_path,
+            read_config(&state)
+                .expect("committed config should be readable")
+                .model_path,
             config.model_path
         );
     }
@@ -2667,7 +2741,8 @@ mod tests {
         let extract_dir = root.join("extract");
         write_tar_gz_file(&archive_path, "bin/llama-server", b"server");
 
-        extract_runtime_archive(&archive_path, &extract_dir).expect("normal tar archive should extract");
+        extract_runtime_archive(&archive_path, &extract_dir)
+            .expect("normal tar archive should extract");
 
         assert_eq!(
             fs::read_to_string(extract_dir.join("bin").join("llama-server"))
@@ -2720,12 +2795,8 @@ mod tests {
     #[test]
     fn runtime_preference_rejects_recorded_metal_when_cpu_selected() {
         let state = test_state("cpu-rejects-metal");
-        let install = write_fake_bundled_runtime_install_for(
-            &state,
-            "macos-arm64-metal",
-            "darwin",
-            "arm64",
-        );
+        let install =
+            write_fake_bundled_runtime_install_for(&state, "macos-arm64-metal", "darwin", "arm64");
 
         assert!(!runtime_install_matches_preference(&install, "cpu"));
         assert!(runtime_install_matches_preference(&install, "auto"));

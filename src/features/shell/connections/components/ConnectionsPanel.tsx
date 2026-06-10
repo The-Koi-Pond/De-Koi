@@ -4,6 +4,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Reorder, useDragControls } from "framer-motion";
 import {
+  isSyntheticConnection,
   useConnections,
   useDuplicateConnection,
   useDeleteConnection,
@@ -22,6 +23,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import type { ConnectionFolder } from "../../../../engine/contracts/types/connection";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { Modal } from "../../../../shared/components/ui/Modal";
+import { LocalSidecarCard } from "./LocalSidecarCard";
 import {
   Plus,
   Trash2,
@@ -336,7 +338,10 @@ export function ConnectionsPanel() {
   const [newFolderName, setNewFolderName] = useState("");
   const [movingConnectionId, setMovingConnectionId] = useState<string | null>(null);
 
-  const connectionsList = useMemo(() => (connections as ConnectionRowData[] | undefined) ?? [], [connections]);
+  const connectionsList = useMemo(
+    () => ((connections as ConnectionRowData[] | undefined) ?? []).filter((c) => !isSyntheticConnection(c)),
+    [connections],
+  );
 
   // Sorted folder list + local order for optimistic drag-to-reorder
   const sortedFolders = useMemo(() => {
@@ -435,9 +440,6 @@ export function ConnectionsPanel() {
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      {/* ── Text to Speech ── */}
-      <TTSConfigCard />
-
       <button
         onClick={() => openModal("create-connection")}
         className="flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-medium transition-all active:scale-[0.98] bg-gradient-to-r from-sky-400 to-blue-500 text-white shadow-md shadow-sky-400/15 hover:shadow-lg hover:shadow-sky-400/25"
@@ -445,6 +447,12 @@ export function ConnectionsPanel() {
         <Plus size="0.8125rem" />
         Add Connection
       </button>
+
+      {/* ── Local Model sidecar ── */}
+      <LocalSidecarCard />
+
+      {/* ── Text to Speech ── */}
+      <TTSConfigCard />
 
       {/* ── New folder button / inline input ── */}
       {creatingFolder ? (

@@ -9,8 +9,13 @@ import {
   updateConnectionSchema,
 } from "../../../../engine/contracts/schemas/connection.schema";
 import { connectionCommandApi } from "../../../../shared/api/connection-command-api";
+import { localSidecarApi } from "../../../../shared/api/local-sidecar-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
+import {
+  LOCAL_SIDECAR_CONNECTION_ID,
+  type LocalSidecarStatusResponse,
+} from "../../../../engine/contracts/types/sidecar";
 import type { ConnectionRow, ConnectionTestResult } from "../types";
 
 export { connectionKeys } from "../query-keys";
@@ -27,6 +32,8 @@ export type ClaudeSubscriptionDiagnosis = {
 };
 
 type CreateConnectionVariables = Partial<CreateConnectionInput> & Pick<CreateConnectionInput, "name" | "provider">;
+const CONNECTION_LIST_STALE_TIME_MS = 5_000;
+const CONNECTION_LIST_REFETCH_INTERVAL_MS = 5_000;
 
 const CONNECTION_SUMMARY_OPTIONS = {
   fields: [
@@ -50,7 +57,7 @@ const CONNECTION_SUMMARY_OPTIONS = {
 
 export type ConnectionSummary = Pick<
   ConnectionRow,
-  "id" | "name" | "provider" | "model" | "baseUrl" | "useForRandom" | "createdAt" | "updatedAt"
+  "id" | "name" | "provider" | "model" | "baseUrl" | "useForRandom" | "createdAt" | "updatedAt" | "synthetic"
 > & {
   folderId?: string | null;
   isDefault?: string | boolean | null;
@@ -61,20 +68,75 @@ export type ConnectionSummary = Pick<
   embeddingModel?: string | null;
 };
 
+function isSyntheticConnectionId(id: string | null | undefined): boolean {
+  return id === LOCAL_SIDECAR_CONNECTION_ID;
+}
+
+export function isSyntheticConnection(
+  connection: (Pick<ConnectionSummary, "id"> & { synthetic?: boolean }) | null | undefined,
+): boolean {
+  return connection?.synthetic === true || isSyntheticConnectionId(connection?.id);
+}
+
+export function assertStoredConnectionId(id: string): string {
+  if (isSyntheticConnectionId(id)) {
+    throw new Error("Local Model is a runtime-only connection option and cannot be modified as a stored connection.");
+  }
+  return id;
+}
+
+function canAdvertiseLocalSidecar(status: LocalSidecarStatusResponse): boolean {
+  const hasRuntime = status.runtime.installed || !!status.config.executablePath?.trim();
+  return (
+    status.configured &&
+    status.enabled &&
+    status.modelDownloaded &&
+    hasRuntime &&
+    status.status === "ready" &&
+    status.ready &&
+    !!status.baseUrl
+  );
+}
+
 export function useConnections(enabled = true) {
   return useQuery({
     queryKey: connectionKeys.list(),
-    queryFn: () => storageApi.list<ConnectionSummary>("connections", CONNECTION_SUMMARY_OPTIONS),
+    queryFn: async () => {
+      const [rows, sidecarStatus] = await Promise.all([
+        storageApi.list<ConnectionSummary>("connections", CONNECTION_SUMMARY_OPTIONS),
+        localSidecarApi.status().catch(() => null),
+      ]);
+      if (!sidecarStatus || !canAdvertiseLocalSidecar(sidecarStatus)) return rows;
+      return [
+        {
+          id: LOCAL_SIDECAR_CONNECTION_ID,
+          name: "Local Model",
+          provider: "custom",
+          synthetic: true,
+          model: sidecarStatus.config.model,
+          baseUrl: sidecarStatus.baseUrl ?? "",
+          useForRandom: false,
+          isDefault: false,
+          defaultForAgents: false,
+          embeddingModel: sidecarStatus.config.model,
+          createdAt: "",
+          updatedAt: "",
+        },
+        ...rows,
+      ];
+    },
     enabled,
-    staleTime: 5 * 60_000,
+    staleTime: CONNECTION_LIST_STALE_TIME_MS,
+    refetchInterval: CONNECTION_LIST_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   });
 }
 
 export function useConnection(id: string | null) {
   return useQuery({
     queryKey: connectionKeys.detail(id ?? ""),
-    queryFn: () => storageApi.get<Record<string, unknown>>("connections", id!),
-    enabled: !!id,
+    queryFn: () => storageApi.get<Record<string, unknown>>("connections", assertStoredConnectionId(id!)),
+    enabled: !!id && !isSyntheticConnectionId(id),
     staleTime: 5 * 60_000,
   });
 }
@@ -92,7 +154,7 @@ export function useUpdateConnection() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...data }: { id: string } & Record<string, unknown>) =>
-      storageApi.update("connections", id, updateConnectionSchema.parse(data)),
+      storageApi.update("connections", assertStoredConnectionId(id), updateConnectionSchema.parse(data)),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: connectionKeys.list() });
       qc.invalidateQueries({ queryKey: connectionKeys.detail(variables.id) });
@@ -103,7 +165,8 @@ export function useUpdateConnection() {
 export function useDuplicateConnection() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => storageCommandsApi.duplicate<ConnectionRow>("connections", id),
+    mutationFn: (id: string) =>
+      storageCommandsApi.duplicate<ConnectionRow>("connections", assertStoredConnectionId(id)),
     onSuccess: () => qc.invalidateQueries({ queryKey: connectionKeys.list() }),
   });
 }
@@ -111,7 +174,7 @@ export function useDuplicateConnection() {
 export function useDeleteConnection() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => storageApi.delete("connections", id),
+    mutationFn: (id: string) => storageApi.delete("connections", assertStoredConnectionId(id)),
     onSuccess: () => qc.invalidateQueries({ queryKey: connectionKeys.list() }),
   });
 }
@@ -174,7 +237,7 @@ export function useSaveConnectionDefaults() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, params }: { id: string; params: Record<string, unknown> | null }) =>
-      connectionCommandApi.saveDefaultParameters(id, params),
+      connectionCommandApi.saveDefaultParameters(assertStoredConnectionId(id), params),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: connectionKeys.list() });
       qc.invalidateQueries({ queryKey: connectionKeys.detail(variables.id) });
