@@ -84,6 +84,13 @@ For code changes, final responses must include behavior changed, primary files/m
 - `skills/frontend-design`: Repo-local frontend concept, layout, visual direction, and first-pass UI implementation workflow that pairs with Impeccable.
 - `skills/impeccable`: Repo-local frontend design, critique, polish, accessibility, responsive, and live-iteration workflow for UI craft passes.
 - `skills/bunny-style-review`: Repo-local branch and PR review workflow for failure-path review and actionable nitpicks.
+- `skills/de-koi-bugfix-discipline`: Root-cause bugfix and feedback-loop-first diagnosis workflow for regressions, failing checks, storage, provider, import/export, generation, mode, and runtime bugs.
 - `skills/de-koi-legacy-parity-audit`: Repo-local parityscan workflow for comparing refactor features, contracts, storage, runtime behavior, and product surfaces against legacy Marinara.
 - `skills/de-koi-architecture-guard`: Architecture guardrails for placement, import direction, and remote-capable command routing.
 - `skills/de-koi-agent-workflow`: Agent workflow references, source maps, handoff formats, and verification discipline.
+- `skills/tdd`: Behavior-first De-Koi red-green-refactor workflow using public interfaces and durable-test rationale.
+- `skills/prototype`: Throwaway De-Koi logic, state-model, API-shape, and UI-layout prototype workflow.
+- `skills/improve-codebase-architecture`: Module/interface deepening workflow for locality, leverage, testability, and safe refactor candidates.
+- `skills/to-issues`: Vertical-slice GitHub issue drafting workflow for plans, PRDs, parity targets, and feature ideas.
+- `skills/to-prd`: PRD-style GitHub issue drafting workflow for feature requirements, implementation decisions, and testing decisions.
+- `skills/grill-with-docs`: Plan interrogation and durable decision capture workflow grounded in De-Koi docs and architecture rules.

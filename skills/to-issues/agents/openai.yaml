@@ -1,0 +1,4 @@
+interface:
+  display_name: "To Issues"
+  short_description: "Split De-Koi plans into vertical GitHub issue slices."
+  default_prompt: "Use this skill to turn a De-Koi plan, PRD, or parity target into small ready-for-implementation GitHub issues."

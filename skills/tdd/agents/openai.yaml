@@ -1,0 +1,4 @@
+interface:
+  display_name: "TDD"
+  short_description: "Use behavior-first red-green-refactor cycles in De-Koi."
+  default_prompt: "Use this skill for De-Koi TDD, test-first fixes, regression tests, or behavior changes that need a durable proof guard."

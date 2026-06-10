@@ -28,6 +28,12 @@ When this workflow conflicts with a repo rule, keep the repo rule. When it makes
 - Load `skills/de-koi-architecture-guard/SKILL.md` for imports, file layout, shared modules, runtime adapters, Tauri/HTTP boundaries, Rust capabilities, repositories, or cross-feature boundaries.
 - Load `skills/de-koi-mode-separation/SKILL.md` for chat, roleplay, game, prompt assembly, generation routing, scene logic, autonomous flows, or mode UI.
 - Load `skills/de-koi-bugfix-discipline/SKILL.md` for regressions, broken UI actions, failing checks, provider/storage/import/generation problems, or root-cause repairs.
+- Load `skills/tdd/SKILL.md` for test-first work, red-green-refactor, durable regression tests, or behavior changes that need committed proof.
+- Load `skills/prototype/SKILL.md` for throwaway logic, state-model, API-shape, or UI-layout prototypes.
+- Load `skills/improve-codebase-architecture/SKILL.md` for architecture deepening, shallow-module scans, module/interface design, or testability refactor planning.
+- Load `skills/to-issues/SKILL.md` for splitting plans, PRDs, parity targets, or feature ideas into vertical GitHub issue slices.
+- Load `skills/to-prd/SKILL.md` for drafting PRD-style feature issues from current context.
+- Load `skills/grill-with-docs/SKILL.md` for plan interrogation, terminology sharpening, and durable decision capture against repo docs.
 
 Load only the workflow card that matches the current lane:
 

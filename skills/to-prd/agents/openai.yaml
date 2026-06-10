@@ -1,0 +1,4 @@
+interface:
+  display_name: "To PRD"
+  short_description: "Draft De-Koi PRD-style feature issues from context."
+  default_prompt: "Use this skill to turn current De-Koi feature context into a PRD-style GitHub issue draft with implementation and testing decisions."

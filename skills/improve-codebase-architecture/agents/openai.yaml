@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve Codebase Architecture"
+  short_description: "Find De-Koi refactors that deepen modules and improve testability."
+  default_prompt: "Use this skill to inspect De-Koi architecture, identify shallow modules, or plan safe refactors with boundary-aware proof."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prototype"
+  short_description: "Build throwaway De-Koi logic or UI prototypes."
+  default_prompt: "Use this skill to prototype a De-Koi state model, API shape, workflow, or UI variant before production implementation."

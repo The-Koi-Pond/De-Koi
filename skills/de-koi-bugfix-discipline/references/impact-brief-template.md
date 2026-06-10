@@ -10,7 +10,11 @@ Core claim:
 Likely owner/lane:
 Risk: low|risky
 Proof target:
+Feedback loop:
+Top hypothesis:
 ```
+
+For nontrivial or hard-to-reproduce bugs, add the top 3-5 falsifiable hypotheses and the observation that would confirm or reject each one. Skip the list only when the owner and cause are already obvious from a failing check or exact repro.
 
 ## After Editing
 
@@ -23,6 +27,8 @@ Mode impact:
 Shared layer impact:
 Rust/TS boundary impact:
 Verification:
+Feedback loop rerun:
+Debug cleanup:
 Not touched:
 Remaining risk:
 ```

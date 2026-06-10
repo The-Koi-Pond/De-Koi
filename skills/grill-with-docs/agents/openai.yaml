@@ -1,0 +1,4 @@
+interface:
+  display_name: "Grill With Docs"
+  short_description: "Stress-test De-Koi plans against repo docs and rules."
+  default_prompt: "Use this skill to interrogate a De-Koi plan, clarify terms and owners, and capture only durable decisions in the right docs or issue text."
