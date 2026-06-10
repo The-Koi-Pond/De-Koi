@@ -576,6 +576,10 @@ function OnboardingTutorialInner({ onShellInertResync }: OnboardingTutorialProps
         />
       )}
 
+      {isCentered && (
+        <div className="pointer-events-none fixed inset-0 bg-[rgba(1,7,13,0.72)] backdrop-blur-[2px]" />
+      )}
+
       {/* Centered steps use a flex wrapper so Framer Motion transforms don't override CSS centering */}
       {isCentered ? (
         <div className="pointer-events-none fixed inset-0 flex items-center justify-center">
@@ -586,7 +590,7 @@ function OnboardingTutorialInner({ onShellInertResync }: OnboardingTutorialProps
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -8, scale: 0.96 }}
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-              className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-5 shadow-2xl ring-1 ring-[var(--primary)]/20 max-h-[90vh] overflow-x-hidden overflow-y-auto"
+              className="pointer-events-auto max-h-[90vh] overflow-x-hidden overflow-y-auto rounded-2xl border border-[color-mix(in_srgb,var(--primary)_36%,var(--border))] bg-[color-mix(in_srgb,var(--popover)_94%,black)] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.62),0_0_0_1px_rgba(255,255,255,0.04)_inset] ring-1 ring-[var(--primary)]/30"
               style={{ width: Math.min(380, window.innerWidth - 32) }}
             >
               <TourCardContent

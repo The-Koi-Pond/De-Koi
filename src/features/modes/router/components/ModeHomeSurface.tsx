@@ -90,9 +90,9 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
     <>
       <div
         data-component="ChatArea.EmptyState"
-        className="koi-pond-surface flex flex-1 flex-col items-center overflow-y-auto p-3 sm:p-5 lg:p-6"
+        className="koi-pond-surface flex min-w-0 flex-1 flex-col items-center overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-6"
       >
-        <div className="flex w-full max-w-3xl flex-col items-center gap-4 py-3 sm:gap-5 sm:py-5 lg:pt-6 lg:pb-7">
+        <div className="flex w-full max-w-3xl min-w-0 flex-col items-center gap-4 py-3 sm:gap-5 sm:py-5 lg:pt-6 lg:pb-7">
           <div className="relative">
             <div
               className={cn(
@@ -129,7 +129,7 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
 
           <div
             className={cn(
-              "grid w-full grid-cols-3 gap-2 px-2 sm:flex sm:w-auto sm:justify-center sm:gap-5 sm:px-0",
+              "grid w-full max-w-[32rem] min-w-0 grid-cols-3 gap-2 px-0 sm:gap-4",
               showEmptyStateEffects && "stagger-children",
             )}
           >
@@ -318,7 +318,7 @@ function QuickStartCard({
       aria-label={`${comingSoon && !onClick ? "Show status for" : "Start"} ${label} chat`}
       className={cn(
         "koi-start-card group card-3d-tilt btn-scanlines koi-ripple relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl border p-2.5 text-center transition-all",
-        "sm:h-36 sm:w-36 sm:gap-3 sm:p-5",
+        "aspect-square min-h-[6rem] sm:gap-3 sm:p-5",
         "cursor-pointer hover:-translate-y-1",
       )}
       style={quickStartStyle}
