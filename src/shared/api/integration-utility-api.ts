@@ -1,4 +1,8 @@
-import { fileToUploadPayload } from "./file-payload";
+import {
+  fileToUploadPayload,
+  KNOWLEDGE_SOURCE_UPLOAD_SIZE_ERROR,
+  MAX_KNOWLEDGE_SOURCE_UPLOAD_BYTES,
+} from "./file-payload";
 import { openExternalUrl } from "./external-link-api";
 import { remoteRuntimeTarget } from "./remote-runtime";
 import { invokeTauri } from "./tauri-client";
@@ -82,7 +86,10 @@ export const spotifyApi = {
 export const knowledgeSourcesApi = {
   list: <T = unknown>() => invokeTauri<T>("knowledge_sources_list"),
   upload: (file: File) => {
-    return fileToUploadPayload(file).then((payload) =>
+    return fileToUploadPayload(file, {
+      maxBytes: MAX_KNOWLEDGE_SOURCE_UPLOAD_BYTES,
+      tooLargeMessage: KNOWLEDGE_SOURCE_UPLOAD_SIZE_ERROR,
+    }).then((payload) =>
       invokeTauri("knowledge_source_upload", {
         body: { file: payload },
       }),
