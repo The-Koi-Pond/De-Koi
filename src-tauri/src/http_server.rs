@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
+use tokio_stream::wrappers::ReceiverStream;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 const CSRF_HEADER_NAME: &str = "x-marinara-csrf";
@@ -36,6 +36,7 @@ const ADMIN_SECRET_HEADER_NAME: &str = "x-admin-secret";
 const MAX_API_BODY_BYTES: usize = 256 * 1024 * 1024;
 const MAX_PROFILE_UPLOAD_BYTES: usize = 1024 * 1024 * 1024;
 const MAX_PROFILE_UPLOAD_BODY_BYTES: usize = MAX_PROFILE_UPLOAD_BYTES + 1024 * 1024;
+const SSE_EVENT_CHANNEL_CAPACITY: usize = 256;
 const DEFAULT_API_RATE_LIMIT: u32 = 600;
 const INVOKE_PRE_EXTRACTION_API_RATE_LIMIT: u32 = DEFAULT_API_RATE_LIMIT * 10;
 const DEFAULT_API_RATE_WINDOW: Duration = Duration::from_secs(60);
@@ -788,10 +789,10 @@ async fn profile_import_upload_stream(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     mut multipart: Multipart,
-) -> Result<Sse<KeepAliveStream<UnboundedReceiverStream<Result<Event, Infallible>>>>, HttpError> {
+) -> Result<Sse<KeepAliveStream<ReceiverStream<Result<Event, Infallible>>>>, HttpError> {
     require_admin_access_for_command("profile_import_upload_stream", &headers, addr.ip())?;
     let upload_path = profile_upload_temp_file(&state.app, &mut multipart).await?;
-    let (tx, rx) = mpsc::unbounded_channel::<Result<Event, Infallible>>();
+    let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(SSE_EVENT_CHANNEL_CAPACITY);
     tokio::spawn(async move {
         let started = Instant::now();
         request_log("profile_import_upload_stream started");
@@ -805,7 +806,7 @@ async fn profile_import_upload_stream(
                 None,
                 |event| {
                     progress_tx
-                        .send(Ok(Event::default().data(event.to_string())))
+                        .blocking_send(Ok(Event::default().data(event.to_string())))
                         .map_err(|error| AppError::new("sse_stream_error", error.to_string()))
                 },
             )
@@ -832,7 +833,7 @@ async fn profile_import_upload_stream(
                     started.elapsed().as_millis()
                 ));
                 let payload = json!({ "type": "done", "data": value });
-                let _ = tx.send(Ok(Event::default().data(payload.to_string())));
+                let _ = tx.send(Ok(Event::default().data(payload.to_string()))).await;
             }
             Err(error) => {
                 request_log(format!(
@@ -842,12 +843,12 @@ async fn profile_import_upload_stream(
                     started.elapsed().as_millis()
                 ));
                 let payload = profile_import_error_payload(&error);
-                let _ = tx.send(Ok(Event::default().data(payload.to_string())));
+                let _ = tx.send(Ok(Event::default().data(payload.to_string()))).await;
             }
         }
     });
 
-    Ok(Sse::new(UnboundedReceiverStream::new(rx)).keep_alive(KeepAlive::default()))
+    Ok(Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default()))
 }
 
 fn profile_import_error_payload(error: &AppError) -> Value {
@@ -1034,9 +1035,9 @@ async fn import_st_bulk_run_stream(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(body): Json<Value>,
-) -> Result<Sse<KeepAliveStream<UnboundedReceiverStream<Result<Event, Infallible>>>>, HttpError> {
+) -> Result<Sse<KeepAliveStream<ReceiverStream<Result<Event, Infallible>>>>, HttpError> {
     require_admin_access_for_command("import_st_bulk_run", &headers, addr.ip())?;
-    let (tx, rx) = mpsc::unbounded_channel::<Result<Event, Infallible>>();
+    let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(SSE_EVENT_CHANNEL_CAPACITY);
     tokio::spawn(async move {
         let started = Instant::now();
         request_log("import_st_bulk_run_stream started");
@@ -1045,7 +1046,7 @@ async fn import_st_bulk_run_stream(
         let result = match tokio::task::spawn_blocking(move || {
             imports::import_stream_callback(&import_state, &["st-bulk", "run"], body, |event| {
                 progress_tx
-                    .send(Ok(Event::default().data(event.to_string())))
+                    .blocking_send(Ok(Event::default().data(event.to_string())))
                     .map_err(|error| AppError::new("sse_stream_error", error.to_string()))
             })
         })
@@ -1080,12 +1081,12 @@ async fn import_st_bulk_run_stream(
                         "details": error.details,
                     },
                 });
-                let _ = tx.send(Ok(Event::default().data(payload.to_string())));
+                let _ = tx.send(Ok(Event::default().data(payload.to_string()))).await;
             }
         }
     });
 
-    Ok(Sse::new(UnboundedReceiverStream::new(rx)).keep_alive(KeepAlive::default()))
+    Ok(Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default()))
 }
 
 fn is_privileged_remote_command(command: &str) -> bool {
@@ -1477,16 +1478,16 @@ async fn llm_stream(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(body): Json<LlmStreamRequest>,
-) -> Result<Sse<KeepAliveStream<UnboundedReceiverStream<Result<Event, Infallible>>>>, HttpError> {
+) -> Result<Sse<KeepAliveStream<ReceiverStream<Result<Event, Infallible>>>>, HttpError> {
     require_admin_access_for_sidecar_llm_request(&state.app, &body.request, &headers, addr.ip())?;
-    let (tx, rx) = mpsc::unbounded_channel::<Result<Event, Infallible>>();
+    let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(SSE_EVENT_CHANNEL_CAPACITY);
     tokio::spawn(async move {
         let stream_id = body.stream_id.clone();
         let started = Instant::now();
         request_log(format!("llm_stream {stream_id} started"));
         let result = llm::llm_stream_events(&state.app, body.stream_id, body.request, |event| {
             let data = serde_json::to_string(&event)?;
-            tx.send(Ok(Event::default().data(data)))
+            tx.try_send(Ok(Event::default().data(data)))
                 .map_err(|error| AppError::new("sse_stream_error", error.to_string()))
         })
         .await;
@@ -1511,12 +1512,12 @@ async fn llm_stream(
                     "message": error.message,
                     "data": error.details,
                 });
-                let _ = tx.send(Ok(Event::default().data(payload.to_string())));
+                let _ = tx.send(Ok(Event::default().data(payload.to_string()))).await;
             }
         }
     });
 
-    Ok(Sse::new(UnboundedReceiverStream::new(rx)).keep_alive(KeepAlive::default()))
+    Ok(Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default()))
 }
 
 async fn llm_stream_cancel(
