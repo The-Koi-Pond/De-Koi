@@ -442,12 +442,18 @@ mod tests {
             .join("connections.json.corrupted-123")
             .exists());
 
-        // Legacy backup folders may still hold a raw sidecar; the zip must drop it.
+        // Legacy backup folders may still hold raw sidecars; the zip must drop
+        // the whole family, not just .bak.
         fs::write(
             backup_collections.join("connections.json.bak"),
             br#"[{"id":"connection-1","apiKeyEncrypted":"v1:secret"}]"#,
         )
         .expect("legacy sidecar fixture should write");
+        fs::write(
+            backup_collections.join("connections.json.corrupted-456"),
+            br#"[{"id":"connection-1","apiKeyEncrypted":"v1:secret"}]"#,
+        )
+        .expect("legacy corrupted sidecar fixture should write");
         let downloaded = download_backup(&state, Some(name)).expect("backup should download");
         let bytes = general_purpose::STANDARD
             .decode(downloaded["base64"].as_str().expect("zip base64"))
