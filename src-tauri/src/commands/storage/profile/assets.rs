@@ -516,7 +516,17 @@ pub(super) fn restore_profile_zip_assets<R: Read + Seek>(
                 validate_profile_zip_asset_declared_size(&entry_name, declared_size)?;
                 add_profile_archive_asset_bytes(&mut total_bytes, &entry_name, declared_size)?;
                 let mut output = File::create(target)?;
-                let copied = copy_limited_profile_zip_asset(&entry_name, &mut entry, &mut output)?;
+                // Cap the streamed bytes at the remaining aggregate budget so a
+                // forged entry cannot write a full per-entry quota past the cap
+                // before the post-copy accounting runs.
+                let remaining_budget = PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES
+                    .saturating_sub(total_bytes.saturating_sub(declared_size));
+                let copied = copy_limited_profile_zip_asset_with_limit(
+                    &entry_name,
+                    &mut entry,
+                    &mut output,
+                    MAX_PROFILE_ASSET_BYTES.min(remaining_budget),
+                )?;
                 output.flush()?;
                 // The declared size comes from the attacker-controlled zip directory;
                 // charge the actual decompressed bytes against the aggregate cap too.
@@ -563,8 +573,14 @@ pub(super) fn preview_profile_zip_assets<R: Read + Seek>(
                 let declared_size = entry.size();
                 validate_profile_zip_asset_declared_size(entry_name, declared_size)?;
                 add_profile_archive_asset_bytes(&mut total_bytes, entry_name, declared_size)?;
-                let copied =
-                    copy_limited_profile_zip_asset(entry_name, &mut entry, std::io::sink())?;
+                let remaining_budget = PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES
+                    .saturating_sub(total_bytes.saturating_sub(declared_size));
+                let copied = copy_limited_profile_zip_asset_with_limit(
+                    entry_name,
+                    &mut entry,
+                    std::io::sink(),
+                    MAX_PROFILE_ASSET_BYTES.min(remaining_budget),
+                )?;
                 if copied > declared_size {
                     add_profile_archive_asset_bytes(
                         &mut total_bytes,
@@ -666,14 +682,6 @@ fn validate_profile_zip_asset_declared_size_with_limit(
         return Err(profile_asset_too_large_error(entry_name, size, limit));
     }
     Ok(())
-}
-
-fn copy_limited_profile_zip_asset<R: Read, W: Write>(
-    entry_name: &str,
-    reader: R,
-    writer: W,
-) -> AppResult<u64> {
-    copy_limited_profile_zip_asset_with_limit(entry_name, reader, writer, MAX_PROFILE_ASSET_BYTES)
 }
 
 fn copy_limited_profile_zip_asset_with_limit<R: Read, W: Write>(
