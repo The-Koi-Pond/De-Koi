@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 use std::env;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -2337,6 +2337,7 @@ fn backgroundremover_process_output(
     let stderr_path = capture_dir.join("stderr.log");
     process.stdout(Stdio::from(fs::File::create(&stdout_path)?));
     process.stderr(Stdio::from(fs::File::create(&stderr_path)?));
+    configure_backgroundremover_process_tree(&mut process);
     let timeout = backgroundremover_timeout();
     let started = Instant::now();
     let mut child = match process.spawn() {
@@ -2357,7 +2358,7 @@ fn backgroundremover_process_output(
             return Ok(BackgroundRemoverProcessOutput::Completed(output));
         }
         if started.elapsed() >= timeout {
-            let _ = child.kill();
+            kill_backgroundremover_process_tree(&mut child);
             let _ = child.wait();
             let _ = fs::remove_dir_all(&capture_dir);
             return Ok(BackgroundRemoverProcessOutput::TimedOut);
@@ -2365,6 +2366,40 @@ fn backgroundremover_process_output(
         let remaining = timeout.saturating_sub(started.elapsed());
         thread::sleep(remaining.min(BACKGROUNDREMOVER_POLL_INTERVAL));
     }
+}
+
+#[cfg(unix)]
+fn configure_backgroundremover_process_tree(process: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    process.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_backgroundremover_process_tree(_process: &mut Command) {}
+
+#[cfg(unix)]
+fn kill_backgroundremover_process_tree(child: &mut Child) {
+    let process_group_id = child.id() as i32;
+    unsafe {
+        let _ = libc::kill(-process_group_id, libc::SIGKILL);
+    }
+    let _ = child.kill();
+}
+
+#[cfg(windows)]
+fn kill_backgroundremover_process_tree(child: &mut Child) {
+    let pid = child.id().to_string();
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid, "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let _ = child.kill();
+}
+
+#[cfg(not(any(unix, windows)))]
+fn kill_backgroundremover_process_tree(child: &mut Child) {
+    let _ = child.kill();
 }
 
 fn backgroundremover_failure_detail(output: &Output) -> String {
@@ -3438,6 +3473,50 @@ mod background_remover_runtime_tests {
         } else {
             env::remove_var("BACKGROUNDREMOVER_TIMEOUT_MS");
         }
+    }
+
+    #[test]
+    fn backgroundremover_timeout_kills_descendant_processes() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let old_timeout = env::var_os("BACKGROUNDREMOVER_TIMEOUT_MS");
+        env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", "100");
+
+        let root = temp_path("timeout-process-tree");
+        fs::create_dir_all(&root).expect("marker root");
+        let marker_path = root.join("descendant-survived.txt");
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("powershell");
+            command.args([
+                "-NoProfile",
+                "-Command",
+                "$p = [System.Diagnostics.Process]::Start('powershell', '-NoProfile -Command \"Start-Sleep -Seconds 2; Set-Content -LiteralPath $env:MARINARA_BGREM_MARKER -Value alive\"'); Start-Sleep -Seconds 5",
+            ]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args([
+                "-c",
+                "(sleep 2; printf alive > \"$MARINARA_BGREM_MARKER\") & sleep 5",
+            ]);
+            command
+        };
+        command.env("MARINARA_BGREM_MARKER", &marker_path);
+
+        let output = backgroundremover_process_output(command).expect("process should spawn");
+
+        assert!(matches!(output, BackgroundRemoverProcessOutput::TimedOut));
+        thread::sleep(Duration::from_secs(3));
+        assert!(
+            !marker_path.exists(),
+            "timeout should terminate descendant processes before they continue the cleanup job"
+        );
+
+        if let Some(value) = old_timeout {
+            env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", value);
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_TIMEOUT_MS");
+        }
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
