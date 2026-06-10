@@ -155,7 +155,9 @@ must send that address via `X-Forwarded-For` or `X-Real-IP` (RFC 7239
 runtime runs in Docker behind a reverse proxy, the container sees the Docker
 bridge gateway as its TCP peer rather than the proxy's loopback address, so
 `TRUSTED_PROXIES` must cover the bridge CIDR (for example `172.16.0.0/12`) or
-`BYPASS_AUTH_DOCKER` must be disabled.
+`BYPASS_AUTH_DOCKER` must be disabled. The proxy must also overwrite or strip any
+inbound `X-Forwarded-For`/`X-Real-IP` header so a client cannot spoof an address
+inside `TRUSTED_PROXIES` or a bypass range.
 
 ## Developer Docs
 
