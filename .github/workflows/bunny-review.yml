@@ -47,7 +47,7 @@ concurrency:
 
 jobs:
   review:
-    runs-on: [self-hosted, linux]
+    runs-on: [self-hosted, linux, bunny]
     timeout-minutes: 30
     env:
       PR_NUM: ${{ github.event.pull_request.number || inputs.pr_number }}
@@ -63,7 +63,7 @@ jobs:
 
       - name: Resolve PR refs
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           BASE=$(gh pr view "$PR_NUM" --json baseRefName -q .baseRefName)
           echo "PR_BASE_REF=$BASE" >> "$GITHUB_ENV"
@@ -104,7 +104,7 @@ jobs:
 
       - name: Fetch PR and checkout head
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git status
           git fetch origin "pull/$PR_NUM/head:pr-$PR_NUM"
@@ -112,9 +112,13 @@ jobs:
           HEAD_SHA=$(gh pr view "$PR_NUM" --json headRefOid -q .headRefOid)
           echo "PR_HEAD_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Mark Bunny status in progress
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh api \
             --method POST \
@@ -123,10 +127,6 @@ jobs:
             -f context="Bunny Review" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             -f description="The trusted Bunny reviewer is inspecting this pull request." >/dev/null
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
 
       - name: Install dependencies
         run: pip install -r /tmp/bunny-review-tool/.github/bunny-review/requirements.txt
@@ -140,7 +140,7 @@ jobs:
           CI_STATUS: CI checks are still running; final CI results will be appended before posting.
           BUNNY_REVIEW_PROMPT_PATH: /tmp/bunny-review-tool/.github/bunny-review/reviewer-prompt.md
           BUNNY_REVIEW_SKILL_PATH: /tmp/bunny-review-tool/.github/bunny-review/SKILL.md
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           HEAD_SHA=$(gh pr view "$PR_NUM" --json headRefOid -q .headRefOid)
           if [ "$HEAD_SHA" != "$(git rev-parse HEAD)" ]; then
@@ -262,18 +262,18 @@ jobs:
 
       - name: Render review
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: python /tmp/bunny-review-tool/.github/bunny-review/bunny_review.py render
 
       - name: Post the review
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: python /tmp/bunny-review-tool/.github/bunny-review/bunny_review.py post
 
       - name: Complete Bunny status
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # review.json is Bunny's machine contract; status-state converts it plus CI/draft state into GitHub's commit status.
           if [ -z "${PR_HEAD_SHA:-}" ]; then

@@ -17,11 +17,11 @@ jobs:
       startsWith(github.event.comment.body, '/bunny-review') &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
                github.event.comment.author_association)
-    runs-on: [self-hosted, linux]
+    runs-on: [self-hosted, linux, bunny]
     steps:
       - name: Dispatch trusted Bunny reviewer
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PR_NUM: ${{ github.event.issue.number }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_AUTHOR: ${{ github.event.comment.user.login }}

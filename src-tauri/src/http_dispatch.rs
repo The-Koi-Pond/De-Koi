@@ -1222,6 +1222,7 @@ mod tests {
     use crate::storage_commands::media_uploads::file_path_asset_url;
     use base64::{engine::general_purpose, Engine as _};
     use std::collections::BTreeSet;
+    use std::io::Cursor;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     // Commands that stay out of /api/invoke because they require the client shell,
@@ -1255,9 +1256,12 @@ mod tests {
     }
 
     fn upload_body(name: &str) -> Value {
-        // Full 8-byte PNG signature so the image-byte validation in
-        // decode_uploaded_image_file recognizes the fixture as a real image.
-        let bytes = [137_u8, 80, 78, 71, 13, 10, 26, 10];
+        let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([255_u8, 0_u8, 0_u8, 255_u8]));
+        let mut cursor = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut cursor, image::ImageFormat::Png)
+            .expect("test PNG should encode");
+        let bytes = cursor.into_inner();
         json!({
             "file": {
                 "name": name,

@@ -1,7 +1,6 @@
 use super::shared::*;
 use super::*;
 use crate::storage_commands::images::percent_encode_component;
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 pub(crate) fn backgrounds_call(
@@ -17,8 +16,8 @@ pub(crate) fn backgrounds_call(
             Ok(json!({ "path": state.backgrounds.absolute_path_string(&decode_path(encoded))? }))
         }
         ("POST", ["upload"]) => {
-            validate_background_upload_request(&body)?;
             let uploaded = decode_uploaded_image_file(&body)?;
+            validate_background_upload(&uploaded)?;
             let filename = write_background_file(state, &uploaded.name, &uploaded.bytes)?;
             let meta = upsert_background_meta(
                 state,
@@ -99,7 +98,7 @@ fn background_tags(state: &AppState) -> AppResult<Value> {
 
 fn patch_background_tags(state: &AppState, id: &str, body: Value) -> AppResult<Value> {
     let filename = decode_path(id);
-    ensure_background_file_exists(state, &filename)?;
+    require_background_file(state, &filename)?;
     let tags = body.get("tags").cloned().unwrap_or_else(|| json!([]));
     let meta = upsert_background_meta(
         state,
@@ -113,6 +112,18 @@ fn patch_background_tags(state: &AppState, id: &str, body: Value) -> AppResult<V
     Ok(
         json!({ "tags": meta.get("tags").cloned().unwrap_or_else(|| json!([])), "item": background_item(state, &filename, &meta)? }),
     )
+}
+
+fn require_background_file(state: &AppState, filename: &str) -> AppResult<()> {
+    let path = state.backgrounds.absolute_path(filename)?;
+    match fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => Ok(()),
+        Ok(_) => Err(AppError::not_found("Background was not found")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(AppError::not_found("Background was not found"))
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn rename_background(state: &AppState, id: &str, body: Value) -> AppResult<Value> {
@@ -275,44 +286,58 @@ fn find_background_meta(state: &AppState, filename: &str) -> AppResult<Option<Va
         .next())
 }
 
-fn ensure_background_file_exists(state: &AppState, filename: &str) -> AppResult<()> {
-    let path = state.backgrounds.absolute_path(filename)?;
-    match fs::metadata(&path) {
-        Ok(metadata) if metadata.is_file() => Ok(()),
-        Ok(_) => Err(AppError::not_found("Background was not found")),
-        Err(error) if error.kind() == ErrorKind::NotFound => {
-            Err(AppError::not_found("Background was not found"))
-        }
-        Err(error) => Err(error.into()),
-    }
-}
-
-fn validate_background_upload_request(body: &Value) -> AppResult<()> {
-    let file = body
-        .get("file")
-        .ok_or_else(|| AppError::invalid_input("file is required"))?;
-    let name = file
-        .get("name")
-        .and_then(Value::as_str)
-        .filter(|name| !name.trim().is_empty())
-        .ok_or_else(|| AppError::invalid_input("uploaded file is missing a name"))?;
-    let content_type = file
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or("application/octet-stream");
-    if !supported_background_content_type(content_type) {
+fn validate_background_upload(uploaded: &UploadedFile) -> AppResult<()> {
+    let extension = supported_background_extension(&uploaded.name)
+        .ok_or_else(unsupported_background_upload_error)?;
+    let declared_extension = supported_background_content_type_extension(&uploaded.content_type)
+        .ok_or_else(unsupported_background_upload_error)?;
+    if !background_extensions_match(extension, declared_extension) {
         return Err(unsupported_background_upload_error());
     }
-    supported_background_extension(name)
-        .map(|_| ())
-        .ok_or_else(unsupported_background_upload_error)
+    let detected =
+        image::guess_format(&uploaded.bytes).map_err(|_| unsupported_background_upload_error())?;
+    let detected_extension = supported_background_image_format_extension(detected)
+        .ok_or_else(unsupported_background_upload_error)?;
+    image::load_from_memory_with_format(&uploaded.bytes, detected)
+        .map_err(|_| unsupported_background_upload_error())?;
+    if !background_extensions_match(extension, detected_extension)
+        || !background_extensions_match(declared_extension, detected_extension)
+    {
+        return Err(unsupported_background_upload_error());
+    }
+    Ok(())
 }
 
-fn supported_background_content_type(content_type: &str) -> bool {
-    matches!(
-        content_type.trim().to_ascii_lowercase().as_str(),
-        "image/png" | "image/jpeg" | "image/webp" | "image/gif" | "image/avif"
-    )
+fn supported_background_content_type_extension(content_type: &str) -> Option<&'static str> {
+    match content_type.trim().to_ascii_lowercase().as_str() {
+        "image/png" => Some("png"),
+        "image/jpeg" | "image/jpg" => Some("jpg"),
+        "image/webp" => Some("webp"),
+        "image/gif" => Some("gif"),
+        _ => None,
+    }
+}
+
+fn supported_background_image_format_extension(format: image::ImageFormat) -> Option<&'static str> {
+    match format {
+        image::ImageFormat::Png => Some("png"),
+        image::ImageFormat::Jpeg => Some("jpg"),
+        image::ImageFormat::WebP => Some("webp"),
+        image::ImageFormat::Gif => Some("gif"),
+        _ => None,
+    }
+}
+
+fn background_extensions_match(left: &str, right: &str) -> bool {
+    canonical_background_extension(left) == canonical_background_extension(right)
+}
+
+fn canonical_background_extension(extension: &str) -> &str {
+    if extension.eq_ignore_ascii_case("jpeg") {
+        "jpg"
+    } else {
+        extension
+    }
 }
 
 fn safe_uploaded_background_filename(name: &str) -> AppResult<String> {
@@ -330,20 +355,22 @@ fn safe_uploaded_background_filename(name: &str) -> AppResult<String> {
     ))
 }
 
-fn supported_background_extension(name: &str) -> Option<String> {
-    Path::new(name)
-        .extension()
-        .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
-        .filter(|ext| {
-            matches!(
-                ext.as_str(),
-                "png" | "jpg" | "jpeg" | "webp" | "gif" | "avif"
-            )
-        })
+fn supported_background_extension(name: &str) -> Option<&'static str> {
+    Path::new(name).extension().and_then(|ext| {
+        match ext.to_string_lossy().to_ascii_lowercase().as_str() {
+            "png" => Some("png"),
+            "jpg" => Some("jpg"),
+            "jpeg" => Some("jpeg"),
+            "webp" => Some("webp"),
+            "gif" => Some("gif"),
+            "avif" => Some("avif"),
+            _ => None,
+        }
+    })
 }
 
 fn unsupported_background_upload_error() -> AppError {
-    AppError::invalid_input("Background uploads support PNG, JPEG, GIF, WebP, and AVIF files")
+    AppError::invalid_input("Background uploads support PNG, JPEG, GIF, and WebP files")
 }
 
 fn safe_background_stem(name: &str) -> String {
@@ -367,7 +394,7 @@ fn safe_background_stem(name: &str) -> String {
 
 fn safe_background_filename(name: &str) -> String {
     let stem = safe_background_stem(name);
-    let ext = supported_background_extension(name).unwrap_or_else(|| "png".to_string());
+    let ext = supported_background_extension(name).unwrap_or("png");
     format!(
         "{}.{}",
         if stem.is_empty() {
@@ -408,6 +435,7 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use base64::engine::general_purpose;
+    use std::io::Cursor;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_state(label: &str) -> AppState {
@@ -422,16 +450,32 @@ mod tests {
         AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
     }
 
-    fn svg_upload_body(name: &str) -> Value {
-        let bytes = br#"<svg xmlns="http://www.w3.org/2000/svg"></svg>"#;
+    fn upload_body(name: &str, content_type: &str, bytes: &[u8]) -> Value {
         json!({
             "file": {
                 "name": name,
-                "type": "image/svg+xml",
+                "type": content_type,
                 "size": bytes.len(),
                 "base64": base64::Engine::encode(&general_purpose::STANDARD, bytes)
             }
         })
+    }
+
+    fn valid_png_bytes() -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([255_u8, 0_u8, 0_u8, 255_u8]));
+        let mut cursor = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut cursor, image::ImageFormat::Png)
+            .expect("test PNG should encode");
+        cursor.into_inner()
+    }
+
+    fn svg_bytes() -> &'static [u8] {
+        br#"<svg xmlns="http://www.w3.org/2000/svg"></svg>"#
+    }
+
+    fn svg_upload_body(name: &str) -> Value {
+        upload_body(name, "image/svg+xml", svg_bytes())
     }
 
     #[test]
@@ -472,6 +516,85 @@ mod tests {
                 .expect("metadata collection should list")
                 .is_empty(),
             "failed SVG upload should not create background metadata"
+        );
+    }
+
+    #[test]
+    fn upload_background_rejects_disguised_svg_without_writing_png() {
+        let state = test_state("reject-disguised-svg-upload");
+        let result = backgrounds_call(
+            &state,
+            "POST",
+            &["upload"],
+            upload_body("wall.png", "image/png", svg_bytes()),
+        );
+
+        assert!(
+            result.is_err(),
+            "SVG bytes wearing PNG metadata should fail"
+        );
+        assert!(
+            !state.backgrounds.root().join("wall.png").exists(),
+            "disguised SVG bytes should not be stored"
+        );
+        assert!(
+            state
+                .storage
+                .list("background-metadata")
+                .expect("metadata collection should list")
+                .is_empty(),
+            "failed disguised upload should not create background metadata"
+        );
+    }
+
+    #[test]
+    fn upload_background_rejects_mismatched_supported_metadata() {
+        let state = test_state("reject-mismatched-upload");
+        let result = backgrounds_call(
+            &state,
+            "POST",
+            &["upload"],
+            upload_body("wall.jpg", "image/jpeg", &valid_png_bytes()),
+        );
+
+        assert!(
+            result.is_err(),
+            "PNG bytes wearing JPEG metadata should fail"
+        );
+        assert!(
+            !state.backgrounds.root().join("wall.jpg").exists(),
+            "mismatched upload should not be stored"
+        );
+        assert!(
+            state
+                .storage
+                .list("background-metadata")
+                .expect("metadata collection should list")
+                .is_empty(),
+            "failed mismatched upload should not create background metadata"
+        );
+    }
+
+    #[test]
+    fn upload_background_accepts_valid_png_and_creates_metadata() {
+        let state = test_state("accept-png-upload");
+        let result = backgrounds_call(
+            &state,
+            "POST",
+            &["upload"],
+            upload_body("wall.png", "image/png", &valid_png_bytes()),
+        )
+        .expect("valid PNG upload should succeed");
+
+        assert_eq!(result.get("success").and_then(Value::as_bool), Some(true));
+        assert!(state.backgrounds.root().join("wall.png").exists());
+        assert_eq!(
+            state
+                .storage
+                .list("background-metadata")
+                .expect("metadata collection should list")
+                .len(),
+            1
         );
     }
 
@@ -539,6 +662,29 @@ mod tests {
             rows.iter()
                 .all(|row| row.get("path").and_then(Value::as_str) != Some("music/theme.mp3")),
             "non-background game assets should not be listed as picker backgrounds"
+        );
+    }
+
+    #[test]
+    fn background_tag_update_rejects_missing_file_without_metadata() {
+        let state = test_state("missing-tags");
+
+        let error = backgrounds_call(
+            &state,
+            "PATCH",
+            &["missing.png", "tags"],
+            json!({ "tags": ["orphan"] }),
+        )
+        .expect_err("missing background should reject tag updates");
+
+        assert_eq!(error.code, "not_found");
+        assert!(
+            state
+                .storage
+                .list("background-metadata")
+                .expect("background metadata should be readable")
+                .is_empty(),
+            "failed tag update must not create metadata"
         );
     }
 }

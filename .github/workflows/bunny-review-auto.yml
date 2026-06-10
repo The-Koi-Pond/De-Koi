@@ -17,11 +17,11 @@ concurrency:
 jobs:
   dispatch:
     if: github.event.pull_request.base.ref == 'main'
-    runs-on: [self-hosted, linux]
+    runs-on: [self-hosted, linux, bunny]
     steps:
       - name: Dispatch trusted Bunny reviewer
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PR_NUM: ${{ github.event.pull_request.number }}
           REQUESTED_BY: ${{ github.event.sender.login }}
           EVENT_ACTION: ${{ github.event.action }}
