@@ -363,7 +363,6 @@ fn supported_background_extension(name: &str) -> Option<&'static str> {
             "jpeg" => Some("jpeg"),
             "webp" => Some("webp"),
             "gif" => Some("gif"),
-            "avif" => Some("avif"),
             _ => None,
         }
     })
@@ -572,6 +571,31 @@ mod tests {
                 .expect("metadata collection should list")
                 .is_empty(),
             "failed mismatched upload should not create background metadata"
+        );
+    }
+
+    #[test]
+    fn upload_background_rejects_avif_without_writing_file_or_metadata() {
+        let state = test_state("reject-avif-upload");
+        let result = backgrounds_call(
+            &state,
+            "POST",
+            &["upload"],
+            upload_body("wall.avif", "image/avif", svg_bytes()),
+        );
+
+        assert!(result.is_err(), "AVIF upload should be unsupported");
+        assert!(
+            !state.backgrounds.root().join("wall.avif").exists(),
+            "unsupported AVIF upload should not be stored"
+        );
+        assert!(
+            state
+                .storage
+                .list("background-metadata")
+                .expect("metadata collection should list")
+                .is_empty(),
+            "failed AVIF upload should not create background metadata"
         );
     }
 
