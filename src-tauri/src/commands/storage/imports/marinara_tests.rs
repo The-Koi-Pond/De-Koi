@@ -375,6 +375,139 @@ fn native_marinara_character_import_materializes_embedded_gallery_assets() {
 }
 
 #[test]
+fn native_marinara_character_import_rollback_removes_gallery_files() {
+    let state = test_state("native-character-gallery-rollback-cleanup");
+    let gallery_dir = state.data_dir.join("gallery");
+    fs::create_dir_all(&gallery_dir).expect("gallery dir should be created");
+    let image_path = gallery_dir.join("rollback.png");
+    fs::write(&image_path, b"gallery").expect("gallery fixture should be written");
+    crate::storage_commands::entity_commands::storage_create_inner(
+        &state,
+        "character-gallery".to_string(),
+        json!({
+            "characterId": "character-rollback",
+            "filePath": image_path.to_string_lossy(),
+            "filename": "rollback.png",
+            "url": "asset://localhost/rollback.png"
+        }),
+    )
+    .expect("gallery row should be seeded");
+
+    let mut rollback_errors = Vec::new();
+    rollback_records_by_field_collect(
+        &state,
+        "character-gallery",
+        "characterId",
+        "character-rollback",
+        &mut rollback_errors,
+    );
+
+    assert!(
+        rollback_errors.is_empty(),
+        "gallery rollback should not report errors: {rollback_errors:?}"
+    );
+    assert!(
+        state
+            .storage
+            .list("character-gallery")
+            .expect("character gallery should list")
+            .is_empty(),
+        "gallery rollback should remove seeded rows"
+    );
+    assert!(
+        !image_path.exists(),
+        "gallery rollback should remove managed files for seeded rows"
+    );
+}
+
+#[test]
+fn native_marinara_character_import_rollback_keeps_gallery_files_when_row_delete_fails() {
+    let state = test_state("native-character-gallery-rollback-delete-failure");
+    let gallery_dir = state.data_dir.join("gallery");
+    fs::create_dir_all(&gallery_dir).expect("gallery dir should be created");
+    let image_path = gallery_dir.join("rollback-failure.png");
+    fs::write(&image_path, b"gallery").expect("gallery fixture should be written");
+    crate::storage_commands::entity_commands::storage_create_inner(
+        &state,
+        "character-gallery".to_string(),
+        json!({
+            "characterId": "character-rollback",
+            "filePath": image_path.to_string_lossy(),
+            "filename": "rollback-failure.png",
+            "url": "asset://localhost/rollback-failure.png"
+        }),
+    )
+    .expect("gallery row should be seeded");
+    block_collection_writes(&state, "character-gallery");
+
+    let mut rollback_errors = Vec::new();
+    rollback_records_by_field_collect(
+        &state,
+        "character-gallery",
+        "characterId",
+        "character-rollback",
+        &mut rollback_errors,
+    );
+
+    assert!(
+        !rollback_errors.is_empty(),
+        "blocked gallery row delete should report a rollback error"
+    );
+    assert!(
+        image_path.exists(),
+        "gallery rollback must keep managed files when row deletion fails"
+    );
+}
+
+#[test]
+fn native_marinara_character_import_rollback_reports_gallery_file_cleanup_failure() {
+    let state = test_state("native-character-gallery-rollback-file-failure");
+    let gallery_dir = state.data_dir.join("gallery");
+    fs::create_dir_all(&gallery_dir).expect("gallery dir should be created");
+    let directory_path = gallery_dir.join("rollback-file-failure.png");
+    fs::create_dir(&directory_path).expect("managed path fixture should block file deletion");
+    crate::storage_commands::entity_commands::storage_create_inner(
+        &state,
+        "character-gallery".to_string(),
+        json!({
+            "characterId": "character-rollback",
+            "filePath": directory_path.to_string_lossy(),
+            "filename": "rollback-file-failure.png",
+            "url": "asset://localhost/rollback-file-failure.png"
+        }),
+    )
+    .expect("gallery row should be seeded");
+
+    let mut rollback_errors = Vec::new();
+    rollback_records_by_field_collect(
+        &state,
+        "character-gallery",
+        "characterId",
+        "character-rollback",
+        &mut rollback_errors,
+    );
+
+    assert!(
+        !rollback_errors.is_empty(),
+        "gallery rollback should report post-delete file cleanup failures"
+    );
+    assert!(
+        state
+            .storage
+            .list("character-gallery")
+            .expect("character gallery should list")
+            .is_empty(),
+        "gallery rollback should still remove rows before reporting file cleanup failure"
+    );
+    assert!(
+        rollback_errors
+            .iter()
+            .any(|error| error.contains("file cleanup after row removal")),
+        "rollback error should identify the cleanup phase: {rollback_errors:?}"
+    );
+}
+
+#[test]
 fn native_marinara_character_import_rolls_back_avatar_when_record_write_fails() {
     let state = test_state("native-character-avatar-rollback");
     block_collection_writes(&state, "characters");

@@ -101,6 +101,40 @@ pub(super) fn rollback_records_by_field_collect(
 ) {
     let mut filters = Map::new();
     filters.insert(field.to_string(), Value::String(value.to_string()));
+    if matches!(
+        collection,
+        "gallery" | "character-gallery" | "persona-gallery" | "global-gallery"
+    ) {
+        let rows = match state.storage.list(collection) {
+            Ok(rows) => rows,
+            Err(error) => {
+                rollback_errors.push(format!(
+                    "{collection} where {field}={value} file cleanup snapshot: {error}"
+                ));
+                return;
+            }
+        };
+        let (matched_rows, retained_rows): (Vec<_>, Vec<_>) = rows
+            .into_iter()
+            .partition(|row| row.get(field).and_then(Value::as_str) == Some(value));
+        if let Err(error) = state.storage.replace_all(collection, retained_rows) {
+            rollback_errors.push(format!("{collection} where {field}={value}: {error}"));
+            return;
+        }
+        for row in matched_rows {
+            if let Err(error) =
+                crate::storage_commands::media_uploads::remove_managed_record_file_checked(
+                    state, "gallery", &row, "filePath", "filename",
+                )
+            {
+                let row_id = row.get("id").and_then(Value::as_str).unwrap_or("<unknown>");
+                rollback_errors.push(format!(
+                    "{collection} {row_id} file cleanup after row removal: {error}"
+                ));
+            }
+        }
+        return;
+    }
     if let Err(error) = state.storage.delete_where(collection, &filters) {
         rollback_errors.push(format!("{collection} where {field}={value}: {error}"));
     }

@@ -1153,10 +1153,8 @@ fn background_upload(state: &AppState, args: &Map<String, Value>) -> AppResult<V
 }
 
 fn character_gallery_upload(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    shared::upload_gallery_image(
+    shared::upload_character_gallery_image(
         state,
-        "character-gallery",
-        "characterId",
         required_string(args, "characterId")?,
         optional_value(args, "body"),
     )
@@ -1861,6 +1859,7 @@ mod tests {
     #[tokio::test]
     async fn dispatch_supports_remote_character_gallery_upload() {
         let state = test_state("character-gallery-upload");
+        seed_character(&state, "character-1");
         let result = dispatch(
             &state,
             InvokeRequest {
@@ -1891,6 +1890,34 @@ mod tests {
             .join("gallery")
             .join("character-image.png")
             .exists());
+    }
+
+    #[tokio::test]
+    async fn dispatch_rejects_remote_character_gallery_upload_for_missing_character() {
+        let state = test_state("missing-character-gallery-upload");
+        let error = dispatch(
+            &state,
+            InvokeRequest {
+                command: "character_gallery_upload".to_string(),
+                args: Some(json!({
+                    "characterId": "missing-character",
+                    "body": upload_body("orphan-image.png")
+                })),
+            },
+        )
+        .await
+        .expect_err("missing character gallery upload should reject before writing files");
+
+        assert_eq!(error.code, "not_found");
+        assert!(state
+            .storage
+            .list("character-gallery")
+            .expect("character gallery rows should be readable")
+            .is_empty());
+        assert!(
+            !state.data_dir.join("gallery").exists(),
+            "missing character uploads must not write managed gallery files"
+        );
     }
 
     #[tokio::test]

@@ -2934,6 +2934,23 @@ pub(crate) fn upload_gallery_image(
     }
 }
 
+pub(crate) fn upload_character_gallery_image(
+    state: &AppState,
+    character_id: &str,
+    body: Value,
+) -> AppResult<Value> {
+    if state.storage.get("characters", character_id)?.is_none() {
+        return Err(AppError::not_found("Character not found"));
+    }
+    upload_gallery_image(
+        state,
+        "character-gallery",
+        "characterId",
+        character_id,
+        body,
+    )
+}
+
 /// Persist a global-gallery image. Unlike `upload_gallery_image`, the global
 /// gallery has no owner entity — images are optionally filed into a flat
 /// `gallery-folders` folder via a nullable `folderId` (null = root level).

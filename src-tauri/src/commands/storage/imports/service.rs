@@ -1,6 +1,6 @@
 use super::super::media_uploads::{
     decode_image_payload, extension_for_image_mime, is_inline_image_data_url, persist_image_bytes,
-    persist_image_file_copy, safe_filename, unique_file_path,
+    persist_image_file_copy, remove_copied_file_path, safe_filename, unique_file_path,
 };
 use super::super::shared::*;
 use super::super::*;
