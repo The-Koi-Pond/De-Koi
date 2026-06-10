@@ -70,6 +70,28 @@ struct BackgroundRemoverFailure {
     message: String,
 }
 
+struct BackgroundRemoverWorkDir {
+    path: PathBuf,
+}
+
+impl BackgroundRemoverWorkDir {
+    fn create() -> std::io::Result<Self> {
+        let path = env::temp_dir().join(format!("marinara-bgrem-{}-{}", now_millis(), new_id()));
+        fs::create_dir_all(&path)?;
+        Ok(Self { path })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for BackgroundRemoverWorkDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum SpriteOwnerKind {
     Character,
@@ -2433,6 +2455,13 @@ fn is_corrupt_backgroundremover_model_cache(detail: &str) -> bool {
 }
 
 fn clear_backgroundremover_managed_model_cache(model_dir: &Path) -> AppResult<()> {
+    #[cfg(test)]
+    if env_bool("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR") {
+        return Err(AppError::new(
+            "backgroundremover_cache_clear_failed",
+            "forced managed model cache clear failure",
+        ));
+    }
     if model_dir.exists() {
         fs::remove_dir_all(model_dir)?;
     }
@@ -2550,10 +2579,9 @@ fn try_remove_background_with_backgroundremover(
     let runtime_dir = background_remover_runtime_dir(state);
     let model_dir = runtime_dir.join("models");
     fs::create_dir_all(&model_dir)?;
-    let work_dir = env::temp_dir().join(format!("marinara-bgrem-{}-{}", now_millis(), new_id()));
-    fs::create_dir_all(&work_dir)?;
-    let input_path = work_dir.join("input.png");
-    let output_path = work_dir.join("output.png");
+    let work_dir = BackgroundRemoverWorkDir::create()?;
+    let input_path = work_dir.path().join("input.png");
+    let output_path = work_dir.path().join("output.png");
     let png_input = encode_png(decode_sprite_image(input)?)?;
     fs::write(&input_path, png_input)?;
 
@@ -2604,7 +2632,6 @@ fn try_remove_background_with_backgroundremover(
     };
     let _ = fs::remove_file(&input_path);
     let _ = fs::remove_file(&output_path);
-    let _ = fs::remove_dir_all(&work_dir);
     result
 }
 
@@ -3276,6 +3303,45 @@ mod background_remover_runtime_tests {
             .expect("test state should initialize")
     }
 
+    fn encode_test_png() -> Vec<u8> {
+        let image = RgbaImage::from_pixel(2, 2, Rgba([255, 0, 0, 255]));
+        let mut bytes = Vec::new();
+        image
+            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+            .expect("test image should encode");
+        bytes
+    }
+
+    fn write_corrupt_backgroundremover_command(root: &Path) -> PathBuf {
+        if cfg!(windows) {
+            let command = root.join("fake-backgroundremover.cmd");
+            fs::write(
+                &command,
+                "@echo _pickle.UnpicklingError: invalid load key 1>&2\r\nexit /b 1\r\n",
+            )
+            .expect("fake command should write");
+            command
+        } else {
+            let command = root.join("fake-backgroundremover.sh");
+            fs::write(
+                &command,
+                "#!/bin/sh\necho '_pickle.UnpicklingError: invalid load key' >&2\nexit 1\n",
+            )
+            .expect("fake command should write");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut permissions = fs::metadata(&command)
+                    .expect("fake command metadata")
+                    .permissions();
+                permissions.set_mode(0o755);
+                fs::set_permissions(&command, permissions)
+                    .expect("fake command should be executable");
+            }
+            command
+        }
+    }
+
     #[test]
     fn bundled_backgroundremover_is_preferred_before_env_and_path() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
@@ -3626,6 +3692,102 @@ mod background_remover_runtime_tests {
             env::set_var("U2NETP_PATH", value);
         } else {
             env::remove_var("U2NETP_PATH");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn backgroundremover_cache_clear_failure_cleans_temp_work_dir() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let old_engine = env::var_os("SPRITE_BACKGROUND_REMOVAL_ENGINE");
+        let old_command = env::var_os("BACKGROUNDREMOVER_COMMAND");
+        let old_home = env::var_os("U2NET_HOME");
+        let old_u2net = env::var_os("U2NET_PATH");
+        let old_u2netp = env::var_os("U2NETP_PATH");
+        let old_fail_clear = env::var_os("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR");
+        let old_tmp = env::var_os("TMP");
+        let old_temp = env::var_os("TEMP");
+        let old_tmpdir = env::var_os("TMPDIR");
+
+        let root = temp_path("cache-clear-failure-cleanup");
+        let temp_root = root.join("tmp");
+        fs::create_dir_all(&temp_root).expect("temp root should exist");
+        let state = test_state(root.join("data"), Some(root.join("resources-root")));
+        let command = write_corrupt_backgroundremover_command(&root);
+
+        env::set_var("SPRITE_BACKGROUND_REMOVAL_ENGINE", "backgroundremover");
+        env::set_var("BACKGROUNDREMOVER_COMMAND", &command);
+        env::remove_var("U2NET_HOME");
+        env::remove_var("U2NET_PATH");
+        env::remove_var("U2NETP_PATH");
+        env::set_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR", "1");
+        env::set_var("TMP", &temp_root);
+        env::set_var("TEMP", &temp_root);
+        env::set_var("TMPDIR", &temp_root);
+
+        let error = try_remove_background_with_backgroundremover(&state, &encode_test_png(), true)
+            .expect_err("forced cache-clear failure should return an error");
+
+        assert_eq!(error.code, "backgroundremover_cache_clear_failed");
+        let leaked_work_dirs = fs::read_dir(&temp_root)
+            .expect("temp root should be readable")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("marinara-bgrem-")
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            leaked_work_dirs.is_empty(),
+            "cache-clear failure should not leak temp backgroundremover work dirs"
+        );
+
+        if let Some(value) = old_engine {
+            env::set_var("SPRITE_BACKGROUND_REMOVAL_ENGINE", value);
+        } else {
+            env::remove_var("SPRITE_BACKGROUND_REMOVAL_ENGINE");
+        }
+        if let Some(value) = old_command {
+            env::set_var("BACKGROUNDREMOVER_COMMAND", value);
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_COMMAND");
+        }
+        if let Some(value) = old_home {
+            env::set_var("U2NET_HOME", value);
+        } else {
+            env::remove_var("U2NET_HOME");
+        }
+        if let Some(value) = old_u2net {
+            env::set_var("U2NET_PATH", value);
+        } else {
+            env::remove_var("U2NET_PATH");
+        }
+        if let Some(value) = old_u2netp {
+            env::set_var("U2NETP_PATH", value);
+        } else {
+            env::remove_var("U2NETP_PATH");
+        }
+        if let Some(value) = old_fail_clear {
+            env::set_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR", value);
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR");
+        }
+        if let Some(value) = old_tmp {
+            env::set_var("TMP", value);
+        } else {
+            env::remove_var("TMP");
+        }
+        if let Some(value) = old_temp {
+            env::set_var("TEMP", value);
+        } else {
+            env::remove_var("TEMP");
+        }
+        if let Some(value) = old_tmpdir {
+            env::set_var("TMPDIR", value);
+        } else {
+            env::remove_var("TMPDIR");
         }
         let _ = fs::remove_dir_all(root);
     }
