@@ -715,7 +715,9 @@ fn copy_limited_profile_zip_asset_with_limit<R: Read, W: Write>(
     // single over-budget byte reaches the destination. The read is also capped at
     // one byte past the remaining budget, so an over-budget (zip-bomb) stream is
     // never decompressed beyond limit+1 bytes regardless of chunk size. The final
-    // probe byte is the established take(limit+1) idiom (read_zip_entry_with_limit).
+    // probe byte is the established take(limit+1) idiom (read_zip_entry_with_limit):
+    // a streaming reader cannot detect "more than limit" without reading one byte,
+    // and a read-ahead buffer would consume MORE, not less.
     let mut buffer = [0_u8; 8192];
     let mut written: u64 = 0;
     loop {
