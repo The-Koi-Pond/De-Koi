@@ -1,6 +1,7 @@
 use super::shared::*;
 use super::*;
 use crate::storage_commands::images::percent_encode_component;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 pub(crate) fn backgrounds_call(
@@ -16,6 +17,7 @@ pub(crate) fn backgrounds_call(
             Ok(json!({ "path": state.backgrounds.absolute_path_string(&decode_path(encoded))? }))
         }
         ("POST", ["upload"]) => {
+            validate_background_upload_request(&body)?;
             let uploaded = decode_uploaded_image_file(&body)?;
             let filename = write_background_file(state, &uploaded.name, &uploaded.bytes)?;
             let meta = upsert_background_meta(
@@ -97,6 +99,7 @@ fn background_tags(state: &AppState) -> AppResult<Value> {
 
 fn patch_background_tags(state: &AppState, id: &str, body: Value) -> AppResult<Value> {
     let filename = decode_path(id);
+    ensure_background_file_exists(state, &filename)?;
     let tags = body.get("tags").cloned().unwrap_or_else(|| json!([]));
     let meta = upsert_background_meta(
         state,
@@ -230,10 +233,7 @@ fn game_asset_background_item(item: &Value) -> Option<Value> {
 }
 
 fn write_background_file(state: &AppState, original_name: &str, bytes: &[u8]) -> AppResult<String> {
-    let filename = safe_background_filename(original_name);
-    if filename.is_empty() {
-        return Err(AppError::invalid_input("Background filename is invalid"));
-    }
+    let filename = safe_uploaded_background_filename(original_name)?;
     let path = unique_background_path(state.backgrounds.absolute_path(&filename)?)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -275,9 +275,79 @@ fn find_background_meta(state: &AppState, filename: &str) -> AppResult<Option<Va
         .next())
 }
 
-fn safe_background_filename(name: &str) -> String {
-    let path = Path::new(name);
-    let stem = path
+fn ensure_background_file_exists(state: &AppState, filename: &str) -> AppResult<()> {
+    let path = state.backgrounds.absolute_path(filename)?;
+    match fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => Ok(()),
+        Ok(_) => Err(AppError::not_found("Background was not found")),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            Err(AppError::not_found("Background was not found"))
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn validate_background_upload_request(body: &Value) -> AppResult<()> {
+    let file = body
+        .get("file")
+        .ok_or_else(|| AppError::invalid_input("file is required"))?;
+    let name = file
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| !name.trim().is_empty())
+        .ok_or_else(|| AppError::invalid_input("uploaded file is missing a name"))?;
+    let content_type = file
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("application/octet-stream");
+    if !supported_background_content_type(content_type) {
+        return Err(unsupported_background_upload_error());
+    }
+    supported_background_extension(name)
+        .map(|_| ())
+        .ok_or_else(unsupported_background_upload_error)
+}
+
+fn supported_background_content_type(content_type: &str) -> bool {
+    matches!(
+        content_type.trim().to_ascii_lowercase().as_str(),
+        "image/png" | "image/jpeg" | "image/webp" | "image/gif" | "image/avif"
+    )
+}
+
+fn safe_uploaded_background_filename(name: &str) -> AppResult<String> {
+    let extension =
+        supported_background_extension(name).ok_or_else(unsupported_background_upload_error)?;
+    let stem = safe_background_stem(name);
+    Ok(format!(
+        "{}.{}",
+        if stem.is_empty() {
+            "background"
+        } else {
+            stem.as_str()
+        },
+        extension
+    ))
+}
+
+fn supported_background_extension(name: &str) -> Option<String> {
+    Path::new(name)
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
+        .filter(|ext| {
+            matches!(
+                ext.as_str(),
+                "png" | "jpg" | "jpeg" | "webp" | "gif" | "avif"
+            )
+        })
+}
+
+fn unsupported_background_upload_error() -> AppError {
+    AppError::invalid_input("Background uploads support PNG, JPEG, GIF, WebP, and AVIF files")
+}
+
+fn safe_background_stem(name: &str) -> String {
+    Path::new(name)
         .file_stem()
         .map(|stem| stem.to_string_lossy().to_string())
         .unwrap_or_else(|| "background".to_string())
@@ -292,17 +362,12 @@ fn safe_background_filename(name: &str) -> String {
         .collect::<String>()
         .trim()
         .trim_matches('.')
-        .to_string();
-    let ext = path
-        .extension()
-        .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
-        .filter(|ext| {
-            matches!(
-                ext.as_str(),
-                "png" | "jpg" | "jpeg" | "webp" | "gif" | "avif"
-            )
-        })
-        .unwrap_or_else(|| "png".to_string());
+        .to_string()
+}
+
+fn safe_background_filename(name: &str) -> String {
+    let stem = safe_background_stem(name);
+    let ext = supported_background_extension(name).unwrap_or_else(|| "png".to_string());
     format!(
         "{}.{}",
         if stem.is_empty() {
@@ -342,6 +407,7 @@ fn unique_background_path(path: PathBuf) -> AppResult<PathBuf> {
 mod tests {
     use super::*;
     use crate::state::AppState;
+    use base64::engine::general_purpose;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_state(label: &str) -> AppState {
@@ -354,6 +420,59 @@ mod tests {
             std::fs::remove_dir_all(&path).expect("stale temp dir should be removable");
         }
         AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
+    }
+
+    fn svg_upload_body(name: &str) -> Value {
+        let bytes = br#"<svg xmlns="http://www.w3.org/2000/svg"></svg>"#;
+        json!({
+            "file": {
+                "name": name,
+                "type": "image/svg+xml",
+                "size": bytes.len(),
+                "base64": base64::Engine::encode(&general_purpose::STANDARD, bytes)
+            }
+        })
+    }
+
+    #[test]
+    fn patch_background_tags_rejects_missing_file_without_metadata() {
+        let state = test_state("missing-tag-update");
+        let result = backgrounds_call(
+            &state,
+            "PATCH",
+            &["missing.png", "tags"],
+            json!({ "tags": ["orphan"] }),
+        );
+
+        assert!(result.is_err(), "missing background update should fail");
+        assert!(
+            state
+                .storage
+                .list("background-metadata")
+                .expect("metadata collection should list")
+                .is_empty(),
+            "failed tag update should not create stale metadata"
+        );
+    }
+
+    #[test]
+    fn upload_background_rejects_svg_without_writing_png_fallback() {
+        let state = test_state("reject-svg-upload");
+        let result = backgrounds_call(&state, "POST", &["upload"], svg_upload_body("wall.svg"));
+
+        assert!(result.is_err(), "SVG background upload should fail");
+        assert!(
+            !state.backgrounds.root().join("wall.png").exists(),
+            "unsupported SVG bytes should not be stored with a PNG extension"
+        );
+        assert!(
+            state
+                .storage
+                .list("background-metadata")
+                .expect("metadata collection should list")
+                .is_empty(),
+            "failed SVG upload should not create background metadata"
+        );
     }
 
     #[test]
@@ -415,10 +534,7 @@ mod tests {
             game_row.get("url").and_then(Value::as_str),
             Some("marinara-game-asset:backgrounds%2Ffantasy%2Fcastle.png")
         );
-        assert_eq!(
-            game_row.get("tags").cloned(),
-            Some(json!(["fantasy"]))
-        );
+        assert_eq!(game_row.get("tags").cloned(), Some(json!(["fantasy"])));
         assert!(
             rows.iter()
                 .all(|row| row.get("path").and_then(Value::as_str) != Some("music/theme.mp3")),
