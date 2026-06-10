@@ -130,14 +130,22 @@ fn is_connections_collection_file(path: &Path) -> bool {
 }
 
 fn is_connections_sidecar_file(path: &Path) -> bool {
+    let collections = path.parent();
     path.file_name()
         .and_then(|value| value.to_str())
         .is_some_and(|name| name.starts_with("connections.json."))
-        && path
-            .parent()
+        && collections
             .and_then(Path::file_name)
             .and_then(|value| value.to_str())
             == Some("collections")
+        // Scope strictly to the real `data/collections` store; an unrelated
+        // managed file like `knowledge-sources/collections/connections.json.notes`
+        // must not be dropped from the backup or zip.
+        && collections
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .and_then(|value| value.to_str())
+            == Some("data")
 }
 
 fn write_backup_payload(state: &AppState, target: &Path) -> AppResult<()> {
@@ -471,6 +479,52 @@ mod tests {
         // The sidecar skip must never widen into dropping the masked
         // connections.json itself from downloaded archives.
         assert!(masked_archived);
+    }
+
+    #[test]
+    fn backups_keep_unrelated_connections_lookalike_files() {
+        let state = test_state("connections-lookalike");
+        // A managed file that merely shares the basename pattern but lives
+        // outside data/collections must be backed up and shipped, not dropped.
+        let lookalike_dir = state.data_dir.join("knowledge-sources/collections");
+        fs::create_dir_all(&lookalike_dir).expect("lookalike dir should be created");
+        fs::write(
+            lookalike_dir.join("connections.json.notes"),
+            b"not a secret sidecar",
+        )
+        .expect("lookalike fixture should write");
+
+        let created = create_backup(&state).expect("managed backup should be created");
+        let name = created["backupName"].as_str().expect("backup name");
+        let backup_lookalike = state
+            .data_dir
+            .join("backups")
+            .join(name)
+            .join("knowledge-sources/collections/connections.json.notes");
+        assert!(
+            backup_lookalike.exists(),
+            "unrelated lookalike must survive the fresh backup"
+        );
+
+        let downloaded = download_backup(&state, Some(name)).expect("backup should download");
+        let bytes = general_purpose::STANDARD
+            .decode(downloaded["base64"].as_str().expect("zip base64"))
+            .expect("zip should decode");
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("zip should open");
+        let mut lookalike_archived = false;
+        for index in 0..archive.len() {
+            let entry = archive.by_index(index).expect("zip entry should read");
+            if entry
+                .name()
+                .ends_with("knowledge-sources/collections/connections.json.notes")
+            {
+                lookalike_archived = true;
+            }
+        }
+        assert!(
+            lookalike_archived,
+            "unrelated lookalike must survive the downloaded zip"
+        );
     }
 
     #[test]
