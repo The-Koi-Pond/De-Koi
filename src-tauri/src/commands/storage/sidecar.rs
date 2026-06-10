@@ -1,7 +1,7 @@
 use crate::state::AppState;
 use flate2::read::GzDecoder;
 use marinara_core::{AppError, AppResult};
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, Rng};
 use reqwest::header::{ACCEPT, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -674,8 +674,8 @@ fn ensure_inside_dir(root: &Path, target: &Path, message: &str) -> AppResult<()>
 }
 
 fn random_suffix(len: usize) -> String {
-    rand::thread_rng()
-        .sample_iter(&Alphanumeric)
+    rand::rng()
+        .sample_iter(Alphanumeric)
         .take(len)
         .map(char::from)
         .collect()
@@ -2278,8 +2278,8 @@ pub(crate) async fn test_message(state: &AppState) -> AppResult<Value> {
         let mut process = SIDECAR_PROCESS.lock().await;
         process.ensure_ready_locked(state, false).await?
     };
-    let nonce: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
+    let nonce: String = rand::rng()
+        .sample_iter(Alphanumeric)
         .take(8)
         .map(char::from)
         .collect();
