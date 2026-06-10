@@ -47,7 +47,7 @@ function scopedPluginMemoryOptions(extensionId: string, options?: StorageListOpt
   };
 }
 
-function scopedPluginMemoryPayload(extensionId: string, value: Record<string, unknown>): Record<string, unknown> {
+function scopedPluginMemoryCreatePayload(extensionId: string, value: Record<string, unknown>): Record<string, unknown> {
   const payload: Record<string, unknown> = { ...value, pluginId: extensionId };
   if (typeof payload.id === "string") {
     assertScopedMemoryId(extensionId, payload.id);
@@ -55,8 +55,19 @@ function scopedPluginMemoryPayload(extensionId: string, value: Record<string, un
   }
   if (typeof payload.key === "string" && payload.key.trim()) {
     payload.id = `${extensionId}:${encodeURIComponent(payload.key.trim())}`;
+    return payload;
   }
-  return payload;
+  throw new Error("Extension storage plugin-memory create requires a scoped id or non-empty key.");
+}
+
+function scopedPluginMemoryUpdatePayload(extensionId: string, patch: Record<string, unknown>): Record<string, unknown> {
+  if ("id" in patch) {
+    throw new Error("Extension storage plugin-memory update cannot change record id.");
+  }
+  if ("key" in patch) {
+    throw new Error("Extension storage plugin-memory update cannot change record key.");
+  }
+  return { ...patch, pluginId: extensionId };
 }
 
 export function createExtensionStorageApi(storage: StorageMutator, extensionId: string): ExtensionStorageApi {
@@ -77,12 +88,12 @@ export function createExtensionStorageApi(storage: StorageMutator, extensionId: 
     },
     create: async <T = unknown>(entity: string, value: Record<string, unknown>) => {
       assertExtensionStorageEntityAllowed(entity);
-      return storage.create<T>(entity, scopedPluginMemoryPayload(scopedExtensionId, value));
+      return storage.create<T>(entity, scopedPluginMemoryCreatePayload(scopedExtensionId, value));
     },
     update: async <T = unknown>(entity: string, id: string, patch: Record<string, unknown>) => {
       assertExtensionStorageEntityAllowed(entity);
       assertScopedMemoryId(scopedExtensionId, id);
-      return storage.update<T>(entity, id, scopedPluginMemoryPayload(scopedExtensionId, patch));
+      return storage.update<T>(entity, id, scopedPluginMemoryUpdatePayload(scopedExtensionId, patch));
     },
     delete: async (entity: string, id: string) => {
       assertExtensionStorageEntityAllowed(entity);
