@@ -513,30 +513,17 @@ pub(super) fn restore_profile_zip_assets<R: Read + Seek>(
                     ))
                 })?;
                 let declared_size = entry.size();
-                validate_profile_zip_asset_declared_size(&entry_name, declared_size)?;
-                add_profile_archive_asset_bytes(&mut total_bytes, &entry_name, declared_size)?;
                 let mut output = File::create(target)?;
-                // Cap the streamed bytes at the remaining aggregate budget so a
-                // forged entry cannot write a full per-entry quota past the cap
-                // before the post-copy accounting runs.
-                let remaining_budget = PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES
-                    .saturating_sub(total_bytes.saturating_sub(declared_size));
-                let copied = copy_limited_profile_zip_asset_with_limit(
+                stream_profile_zip_entry_within_budget(
                     &entry_name,
                     &mut entry,
                     &mut output,
-                    MAX_PROFILE_ASSET_BYTES.min(remaining_budget),
+                    declared_size,
+                    MAX_PROFILE_ASSET_BYTES,
+                    PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES,
+                    &mut total_bytes,
                 )?;
                 output.flush()?;
-                // The declared size comes from the attacker-controlled zip directory;
-                // charge the actual decompressed bytes against the aggregate cap too.
-                if copied > declared_size {
-                    add_profile_archive_asset_bytes(
-                        &mut total_bytes,
-                        &entry_name,
-                        copied - declared_size,
-                    )?;
-                }
             }
         }
     }
@@ -571,23 +558,15 @@ pub(super) fn preview_profile_zip_assets<R: Read + Seek>(
                     ))
                 })?;
                 let declared_size = entry.size();
-                validate_profile_zip_asset_declared_size(entry_name, declared_size)?;
-                add_profile_archive_asset_bytes(&mut total_bytes, entry_name, declared_size)?;
-                let remaining_budget = PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES
-                    .saturating_sub(total_bytes.saturating_sub(declared_size));
-                let copied = copy_limited_profile_zip_asset_with_limit(
+                stream_profile_zip_entry_within_budget(
                     entry_name,
                     &mut entry,
                     std::io::sink(),
-                    MAX_PROFILE_ASSET_BYTES.min(remaining_budget),
+                    declared_size,
+                    MAX_PROFILE_ASSET_BYTES,
+                    PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES,
+                    &mut total_bytes,
                 )?;
-                if copied > declared_size {
-                    add_profile_archive_asset_bytes(
-                        &mut total_bytes,
-                        entry_name,
-                        copied - declared_size,
-                    )?;
-                }
             }
         }
     }
@@ -651,24 +630,66 @@ fn profile_asset_manifest_path(asset: &Value, index: usize) -> AppResult<&str> {
         })
 }
 
-fn validate_profile_zip_asset_declared_size(entry_name: &str, size: u64) -> AppResult<()> {
-    validate_profile_zip_asset_declared_size_with_limit(entry_name, size, MAX_PROFILE_ASSET_BYTES)
+fn add_profile_archive_asset_bytes(total: &mut u64, entry_name: &str, size: u64) -> AppResult<()> {
+    add_profile_archive_asset_bytes_with_limit(
+        total,
+        entry_name,
+        size,
+        PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES,
+    )
 }
 
-fn add_profile_archive_asset_bytes(total: &mut u64, entry_name: &str, size: u64) -> AppResult<()> {
-    *total = total.checked_add(size).ok_or_else(|| {
-        profile_archive_too_large_error(
+fn add_profile_archive_asset_bytes_with_limit(
+    total: &mut u64,
+    entry_name: &str,
+    size: u64,
+    limit: u64,
+) -> AppResult<()> {
+    *total = total
+        .checked_add(size)
+        .ok_or_else(|| profile_archive_too_large_error(entry_name, u64::MAX, limit))?;
+    if *total > limit {
+        return Err(profile_archive_too_large_error(entry_name, *total, limit));
+    }
+    Ok(())
+}
+
+/// Charge a zip entry against both the per-entry and the aggregate caps while
+/// streaming it, clipping the copy at the remaining aggregate budget so a forged
+/// declared size cannot write a full per-entry quota past the aggregate cap
+/// before the post-copy accounting runs. Honest entries (declared == actual)
+/// never trip the clipped limit because the declared-size charge already
+/// guarantees declared <= remaining budget at copy time.
+fn stream_profile_zip_entry_within_budget<R: Read, W: Write>(
+    entry_name: &str,
+    reader: R,
+    writer: W,
+    declared_size: u64,
+    per_entry_limit: u64,
+    aggregate_limit: u64,
+    total_bytes: &mut u64,
+) -> AppResult<()> {
+    validate_profile_zip_asset_declared_size_with_limit(entry_name, declared_size, per_entry_limit)?;
+    add_profile_archive_asset_bytes_with_limit(
+        total_bytes,
+        entry_name,
+        declared_size,
+        aggregate_limit,
+    )?;
+    let remaining_budget = aggregate_limit.saturating_sub(total_bytes.saturating_sub(declared_size));
+    let copied = copy_limited_profile_zip_asset_with_limit(
+        entry_name,
+        reader,
+        writer,
+        per_entry_limit.min(remaining_budget),
+    )?;
+    if copied > declared_size {
+        add_profile_archive_asset_bytes_with_limit(
+            total_bytes,
             entry_name,
-            u64::MAX,
-            PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES,
-        )
-    })?;
-    if *total > PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES {
-        return Err(profile_archive_too_large_error(
-            entry_name,
-            *total,
-            PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES,
-        ));
+            copied - declared_size,
+            aggregate_limit,
+        )?;
     }
     Ok(())
 }
@@ -1470,6 +1491,67 @@ mod tests {
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("avatars/huge.png"));
         assert!(error.message.contains("too large"));
+    }
+
+    #[test]
+    fn profile_zip_entry_inflating_past_aggregate_budget_is_rejected() {
+        // Two entries each declare 1 byte but inflate to 40; with a 50-byte
+        // aggregate cap the second entry must be rejected, and no more than the
+        // remaining budget (plus the one-byte sentinel) may reach the writer.
+        let per_entry_limit = 1_000;
+        let aggregate_limit = 50;
+        let mut total = 0_u64;
+
+        let mut first = Vec::new();
+        stream_profile_zip_entry_within_budget(
+            "avatars/a.png",
+            std::io::repeat(1).take(40),
+            &mut first,
+            1,
+            per_entry_limit,
+            aggregate_limit,
+            &mut total,
+        )
+        .expect("first entry fits within the aggregate budget");
+        assert_eq!(first.len(), 40);
+        assert_eq!(total, 40);
+
+        let mut second = Vec::new();
+        let error = stream_profile_zip_entry_within_budget(
+            "avatars/b.png",
+            std::io::repeat(1).take(40),
+            &mut second,
+            1,
+            per_entry_limit,
+            aggregate_limit,
+            &mut total,
+        )
+        .expect_err("second entry overflows the aggregate budget");
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("too large"));
+        // Only the remaining budget (10) plus the take(limit+1) sentinel byte
+        // may be written before the overflow aborts; never a full per-entry quota.
+        assert!(second.len() <= 11, "wrote {} bytes past the budget", second.len());
+    }
+
+    #[test]
+    fn profile_zip_entry_honest_size_is_byte_identical() {
+        // An honest entry (declared == actual) is charged once and streamed in
+        // full; the budget clip never trips because declared <= remaining.
+        let mut total = 0_u64;
+        let mut out = Vec::new();
+        stream_profile_zip_entry_within_budget(
+            "avatars/ok.png",
+            std::io::repeat(7).take(32),
+            &mut out,
+            32,
+            1_000,
+            1_000,
+            &mut total,
+        )
+        .expect("honest entry streams fully");
+        assert_eq!(out.len(), 32);
+        assert_eq!(total, 32);
     }
 
     #[test]
