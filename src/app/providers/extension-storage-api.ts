@@ -1,53 +1,92 @@
-import type { StorageEntity, StorageGateway, StorageListOptions } from "../../engine/capabilities/storage";
+import type { StorageGateway, StorageListOptions } from "../../engine/capabilities/storage";
 
 type ExtensionStorageMethod = "list" | "get" | "create" | "update" | "delete";
-type ExtensionStorageApi = Pick<StorageGateway, ExtensionStorageMethod>;
+type StorageMutator = Pick<StorageGateway, ExtensionStorageMethod>;
 
-const PRIVILEGED_EXTENSION_STORAGE_ENTITIES = new Set([
-  "agents",
-  "agent-memory",
-  "agent-runs",
-  "app-settings",
-  "connections",
-  "connection-folders",
-  "custom-tools",
-  "extensions",
-  "prompt-overrides",
-]);
+type ExtensionStorageEntity = "plugin-memory";
+
+interface ExtensionStorageApi {
+  list<T = unknown>(entity: string, options?: StorageListOptions): Promise<T[]>;
+  get<T = unknown>(
+    entity: string,
+    id: string,
+    options?: Pick<StorageListOptions, "fields" | "fieldSelections">,
+  ): Promise<T | null>;
+  create<T = unknown>(entity: string, value: Record<string, unknown>): Promise<T>;
+  update<T = unknown>(entity: string, id: string, patch: Record<string, unknown>): Promise<T>;
+  delete(entity: string, id: string): Promise<{ deleted: boolean }>;
+}
+
+const EXTENSION_STORAGE_ENTITY: ExtensionStorageEntity = "plugin-memory";
 
 function normalizeStorageEntity(entity: string): string {
   return entity.trim().toLowerCase();
 }
 
-function isExtensionStorageEntityAllowed(entity: string): boolean {
-  return !PRIVILEGED_EXTENSION_STORAGE_ENTITIES.has(normalizeStorageEntity(entity));
+function normalizeExtensionId(extensionId: string): string {
+  const trimmed = extensionId.trim();
+  if (!trimmed) throw new Error("Extension storage requires a stable extension id.");
+  return trimmed;
 }
 
-function assertExtensionStorageEntityAllowed(entity: string): void {
-  if (isExtensionStorageEntityAllowed(entity)) return;
+function assertExtensionStorageEntityAllowed(entity: string): asserts entity is ExtensionStorageEntity {
+  if (normalizeStorageEntity(entity) === EXTENSION_STORAGE_ENTITY) return;
   throw new Error(`Extension storage access to "${entity}" is not allowed.`);
 }
 
-export function createExtensionStorageApi(storage: ExtensionStorageApi): ExtensionStorageApi {
+function assertScopedMemoryId(extensionId: string, id: string): void {
+  if (id.startsWith(`${extensionId}:`)) return;
+  throw new Error("Extension storage plugin-memory id is outside this extension namespace.");
+}
+
+function scopedPluginMemoryOptions(extensionId: string, options?: StorageListOptions): StorageListOptions {
   return {
-    list: async (entity: StorageEntity, options?: StorageListOptions) => {
+    ...options,
+    whereIn: undefined,
+    filters: { ...(options?.filters ?? {}), pluginId: extensionId },
+  };
+}
+
+function scopedPluginMemoryPayload(extensionId: string, value: Record<string, unknown>): Record<string, unknown> {
+  const payload: Record<string, unknown> = { ...value, pluginId: extensionId };
+  if (typeof payload.id === "string") {
+    assertScopedMemoryId(extensionId, payload.id);
+    return payload;
+  }
+  if (typeof payload.key === "string" && payload.key.trim()) {
+    payload.id = `${extensionId}:${encodeURIComponent(payload.key.trim())}`;
+  }
+  return payload;
+}
+
+export function createExtensionStorageApi(storage: StorageMutator, extensionId: string): ExtensionStorageApi {
+  const scopedExtensionId = normalizeExtensionId(extensionId);
+  return {
+    list: async <T = unknown>(entity: string, options?: StorageListOptions) => {
       assertExtensionStorageEntityAllowed(entity);
-      return storage.list(entity, options);
+      return storage.list<T>(entity, scopedPluginMemoryOptions(scopedExtensionId, options));
     },
-    get: async (entity: StorageEntity, id: string, options?: Pick<StorageListOptions, "fields" | "fieldSelections">) => {
+    get: async <T = unknown>(
+      entity: string,
+      id: string,
+      options?: Pick<StorageListOptions, "fields" | "fieldSelections">,
+    ) => {
       assertExtensionStorageEntityAllowed(entity);
-      return storage.get(entity, id, options);
+      assertScopedMemoryId(scopedExtensionId, id);
+      return storage.get<T>(entity, id, options);
     },
-    create: async (entity: StorageEntity, value: Record<string, unknown>) => {
+    create: async <T = unknown>(entity: string, value: Record<string, unknown>) => {
       assertExtensionStorageEntityAllowed(entity);
-      return storage.create(entity, value);
+      return storage.create<T>(entity, scopedPluginMemoryPayload(scopedExtensionId, value));
     },
-    update: async (entity: StorageEntity, id: string, patch: Record<string, unknown>) => {
+    update: async <T = unknown>(entity: string, id: string, patch: Record<string, unknown>) => {
       assertExtensionStorageEntityAllowed(entity);
-      return storage.update(entity, id, patch);
+      assertScopedMemoryId(scopedExtensionId, id);
+      return storage.update<T>(entity, id, scopedPluginMemoryPayload(scopedExtensionId, patch));
     },
-    delete: async (entity: StorageEntity, id: string) => {
+    delete: async (entity: string, id: string) => {
       assertExtensionStorageEntityAllowed(entity);
+      assertScopedMemoryId(scopedExtensionId, id);
       return storage.delete(entity, id);
     },
   };

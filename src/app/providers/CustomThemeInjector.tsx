@@ -168,7 +168,7 @@ export function CustomThemeInjector() {
             return el;
           },
 
-          storage: createExtensionStorageApi(storageApi),
+          storage: createExtensionStorageApi(storageApi, ext.id),
 
           // addEventListener with auto-cleanup
           on: (target: EventTarget, event: string, handler: EventListenerOrEventListenerObject) => {
