@@ -330,10 +330,12 @@ export function findImageStyleProfile(
   settings: ImageStyleProfileSettings,
   profileId: string | null | undefined,
 ): ImageStyleProfile {
-  const id = profileId?.trim() || settings.defaultProfileId || DEFAULT_IMAGE_STYLE_PROFILE_ID;
+  const defaultId = slugId(settings.defaultProfileId || DEFAULT_IMAGE_STYLE_PROFILE_ID) || DEFAULT_IMAGE_STYLE_PROFILE_ID;
+  const rawId = profileId?.trim();
+  const id = rawId ? slugId(rawId) : defaultId;
   return (
     settings.profiles.find((profile) => profile.id === id) ??
-    settings.profiles.find((profile) => profile.id === settings.defaultProfileId) ??
+    settings.profiles.find((profile) => profile.id === defaultId) ??
     settings.profiles.find((profile) => profile.id === DEFAULT_IMAGE_STYLE_PROFILE_ID) ??
     DEFAULT_IMAGE_STYLE_PROFILES[0]!
   );

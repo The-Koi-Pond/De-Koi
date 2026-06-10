@@ -63,6 +63,30 @@ describe("image style profiles", () => {
     expect(settings.defaultProfileId).toBe("custom-ink");
   });
 
+  it("normalizes explicit profile ids before selecting a custom profile", () => {
+    const settings = normalizeImageStyleProfileSettings({
+      defaultProfileId: "auto",
+      profiles: [
+        {
+          id: "custom ink!",
+          name: "Ink",
+          baseStyle: "custom",
+          promptMode: "tagged",
+          positiveTags: "ink wash",
+        },
+      ],
+    });
+    const compiled = compileImagePrompt({
+      kind: "illustration",
+      prompt: "Mira under rain",
+      styleProfileId: "custom ink!",
+      styleProfiles: settings,
+    });
+
+    expect(compiled.profile.id).toBe("custom-ink");
+    expect(compiled.prompt).toContain("ink wash");
+  });
+
   it("moves obvious negative fragments out of positive prompts", () => {
     const settings = createDefaultImageStyleProfileSettings();
     const compiled = compileImagePrompt({
