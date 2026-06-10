@@ -124,13 +124,7 @@ pub fn character_gallery_upload(
     character_id: String,
     body: Value,
 ) -> Result<Value, AppError> {
-    shared::upload_gallery_image(
-        &state,
-        "character-gallery",
-        "characterId",
-        &character_id,
-        body,
-    )
+    shared::upload_character_gallery_image(&state, &character_id, body)
 }
 
 #[tauri::command]

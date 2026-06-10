@@ -130,28 +130,42 @@ pub(super) fn restore_character_gallery(
         else {
             continue;
         };
-        let (mime, _) = decode_image_payload(data_url, "gallery image")?;
-        let ext = extension_for_image_mime(&mime).unwrap_or("png");
+        let (mime, bytes) = decode_image_payload(data_url, "gallery image")?;
+        let ext = extension_for_image_mime(&mime)
+            .or_else(|| {
+                item.get("filename")
+                    .and_then(Value::as_str)
+                    .and_then(extension_from_filename)
+            })
+            .unwrap_or("png");
         let filename = import_image_filename(
             item.get("filename").and_then(Value::as_str),
             &format!("gallery-{}", index + 1),
             ext,
         );
-        crate::storage_commands::entity_commands::storage_create_inner(
+        let stored = persist_image_bytes(state, "gallery", &filename, &bytes, &mime)?;
+        let create_result = crate::storage_commands::entity_commands::storage_create_inner(
             state,
             "character-gallery".to_string(),
             json!({
                 "characterId": character_id,
-                "filePath": filename,
-                "filename": filename,
-                "url": data_url,
+                "filePath": stored.absolute_path.clone(),
+                "filename": stored.filename.clone(),
+                "url": stored.asset_url.clone(),
                 "prompt": item.get("prompt").cloned().unwrap_or_else(|| json!("")),
                 "provider": item.get("provider").cloned().unwrap_or_else(|| json!("")),
                 "model": item.get("model").cloned().unwrap_or_else(|| json!("")),
                 "width": item.get("width").cloned().unwrap_or(Value::Null),
                 "height": item.get("height").cloned().unwrap_or(Value::Null)
             }),
-        )?;
+        );
+        if let Err(error) = create_result {
+            remove_copied_file_path(
+                Some(&stored.absolute_path),
+                "imported character gallery image",
+            );
+            return Err(error);
+        }
         imported += 1;
     }
     Ok(imported)

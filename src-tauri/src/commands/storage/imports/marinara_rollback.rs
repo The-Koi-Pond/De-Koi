@@ -101,6 +101,23 @@ pub(super) fn rollback_records_by_field_collect(
 ) {
     let mut filters = Map::new();
     filters.insert(field.to_string(), Value::String(value.to_string()));
+    if matches!(
+        collection,
+        "gallery" | "character-gallery" | "persona-gallery" | "global-gallery"
+    ) {
+        match state.storage.list_where(collection, &filters) {
+            Ok(rows) => {
+                for row in rows {
+                    crate::storage_commands::media_uploads::remove_managed_record_file(
+                        state, "gallery", &row, "filePath", "filename",
+                    );
+                }
+            }
+            Err(error) => rollback_errors.push(format!(
+                "{collection} where {field}={value} file cleanup snapshot: {error}"
+            )),
+        }
+    }
     if let Err(error) = state.storage.delete_where(collection, &filters) {
         rollback_errors.push(format!("{collection} where {field}={value}: {error}"));
     }
