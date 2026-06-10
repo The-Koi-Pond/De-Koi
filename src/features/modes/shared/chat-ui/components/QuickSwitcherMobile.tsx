@@ -5,7 +5,7 @@
 // ──────────────────────────────────────────────
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { ChevronUp, ChevronDown, ChevronRight, Link, CircleUser, FolderOpen, Folder, Check } from "lucide-react";
-import { useConnections, useUpdateConnection } from "../../../../catalog/connections/index";
+import { isSyntheticConnection, useConnections, useUpdateConnection } from "../../../../catalog/connections/index";
 import { PersonaAvatarImage, usePersonaGroups, usePersonaSummaries } from "../../../../catalog/personas/index";
 import { useUpdateChat, useChat } from "../../../../catalog/chats/index";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
@@ -66,9 +66,13 @@ export function QuickSwitcherMobile() {
       id: string;
       name: string;
       provider?: string;
+      synthetic?: boolean;
       useForRandom?: string | boolean | null;
     }>,
   ).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const visibleConnections = isRandom
+    ? sortedConnections.filter((conn) => !isSyntheticConnection(conn))
+    : sortedConnections;
 
   const sortedPersonas = ((rawPersonas ?? []) as Persona[])
     .slice()
@@ -297,7 +301,7 @@ export function QuickSwitcherMobile() {
                   {isRandom && <span className="ml-auto text-[0.6875rem]">active</span>}
                 </button>
                 <div className="mx-2 my-1 h-px bg-[var(--border)]" />
-                {sortedConnections.map((conn) => {
+                {visibleConnections.map((conn) => {
                   const inPool = isRandomPoolEnabled(conn.useForRandom);
                   const isActive = activeConnectionId === conn.id;
                   if (isRandom) {
@@ -336,7 +340,7 @@ export function QuickSwitcherMobile() {
                     </button>
                   );
                 })}
-                {sortedConnections.length === 0 && (
+                {visibleConnections.length === 0 && (
                   <div className="px-3 py-4 text-center text-[0.6875rem] italic text-[var(--muted-foreground)]">
                     No connections found.
                   </div>

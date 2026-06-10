@@ -36,6 +36,13 @@ function runtimeVariantLabel(variant: string | null | undefined): string | null 
   return variant ? variant.replace(/-/g, " ") : null;
 }
 
+type TrackerAssignmentSummary = {
+  status: "complete" | "partial";
+  changedAgents: string[];
+  alreadyLocalAgents: string[];
+  failedAgents: Array<{ name: string; message: string }>;
+};
+
 export function LocalSidecarCard() {
   const queryClient = useQueryClient();
   const { data: agentConfigs } = useAgentConfigs();
@@ -47,6 +54,7 @@ export function LocalSidecarCard() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [assigningTrackers, setAssigningTrackers] = useState(false);
+  const [trackerAssignmentSummary, setTrackerAssignmentSummary] = useState<TrackerAssignmentSummary | null>(null);
 
   const applyStatus = useCallback(
     (next: LocalSidecarStatusResponse) => {
@@ -173,6 +181,7 @@ export function LocalSidecarCard() {
       return;
     }
     setAssigningTrackers(true);
+    setTrackerAssignmentSummary(null);
     try {
       let readyStatus = status;
       if (!readyStatus.config.enabled) {
@@ -195,7 +204,7 @@ export function LocalSidecarCard() {
       const configByType = new Map(configs.map((config) => [config.type, config]));
       const alreadyLocalAgents: string[] = [];
       const changedAgents: string[] = [];
-      const failedAgents: string[] = [];
+      const failedAgents: Array<{ name: string; message: string }> = [];
 
       for (const agent of trackerAgents) {
         try {
@@ -221,20 +230,37 @@ export function LocalSidecarCard() {
             settings: {},
           });
           changedAgents.push(agent.name);
-        } catch {
-          failedAgents.push(agent.name);
+        } catch (error) {
+          failedAgents.push({
+            name: agent.name,
+            message: error instanceof Error ? error.message : "Update failed",
+          });
         }
       }
 
       await queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      await queryClient.refetchQueries({ queryKey: agentKeys.all, type: "active" });
       if (failedAgents.length > 0) {
-        const changedSummary =
-          changedAgents.length > 0 ? `Updated: ${changedAgents.join(", ")}. ` : "";
+        setTrackerAssignmentSummary({
+          status: "partial",
+          changedAgents,
+          alreadyLocalAgents,
+          failedAgents,
+        });
+        const changedSummary = changedAgents.length > 0 ? `Updated: ${changedAgents.join(", ")}. ` : "";
         const alreadyLocalSummary =
           alreadyLocalAgents.length > 0 ? `Already local: ${alreadyLocalAgents.join(", ")}. ` : "";
-        toast.error(`${changedSummary}${alreadyLocalSummary}Failed: ${failedAgents.join(", ")}.`);
+        toast.warning(
+          `${changedSummary}${alreadyLocalSummary}Failed: ${failedAgents.map((agent) => agent.name).join(", ")}.`,
+        );
         return;
       }
+      setTrackerAssignmentSummary({
+        status: "complete",
+        changedAgents,
+        alreadyLocalAgents,
+        failedAgents,
+      });
       toast.success(
         changedAgents.length > 0
           ? `Updated ${changedAgents.length} tracker agent(s) for the local model`
@@ -354,9 +380,10 @@ export function LocalSidecarCard() {
                   className="flex items-center justify-between gap-3 rounded-lg border border-sky-400/15 bg-sky-400/8 px-3 py-2 text-left transition-all hover:bg-sky-400/12 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium text-sky-200">Use local model for all tracker agents</div>
+                    <div className="text-xs font-medium text-sky-200">Assign local model to tracker agents</div>
                     <div className="mt-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
-                      {trackerLocalCount}/{trackerAgents.length} built-in tracker agents currently point here.
+                      {trackerLocalCount}/{trackerAgents.length} built-in tracker agents currently point here. Partial
+                      failures are reported by agent.
                     </div>
                   </div>
                   {assigningTrackers ? (
@@ -365,6 +392,40 @@ export function LocalSidecarCard() {
                     <Link size="0.875rem" className="text-sky-300" />
                   )}
                 </button>
+                {trackerAssignmentSummary && (
+                  <div
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-[0.6875rem]",
+                      trackerAssignmentSummary.status === "partial"
+                        ? "border-amber-500/20 bg-amber-500/5 text-amber-100"
+                        : "border-emerald-500/20 bg-emerald-500/5 text-emerald-100",
+                    )}
+                  >
+                    <div className="font-medium">
+                      {trackerAssignmentSummary.status === "partial"
+                        ? "Partial tracker assignment"
+                        : "Tracker assignment complete"}
+                    </div>
+                    {trackerAssignmentSummary.changedAgents.length > 0 && (
+                      <div className="mt-1 text-[var(--muted-foreground)]">
+                        Updated: {trackerAssignmentSummary.changedAgents.join(", ")}
+                      </div>
+                    )}
+                    {trackerAssignmentSummary.alreadyLocalAgents.length > 0 && (
+                      <div className="mt-1 text-[var(--muted-foreground)]">
+                        Already local: {trackerAssignmentSummary.alreadyLocalAgents.join(", ")}
+                      </div>
+                    )}
+                    {trackerAssignmentSummary.failedAgents.length > 0 && (
+                      <div className="mt-1 text-[var(--muted-foreground)]">
+                        Failed:{" "}
+                        {trackerAssignmentSummary.failedAgents
+                          .map((agent) => `${agent.name} (${agent.message})`)
+                          .join(", ")}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

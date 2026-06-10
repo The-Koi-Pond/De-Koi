@@ -53,6 +53,23 @@ type ConfigInputField =
   | "model"
   | "customModelRepo";
 
+const CONFIG_INPUT_FIELDS = new Set<ConfigInputField>([
+  "contextSize",
+  "maxTokens",
+  "temperature",
+  "topP",
+  "topK",
+  "gpuLayers",
+  "executablePath",
+  "modelPath",
+  "model",
+  "customModelRepo",
+]);
+
+function isConfigInputField(value: string): value is ConfigInputField {
+  return CONFIG_INPUT_FIELDS.has(value as ConfigInputField);
+}
+
 function formatBytes(value: number | null | undefined): string {
   if (!value || value <= 0) return "";
   if (value < 1024) return `${value} B`;
@@ -167,6 +184,7 @@ export function LocalSidecarSetupModal({
   const openRefreshTokenRef = useRef(0);
   const fallbackConfigRef = useRef<LocalSidecarStatusResponse["config"] | null>(null);
   const dirtyFieldsRef = useRef<Set<ConfigInputField>>(new Set());
+  const dirtyFieldVersionsRef = useRef<Map<ConfigInputField, number>>(new Map());
 
   const config = status?.config;
   const runtime = status?.runtime;
@@ -195,12 +213,12 @@ export function LocalSidecarSetupModal({
 
   const markConfigInputDirty = useCallback((field: ConfigInputField) => {
     dirtyFieldsRef.current.add(field);
+    dirtyFieldVersionsRef.current.set(field, (dirtyFieldVersionsRef.current.get(field) ?? 0) + 1);
   }, []);
 
   const hydrateConfigInputs = useCallback(
     (nextConfig: LocalSidecarStatusResponse["config"], options: { preserveDirty?: boolean } = {}) => {
-      const shouldHydrate = (field: ConfigInputField) =>
-        !options.preserveDirty || !dirtyFieldsRef.current.has(field);
+      const shouldHydrate = (field: ConfigInputField) => !options.preserveDirty || !dirtyFieldsRef.current.has(field);
       if (shouldHydrate("contextSize")) setContextSizeInput(String(nextConfig.contextSize));
       if (shouldHydrate("maxTokens")) setMaxTokensInput(String(nextConfig.maxTokens));
       if (shouldHydrate("temperature")) setTemperatureInput(String(nextConfig.temperature));
@@ -243,6 +261,7 @@ export function LocalSidecarSetupModal({
     if (!open) {
       openRefreshTokenRef.current += 1;
       dirtyFieldsRef.current.clear();
+      dirtyFieldVersionsRef.current.clear();
       setCustomModels([]);
       setListedCustomRepo(null);
       setSelectedCustomModel("");
@@ -318,10 +337,15 @@ export function LocalSidecarSetupModal({
     patch: LocalSidecarConfigPatch,
     successMessage = "Local AI settings saved",
   ) => {
+    const patchFields = Object.keys(patch).filter(isConfigInputField);
+    const startedVersions = new Map(
+      patchFields.map((field) => [field, dirtyFieldVersionsRef.current.get(field) ?? 0] as const),
+    );
     const saved = await runStatusAction(label, () => localSidecarApi.updateConfig(patch), successMessage);
     if (!saved) return;
-    for (const field of Object.keys(patch)) {
-      dirtyFieldsRef.current.delete(field as ConfigInputField);
+    for (const field of patchFields) {
+      if ((dirtyFieldVersionsRef.current.get(field) ?? 0) !== startedVersions.get(field)) continue;
+      dirtyFieldsRef.current.delete(field);
     }
   };
 
@@ -473,7 +497,8 @@ export function LocalSidecarSetupModal({
     (executablePathInput !== (config.executablePath ?? "") ||
       modelPathInput !== (config.modelPath ?? "") ||
       modelNameInput !== (config.model || "local-sidecar"));
-  const customSelectionMatchesRepo = !!selectedCustomModel && !!listedCustomRepo && customRepo.trim() === listedCustomRepo;
+  const customSelectionMatchesRepo =
+    !!selectedCustomModel && !!listedCustomRepo && customRepo.trim() === listedCustomRepo;
 
   return (
     <Modal open={open} onClose={onClose} title="Local AI Model" width="max-w-2xl">
@@ -484,8 +509,8 @@ export function LocalSidecarSetupModal({
           </div>
           <div className="text-sm text-[var(--muted-foreground)]">
             <p>
-              De-Koi can run a local sidecar for trackers, scene analysis, and game-state helpers without
-              spending main-model tokens.
+              De-Koi can run a local sidecar for trackers, scene analysis, and game-state helpers without spending
+              main-model tokens.
             </p>
             <p className="mt-1.5 text-xs text-[var(--muted-foreground)]/75">
               Set up the runtime first, then choose either a curated Gemma preset or any GGUF from HuggingFace. Runtime

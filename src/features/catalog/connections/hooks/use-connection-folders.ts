@@ -6,7 +6,7 @@ import { updateConnectionSchema } from "../../../../engine/contracts/schemas/con
 import { connectionCommandApi } from "../../../../shared/api/connection-command-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import type { ConnectionFolder } from "../../../../engine/contracts/types/connection";
-import { connectionKeys } from "./use-connections";
+import { assertStoredConnectionId, connectionKeys } from "./use-connections";
 
 const connectionFolderKeys = {
   all: ["connection-folders"] as const,
@@ -71,7 +71,7 @@ export function useMoveConnection() {
   return useMutation({
     mutationFn: (data: { connectionId: string; folderId: string | null }) =>
       connectionCommandApi.move(
-        data.connectionId,
+        assertStoredConnectionId(data.connectionId),
         updateConnectionSchema.parse({ folderId: data.folderId }).folderId ?? null,
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: connectionKeys.list() }),

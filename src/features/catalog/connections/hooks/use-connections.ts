@@ -57,7 +57,7 @@ const CONNECTION_SUMMARY_OPTIONS = {
 
 export type ConnectionSummary = Pick<
   ConnectionRow,
-  "id" | "name" | "provider" | "model" | "baseUrl" | "useForRandom" | "createdAt" | "updatedAt"
+  "id" | "name" | "provider" | "model" | "baseUrl" | "useForRandom" | "createdAt" | "updatedAt" | "synthetic"
 > & {
   folderId?: string | null;
   isDefault?: string | boolean | null;
@@ -67,6 +67,23 @@ export type ConnectionSummary = Pick<
   promptPresetId?: string | null;
   embeddingModel?: string | null;
 };
+
+function isSyntheticConnectionId(id: string | null | undefined): boolean {
+  return id === LOCAL_SIDECAR_CONNECTION_ID;
+}
+
+export function isSyntheticConnection(
+  connection: (Pick<ConnectionSummary, "id"> & { synthetic?: boolean }) | null | undefined,
+): boolean {
+  return connection?.synthetic === true || isSyntheticConnectionId(connection?.id);
+}
+
+export function assertStoredConnectionId(id: string): string {
+  if (isSyntheticConnectionId(id)) {
+    throw new Error("Local Model is a runtime-only connection option and cannot be modified as a stored connection.");
+  }
+  return id;
+}
 
 function canAdvertiseLocalSidecar(status: LocalSidecarStatusResponse): boolean {
   const hasRuntime = status.runtime.installed || !!status.config.executablePath?.trim();
@@ -95,6 +112,7 @@ export function useConnections(enabled = true) {
           id: LOCAL_SIDECAR_CONNECTION_ID,
           name: "Local Model",
           provider: "custom",
+          synthetic: true,
           model: sidecarStatus.config.model,
           baseUrl: sidecarStatus.baseUrl ?? "",
           useForRandom: false,
@@ -117,8 +135,8 @@ export function useConnections(enabled = true) {
 export function useConnection(id: string | null) {
   return useQuery({
     queryKey: connectionKeys.detail(id ?? ""),
-    queryFn: () => storageApi.get<Record<string, unknown>>("connections", id!),
-    enabled: !!id,
+    queryFn: () => storageApi.get<Record<string, unknown>>("connections", assertStoredConnectionId(id!)),
+    enabled: !!id && !isSyntheticConnectionId(id),
     staleTime: 5 * 60_000,
   });
 }
@@ -136,7 +154,7 @@ export function useUpdateConnection() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...data }: { id: string } & Record<string, unknown>) =>
-      storageApi.update("connections", id, updateConnectionSchema.parse(data)),
+      storageApi.update("connections", assertStoredConnectionId(id), updateConnectionSchema.parse(data)),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: connectionKeys.list() });
       qc.invalidateQueries({ queryKey: connectionKeys.detail(variables.id) });
@@ -147,7 +165,8 @@ export function useUpdateConnection() {
 export function useDuplicateConnection() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => storageCommandsApi.duplicate<ConnectionRow>("connections", id),
+    mutationFn: (id: string) =>
+      storageCommandsApi.duplicate<ConnectionRow>("connections", assertStoredConnectionId(id)),
     onSuccess: () => qc.invalidateQueries({ queryKey: connectionKeys.list() }),
   });
 }
@@ -155,7 +174,7 @@ export function useDuplicateConnection() {
 export function useDeleteConnection() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => storageApi.delete("connections", id),
+    mutationFn: (id: string) => storageApi.delete("connections", assertStoredConnectionId(id)),
     onSuccess: () => qc.invalidateQueries({ queryKey: connectionKeys.list() }),
   });
 }
@@ -218,7 +237,7 @@ export function useSaveConnectionDefaults() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, params }: { id: string; params: Record<string, unknown> | null }) =>
-      connectionCommandApi.saveDefaultParameters(id, params),
+      connectionCommandApi.saveDefaultParameters(assertStoredConnectionId(id), params),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: connectionKeys.list() });
       qc.invalidateQueries({ queryKey: connectionKeys.detail(variables.id) });

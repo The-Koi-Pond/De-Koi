@@ -4,6 +4,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Reorder, useDragControls } from "framer-motion";
 import {
+  isSyntheticConnection,
   useConnections,
   useDuplicateConnection,
   useDeleteConnection,
@@ -19,7 +20,6 @@ import {
 } from "../../../catalog/connections";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
-import { LOCAL_SIDECAR_CONNECTION_ID } from "../../../../engine/contracts/types/sidecar";
 import type { ConnectionFolder } from "../../../../engine/contracts/types/connection";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { Modal } from "../../../../shared/components/ui/Modal";
@@ -339,7 +339,7 @@ export function ConnectionsPanel() {
   const [movingConnectionId, setMovingConnectionId] = useState<string | null>(null);
 
   const connectionsList = useMemo(
-    () => ((connections as ConnectionRowData[] | undefined) ?? []).filter((c) => c.id !== LOCAL_SIDECAR_CONNECTION_ID),
+    () => ((connections as ConnectionRowData[] | undefined) ?? []).filter((c) => !isSyntheticConnection(c)),
     [connections],
   );
 

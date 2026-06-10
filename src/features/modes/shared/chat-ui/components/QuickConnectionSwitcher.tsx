@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Link, Dices, Check } from "lucide-react";
-import { useConnections, useUpdateConnection } from "../../../../catalog/connections/index";
+import { isSyntheticConnection, useConnections, useUpdateConnection } from "../../../../catalog/connections/index";
 import { useUpdateChat, useChat } from "../../../../catalog/chats/index";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { filterLanguageGenerationConnections } from "../../../../../shared/lib/connection-filters";
@@ -33,9 +33,11 @@ export function QuickConnectionSwitcher({ className }: { className?: string }) {
       id: string;
       name: string;
       provider?: string;
+      synthetic?: boolean;
       useForRandom?: string | boolean | null;
     }>,
   ).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const visibleConnections = isRandom ? sorted.filter((conn) => !isSyntheticConnection(conn)) : sorted;
 
   const handleSwitch = useCallback(
     (connId: string | null) => {
@@ -130,7 +132,7 @@ export function QuickConnectionSwitcher({ className }: { className?: string }) {
             </button>
           </div>
           <div className="overflow-y-auto p-1">
-            {sorted.map((conn) => {
+            {visibleConnections.map((conn) => {
               const inPool = isRandomPoolEnabled(conn.useForRandom);
               const isActive = activeConnectionId === conn.id;
               if (isRandom) {
@@ -170,7 +172,7 @@ export function QuickConnectionSwitcher({ className }: { className?: string }) {
               );
             })}
 
-            {sorted.length === 0 && (
+            {visibleConnections.length === 0 && (
               <div className="px-3 py-4 text-center text-[0.6875rem] italic text-[var(--muted-foreground)]">
                 No connections found.
               </div>

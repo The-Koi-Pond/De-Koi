@@ -15,6 +15,7 @@ export interface ConnectionRow {
   id: string;
   name: string;
   provider: ConnectionProvider;
+  synthetic?: boolean;
   model?: string | null;
   baseUrl?: string | null;
   useForRandom?: string | boolean | null;
