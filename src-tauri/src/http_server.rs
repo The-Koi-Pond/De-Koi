@@ -40,6 +40,8 @@ const DEFAULT_API_RATE_LIMIT: u32 = 600;
 const INVOKE_PRE_EXTRACTION_API_RATE_LIMIT: u32 = DEFAULT_API_RATE_LIMIT * 10;
 const DEFAULT_API_RATE_WINDOW: Duration = Duration::from_secs(60);
 const RATE_LIMIT_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+const RATE_LIMIT_MAX_BUCKETS: usize = 4096;
+const RATE_LIMIT_IPV6_BUCKET_PREFIX: u8 = 64;
 const HEALTH_WRITABLE_PROBE_TTL: Duration = Duration::from_secs(5);
 const LICENSE_TEXT: &str = include_str!("../../LICENSE.txt");
 const NOTICE_TEXT: &str = include_str!("../../NOTICE.md");
@@ -1786,12 +1788,30 @@ impl ApiRateLimiter {
     }
 
     fn check_rule(&self, ip: IpAddr, rule: ApiRateLimitRule, now: Instant) -> ApiRateLimitOutcome {
-        let key = format!("{}:{ip}", rule.key);
+        let key = format!("{}:{}", rule.key, rate_limit_client_id(ip));
         let mut state = self
             .state
             .lock()
             .expect("API rate limiter state should not be poisoned");
         sweep_expired_rate_limit_buckets(&mut state, now);
+        if state.buckets.len() >= RATE_LIMIT_MAX_BUCKETS && !state.buckets.contains_key(&key) {
+            // At capacity for a new client: reclaim expired buckets now instead
+            // of waiting for the timed sweep.
+            state.last_sweep_at = Some(now);
+            state.buckets.retain(|_, bucket| bucket.reset_at > now);
+            // Loopback may allocate past the cap (it contributes at most a
+            // handful of buckets), so a remote flood that saturates the map
+            // cannot clip the operator's own control traffic.
+            if state.buckets.len() >= RATE_LIMIT_MAX_BUCKETS && !ip.to_canonical().is_loopback() {
+                // Deny-by-default: never grow the bucket map past the cap.
+                return ApiRateLimitOutcome {
+                    limit: rule.limit,
+                    remaining: 0,
+                    reset_after: rule.window,
+                    retry_after: Some(rule.window),
+                };
+            }
+        }
         let bucket = state
             .buckets
             .entry(key)
@@ -1839,6 +1859,13 @@ fn sweep_expired_rate_limit_buckets(state: &mut ApiRateLimiterState, now: Instan
     }
     state.last_sweep_at = Some(now);
     state.buckets.retain(|_, bucket| bucket.reset_at > now);
+}
+
+fn rate_limit_client_id(ip: IpAddr) -> String {
+    match ip.to_canonical() {
+        IpAddr::V4(v4) => v4.to_string(),
+        IpAddr::V6(v6) => Ipv6Addr::from(masked_v6(v6, RATE_LIMIT_IPV6_BUCKET_PREFIX)).to_string(),
+    }
 }
 
 fn rate_limit_rule_for_path(path: &str) -> ApiRateLimitRule {
@@ -2827,6 +2854,60 @@ mod tests {
                 .get("ratelimit-limit")
                 .and_then(|value| value.to_str().ok()),
             Some("5")
+        );
+    }
+
+    #[test]
+    fn api_rate_limiter_bounds_bucket_map_and_aggregates_ipv6_per_64_prefix() {
+        let limiter = ApiRateLimiter::default();
+        let now = Instant::now();
+
+        // Rotating within one /64 shares a single bucket and budget.
+        let first = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 1, 2, 0, 0, 0, 1));
+        let rotated = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 1, 2, 0xdead, 0xbeef, 0, 2));
+        for _ in 0..DEFAULT_API_RATE_LIMIT {
+            let outcome = limiter
+                .check(first, "/api/backup", now)
+                .expect("API path should be rate limited");
+            assert!(outcome.is_allowed());
+        }
+        let blocked = limiter
+            .check(rotated, "/api/backup", now)
+            .expect("API path should be rate limited");
+        assert!(!blocked.is_allowed());
+
+        // Distinct sources beyond the cap are denied instead of allocated.
+        let flood = ApiRateLimiter::default();
+        for i in 0..RATE_LIMIT_MAX_BUCKETS as u32 {
+            let ip = IpAddr::V4(Ipv4Addr::from(0x0100_0000u32 + i));
+            assert!(flood
+                .check(ip, "/api/backup", now)
+                .expect("API path should be rate limited")
+                .is_allowed());
+        }
+        let overflow = flood
+            .check(
+                IpAddr::V4(Ipv4Addr::new(203, 0, 113, 99)),
+                "/api/backup",
+                now,
+            )
+            .expect("API path should be rate limited");
+        assert!(!overflow.is_allowed());
+        assert!(overflow.retry_after.is_some());
+        assert_eq!(
+            flood.state.lock().expect("state").buckets.len(),
+            RATE_LIMIT_MAX_BUCKETS
+        );
+
+        // Loopback control traffic still allocates while the map is saturated
+        // with live remote buckets.
+        let local = flood
+            .check(IpAddr::V4(Ipv4Addr::LOCALHOST), "/api/backup", now)
+            .expect("API path should be rate limited");
+        assert!(local.is_allowed());
+        assert_eq!(
+            flood.state.lock().expect("state").buckets.len(),
+            RATE_LIMIT_MAX_BUCKETS + 1
         );
     }
 
