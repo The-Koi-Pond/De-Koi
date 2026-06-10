@@ -9,7 +9,7 @@ use axum::extract::multipart::Field;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
 use axum::middleware::{self, Next};
-use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::response::sse::{Event, KeepAlive, KeepAliveStream, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -160,9 +160,12 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/import/st-bulk/run", post(import_st_bulk_run_stream))
         .route("/api/sidecar/v1/embeddings", post(sidecar_embeddings))
-        .route("/api/assets/:kind/*path", get(managed_asset))
+        .route("/api/assets/{kind}/{*path}", get(managed_asset))
         .route("/api/llm/stream", post(llm_stream))
-        .route("/api/llm/stream/:stream_id/cancel", post(llm_stream_cancel))
+        .route(
+            "/api/llm/stream/{stream_id}/cancel",
+            post(llm_stream_cancel),
+        )
         .layer(
             CorsLayer::new()
                 .allow_origin(AllowOrigin::predicate(move |origin, _parts| {
@@ -766,7 +769,7 @@ async fn profile_import_upload_stream(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     mut multipart: Multipart,
-) -> Result<Sse<UnboundedReceiverStream<Result<Event, Infallible>>>, HttpError> {
+) -> Result<Sse<KeepAliveStream<UnboundedReceiverStream<Result<Event, Infallible>>>>, HttpError> {
     require_admin_access_for_command("profile_import_upload_stream", &headers, addr.ip())?;
     let upload_path = profile_upload_temp_file(&state.app, &mut multipart).await?;
     let (tx, rx) = mpsc::unbounded_channel::<Result<Event, Infallible>>();
@@ -1012,7 +1015,7 @@ async fn import_st_bulk_run_stream(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(body): Json<Value>,
-) -> Result<Sse<UnboundedReceiverStream<Result<Event, Infallible>>>, HttpError> {
+) -> Result<Sse<KeepAliveStream<UnboundedReceiverStream<Result<Event, Infallible>>>>, HttpError> {
     require_admin_access_for_command("import_st_bulk_run", &headers, addr.ip())?;
     let (tx, rx) = mpsc::unbounded_channel::<Result<Event, Infallible>>();
     tokio::spawn(async move {
@@ -1455,7 +1458,7 @@ async fn llm_stream(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(body): Json<LlmStreamRequest>,
-) -> Result<Sse<UnboundedReceiverStream<Result<Event, Infallible>>>, HttpError> {
+) -> Result<Sse<KeepAliveStream<UnboundedReceiverStream<Result<Event, Infallible>>>>, HttpError> {
     require_admin_access_for_sidecar_llm_request(&state.app, &body.request, &headers, addr.ip())?;
     let (tx, rx) = mpsc::unbounded_channel::<Result<Event, Infallible>>();
     tokio::spawn(async move {
