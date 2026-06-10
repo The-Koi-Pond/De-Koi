@@ -46,6 +46,23 @@ describe("image style profiles", () => {
     expect(settings.defaultProfileId).toBe("custom-ink");
   });
 
+  it("normalizes default profile ids with the same slugging as custom profile ids", () => {
+    const settings = normalizeImageStyleProfileSettings({
+      defaultProfileId: "custom ink!",
+      profiles: [
+        {
+          id: "custom ink!",
+          name: "Ink",
+          baseStyle: "custom",
+          promptMode: "tagged",
+          positiveTags: "ink wash",
+        },
+      ],
+    });
+
+    expect(settings.defaultProfileId).toBe("custom-ink");
+  });
+
   it("moves obvious negative fragments out of positive prompts", () => {
     const settings = createDefaultImageStyleProfileSettings();
     const compiled = compileImagePrompt({
