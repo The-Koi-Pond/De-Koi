@@ -369,7 +369,7 @@ export function compileImagePrompt(input: CompileImagePromptInput): CompiledImag
     ? [
         { value: generatedStyle, sourcePrompt: true, required: true },
         { value: input.prompt, sourcePrompt: true, required: true },
-        { value: input.userPositive, sourcePrompt: true, required: true },
+        { value: input.userPositive, sourcePrompt: false, required: true },
         { value: profileSubjectTags, sourcePrompt: false, required: true },
         { value: profile.positiveTags, sourcePrompt: false, required: false },
       ]

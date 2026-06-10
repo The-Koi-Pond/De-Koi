@@ -78,8 +78,28 @@ describe("image style profiles", () => {
     expect(compiled.prompt).toContain("dark red nails");
     expect(compiled.prompt).toContain("statement ring");
     expect(compiled.prompt).toContain("crystal sword");
+    expect(compiled.prompt).toContain("velvet gloves");
+    expect(compiled.prompt).toContain("embroidered collar");
     expect(compiled.prompt).toContain("1girl");
     expect(compiled.prompt).toContain("upper body");
     expect(compiled.prompt).not.toContain("masterpiece");
+  });
+
+  it("filters non-visual generated prose while preserving literal user positives", () => {
+    const settings = createDefaultImageStyleProfileSettings();
+    const compiled = compileImagePrompt({
+      kind: "selfie",
+      prompt: "Selfie of Mira with silver hair and amber eyes.",
+      generatedStyle:
+        "Mira survived academy debt, opened a business district agency, and dreams of tracking uncertain political terms.",
+      userPositive: "velvet gloves, embroidered collar",
+      styleProfileId: "danbooru",
+      styleProfiles: settings,
+    });
+
+    expect(compiled.prompt).toContain("velvet gloves");
+    expect(compiled.prompt).toContain("embroidered collar");
+    expect(compiled.prompt).not.toContain("academy debt");
+    expect(compiled.prompt).not.toContain("business district agency");
   });
 });
