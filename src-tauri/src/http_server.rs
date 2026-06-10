@@ -1264,7 +1264,7 @@ fn llm_request_uses_sidecar_connection(state: &AppState, body: &Value) -> AppRes
 
 fn embedding_request_uses_sidecar_connection(state: &AppState, body: &Value) -> AppResult<bool> {
     if let Some(connection) = request_connection_object(body) {
-        return Ok(connection_value_uses_sidecar_id(connection));
+        return Ok(connection_value_uses_sidecar_embedding_target(connection));
     }
     if let Some(connection_id) = request_connection_id(body) {
         return embedding_connection_id_uses_sidecar(state, connection_id);
@@ -3591,6 +3591,55 @@ mod tests {
         );
         assert_eq!(default_stream_error.code, "admin_access_required");
 
+        let delegated_embedding_connection = json!({
+            "id": "regular-chat",
+            "name": "Regular Chat",
+            "provider": "custom",
+            "model": "regular-model",
+            "embeddingConnectionId": sidecar::SIDECAR_CONNECTION_ID
+        });
+        let delegated_embed_request = InvokeRequest {
+            command: "llm_embed".to_string(),
+            args: Some(json!({
+                "body": {
+                    "connection": delegated_embedding_connection,
+                    "input": "hi",
+                    "model": sidecar::SIDECAR_MODEL
+                }
+            })),
+        };
+        let delegated_embed_error = require_admin_access_for_invoke_request(
+            &state,
+            &delegated_embed_request,
+            &headers,
+            remote_ip,
+        )
+        .expect_err("remote delegated sidecar embedding should require Admin Access");
+        let delegated_embedding_endpoint_error =
+            require_admin_access_for_sidecar_embedding_request(
+                &state,
+                &json!({
+                    "connection": {
+                        "id": "regular-chat",
+                        "name": "Regular Chat",
+                        "provider": "custom",
+                        "model": "regular-model",
+                        "embeddingConnectionId": sidecar::SIDECAR_CONNECTION_ID
+                    },
+                    "input": "hi",
+                    "model": sidecar::SIDECAR_MODEL
+                }),
+                &headers,
+                remote_ip,
+            )
+            .expect_err("remote delegated sidecar embedding endpoint should require Admin Access");
+
+        assert_eq!(delegated_embed_error.code, "admin_access_required");
+        assert_eq!(
+            delegated_embedding_endpoint_error.code,
+            "admin_access_required"
+        );
+
         let ordinary_state = test_state("ordinary-llm-admin");
         ordinary_state
             .storage
@@ -3632,6 +3681,52 @@ mod tests {
             )
             .is_ok(),
             "ordinary default embedding requests should not become admin-only"
+        );
+        let ordinary_embedding_connection = json!({
+            "id": "regular-connection",
+            "name": "Regular",
+            "provider": "custom",
+            "model": "regular-model",
+            "embeddingModel": "regular-embedding"
+        });
+        assert!(
+            require_admin_access_for_invoke_request(
+                &ordinary_state,
+                &InvokeRequest {
+                    command: "llm_embed".to_string(),
+                    args: Some(json!({
+                        "body": {
+                            "connection": ordinary_embedding_connection,
+                            "input": "hi",
+                            "model": "regular-embedding"
+                        }
+                    })),
+                },
+                &headers,
+                remote_ip,
+            )
+            .is_ok(),
+            "ordinary explicit embedding connection objects should not become admin-only"
+        );
+        assert!(
+            require_admin_access_for_sidecar_embedding_request(
+                &ordinary_state,
+                &json!({
+                    "connection": {
+                        "id": "regular-connection",
+                        "name": "Regular",
+                        "provider": "custom",
+                        "model": "regular-model",
+                        "embeddingModel": "regular-embedding"
+                    },
+                    "input": "hi",
+                    "model": "regular-embedding"
+                }),
+                &headers,
+                remote_ip,
+            )
+            .is_ok(),
+            "ordinary explicit embedding endpoint objects should not become admin-only"
         );
 
         env::set_var("ADMIN_SECRET", "expected-secret");
