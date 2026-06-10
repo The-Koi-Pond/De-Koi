@@ -211,6 +211,7 @@ const PRIVILEGED_REMOTE_COMMANDS = new Set([
   "local_sidecar_update_config",
   "local_sidecar_runtime_install",
   "local_sidecar_download_curated",
+  "local_sidecar_list_huggingface_models",
   "local_sidecar_download_custom",
   "local_sidecar_download_cancel",
   "local_sidecar_delete_model",

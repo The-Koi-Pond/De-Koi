@@ -1,8 +1,8 @@
 use crate::http_dispatch::{dispatch, InvokeRequest};
 use crate::state::AppState;
 use crate::storage_commands::{
-    avatars, fonts, imports, llm, lorebook_images, managed_thumbnails, profile, prompts,
-    sidecar,
+    avatars, connection_secrets, fonts, imports, llm, lorebook_images, managed_thumbnails, profile,
+    prompts, sidecar,
 };
 use axum::body::Body;
 use axum::extract::multipart::Field;
@@ -646,7 +646,9 @@ async fn invoke(
         }
         return response;
     }
-    if let Err(error) = require_admin_access_for_invoke_request(&request, &headers, addr.ip()) {
+    if let Err(error) =
+        require_admin_access_for_invoke_request(&state.app, &request, &headers, addr.ip())
+    {
         let mut response = app_error_response(error);
         if let Some(outcome) = &rate_limit {
             apply_rate_limit_headers(response.headers_mut(), outcome);
@@ -1086,6 +1088,7 @@ fn is_privileged_remote_command(command: &str) -> bool {
             | "local_sidecar_update_config"
             | "local_sidecar_runtime_install"
             | "local_sidecar_download_curated"
+            | "local_sidecar_list_huggingface_models"
             | "local_sidecar_download_custom"
             | "local_sidecar_download_cancel"
             | "local_sidecar_delete_model"
@@ -1139,34 +1142,179 @@ fn require_admin_access_for_command(
     }
 }
 
-fn llm_request_uses_sidecar_connection(body: &Value) -> bool {
+fn request_connection_id(body: &Value) -> Option<&str> {
     body.get("connectionId")
         .or_else(|| body.get("connection_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn connection_value_uses_sidecar_id(connection: &Value) -> bool {
+    connection
+        .get("id")
         .and_then(Value::as_str)
         .is_some_and(sidecar::is_sidecar_connection_id)
 }
 
-fn invoke_request_uses_sidecar_llm(request: &InvokeRequest) -> bool {
+fn connection_value_uses_sidecar_embedding_target(connection: &Value) -> bool {
+    connection_value_uses_sidecar_id(connection)
+        || connection
+            .get("embeddingConnectionId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .is_some_and(sidecar::is_sidecar_connection_id)
+}
+
+fn connection_value_has_embedding_model(connection: &Value) -> bool {
+    !matches!(
+        connection.get("provider").and_then(Value::as_str),
+        Some("openai_chatgpt" | "claude_subscription")
+    ) && connection
+        .get("embeddingModel")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
+fn request_connection_object(body: &Value) -> Option<&Value> {
+    body.get("connection").filter(|value| value.is_object())
+}
+
+fn default_llm_request_uses_sidecar_connection(state: &AppState) -> AppResult<bool> {
+    let connections = connection_secrets::connections_for_runtime(state)?;
+    let selected = connections
+        .iter()
+        .find(|connection| {
+            connection
+                .get("isDefault")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .or_else(|| connections.first());
+    Ok(selected.is_some_and(connection_value_uses_sidecar_id))
+}
+
+fn embedding_connection_id_uses_sidecar(state: &AppState, connection_id: &str) -> AppResult<bool> {
+    if sidecar::is_sidecar_connection_id(connection_id) {
+        return Ok(true);
+    }
+    let Ok(connection) = connection_secrets::connection_for_runtime(state, connection_id) else {
+        return Ok(false);
+    };
+    Ok(connection_value_uses_sidecar_embedding_target(&connection))
+}
+
+fn default_embedding_request_uses_sidecar_connection(
+    state: &AppState,
+    explicit_model: Option<&str>,
+) -> AppResult<bool> {
+    let requires_embedding_model = explicit_model
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none();
+    let connections = connection_secrets::connections_for_runtime(state)?;
+
+    for candidate in connections
+        .iter()
+        .filter(|connection| {
+            connection
+                .get("isDefault")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .chain(connections.iter().filter(|connection| {
+            !connection
+                .get("isDefault")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        }))
+    {
+        if connection_value_uses_sidecar_embedding_target(candidate) {
+            return Ok(true);
+        }
+        let Some(connection_id) = candidate.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Ok((_, embedding_connection)) =
+            prompts::resolve_embedding_connection_for_id(state, connection_id)
+        else {
+            continue;
+        };
+        if !requires_embedding_model || connection_value_has_embedding_model(&embedding_connection)
+        {
+            return Ok(false);
+        }
+    }
+
+    Ok(false)
+}
+
+fn llm_request_uses_sidecar_connection(state: &AppState, body: &Value) -> AppResult<bool> {
+    if let Some(connection) = request_connection_object(body) {
+        return Ok(connection_value_uses_sidecar_id(connection));
+    }
+    if let Some(connection_id) = request_connection_id(body) {
+        return Ok(sidecar::is_sidecar_connection_id(connection_id));
+    }
+    if body.get("provider").is_some() && body.get("model").is_some() {
+        return Ok(false);
+    }
+    default_llm_request_uses_sidecar_connection(state)
+}
+
+fn embedding_request_uses_sidecar_connection(state: &AppState, body: &Value) -> AppResult<bool> {
+    if let Some(connection) = request_connection_object(body) {
+        return Ok(connection_value_uses_sidecar_id(connection));
+    }
+    if let Some(connection_id) = request_connection_id(body) {
+        return embedding_connection_id_uses_sidecar(state, connection_id);
+    }
+    if body.get("provider").is_some() {
+        return Ok(false);
+    }
+    default_embedding_request_uses_sidecar_connection(
+        state,
+        body.get("model").and_then(Value::as_str),
+    )
+}
+
+fn invoke_request_uses_sidecar_llm(state: &AppState, request: &InvokeRequest) -> AppResult<bool> {
     let Some(args) = request.args.as_ref().and_then(Value::as_object) else {
-        return false;
+        return Ok(false);
     };
     match request.command.as_str() {
         "llm_complete" => args
             .get("request")
-            .is_some_and(llm_request_uses_sidecar_connection),
+            .map(|body| llm_request_uses_sidecar_connection(state, body))
+            .unwrap_or(Ok(false)),
         "llm_embed" => args
             .get("body")
-            .is_some_and(llm_request_uses_sidecar_connection),
-        _ => false,
+            .map(|body| embedding_request_uses_sidecar_connection(state, body))
+            .unwrap_or(Ok(false)),
+        _ => Ok(false),
     }
 }
 
 fn require_admin_access_for_sidecar_llm_request(
+    state: &AppState,
     body: &Value,
     headers: &HeaderMap,
     ip: IpAddr,
 ) -> Result<(), AppError> {
-    if llm_request_uses_sidecar_connection(body) {
+    if llm_request_uses_sidecar_connection(state, body)? {
+        require_admin_access_for_command("local_sidecar_start", headers, ip)
+    } else {
+        Ok(())
+    }
+}
+
+fn require_admin_access_for_sidecar_embedding_request(
+    state: &AppState,
+    body: &Value,
+    headers: &HeaderMap,
+    ip: IpAddr,
+) -> Result<(), AppError> {
+    if embedding_request_uses_sidecar_connection(state, body)? {
         require_admin_access_for_command("local_sidecar_start", headers, ip)
     } else {
         Ok(())
@@ -1174,11 +1322,12 @@ fn require_admin_access_for_sidecar_llm_request(
 }
 
 fn require_admin_access_for_invoke_request(
+    state: &AppState,
     request: &InvokeRequest,
     headers: &HeaderMap,
     ip: IpAddr,
 ) -> Result<(), AppError> {
-    if invoke_request_uses_sidecar_llm(request) {
+    if invoke_request_uses_sidecar_llm(state, request)? {
         require_admin_access_for_command("local_sidecar_start", headers, ip)
     } else {
         Ok(())
@@ -1191,7 +1340,7 @@ async fn sidecar_embeddings(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, HttpError> {
-    require_admin_access_for_sidecar_llm_request(&body, &headers, addr.ip())?;
+    require_admin_access_for_sidecar_embedding_request(&state.app, &body, &headers, addr.ip())?;
     let started = Instant::now();
     request_log("sidecar_embeddings started");
     let result = sidecar_embeddings_inner(&state.app, body).await;
@@ -1307,7 +1456,7 @@ async fn llm_stream(
     headers: HeaderMap,
     Json(body): Json<LlmStreamRequest>,
 ) -> Result<Sse<UnboundedReceiverStream<Result<Event, Infallible>>>, HttpError> {
-    require_admin_access_for_sidecar_llm_request(&body.request, &headers, addr.ip())?;
+    require_admin_access_for_sidecar_llm_request(&state.app, &body.request, &headers, addr.ip())?;
     let (tx, rx) = mpsc::unbounded_channel::<Result<Event, Infallible>>();
     tokio::spawn(async move {
         let stream_id = body.stream_id.clone();
@@ -3297,6 +3446,13 @@ mod tests {
             require_admin_access_for_command("local_sidecar_status", &headers, remote_ip)
                 .expect_err("remote sidecar status should require Admin Access");
         assert_eq!(sidecar_status_error.code, "admin_access_required");
+        let sidecar_huggingface_error = require_admin_access_for_command(
+            "local_sidecar_list_huggingface_models",
+            &headers,
+            remote_ip,
+        )
+        .expect_err("remote sidecar Hugging Face listing should require Admin Access");
+        assert_eq!(sidecar_huggingface_error.code, "admin_access_required");
         assert!(require_admin_access_for_command(
             "backup_list",
             &headers,
@@ -3316,6 +3472,7 @@ mod tests {
         env::remove_var("MARINARA_REQUIRE_ADMIN_SECRET_ON_LOOPBACK");
         let remote_ip = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10));
         let headers = HeaderMap::new();
+        let state = test_state("sidecar-llm-admin");
         let complete_request = InvokeRequest {
             command: "llm_complete".to_string(),
             args: Some(json!({
@@ -3336,12 +3493,13 @@ mod tests {
         };
 
         let complete_error =
-            require_admin_access_for_invoke_request(&complete_request, &headers, remote_ip)
+            require_admin_access_for_invoke_request(&state, &complete_request, &headers, remote_ip)
                 .expect_err("remote sidecar completion should require Admin Access");
         let embed_error =
-            require_admin_access_for_invoke_request(&embed_request, &headers, remote_ip)
+            require_admin_access_for_invoke_request(&state, &embed_request, &headers, remote_ip)
                 .expect_err("remote sidecar embedding should require Admin Access");
         let stream_error = require_admin_access_for_sidecar_llm_request(
+            &state,
             &json!({ "connectionId": sidecar::SIDECAR_CONNECTION_ID }),
             &headers,
             remote_ip,
@@ -3353,6 +3511,7 @@ mod tests {
         assert_eq!(stream_error.code, "admin_access_required");
         assert!(
             require_admin_access_for_invoke_request(
+                &state,
                 &InvokeRequest {
                     command: "llm_complete".to_string(),
                     args: Some(json!({ "request": { "connectionId": "regular-connection" } })),
@@ -3364,24 +3523,137 @@ mod tests {
             "ordinary remote LLM requests should not become admin-only"
         );
 
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": sidecar::SIDECAR_CONNECTION_ID,
+                    "name": "Local Model",
+                    "provider": "custom",
+                    "model": sidecar::SIDECAR_MODEL,
+                    "embeddingModel": sidecar::SIDECAR_MODEL,
+                    "isDefault": true
+                }),
+            )
+            .expect("sidecar default connection should be stored");
+        let default_complete_request = InvokeRequest {
+            command: "llm_complete".to_string(),
+            args: Some(json!({
+                "request": {
+                    "messages": [{ "role": "user", "content": "hi" }]
+                }
+            })),
+        };
+        let default_embed_request = InvokeRequest {
+            command: "llm_embed".to_string(),
+            args: Some(json!({
+                "body": {
+                    "input": "hi",
+                    "model": sidecar::SIDECAR_MODEL
+                }
+            })),
+        };
+        let default_complete_error = require_admin_access_for_invoke_request(
+            &state,
+            &default_complete_request,
+            &headers,
+            remote_ip,
+        )
+        .expect_err("remote default sidecar completion should require Admin Access");
+        let default_embed_error = require_admin_access_for_invoke_request(
+            &state,
+            &default_embed_request,
+            &headers,
+            remote_ip,
+        )
+        .expect_err("remote default sidecar embedding should require Admin Access");
+        let default_embedding_endpoint_error = require_admin_access_for_sidecar_embedding_request(
+            &state,
+            &json!({ "input": "hi", "model": sidecar::SIDECAR_MODEL }),
+            &headers,
+            remote_ip,
+        )
+        .expect_err("remote default sidecar embedding endpoint should require Admin Access");
+        let default_stream_error = require_admin_access_for_sidecar_llm_request(
+            &state,
+            &json!({ "messages": [{ "role": "user", "content": "hi" }] }),
+            &headers,
+            remote_ip,
+        )
+        .expect_err("remote default sidecar stream should require Admin Access");
+
+        assert_eq!(default_complete_error.code, "admin_access_required");
+        assert_eq!(default_embed_error.code, "admin_access_required");
+        assert_eq!(
+            default_embedding_endpoint_error.code,
+            "admin_access_required"
+        );
+        assert_eq!(default_stream_error.code, "admin_access_required");
+
+        let ordinary_state = test_state("ordinary-llm-admin");
+        ordinary_state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "regular-connection",
+                    "name": "Regular",
+                    "provider": "custom",
+                    "model": "regular-model",
+                    "embeddingModel": "regular-embedding",
+                    "isDefault": true
+                }),
+            )
+            .expect("ordinary default connection should be stored");
+        assert!(
+            require_admin_access_for_invoke_request(
+                &ordinary_state,
+                &InvokeRequest {
+                    command: "llm_complete".to_string(),
+                    args: Some(json!({
+                        "request": {
+                            "messages": [{ "role": "user", "content": "hi" }]
+                        }
+                    })),
+                },
+                &headers,
+                remote_ip,
+            )
+            .is_ok(),
+            "ordinary default LLM requests should not become admin-only"
+        );
+        assert!(
+            require_admin_access_for_sidecar_embedding_request(
+                &ordinary_state,
+                &json!({ "input": "hi", "model": "regular-embedding" }),
+                &headers,
+                remote_ip,
+            )
+            .is_ok(),
+            "ordinary default embedding requests should not become admin-only"
+        );
+
         env::set_var("ADMIN_SECRET", "expected-secret");
         let mut admin_headers = HeaderMap::new();
         admin_headers.insert(
             HeaderName::from_static(ADMIN_SECRET_HEADER_NAME),
             HeaderValue::from_static("expected-secret"),
         );
-        assert!(
-            require_admin_access_for_invoke_request(&complete_request, &admin_headers, remote_ip)
-                .is_ok()
-        );
-        assert!(
-            require_admin_access_for_sidecar_llm_request(
-                &json!({ "connectionId": sidecar::SIDECAR_CONNECTION_ID }),
-                &admin_headers,
-                remote_ip,
-            )
-            .is_ok()
-        );
+        assert!(require_admin_access_for_invoke_request(
+            &state,
+            &complete_request,
+            &admin_headers,
+            remote_ip
+        )
+        .is_ok());
+        assert!(require_admin_access_for_sidecar_llm_request(
+            &state,
+            &json!({ "connectionId": sidecar::SIDECAR_CONNECTION_ID }),
+            &admin_headers,
+            remote_ip,
+        )
+        .is_ok());
     }
 
     #[test]
