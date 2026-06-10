@@ -37,7 +37,6 @@ const expectedSkillFiles = [
   "skills/de-koi-bugfix-discipline/SKILL.md",
   "skills/de-koi-getting-started/SKILL.md",
   "skills/de-koi-agent-workflow/SKILL.md",
-  "skills/de-koi-legacy-parity-audit/SKILL.md",
 ];
 
 const skillDocs = (await collectFiles("skills")).filter(

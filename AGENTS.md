@@ -85,7 +85,6 @@ For code changes, final responses must include behavior changed, primary files/m
 - `skills/impeccable`: Repo-local frontend design, critique, polish, accessibility, responsive, and live-iteration workflow for UI craft passes.
 - `skills/bunny-style-review`: Repo-local branch and PR review workflow for failure-path review and actionable nitpicks.
 - `skills/de-koi-bugfix-discipline`: Root-cause bugfix and feedback-loop-first diagnosis workflow for regressions, failing checks, storage, provider, import/export, generation, mode, and runtime bugs.
-- `skills/de-koi-legacy-parity-audit`: Repo-local parityscan workflow for comparing refactor features, contracts, storage, runtime behavior, and product surfaces against legacy Marinara.
 - `skills/de-koi-architecture-guard`: Architecture guardrails for placement, import direction, and remote-capable command routing.
 - `skills/de-koi-agent-workflow`: Agent workflow references, source maps, handoff formats, and verification discipline.
 - `skills/tdd`: Behavior-first De-Koi red-green-refactor workflow using public interfaces and durable-test rationale.
