@@ -1799,7 +1799,10 @@ impl ApiRateLimiter {
             // of waiting for the timed sweep.
             state.last_sweep_at = Some(now);
             state.buckets.retain(|_, bucket| bucket.reset_at > now);
-            if state.buckets.len() >= RATE_LIMIT_MAX_BUCKETS {
+            // Loopback may allocate past the cap (it contributes at most a
+            // handful of buckets), so a remote flood that saturates the map
+            // cannot clip the operator's own control traffic.
+            if state.buckets.len() >= RATE_LIMIT_MAX_BUCKETS && !ip.to_canonical().is_loopback() {
                 // Deny-by-default: never grow the bucket map past the cap.
                 return ApiRateLimitOutcome {
                     limit: rule.limit,
@@ -2894,6 +2897,17 @@ mod tests {
         assert_eq!(
             flood.state.lock().expect("state").buckets.len(),
             RATE_LIMIT_MAX_BUCKETS
+        );
+
+        // Loopback control traffic still allocates while the map is saturated
+        // with live remote buckets.
+        let local = flood
+            .check(IpAddr::V4(Ipv4Addr::LOCALHOST), "/api/backup", now)
+            .expect("API path should be rate limited");
+        assert!(local.is_allowed());
+        assert_eq!(
+            flood.state.lock().expect("state").buckets.len(),
+            RATE_LIMIT_MAX_BUCKETS + 1
         );
     }
 
