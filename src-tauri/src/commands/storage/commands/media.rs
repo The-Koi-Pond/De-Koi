@@ -1,5 +1,6 @@
 use super::{
-    avatars, characters, generation, images, llm, lorebook_images, personas, shared, sprites,
+    avatars, characters, generation, images, llm, lorebook_images, personas, shared, sidecar,
+    sprites,
 };
 use crate::state::AppState;
 use marinara_core::AppError;
@@ -307,4 +308,79 @@ pub async fn llm_list_models(
     connection_id: Option<String>,
 ) -> Result<Value, AppError> {
     llm::llm_models(&state, connection_id.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn local_sidecar_status(state: State<'_, AppState>) -> Result<Value, AppError> {
+    sidecar::status(&state).await
+}
+
+#[tauri::command]
+pub async fn local_sidecar_update_config(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    sidecar::update_config(&state, body).await
+}
+
+#[tauri::command]
+pub async fn local_sidecar_runtime_install(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    sidecar::runtime_install(&state, body).await
+}
+
+#[tauri::command]
+pub async fn local_sidecar_download_curated(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    sidecar::download_curated(&state, body).await
+}
+
+#[tauri::command]
+pub async fn local_sidecar_list_huggingface_models(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    sidecar::list_huggingface_models(&state, body).await
+}
+
+#[tauri::command]
+pub async fn local_sidecar_download_custom(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    sidecar::download_custom(&state, body).await
+}
+
+#[tauri::command]
+pub async fn local_sidecar_download_cancel(state: State<'_, AppState>) -> Result<Value, AppError> {
+    sidecar::download_cancel(&state).await
+}
+
+#[tauri::command]
+pub async fn local_sidecar_delete_model(state: State<'_, AppState>) -> Result<Value, AppError> {
+    sidecar::delete_model(&state).await
+}
+
+#[tauri::command]
+pub async fn local_sidecar_start(state: State<'_, AppState>) -> Result<Value, AppError> {
+    sidecar::start(&state).await
+}
+
+#[tauri::command]
+pub async fn local_sidecar_stop(state: State<'_, AppState>) -> Result<Value, AppError> {
+    sidecar::stop(&state).await
+}
+
+#[tauri::command]
+pub async fn local_sidecar_restart(state: State<'_, AppState>) -> Result<Value, AppError> {
+    sidecar::restart(&state).await
+}
+
+#[tauri::command]
+pub async fn local_sidecar_test_message(state: State<'_, AppState>) -> Result<Value, AppError> {
+    sidecar::test_message(&state).await
 }
