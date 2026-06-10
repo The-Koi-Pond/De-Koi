@@ -752,7 +752,7 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             optional_string(&args, "filename").as_deref(),
             optional_string(&args, "absolutePath").as_deref(),
             optional_string(&args, "sourceUrl").as_deref(),
-            optional_u32(&args, "size"),
+            optional_u32_strict(&args, "size")?,
         ),
         "character_restore_version" => characters::restore_character_version(
             state,
@@ -1955,6 +1955,36 @@ mod tests {
         )
         .await
         .expect_err("invalid size should be rejected before command defaults");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(
+            error.message.contains("size"),
+            "size validation error should mention size"
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_rejects_invalid_avatar_thumbnail_size_arguments() {
+        let state = test_state("avatar-thumbnail-size");
+        let avatar_dir = state.data_dir.join("avatars").join("characters");
+        std::fs::create_dir_all(&avatar_dir).expect("avatar dir should be created");
+        let avatar_path = avatar_dir.join("source.png");
+        image::RgbaImage::from_pixel(32, 32, image::Rgba([255, 0, 0, 255]))
+            .save(&avatar_path)
+            .expect("avatar fixture should write");
+
+        let error = dispatch(
+            &state,
+            InvokeRequest {
+                command: "avatar_thumbnail_file_path".to_string(),
+                args: Some(json!({
+                    "absolutePath": avatar_path.to_string_lossy(),
+                    "size": "256"
+                })),
+            },
+        )
+        .await
+        .expect_err("invalid size should be rejected before avatar command defaults");
 
         assert_eq!(error.code, "invalid_input");
         assert!(
