@@ -460,21 +460,19 @@ function characterDepthPrompt(data: JsonRecord, extensions: JsonRecord): Generat
 }
 
 function characterMemoryDate(value: unknown): string {
-  return readString(value).trim().slice(0, 10);
+  const raw = readString(value).trim();
+  return /^\d{4}-\d{2}-\d{2}(?:T|$)/.test(raw) ? raw.slice(0, 10) : "";
 }
 
 function sameDayCharacterMemories(extensions: JsonRecord): string[] {
   const today = nowIso().slice(0, 10);
   return parseArray(extensions.characterMemories)
     .filter(isRecord)
-    .filter((memory) => {
-      const createdDate = characterMemoryDate(memory.createdAt);
-      return !createdDate || createdDate === today;
-    })
+    .filter((memory) => characterMemoryDate(memory.createdAt) === today)
     .map((memory) => {
       const summary = cleanPromptText(readString(memory.summary).trim());
       if (!summary) return "";
-      const createdDate = characterMemoryDate(memory.createdAt) || "recent";
+      const createdDate = characterMemoryDate(memory.createdAt);
       const from = readString(memory.from).trim();
       return `- ${createdDate}${from ? ` from ${from}` : ""}: ${summary}`;
     })

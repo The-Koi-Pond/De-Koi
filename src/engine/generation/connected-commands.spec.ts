@@ -619,6 +619,7 @@ describe("persistConnectedCommandTags", () => {
       embeddingSource: "command",
       source: "connected_command",
       sourceChatId: "chat-1",
+      commandMemoryKey: expect.any(String),
       target: "Mira",
       targetCharacterName: "Mira",
       targetCharacterId: "char-1",
@@ -629,14 +630,69 @@ describe("persistConnectedCommandTags", () => {
         from: "Mira conversation",
         fromCharId: "char-1",
         sourceChatId: "chat-1",
+        commandMemoryId: expect.any(String),
+        commandMemoryKey: expect.any(String),
         summary: "User loves jasmine tea.",
       },
     ]);
+    const memories = extensions.characterMemories as JsonRecord[];
+    memories.push(
+      { from: "Old", summary: "Yesterday memory.", createdAt: "2026-06-10T00:00:00.000Z" },
+      { from: "Unknown", summary: "Missing date memory." },
+      { from: "Bad", summary: "Malformed date memory.", createdAt: "not-a-date" },
+    );
 
     const [characterContext] = await loadCharacters(storage, chats[0]!);
     expect(characterContext?.memories).toEqual(
       expect.arrayContaining([expect.stringContaining("User loves jasmine tea.")]),
     );
+    expect(characterContext?.memories?.join("\n")).not.toContain("Yesterday memory.");
+    expect(characterContext?.memories?.join("\n")).not.toContain("Missing date memory.");
+    expect(characterContext?.memories?.join("\n")).not.toContain("Malformed date memory.");
+  });
+
+  it("does not leave duplicate character memories when a command memory write is retried", async () => {
+    const chats: JsonRecord[] = [
+      {
+        id: "chat-1",
+        name: "Mira conversation",
+        mode: "conversation",
+        characterIds: ["char-1"],
+        memories: [],
+        metadata: {},
+      },
+    ];
+    const characters: JsonRecord[] = [{ id: "char-1", name: "Mira", data: { name: "Mira", extensions: {} } }];
+    const storage = commandStorage({
+      chats,
+      characters,
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const update = storage.update.bind(storage);
+    let failChatUpdate = true;
+    storage.update = async <T = unknown>(entity: StorageEntity, id: string, patch: Record<string, unknown>) => {
+      if (entity === "chats" && failChatUpdate) throw new Error("chat write failed");
+      return update<T>(entity, id, patch);
+    };
+    const command = '[memory: target="Mira", summary="User loves jasmine tea."]';
+
+    const failed = await persistConnectedCommandTags(storage, chats[0]!, command);
+
+    expect(failed.executedCommands).toEqual([]);
+    expect(failed.events).toMatchObject([{ type: "command_error" }]);
+    expect(chats[0]?.memories).toEqual([]);
+    expect(((characters[0]?.data as JsonRecord).extensions as JsonRecord).characterMemories).toBeUndefined();
+
+    failChatUpdate = false;
+    const firstRetry = await persistConnectedCommandTags(storage, chats[0]!, command);
+    const secondRetry = await persistConnectedCommandTags(storage, chats[0]!, command);
+
+    expect(firstRetry.executedCommands).toEqual(["memory"]);
+    expect(secondRetry.executedCommands).toEqual(["memory"]);
+    expect(chats[0]?.memories).toHaveLength(1);
+    const extensions = (characters[0]?.data as JsonRecord).extensions as JsonRecord;
+    expect(extensions.characterMemories).toHaveLength(1);
   });
 
   it("keeps valid DM message text visible when the target character is missing", async () => {
