@@ -12,6 +12,13 @@ use tauri::State;
 
 type LorebookEntryAtomicRows<'a> = (&'a mut Vec<Value>, &'a mut Vec<Value>);
 type LorebookMetadataAtomicRows<'a> = (&'a mut Vec<Value>, &'a mut Vec<Value>, &'a mut Vec<Value>);
+type LorebookDeleteAtomicRows<'a> = (
+    &'a mut Vec<Value>,
+    &'a mut Vec<Value>,
+    &'a mut Vec<Value>,
+    &'a mut Vec<Value>,
+    &'a mut Vec<Value>,
+);
 type LorebookFolderDeleteAtomicRows<'a> =
     (&'a mut Vec<Value>, &'a mut Vec<Value>, &'a mut Vec<Value>);
 type ChatFolderDeleteAtomicRows<'a> = (&'a mut Vec<Value>, &'a mut Vec<Value>);
@@ -28,136 +35,30 @@ struct StorageWhereIn {
     values: HashSet<String>,
 }
 
-fn validate_storage_entity(entity: &str) -> Result<(), AppError> {
-    if contracts::collection_contract(entity).is_some() {
-        Ok(())
-    } else {
-        Err(AppError::invalid_input(format!(
-            "Unsupported storage entity: {entity}"
-        )))
-    }
-}
+#[path = "entities/delete.rs"]
+mod delete;
+#[path = "entities/duplicate.rs"]
+mod duplicate;
+#[path = "entities/list_helpers.rs"]
+mod list_helpers;
+#[path = "entities/normalization.rs"]
+mod normalization;
+#[path = "entities/support.rs"]
+mod support;
 
-fn reject_message_swipe_mutation(entity: &str) -> Result<(), AppError> {
-    if entity == message_swipes::COLLECTION {
-        return Err(AppError::invalid_input(
-            "message-swipes is internal sidecar storage; mutate swipes through message commands",
-        ));
-    }
-    Ok(())
-}
+#[cfg(test)]
+use delete::chat_folder_delete_atomic_rows;
+pub(crate) use delete::{
+    connection_folder_reorder_inner, connection_move_inner, delete_entity,
+    lorebook_folder_reorder_inner,
+};
+pub(crate) use duplicate::duplicate_entity;
 
-fn validate_chat_metadata_patch(
-    state: &AppState,
-    chat_id: &str,
-    patch: &mut Value,
-) -> Result<(), AppError> {
-    let metadata_patch = match patch.get("metadata") {
-        Some(Value::Object(object)) => Some(object.clone()),
-        Some(_) => return Err(AppError::invalid_input("Chat metadata must be an object")),
-        None => None,
-    };
-    if metadata_patch.is_none() && patch.get("characterIds").is_none() {
-        return Ok(());
-    };
-
-    let chat = state
-        .storage
-        .get("chats", chat_id)?
-        .ok_or_else(|| AppError::not_found(format!("Chat {chat_id} was not found")))?;
-    let active_ids_source = patch
-        .get("characterIds")
-        .or_else(|| chat.get("characterIds"));
-    let active_ids = chat_active_character_ids(active_ids_source);
-    let mut effective_metadata = shared::json_object_value(chat.get("metadata"))
-        .and_then(|value| value.as_object().cloned())
-        .unwrap_or_default();
-    if let Some(metadata_patch) = metadata_patch {
-        for (key, value) in metadata_patch {
-            effective_metadata.insert(key, value);
-        }
-    }
-    let previous_metadata = effective_metadata.clone();
-    normalize_chat_metadata_object(&mut effective_metadata, &active_ids)?;
-
-    if patch.get("metadata").is_some() || effective_metadata != previous_metadata {
-        patch["metadata"] = Value::Object(effective_metadata);
-    }
-    Ok(())
-}
-
-fn chat_active_character_ids(value: Option<&Value>) -> HashSet<String> {
-    shared::string_array_from_value(value).into_iter().collect()
-}
-
-fn normalize_chat_metadata_object(
-    metadata: &mut Map<String, Value>,
-    active_ids: &HashSet<String>,
-) -> Result<(), AppError> {
-    normalize_discord_webhook_metadata(metadata)?;
-    normalize_inactive_character_metadata(metadata, active_ids)?;
-    Ok(())
-}
-
-fn normalize_discord_webhook_metadata(metadata: &mut Map<String, Value>) -> Result<(), AppError> {
-    let Some(webhook_url) = metadata.get("discordWebhookUrl") else {
-        return Ok(());
-    };
-    let normalized = if webhook_url.is_null() {
-        None
-    } else if let Some(raw_url) = webhook_url.as_str() {
-        let trimmed_url = raw_url.trim();
-        if trimmed_url.is_empty() {
-            None
-        } else {
-            if !integrations::is_valid_discord_webhook_url(trimmed_url) {
-                return Err(AppError::invalid_input("Invalid Discord webhook URL"));
-            }
-            Some(Value::String(trimmed_url.to_string()))
-        }
-    } else {
-        return Err(AppError::invalid_input(
-            "Discord webhook URL must be a string",
-        ));
-    };
-    if let Some(value) = normalized {
-        metadata.insert("discordWebhookUrl".to_string(), value);
-    } else {
-        metadata.remove("discordWebhookUrl");
-    }
-    Ok(())
-}
-
-fn normalize_inactive_character_metadata(
-    metadata: &mut Map<String, Value>,
-    active_ids: &HashSet<String>,
-) -> Result<(), AppError> {
-    let Some(inactive_value) = metadata.get("inactiveCharacterIds") else {
-        return Ok(());
-    };
-    let Some(inactive_ids) = inactive_value.as_array() else {
-        return Err(AppError::invalid_input(
-            "inactiveCharacterIds must be an array of strings",
-        ));
-    };
-    if inactive_ids.iter().any(|id| !id.is_string()) {
-        return Err(AppError::invalid_input(
-            "inactiveCharacterIds must be an array of strings",
-        ));
-    }
-
-    let mut seen = HashSet::new();
-    let normalized: Vec<Value> = inactive_ids
-        .iter()
-        .filter_map(Value::as_str)
-        .map(str::trim)
-        .filter(|id| !id.is_empty() && active_ids.contains(*id))
-        .filter(|id| seen.insert((*id).to_string()))
-        .map(|id| Value::String(id.to_string()))
-        .collect();
-    metadata.insert("inactiveCharacterIds".to_string(), Value::Array(normalized));
-    Ok(())
-}
+use delete::*;
+use duplicate::*;
+use list_helpers::*;
+use normalization::*;
+use support::*;
 
 #[tauri::command]
 pub async fn storage_list(
@@ -411,44 +312,6 @@ pub(crate) fn storage_list_inner(
     )))
 }
 
-fn storage_where_in(options: Option<&Value>) -> Result<Option<StorageWhereIn>, AppError> {
-    let Some(value) = options.and_then(|value| value.get("whereIn")) else {
-        return Ok(None);
-    };
-    if value.is_null() {
-        return Ok(None);
-    }
-    let Some(object) = value.as_object() else {
-        return Err(AppError::invalid_input(
-            "storage_list whereIn must be an object",
-        ));
-    };
-    let field = object
-        .get("field")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| AppError::invalid_input("storage_list whereIn.field is required"))?
-        .to_string();
-    let values_array = object
-        .get("values")
-        .and_then(Value::as_array)
-        .ok_or_else(|| AppError::invalid_input("storage_list whereIn.values must be an array"))?;
-    let mut values = HashSet::new();
-    for value in values_array {
-        let Some(value) = value.as_str() else {
-            return Err(AppError::invalid_input(
-                "storage_list whereIn.values must contain only strings",
-            ));
-        };
-        let value = value.trim();
-        if !value.is_empty() {
-            values.insert(value.to_string());
-        }
-    }
-    Ok(Some(StorageWhereIn { field, values }))
-}
-
 #[tauri::command]
 pub async fn lorebook_entries_list_by_lorebook_ids(
     state: State<'_, AppState>,
@@ -488,103 +351,6 @@ pub(crate) fn lorebook_entries_list_by_lorebook_ids_inner(
         )
     });
     Ok(Value::Array(rows))
-}
-
-fn message_id_projection_only(options: Option<&Value>) -> bool {
-    let Some(options) = options else {
-        return false;
-    };
-    if options.get("limit").is_some()
-        || options.get("before").is_some()
-        || options.get("orderBy").is_some()
-        || options.get("fieldSelections").is_some()
-    {
-        return false;
-    }
-    let Some(fields) = options.get("fields").and_then(Value::as_array) else {
-        return false;
-    };
-    fields.len() == 1 && fields.first().and_then(Value::as_str) == Some("id")
-}
-
-fn storage_list_projection_fields_for_read(
-    entity: &str,
-    fields: &[String],
-    options: Option<&Value>,
-) -> Vec<String> {
-    let mut projection = if entity == "messages" {
-        message_projection_fields_for_materialization(fields, options)
-    } else {
-        fields.to_vec()
-    };
-    append_storage_list_sort_projection_fields(&mut projection, options);
-    projection
-}
-
-fn append_storage_list_sort_projection_fields(
-    projection: &mut Vec<String>,
-    options: Option<&Value>,
-) {
-    if let Some(order_by) = options
-        .and_then(|value| value.get("orderBy"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        if !projection.iter().any(|existing| existing == order_by) {
-            projection.push(order_by.to_string());
-        }
-        return;
-    }
-    for field in ["sortOrder", "order", "createdAt"] {
-        if !projection.iter().any(|existing| existing == field) {
-            projection.push(field.to_string());
-        }
-    }
-}
-
-fn message_projection_fields_for_materialization(
-    fields: &[String],
-    options: Option<&Value>,
-) -> Vec<String> {
-    let mut projection = fields.to_vec();
-    for field in ["id", "sortOrder", "order", "createdAt"] {
-        if !projection.iter().any(|existing| existing == field) {
-            projection.push(field.to_string());
-        }
-    }
-    if let Some(order_by) = options
-        .and_then(|value| value.get("orderBy"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        if !projection.iter().any(|existing| existing == order_by) {
-            projection.push(order_by.to_string());
-        }
-    }
-    if fields
-        .iter()
-        .any(|field| matches!(field.as_str(), "extra" | "swipes"))
-        && !projection
-            .iter()
-            .any(|existing| existing == "activeSwipeIndex")
-    {
-        projection.push("activeSwipeIndex".to_string());
-    }
-    projection
-}
-
-fn message_page_options(options: Option<&Value>) -> Option<(usize, Option<String>)> {
-    let options = options?;
-    let limit = options.get("limit").and_then(Value::as_u64)? as usize;
-    let before = options
-        .get("before")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
-    Some((limit, before))
 }
 
 #[tauri::command]
@@ -639,32 +405,6 @@ pub(crate) fn storage_get_inner(
         connection_secrets::mask_connection_for_read(&mut value);
     }
     Ok(shared::project_record(value, options.as_ref()))
-}
-
-fn storage_get_projection_fields_for_read(
-    entity: &str,
-    fields: &[String],
-    options: Option<&Value>,
-) -> Vec<String> {
-    let mut projection = if entity == "messages" {
-        message_projection_fields_for_materialization(fields, options)
-    } else {
-        fields.to_vec()
-    };
-
-    if entity == "connections"
-        && fields
-            .iter()
-            .any(|field| matches!(field.as_str(), "apiKey" | "hasApiKey"))
-    {
-        for field in ["apiKey", "apiKeyEncrypted"] {
-            if !projection.iter().any(|existing| existing == field) {
-                projection.push(field.to_string());
-            }
-        }
-    }
-
-    projection
 }
 
 #[tauri::command]
@@ -815,812 +555,6 @@ pub(crate) fn prepare_entity_for_create(
     }
 }
 
-fn normalize_chat_for_create(value: Value) -> Result<Value, AppError> {
-    let mut object = ensure_object(value)?;
-    normalize_chat_mode_object(&mut object);
-    normalize_chat_folder_id_object(&mut object)?;
-    normalize_chat_metadata_for_create(&mut object)?;
-    Ok(Value::Object(object))
-}
-
-fn normalize_chat_for_update(entity: &str, patch: Value) -> Result<Value, AppError> {
-    if entity != "chats" {
-        return Ok(patch);
-    }
-    let mut object = ensure_object(patch)?;
-    normalize_chat_mode_object(&mut object);
-    normalize_chat_folder_id_object(&mut object)?;
-    Ok(Value::Object(object))
-}
-
-fn normalize_chat_metadata_for_create(object: &mut Map<String, Value>) -> Result<(), AppError> {
-    let active_ids = chat_active_character_ids(object.get("characterIds"));
-    let Some(metadata) = object.get_mut("metadata") else {
-        return Ok(());
-    };
-    let Some(metadata) = metadata.as_object_mut() else {
-        return Err(AppError::invalid_input("Chat metadata must be an object"));
-    };
-    normalize_chat_metadata_object(metadata, &active_ids)
-}
-
-fn normalize_chat_mode_object(object: &mut Map<String, Value>) {
-    if let Some(mode) = object
-        .get("mode")
-        .and_then(Value::as_str)
-        .and_then(canonical_chat_mode)
-    {
-        object.insert("mode".to_string(), Value::String(mode.to_string()));
-    }
-}
-
-fn normalize_chat_folder_id_object(object: &mut Map<String, Value>) -> Result<(), AppError> {
-    if !object.contains_key("folderId") {
-        return Ok(());
-    }
-    let normalized = match object.get("folderId") {
-        Some(Value::Null) => Value::Null,
-        Some(Value::String(folder_id)) => {
-            let folder_id = folder_id.trim();
-            if folder_id.is_empty() {
-                return Err(AppError::invalid_input(
-                    "folderId must be a folder id or null",
-                ));
-            }
-            Value::String(folder_id.to_string())
-        }
-        _ => {
-            return Err(AppError::invalid_input(
-                "folderId must be a folder id or null",
-            ));
-        }
-    };
-    object.insert("folderId".to_string(), normalized);
-    Ok(())
-}
-
-fn validated_chat_folder_name(value: &Value) -> Result<String, AppError> {
-    value
-        .as_str()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| AppError::invalid_input("Chat folder name is required"))
-}
-
-fn normalize_chat_folder_name_patch(object: &mut Map<String, Value>) -> Result<(), AppError> {
-    if let Some(name) = object.get("name") {
-        let name = validated_chat_folder_name(name)?;
-        object.insert("name".to_string(), Value::String(name));
-    }
-    Ok(())
-}
-
-fn patch_chat_folder(state: &AppState, id: &str, patch: Value) -> Result<Value, AppError> {
-    let mut object = ensure_object(shared::normalize_update_patch("chat-folders", patch)?)?;
-    normalize_chat_folder_name_patch(&mut object)?;
-    if let Some(mode_value) = object.get("mode") {
-        let mode = mode_value
-            .as_str()
-            .and_then(canonical_chat_mode)
-            .ok_or_else(|| AppError::invalid_input("Invalid chat folder mode"))?;
-        object.insert("mode".to_string(), Value::String(mode.to_string()));
-        validate_chat_folder_mode_patch(state, id, mode)?;
-    }
-    state
-        .storage
-        .patch("chat-folders", id, Value::Object(object))
-}
-
-fn validate_chat_folder_mode_patch(
-    state: &AppState,
-    folder_id: &str,
-    folder_mode: &str,
-) -> Result<(), AppError> {
-    let mut filters = Map::new();
-    filters.insert("folderId".to_string(), Value::String(folder_id.to_string()));
-    for chat in state.storage.list_where("chats", &filters)? {
-        let chat_id = chat
-            .get("id")
-            .and_then(Value::as_str)
-            .unwrap_or("<unknown>");
-        let chat_mode = chat_mode_for_value(&chat).map_err(|_| {
-            AppError::invalid_input(format!(
-                "Chat folder {folder_id} contains chat {chat_id} with invalid mode"
-            ))
-        })?;
-        if chat_mode != folder_mode {
-            return Err(AppError::invalid_input(format!(
-                "Chat folder {folder_id} contains {chat_mode} chat {chat_id}, not {folder_mode} chat"
-            )));
-        }
-    }
-    Ok(())
-}
-
-fn create_chat_folder(state: &AppState, value: Value) -> Result<Value, AppError> {
-    let prepared = prepare_entity_for_create(state, "chat-folders", value)?;
-    state
-        .storage
-        .update_collections_atomically(vec!["chat-folders"], move |collections| {
-            let [folders] = collections else {
-                return Err(AppError::new(
-                    "storage_error",
-                    "Chat folder create expected chat-folder collection",
-                ));
-            };
-            if folders.collection() != "chat-folders" {
-                return Err(AppError::new(
-                    "storage_error",
-                    "Chat folder create received unexpected collection",
-                ));
-            }
-            create_chat_folder_in_rows(folders.rows_mut(), prepared)
-        })
-}
-
-fn create_chat_folder_in_rows(rows: &mut Vec<Value>, value: Value) -> Result<Value, AppError> {
-    let mut object = ensure_object(value)?;
-    let id = object
-        .get("id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.trim().is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(new_id);
-    if rows
-        .iter()
-        .any(|row| row.get("id").and_then(Value::as_str) == Some(id.as_str()))
-    {
-        return Err(AppError::invalid_input(format!(
-            "chat-folders/{id} already exists"
-        )));
-    }
-
-    let now = now_iso();
-    object.insert("id".to_string(), Value::String(id));
-    object
-        .entry("createdAt".to_string())
-        .or_insert_with(|| Value::String(now.clone()));
-    object
-        .entry("updatedAt".to_string())
-        .or_insert_with(|| Value::String(now.clone()));
-    object.insert("sortOrder".to_string(), json!(0));
-    object.insert("order".to_string(), json!(0));
-
-    for folder in rows.iter_mut() {
-        let Some(folder) = folder.as_object_mut() else {
-            return Err(AppError::invalid_input("Stored record is not an object"));
-        };
-        let next_order = folder
-            .get("sortOrder")
-            .or_else(|| folder.get("order"))
-            .and_then(Value::as_i64)
-            .unwrap_or(0)
-            + 1;
-        folder.insert("sortOrder".to_string(), json!(next_order));
-        folder.insert("order".to_string(), json!(next_order));
-        folder.insert("updatedAt".to_string(), Value::String(now.clone()));
-    }
-
-    let record = Value::Object(object);
-    rows.push(record.clone());
-    Ok(record)
-}
-
-fn chat_folder_defaults_for_create(value: Value) -> Result<Value, AppError> {
-    let mut object = ensure_object(value)?;
-    let name = validated_chat_folder_name(object.get("name").unwrap_or(&Value::Null))?;
-    object.insert("name".to_string(), Value::String(name));
-
-    let mode = object
-        .get("mode")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .and_then(canonical_chat_mode)
-        .ok_or_else(|| AppError::invalid_input("Invalid chat folder mode"))?
-        .to_string();
-    object.insert("mode".to_string(), Value::String(mode));
-    object.insert("sortOrder".to_string(), json!(0));
-    object.insert("order".to_string(), json!(0));
-    Ok(Value::Object(object))
-}
-
-fn gallery_defaults_for_create(state: &AppState, value: Value) -> Result<Value, AppError> {
-    let mut object = ensure_object(value)?;
-    let Some(url) = object
-        .get("url")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| media_uploads::is_inline_image_data_url(value))
-        .map(str::to_string)
-    else {
-        return Ok(Value::Object(object));
-    };
-
-    let (mime, bytes) = media_uploads::decode_image_payload(&url, "url")?;
-    let filename_hint = object
-        .get("filename")
-        .or_else(|| object.get("filePath"))
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or("gallery-image");
-    let stored =
-        media_uploads::persist_image_bytes(state, "gallery", filename_hint, &bytes, &mime)?;
-
-    object.insert("url".to_string(), Value::String(stored.asset_url));
-    object.insert("filePath".to_string(), Value::String(stored.absolute_path));
-    object.insert("filename".to_string(), Value::String(stored.filename));
-    Ok(Value::Object(object))
-}
-
-fn gallery_create_persists_inline_image(entity: &str, value: &Value) -> bool {
-    matches!(
-        entity,
-        "gallery" | "character-gallery" | "persona-gallery" | "global-gallery"
-    )
-        && value
-            .get("url")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .is_some_and(media_uploads::is_inline_image_data_url)
-}
-
-fn connection_folder_defaults_for_create(
-    state: &AppState,
-    value: Value,
-) -> Result<Value, AppError> {
-    let mut object = ensure_object(value)?;
-    if object
-        .get("sortOrder")
-        .and_then(Value::as_i64)
-        .is_none_or(|value| value <= 0)
-    {
-        let next_order = state
-            .storage
-            .list("connection-folders")?
-            .into_iter()
-            .filter_map(|folder| {
-                folder
-                    .get("sortOrder")
-                    .or_else(|| folder.get("order"))
-                    .and_then(Value::as_i64)
-            })
-            .max()
-            .map(|value| value + 1)
-            .unwrap_or(0);
-        object.insert("sortOrder".to_string(), json!(next_order));
-        object.insert("order".to_string(), json!(next_order));
-    }
-    Ok(Value::Object(object))
-}
-
-fn create_connection_folder(state: &AppState, value: Value) -> Result<Value, AppError> {
-    let explicit_order = explicit_positive_connection_folder_order(&value);
-    let mut prepared = prepare_entity_for_create(state, "connection-folders", value)?;
-    if let Some(order) = explicit_order {
-        let Some(object) = prepared.as_object_mut() else {
-            return Err(AppError::invalid_input(
-                "Connection folder must be an object",
-            ));
-        };
-        object.insert("sortOrder".to_string(), json!(order));
-        object.insert("order".to_string(), json!(order));
-        return state.storage.create("connection-folders", prepared);
-    }
-
-    state
-        .storage
-        .update_collections_atomically(vec!["connection-folders"], move |collections| {
-            let [folders] = collections else {
-                return Err(AppError::new(
-                    "storage_error",
-                    "Connection folder create expected connection-folder collection",
-                ));
-            };
-            if folders.collection() != "connection-folders" {
-                return Err(AppError::new(
-                    "storage_error",
-                    "Connection folder create received unexpected collection",
-                ));
-            }
-            create_connection_folder_in_rows(folders.rows_mut(), prepared)
-        })
-}
-
-fn explicit_positive_connection_folder_order(value: &Value) -> Option<i64> {
-    ["sortOrder", "order"].into_iter().find_map(|field| {
-        value
-            .get(field)
-            .and_then(Value::as_i64)
-            .filter(|order| *order > 0)
-    })
-}
-
-fn create_connection_folder_in_rows(
-    rows: &mut Vec<Value>,
-    value: Value,
-) -> Result<Value, AppError> {
-    let mut object = ensure_object(value)?;
-    let id = object
-        .get("id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.trim().is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(new_id);
-    if rows
-        .iter()
-        .any(|row| row.get("id").and_then(Value::as_str) == Some(id.as_str()))
-    {
-        return Err(AppError::invalid_input(format!(
-            "connection-folders/{id} already exists"
-        )));
-    }
-
-    let now = now_iso();
-    object.insert("id".to_string(), Value::String(id));
-    object
-        .entry("createdAt".to_string())
-        .or_insert_with(|| Value::String(now.clone()));
-    object
-        .entry("updatedAt".to_string())
-        .or_insert_with(|| Value::String(now.clone()));
-    object.insert("sortOrder".to_string(), json!(0));
-    object.insert("order".to_string(), json!(0));
-
-    for folder in rows.iter_mut() {
-        let Some(folder) = folder.as_object_mut() else {
-            return Err(AppError::invalid_input("Stored record is not an object"));
-        };
-        let next_order = folder
-            .get("sortOrder")
-            .or_else(|| folder.get("order"))
-            .and_then(Value::as_i64)
-            .unwrap_or(0)
-            + 1;
-        folder.insert("sortOrder".to_string(), json!(next_order));
-        folder.insert("order".to_string(), json!(next_order));
-        folder.insert("updatedAt".to_string(), Value::String(now.clone()));
-    }
-
-    let record = Value::Object(object);
-    rows.push(record.clone());
-    Ok(record)
-}
-
-pub(crate) fn validate_connection_folder_for_create(
-    state: &AppState,
-    entity: &str,
-    value: &Value,
-) -> Result<(), AppError> {
-    if entity != "connections" {
-        return Ok(());
-    }
-    validate_connection_folder_id(state, value.get("folderId"))
-}
-
-pub(crate) fn validate_connection_folder_for_patch(
-    state: &AppState,
-    entity: &str,
-    patch: &Value,
-) -> Result<(), AppError> {
-    if entity != "connections"
-        || !patch
-            .as_object()
-            .is_some_and(|object| object.contains_key("folderId"))
-    {
-        return Ok(());
-    }
-    validate_connection_folder_id(state, patch.get("folderId"))
-}
-
-fn validate_connection_folder_id(
-    state: &AppState,
-    folder_id: Option<&Value>,
-) -> Result<(), AppError> {
-    let Some(folder_id) = folder_id else {
-        return Ok(());
-    };
-    if folder_id.is_null() {
-        return Ok(());
-    }
-    let Some(folder_id) = folder_id
-        .as_str()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
-        return Err(AppError::invalid_input(
-            "folderId must be a folder id or null",
-        ));
-    };
-    if state
-        .storage
-        .get("connection-folders", folder_id)?
-        .is_none()
-    {
-        return Err(AppError::invalid_input(format!(
-            "Connection folder {folder_id} does not exist"
-        )));
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_chat_folder_for_create(
-    state: &AppState,
-    entity: &str,
-    value: &Value,
-) -> Result<(), AppError> {
-    if entity != "chats" {
-        return Ok(());
-    }
-    let Some(folder_id) = parse_chat_folder_id(value.get("folderId"))? else {
-        return Ok(());
-    };
-    validate_chat_folder_assignment(state, &folder_id, chat_mode_for_value(value)?)
-}
-
-pub(crate) fn validate_chat_folder_for_patch(
-    state: &AppState,
-    entity: &str,
-    id: &str,
-    patch: &Value,
-) -> Result<(), AppError> {
-    if entity != "chats" {
-        return Ok(());
-    }
-    let Some(patch_object) = patch.as_object() else {
-        return Err(AppError::invalid_input("Patch must be an object"));
-    };
-    if !patch_object.contains_key("folderId") && !patch_object.contains_key("mode") {
-        return Ok(());
-    }
-
-    let existing = state
-        .storage
-        .get("chats", id)?
-        .ok_or_else(|| AppError::not_found(format!("chats/{id} was not found")))?;
-    let folder_id = if patch_object.contains_key("folderId") {
-        patch.get("folderId")
-    } else {
-        existing.get("folderId")
-    };
-    let Some(folder_id) = parse_chat_folder_id(folder_id)? else {
-        return Ok(());
-    };
-    let mode = if patch_object.contains_key("mode") {
-        chat_mode_for_value(patch)?
-    } else {
-        chat_mode_for_value(&existing)?
-    };
-    validate_chat_folder_assignment(state, &folder_id, mode)
-}
-
-fn validate_chat_folder_assignment(
-    state: &AppState,
-    folder_id: &str,
-    chat_mode: &str,
-) -> Result<(), AppError> {
-    let folder = state
-        .storage
-        .get("chat-folders", folder_id)?
-        .ok_or_else(|| {
-            AppError::invalid_input(format!("Chat folder {folder_id} does not exist"))
-        })?;
-    let folder_mode = folder
-        .get("mode")
-        .and_then(Value::as_str)
-        .and_then(canonical_chat_mode)
-        .ok_or_else(|| {
-            AppError::invalid_input(format!("Chat folder {folder_id} has invalid mode"))
-        })?;
-    if folder_mode != chat_mode {
-        return Err(AppError::invalid_input(format!(
-            "Chat folder {folder_id} is for {folder_mode} chats, not {chat_mode} chats"
-        )));
-    }
-    Ok(())
-}
-
-/// Storage-level guard for malformed lorebook folder ancestry.
-pub(crate) fn validate_lorebook_folder_for_create(
-    state: &AppState,
-    entity: &str,
-    value: &Value,
-) -> Result<(), AppError> {
-    if entity != "lorebook-folders" {
-        return Ok(());
-    }
-    let Some(parent_id) = parse_chat_folder_id(value.get("parentFolderId"))? else {
-        return Ok(());
-    };
-    // New folders have no descendants, so create only checks parent existence and ownership.
-    validate_lorebook_folder_parent(state, lorebook_folder_lorebook_id(value), None, &parent_id)
-}
-
-pub(crate) fn validate_lorebook_folder_for_patch(
-    state: &AppState,
-    entity: &str,
-    id: &str,
-    patch: &Value,
-) -> Result<(), AppError> {
-    if entity != "lorebook-folders" {
-        return Ok(());
-    }
-    let Some(object) = patch.as_object() else {
-        return Err(AppError::invalid_input("Patch must be an object"));
-    };
-    let changes_parent = object.contains_key("parentFolderId");
-    let changes_lorebook = object.contains_key("lorebookId");
-    if !changes_parent && !changes_lorebook {
-        return Ok(());
-    }
-    let existing = state
-        .storage
-        .get("lorebook-folders", id)?
-        .ok_or_else(|| AppError::not_found(format!("lorebook-folders/{id} was not found")))?;
-    // Cross-book folder moves can strand parent/child links, so ownership is immutable.
-    if changes_lorebook
-        && lorebook_folder_lorebook_id(patch) != lorebook_folder_lorebook_id(&existing)
-    {
-        return Err(AppError::invalid_input(
-            "A folder cannot be moved to a different lorebook.",
-        ));
-    }
-    if !changes_parent {
-        return Ok(());
-    }
-    let Some(parent_id) = parse_chat_folder_id(patch.get("parentFolderId"))? else {
-        // Clearing parentFolderId moves the folder to root.
-        return Ok(());
-    };
-    validate_lorebook_folder_parent(
-        state,
-        lorebook_folder_lorebook_id(&existing),
-        Some(id),
-        &parent_id,
-    )
-}
-
-fn lorebook_folder_lorebook_id(value: &Value) -> Option<String> {
-    value
-        .get("lorebookId")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|candidate| !candidate.is_empty())
-        .map(str::to_string)
-}
-
-fn validate_lorebook_folder_parent(
-    state: &AppState,
-    lorebook_id: Option<String>,
-    folder_id: Option<&str>,
-    parent_id: &str,
-) -> Result<(), AppError> {
-    if Some(parent_id) == folder_id {
-        return Err(AppError::invalid_input(
-            "A folder cannot be its own parent.",
-        ));
-    }
-    let parent = state
-        .storage
-        .get("lorebook-folders", parent_id)?
-        .ok_or_else(|| {
-            AppError::invalid_input(format!("lorebook-folders/{parent_id} was not found"))
-        })?;
-    if let Some(lorebook_id) = lorebook_id.as_deref() {
-        if parent.get("lorebookId").and_then(Value::as_str) != Some(lorebook_id) {
-            return Err(AppError::invalid_input(
-                "A folder can only nest under a folder in the same lorebook.",
-            ));
-        }
-    }
-    // Walk target ancestors to reject descendant moves; seen handles pre-existing bad cycles.
-    let Some(folder_id) = folder_id else {
-        return Ok(());
-    };
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut cursor = Some(parent_id.to_string());
-    while let Some(current_id) = cursor {
-        if current_id == folder_id {
-            return Err(AppError::invalid_input(
-                "A folder cannot be nested inside one of its own subfolders.",
-            ));
-        }
-        if !seen.insert(current_id.clone()) {
-            break;
-        }
-        cursor = state
-            .storage
-            .get("lorebook-folders", &current_id)?
-            .as_ref()
-            .and_then(|node| node.get("parentFolderId"))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|candidate| !candidate.is_empty())
-            .map(str::to_string);
-    }
-    Ok(())
-}
-
-/// Reject a `global-gallery` row whose `folderId` points at a `gallery-folders`
-/// row that does not exist. The dedicated upload command coerces a missing
-/// folder to root, but the generic create/update path (used by the lightbox
-/// move and any remote caller) must guard the reference itself so a stale UI
-/// race or remote write can't strand an image under a ghost folder.
-pub(crate) fn validate_gallery_folder_for_create(
-    state: &AppState,
-    entity: &str,
-    value: &Value,
-) -> Result<(), AppError> {
-    if entity != "global-gallery" {
-        return Ok(());
-    }
-    validate_gallery_folder_assignment(state, parse_chat_folder_id(value.get("folderId"))?)
-}
-
-pub(crate) fn validate_gallery_folder_for_patch(
-    state: &AppState,
-    entity: &str,
-    patch: &Value,
-) -> Result<(), AppError> {
-    if entity != "global-gallery" {
-        return Ok(());
-    }
-    let Some(object) = patch.as_object() else {
-        return Err(AppError::invalid_input("Patch must be an object"));
-    };
-    if !object.contains_key("folderId") {
-        return Ok(());
-    }
-    validate_gallery_folder_assignment(state, parse_chat_folder_id(patch.get("folderId"))?)
-}
-
-fn validate_gallery_folder_assignment(
-    state: &AppState,
-    folder_id: Option<String>,
-) -> Result<(), AppError> {
-    let Some(folder_id) = folder_id else {
-        return Ok(());
-    };
-    if state.storage.get("gallery-folders", &folder_id)?.is_some() {
-        Ok(())
-    } else {
-        Err(AppError::invalid_input(format!(
-            "gallery-folders/{folder_id} was not found"
-        )))
-    }
-}
-
-fn parse_chat_folder_id(folder_id: Option<&Value>) -> Result<Option<String>, AppError> {
-    let Some(folder_id) = folder_id else {
-        return Ok(None);
-    };
-    if folder_id.is_null() {
-        return Ok(None);
-    }
-    let Some(folder_id) = folder_id
-        .as_str()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
-        return Err(AppError::invalid_input(
-            "folderId must be a folder id or null",
-        ));
-    };
-    Ok(Some(folder_id.to_string()))
-}
-
-fn chat_mode_for_value(value: &Value) -> Result<&'static str, AppError> {
-    let Some(mode) = value
-        .get("mode")
-        .and_then(Value::as_str)
-        .and_then(canonical_chat_mode)
-    else {
-        return Err(AppError::invalid_input("Chat mode is required"));
-    };
-    Ok(mode)
-}
-
-fn canonical_chat_mode(mode: &str) -> Option<&'static str> {
-    match mode.trim() {
-        "conversation" => Some("conversation"),
-        "roleplay" | "visual_novel" => Some("roleplay"),
-        "game" => Some("game"),
-        _ => None,
-    }
-}
-
-fn connection_default_agent_scope(connection: &Value) -> Option<&'static str> {
-    let provider = connection.get("provider").and_then(Value::as_str)?.trim();
-    Some(if provider == "image_generation" {
-        "image"
-    } else {
-        "language"
-    })
-}
-
-fn connection_default_for_agents_enabled(connection: &Value) -> bool {
-    connection
-        .get("defaultForAgents")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-}
-
-fn connection_is_default(connection: &Value) -> bool {
-    value_truthy(connection.get("isDefault")) || value_truthy(connection.get("default"))
-}
-
-fn clear_other_default_connections(
-    state: &AppState,
-    selected_connection: &Value,
-) -> Result<(), AppError> {
-    if !connection_is_default(selected_connection) {
-        return Ok(());
-    }
-    let Some(selected_id) = selected_connection
-        .get("id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.trim().is_empty())
-    else {
-        return Ok(());
-    };
-    for connection in state.storage.list("connections")? {
-        let Some(id) = connection
-            .get("id")
-            .and_then(Value::as_str)
-            .filter(|id| *id != selected_id)
-        else {
-            continue;
-        };
-        if !connection_is_default(&connection) {
-            continue;
-        }
-        state.storage.patch(
-            "connections",
-            id,
-            json!({ "isDefault": false, "default": false }),
-        )?;
-    }
-    Ok(())
-}
-
-fn clear_other_default_agent_connections(
-    state: &AppState,
-    selected_connection: &Value,
-) -> Result<(), AppError> {
-    if !connection_default_for_agents_enabled(selected_connection) {
-        return Ok(());
-    }
-    let Some(selected_id) = selected_connection
-        .get("id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.trim().is_empty())
-    else {
-        return Ok(());
-    };
-    let Some(selected_scope) = connection_default_agent_scope(selected_connection) else {
-        return Ok(());
-    };
-    for connection in state.storage.list("connections")? {
-        let Some(id) = connection
-            .get("id")
-            .and_then(Value::as_str)
-            .filter(|id| *id != selected_id)
-        else {
-            continue;
-        };
-        if !connection_default_for_agents_enabled(&connection) {
-            continue;
-        }
-        if connection_default_agent_scope(&connection) != Some(selected_scope) {
-            continue;
-        }
-        state
-            .storage
-            .patch("connections", id, json!({ "defaultForAgents": false }))?;
-    }
-    Ok(())
-}
-
 #[tauri::command]
 pub async fn storage_delete(
     state: State<'_, AppState>,
@@ -1636,195 +570,12 @@ pub async fn storage_delete(
     .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
-pub(crate) fn delete_entity(
-    state: &AppState,
-    entity: &str,
-    id: &str,
-    force: bool,
-) -> Result<Value, AppError> {
-    validate_storage_entity(entity)?;
-    reject_message_swipe_mutation(entity)?;
-    if entity == "connections" {
-        return crate::connection_refs::delete_connection(state, id, force);
-    }
-    if entity == "chats" {
-        let existed = state.storage.get("chats", id)?.is_some();
-        let mut deleted_chat_ids = Vec::new();
-        if existed {
-            deleted_chat_ids = chats::delete_chat_with_messages(state, id)?;
-        }
-        return Ok(json!({ "deleted": existed, "deletedChatIds": deleted_chat_ids }));
-    }
-    if is_protected_record(entity, id) {
-        return Err(AppError::invalid_input(
-            "Protected records cannot be deleted",
-        ));
-    }
-    if entity == "chat-presets" && chat_preset_is_default_id(state, id)? {
-        return Err(AppError::invalid_input(
-            "Default chat presets cannot be deleted",
-        ));
-    }
-    if entity == "lorebook-entries" {
-        let deleted = delete_lorebook_entry_with_character_book_sync(state, id)?;
-        return Ok(json!({ "deleted": deleted }));
-    }
-    if entity == "lorebook-folders" {
-        let deleted = delete_lorebook_folder_with_entry_reparent_sync(state, id)?;
-        return Ok(json!({ "deleted": deleted }));
-    }
-    if entity == "chat-folders" {
-        let deleted = delete_chat_folder_with_chat_unfile(state, id)?;
-        return Ok(json!({ "deleted": deleted }));
-    }
-    let existing = owned_record_for_delete(state, entity, id)?;
-    let message_chat_id = if entity == "messages" {
-        existing
-            .as_ref()
-            .and_then(|record| record.get("chatId"))
-            .and_then(Value::as_str)
-            .map(str::to_string)
-    } else {
-        None
-    };
-    let deleted = if entity == "messages" {
-        if let (Some(chat_id), Some(message)) = (message_chat_id.as_deref(), existing.as_ref()) {
-            let (deleted, _) = chats::delete_message_rows_with_memory_prune(
-                state,
-                chat_id,
-                std::slice::from_ref(message),
-            )?;
-            deleted > 0
-        } else {
-            false
-        }
-    } else {
-        state.storage.delete(entity, id)?
-    };
-    if deleted {
-        apply_delete_cleanup(
-            state,
-            entity,
-            id,
-            existing.as_ref(),
-            message_chat_id.as_deref(),
-        )?;
-    }
-    Ok(json!({ "deleted": deleted }))
-}
-
-fn apply_delete_cleanup(
-    state: &AppState,
-    entity: &str,
-    id: &str,
-    existing: Option<&Value>,
-    message_chat_id: Option<&str>,
-) -> Result<(), AppError> {
-    let Some(contract) = contracts::collection_contract(entity) else {
-        return Ok(());
-    };
-    for cleanup in contract.delete_cleanup {
-        match cleanup {
-            contracts::DeleteCleanup::ActivateDefaultChatPreset => {
-                if let Some(record) = existing {
-                    activate_default_chat_preset_if_needed(state, record)?;
-                }
-            }
-            contracts::DeleteCleanup::ClearChatFolder => unfile_chats_in_folder(state, id)?,
-            contracts::DeleteCleanup::ClearConnectionFolder => {
-                unfile_connections_in_folder(state, id)?
-            }
-            contracts::DeleteCleanup::ClearGalleryFolder => {
-                unfile_records_in_folder(state, "global-gallery", id)?
-            }
-            contracts::DeleteCleanup::ClearLorebookReferences => {
-                clear_deleted_lorebook_references(state, id)?;
-            }
-            contracts::DeleteCleanup::DeleteCharacterGallery => {
-                delete_character_gallery(state, id)?
-            }
-            contracts::DeleteCleanup::DeletePersonaGallery => {
-                delete_persona_gallery(state, id)?
-            }
-            contracts::DeleteCleanup::DeleteLorebookChildren => {
-                delete_lorebook_children(state, id)?
-            }
-            contracts::DeleteCleanup::DeleteMessageTrackerSnapshots => {
-                if entity == "messages" {
-                    continue;
-                }
-                if let Some(chat_id) = message_chat_id {
-                    game_state_snapshots::delete_tracker_snapshots_for_message(state, chat_id, id)?;
-                    game_state_snapshots::sync_chat_game_state_to_visible_tracker(state, chat_id)?;
-                }
-            }
-            contracts::DeleteCleanup::DeletePromptChildren => {
-                prompts::delete_prompt_preset_children(state, id)?;
-            }
-            contracts::DeleteCleanup::RemoveOwnedMedia => {
-                if let Some(record) = existing {
-                    remove_owned_media(state, entity, record);
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
 #[tauri::command]
 pub fn connection_folder_reorder(
     state: State<'_, AppState>,
     ordered_ids: Vec<String>,
 ) -> Result<Value, AppError> {
     connection_folder_reorder_inner(&state, ordered_ids)
-}
-
-pub(crate) fn connection_folder_reorder_inner(
-    state: &AppState,
-    ordered_ids: Vec<String>,
-) -> Result<Value, AppError> {
-    validate_connection_folder_reorder(state, &ordered_ids)?;
-    let patches = ordered_ids
-        .into_iter()
-        .enumerate()
-        .map(|(index, id)| (id, json!({ "sortOrder": index, "order": index })))
-        .collect::<Vec<_>>();
-    let rows = state.storage.patch_many("connection-folders", patches)?;
-    Ok(Value::Array(rows))
-}
-
-fn validate_connection_folder_reorder(
-    state: &AppState,
-    ordered_ids: &[String],
-) -> Result<(), AppError> {
-    let mut seen = HashSet::with_capacity(ordered_ids.len());
-    if ordered_ids
-        .iter()
-        .any(|id| id.trim().is_empty() || !seen.insert(id.as_str()))
-    {
-        return Err(AppError::invalid_input(
-            "Connection folder reorder must include each folder id exactly once",
-        ));
-    }
-
-    let existing_ids = state
-        .storage
-        .list("connection-folders")?
-        .into_iter()
-        .filter_map(|folder| {
-            folder
-                .get("id")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
-        })
-        .collect::<HashSet<_>>();
-    let ordered_ids = ordered_ids.iter().cloned().collect::<HashSet<_>>();
-    if existing_ids != ordered_ids {
-        return Err(AppError::invalid_input(
-            "Connection folder reorder must include every existing folder exactly once",
-        ));
-    }
-    Ok(())
 }
 
 #[tauri::command]
@@ -1837,274 +588,6 @@ pub fn lorebook_folder_reorder(
     lorebook_folder_reorder_inner(&state, &lorebook_id, ordered_ids, parent_folder_id)
 }
 
-pub(crate) fn lorebook_folder_reorder_inner(
-    state: &AppState,
-    lorebook_id: &str,
-    ordered_ids: Vec<String>,
-    parent_folder_id: Option<String>,
-) -> Result<Value, AppError> {
-    let lorebook_id = lorebook_id.trim().to_string();
-    if lorebook_id.is_empty() {
-        return Err(AppError::invalid_input("lorebookId is required"));
-    }
-    let parent_folder_id = normalize_lorebook_reorder_parent_id(parent_folder_id)?;
-    let ordered_ids = normalize_lorebook_reorder_ids(ordered_ids)?;
-
-    state
-        .storage
-        .update_collections_atomically(vec!["lorebook-folders"], move |collections| {
-            let [folders] = collections else {
-                return Err(AppError::new(
-                    "storage_error",
-                    "Lorebook folder reorder expected the lorebook folder collection",
-                ));
-            };
-            if folders.collection() != "lorebook-folders" {
-                return Err(AppError::new(
-                    "storage_error",
-                    "Lorebook folder reorder received an unexpected collection",
-                ));
-            }
-            lorebook_folder_reorder_in_rows(
-                folders.rows_mut(),
-                &lorebook_id,
-                ordered_ids,
-                parent_folder_id,
-            )
-        })
-}
-
-fn lorebook_folder_reorder_in_rows(
-    folder_rows: &mut [Value],
-    lorebook_id: &str,
-    ordered_ids: Vec<String>,
-    parent_folder_id: Option<String>,
-) -> Result<Value, AppError> {
-    let by_id = folder_rows
-        .iter()
-        .enumerate()
-        .filter_map(|folder| {
-            let (index, folder) = folder;
-            let id = folder.get("id").and_then(Value::as_str)?.to_string();
-            Some((
-                id,
-                LorebookFolderReorderRow {
-                    lorebook_id: lorebook_folder_lorebook_id(folder),
-                    parent_id: lorebook_folder_parent_id(folder),
-                    order: lorebook_folder_order(folder, index),
-                },
-            ))
-        })
-        .collect::<HashMap<_, _>>();
-    let ordered_id_set = ordered_ids.iter().cloned().collect::<HashSet<_>>();
-
-    if let Some(parent_id) = parent_folder_id.as_deref() {
-        validate_lorebook_folder_parent_in_rows(&by_id, Some(lorebook_id), None, parent_id)?;
-    }
-
-    for id in &ordered_ids {
-        if by_id
-            .get(id)
-            .and_then(|folder| folder.lorebook_id.as_deref())
-            != Some(lorebook_id)
-        {
-            return Err(AppError::invalid_input(format!(
-                "lorebook-folders/{id} does not belong to lorebook {lorebook_id}"
-            )));
-        }
-        if let Some(parent_id) = parent_folder_id.as_deref() {
-            validate_lorebook_folder_parent_in_rows(
-                &by_id,
-                Some(lorebook_id),
-                Some(id),
-                parent_id,
-            )?;
-        }
-    }
-
-    for sibling_id in by_id
-        .iter()
-        .filter(|(_, folder)| {
-            folder.lorebook_id.as_deref() == Some(lorebook_id)
-                && folder.parent_id.as_deref() == parent_folder_id.as_deref()
-        })
-        .map(|(id, _)| id.clone())
-    {
-        if !ordered_id_set.contains(&sibling_id) {
-            return Err(AppError::invalid_input(
-                "Lorebook folder reorder must include every existing sibling in the target folder",
-            ));
-        }
-    }
-
-    let affected_source_parents = ordered_ids
-        .iter()
-        .filter_map(|id| by_id.get(id))
-        .filter(|folder| folder.parent_id.as_deref() != parent_folder_id.as_deref())
-        .map(|folder| folder.parent_id.clone())
-        .collect::<HashSet<_>>();
-    let source_reorders = affected_source_parents
-        .into_iter()
-        .map(|source_parent_id| {
-            let mut siblings = by_id
-                .iter()
-                .filter(|(id, folder)| {
-                    folder.lorebook_id.as_deref() == Some(lorebook_id)
-                        && folder.parent_id.as_deref() == source_parent_id.as_deref()
-                        && !ordered_id_set.contains(*id)
-                })
-                .map(|(id, folder)| (folder.order, id.clone()))
-                .collect::<Vec<_>>();
-            siblings.sort_by(|(left_order, left_id), (right_order, right_id)| {
-                left_order
-                    .cmp(right_order)
-                    .then_with(|| left_id.cmp(right_id))
-            });
-            (
-                source_parent_id,
-                siblings.into_iter().map(|(_, id)| id).collect::<Vec<_>>(),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let parent_patch = parent_folder_id.map(Value::String).unwrap_or(Value::Null);
-    let now = now_iso();
-    for (index, id) in ordered_ids.iter().enumerate() {
-        patch_lorebook_folder_reorder_row(folder_rows, id, index, Some(&parent_patch), &now)?;
-    }
-    for (_source_parent_id, sibling_ids) in source_reorders {
-        for (index, id) in sibling_ids.iter().enumerate() {
-            patch_lorebook_folder_reorder_row(folder_rows, id, index, None, &now)?;
-        }
-    }
-
-    Ok(Value::Array(
-        folder_rows
-            .iter()
-            .filter(|folder| lorebook_folder_lorebook_id(folder).as_deref() == Some(lorebook_id))
-            .cloned()
-            .collect(),
-    ))
-}
-
-fn patch_lorebook_folder_reorder_row(
-    folder_rows: &mut [Value],
-    id: &str,
-    index: usize,
-    parent_patch: Option<&Value>,
-    now: &str,
-) -> Result<(), AppError> {
-    let row = folder_rows
-        .iter_mut()
-        .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
-        .ok_or_else(|| AppError::not_found(format!("lorebook-folders/{id} was not found")))?;
-    let Some(object) = row.as_object_mut() else {
-        return Err(AppError::invalid_input("Stored record is not an object"));
-    };
-    object.insert("order".to_string(), json!(index));
-    object.insert("sortOrder".to_string(), json!(index));
-    if let Some(parent_patch) = parent_patch {
-        object.insert("parentFolderId".to_string(), parent_patch.clone());
-    }
-    object.insert("updatedAt".to_string(), Value::String(now.to_string()));
-    Ok(())
-}
-
-fn normalize_lorebook_reorder_parent_id(
-    parent_folder_id: Option<String>,
-) -> Result<Option<String>, AppError> {
-    let Some(parent_folder_id) = parent_folder_id else {
-        return Ok(None);
-    };
-    let parent_folder_id = parent_folder_id.trim();
-    if parent_folder_id.is_empty() {
-        return Err(AppError::invalid_input(
-            "parentFolderId must be a folder id or null",
-        ));
-    }
-    Ok(Some(parent_folder_id.to_string()))
-}
-
-fn normalize_lorebook_reorder_ids(ordered_ids: Vec<String>) -> Result<Vec<String>, AppError> {
-    if ordered_ids.is_empty() {
-        return Err(AppError::invalid_input(
-            "Lorebook folder reorder must include at least one folder",
-        ));
-    }
-    let mut seen = HashSet::with_capacity(ordered_ids.len());
-    let mut normalized = Vec::with_capacity(ordered_ids.len());
-    for raw_id in ordered_ids {
-        let id = raw_id.trim().to_string();
-        if id.is_empty() || !seen.insert(id.clone()) {
-            return Err(AppError::invalid_input(
-                "Lorebook folder reorder must include each folder id exactly once",
-            ));
-        }
-        normalized.push(id);
-    }
-    Ok(normalized)
-}
-
-fn validate_lorebook_folder_parent_in_rows(
-    by_id: &HashMap<String, LorebookFolderReorderRow>,
-    lorebook_id: Option<&str>,
-    folder_id: Option<&str>,
-    parent_id: &str,
-) -> Result<(), AppError> {
-    if Some(parent_id) == folder_id {
-        return Err(AppError::invalid_input(
-            "A folder cannot be its own parent.",
-        ));
-    }
-    let parent = by_id.get(parent_id).ok_or_else(|| {
-        AppError::invalid_input(format!("lorebook-folders/{parent_id} was not found"))
-    })?;
-    if let Some(lorebook_id) = lorebook_id {
-        if parent.lorebook_id.as_deref() != Some(lorebook_id) {
-            return Err(AppError::invalid_input(
-                "A folder can only nest under a folder in the same lorebook.",
-            ));
-        }
-    }
-
-    let Some(folder_id) = folder_id else {
-        return Ok(());
-    };
-    let mut seen = HashSet::new();
-    let mut cursor = Some(parent_id.to_string());
-    while let Some(current_id) = cursor {
-        if current_id == folder_id {
-            return Err(AppError::invalid_input(
-                "A folder cannot be nested inside one of its own subfolders.",
-            ));
-        }
-        if !seen.insert(current_id.clone()) {
-            break;
-        }
-        cursor = by_id
-            .get(&current_id)
-            .and_then(|node| node.parent_id.clone());
-    }
-    Ok(())
-}
-
-fn lorebook_folder_order(folder: &Value, fallback: usize) -> i64 {
-    folder
-        .get("order")
-        .or_else(|| folder.get("sortOrder"))
-        .and_then(Value::as_i64)
-        .unwrap_or(fallback as i64)
-}
-
-fn lorebook_folder_parent_id(folder: &Value) -> Option<String> {
-    folder
-        .get("parentFolderId")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
 #[tauri::command]
 pub fn connection_move(
     state: State<'_, AppState>,
@@ -2112,808 +595,6 @@ pub fn connection_move(
     folder_id: Option<String>,
 ) -> Result<Value, AppError> {
     connection_move_inner(&state, &connection_id, folder_id)
-}
-
-pub(crate) fn connection_move_inner(
-    state: &AppState,
-    connection_id: &str,
-    folder_id: Option<String>,
-) -> Result<Value, AppError> {
-    let folder_value = folder_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| Value::String(value.to_string()))
-        .unwrap_or(Value::Null);
-    validate_connection_folder_id(state, Some(&folder_value))?;
-    connection_secrets::patch_connection(state, connection_id, json!({ "folderId": folder_value }))
-}
-
-fn unfile_connections_in_folder(state: &AppState, folder_id: &str) -> Result<(), AppError> {
-    unfile_records_in_folder(state, "connections", folder_id)
-}
-
-fn unfile_chats_in_folder(state: &AppState, folder_id: &str) -> Result<(), AppError> {
-    unfile_records_in_folder(state, "chats", folder_id)
-}
-
-fn unfile_records_in_folder(
-    state: &AppState,
-    collection: &str,
-    folder_id: &str,
-) -> Result<(), AppError> {
-    let mut filters = Map::new();
-    filters.insert("folderId".to_string(), Value::String(folder_id.to_string()));
-    let rows = state.storage.list_where(collection, &filters)?;
-    let patches = rows
-        .into_iter()
-        .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_string))
-        .map(|id| (id, json!({ "folderId": Value::Null })))
-        .collect::<Vec<_>>();
-    if !patches.is_empty() {
-        state.storage.patch_many(collection, patches)?;
-    }
-    Ok(())
-}
-
-fn delete_character_gallery(state: &AppState, character_id: &str) -> Result<(), AppError> {
-    let mut filters = Map::new();
-    filters.insert(
-        "characterId".to_string(),
-        Value::String(character_id.to_string()),
-    );
-    let rows = state.storage.list_where("character-gallery", &filters)?;
-    for row in &rows {
-        remove_gallery_file(state, row);
-    }
-    state.storage.delete_where("character-gallery", &filters)?;
-    Ok(())
-}
-
-fn delete_persona_gallery(state: &AppState, persona_id: &str) -> Result<(), AppError> {
-    let mut filters = Map::new();
-    filters.insert(
-        "personaId".to_string(),
-        Value::String(persona_id.to_string()),
-    );
-    let rows = state.storage.list_where("persona-gallery", &filters)?;
-    for row in &rows {
-        remove_gallery_file(state, row);
-    }
-    state.storage.delete_where("persona-gallery", &filters)?;
-    Ok(())
-}
-
-fn delete_lorebook_children(state: &AppState, lorebook_id: &str) -> Result<(), AppError> {
-    let mut filters = Map::new();
-    filters.insert(
-        "lorebookId".to_string(),
-        Value::String(lorebook_id.to_string()),
-    );
-    state.storage.delete_where("lorebook-entries", &filters)?;
-    state.storage.delete_where("lorebook-folders", &filters)?;
-    Ok(())
-}
-
-fn lorebook_entry_lorebook_id(entry: &Value) -> Option<&str> {
-    entry
-        .get("lorebookId")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-}
-
-fn create_lorebook_entry_with_character_book_sync(
-    state: &AppState,
-    value: Value,
-) -> Result<Value, AppError> {
-    let mut object = ensure_object(value)?;
-    let had_id = object
-        .get("id")
-        .and_then(Value::as_str)
-        .is_some_and(|id| !id.trim().is_empty());
-    let id = object
-        .get("id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.trim().is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(new_id);
-    let now = now_iso();
-    object.insert("id".to_string(), Value::String(id.clone()));
-    object
-        .entry("createdAt".to_string())
-        .or_insert_with(|| Value::String(now.clone()));
-    object
-        .entry("updatedAt".to_string())
-        .or_insert_with(|| Value::String(now));
-    let record = Value::Object(object);
-    let created = record.clone();
-    state.storage.update_collections_atomically(
-        vec!["lorebook-entries", "characters"],
-        move |collections| {
-            let (entry_rows, character_rows) = lorebook_entry_atomic_rows(collections)?;
-            if had_id
-                && entry_rows
-                    .iter()
-                    .any(|row| row.get("id").and_then(Value::as_str) == Some(id.as_str()))
-            {
-                return Err(AppError::invalid_input(format!(
-                    "lorebook-entries/{id} already exists"
-                )));
-            }
-            entry_rows.retain(|row| row.get("id").and_then(Value::as_str) != Some(id.as_str()));
-            entry_rows.push(record);
-            sync_linked_character_books_for_entry_rows_in_place(
-                character_rows,
-                entry_rows,
-                &[&created],
-            )?;
-            Ok(created)
-        },
-    )
-}
-
-fn update_lorebook_entry_with_character_book_sync(
-    state: &AppState,
-    id: &str,
-    patch: Value,
-) -> Result<Value, AppError> {
-    let patch = ensure_object(patch)?;
-    state.storage.update_collections_atomically(
-        vec!["lorebook-entries", "characters"],
-        move |collections| {
-            let (entry_rows, character_rows) = lorebook_entry_atomic_rows(collections)?;
-            let previous = entry_rows
-                .iter()
-                .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
-                .cloned()
-                .ok_or_else(|| {
-                    AppError::not_found(format!("lorebook-entries/{id} was not found"))
-                })?;
-            let row = entry_rows
-                .iter_mut()
-                .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
-                .ok_or_else(|| {
-                    AppError::not_found(format!("lorebook-entries/{id} was not found"))
-                })?;
-            let Some(object) = row.as_object_mut() else {
-                return Err(AppError::invalid_input("Stored record is not an object"));
-            };
-            for (key, value) in patch {
-                object.insert(key, value);
-            }
-            object.insert("updatedAt".to_string(), Value::String(now_iso()));
-            let updated = Value::Object(object.clone());
-            sync_linked_character_books_for_entry_rows_in_place(
-                character_rows,
-                entry_rows,
-                &[&previous, &updated],
-            )?;
-            Ok(updated)
-        },
-    )
-}
-
-fn delete_lorebook_entry_with_character_book_sync(
-    state: &AppState,
-    id: &str,
-) -> Result<bool, AppError> {
-    state.storage.update_collections_atomically(
-        vec!["lorebook-entries", "characters"],
-        move |collections| {
-            let (entry_rows, character_rows) = lorebook_entry_atomic_rows(collections)?;
-            let previous = entry_rows
-                .iter()
-                .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
-                .cloned();
-            let before = entry_rows.len();
-            entry_rows.retain(|row| row.get("id").and_then(Value::as_str) != Some(id));
-            let deleted = entry_rows.len() != before;
-            if let Some(previous) = previous.as_ref().filter(|_| deleted) {
-                sync_linked_character_books_for_entry_rows_in_place(
-                    character_rows,
-                    entry_rows,
-                    &[previous],
-                )?;
-            }
-            Ok(deleted)
-        },
-    )
-}
-
-fn update_lorebook_with_character_book_sync(
-    state: &AppState,
-    id: &str,
-    patch: Value,
-) -> Result<Value, AppError> {
-    let patch = ensure_object(patch)?;
-    state.storage.update_collections_atomically(
-        vec!["lorebooks", "lorebook-entries", "characters"],
-        move |collections| {
-            let (lorebook_rows, entry_rows, character_rows) =
-                lorebook_metadata_atomic_rows(collections)?;
-            let row = lorebook_rows
-                .iter_mut()
-                .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
-                .ok_or_else(|| AppError::not_found(format!("lorebooks/{id} was not found")))?;
-            let Some(object) = row.as_object_mut() else {
-                return Err(AppError::invalid_input("Stored record is not an object"));
-            };
-            for (key, value) in patch {
-                object.insert(key, value);
-            }
-            object.insert("updatedAt".to_string(), Value::String(now_iso()));
-            let updated = Value::Object(object.clone());
-            sync_linked_character_books_for_lorebook_record_in_place(
-                character_rows,
-                entry_rows,
-                &updated,
-            )?;
-            Ok(updated)
-        },
-    )
-}
-
-fn delete_lorebook_folder_with_entry_reparent_sync(
-    state: &AppState,
-    folder_id: &str,
-) -> Result<bool, AppError> {
-    state.storage.update_collections_atomically(
-        vec!["lorebook-folders", "lorebook-entries", "characters"],
-        move |collections| {
-            let (folder_rows, entry_rows, character_rows) =
-                lorebook_folder_delete_atomic_rows(collections)?;
-            let before = folder_rows.len();
-            folder_rows.retain(|row| row.get("id").and_then(Value::as_str) != Some(folder_id));
-            let deleted = folder_rows.len() != before;
-            if !deleted {
-                return Ok(false);
-            }
-
-            let now = now_iso();
-            // Deleted parents promote direct children to root so stored ancestry matches the UI.
-            for folder in folder_rows.iter_mut() {
-                if folder.get("parentFolderId").and_then(Value::as_str) != Some(folder_id) {
-                    continue;
-                }
-                let Some(object) = folder.as_object_mut() else {
-                    return Err(AppError::invalid_input("Stored record is not an object"));
-                };
-                object.insert("parentFolderId".to_string(), Value::Null);
-                object.insert("updatedAt".to_string(), Value::String(now.clone()));
-            }
-            let mut changed_entries = Vec::new();
-            for entry in entry_rows.iter_mut() {
-                if entry.get("folderId").and_then(Value::as_str) != Some(folder_id) {
-                    continue;
-                }
-                let Some(object) = entry.as_object_mut() else {
-                    return Err(AppError::invalid_input("Stored record is not an object"));
-                };
-                object.insert("folderId".to_string(), Value::Null);
-                object.insert("updatedAt".to_string(), Value::String(now.clone()));
-                changed_entries.push(Value::Object(object.clone()));
-            }
-
-            if !changed_entries.is_empty() {
-                let changed_refs = changed_entries.iter().collect::<Vec<_>>();
-                sync_linked_character_books_for_entry_rows_in_place(
-                    character_rows,
-                    entry_rows,
-                    &changed_refs,
-                )?;
-            }
-            Ok(true)
-        },
-    )
-}
-
-fn delete_chat_folder_with_chat_unfile(
-    state: &AppState,
-    folder_id: &str,
-) -> Result<bool, AppError> {
-    state
-        .storage
-        .update_collections_atomically(vec!["chat-folders", "chats"], move |collections| {
-            delete_chat_folder_in_rows(collections, folder_id)
-        })
-}
-
-fn delete_chat_folder_in_rows(
-    collections: &mut [marinara_storage::AtomicCollectionRows],
-    folder_id: &str,
-) -> Result<bool, AppError> {
-    let (folder_rows, chat_rows) = chat_folder_delete_atomic_rows(collections)?;
-    let before = folder_rows.len();
-    folder_rows.retain(|row| row.get("id").and_then(Value::as_str) != Some(folder_id));
-    let deleted = folder_rows.len() != before;
-    if !deleted {
-        return Ok(false);
-    }
-
-    let now = now_iso();
-    for chat in chat_rows.iter_mut() {
-        if chat.get("folderId").and_then(Value::as_str) != Some(folder_id) {
-            continue;
-        }
-        let Some(object) = chat.as_object_mut() else {
-            return Err(AppError::invalid_input("Stored record is not an object"));
-        };
-        object.insert("folderId".to_string(), Value::Null);
-        object.insert("updatedAt".to_string(), Value::String(now.clone()));
-    }
-    Ok(true)
-}
-
-fn chat_folder_delete_atomic_rows(
-    collections: &mut [marinara_storage::AtomicCollectionRows],
-) -> Result<ChatFolderDeleteAtomicRows<'_>, AppError> {
-    let [folders, chats] = collections else {
-        return Err(AppError::new(
-            "storage_error",
-            "Chat folder delete expected folder and chat collections",
-        ));
-    };
-    match (folders.collection(), chats.collection()) {
-        ("chat-folders", "chats") => Ok((folders.rows_mut(), chats.rows_mut())),
-        _ => Err(AppError::new(
-            "storage_error",
-            "Chat folder delete received unexpected collections",
-        )),
-    }
-}
-
-fn lorebook_entry_atomic_rows(
-    collections: &mut [marinara_storage::AtomicCollectionRows],
-) -> Result<LorebookEntryAtomicRows<'_>, AppError> {
-    let [left, right] = collections else {
-        return Err(AppError::new(
-            "storage_error",
-            "Lorebook entry sync expected lorebook and character collections",
-        ));
-    };
-    match (left.collection(), right.collection()) {
-        ("lorebook-entries", "characters") => Ok((left.rows_mut(), right.rows_mut())),
-        _ => Err(AppError::new(
-            "storage_error",
-            "Lorebook entry sync received unexpected collections",
-        )),
-    }
-}
-
-fn lorebook_metadata_atomic_rows(
-    collections: &mut [marinara_storage::AtomicCollectionRows],
-) -> Result<LorebookMetadataAtomicRows<'_>, AppError> {
-    let [lorebooks, entries, characters] = collections else {
-        return Err(AppError::new(
-            "storage_error",
-            "Lorebook metadata sync expected lorebook, entry, and character collections",
-        ));
-    };
-    match (
-        lorebooks.collection(),
-        entries.collection(),
-        characters.collection(),
-    ) {
-        ("lorebooks", "lorebook-entries", "characters") => Ok((
-            lorebooks.rows_mut(),
-            entries.rows_mut(),
-            characters.rows_mut(),
-        )),
-        _ => Err(AppError::new(
-            "storage_error",
-            "Lorebook metadata sync received unexpected collections",
-        )),
-    }
-}
-
-fn lorebook_folder_delete_atomic_rows(
-    collections: &mut [marinara_storage::AtomicCollectionRows],
-) -> Result<LorebookFolderDeleteAtomicRows<'_>, AppError> {
-    let [folders, entries, characters] = collections else {
-        return Err(AppError::new(
-            "storage_error",
-            "Lorebook folder delete expected folder, entry, and character collections",
-        ));
-    };
-    match (
-        folders.collection(),
-        entries.collection(),
-        characters.collection(),
-    ) {
-        ("lorebook-folders", "lorebook-entries", "characters") => Ok((
-            folders.rows_mut(),
-            entries.rows_mut(),
-            characters.rows_mut(),
-        )),
-        _ => Err(AppError::new(
-            "storage_error",
-            "Lorebook folder delete received unexpected collections",
-        )),
-    }
-}
-
-fn sync_linked_character_books_for_entry_rows_in_place(
-    character_rows: &mut [Value],
-    all_entry_rows: &[Value],
-    entries: &[&Value],
-) -> Result<(), AppError> {
-    let lorebook_ids = entries
-        .iter()
-        .filter_map(|entry| lorebook_entry_lorebook_id(entry))
-        .collect::<HashSet<_>>();
-    for lorebook_id in lorebook_ids {
-        sync_linked_character_books_for_lorebook_in_place(
-            character_rows,
-            all_entry_rows,
-            lorebook_id,
-        )?;
-    }
-    Ok(())
-}
-
-fn sync_linked_character_books_for_lorebook_in_place(
-    character_rows: &mut [Value],
-    all_entry_rows: &[Value],
-    lorebook_id: &str,
-) -> Result<(), AppError> {
-    let mut entries = all_entry_rows
-        .iter()
-        .filter(|entry| lorebook_entry_lorebook_id(entry) == Some(lorebook_id))
-        .cloned()
-        .collect::<Vec<_>>();
-    entries.sort_by(|left, right| {
-        compare_json_values(
-            left.get("sortOrder").or_else(|| left.get("order")),
-            right.get("sortOrder").or_else(|| right.get("order")),
-        )
-        .then_with(|| compare_json_values(left.get("createdAt"), right.get("createdAt")))
-    });
-
-    for character in character_rows {
-        let Some(character_id) = character.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        let mut data = character.get("data").cloned().unwrap_or_else(|| json!({}));
-        if embedded_lorebook_id(&data) != Some(lorebook_id) {
-            continue;
-        }
-        let Some(data_object) = data.as_object_mut() else {
-            continue;
-        };
-        let mut book = match data_object.get("character_book") {
-            Some(Value::Null) | None => Map::new(),
-            Some(Value::Object(book)) => book.clone(),
-            Some(_) => {
-                return Err(AppError::invalid_input(format!(
-                    "Character {character_id} has a malformed embedded lorebook"
-                )));
-            }
-        };
-        book.insert(
-            "entries".to_string(),
-            Value::Array(
-                entries
-                    .iter()
-                    .enumerate()
-                    .map(|(index, entry)| linked_character_book_entry(entry, index))
-                    .collect(),
-            ),
-        );
-        data_object.insert("character_book".to_string(), Value::Object(book));
-
-        if let Some(import_metadata) = data
-            .pointer_mut("/extensions/importMetadata/embeddedLorebook")
-            .and_then(Value::as_object_mut)
-        {
-            import_metadata.insert("entriesImported".to_string(), json!(entries.len()));
-            import_metadata.insert("hasEmbeddedLorebook".to_string(), Value::Bool(true));
-        }
-        let Some(character_object) = character.as_object_mut() else {
-            return Err(AppError::invalid_input(
-                "Stored character record is not an object",
-            ));
-        };
-        character_object.insert("data".to_string(), data);
-        character_object.insert("updatedAt".to_string(), Value::String(now_iso()));
-    }
-    Ok(())
-}
-
-fn sync_linked_character_books_for_lorebook_record_in_place(
-    character_rows: &mut [Value],
-    all_entry_rows: &[Value],
-    lorebook: &Value,
-) -> Result<(), AppError> {
-    let Some(lorebook_id) = lorebook.get("id").and_then(Value::as_str) else {
-        return Ok(());
-    };
-    let mut entries = all_entry_rows
-        .iter()
-        .filter(|entry| lorebook_entry_lorebook_id(entry) == Some(lorebook_id))
-        .cloned()
-        .collect::<Vec<_>>();
-    entries.sort_by(|left, right| {
-        compare_json_values(
-            left.get("sortOrder").or_else(|| left.get("order")),
-            right.get("sortOrder").or_else(|| right.get("order")),
-        )
-        .then_with(|| compare_json_values(left.get("createdAt"), right.get("createdAt")))
-    });
-
-    for character in character_rows {
-        let Some(character_id) = character.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        let mut data = character.get("data").cloned().unwrap_or_else(|| json!({}));
-        if embedded_lorebook_id(&data) != Some(lorebook_id) {
-            continue;
-        }
-        let Some(data_object) = data.as_object_mut() else {
-            continue;
-        };
-        let mut book = match data_object.get("character_book") {
-            Some(Value::Null) | None => Map::new(),
-            Some(Value::Object(book)) => book.clone(),
-            Some(_) => {
-                return Err(AppError::invalid_input(format!(
-                    "Character {character_id} has a malformed embedded lorebook"
-                )));
-            }
-        };
-        sync_linked_character_book_fields(&mut book, lorebook, &entries);
-        data_object.insert("character_book".to_string(), Value::Object(book));
-
-        if let Some(import_metadata) = data
-            .pointer_mut("/extensions/importMetadata/embeddedLorebook")
-            .and_then(Value::as_object_mut)
-        {
-            import_metadata.insert("entriesImported".to_string(), json!(entries.len()));
-            import_metadata.insert("hasEmbeddedLorebook".to_string(), Value::Bool(true));
-        }
-        let Some(character_object) = character.as_object_mut() else {
-            return Err(AppError::invalid_input(
-                "Stored character record is not an object",
-            ));
-        };
-        character_object.insert("data".to_string(), data);
-        character_object.insert("updatedAt".to_string(), Value::String(now_iso()));
-    }
-    Ok(())
-}
-
-fn sync_linked_character_book_fields(
-    book: &mut Map<String, Value>,
-    lorebook: &Value,
-    entries: &[Value],
-) {
-    book.insert(
-        "name".to_string(),
-        json!(lorebook
-            .get("name")
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or("Character Lorebook")),
-    );
-    book.insert(
-        "description".to_string(),
-        json!(lorebook
-            .get("description")
-            .and_then(Value::as_str)
-            .unwrap_or("")),
-    );
-    book.insert(
-        "scan_depth".to_string(),
-        linked_character_book_number(lorebook.get("scanDepth"), 2),
-    );
-    book.insert(
-        "token_budget".to_string(),
-        linked_character_book_number(lorebook.get("tokenBudget"), 2048),
-    );
-    book.insert(
-        "recursive_scanning".to_string(),
-        json!(lorebook
-            .get("recursiveScanning")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)),
-    );
-    if !book.contains_key("extensions") {
-        book.insert("extensions".to_string(), json!({}));
-    }
-    book.insert(
-        "entries".to_string(),
-        json!(entries
-            .iter()
-            .enumerate()
-            .map(|(index, entry)| linked_character_book_entry(entry, index))
-            .collect::<Vec<_>>()),
-    );
-}
-
-fn linked_character_book_number(value: Option<&Value>, fallback: i64) -> Value {
-    match value {
-        Some(Value::Number(number)) => Value::Number(number.clone()),
-        _ => json!(fallback),
-    }
-}
-
-fn linked_character_book_entry(entry: &Value, index: usize) -> Value {
-    let name = entry
-        .get("name")
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or("Entry");
-    json!({
-        "keys": shared::string_array_from_value(entry.get("keys")),
-        "content": entry.get("content").and_then(Value::as_str).unwrap_or(""),
-        "extensions": entry.get("extensions").cloned().unwrap_or_else(|| json!({})),
-        "enabled": entry.get("enabled").and_then(Value::as_bool).unwrap_or(true),
-        "insertion_order": entry.get("order").or_else(|| entry.get("sortOrder")).and_then(Value::as_i64).unwrap_or(index as i64),
-        "case_sensitive": entry.get("caseSensitive").and_then(Value::as_bool).unwrap_or(false),
-        "name": name,
-        "priority": entry.get("priority").and_then(Value::as_i64).unwrap_or(100),
-        "id": index as i64,
-        "comment": entry.get("comment").and_then(Value::as_str).unwrap_or(name),
-        "selective": entry.get("selective").and_then(Value::as_bool).unwrap_or(false),
-        "secondary_keys": shared::string_array_from_value(entry.get("secondaryKeys")),
-        "constant": entry.get("constant").and_then(Value::as_bool).unwrap_or(false),
-        "position": linked_character_book_position(entry.get("position")),
-    })
-}
-
-fn linked_character_book_position(value: Option<&Value>) -> &'static str {
-    match value {
-        Some(Value::String(raw)) if raw == "after_char" => "after_char",
-        Some(Value::Number(raw)) if raw.as_i64() == Some(1) => "after_char",
-        _ => "before_char",
-    }
-}
-
-fn remove_string_from_json_array(value: Option<&Value>, removed_id: &str) -> Option<Value> {
-    let array = value?.as_array()?;
-    let filtered = array
-        .iter()
-        .filter_map(Value::as_str)
-        .filter(|id| *id != removed_id)
-        .map(|id| Value::String(id.to_string()))
-        .collect::<Vec<_>>();
-    (filtered.len() != array.len()).then_some(Value::Array(filtered))
-}
-
-fn clear_deleted_lorebook_from_chats(state: &AppState, lorebook_id: &str) -> Result<(), AppError> {
-    for chat in state.storage.list("chats")? {
-        let Some(chat_id) = chat.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        let mut patch = Map::new();
-        if let Some(active_ids) =
-            remove_string_from_json_array(chat.get("activeLorebookIds"), lorebook_id)
-        {
-            patch.insert("activeLorebookIds".to_string(), active_ids);
-        }
-
-        let mut metadata = chat
-            .get("metadata")
-            .and_then(|value| shared::json_object_value(Some(value)))
-            .and_then(|value| value.as_object().cloned())
-            .unwrap_or_default();
-        if let Some(active_ids) =
-            remove_string_from_json_array(metadata.get("activeLorebookIds"), lorebook_id)
-        {
-            metadata.insert("activeLorebookIds".to_string(), active_ids);
-            patch.insert("metadata".to_string(), Value::Object(metadata));
-        }
-
-        if !patch.is_empty() {
-            state
-                .storage
-                .patch("chats", chat_id, Value::Object(patch))?;
-        }
-    }
-    Ok(())
-}
-
-fn embedded_lorebook_id(data: &Value) -> Option<&str> {
-    data.pointer("/extensions/importMetadata/embeddedLorebook/lorebookId")
-        .and_then(Value::as_str)
-}
-
-fn clear_deleted_lorebook_from_characters(
-    state: &AppState,
-    lorebook_id: &str,
-) -> Result<(), AppError> {
-    for character in state.storage.list("characters")? {
-        let Some(character_id) = character.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        let mut data = character.get("data").cloned().unwrap_or_else(|| json!({}));
-        if embedded_lorebook_id(&data) != Some(lorebook_id) {
-            continue;
-        }
-        let Some(data_object) = data.as_object_mut() else {
-            continue;
-        };
-        data_object.insert("character_book".to_string(), Value::Null);
-        if let Some(import_metadata) = data
-            .pointer_mut("/extensions/importMetadata")
-            .and_then(Value::as_object_mut)
-        {
-            import_metadata.remove("embeddedLorebook");
-        }
-        state
-            .storage
-            .patch("characters", character_id, json!({ "data": data }))?;
-    }
-    Ok(())
-}
-
-fn clear_deleted_lorebook_references(state: &AppState, lorebook_id: &str) -> Result<(), AppError> {
-    clear_deleted_lorebook_from_chats(state, lorebook_id)?;
-    clear_deleted_lorebook_from_characters(state, lorebook_id)?;
-    Ok(())
-}
-
-fn owned_record_for_delete(
-    state: &AppState,
-    entity: &str,
-    id: &str,
-) -> Result<Option<Value>, AppError> {
-    let Some(contract) = contracts::collection_contract(entity) else {
-        return Ok(None);
-    };
-    if contract
-        .delete_cleanup
-        .iter()
-        .any(delete_cleanup_needs_existing_record)
-    {
-        state.storage.get(entity, id)
-    } else {
-        Ok(None)
-    }
-}
-
-fn delete_cleanup_needs_existing_record(cleanup: &contracts::DeleteCleanup) -> bool {
-    matches!(
-        cleanup,
-        contracts::DeleteCleanup::ActivateDefaultChatPreset
-            | contracts::DeleteCleanup::DeleteMessageTrackerSnapshots
-            | contracts::DeleteCleanup::RemoveOwnedMedia
-    )
-}
-
-fn remove_owned_media(state: &AppState, entity: &str, record: &Value) {
-    match entity {
-        "characters" => {
-            avatars::remove_avatar_file(state, entity, record);
-            if let Some(id) = record.get("id").and_then(Value::as_str) {
-                sprites::remove_owned_sprite_dir(state, sprites::SpriteOwnerKind::Character, id);
-            }
-        }
-        "character-versions" => characters::remove_character_version_avatar_file(state, record),
-        "personas" => {
-            avatars::remove_avatar_file_preserving_persona_snapshots(state, entity, record);
-            if let Some(id) = record.get("id").and_then(Value::as_str) {
-                sprites::remove_owned_sprite_dir(state, sprites::SpriteOwnerKind::Persona, id);
-            }
-        }
-        "lorebooks" => lorebook_images::remove_lorebook_image_file(state, record),
-        "agents" | "connections" => entity_images::remove_entity_image_file(state, entity, record),
-        "gallery" | "character-gallery" | "persona-gallery" | "global-gallery" => {
-            remove_gallery_file(state, record)
-        }
-        _ => {}
-    }
-}
-
-fn remove_gallery_file(state: &AppState, record: &Value) {
-    if let Some(filename) = record.get("filename").and_then(Value::as_str) {
-        managed_thumbnails::remove_managed_thumbnail_files(
-            state,
-            managed_thumbnails::ManagedThumbnailKind::Gallery,
-            filename,
-        );
-    }
-    media_uploads::remove_managed_record_file(state, "gallery", record, "filePath", "filename");
 }
 
 #[tauri::command]
@@ -2926,238 +607,6 @@ pub async fn storage_duplicate(
     tauri::async_runtime::spawn_blocking(move || duplicate_entity(&state, &entity, &id))
         .await
         .map_err(|error| AppError::new("task_join_error", error.to_string()))?
-}
-
-pub(crate) fn duplicate_entity(
-    state: &AppState,
-    entity: &str,
-    id: &str,
-) -> Result<Value, AppError> {
-    validate_storage_entity(entity)?;
-    reject_message_swipe_mutation(entity)?;
-    if entity == "characters" {
-        return characters::duplicate_character(state, id);
-    }
-    if entity == "personas" {
-        return personas::duplicate_persona(state, id);
-    }
-    if entity == "prompts" {
-        return prompts::duplicate_prompt_preset(state, id);
-    }
-    if entity == "chat-presets" {
-        return duplicate_chat_preset(state, id);
-    }
-    if entity == "connections" {
-        return duplicate_connection(state, id);
-    }
-    if entity == "messages" {
-        return duplicate_message(state, id);
-    }
-    let duplicated = shared::duplicate_record(state, entity, id)?;
-    Ok(duplicated)
-}
-
-fn duplicate_message(state: &AppState, id: &str) -> Result<Value, AppError> {
-    let mut record = shared::get_required(state, "messages", id)?;
-    message_swipes::materialize_message(state, &mut record, true)?;
-    let object = record
-        .as_object_mut()
-        .ok_or_else(|| AppError::invalid_input("Message is not an object"))?;
-    object.remove("id");
-    let duplicated = message_swipes::create_message(state, record)?;
-    Ok(shared::project_timeline_message(duplicated))
-}
-
-fn duplicate_connection(state: &AppState, id: &str) -> Result<Value, AppError> {
-    let mut record = shared::get_required(state, "connections", id)?;
-    let object = record
-        .as_object_mut()
-        .ok_or_else(|| AppError::invalid_input("Connection is not an object"))?;
-    object.remove("id");
-    if let Some(name) = object
-        .get("name")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-    {
-        object.insert("name".to_string(), Value::String(format!("{name} Copy")));
-    }
-    object.insert("isDefault".to_string(), Value::Bool(false));
-    object.insert("default".to_string(), Value::Bool(false));
-    object.insert("defaultForAgents".to_string(), Value::Bool(false));
-
-    let prepared = connection_secrets::prepare_connection_for_create(state, record)?;
-    let mut duplicated = state.storage.create("connections", prepared)?;
-    connection_secrets::mask_connection_for_read(&mut duplicated);
-    Ok(duplicated)
-}
-
-fn patch_chat_preset(state: &AppState, id: &str, patch: Value) -> Result<Value, AppError> {
-    let existing = shared::get_required(state, "chat-presets", id)?;
-    let normalized = shared::normalize_update_patch("chat-presets", patch)?;
-    if chat_preset_is_default(&existing) && chat_preset_patch_mutates_default_fields(&normalized) {
-        return Err(AppError::invalid_input(
-            "Default chat presets cannot be updated",
-        ));
-    }
-    state.storage.patch("chat-presets", id, normalized)
-}
-
-fn duplicate_chat_preset(state: &AppState, id: &str) -> Result<Value, AppError> {
-    let mut record = shared::get_required(state, "chat-presets", id)?;
-    let object = record
-        .as_object_mut()
-        .ok_or_else(|| AppError::invalid_input("Chat preset is not an object"))?;
-    object.remove("id");
-    if let Some(name) = object
-        .get("name")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-    {
-        object.insert("name".to_string(), Value::String(format!("{name} Copy")));
-    }
-    object.insert("isDefault".to_string(), Value::Bool(false));
-    object.insert("default".to_string(), Value::Bool(false));
-    object.insert("isActive".to_string(), Value::Bool(false));
-    object.insert("active".to_string(), Value::Bool(false));
-    state.storage.create("chat-presets", record)
-}
-
-fn chat_preset_patch_mutates_default_fields(patch: &Value) -> bool {
-    let Some(object) = patch.as_object() else {
-        return true;
-    };
-    object
-        .keys()
-        .any(|key| !matches!(key.as_str(), "isActive" | "active" | "updatedAt"))
-}
-
-fn chat_preset_is_default_id(state: &AppState, id: &str) -> Result<bool, AppError> {
-    Ok(state
-        .storage
-        .get("chat-presets", id)?
-        .as_ref()
-        .is_some_and(chat_preset_is_default))
-}
-
-fn chat_preset_is_default(record: &Value) -> bool {
-    value_truthy(record.get("isDefault")) || value_truthy(record.get("default"))
-}
-
-fn chat_preset_is_active(record: &Value) -> bool {
-    value_truthy(record.get("isActive")) || value_truthy(record.get("active"))
-}
-
-fn value_truthy(value: Option<&Value>) -> bool {
-    match value {
-        Some(Value::Bool(value)) => *value,
-        Some(Value::String(value)) => {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "true" | "1" | "yes" | "on"
-            )
-        }
-        Some(Value::Number(value)) => value.as_i64().is_some_and(|number| number != 0),
-        _ => false,
-    }
-}
-
-fn activate_default_chat_preset_if_needed(
-    state: &AppState,
-    deleted: &Value,
-) -> Result<(), AppError> {
-    if !chat_preset_is_active(deleted) {
-        return Ok(());
-    }
-    let Some(mode) = deleted.get("mode").and_then(Value::as_str) else {
-        return Ok(());
-    };
-    let default = state.storage.list("chat-presets")?.into_iter().find(|row| {
-        row.get("mode").and_then(Value::as_str) == Some(mode) && chat_preset_is_default(row)
-    });
-    let Some(default_id) = default
-        .as_ref()
-        .and_then(|row| row.get("id"))
-        .and_then(Value::as_str)
-    else {
-        return Ok(());
-    };
-    state.storage.patch(
-        "chat-presets",
-        default_id,
-        json!({
-            "isActive": true,
-            "active": true
-        }),
-    )?;
-    Ok(())
-}
-
-fn compare_json_values(left: Option<&Value>, right: Option<&Value>) -> std::cmp::Ordering {
-    match (left, right) {
-        (Some(Value::Number(a)), Some(Value::Number(b))) => a
-            .as_f64()
-            .partial_cmp(&b.as_f64())
-            .unwrap_or(std::cmp::Ordering::Equal),
-        (Some(Value::String(a)), Some(Value::String(b))) => a.cmp(b),
-        (Some(Value::Bool(a)), Some(Value::Bool(b))) => a.cmp(b),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        _ => std::cmp::Ordering::Equal,
-    }
-}
-
-fn apply_message_pagination(rows: &mut Vec<Value>, options: Option<&Value>) {
-    rows.sort_by(|a, b| {
-        let (a_created_at, a_id) = message_cursor(a);
-        let (b_created_at, b_id) = message_cursor(b);
-        a_created_at.cmp(b_created_at).then_with(|| a_id.cmp(b_id))
-    });
-
-    let before = options
-        .and_then(|value| value.get("before"))
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .map(parse_message_cursor);
-
-    if let Some((before_created_at, before_id)) = before {
-        rows.retain(|row| {
-            let (created_at, id) = message_cursor(row);
-            created_at < before_created_at.as_str()
-                || (created_at == before_created_at.as_str()
-                    && before_id.as_deref().is_some_and(|cursor_id| id < cursor_id))
-        });
-    }
-
-    let Some(limit) = options
-        .and_then(|value| value.get("limit"))
-        .and_then(Value::as_u64)
-        .map(|value| value as usize)
-    else {
-        return;
-    };
-
-    if rows.len() > limit {
-        let keep_from = rows.len() - limit;
-        rows.drain(0..keep_from);
-    }
-}
-
-fn parse_message_cursor(cursor: &str) -> (String, Option<String>) {
-    let mut parts = cursor.splitn(2, '|');
-    let created_at = parts.next().unwrap_or_default().to_string();
-    let id = parts
-        .next()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
-    (created_at, id)
-}
-
-fn message_cursor(row: &Value) -> (&str, &str) {
-    (
-        row.get("createdAt").and_then(Value::as_str).unwrap_or(""),
-        row.get("id").and_then(Value::as_str).unwrap_or(""),
-    )
 }
 
 #[cfg(test)]
@@ -4567,6 +2016,44 @@ mod tests {
     }
 
     #[test]
+    fn storage_list_where_in_message_id_projection_honors_filter() {
+        let state = test_state("where-in-message-id-projection");
+        state
+            .storage
+            .replace_all(
+                "messages",
+                vec![
+                    json!({ "id": "message-a", "chatId": "chat-1", "createdAt": "2026-01-01T00:00:00Z" }),
+                    json!({ "id": "message-b", "chatId": "chat-1", "createdAt": "2026-01-02T00:00:00Z" }),
+                    json!({ "id": "message-c", "chatId": "chat-2", "createdAt": "2026-01-03T00:00:00Z" }),
+                ],
+            )
+            .expect("messages should seed");
+
+        let result = storage_list_inner(
+            &state,
+            "messages".to_string(),
+            Some(json!({
+                "whereIn": {
+                    "field": "id",
+                    "values": ["message-b"]
+                },
+                "fields": ["id"]
+            })),
+        )
+        .expect("whereIn id projection should list matching message ids");
+
+        assert_eq!(result, json!([{ "id": "message-b" }]));
+        assert!(!message_id_projection_only(Some(&json!({
+            "whereIn": {
+                "field": "id",
+                "values": ["message-b"]
+            },
+            "fields": ["id"]
+        }))));
+    }
+
+    #[test]
     fn lorebook_entries_list_by_lorebook_ids_reads_matching_books_once() {
         let state = test_state("lorebook-entries-where-in");
         state
@@ -4991,7 +2478,10 @@ mod tests {
         let state = test_state("gallery-folder-unfile");
         state
             .storage
-            .create("gallery-folders", json!({ "id": "folder-1", "name": "Reactions" }))
+            .create(
+                "gallery-folders",
+                json!({ "id": "folder-1", "name": "Reactions" }),
+            )
             .expect("gallery folder should be created");
         for id in ["image-1", "image-2"] {
             state
@@ -5017,7 +2507,10 @@ mod tests {
             "deleted folder row should be gone"
         );
 
-        let images = state.storage.list("global-gallery").expect("images should be readable");
+        let images = state
+            .storage
+            .list("global-gallery")
+            .expect("images should be readable");
         assert_eq!(images.len(), 2, "images must survive folder deletion");
         for image in &images {
             assert_eq!(
@@ -5246,6 +2739,116 @@ mod tests {
             .is_ok(),
             "moving a folder to the root should be allowed"
         );
+    }
+
+    #[test]
+    fn lorebook_folder_create_requires_child_ownership_for_parent() {
+        let state = test_state("lorebook-folder-create-parent-ownership");
+        create_lorebook(&state, "book");
+        create_lorebook(&state, "other");
+        create_lorebook_folder(&state, "parent", "book", None, None);
+
+        assert!(
+            storage_create_inner(
+                &state,
+                "lorebook-folders".to_string(),
+                json!({ "id": "missing-book", "name": "Missing", "parentFolderId": "parent" }),
+            )
+            .is_err(),
+            "a nested folder without lorebookId cannot prove parent ownership"
+        );
+
+        assert!(
+            storage_create_inner(
+                &state,
+                "lorebook-folders".to_string(),
+                json!({
+                    "id": "blank-book",
+                    "name": "Blank",
+                    "lorebookId": "   ",
+                    "parentFolderId": "parent"
+                }),
+            )
+            .is_err(),
+            "a nested folder with blank lorebookId cannot prove parent ownership"
+        );
+
+        assert!(
+            storage_create_inner(
+                &state,
+                "lorebook-folders".to_string(),
+                json!({
+                    "id": "other-book",
+                    "name": "Other",
+                    "lorebookId": "other",
+                    "parentFolderId": "parent"
+                }),
+            )
+            .is_err(),
+            "a nested folder cannot use a parent from another lorebook"
+        );
+
+        let created = storage_create_inner(
+            &state,
+            "lorebook-folders".to_string(),
+            json!({
+                "id": "child",
+                "name": "Child",
+                "lorebookId": "book",
+                "parentFolderId": "parent"
+            }),
+        )
+        .expect("matching child ownership should allow nested create");
+        assert_eq!(created["parentFolderId"], "parent");
+        assert_eq!(created["lorebookId"], "book");
+    }
+
+    #[test]
+    fn lorebook_folder_patch_requires_child_ownership_for_parent() {
+        let state = test_state("lorebook-folder-patch-parent-ownership");
+        create_lorebook(&state, "book");
+        create_lorebook_folder(&state, "parent", "book", None, None);
+        create_record(
+            &state,
+            "lorebook-folders",
+            json!({ "id": "ownerless", "name": "Ownerless" }),
+        );
+        create_record(
+            &state,
+            "lorebook-folders",
+            json!({ "id": "blank-owner", "name": "Blank", "lorebookId": "   " }),
+        );
+        create_lorebook_folder(&state, "child", "book", None, None);
+
+        assert!(
+            storage_update_inner(
+                &state,
+                "lorebook-folders".to_string(),
+                "ownerless".to_string(),
+                json!({ "parentFolderId": "parent" }),
+            )
+            .is_err(),
+            "an ownerless existing folder cannot prove parent ownership"
+        );
+        assert!(
+            storage_update_inner(
+                &state,
+                "lorebook-folders".to_string(),
+                "blank-owner".to_string(),
+                json!({ "parentFolderId": "parent" }),
+            )
+            .is_err(),
+            "a blank-owner existing folder cannot prove parent ownership"
+        );
+
+        let moved = storage_update_inner(
+            &state,
+            "lorebook-folders".to_string(),
+            "child".to_string(),
+            json!({ "parentFolderId": "parent" }),
+        )
+        .expect("matching folder ownership should allow parent patch");
+        assert_eq!(moved["parentFolderId"], "parent");
     }
 
     #[test]
@@ -5547,6 +3150,36 @@ mod tests {
             .expect("default preset should remain");
         assert_eq!(default["isActive"], json!(true));
         assert_eq!(default["active"], json!(true));
+    }
+
+    #[test]
+    fn deleting_active_chat_preset_rejects_missing_default_fallback() {
+        let state = test_state("chat-preset-delete-missing-default");
+        state
+            .storage
+            .replace_all(
+                "chat-presets",
+                vec![json!({
+                    "id": "custom-roleplay",
+                    "name": "Custom Roleplay",
+                    "mode": "roleplay",
+                    "isDefault": false,
+                    "default": false,
+                    "isActive": true,
+                    "active": true
+                })],
+            )
+            .expect("active preset should seed without a fallback default");
+
+        let error = delete_entity(&state, "chat-presets", "custom-roleplay", false)
+            .expect_err("active preset delete should reject without fallback");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(state
+            .storage
+            .get("chat-presets", "custom-roleplay")
+            .expect("preset should read")
+            .is_some());
     }
 
     #[test]
@@ -7124,6 +4757,36 @@ mod tests {
             .expect("connection should read")
             .expect("connection should remain");
         assert!(connection.get("folderId").is_none_or(Value::is_null));
+    }
+
+    #[test]
+    fn deleting_connection_removes_owned_entity_image() {
+        let state = test_state("connection-delete-owned-image");
+        let image_dir = state.data_dir.join("entity-images").join("connections");
+        std::fs::create_dir_all(&image_dir).expect("image dir should be created");
+        let image_path = image_dir.join("connection.png");
+        std::fs::write(&image_path, b"managed").expect("managed image should be written");
+        storage_create_inner(
+            &state,
+            "connections".to_string(),
+            json!({
+                "id": "connection-a",
+                "name": "Connection A",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "imageFilePath": image_path.to_string_lossy(),
+                "imageFilename": "connection.png"
+            }),
+        )
+        .expect("connection should be created");
+
+        delete_entity(&state, "connections", "connection-a", false)
+            .expect("connection delete should succeed");
+
+        assert!(
+            !image_path.exists(),
+            "managed connection image should be removed with the row"
+        );
     }
 
     #[test]
