@@ -164,13 +164,15 @@ export function useGameSceneController({
       }
 
       if (inventoryUpdates.length > 0) {
+        appliedInventorySegmentsRef.current.add(segmentIndex);
         void applyInventoryUpdates(inventoryUpdates)
           .then((applied) => {
-            if (applied) {
-              appliedInventorySegmentsRef.current.add(segmentIndex);
+            if (!applied) {
+              appliedInventorySegmentsRef.current.delete(segmentIndex);
             }
           })
           .catch((error) => {
+            appliedInventorySegmentsRef.current.delete(segmentIndex);
             console.warn("Failed to apply inventory segment update", error);
           });
       }

@@ -236,15 +236,22 @@ export function useGameInventoryJournalController({
         }
       }
 
+      let patchedGameState = false;
       try {
+        if (currentGameState?.chatId === activeChatId && currentPlayerStats && nextPlayerStats !== currentPlayerStats) {
+          patchedGameState = true;
+          await patchVisibleGameState("playerStats", nextPlayerStats);
+        }
+
         if (updated !== previousInventory) {
           await persistMetadata(activeChatId, { gameInventory: updated });
         }
-
-        if (currentGameState?.chatId === activeChatId && currentPlayerStats && nextPlayerStats !== currentPlayerStats) {
-          await patchVisibleGameState("playerStats", nextPlayerStats);
-        }
       } catch (error) {
+        if (patchedGameState && currentPlayerStats) {
+          await patchVisibleGameState("playerStats", currentPlayerStats).catch((rollbackError) => {
+            console.warn("Failed to roll back inventory game-state patch", rollbackError);
+          });
+        }
         console.warn("Failed to persist inventory update", error);
         showInventoryNotifications(
           [
