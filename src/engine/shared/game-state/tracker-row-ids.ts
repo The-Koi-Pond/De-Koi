@@ -21,6 +21,12 @@ function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function readStringList(value: readonly string[] | undefined): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const entries = value.map(readString).filter(Boolean);
+  return entries.length ? entries : undefined;
+}
+
 function slugTrackerLabel(value: string): string {
   const slug = value
     .trim()
@@ -103,8 +109,11 @@ function normalizeQuestProgressRows(quests: readonly Partial<QuestProgress>[] | 
     return {
       questEntryId: readString(quest.questEntryId) || makeManualTrackerRowId(),
       name,
+      ...(readString(quest.description) ? { description: readString(quest.description) } : {}),
       currentStage: typeof quest.currentStage === "number" && Number.isFinite(quest.currentStage) ? quest.currentStage : 0,
       objectives: normalizeQuestObjectives(quest.objectives),
+      ...(readStringList(quest.rewards) ? { rewards: readStringList(quest.rewards) } : {}),
+      ...(readString(quest.notes) ? { notes: readString(quest.notes) } : {}),
       completed: quest.completed === true,
     };
   });

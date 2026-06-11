@@ -21,7 +21,10 @@ type QuestUpdateAction = "create" | "update" | "complete" | "fail";
 interface NormalizedQuestUpdate {
   action: QuestUpdateAction;
   questName: string;
+  description?: string;
   objectives?: QuestObjective[];
+  rewards?: string[];
+  notes?: string;
 }
 
 type RpgAttributeKey = keyof RPGAttributes;
@@ -61,6 +64,26 @@ function firstString(...values: unknown[]): string | undefined {
   return undefined;
 }
 
+function readStringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const entries = value.map((entry) => readString(entry).trim()).filter(Boolean);
+  return entries.length ? entries : undefined;
+}
+
+function questMetadataFromRecord(record: Record<string, unknown>): Pick<
+  NormalizedQuestUpdate,
+  "description" | "rewards" | "notes"
+> {
+  const description = readString(record.description).trim();
+  const rewards = readStringList(record.rewards);
+  const notes = readString(record.notes).trim();
+  return {
+    ...(description ? { description } : {}),
+    ...(rewards ? { rewards } : {}),
+    ...(notes ? { notes } : {}),
+  };
+}
+
 /** A keyed-map entry only earns the map key as its name when it actually looks
  *  like a quest. Prevents an arbitrary non-quest record from being promoted to
  *  a phantom quest named after its key (matches the legacy behavior). */
@@ -88,6 +111,7 @@ function parseQuest(value: unknown, fallbackName?: string): QuestProgress | null
   return {
     questEntryId,
     name,
+    ...questMetadataFromRecord(record),
     currentStage: Math.max(0, readNonNegativeInteger(record.currentStage, 0)),
     objectives,
     completed: boolish(record.completed, false),
@@ -293,6 +317,7 @@ function normalizeQuestUpdate(value: unknown): NormalizedQuestUpdate | null {
   return {
     action,
     questName,
+    ...questMetadataFromRecord(record),
     ...(objectives !== undefined ? { objectives } : {}),
   };
 }
@@ -300,7 +325,17 @@ function normalizeQuestUpdate(value: unknown): NormalizedQuestUpdate | null {
 function cloneQuest(quest: QuestProgress): QuestProgress {
   return {
     ...quest,
+    ...(quest.rewards !== undefined ? { rewards: [...quest.rewards] } : {}),
     objectives: quest.objectives.map((objective) => ({ ...objective })),
+  };
+}
+
+function mergeQuestMetadata(quest: QuestProgress, update: NormalizedQuestUpdate): QuestProgress {
+  return {
+    ...quest,
+    ...(update.description !== undefined ? { description: update.description } : {}),
+    ...(update.rewards !== undefined ? { rewards: [...update.rewards] } : {}),
+    ...(update.notes !== undefined ? { notes: update.notes } : {}),
   };
 }
 
@@ -325,14 +360,19 @@ export function applyQuestUpdatesToPlayerStats(
       quests.push({
         questEntryId: update.questName,
         name: update.questName,
+        ...(update.description !== undefined ? { description: update.description } : {}),
         currentStage: 0,
         objectives: update.objectives ?? [],
+        ...(update.rewards !== undefined ? { rewards: [...update.rewards] } : {}),
+        ...(update.notes !== undefined ? { notes: update.notes } : {}),
         completed: false,
       });
     } else if (index !== -1) {
       if (update.action === "update") {
+        quests[index] = mergeQuestMetadata(quests[index]!, update);
         if (update.objectives !== undefined) quests[index]!.objectives = update.objectives;
       } else if (update.action === "complete") {
+        quests[index] = mergeQuestMetadata(quests[index]!, update);
         quests[index]!.completed = true;
         if (update.objectives !== undefined) quests[index]!.objectives = update.objectives;
       } else if (update.action === "fail") {
