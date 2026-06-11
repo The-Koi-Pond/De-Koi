@@ -8,6 +8,7 @@ import {
   updateRegexScriptSchema,
 } from "../../../../engine/contracts/schemas/regex.schema";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { filterRegexScriptsByCharacterIds } from "../lib/regex-script-filter";
 
 const regexKeys = {
   all: ["regex-scripts"] as const,
@@ -38,11 +39,7 @@ export function useRegexScripts(characterIds?: string[]) {
     queryKey: characterIds ? [...regexKeys.all, ...characterIds] : regexKeys.all,
     queryFn: async () => {
       const all = await storageApi.list<RegexScriptRow>("regex-scripts");
-      if (!characterIds) {
-        return all.filter((s) => !s.characterId);
-      }
-      const idSet = new Set(characterIds);
-      return all.filter((s) => !s.characterId || idSet.has(s.characterId));
+      return filterRegexScriptsByCharacterIds(all, characterIds);
     },
     staleTime: 30 * 60_000,
     gcTime: 60 * 60_000,
@@ -100,4 +97,3 @@ export function useDeleteRegexScript() {
     },
   });
 }
-

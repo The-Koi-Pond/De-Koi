@@ -12,6 +12,8 @@ type RegexScriptLike = {
   promptOnly?: unknown;
   minDepth?: unknown;
   maxDepth?: unknown;
+  characterId?: unknown;
+  targetCharacterIds?: unknown;
 };
 
 export type RegexMessageLike = {
@@ -24,6 +26,7 @@ type RegexMacroResolver = (value: string) => string;
 
 type ApplyRegexScriptOptions = {
   resolveMacros?: RegexMacroResolver;
+  targetCharacterId?: string | null;
 };
 
 function isEnabled(value: unknown): boolean {
@@ -58,6 +61,30 @@ function parseTrimStrings(value: unknown): string[] {
   }
 }
 
+function parseTargetCharacterIds(value: unknown): string[] {
+  if (Array.isArray(value))
+    return value.filter((entry): entry is string => typeof entry === "string" && !!entry.trim());
+  if (typeof value !== "string") return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return parseTargetCharacterIds(parsed);
+  } catch {
+    return [trimmed];
+  }
+}
+
+function scriptAppliesToTarget(script: RegexScriptLike, options: ApplyRegexScriptOptions | undefined): boolean {
+  const targetIds = [
+    ...parseTargetCharacterIds(script.targetCharacterIds),
+    ...parseTargetCharacterIds(script.characterId),
+  ];
+  if (targetIds.length === 0) return true;
+  const targetCharacterId = options?.targetCharacterId?.trim();
+  return !!targetCharacterId && targetIds.includes(targetCharacterId);
+}
+
 function depthValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -77,6 +104,7 @@ function applyRegexScriptsToPromptText(
   for (const script of scripts) {
     if (!isEnabled(script.enabled)) continue;
     if (!isPromptOnly(script.promptOnly)) continue;
+    if (!scriptAppliesToTarget(script, options)) continue;
     if (!parsePlacement(script.placement).includes(placement)) continue;
 
     const minDepth = depthValue(script.minDepth);
