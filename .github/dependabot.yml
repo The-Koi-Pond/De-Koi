@@ -14,74 +14,48 @@ updates:
   - package-ecosystem: "npm"
     directory: "/"
     multi-ecosystem-group: "routine-dependencies"
+    patterns:
+      - "*"
     open-pull-requests-limit: 1
     cooldown:
       default-days: 7
-    groups:
-      npm-routine:
-        patterns:
-          - "*"
-        update-types:
-          - "major"
-          - "minor"
-          - "patch"
 
   # Rust / Cargo workspace (Tauri backend)
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
     multi-ecosystem-group: "routine-dependencies"
+    patterns:
+      - "*"
     open-pull-requests-limit: 1
     cooldown:
       default-days: 7
-    groups:
-      cargo-routine:
-        patterns:
-          - "*"
-        update-types:
-          - "major"
-          - "minor"
-          - "patch"
 
   # GitHub Actions workflows
   - package-ecosystem: "github-actions"
     directory: "/"
     multi-ecosystem-group: "routine-dependencies"
+    patterns:
+      - "*"
     open-pull-requests-limit: 1
     cooldown:
       default-days: 7
-    groups:
-      actions-routine:
-        patterns:
-          - "*"
-        update-types:
-          - "major"
-          - "minor"
-          - "patch"
 
   # Dockerfile base images
   - package-ecosystem: "docker"
     directory: "/"
     multi-ecosystem-group: "routine-dependencies"
+    patterns:
+      - "*"
     open-pull-requests-limit: 1
     cooldown:
       default-days: 7
-    groups:
-      docker-routine:
-        patterns:
-          - "*"
 
   # Python tooling for bunny-review
   - package-ecosystem: "pip"
     directory: "/.github/bunny-review"
     multi-ecosystem-group: "routine-dependencies"
+    patterns:
+      - "*"
     open-pull-requests-limit: 1
     cooldown:
       default-days: 7
-    groups:
-      bunny-python-routine:
-        patterns:
-          - "*"
-        update-types:
-          - "major"
-          - "minor"
-          - "patch"
