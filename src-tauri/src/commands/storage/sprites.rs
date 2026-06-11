@@ -2654,8 +2654,18 @@ fn try_remove_background_with_backgroundremover(
                     "backgroundremover managed model cache appears corrupt; clearing {} and retrying once",
                     model_dir.display()
                 );
-                clear_backgroundremover_managed_model_cache(&model_dir)?;
-                last_failure = Some(failure);
+                match clear_backgroundremover_managed_model_cache(&model_dir) {
+                    Ok(()) => {
+                        last_failure = Some(failure);
+                    }
+                    Err(error) => {
+                        last_failure = Some(BackgroundRemoverFailure {
+                            code: "backgroundremover_cache_clear_failed",
+                            message: error.message,
+                        });
+                        break;
+                    }
+                }
             }
             Err(failure) => {
                 last_failure = Some(failure);
@@ -3910,6 +3920,75 @@ mod background_remover_runtime_tests {
             env::set_var("TMPDIR", value);
         } else {
             env::remove_var("TMPDIR");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn optional_backgroundremover_cache_clear_failure_falls_back() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let old_engine = env::var_os("SPRITE_BACKGROUND_REMOVAL_ENGINE");
+        let old_legacy_engine = env::var_os("BACKGROUND_REMOVAL_ENGINE");
+        let old_command = env::var_os("BACKGROUNDREMOVER_COMMAND");
+        let old_home = env::var_os("U2NET_HOME");
+        let old_u2net = env::var_os("U2NET_PATH");
+        let old_u2netp = env::var_os("U2NETP_PATH");
+        let old_fail_clear = env::var_os("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR");
+
+        let root = temp_path("optional-cache-clear-failure-fallback");
+        let state = test_state(root.join("data"), Some(root.join("resources-root")));
+        let command = write_corrupt_backgroundremover_command(&root);
+
+        env::set_var("SPRITE_BACKGROUND_REMOVAL_ENGINE", "auto");
+        env::remove_var("BACKGROUND_REMOVAL_ENGINE");
+        env::set_var("BACKGROUNDREMOVER_COMMAND", &command);
+        env::remove_var("U2NET_HOME");
+        env::remove_var("U2NET_PATH");
+        env::remove_var("U2NETP_PATH");
+        env::set_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR", "1");
+
+        let result = try_remove_background_with_backgroundremover(&state, &encode_test_png(), false)
+            .expect("optional cache-clear failure should fall back");
+
+        assert!(
+            result.is_none(),
+            "optional cache-clear failure should allow built-in fallback"
+        );
+
+        if let Some(value) = old_engine {
+            env::set_var("SPRITE_BACKGROUND_REMOVAL_ENGINE", value);
+        } else {
+            env::remove_var("SPRITE_BACKGROUND_REMOVAL_ENGINE");
+        }
+        if let Some(value) = old_legacy_engine {
+            env::set_var("BACKGROUND_REMOVAL_ENGINE", value);
+        } else {
+            env::remove_var("BACKGROUND_REMOVAL_ENGINE");
+        }
+        if let Some(value) = old_command {
+            env::set_var("BACKGROUNDREMOVER_COMMAND", value);
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_COMMAND");
+        }
+        if let Some(value) = old_home {
+            env::set_var("U2NET_HOME", value);
+        } else {
+            env::remove_var("U2NET_HOME");
+        }
+        if let Some(value) = old_u2net {
+            env::set_var("U2NET_PATH", value);
+        } else {
+            env::remove_var("U2NET_PATH");
+        }
+        if let Some(value) = old_u2netp {
+            env::set_var("U2NETP_PATH", value);
+        } else {
+            env::remove_var("U2NETP_PATH");
+        }
+        if let Some(value) = old_fail_clear {
+            env::set_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR", value);
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR");
         }
         let _ = fs::remove_dir_all(root);
     }
