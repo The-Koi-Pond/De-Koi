@@ -2,7 +2,7 @@ name: CI Full
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review]
   schedule:
     - cron: "17 9 * * 1,4"
   workflow_dispatch:
