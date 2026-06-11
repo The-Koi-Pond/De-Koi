@@ -1,15 +1,14 @@
 # Contributing to De-Koi
 
-De-Koi is currently being rebuilt on the `refactor` branch as a local-first Tauri desktop app with a React UI, a React-free TypeScript product engine, and Rust capability modules. Use this guide with `README.md`, `AGENTS.md`, and the developer docs under `docs/developer/`.
+De-Koi is currently being rebuilt on `main` branch as a local-first Tauri desktop app with a React UI, a React-free TypeScript product engine, and Rust capability modules. Use this guide with `README.md`, `AGENTS.md`, and the developer docs under `docs/developer/`.
 
 ## Branches
 
-Current development targets `refactor`.
+Current development targets `main`.
 
-- Base feature, bug fix, and documentation branches on `refactor`.
-- Open pull requests against `refactor`.
-- Do not target `main` unless a maintainer explicitly asks for a mainline or release change.
-- Treat `refactor` docs as the only authoritative docs for current work. Do not use `main` or historical `staging` docs for refactor implementation, integrations, or release guidance unless a maintainer explicitly asks for that branch context.
+- Base feature, bug fix, and documentation branches on `main`.
+- Open pull requests against `main`.
+- Treat `main` docs as the only authoritative docs for current work. Do not use `refactor` or historical `staging` docs for `main` implementation, integrations, or release guidance unless a maintainer explicitly asks for that branch context.
 - Keep PRs focused. Separate architecture moves, product behavior, UI polish, and docs-only work when they can be reviewed independently.
 
 ## Development Setup
@@ -26,7 +25,7 @@ Typical local setup:
 ```sh
 git clone https://github.com/The-Koi-Pond/De-Koi.git
 cd De-Koi
-git checkout refactor
+git checkout main
 pnpm install
 pnpm tauri dev
 ```
@@ -58,7 +57,7 @@ docker compose up --build
 
 ## Current Source Shape
 
-The refactor branch is layered by ownership:
+The main branch is layered by ownership:
 
 - `src/app` owns React bootstrap, app shell, providers, and startup effects.
 - `src/features` owns user-facing React workflows.
@@ -117,7 +116,7 @@ Use these as a guide:
 - Rust commands, capability crates, provider transport, storage, imports, assets, native integrations, or hostable runtime changes: `cargo check --manifest-path src-tauri/Cargo.toml --workspace`.
 - Docs, templates, skills, or agent guidance: `pnpm check:docs`.
 - Visible UI behavior: run the app and manually verify the workflow. Use Playwright or screenshots when the change is visual or flow-sensitive.
-- Remote runtime behavior: run `marinara-server`, check `/health`, configure the app's Remote Runtime URL, and exercise the supported shared API path when practical.
+- Remote runtime behavior: run `de-koi-server`, check `/health`, configure the app's Remote Runtime URL, and exercise the supported shared API path when practical.
 
 CI Sanity runs lint, typecheck, tests, and build on `main` pushes and pull requests. CI Full classifies changed files and runs the lane-relevant size checks, docs/discovery/unused checks, Rust clippy/tests, and Browser Smoke checks when manually dispatched, scheduled, or triggered by a ready PR. Lighthouse runs in the separate advisory performance workflow. Local validation should still describe exactly what was run and what remains unverified.
 
@@ -180,5 +179,5 @@ Keep docs accurate for the refactor branch:
 
 - Update `README.md` and `docs/developer/` when run commands, architecture, source ownership, or validation changes.
 - Update `AGENTS.md` or repo skills only when contributor or agent workflow rules change.
-- Do not restore old `staging`, package-workspace, installer, release, screenshot, or changelog claims unless they are true for the refactor branch.
+- Do not restore old `staging`, package-workspace, installer, release, screenshot, or changelog claims unless they are true for the main branch.
 - Public release packaging, installation pages, final screenshots, release notes, and license metadata are still being rebuilt around the new architecture.
