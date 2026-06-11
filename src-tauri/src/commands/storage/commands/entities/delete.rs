@@ -112,7 +112,7 @@ pub(super) fn apply_delete_cleanup(
                 delete_lorebook_children(state, id)?
             }
             contracts::DeleteCleanup::DeleteMessageTrackerSnapshots => {
-                if entity == "messages" {
+                if entity != "messages" {
                     continue;
                 }
                 if let Some(chat_id) = message_chat_id {

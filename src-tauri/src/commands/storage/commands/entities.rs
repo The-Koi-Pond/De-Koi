@@ -2697,6 +2697,68 @@ mod tests {
     }
 
     #[test]
+    fn lorebook_folder_create_requires_child_ownership_for_parent() {
+        let state = test_state("lorebook-folder-create-parent-ownership");
+        create_lorebook(&state, "book");
+        create_lorebook(&state, "other");
+        create_lorebook_folder(&state, "parent", "book", None, None);
+
+        assert!(
+            storage_create_inner(
+                &state,
+                "lorebook-folders".to_string(),
+                json!({ "id": "missing-book", "name": "Missing", "parentFolderId": "parent" }),
+            )
+            .is_err(),
+            "a nested folder without lorebookId cannot prove parent ownership"
+        );
+
+        assert!(
+            storage_create_inner(
+                &state,
+                "lorebook-folders".to_string(),
+                json!({
+                    "id": "blank-book",
+                    "name": "Blank",
+                    "lorebookId": "   ",
+                    "parentFolderId": "parent"
+                }),
+            )
+            .is_err(),
+            "a nested folder with blank lorebookId cannot prove parent ownership"
+        );
+
+        assert!(
+            storage_create_inner(
+                &state,
+                "lorebook-folders".to_string(),
+                json!({
+                    "id": "other-book",
+                    "name": "Other",
+                    "lorebookId": "other",
+                    "parentFolderId": "parent"
+                }),
+            )
+            .is_err(),
+            "a nested folder cannot use a parent from another lorebook"
+        );
+
+        let created = storage_create_inner(
+            &state,
+            "lorebook-folders".to_string(),
+            json!({
+                "id": "child",
+                "name": "Child",
+                "lorebookId": "book",
+                "parentFolderId": "parent"
+            }),
+        )
+        .expect("matching child ownership should allow nested create");
+        assert_eq!(created["parentFolderId"], "parent");
+        assert_eq!(created["lorebookId"], "book");
+    }
+
+    #[test]
     fn lorebook_folder_reorder_rejects_invalid_batch_without_partial_writes() {
         let state = test_state("lorebook-folder-reorder-atomic-validation");
         create_lorebook(&state, "book");

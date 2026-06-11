@@ -266,7 +266,7 @@ pub(super) fn gallery_create_persists_inline_image(entity: &str, value: &Value) 
 }
 
 pub(super) fn connection_folder_defaults_for_create(
-    state: &AppState,
+    _state: &AppState,
     value: Value,
 ) -> Result<Value, AppError> {
     let mut object = ensure_object(value)?;
@@ -275,21 +275,8 @@ pub(super) fn connection_folder_defaults_for_create(
         .and_then(Value::as_i64)
         .is_none_or(|value| value <= 0)
     {
-        let next_order = state
-            .storage
-            .list("connection-folders")?
-            .into_iter()
-            .filter_map(|folder| {
-                folder
-                    .get("sortOrder")
-                    .or_else(|| folder.get("order"))
-                    .and_then(Value::as_i64)
-            })
-            .max()
-            .map(|value| value + 1)
-            .unwrap_or(0);
-        object.insert("sortOrder".to_string(), json!(next_order));
-        object.insert("order".to_string(), json!(next_order));
+        object.insert("sortOrder".to_string(), json!(0));
+        object.insert("order".to_string(), json!(0));
     }
     Ok(Value::Object(object))
 }
@@ -532,8 +519,11 @@ pub(crate) fn validate_lorebook_folder_for_create(
     let Some(parent_id) = parse_chat_folder_id(value.get("parentFolderId"))? else {
         return Ok(());
     };
+    let lorebook_id = lorebook_folder_lorebook_id(value).ok_or_else(|| {
+        AppError::invalid_input("lorebookId is required when parentFolderId is set")
+    })?;
     // New folders have no descendants, so create only checks parent existence and ownership.
-    validate_lorebook_folder_parent(state, lorebook_folder_lorebook_id(value), None, &parent_id)
+    validate_lorebook_folder_parent(state, Some(lorebook_id), None, &parent_id)
 }
 
 pub(crate) fn validate_lorebook_folder_for_patch(
