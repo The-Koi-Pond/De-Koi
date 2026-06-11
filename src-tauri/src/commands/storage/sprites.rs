@@ -2383,10 +2383,7 @@ fn backgroundremover_process_output(
     configure_backgroundremover_process_tree(&mut process);
     let timeout = backgroundremover_timeout();
     let started = Instant::now();
-    let mut child = match process.spawn() {
-        Ok(child) => child,
-        Err(error) => return Err(error),
-    };
+    let mut child = process.spawn()?;
     loop {
         let status = match child.try_wait() {
             Ok(status) => status,
