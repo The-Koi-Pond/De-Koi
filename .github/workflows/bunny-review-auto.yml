@@ -1,8 +1,9 @@
 ﻿name: Bunny Review Auto Dispatch
 
+# Set DE_KOI_PR_SYNC_AUTOMATION=off to pause automatic synchronize dispatches.
 on:
   pull_request_target:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   actions: write
@@ -16,7 +17,10 @@ concurrency:
 
 jobs:
   dispatch:
-    if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.draft == false
+    if: >
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.draft == false &&
+      (github.event.action != 'synchronize' || vars.DE_KOI_PR_SYNC_AUTOMATION != 'off')
     runs-on: ${{ fromJSON(vars.DE_KOI_BUNNY_RUNS_ON || '"ubuntu-latest"') }}
     steps:
       - name: Dispatch trusted Bunny reviewer

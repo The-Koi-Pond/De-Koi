@@ -1,5 +1,8 @@
 name: CI Full
 
+# Repo-variable toggles:
+# - DE_KOI_PR_SYNC_AUTOMATION=off skips full CI lanes for PR synchronize events.
+# - DE_KOI_CI_FULL_MODE=full runs all full CI lanes instead of file classification.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -32,6 +35,31 @@ jobs:
           set -euo pipefail
 
           if [ "${{ github.event_name }}" != "pull_request" ]; then
+            {
+              echo "frontend=true"
+              echo "rust=true"
+              echo "browser=true"
+              echo "docs=true"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          SYNC_AUTOMATION="${{ vars.DE_KOI_PR_SYNC_AUTOMATION || 'on' }}"
+          CI_FULL_MODE="${{ vars.DE_KOI_CI_FULL_MODE || 'classified' }}"
+
+          if [ "${{ github.event.action }}" = "synchronize" ] && [ "$SYNC_AUTOMATION" = "off" ]; then
+            echo "DE_KOI_PR_SYNC_AUTOMATION=off; skipping full CI lanes for this PR update."
+            {
+              echo "frontend=false"
+              echo "rust=false"
+              echo "browser=false"
+              echo "docs=false"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$CI_FULL_MODE" = "full" ] || [ "$CI_FULL_MODE" = "all" ]; then
+            echo "DE_KOI_CI_FULL_MODE=$CI_FULL_MODE; running all full CI lanes."
             {
               echo "frontend=true"
               echo "rust=true"
