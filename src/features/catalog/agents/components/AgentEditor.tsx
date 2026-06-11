@@ -103,10 +103,34 @@ function createCustomAgentType(name: string): string {
 }
 
 const SPOTIFY_NATIVE_REDIRECT_URI = "http://127.0.0.1:8754/spotify/callback";
+const SPOTIFY_OAUTH_SETTING_KEYS = [
+  "spotifyAccessToken",
+  "spotifyAccessTokenEncrypted",
+  "spotifyRefreshToken",
+  "spotifyRefreshTokenEncrypted",
+  "spotifyExpiresAt",
+  "spotifyScope",
+] as const;
 
 // Fallback before status loads; Rust may return an env-configured redirect URI.
 function getDisplayedSpotifyRedirectUri(): string {
   return SPOTIFY_NATIVE_REDIRECT_URI;
+}
+
+function spotifyOauthSettings(settings: Record<string, unknown>): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  for (const key of SPOTIFY_OAUTH_SETTING_KEYS) {
+    if (settings[key] !== undefined) fields[key] = settings[key];
+  }
+  return fields;
+}
+
+function stripSpotifyOauthSettings(settings: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...settings };
+  for (const key of SPOTIFY_OAUTH_SETTING_KEYS) {
+    delete next[key];
+  }
+  return next;
 }
 
 // ═══════════════════════════════════════════════
@@ -508,10 +532,7 @@ export function AgentEditor() {
         ? JSON.parse(dbConfig.settings as string)
         : (dbConfig.settings as Record<string, unknown>)
       : {};
-    const preservedSpotifyFields: Record<string, unknown> = {};
-    for (const key of ["spotifyAccessToken", "spotifyRefreshToken", "spotifyExpiresAt", "spotifyScope"]) {
-      if (currentSettings[key] !== undefined) preservedSpotifyFields[key] = currentSettings[key];
-    }
+    const preservedSpotifyFields = spotifyOauthSettings(currentSettings);
 
     const payload = {
       name: localName,
@@ -872,7 +893,7 @@ export function AgentEditor() {
             <FieldGroup
               label="Result Type"
               icon={<FileText size="0.875rem" className="text-[var(--primary)]" />}
-              help="Controls how Marinara interprets this custom agent's output. Use Text Rewrite for post-processing agents that edit the generated reply."
+              help="Controls how De-Koi interprets this custom agent's output. Use Text Rewrite for post-processing agents that edit the generated reply."
             >
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {CUSTOM_AGENT_RESULT_TYPE_OPTIONS.map((option) => {
@@ -1566,17 +1587,12 @@ export function AgentEditor() {
                               typeof row.settings === "string"
                                 ? JSON.parse(row.settings)
                                 : ((row.settings as unknown as Record<string, unknown>) ?? {});
-                            const {
-                              spotifyAccessToken: _a,
-                              spotifyRefreshToken: _b,
-                              spotifyExpiresAt: _c,
-                              spotifyScope: _d,
-                              ...rest
-                            } = parsed;
+                            const rest = stripSpotifyOauthSettings(parsed);
                             return { ...row, settings: JSON.stringify(rest) };
                           }),
                         );
                         await qc.invalidateQueries({ queryKey: agentKeys.all });
+                        await qc.invalidateQueries({ queryKey: ["spotify"] });
                       }}
                       className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/50 transition-colors hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20"
                     >
@@ -1636,9 +1652,11 @@ export function AgentEditor() {
                               setSpotifyPasteOpen(false);
                               setSpotifyPasteValue("");
                               setSpotifyPasteError(null);
-                              // Refetch so the cached settings include the new
-                              // tokens before any subsequent handleSave runs.
+                              // Refetch so cached settings include the new tokens
+                              // before any later save, and refresh Spotify surfaces
+                              // that may have cached a disconnected response.
                               await qc.invalidateQueries({ queryKey: agentKeys.all });
+                              await qc.invalidateQueries({ queryKey: ["spotify"] });
                             }
                           } catch {
                             // keep polling
@@ -1731,9 +1749,11 @@ export function AgentEditor() {
                                 setSpotifyConnecting(false);
                                 setSpotifyPasteOpen(false);
                                 setSpotifyPasteValue("");
-                                // Refetch so the cached settings include the
-                                // new tokens before any subsequent handleSave.
+                                // Refetch so cached settings include the new
+                                // tokens before any later save, and refresh
+                                // Spotify surfaces immediately.
                                 await qc.invalidateQueries({ queryKey: agentKeys.all });
+                                await qc.invalidateQueries({ queryKey: ["spotify"] });
                               }
                             } catch (err) {
                               setSpotifyPasteError(err instanceof Error ? err.message : "Submission failed");
