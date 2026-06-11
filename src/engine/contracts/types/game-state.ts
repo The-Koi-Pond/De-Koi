@@ -130,7 +130,13 @@ export interface QuestObjective {
 export interface QuestProgress {
   questEntryId: string;
   name: string;
+  /** Brief generated quest description. */
+  description?: string;
   currentStage: number;
   objectives: QuestObjective[];
+  /** Generated reward metadata from the quest tracker. */
+  rewards?: string[];
+  /** Generated quest notes or downstream journal context. */
+  notes?: string;
   completed: boolean;
 }
