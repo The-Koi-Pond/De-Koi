@@ -25,11 +25,17 @@ MAX_CONTEXT_CHARS = 80_000
 MAX_CONTEXT_FILE_CHARS = 20_000
 MAX_SEARCH_HITS = 30
 MAX_SEARCH_FILE_BYTES = 250_000
-MAX_IDENTIFIER_CONTEXT_CHARS = 60_000
+MAX_IDENTIFIER_CONTEXT_CHARS = 30_000
+MAX_COMPACT_IDENTIFIER_CONTEXT_CHARS = 8_000
 MAX_IDENTIFIER_TERMS = 24
 MAX_IDENTIFIER_HITS_PER_TERM = 12
 MAX_FILE_PATCH_CHARS = 55_000
 MAX_FILE_SUMMARY_CHARS = 9_000
+MAX_COMPACT_FILE_PATCH_CHARS = 28_000
+MAX_COMPACT_FILE_SUMMARY_CHARS = 5_000
+MAX_COMPACT_FILE_CONTEXT_CHARS = 30_000
+MAX_COMPACT_GUIDANCE_CHARS = 6_000
+COMPACT_DIFF_UNIFIED_LINES = 20
 MAX_REVIEW_CHUNKS = 8
 MAX_CHUNK_PATCH_CHARS = 90_000
 MAX_INLINE_COMMENT_CHARS = 1_200
@@ -48,6 +54,10 @@ SECRET_FILE_PART_RE = re.compile(
 
 
 class ReviewTooLarge(Exception):
+    pass
+
+
+class EmptyModelResponse(Exception):
     pass
 
 
@@ -302,7 +312,7 @@ def extract_changed_identifiers(patch):
     return preferred[:MAX_IDENTIFIER_TERMS]
 
 
-def build_identifier_context(patch):
+def build_identifier_context(patch, limit=MAX_IDENTIFIER_CONTEXT_CHARS):
     terms = extract_changed_identifiers(patch)
     sections = []
     for term in terms:
@@ -312,7 +322,7 @@ def build_identifier_context(patch):
         sections.append(f"### {term}\n" + "\n".join(hits))
     if not sections:
         return "No changed identifier usage context found."
-    return truncate("\n\n".join(sections), MAX_IDENTIFIER_CONTEXT_CHARS)
+    return truncate("\n\n".join(sections), limit)
 
 
 def changed_files(base):
@@ -415,19 +425,33 @@ def matching_path_rules(files):
     return json.dumps(payload, indent=2, sort_keys=True)
 
 
-def diff_for_path(base, path):
+def diff_for_path(base, path, *, unified=80):
     return redact_for_model(
-        run_git_raw(["diff", "--find-renames", "--unified=80", f"{base}...HEAD", "--", path])
+        run_git_raw(
+            [
+                "diff",
+                "--find-renames",
+                f"--unified={unified}",
+                f"{base}...HEAD",
+                "--",
+                path,
+            ]
+        )
     )
 
 
-def build_file_context(base, files):
+def build_file_context(base, files, *, compact=False):
     sections = []
+    patch_limit = MAX_COMPACT_FILE_PATCH_CHARS if compact else MAX_FILE_PATCH_CHARS
+    summary_limit = (
+        MAX_COMPACT_FILE_SUMMARY_CHARS if compact else MAX_FILE_SUMMARY_CHARS
+    )
+    unified = COMPACT_DIFF_UNIFIED_LINES if compact else 80
     for path in files:
-        patch = diff_for_path(base, path)
+        patch = diff_for_path(base, path, unified=unified)
         if not patch:
             continue
-        if len(patch) <= MAX_FILE_PATCH_CHARS:
+        if len(patch) <= patch_limit:
             sections.append(f"### {path}\n```diff\n{patch}\n```")
             continue
         sections.append(
@@ -435,27 +459,63 @@ def build_file_context(base, files):
             + path
             + "\n```text\n"
             + truncate(run_git(["diff", "--stat", f"{base}...HEAD", "--", path], 2_000), 2_000)
-            + truncate(patch, MAX_FILE_SUMMARY_CHARS)
+            + truncate(patch, summary_limit)
             + "\n```"
         )
-    return "\n\n".join(sections) or "No per-file patch context found."
+    body = "\n\n".join(sections) or "No per-file patch context found."
+    if compact:
+        return truncate(body, MAX_COMPACT_FILE_CONTEXT_CHARS)
+    return body
 
 
-def build_review_packet(base, ci_status, mode, focus_files=None, include_full_patch=True):
+def patch_overview(patch, files, context_files, *, compact, include_full_patch):
+    packet_kind = "compact fallback" if compact else "standard"
+    scope = "full diff" if include_full_patch else "focused chunk"
+    return (
+        f"{packet_kind} packet for the {scope}. "
+        "The canonical changed-line evidence is in the per-file patch context section; "
+        "the raw patch is not repeated here so the model budget is reserved for review. "
+        f"Changed files: {len(files)}. Focus files: {len(context_files)}. "
+        f"Raw diff chars for this scope: {len(patch)}."
+    )
+
+
+def print_packet_section_telemetry(sections, *, compact):
+    sizes = sorted(
+        ((title, len(redact_for_model(body))) for title, body in sections),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    summary = "; ".join(f"{title}={size}" for title, size in sizes)
+    print(
+        "Bunny packet sections "
+        f"mode={'compact' if compact else 'standard'}; "
+        + truncate(summary, 1_400),
+        flush=True,
+    )
+
+
+def build_review_packet(
+    base,
+    ci_status,
+    mode,
+    focus_files=None,
+    include_full_patch=True,
+    *,
+    compact=False,
+):
     files = changed_files(base)
     context_files = focus_files or files
+    unified = COMPACT_DIFF_UNIFIED_LINES if compact else 80
     if focus_files is None or include_full_patch:
         patch = redact_for_model(
-            run_git_raw(["diff", "--find-renames", "--unified=80", f"{base}...HEAD"])
+            run_git_raw(
+                ["diff", "--find-renames", f"--unified={unified}", f"{base}...HEAD"]
+            )
         )
     else:
-        patch = "\n".join(diff_for_path(base, path) for path in focus_files)
-    patch_body = patch
-    if len(patch_body) > MAX_SECTION_CHARS:
-        patch_body = (
-            "Full patch exceeded the inline packet limit; use the per-file patch sections "
-            "below and request focused extra context for specific files if needed.\n\n"
-            + truncate(patch_body, MAX_SECTION_CHARS)
+        patch = "\n".join(
+            diff_for_path(base, path, unified=unified) for path in focus_files
         )
     sections = [
         ("review mode", mode),
@@ -466,19 +526,45 @@ def build_review_packet(base, ci_status, mode, focus_files=None, include_full_pa
         ("changed files", "\n".join(files) or "No changed files reported."),
         ("numstat", run_git(["diff", "--numstat", f"{base}...HEAD"], 20_000)),
         ("focus files", "\n".join(context_files) or "All changed files."),
-        ("patch overview", patch_body),
-        ("per-file patch context", build_file_context(base, context_files)),
-        ("changed identifier usage", build_identifier_context(patch)),
+        (
+            "patch overview",
+            patch_overview(
+                patch,
+                files,
+                context_files,
+                compact=compact,
+                include_full_patch=include_full_patch,
+            ),
+        ),
+        ("per-file patch context", build_file_context(base, context_files, compact=compact)),
+        (
+            "changed identifier usage",
+            build_identifier_context(
+                patch,
+                MAX_COMPACT_IDENTIFIER_CONTEXT_CHARS
+                if compact
+                else MAX_IDENTIFIER_CONTEXT_CHARS,
+            ),
+        ),
         ("Bunny path rules", matching_path_rules(files)),
     ]
     if ci_status:
         sections.append(("CI status", ci_status))
     for path in select_guidance(files):
         try:
-            sections.append((f"guidance: {path}", read_text(path, 30_000)))
+            sections.append(
+                (
+                    f"guidance: {path}",
+                    read_text(
+                        path,
+                        MAX_COMPACT_GUIDANCE_CHARS if compact else 30_000,
+                    ),
+                )
+            )
         except Exception as exc:
             sections.append((f"guidance: {path}", f"Could not read: {exc}"))
 
+    print_packet_section_telemetry(sections, compact=compact)
     packet = "\n\n".join(
         f"## {title}\n```text\n{redact_for_model(body)}\n```" for title, body in sections
     )
@@ -535,9 +621,12 @@ def build_stats(review_packet):
         "started_at": time.monotonic(),
         "model_calls": 0,
         "review_packet_chars": len(review_packet),
+        "fallback_packet_chars": 0,
+        "fallback_reviews": 0,
         "extra_context_chars": 0,
         "context_files": 0,
         "context_searches": 0,
+        "empty_model_responses": 0,
         "prompt_tokens": 0,
         "completion_tokens": 0,
         "reasoning_tokens": 0,
@@ -552,9 +641,12 @@ def print_telemetry(stats):
         f"elapsed_s={elapsed:.1f}; "
         f"model_calls={stats['model_calls']}; "
         f"review_packet_chars={stats['review_packet_chars']}; "
+        f"fallback_reviews={stats['fallback_reviews']}; "
+        f"fallback_packet_chars={stats['fallback_packet_chars']}; "
         f"extra_context_chars={stats['extra_context_chars']}; "
         f"context_files={stats['context_files']}; "
         f"context_searches={stats['context_searches']}; "
+        f"empty_model_responses={stats['empty_model_responses']}; "
         f"prompt_tokens={stats['prompt_tokens']}; "
         f"completion_tokens={stats['completion_tokens']}; "
         f"reasoning_tokens={stats['reasoning_tokens']}; "
@@ -564,16 +656,35 @@ def print_telemetry(stats):
 
 
 def model_call(client, messages, stats):
+    model = os.environ.get("LLM_MODEL", "gpt-5.5")
     resp = client.chat.completions.create(
-        model=os.environ.get("LLM_MODEL", "gpt-5.5"),
+        model=model,
         messages=messages,
         timeout=MODEL_REQUEST_TIMEOUT,
     )
     stats["model_calls"] += 1
-    add_usage(stats, getattr(resp, "usage", None))
+    usage = getattr(resp, "usage", None)
+    add_usage(stats, usage)
     if isinstance(resp, str):
-        return resp
-    return resp.choices[0].message.content or ""
+        content = resp
+        finish_reason = None
+    else:
+        choice = resp.choices[0] if getattr(resp, "choices", None) else None
+        finish_reason = getattr(choice, "finish_reason", None)
+        message = getattr(choice, "message", None)
+        content = getattr(message, "content", None) or ""
+    if not content.strip():
+        stats["empty_model_responses"] += 1
+        details = (
+            f"empty model response from {model}; "
+            f"prompt_tokens={usage_value(usage, 'prompt_tokens')}; "
+            f"completion_tokens={usage_value(usage, 'completion_tokens')}; "
+            f"total_tokens={usage_value(usage, 'total_tokens')}"
+        )
+        if finish_reason:
+            details += f"; finish_reason={finish_reason}"
+        raise EmptyModelResponse(details)
+    return content
 
 
 def extract_json_or_repair(client, messages, content, stats):
@@ -682,6 +793,45 @@ def three_pass_review(client, skill, triage_content, stats):
         skeptical_review,
         stats,
     )
+
+
+def review_with_compact_empty_response_fallback(
+    client,
+    skill,
+    stats,
+    build_packet,
+    triage_for_packet,
+    focus_note,
+):
+    review_packet = build_packet(compact=False)
+    stats["review_packet_chars"] += len(review_packet)
+    try:
+        return three_pass_review(
+            client,
+            skill,
+            triage_for_packet(review_packet, focus_note),
+            stats,
+        )
+    except EmptyModelResponse as exc:
+        compact_packet = build_packet(compact=True)
+        stats["review_packet_chars"] += len(compact_packet)
+        stats["fallback_packet_chars"] += len(compact_packet)
+        stats["fallback_reviews"] += 1
+        print(
+            "Bunny compact fallback: "
+            f"{exc}; retry_packet_chars={len(compact_packet)}",
+            flush=True,
+        )
+        compact_note = (
+            f"{focus_note} This is a compact fallback packet after the model "
+            "endpoint returned empty content for the standard packet."
+        )
+        return three_pass_review(
+            client,
+            skill,
+            triage_for_packet(compact_packet, compact_note),
+            stats,
+        )
 
 
 def parse_context_request(content):
@@ -1740,6 +1890,16 @@ def model_failure_detail(exc):
     message = " ".join(str(exc).split())
     if len(message) > 500:
         message = message[:497] + "..."
+    if isinstance(exc, EmptyModelResponse):
+        return (
+            "Bunny Review could not complete because the model endpoint returned "
+            f"empty content before a review object was emitted: {message}"
+        )
+    if isinstance(exc, ValueError):
+        return (
+            "Bunny Review could not complete because the model response could not "
+            f"be parsed into the required JSON review object: {message}"
+        )
     return (
         f"Bunny Review could not complete because the model provider rejected the "
         f"review request: {type(exc).__name__}: {message}"
@@ -2104,23 +2264,28 @@ def produce_review(args):
         stats = build_stats("")
         chunk_reviews = []
         for index, chunk in enumerate(chunks, 1):
-            review_packet = build_review_packet(
-                base,
-                ci_status,
-                effective_mode,
-                focus_files=chunk,
-                include_full_patch=False,
-            )
-            stats["review_packet_chars"] += len(review_packet)
             focus_note = (
                 f"This is chunk {index} of {len(chunks)}. Review only these focus files: "
                 + ", ".join(chunk)
                 + "."
             )
-            triage_content = triage_for_packet(review_packet, focus_note)
             try:
                 chunk_reviews.append(
-                    three_pass_review(client, skill, triage_content, stats)
+                    review_with_compact_empty_response_fallback(
+                        client,
+                        skill,
+                        stats,
+                        lambda compact, chunk=chunk: build_review_packet(
+                            base,
+                            ci_status,
+                            effective_mode,
+                            focus_files=chunk,
+                            include_full_patch=False,
+                            compact=compact,
+                        ),
+                        triage_for_packet,
+                        focus_note,
+                    )
                 )
             except Exception as exc:
                 write_skipped_review(
@@ -2142,11 +2307,21 @@ def produce_review(args):
             f"Examined the PR in {len(chunks)} file chunk(s) so the large diff did not contaminate context retention."
         )
     else:
-        review_packet = build_review_packet(base, ci_status, effective_mode)
-        stats = build_stats(review_packet)
-        triage_content = triage_for_packet(review_packet, "Review the full current diff.")
+        stats = build_stats("")
         try:
-            review_obj = three_pass_review(client, skill, triage_content, stats)
+            review_obj = review_with_compact_empty_response_fallback(
+                client,
+                skill,
+                stats,
+                lambda compact: build_review_packet(
+                    base,
+                    ci_status,
+                    effective_mode,
+                    compact=compact,
+                ),
+                triage_for_packet,
+                "Review the full current diff.",
+            )
         except Exception as exc:
             write_skipped_review(
                 "Review Failed",
