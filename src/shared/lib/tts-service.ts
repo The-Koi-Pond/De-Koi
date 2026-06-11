@@ -2,6 +2,7 @@
 // TTS Service — Server-proxied audio playback
 // ──────────────────────────────────────────────
 import { ttsApi } from "../api/tts-api";
+import { getOrCreateCachedTTSAudioBlob } from "./tts-audio-cache";
 
 type TTSState = "idle" | "loading" | "playing" | "paused" | "error";
 
@@ -14,6 +15,8 @@ interface TTSSpeakOptions {
   signal?: AbortSignal;
   throwOnError?: boolean;
   playbackRate?: number;
+  cacheKey?: string;
+  cacheAliases?: string[];
 }
 
 interface TTSSpeakRequest {
@@ -21,6 +24,8 @@ interface TTSSpeakRequest {
   speaker?: string;
   tone?: string;
   voice?: string;
+  cacheKey?: string;
+  cacheAliases?: string[];
 }
 
 class TTSService {
@@ -77,6 +82,15 @@ class TTSService {
     );
   }
 
+  private async getAudioBlob(text: string, options: TTSSpeakOptions = {}): Promise<Blob> {
+    if (!options.cacheKey) return this.generateAudio(text, options);
+    return getOrCreateCachedTTSAudioBlob(
+      options.cacheKey,
+      () => this.generateAudio(text, options),
+      options.cacheAliases,
+    );
+  }
+
   /** Speak the given text. `id` is an optional caller-supplied key (e.g. message id) so callers can track which item is active. */
   async speak(text: string, id?: string, options: TTSSpeakOptions = {}): Promise<void> {
     this.stop();
@@ -89,7 +103,7 @@ class TTSService {
 
     let blob: Blob;
     try {
-      blob = await this.generateAudio(text, { ...options, signal: abortController.signal });
+      blob = await this.getAudioBlob(text, { ...options, signal: abortController.signal });
     } catch (err) {
       if (!this.isCurrentSequence(sequence)) return;
       if (err instanceof Error && err.name === "AbortError") {
@@ -178,11 +192,13 @@ class TTSService {
         }
         this.setState("loading", id ?? null);
 
-        const blob = await this.generateAudio(request.text, {
+        const blob = await this.getAudioBlob(request.text, {
           speaker: request.speaker,
           tone: request.tone,
           voice: request.voice,
           signal: abortController.signal,
+          cacheKey: request.cacheKey,
+          cacheAliases: request.cacheAliases,
         });
         if (!this.isCurrentSequence(sequence)) return;
         if (abortController.signal.aborted) {
