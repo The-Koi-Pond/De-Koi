@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 REPO_ROOT = pathlib.Path.cwd().resolve()
 BUNNY_MARKER = "<!-- bunny-review:walkthrough -->"
@@ -42,6 +43,8 @@ MAX_COMPACT_GLOBAL_FILE_MAP_CHARS = 1_400
 COMPACT_DIFF_UNIFIED_LINES = 20
 MAX_REVIEW_CHUNKS = 8
 MAX_CHUNK_PATCH_CHARS = 90_000
+MAX_SINGLE_PACKET_CHARS = 60_000
+MAX_FORCED_CHUNK_PATCH_CHARS = 35_000
 MAX_INLINE_COMMENT_CHARS = 1_200
 MAX_CONTRACT_STATE_ENTRIES = 12
 MAX_CONTRACT_STATE_TEXT_CHARS = 320
@@ -667,13 +670,13 @@ def build_review_packet(
     return packet
 
 
-def chunk_changed_files(base, files):
+def chunk_changed_files(base, files, *, max_patch_chars=MAX_CHUNK_PATCH_CHARS):
     chunks = []
     current = []
     current_size = 0
     for path in files:
         patch_size = len(diff_for_path(base, path))
-        if current and current_size + patch_size > MAX_CHUNK_PATCH_CHARS:
+        if current and current_size + patch_size > max_patch_chars:
             chunks.append(current)
             current = []
             current_size = 0
@@ -687,6 +690,47 @@ def chunk_changed_files(base, files):
     overflow = [path for chunk in chunks[MAX_REVIEW_CHUNKS - 1 :] for path in chunk]
     merged.append(overflow)
     return merged
+
+
+def model_base_host() -> str:
+    base_url = os.environ.get("LLM_BASE_URL", "").strip()
+    if not base_url:
+        return "default"
+    parsed = urlparse(base_url)
+    if parsed.hostname:
+        return f"{parsed.hostname}:{parsed.port}" if parsed.port else parsed.hostname
+    return "configured"
+
+
+def approx_tokens_from_chars(chars: int) -> int:
+    return max(1, round(chars / 4))
+
+
+def message_chars(messages) -> int:
+    return sum(len(str(message.get("content", ""))) for message in messages)
+
+
+def should_force_packet_chunking(base, ci_status, mode, files):
+    if len(files) <= 1:
+        return False, "single-file review", 0, []
+    probe_packet = build_review_packet(base, ci_status, mode)
+    probe_chars = len(probe_packet)
+    if probe_chars <= MAX_SINGLE_PACKET_CHARS:
+        return False, "single packet under threshold", probe_chars, []
+    forced_chunks = chunk_changed_files(
+        base,
+        files,
+        max_patch_chars=MAX_FORCED_CHUNK_PATCH_CHARS,
+    )
+    if len(forced_chunks) <= 1:
+        forced_chunks = chunk_changed_files(
+            base,
+            files,
+            max_patch_chars=max(1, MAX_FORCED_CHUNK_PATCH_CHARS // 2),
+        )
+    if len(forced_chunks) <= 1:
+        return False, "packet over threshold but chunker produced one chunk", probe_chars, []
+    return True, "assembled packet over threshold", probe_chars, forced_chunks
 
 
 def usage_value(usage, *path):
@@ -714,6 +758,10 @@ def build_stats(review_packet):
     return {
         "started_at": time.monotonic(),
         "model_calls": 0,
+        "model_requests_started": 0,
+        "model_request_failures": 0,
+        "model_request_elapsed_s": 0.0,
+        "last_model_error": "",
         "review_packet_chars": len(review_packet),
         "fallback_packet_chars": 0,
         "fallback_reviews": 0,
@@ -734,6 +782,10 @@ def print_telemetry(stats):
         "Bunny telemetry: "
         f"elapsed_s={elapsed:.1f}; "
         f"model_calls={stats['model_calls']}; "
+        f"model_requests_started={stats['model_requests_started']}; "
+        f"model_request_failures={stats['model_request_failures']}; "
+        f"model_request_elapsed_s={stats['model_request_elapsed_s']:.1f}; "
+        f"last_model_error={stats['last_model_error']}; "
         f"review_packet_chars={stats['review_packet_chars']}; "
         f"fallback_reviews={stats['fallback_reviews']}; "
         f"fallback_packet_chars={stats['fallback_packet_chars']}; "
@@ -751,10 +803,46 @@ def print_telemetry(stats):
 
 def model_call(client, messages, stats):
     model = os.environ.get("LLM_MODEL", "gpt-5.5")
-    resp = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        timeout=MODEL_REQUEST_TIMEOUT,
+    chars = message_chars(messages)
+    stats["model_requests_started"] += 1
+    started_at = time.monotonic()
+    print(
+        "Bunny model request starting: "
+        f"model={model}; "
+        f"base_host={model_base_host()}; "
+        f"timeout_s={MODEL_REQUEST_TIMEOUT}; "
+        f"max_retries={MODEL_MAX_RETRIES}; "
+        f"messages={len(messages)}; "
+        f"message_chars={chars}; "
+        f"approx_tokens={approx_tokens_from_chars(chars)}",
+        flush=True,
+    )
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            timeout=MODEL_REQUEST_TIMEOUT,
+        )
+    except Exception as exc:
+        elapsed = time.monotonic() - started_at
+        stats["model_request_failures"] += 1
+        stats["model_request_elapsed_s"] += elapsed
+        stats["last_model_error"] = f"{type(exc).__name__}: {' '.join(str(exc).split())}"
+        print(
+            "Bunny model request failed: "
+            f"elapsed_s={elapsed:.1f}; "
+            f"error_type={type(exc).__name__}; "
+            f"message={stats['last_model_error']}",
+            flush=True,
+        )
+        raise
+    elapsed = time.monotonic() - started_at
+    stats["model_request_elapsed_s"] += elapsed
+    print(
+        "Bunny model request completed: "
+        f"elapsed_s={elapsed:.1f}; "
+        f"model={model}",
+        flush=True,
     )
     stats["model_calls"] += 1
     usage = getattr(resp, "usage", None)
@@ -2313,8 +2401,33 @@ def produce_review(args):
         print("Bunny telemetry: skipped=missing_openai_api_key", flush=True)
         return
 
-    chunks = chunk_changed_files(base, files)
+    patch_chunks = chunk_changed_files(base, files)
+    chunks = patch_chunks
+    force_chunked, chunk_reason, probe_packet_chars, forced_chunks = (
+        False,
+        "raw patch chunking",
+        0,
+        [],
+    )
+    if len(patch_chunks) <= 1:
+        force_chunked, chunk_reason, probe_packet_chars, forced_chunks = (
+            should_force_packet_chunking(base, ci_status, effective_mode, files)
+        )
+        if force_chunked:
+            chunks = forced_chunks
     use_chunked_review = len(chunks) > 1
+    print(
+        "Bunny chunk decision: "
+        f"files={len(files)}; "
+        f"patch_chunks={len(patch_chunks)}; "
+        f"chunks={len(chunks)}; "
+        f"forced_by_packet_size={str(force_chunked).lower()}; "
+        f"reason={chunk_reason}; "
+        f"probe_packet_chars={probe_packet_chars}; "
+        f"single_packet_threshold={MAX_SINGLE_PACKET_CHARS}; "
+        f"chunk_patch_threshold={MAX_FORCED_CHUNK_PATCH_CHARS if force_chunked else MAX_CHUNK_PATCH_CHARS}",
+        flush=True,
+    )
     global_review_context = None
     compact_global_review_context = None
     if use_chunked_review:
