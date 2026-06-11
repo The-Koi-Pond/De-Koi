@@ -1,0 +1,123 @@
+{
+  "coreClaim": "Exporting saved character or persona sprites from the catalog requests one archive download instead of triggering one browser download per sprite.",
+  "scope": {
+    "inScope": [
+      "Rust archive producer for saved sprite files",
+      "Embedded Tauri command registration",
+      "Hostable runtime HTTP dispatch and remote command allowlist",
+      "Shared sprite API wrapper and React catalog export handlers"
+    ],
+    "outOfScope": [
+      "Changing single-sprite download buttons",
+      "Changing sprite upload/import formats",
+      "Changing character or persona export envelopes"
+    ],
+    "intendedFiles": [
+      "src-tauri/src/commands/storage/exports.rs",
+      "src-tauri/src/commands/storage/commands/media.rs",
+      "src-tauri/src/http_dispatch.rs",
+      "src-tauri/src/lib.rs",
+      "src/shared/api/image-generation-api.ts",
+      "src/shared/api/remote-runtime.ts",
+      "src/features/catalog/sprites/hooks/use-sprites.ts",
+      "src/features/catalog/characters/components/CharacterSpritesTab.tsx",
+      "src/features/catalog/personas/components/sprites/PersonaSpritesTab.tsx"
+    ],
+    "riskFlags": ["import-export", "remote-runtime", "file-paths"]
+  },
+  "reproduction": {
+    "steps": [
+      "Inspected issue #63 evidence: character and persona sprite export handlers iterated selected sprites and called downloadSpriteFile once per sprite.",
+      "Confirmed spriteApi and remote-runtime allowlist did not expose a sprite archive export command before the fix."
+    ],
+    "reproducedBeforeFix": true,
+    "beforeEvidence": [
+      "src/features/catalog/characters/components/CharacterSpritesTab.tsx exported sprites with a per-sprite download loop.",
+      "src/features/catalog/personas/components/sprites/PersonaSpritesTab.tsx exported sprites with the same per-sprite download loop.",
+      "src/shared/api/image-generation-api.ts had list/upload/delete/cleanup/restore sprite wrappers but no archive export wrapper.",
+      "src/shared/api/remote-runtime.ts had no sprite_export allowlist entry."
+    ]
+  },
+  "riskClaimMatrix": {
+    "coreClaim": "Saved sprite exports produce one archive artifact for selected/all sprites.",
+    "riskType": "import-export compatibility",
+    "entrypoints": ["character sprite export menu", "persona sprite export menu", "sprite_export command"],
+    "currentPathsOrFormats": ["data_dir/sprites/<characterId>/<expression>.<ext>", "data_dir/sprites/personas/<personaId>/<expression>.<ext>"],
+    "legacyPathsOrFormats": ["data_dir/sprites/<personaId>/<expression>.<ext> legacy persona fallback"],
+    "positiveRowsTested": [
+      "Temporary local Rust proof created two character sprite files, exported one selected expression, decoded the ZIP payload, verified application/zip, verified <owner>/happy.png bytes, and verified unselected sad.webp was absent.",
+      "pnpm check passed after the final production diff."
+    ],
+    "negativeRowsTested": [
+      "Should-not-match row: a saved sprite file named sad.webp was present next to happy.png but was absent from the decoded ZIP when expressions=[\"happy\"].",
+      "Archive producer rejects invalid ownerType.",
+      "Archive producer validates owner id as a safe path segment.",
+      "Archive producer canonicalizes file reads under app data directory."
+    ],
+    "groundTruthFacts": [
+      {
+        "fact": "Archive payload uses the existing binary download shape: base64, contentType, filename.",
+        "proof": "derived from the artifact by inspecting binary_download in src-tauri/src/commands/storage/exports.rs and the export_sprite_archive return value."
+      },
+      {
+        "fact": "Archive entries preserve sprite filenames under a top-level owner folder and include manifest.json.",
+        "proof": "harness-proven by the temporary Rust proof that decoded Mira_Koi-sprites.zip and read Mira_Koi/happy.png."
+      },
+      {
+        "fact": "Single-sprite download buttons still use the existing data URL download path.",
+        "proof": "derived from the artifact by inspecting unchanged onDownload handlers calling downloadSpriteFile in both sprite tabs."
+      }
+    ],
+    "userActionCopy": [
+      {
+        "action": "copy saved sprite files into the downloaded archive",
+        "files": ["data_dir/sprites/<characterId>/<expression>.<ext>", "data_dir/sprites/personas/<personaId>/<expression>.<ext>", "data_dir/sprites/<personaId>/<expression>.<ext>"],
+        "destination": "<owner>-sprites.zip/<owner>/<expression>.<ext>",
+        "currentLayouts": ["data_dir/sprites/<characterId>/", "data_dir/sprites/personas/<personaId>/"],
+        "legacyLayouts": ["data_dir/sprites/<personaId>/"]
+      },
+      {
+        "action": "copy exported sprite metadata into the archive manifest",
+        "files": ["manifest.json", "data_dir/sprites/<ownerId>/<expression>.<ext>"],
+        "destination": "<owner>-sprites.zip/manifest.json",
+        "currentLayouts": ["data_dir/sprites/<characterId>/", "data_dir/sprites/personas/<personaId>/"],
+        "legacyLayouts": ["data_dir/sprites/<personaId>/"]
+      }
+    ],
+    "manualBlockers": []
+  },
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Selected expression archive includes selected file and excludes unselected file in temporary local Rust proof.",
+      "Remote-capable command path includes sprite_export in HTTP dispatch and remote command allowlist.",
+      "Both character and persona export handlers call the shared archive hook instead of looping downloads."
+    ],
+    "negativeRowsTested": [
+      "No schema, dependency, version, auth, prompt, or release metadata files changed.",
+      "No *.test.ts or *.test.tsx proof files submitted."
+    ],
+    "afterEvidence": [
+      "cargo test --manifest-path src-tauri/Cargo.toml sprite_archive_exports_selected_character_sprites_as_single_zip: 1 passed; temporary proof removed from final diff.",
+      "cargo check --manifest-path src-tauri/Cargo.toml: passed.",
+      "pnpm typecheck: passed.",
+      "pnpm check:architecture: passed.",
+      "pnpm check: passed."
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "manualBlockers": [
+    {
+      "item": "Visible browser confirmation of the native download prompt was not run.",
+      "blockingCoreClaim": false,
+      "reason": "The core behavior is covered by the archive producer proof, TypeScript compile, command registration, HTTP dispatch, and full repo check. The UI change has no visual layout change."
+    }
+  ],
+  "pr": {
+    "url": "",
+    "evidencePublished": false,
+    "checks": "not run",
+    "automatedReview": "not checked"
+  }
+}

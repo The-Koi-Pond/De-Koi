@@ -23,6 +23,8 @@ export const spriteApi = {
   cleanup: <T = unknown>(body: Record<string, unknown>) => invokeTauri<T>("sprite_cleanup", { body }),
   list: <T = unknown>(characterId: string, options?: SpriteOwnerOptions) =>
     invokeTauri<T>("sprite_list", spriteOwnerArgs(characterId, options)),
+  exportArchive: <T = unknown>(characterId: string, body: Record<string, unknown>, options?: SpriteOwnerOptions) =>
+    invokeTauri<T>("sprite_export", { ...spriteOwnerArgs(characterId, options), body }),
   upload: <T = unknown>(characterId: string, body: Record<string, unknown>, options?: SpriteOwnerOptions) =>
     invokeTauri<T>("sprite_upload", { ...spriteOwnerArgs(characterId, options), body }),
   bulkUpload: <T = unknown>(characterId: string, body: Record<string, unknown>, options?: SpriteOwnerOptions) =>
