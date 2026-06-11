@@ -2957,6 +2957,16 @@ function requestedCharacterTarget(input: PromptAssemblyInput, characters: Genera
   return characters.some((character) => character.id === requestedCharacterId) ? requestedCharacterId : null;
 }
 
+function promptRegexTargetCharacterId(
+  input: PromptAssemblyInput,
+  characters: GenerationCharacterContext[],
+): string | null {
+  if (input.request.impersonate === true) return null;
+  const requestedTarget = requestedCharacterTarget(input, characters);
+  if (requestedTarget) return requestedTarget;
+  return characters.length === 1 ? characters[0]!.id : null;
+}
+
 function promptCharactersForGeneration(
   input: PromptAssemblyInput,
   characters: GenerationCharacterContext[],
@@ -3394,6 +3404,7 @@ export async function assembleGenerationPrompt(
   const activeGroupScenarioOverride = reusableContext?.groupScenarioOverride ?? groupScenarioOverride(chatMeta);
   const promptCharacters = reusableContext?.promptCharacters ?? promptCharactersForGeneration(input, characters);
   const individualGroupTarget = scopedIndividualGroupTarget(input, characters);
+  const regexTargetCharacterId = promptRegexTargetCharacterId(input, characters);
   const individualGroupTargetCharacter = individualGroupTarget
     ? (characters.find((character) => character.id === individualGroupTarget) ?? null)
     : null;
@@ -3429,6 +3440,7 @@ export async function assembleGenerationPrompt(
   if (userRegenerationSourceMessage) {
     applyRegexScriptsToPromptMessages([userRegenerationSourceMessage], await loadPromptRegexScripts(), {
       resolveMacros: (value) => resolveMacros(value, macros, { trimResult: false }),
+      targetCharacterId: regexTargetCharacterId,
     });
     userRegenerationSourceMessage.content = collapseExcessBlankLines(
       stripPromptComments(userRegenerationSourceMessage.content),
@@ -3691,6 +3703,7 @@ export async function assembleGenerationPrompt(
   const regexScripts = await loadPromptRegexScripts();
   applyRegexScriptsToPromptMessages(messages, regexScripts, {
     resolveMacros: (value) => resolvePromptMacros(value, macros, deferCharacterMacros),
+    targetCharacterId: regexTargetCharacterId,
   });
   const turnPrompt =
     individualGroupTurnPromptMessage(input, characters) ??
