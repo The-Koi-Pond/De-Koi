@@ -9,7 +9,14 @@ pub(crate) fn delete_entity(
     validate_storage_entity(entity)?;
     reject_message_swipe_mutation(entity)?;
     if entity == "connections" {
-        return crate::connection_refs::delete_connection(state, id, force);
+        let existing = state.storage.get("connections", id)?;
+        let result = crate::connection_refs::delete_connection(state, id, force)?;
+        if result.get("deleted").and_then(Value::as_bool) == Some(true) {
+            if let Some(record) = existing.as_ref() {
+                remove_owned_media(state, entity, record);
+            }
+        }
+        return Ok(result);
     }
     if entity == "chats" {
         let existed = state.storage.get("chats", id)?.is_some();

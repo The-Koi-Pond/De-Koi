@@ -211,25 +211,36 @@ pub(super) fn delete_chat_preset_with_default_activation(
             rows.retain(|row| row.get("id").and_then(Value::as_str) != Some(preset_id.as_str()));
 
             if deleted_was_active {
-                if let Some(default_id) = deleted_mode.as_deref().and_then(|mode| {
-                    rows.iter()
-                        .find(|row| {
-                            row.get("mode").and_then(Value::as_str) == Some(mode)
-                                && chat_preset_is_default(row)
-                        })
-                        .and_then(|row| row.get("id"))
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                }) {
-                    if let Some(default) = rows.iter_mut().find(|row| {
-                        row.get("id").and_then(Value::as_str) == Some(default_id.as_str())
-                    }) {
-                        let Some(object) = default.as_object_mut() else {
-                            return Err(AppError::invalid_input("Stored record is not an object"));
-                        };
-                        object.insert("isActive".to_string(), json!(true));
-                        object.insert("active".to_string(), json!(true));
-                    }
+                let default_id = deleted_mode
+                    .as_deref()
+                    .and_then(|mode| {
+                        rows.iter()
+                            .find(|row| {
+                                row.get("mode").and_then(Value::as_str) == Some(mode)
+                                    && chat_preset_is_default(row)
+                            })
+                            .and_then(|row| row.get("id"))
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                    })
+                    .ok_or_else(|| {
+                        AppError::invalid_input(
+                            "Active chat presets require a same-mode default fallback",
+                        )
+                    })?;
+                if let Some(default) = rows
+                    .iter_mut()
+                    .find(|row| row.get("id").and_then(Value::as_str) == Some(default_id.as_str()))
+                {
+                    let Some(object) = default.as_object_mut() else {
+                        return Err(AppError::invalid_input("Stored record is not an object"));
+                    };
+                    object.insert("isActive".to_string(), json!(true));
+                    object.insert("active".to_string(), json!(true));
+                } else {
+                    return Err(AppError::invalid_input(
+                        "Active chat presets require a same-mode default fallback",
+                    ));
                 }
             }
             Ok(true)

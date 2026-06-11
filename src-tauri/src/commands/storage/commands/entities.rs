@@ -3153,6 +3153,36 @@ mod tests {
     }
 
     #[test]
+    fn deleting_active_chat_preset_rejects_missing_default_fallback() {
+        let state = test_state("chat-preset-delete-missing-default");
+        state
+            .storage
+            .replace_all(
+                "chat-presets",
+                vec![json!({
+                    "id": "custom-roleplay",
+                    "name": "Custom Roleplay",
+                    "mode": "roleplay",
+                    "isDefault": false,
+                    "default": false,
+                    "isActive": true,
+                    "active": true
+                })],
+            )
+            .expect("active preset should seed without a fallback default");
+
+        let error = delete_entity(&state, "chat-presets", "custom-roleplay", false)
+            .expect_err("active preset delete should reject without fallback");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(state
+            .storage
+            .get("chat-presets", "custom-roleplay")
+            .expect("preset should read")
+            .is_some());
+    }
+
+    #[test]
     fn deleting_gallery_row_uses_registered_managed_media_cleanup() {
         assert!(cleanup_registered(
             "gallery",
@@ -4727,6 +4757,36 @@ mod tests {
             .expect("connection should read")
             .expect("connection should remain");
         assert!(connection.get("folderId").is_none_or(Value::is_null));
+    }
+
+    #[test]
+    fn deleting_connection_removes_owned_entity_image() {
+        let state = test_state("connection-delete-owned-image");
+        let image_dir = state.data_dir.join("entity-images").join("connections");
+        std::fs::create_dir_all(&image_dir).expect("image dir should be created");
+        let image_path = image_dir.join("connection.png");
+        std::fs::write(&image_path, b"managed").expect("managed image should be written");
+        storage_create_inner(
+            &state,
+            "connections".to_string(),
+            json!({
+                "id": "connection-a",
+                "name": "Connection A",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "imageFilePath": image_path.to_string_lossy(),
+                "imageFilename": "connection.png"
+            }),
+        )
+        .expect("connection should be created");
+
+        delete_entity(&state, "connections", "connection-a", false)
+            .expect("connection delete should succeed");
+
+        assert!(
+            !image_path.exists(),
+            "managed connection image should be removed with the row"
+        );
     }
 
     #[test]
