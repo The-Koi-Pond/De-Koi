@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────
 
 import type { GenerationGuideSource } from "../../shared/text/generation-guide.js";
+import type { GenerationEvent } from "./generation.js";
 
 /** The primary chat modes the engine supports. */
 export type ChatMode = "conversation" | "roleplay" | "game";
@@ -182,6 +183,8 @@ export interface ChatMetadata {
   spriteCharacterIds?: string[];
   /** Which sprite file families the roleplay Expression Engine may display. */
   spriteDisplayModes?: Array<"expressions" | "full-body">;
+  /** Whether roleplay expression avatars are enabled for this chat. */
+  expressionAvatarsEnabled?: boolean;
   /** Preferred sidebar / default layout side for chat sprites. */
   spritePosition?: SpriteSide;
   /** Display scale for roleplay Expression Engine sprites. */
@@ -327,6 +330,8 @@ export interface ChatMetadata {
   gameSpotifyPlaylistName?: string | null;
   /** Spotify artist name used when gameSpotifySourceType is "artist". */
   gameSpotifyArtist?: string | null;
+  /** Recently selected Spotify track URIs for Game Mode scene music de-duplication. */
+  gameRecentSpotifyTracks?: string[];
   /** Run Game Lorebook Keeper after a session is concluded. */
   gameLorebookKeeperEnabled?: boolean;
   /** Chat-scoped lorebook maintained by Game Lorebook Keeper. */
@@ -557,13 +562,8 @@ export interface GenerateRequest {
   connectionId: string | null;
 }
 
-/** An SSE event from the generation stream. */
-export interface StreamEvent {
-  type: "token" | "agent_update" | "game_state" | "done" | "error";
-  data: string;
-  agentId?: string;
-  messageId?: string;
-}
+/** An SSE event from the active generation stream. */
+export type StreamEvent = GenerationEvent;
 
 /** An OOC influence queued from a conversation chat to be injected into a roleplay chat. */
 export interface OocInfluence {
