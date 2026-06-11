@@ -4,7 +4,7 @@ use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use base64::{engine::general_purpose, Engine as _};
 use marinara_core::{ensure_object, AppError, AppResult};
-use rand::{rngs::OsRng, TryRngCore};
+use rand::{rngs::SysRng, TryRng};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -213,7 +213,7 @@ pub(crate) fn encrypt_secret(state: &AppState, value: &str) -> AppResult<String>
     let cipher = Aes256Gcm::new_from_slice(&key)
         .map_err(|_| AppError::new("connection_secret_error", "Invalid connection secret key"))?;
     let mut nonce = [0u8; 12];
-    OsRng.try_fill_bytes(&mut nonce).map_err(|_| {
+    SysRng.try_fill_bytes(&mut nonce).map_err(|_| {
         AppError::new(
             "connection_secret_error",
             "Failed to generate encryption nonce",
@@ -279,7 +279,7 @@ fn master_key(state: &AppState) -> AppResult<[u8; 32]> {
         return key_from_bytes(&decoded);
     }
     let mut key = [0u8; 32];
-    OsRng.try_fill_bytes(&mut key).map_err(|_| {
+    SysRng.try_fill_bytes(&mut key).map_err(|_| {
         AppError::new(
             "connection_secret_error",
             "Failed to generate connection secret key",

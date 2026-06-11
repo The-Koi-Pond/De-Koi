@@ -1,7 +1,7 @@
 use crate::state::AppState;
 use flate2::read::GzDecoder;
 use marinara_core::{AppError, AppResult};
-use rand::{distr::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, RngExt};
 use reqwest::header::{ACCEPT, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
