@@ -45,7 +45,7 @@ jobs:
       tag_name: ${{ steps.version.outputs.tag_name }}
       release_url: ${{ steps.create.outputs.release_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Compute pre-alpha version and tag
         id: version
@@ -171,7 +171,7 @@ jobs:
             platform: macos-latest
             rust_target: x86_64-apple-darwin
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v6
         with:
@@ -235,7 +235,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v6
         with:

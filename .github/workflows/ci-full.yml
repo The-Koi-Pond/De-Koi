@@ -19,55 +19,68 @@ jobs:
     name: Change Classification
     runs-on: ${{ fromJSON(vars.DE_KOI_CI_RUNS_ON || '"ubuntu-latest"') }}
     outputs:
-      frontend: ${{ steps.classify.outputs.frontend }}
-      rust: ${{ steps.classify.outputs.rust }}
-      browser: ${{ steps.classify.outputs.browser }}
-      docs: ${{ steps.classify.outputs.docs }}
+      frontend: ${{ steps.non_pr.outputs.frontend || steps.sync_off.outputs.frontend || steps.full_mode.outputs.frontend || steps.classify.outputs.frontend }}
+      rust: ${{ steps.non_pr.outputs.rust || steps.sync_off.outputs.rust || steps.full_mode.outputs.rust || steps.classify.outputs.rust }}
+      browser: ${{ steps.non_pr.outputs.browser || steps.sync_off.outputs.browser || steps.full_mode.outputs.browser || steps.classify.outputs.browser }}
+      docs: ${{ steps.non_pr.outputs.docs || steps.sync_off.outputs.docs || steps.full_mode.outputs.docs || steps.classify.outputs.docs }}
     steps:
-      - uses: actions/checkout@v4
+      - id: non_pr
+        name: Route non-PR event
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          {
+            echo "frontend=true"
+            echo "rust=true"
+            echo "browser=true"
+            echo "docs=true"
+          } >> "$GITHUB_OUTPUT"
+
+      - id: sync_off
+        name: Route disabled PR update
+        if: github.event_name == 'pull_request' && github.event.action == 'synchronize' && vars.DE_KOI_PR_SYNC_AUTOMATION == 'off'
+        shell: bash
+        run: |
+          echo "DE_KOI_PR_SYNC_AUTOMATION=off; skipping full CI lanes for this PR update."
+          {
+            echo "frontend=false"
+            echo "rust=false"
+            echo "browser=false"
+            echo "docs=false"
+          } >> "$GITHUB_OUTPUT"
+
+      - id: full_mode
+        name: Route full CI mode
+        if: github.event_name == 'pull_request' && (vars.DE_KOI_CI_FULL_MODE == 'full' || vars.DE_KOI_CI_FULL_MODE == 'all')
+        shell: bash
+        run: |
+          echo "DE_KOI_CI_FULL_MODE=${{ vars.DE_KOI_CI_FULL_MODE }}; running all full CI lanes."
+          {
+            echo "frontend=true"
+            echo "rust=true"
+            echo "browser=true"
+            echo "docs=true"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        if: >
+          github.event_name == 'pull_request' &&
+          !(github.event.action == 'synchronize' && vars.DE_KOI_PR_SYNC_AUTOMATION == 'off') &&
+          vars.DE_KOI_CI_FULL_MODE != 'full' &&
+          vars.DE_KOI_CI_FULL_MODE != 'all'
         with:
           fetch-depth: 0
           persist-credentials: false
       - id: classify
         name: Classify changed files
+        if: >
+          github.event_name == 'pull_request' &&
+          !(github.event.action == 'synchronize' && vars.DE_KOI_PR_SYNC_AUTOMATION == 'off') &&
+          vars.DE_KOI_CI_FULL_MODE != 'full' &&
+          vars.DE_KOI_CI_FULL_MODE != 'all'
         shell: bash
         run: |
           set -euo pipefail
-
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            {
-              echo "frontend=true"
-              echo "rust=true"
-              echo "browser=true"
-              echo "docs=true"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          SYNC_AUTOMATION="${{ vars.DE_KOI_PR_SYNC_AUTOMATION || 'on' }}"
-          CI_FULL_MODE="${{ vars.DE_KOI_CI_FULL_MODE || 'classified' }}"
-
-          if [ "${{ github.event.action }}" = "synchronize" ] && [ "$SYNC_AUTOMATION" = "off" ]; then
-            echo "DE_KOI_PR_SYNC_AUTOMATION=off; skipping full CI lanes for this PR update."
-            {
-              echo "frontend=false"
-              echo "rust=false"
-              echo "browser=false"
-              echo "docs=false"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$CI_FULL_MODE" = "full" ] || [ "$CI_FULL_MODE" = "all" ]; then
-            echo "DE_KOI_CI_FULL_MODE=$CI_FULL_MODE; running all full CI lanes."
-            {
-              echo "frontend=true"
-              echo "rust=true"
-              echo "browser=true"
-              echo "docs=true"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
 
           BASE="${{ github.event.pull_request.base.sha }}"
           HEAD="${{ github.event.pull_request.head.sha }}"
@@ -142,7 +155,7 @@ jobs:
       (needs.classify.outputs.frontend == 'true' || needs.classify.outputs.docs == 'true')
     runs-on: ${{ fromJSON(vars.DE_KOI_CI_RUNS_ON || '"ubuntu-latest"') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -195,7 +208,7 @@ jobs:
       needs.classify.outputs.rust == 'true'
     runs-on: ${{ fromJSON(vars.DE_KOI_CI_RUNS_ON || '"ubuntu-latest"') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -240,7 +253,7 @@ jobs:
       (needs.frontend.result == 'success' || needs.frontend.result == 'skipped')
     runs-on: ${{ fromJSON(vars.DE_KOI_CI_RUNS_ON || '"ubuntu-latest"') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
         with:
           version: 10.33.2

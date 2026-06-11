@@ -57,7 +57,7 @@ jobs:
       BUNNY_LAST_REVIEWED_SHA: ${{ inputs.last_reviewed_sha || '' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -112,7 +112,7 @@ jobs:
           HEAD_SHA=$(gh pr view "$PR_NUM" --json headRefOid -q .headRefOid)
           echo "PR_HEAD_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 

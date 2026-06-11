@@ -12,9 +12,12 @@ concurrency:
 jobs:
   sanity:
     name: Sanity Checks
+    if: >
+      github.event_name != 'pull_request' ||
+      (vars.DE_KOI_CI_FULL_MODE != 'full' && vars.DE_KOI_CI_FULL_MODE != 'all')
     runs-on: ${{ fromJSON(vars.DE_KOI_CI_RUNS_ON || '"ubuntu-latest"') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
