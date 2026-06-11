@@ -157,6 +157,25 @@ function hasRoleplayDmThreadMetadata(chat: JsonRecord, sourceChatId: string, tar
   );
 }
 
+type IsolatedDirectMessageCommand = DirectMessageCommand & { placeholder: string };
+
+function isolateRoleplayDirectMessageContent(
+  content: string,
+  commands: DirectMessageCommand[],
+  invalidCommandRaws: string[],
+): { content: string; commands: IsolatedDirectMessageCommand[] } {
+  let isolatedContent = content;
+  const isolatedCommands = commands.map((command, index) => {
+    const placeholder = `__DE_KOI_ROLEPLAY_DM_PLACEHOLDER_${index}__`;
+    isolatedContent = replaceFirstLiteral(isolatedContent, readString(command.raw), placeholder);
+    return { ...command, placeholder };
+  });
+  for (const raw of invalidCommandRaws) {
+    isolatedContent = replaceFirstLiteral(isolatedContent, raw, "");
+  }
+  return { content: isolatedContent, commands: isolatedCommands };
+}
+
 async function findRoleplayDirectMessageChat(
   storage: StorageGateway,
   sourceChat: JsonRecord,
@@ -176,17 +195,16 @@ async function findRoleplayDirectMessageChat(
 async function resolveRoleplayDirectMessageCommands(
   storage: StorageGateway,
   visibleContent: string,
-  commands: DirectMessageCommand[],
+  commands: IsolatedDirectMessageCommand[],
 ): Promise<{ cleanContent: string; commands: DirectMessageCommand[] }> {
   let cleanContent = visibleContent;
   const resolvedCommands: DirectMessageCommand[] = [];
 
   for (const command of commands) {
-    const raw = readString(command.raw);
     const character = await findByName(storage, "characters", command.character);
     const characterId = readString(character?.id);
     if (!character || !characterId) {
-      cleanContent = replaceFirstLiteral(cleanContent, raw, command.message);
+      cleanContent = replaceFirstLiteral(cleanContent, command.placeholder, command.message);
       continue;
     }
 
@@ -195,7 +213,7 @@ async function resolveRoleplayDirectMessageCommands(
       resolvedCharacterId: characterId,
       resolvedCharacterName: nameOf(character) || command.character,
     });
-    cleanContent = replaceFirstLiteral(cleanContent, raw, "");
+    cleanContent = replaceFirstLiteral(cleanContent, command.placeholder, "");
   }
 
   return { cleanContent: cleanCommandContent(cleanContent), commands: resolvedCommands };
@@ -221,15 +239,16 @@ async function parseConnectedCommands(
   }
 
   const directMessages = parseDirectMessageCommands(content);
-  const parsed = parseCharacterCommands(content);
-  let cleanContent = parsed.cleanContent;
-  for (const raw of directMessages.invalidCommandRaws) {
-    cleanContent = replaceFirstLiteral(cleanContent, raw, "");
-  }
+  const isolated = isolateRoleplayDirectMessageContent(
+    content,
+    directMessages.commands,
+    directMessages.invalidCommandRaws,
+  );
+  const parsed = parseCharacterCommands(isolated.content);
   const resolvedDirectMessages = await resolveRoleplayDirectMessageCommands(
     storage,
-    cleanContent,
-    directMessages.commands,
+    parsed.cleanContent,
+    isolated.commands,
   );
   const parseEvents: ConnectedCommandEvent[] =
     directMessages.invalidCommands > 0

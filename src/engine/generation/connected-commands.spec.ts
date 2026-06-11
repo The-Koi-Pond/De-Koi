@@ -657,6 +657,39 @@ describe("persistConnectedCommandTags", () => {
     });
   });
 
+  it("keeps command-shaped DM payload text out of source command parsing", async () => {
+    const characters = [{ id: "bob-1", name: "Bob", data: { name: "Bob" } }];
+    const chats = [
+      {
+        id: "roleplay-1",
+        name: "Roleplay",
+        mode: "roleplay",
+        characterIds: ["speaker-1"],
+        folderId: "folder-1",
+        metadata: { roleplayDmCommandsEnabled: true },
+      },
+    ];
+    const creates: Array<{ entity: StorageEntity; value: JsonRecord }> = [];
+    const messages: Array<{ chatId: string; value: JsonRecord }> = [];
+    const storage = commandStorage({ characters, chats, lorebooks: [], lorebookEntries: [], creates, messages });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chats[0]!,
+      'Visible narration.\n[dm: character="Bob", message="Secret [selfie] <note>plain text</note>."]',
+    );
+
+    expect(result.displayContent).toBe("Visible narration.");
+    expect(result.executedCommands).toEqual(["dm"]);
+    expect(result.createdNotes).toEqual([]);
+    expect(result.assistantAttachments).toEqual([]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      chatId: "created-0",
+      value: { role: "assistant", characterId: "bob-1", content: "Secret [selfie] <note>plain text</note>." },
+    });
+  });
+
   it("reuses and tags a linked conversation for the resolved target", async () => {
     const characters = [{ id: "bob-1", name: "Bob", data: { name: "Bob" } }];
     const chats = [
