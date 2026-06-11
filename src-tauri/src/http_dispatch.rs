@@ -731,6 +731,12 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             required_string(&args, "characterId")?,
             optional_string(&args, "ownerType").as_deref(),
         ),
+        "sprite_export" => exports::export_sprite_archive(
+            state,
+            required_string(&args, "characterId")?,
+            optional_value(&args, "body"),
+            optional_string(&args, "ownerType").as_deref(),
+        ),
         "sprite_upload" => sprites::upload_sprite(
             state,
             required_string(&args, "characterId")?,

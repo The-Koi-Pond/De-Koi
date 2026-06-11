@@ -1,6 +1,6 @@
 use super::{
-    avatars, characters, entity_images, generation, images, llm, lorebook_images, personas, shared,
-    sidecar, sprites,
+    avatars, characters, entity_images, exports, generation, images, llm, lorebook_images,
+    personas, shared, sidecar, sprites,
 };
 use crate::state::AppState;
 use marinara_core::AppError;
@@ -45,6 +45,16 @@ pub fn sprite_list(
     owner_type: Option<String>,
 ) -> Result<Value, AppError> {
     sprites::list_sprites(&state, &character_id, owner_type.as_deref())
+}
+
+#[tauri::command]
+pub fn sprite_export(
+    state: State<'_, AppState>,
+    character_id: String,
+    owner_type: Option<String>,
+    body: Value,
+) -> Result<Value, AppError> {
+    exports::export_sprite_archive(&state, &character_id, body, owner_type.as_deref())
 }
 
 #[tauri::command]

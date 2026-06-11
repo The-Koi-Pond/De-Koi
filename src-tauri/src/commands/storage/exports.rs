@@ -2,6 +2,7 @@ use super::imports::{lorebook_entries, normalize_lorebook_entry};
 use super::shared::*;
 use super::*;
 use serde_json::Map;
+use std::collections::HashSet;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use zip::write::SimpleFileOptions;
@@ -10,6 +11,45 @@ use zip::write::SimpleFileOptions;
 enum SpriteExportOwnerKind {
     Character,
     Persona,
+}
+
+impl SpriteExportOwnerKind {
+    fn from_request(value: Option<&str>) -> AppResult<Self> {
+        match value.map(str::trim) {
+            None => Ok(Self::Character),
+            Some("character") => Ok(Self::Character),
+            Some("persona") => Ok(Self::Persona),
+            _ => Err(AppError::invalid_input("Invalid sprite owner type")),
+        }
+    }
+
+    fn collection(self) -> &'static str {
+        match self {
+            Self::Character => "characters",
+            Self::Persona => "personas",
+        }
+    }
+
+    fn fallback_name(self) -> &'static str {
+        match self {
+            Self::Character => "character",
+            Self::Persona => "persona",
+        }
+    }
+
+    fn request_name(self) -> &'static str {
+        match self {
+            Self::Character => "character",
+            Self::Persona => "persona",
+        }
+    }
+
+    fn id_label(self) -> &'static str {
+        match self {
+            Self::Character => "character ID",
+            Self::Persona => "persona ID",
+        }
+    }
 }
 
 pub(crate) fn export_record(
@@ -290,6 +330,87 @@ pub(crate) fn export_compatible_profile_bytes(state: &AppState) -> AppResult<Vec
     }
 
     zip.finish()
+}
+
+pub(crate) fn export_sprite_archive(
+    state: &AppState,
+    id: &str,
+    body: Value,
+    owner_type: Option<&str>,
+) -> AppResult<Value> {
+    let owner_kind = SpriteExportOwnerKind::from_request(owner_type)?;
+    validate_export_path_segment(id, owner_kind.id_label())?;
+
+    let requested = string_array_from_value(body.get("expressions"))
+        .into_iter()
+        .map(|value| value.to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    let mut seen_filenames = HashSet::new();
+    let mut files = Vec::new();
+
+    for dir in sprite_dirs_for_owner(state, id, owner_kind) {
+        if !dir.is_dir() {
+            continue;
+        }
+        for entry in fs::read_dir(&dir)? {
+            let path = entry?.path();
+            if !path.is_file() || !is_export_image_file(&path) {
+                continue;
+            }
+            let Some(filename) = path.file_name().and_then(|value| value.to_str()) else {
+                continue;
+            };
+            let expression = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or(filename);
+            if !requested.is_empty() && !requested.contains(&expression.to_ascii_lowercase()) {
+                continue;
+            }
+            if !seen_filenames.insert(filename.to_ascii_lowercase()) {
+                continue;
+            }
+            files.push((filename.to_string(), expression.to_string(), path));
+        }
+    }
+
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    if files.is_empty() {
+        return Err(AppError::not_found("No matching sprites found"));
+    }
+
+    let archive_name = sprite_archive_name(state, id, owner_kind);
+    let folder_name = safe_export_name(&archive_name, "sprites");
+    let mut zip = ExportZip::new();
+    zip.add_json(
+        "manifest.json",
+        &json!({
+            "type": "marinara_sprite_archive",
+            "version": 1,
+            "exportedAt": now_iso(),
+            "ownerType": owner_kind.request_name(),
+            "ownerId": id,
+            "count": files.len(),
+            "sprites": files.iter().map(|(filename, expression, _)| {
+                json!({
+                    "expression": expression,
+                    "filename": filename,
+                    "path": format!("{folder_name}/{filename}")
+                })
+            }).collect::<Vec<_>>()
+        }),
+    )?;
+
+    for (filename, _, path) in files {
+        let bytes = read_export_file_bytes(state, &path)?;
+        zip.add_bytes(&format!("{folder_name}/{filename}"), &bytes)?;
+    }
+
+    Ok(binary_download(
+        zip.finish()?,
+        "application/zip",
+        &format!("{folder_name}-sprites.zip"),
+    ))
 }
 
 fn native_record_export(
@@ -778,6 +899,41 @@ fn sprite_dirs_for_owner(
     }
 }
 
+fn sprite_archive_name(state: &AppState, id: &str, owner_kind: SpriteExportOwnerKind) -> String {
+    state
+        .storage
+        .get(owner_kind.collection(), id)
+        .ok()
+        .flatten()
+        .and_then(|record| item_export_name(owner_kind.collection(), &record))
+        .unwrap_or_else(|| {
+            if id.trim().is_empty() {
+                owner_kind.fallback_name().to_string()
+            } else {
+                id.to_string()
+            }
+        })
+}
+
+fn read_export_file_bytes(state: &AppState, path: &Path) -> AppResult<Vec<u8>> {
+    let canonical_data_dir = fs::canonicalize(&state.data_dir)?;
+    let canonical_path = fs::canonicalize(path)?;
+    if !canonical_path.starts_with(canonical_data_dir) {
+        return Err(AppError::invalid_input(
+            "Sprite path is outside the data directory",
+        ));
+    }
+    Ok(fs::read(canonical_path)?)
+}
+
+fn validate_export_path_segment(value: &str, label: &str) -> AppResult<()> {
+    if value.is_empty() || value.contains("..") || value.contains('/') || value.contains('\\') {
+        Err(AppError::invalid_input(format!("Invalid {label}")))
+    } else {
+        Ok(())
+    }
+}
+
 fn gallery_for_character(state: &AppState, character_id: &str) -> AppResult<Vec<Value>> {
     let records = list_collection(
         state,
@@ -941,6 +1097,14 @@ impl ExportZip {
             .start_file(path.replace('\\', "/"), self.options)
             .map_err(zip_error)?;
         self.writer.write_all(&serde_json::to_vec_pretty(value)?)?;
+        Ok(())
+    }
+
+    fn add_bytes(&mut self, path: &str, bytes: &[u8]) -> AppResult<()> {
+        self.writer
+            .start_file(path.replace('\\', "/"), self.options)
+            .map_err(zip_error)?;
+        self.writer.write_all(bytes)?;
         Ok(())
     }
 

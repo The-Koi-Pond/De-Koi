@@ -241,6 +241,7 @@ pub fn run() {
             storage_commands::media_commands::sprite_generate_sheet,
             storage_commands::media_commands::sprite_cleanup,
             storage_commands::media_commands::sprite_list,
+            storage_commands::media_commands::sprite_export,
             storage_commands::media_commands::sprite_upload,
             storage_commands::media_commands::sprite_upload_bulk,
             storage_commands::media_commands::sprite_delete,
