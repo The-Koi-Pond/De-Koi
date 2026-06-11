@@ -464,7 +464,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 180);
   const chatCharIds: string[] = useMemo(() => {
-    return normalizeChatCharacterIds((chat as unknown as { characterIds?: unknown })?.characterIds);
+    return normalizeChatCharacterIds(chat.characterIds as unknown);
   }, [chat.characterIds]);
   const {
     data: allCharacters,
@@ -1110,7 +1110,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   }, [metadata.chatParameters]);
 
   const chatCharIds: string[] = useMemo(() => {
-    return normalizeChatCharacterIds((chat as unknown as { characterIds?: unknown })?.characterIds);
+    return normalizeChatCharacterIds(chat.characterIds as unknown);
   }, [chat.characterIds]);
   const { data: selectedCharacters } = useCharacterSummariesByIds(chatCharIds, chatCharIds.length > 0);
   const characters = useMemo(

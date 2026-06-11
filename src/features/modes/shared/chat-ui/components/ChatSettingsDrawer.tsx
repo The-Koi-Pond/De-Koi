@@ -609,7 +609,7 @@ function ChatSettingsDrawerInner({
   const [charSearch, setCharSearch] = useState("");
   const debouncedCharSearch = useDebouncedValue(charSearch, 180);
   const chatCharIds: string[] = useMemo(
-    () => normalizeChatCharacterIds((chat as unknown as { characterIds?: unknown })?.characterIds),
+    () => normalizeChatCharacterIds(chat.characterIds as unknown),
     [chat.characterIds],
   );
   const { data: selectedCharacters, isLoading: selectedCharactersLoading } = useCharacterSummariesByIds(
