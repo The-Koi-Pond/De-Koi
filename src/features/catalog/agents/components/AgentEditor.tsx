@@ -1643,6 +1643,11 @@ export function AgentEditor() {
                                 clearTimeout(spotifyTimeoutRef.current);
                                 spotifyTimeoutRef.current = null;
                               }
+                              // Refetch so cached settings include the new tokens
+                              // before any later save, and refresh Spotify surfaces
+                              // that may have cached a disconnected response.
+                              await qc.invalidateQueries({ queryKey: agentKeys.all });
+                              await qc.invalidateQueries({ queryKey: ["spotify"] });
                               setSpotifyStatus({
                                 connected: true,
                                 expired: false,
@@ -1652,11 +1657,6 @@ export function AgentEditor() {
                               setSpotifyPasteOpen(false);
                               setSpotifyPasteValue("");
                               setSpotifyPasteError(null);
-                              // Refetch so cached settings include the new tokens
-                              // before any later save, and refresh Spotify surfaces
-                              // that may have cached a disconnected response.
-                              await qc.invalidateQueries({ queryKey: agentKeys.all });
-                              await qc.invalidateQueries({ queryKey: ["spotify"] });
                             }
                           } catch {
                             // keep polling
@@ -1741,6 +1741,11 @@ export function AgentEditor() {
                                   spotifyTimeoutRef.current = null;
                                 }
                                 const status = await spotifyApi.status(dbConfig.id).catch(() => null);
+                                // Refetch so cached settings include the new
+                                // tokens before any later save, and refresh
+                                // Spotify surfaces immediately.
+                                await qc.invalidateQueries({ queryKey: agentKeys.all });
+                                await qc.invalidateQueries({ queryKey: ["spotify"] });
                                 setSpotifyStatus({
                                   connected: status?.connected ?? true,
                                   expired: status?.expired ?? false,
@@ -1749,11 +1754,6 @@ export function AgentEditor() {
                                 setSpotifyConnecting(false);
                                 setSpotifyPasteOpen(false);
                                 setSpotifyPasteValue("");
-                                // Refetch so cached settings include the new
-                                // tokens before any later save, and refresh
-                                // Spotify surfaces immediately.
-                                await qc.invalidateQueries({ queryKey: agentKeys.all });
-                                await qc.invalidateQueries({ queryKey: ["spotify"] });
                               }
                             } catch (err) {
                               setSpotifyPasteError(err instanceof Error ? err.message : "Submission failed");
