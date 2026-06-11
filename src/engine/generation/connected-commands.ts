@@ -267,8 +267,7 @@ function activeCharacterId(chat: JsonRecord): string | null {
 
 function isIllustratorAgent(agent: JsonRecord): boolean {
   return (
-    readString(agent.id).trim() === "illustrator" ||
-    readString(agent.type || agent.agentType).trim() === "illustrator"
+    readString(agent.id).trim() === "illustrator" || readString(agent.type || agent.agentType).trim() === "illustrator"
   );
 }
 
@@ -690,18 +689,71 @@ async function createLorebookEntries(
 ) {
   if (!command.entries?.length) return;
   for (const entry of command.entries) {
-    await storage.create("lorebook-entries", {
-      lorebookId,
-      name: entry.name,
-      content: entry.content ?? entry.description ?? "",
-      keys: entry.keys ?? [],
-      secondaryKeys: entry.secondaryKeys ?? [],
-      enabled: true,
-      constant: entry.constant ?? false,
-      selective: entry.selective ?? false,
-      tag: entry.tag ?? "",
-      order: 0,
-    });
+    await storage.create("lorebook-entries", lorebookEntryCreateValue(lorebookId, entry));
+  }
+}
+
+type LorebookEntryCommand =
+  | NonNullable<CreateLorebookCommand["entries"]>[number]
+  | NonNullable<UpdateLorebookCommand["entries"]>[number];
+type UpdateLorebookEntry = NonNullable<UpdateLorebookCommand["entries"]>[number];
+
+function normalizeEntryName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function lorebookEntryCreateValue(lorebookId: string, entry: LorebookEntryCommand): JsonRecord {
+  return {
+    lorebookId,
+    name: entry.name,
+    content: entry.content ?? entry.description ?? "",
+    keys: entry.keys ?? [],
+    secondaryKeys: entry.secondaryKeys ?? [],
+    enabled: true,
+    constant: entry.constant ?? false,
+    selective: entry.selective ?? false,
+    tag: entry.tag ?? "",
+    order: 0,
+  };
+}
+
+function lorebookEntryUpdatePatch(entry: UpdateLorebookEntry): JsonRecord {
+  const patch: JsonRecord = { name: entry.name };
+  const content = entry.content ?? entry.description;
+  if (content !== undefined) patch.content = content;
+  if (entry.keys !== undefined) patch.keys = entry.keys;
+  if (entry.secondaryKeys !== undefined) patch.secondaryKeys = entry.secondaryKeys;
+  if (entry.constant !== undefined) patch.constant = entry.constant;
+  if (entry.selective !== undefined) patch.selective = entry.selective;
+  if (entry.tag !== undefined) patch.tag = entry.tag;
+  return patch;
+}
+
+async function upsertLorebookEntries(storage: StorageGateway, lorebookId: string, command: UpdateLorebookCommand) {
+  if (!command.entries?.length) return;
+
+  const existing = await storage.list<JsonRecord>("lorebook-entries", { filters: { lorebookId } });
+  const entriesByName = new Map<string, JsonRecord>();
+  for (const row of existing) {
+    const key = normalizeEntryName(readString(row.name));
+    if (key && !entriesByName.has(key)) entriesByName.set(key, row);
+  }
+
+  for (const entry of command.entries) {
+    const matchKey = normalizeEntryName(entry.matchName || entry.name);
+    const matched = entriesByName.get(matchKey);
+    const matchedId = readString(matched?.id);
+    if (matched && matchedId) {
+      const patch = lorebookEntryUpdatePatch(entry);
+      await storage.update("lorebook-entries", matchedId, patch);
+      entriesByName.delete(matchKey);
+      entriesByName.set(normalizeEntryName(entry.name), { ...matched, ...patch, id: matchedId });
+      continue;
+    }
+
+    const created = await storage.create<JsonRecord>("lorebook-entries", lorebookEntryCreateValue(lorebookId, entry));
+    const createdKey = normalizeEntryName(readString(created.name) || entry.name);
+    if (createdKey) entriesByName.set(createdKey, created);
   }
 }
 
@@ -805,7 +857,7 @@ async function executeCommand(
         ...(command.category !== undefined ? { category: command.category } : {}),
         ...(command.tags !== undefined ? { tags: command.tags } : {}),
       });
-      await createLorebookEntries(storage, lorebookId, command);
+      await upsertLorebookEntries(storage, lorebookId, command);
       return { name: "update_lorebook" };
     }
     case "create_chat": {
