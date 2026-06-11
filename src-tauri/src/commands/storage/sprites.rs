@@ -13,8 +13,9 @@ use std::collections::VecDeque;
 use std::env;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::UNIX_EPOCH;
+use std::process::{Child, Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 const SPRITE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "avif", "svg"];
 const CLEANUP_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp"];
@@ -28,6 +29,8 @@ const SPRITE_EXPRESSION_SHEET_PROMPT_KEY: &str = "sprite.expressionSheet";
 const SPRITE_FULL_BODY_SINGLE_PROMPT_KEY: &str = "sprite.fullBodySingle";
 const SPRITE_FULL_BODY_SHEET_PROMPT_KEY: &str = "sprite.fullBodySheet";
 const SPRITE_FULL_BODY_EXPRESSION_SHEET_PROMPT_KEY: &str = "sprite.fullBodyExpressionSheet";
+const BACKGROUNDREMOVER_DEFAULT_TIMEOUT_MS: u64 = 10 * 60 * 1000;
+const BACKGROUNDREMOVER_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 #[derive(Clone)]
 struct SpritePlan {
@@ -55,6 +58,64 @@ struct SpriteCleanupRestorePoint {
     id: String,
     created_millis: u128,
     path: PathBuf,
+}
+
+enum BackgroundRemoverProcessOutput {
+    Completed(Output),
+    TimedOut,
+}
+
+struct BackgroundRemoverFailure {
+    code: &'static str,
+    message: String,
+}
+
+struct BackgroundRemoverWorkDir {
+    path: PathBuf,
+}
+
+impl BackgroundRemoverWorkDir {
+    fn create() -> std::io::Result<Self> {
+        let path = env::temp_dir().join(format!("marinara-bgrem-{}-{}", now_millis(), new_id()));
+        fs::create_dir_all(&path)?;
+        Ok(Self { path })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for BackgroundRemoverWorkDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+struct BackgroundRemoverCaptureDir {
+    path: PathBuf,
+}
+
+impl BackgroundRemoverCaptureDir {
+    fn create() -> std::io::Result<Self> {
+        let path = env::temp_dir().join(format!(
+            "marinara-bgrem-output-{}-{}",
+            now_millis(),
+            new_id()
+        ));
+        fs::create_dir_all(&path)?;
+        Ok(Self { path })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for BackgroundRemoverCaptureDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -1854,7 +1915,11 @@ fn persona_sprites_dir(state: &AppState, persona_id: &str) -> PathBuf {
 /// namespaced dir), and it must never remove the legacy `sprites/<id>` path for a persona, since
 /// that path can belong to a character that shares the id. The owner id is validated first so a
 /// malformed value can't escape the sprites tree.
-pub(crate) fn remove_owned_sprite_dir(state: &AppState, owner_kind: SpriteOwnerKind, owner_id: &str) {
+pub(crate) fn remove_owned_sprite_dir(
+    state: &AppState,
+    owner_kind: SpriteOwnerKind,
+    owner_id: &str,
+) {
     if validate_safe_segment(owner_id, owner_kind.owner_label()).is_err() {
         return;
     }
@@ -2030,6 +2095,15 @@ fn env_bool(name: &str) -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+fn backgroundremover_timeout() -> Duration {
+    env::var("BACKGROUNDREMOVER_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .map(Duration::from_millis)
+        .unwrap_or_else(|| Duration::from_millis(BACKGROUNDREMOVER_DEFAULT_TIMEOUT_MS))
 }
 
 fn preferred_background_removal_engine() -> String {
@@ -2298,6 +2372,226 @@ fn cleanup_engine_status(state: &AppState) -> Value {
     })
 }
 
+fn backgroundremover_process_output(
+    mut process: Command,
+) -> std::io::Result<BackgroundRemoverProcessOutput> {
+    let capture_dir = BackgroundRemoverCaptureDir::create()?;
+    let stdout_path = capture_dir.path().join("stdout.log");
+    let stderr_path = capture_dir.path().join("stderr.log");
+    process.stdout(Stdio::from(fs::File::create(&stdout_path)?));
+    process.stderr(Stdio::from(fs::File::create(&stderr_path)?));
+    configure_backgroundremover_process_tree(&mut process);
+    let timeout = backgroundremover_timeout();
+    let started = Instant::now();
+    let mut child = process.spawn()?;
+    loop {
+        let status = match child.try_wait() {
+            Ok(status) => status,
+            Err(error) => {
+                kill_backgroundremover_process_tree(&mut child);
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
+        if let Some(status) = status {
+            #[cfg(test)]
+            if env_bool("BACKGROUNDREMOVER_TEST_DELETE_CAPTURE_STDOUT_BEFORE_READ") {
+                let _ = fs::remove_file(&stdout_path);
+            }
+            let output = Output {
+                status,
+                stdout: fs::read(&stdout_path)?,
+                stderr: fs::read(&stderr_path)?,
+            };
+            return Ok(BackgroundRemoverProcessOutput::Completed(output));
+        }
+        if started.elapsed() >= timeout {
+            kill_backgroundremover_process_tree(&mut child);
+            let _ = child.wait();
+            return Ok(BackgroundRemoverProcessOutput::TimedOut);
+        }
+        let remaining = timeout.saturating_sub(started.elapsed());
+        thread::sleep(remaining.min(BACKGROUNDREMOVER_POLL_INTERVAL));
+    }
+}
+
+#[cfg(unix)]
+fn configure_backgroundremover_process_tree(process: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    process.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_backgroundremover_process_tree(_process: &mut Command) {}
+
+#[cfg(unix)]
+fn kill_backgroundremover_process_tree(child: &mut Child) {
+    if let Ok(process_group_id) = i32::try_from(child.id()) {
+        unix_process_group::kill_group(process_group_id);
+    }
+    let _ = child.kill();
+}
+
+#[cfg(unix)]
+mod unix_process_group {
+    use std::os::raw::c_int;
+
+    const SIGKILL: c_int = 9;
+
+    unsafe extern "C" {
+        #[link_name = "kill"]
+        fn unix_kill(pid: c_int, sig: c_int) -> c_int;
+    }
+
+    pub(super) fn kill_group(process_group_id: c_int) {
+        if process_group_id <= 0 {
+            return;
+        }
+        unsafe {
+            let _ = unix_kill(-process_group_id, SIGKILL);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn kill_backgroundremover_process_tree(child: &mut Child) {
+    let pid = child.id().to_string();
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid, "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let _ = child.kill();
+}
+
+#[cfg(not(any(unix, windows)))]
+fn kill_backgroundremover_process_tree(child: &mut Child) {
+    let _ = child.kill();
+}
+
+fn backgroundremover_failure_detail(output: &Output) -> String {
+    [
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    ]
+    .into_iter()
+    .filter(|value| !value.trim().is_empty())
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+fn is_corrupt_backgroundremover_model_cache(detail: &str) -> bool {
+    let detail = detail.to_ascii_lowercase();
+    [
+        "unpicklingerror",
+        "invalid load key",
+        "pickle data was truncated",
+        "pytorchstreamreader",
+        "failed finding central directory",
+        "not a zip archive",
+        "bad magic number",
+        "unexpected eof",
+        "file is corrupted",
+        "corrupt model",
+        "corrupted model",
+    ]
+    .iter()
+    .any(|pattern| detail.contains(pattern))
+}
+
+fn clear_backgroundremover_managed_model_cache(model_dir: &Path) -> AppResult<()> {
+    #[cfg(test)]
+    if env_bool("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR") {
+        return Err(AppError::new(
+            "backgroundremover_cache_clear_failed",
+            "forced managed model cache clear failure",
+        ));
+    }
+    if model_dir.exists() {
+        fs::remove_dir_all(model_dir)?;
+    }
+    fs::create_dir_all(model_dir)?;
+    Ok(())
+}
+
+fn backgroundremover_model_env_paths(model_dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
+    (
+        env::var_os("U2NET_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| model_dir.to_path_buf()),
+        env::var_os("U2NET_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| model_dir.join("u2net.pth")),
+        env::var_os("U2NETP_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| model_dir.join("u2netp.pth")),
+    )
+}
+
+fn backgroundremover_uses_managed_model_cache(model_dir: &Path) -> bool {
+    let (home, u2net, u2netp) = backgroundremover_model_env_paths(model_dir);
+    [home, u2net, u2netp]
+        .iter()
+        .any(|path| path.starts_with(model_dir))
+}
+
+fn run_backgroundremover_once(
+    command: &BackgroundRemoverCommand,
+    args: &[String],
+    model_dir: &Path,
+    output_path: &Path,
+) -> Result<Option<Vec<u8>>, BackgroundRemoverFailure> {
+    let (u2net_home, u2net_path, u2netp_path) = backgroundremover_model_env_paths(model_dir);
+    let mut process = Command::new(&command.command);
+    process.args(args).env(
+        "KMP_DUPLICATE_LIB_OK",
+        env::var("KMP_DUPLICATE_LIB_OK").unwrap_or_else(|_| "TRUE".to_string()),
+    );
+    process.env("U2NET_HOME", u2net_home);
+    process.env("U2NET_PATH", u2net_path);
+    process.env("U2NETP_PATH", u2netp_path);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        process.creation_flags(0x08000000);
+    }
+
+    match backgroundremover_process_output(process) {
+        Ok(BackgroundRemoverProcessOutput::Completed(output))
+            if output.status.success() && output_path.exists() =>
+        {
+            fs::read(output_path)
+                .map(Some)
+                .map_err(|error| BackgroundRemoverFailure {
+                    code: "backgroundremover_failed",
+                    message: error.to_string(),
+                })
+        }
+        Ok(BackgroundRemoverProcessOutput::Completed(output)) => {
+            let detail = backgroundremover_failure_detail(&output);
+            Err(BackgroundRemoverFailure {
+                code: "backgroundremover_failed",
+                message: if detail.trim().is_empty() {
+                    "backgroundremover did not write an output image".to_string()
+                } else {
+                    detail
+                },
+            })
+        }
+        Ok(BackgroundRemoverProcessOutput::TimedOut) => Err(BackgroundRemoverFailure {
+            code: "backgroundremover_timeout",
+            message: format!(
+                "backgroundremover timed out after {} ms",
+                backgroundremover_timeout().as_millis()
+            ),
+        }),
+        Err(error) => Err(BackgroundRemoverFailure {
+            code: "backgroundremover_failed",
+            message: error.to_string(),
+        }),
+    }
+}
+
 fn try_remove_background_with_backgroundremover(
     state: &AppState,
     input: &[u8],
@@ -2330,10 +2624,9 @@ fn try_remove_background_with_backgroundremover(
     let runtime_dir = background_remover_runtime_dir(state);
     let model_dir = runtime_dir.join("models");
     fs::create_dir_all(&model_dir)?;
-    let work_dir = env::temp_dir().join(format!("marinara-bgrem-{}-{}", now_millis(), new_id()));
-    fs::create_dir_all(&work_dir)?;
-    let input_path = work_dir.join("input.png");
-    let output_path = work_dir.join("output.png");
+    let work_dir = BackgroundRemoverWorkDir::create()?;
+    let input_path = work_dir.path().join("input.png");
+    let output_path = work_dir.path().join("output.png");
     let png_input = encode_png(decode_sprite_image(input)?)?;
     fs::write(&input_path, png_input)?;
 
@@ -2343,68 +2636,57 @@ fn try_remove_background_with_backgroundremover(
     args.push("-o".to_string());
     args.push(output_path.to_string_lossy().to_string());
 
-    let mut process = Command::new(&command.command);
-    process.args(args).env(
-        "KMP_DUPLICATE_LIB_OK",
-        env::var("KMP_DUPLICATE_LIB_OK").unwrap_or_else(|_| "TRUE".to_string()),
-    );
-    process.env(
-        "U2NET_HOME",
-        env::var("U2NET_HOME").unwrap_or_else(|_| model_dir.to_string_lossy().to_string()),
-    );
-    process.env(
-        "U2NET_PATH",
-        env::var("U2NET_PATH")
-            .unwrap_or_else(|_| model_dir.join("u2net.pth").to_string_lossy().to_string()),
-    );
-    process.env(
-        "U2NETP_PATH",
-        env::var("U2NETP_PATH")
-            .unwrap_or_else(|_| model_dir.join("u2netp.pth").to_string_lossy().to_string()),
-    );
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        process.creation_flags(0x08000000);
+    let mut backgroundremover_bytes = None;
+    let mut last_failure = None;
+    for attempt in 0..2 {
+        match run_backgroundremover_once(&command, &args, &model_dir, &output_path) {
+            Ok(bytes) => {
+                backgroundremover_bytes = bytes;
+                last_failure = None;
+                break;
+            }
+            Err(failure)
+                if attempt == 0
+                    && backgroundremover_uses_managed_model_cache(&model_dir)
+                    && is_corrupt_backgroundremover_model_cache(&failure.message) =>
+            {
+                log::warn!(
+                    "backgroundremover managed model cache appears corrupt; clearing {} and retrying once",
+                    model_dir.display()
+                );
+                match clear_backgroundremover_managed_model_cache(&model_dir) {
+                    Ok(()) => {
+                        last_failure = Some(failure);
+                    }
+                    Err(error) => {
+                        last_failure = Some(BackgroundRemoverFailure {
+                            code: "backgroundremover_cache_clear_failed",
+                            message: error.message,
+                        });
+                        break;
+                    }
+                }
+            }
+            Err(failure) => {
+                last_failure = Some(failure);
+                break;
+            }
+        }
+        let _ = fs::remove_file(&output_path);
     }
-    let output = process.output();
-    let result = match output {
-        Ok(output) if output.status.success() && output_path.exists() => {
-            fs::read(&output_path).map(Some).map_err(AppError::from)
+    let result = if let Some(bytes) = backgroundremover_bytes {
+        Ok(Some(bytes))
+    } else if let Some(failure) = last_failure {
+        if required || engine == "backgroundremover" {
+            Err(AppError::new(failure.code, failure.message))
+        } else {
+            Ok(None)
         }
-        Ok(output) => {
-            let detail = [
-                String::from_utf8_lossy(&output.stdout).to_string(),
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            ]
-            .into_iter()
-            .filter(|value| !value.trim().is_empty())
-            .collect::<Vec<_>>()
-            .join("\n");
-            if required || engine == "backgroundremover" {
-                Err(AppError::new(
-                    "backgroundremover_failed",
-                    if detail.trim().is_empty() {
-                        "backgroundremover did not write an output image".to_string()
-                    } else {
-                        detail
-                    },
-                ))
-            } else {
-                Ok(None)
-            }
-        }
-        Err(error) => {
-            if required || engine == "backgroundremover" {
-                Err(AppError::new("backgroundremover_failed", error.to_string()))
-            } else {
-                Ok(None)
-            }
-        }
+    } else {
+        Ok(None)
     };
     let _ = fs::remove_file(&input_path);
     let _ = fs::remove_file(&output_path);
-    let _ = fs::remove_dir_all(&work_dir);
     result
 }
 
@@ -3076,6 +3358,45 @@ mod background_remover_runtime_tests {
             .expect("test state should initialize")
     }
 
+    fn encode_test_png() -> Vec<u8> {
+        let image = RgbaImage::from_pixel(2, 2, Rgba([255, 0, 0, 255]));
+        let mut bytes = Vec::new();
+        image
+            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+            .expect("test image should encode");
+        bytes
+    }
+
+    fn write_corrupt_backgroundremover_command(root: &Path) -> PathBuf {
+        if cfg!(windows) {
+            let command = root.join("fake-backgroundremover.cmd");
+            fs::write(
+                &command,
+                "@echo _pickle.UnpicklingError: invalid load key 1>&2\r\nexit /b 1\r\n",
+            )
+            .expect("fake command should write");
+            command
+        } else {
+            let command = root.join("fake-backgroundremover.sh");
+            fs::write(
+                &command,
+                "#!/bin/sh\necho '_pickle.UnpicklingError: invalid load key' >&2\nexit 1\n",
+            )
+            .expect("fake command should write");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut permissions = fs::metadata(&command)
+                    .expect("fake command metadata")
+                    .permissions();
+                permissions.set_mode(0o755);
+                fs::set_permissions(&command, permissions)
+                    .expect("fake command should be executable");
+            }
+            command
+        }
+    }
+
     #[test]
     fn bundled_backgroundremover_is_preferred_before_env_and_path() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
@@ -3190,6 +3511,484 @@ mod background_remover_runtime_tests {
             env::set_var("PATH", value);
         } else {
             env::remove_var("PATH");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn backgroundremover_timeout_uses_env_override_and_default() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let old_timeout = env::var_os("BACKGROUNDREMOVER_TIMEOUT_MS");
+
+        env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", "1234");
+        assert_eq!(backgroundremover_timeout(), Duration::from_millis(1234));
+
+        env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", "0");
+        assert_eq!(
+            backgroundremover_timeout(),
+            Duration::from_millis(BACKGROUNDREMOVER_DEFAULT_TIMEOUT_MS)
+        );
+
+        if let Some(value) = old_timeout {
+            env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", value);
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_TIMEOUT_MS");
+        }
+    }
+
+    #[test]
+    fn backgroundremover_process_is_killed_after_timeout() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let old_timeout = env::var_os("BACKGROUNDREMOVER_TIMEOUT_MS");
+        env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", "100");
+
+        let command = if cfg!(windows) {
+            let mut command = Command::new("powershell");
+            command.args(["-NoProfile", "-Command", "Start-Sleep -Seconds 5"]);
+            command
+        } else {
+            let mut command = Command::new("sleep");
+            command.arg("5");
+            command
+        };
+        let started = Instant::now();
+        let output = backgroundremover_process_output(command).expect("process should spawn");
+
+        assert!(matches!(output, BackgroundRemoverProcessOutput::TimedOut));
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        if let Some(value) = old_timeout {
+            env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", value);
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_TIMEOUT_MS");
+        }
+    }
+
+    #[test]
+    fn backgroundremover_timeout_returns_with_descendant_output_handle_open() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let old_timeout = env::var_os("BACKGROUNDREMOVER_TIMEOUT_MS");
+        env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", "100");
+
+        let command = if cfg!(windows) {
+            let mut command = Command::new("powershell");
+            command.args([
+                "-NoProfile",
+                "-Command",
+                "Start-Process powershell -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 5' -NoNewWindow; Start-Sleep -Seconds 5",
+            ]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", "(sleep 5 >&2) & sleep 5"]);
+            command
+        };
+        let started = Instant::now();
+        let output = backgroundremover_process_output(command).expect("process should spawn");
+
+        assert!(matches!(output, BackgroundRemoverProcessOutput::TimedOut));
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        if let Some(value) = old_timeout {
+            env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", value);
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_TIMEOUT_MS");
+        }
+    }
+
+    #[test]
+    fn backgroundremover_timeout_kills_descendant_processes() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let old_timeout = env::var_os("BACKGROUNDREMOVER_TIMEOUT_MS");
+        env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", "100");
+
+        let root = temp_path("timeout-process-tree");
+        fs::create_dir_all(&root).expect("marker root");
+        let marker_path = root.join("descendant-survived.txt");
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("powershell");
+            command.args([
+                "-NoProfile",
+                "-Command",
+                "$p = [System.Diagnostics.Process]::Start('powershell', '-NoProfile -Command \"Start-Sleep -Seconds 2; Set-Content -LiteralPath $env:MARINARA_BGREM_MARKER -Value alive\"'); Start-Sleep -Seconds 5",
+            ]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args([
+                "-c",
+                "(sleep 2; printf alive > \"$MARINARA_BGREM_MARKER\") & sleep 5",
+            ]);
+            command
+        };
+        command.env("MARINARA_BGREM_MARKER", &marker_path);
+
+        let output = backgroundremover_process_output(command).expect("process should spawn");
+
+        assert!(matches!(output, BackgroundRemoverProcessOutput::TimedOut));
+        thread::sleep(Duration::from_secs(3));
+        assert!(
+            !marker_path.exists(),
+            "timeout should terminate descendant processes before they continue the cleanup job"
+        );
+
+        if let Some(value) = old_timeout {
+            env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", value);
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_TIMEOUT_MS");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn backgroundremover_process_drains_large_output_while_waiting() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let old_timeout = env::var_os("BACKGROUNDREMOVER_TIMEOUT_MS");
+        env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", "5000");
+
+        let command = if cfg!(windows) {
+            let mut command = Command::new("powershell");
+            command.args([
+                "-NoProfile",
+                "-Command",
+                "$text = 'x' * 200000; [Console]::Error.Write($text)",
+            ]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args([
+                "-c",
+                "i=0; while [ $i -lt 5000 ]; do printf 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n' >&2; i=$((i+1)); done",
+            ]);
+            command
+        };
+        let output = backgroundremover_process_output(command).expect("process should spawn");
+
+        match output {
+            BackgroundRemoverProcessOutput::Completed(output) => {
+                assert!(output.status.success());
+                assert!(output.stderr.len() >= 200_000);
+            }
+            BackgroundRemoverProcessOutput::TimedOut => {
+                panic!("large-output subprocess should not block until timeout");
+            }
+        }
+
+        if let Some(value) = old_timeout {
+            env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", value);
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_TIMEOUT_MS");
+        }
+    }
+
+    #[test]
+    fn backgroundremover_output_read_failure_cleans_capture_dir() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let old_delete_capture =
+            env::var_os("BACKGROUNDREMOVER_TEST_DELETE_CAPTURE_STDOUT_BEFORE_READ");
+        let old_tmp = env::var_os("TMP");
+        let old_temp = env::var_os("TEMP");
+        let old_tmpdir = env::var_os("TMPDIR");
+
+        let root = temp_path("capture-read-failure-cleanup");
+        let temp_root = root.join("tmp");
+        fs::create_dir_all(&temp_root).expect("temp root should exist");
+        env::set_var(
+            "BACKGROUNDREMOVER_TEST_DELETE_CAPTURE_STDOUT_BEFORE_READ",
+            "1",
+        );
+        env::set_var("TMP", &temp_root);
+        env::set_var("TEMP", &temp_root);
+        env::set_var("TMPDIR", &temp_root);
+
+        let command = if cfg!(windows) {
+            let mut command = Command::new("powershell");
+            command.args(["-NoProfile", "-Command", "Write-Output done"]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", "printf done"]);
+            command
+        };
+
+        let error = match backgroundremover_process_output(command) {
+            Ok(_) => panic!("forced capture read failure should return an error"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        let leaked_capture_dirs = fs::read_dir(&temp_root)
+            .expect("temp root should be readable")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("marinara-bgrem-output-")
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            leaked_capture_dirs.is_empty(),
+            "post-spawn output read failure should not leak capture dirs"
+        );
+
+        if let Some(value) = old_delete_capture {
+            env::set_var(
+                "BACKGROUNDREMOVER_TEST_DELETE_CAPTURE_STDOUT_BEFORE_READ",
+                value,
+            );
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_TEST_DELETE_CAPTURE_STDOUT_BEFORE_READ");
+        }
+        if let Some(value) = old_tmp {
+            env::set_var("TMP", value);
+        } else {
+            env::remove_var("TMP");
+        }
+        if let Some(value) = old_temp {
+            env::set_var("TEMP", value);
+        } else {
+            env::remove_var("TEMP");
+        }
+        if let Some(value) = old_tmpdir {
+            env::set_var("TMPDIR", value);
+        } else {
+            env::remove_var("TMPDIR");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn corrupt_backgroundremover_model_cache_errors_are_detected() {
+        assert!(is_corrupt_backgroundremover_model_cache(
+            "_pickle.UnpicklingError: invalid load key"
+        ));
+        assert!(is_corrupt_backgroundremover_model_cache(
+            "PytorchStreamReader failed finding central directory"
+        ));
+        assert!(!is_corrupt_backgroundremover_model_cache(
+            "backgroundremover did not write an output image"
+        ));
+    }
+
+    #[test]
+    fn clear_backgroundremover_managed_model_cache_removes_only_model_dir() {
+        let root = temp_path("clear-model-cache");
+        let model_dir = root.join("models");
+        let sibling_dir = root.join("other-cache");
+        fs::create_dir_all(&model_dir).expect("model dir");
+        fs::create_dir_all(&sibling_dir).expect("sibling dir");
+        fs::write(model_dir.join("u2net.pth"), b"corrupt").expect("model");
+        fs::write(sibling_dir.join("keep.txt"), b"keep").expect("sibling");
+
+        clear_backgroundremover_managed_model_cache(&model_dir).expect("cache clears");
+
+        assert!(model_dir.exists());
+        assert!(!model_dir.join("u2net.pth").exists());
+        assert!(sibling_dir.join("keep.txt").exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn backgroundremover_managed_cache_detection_respects_custom_model_paths() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let old_home = env::var_os("U2NET_HOME");
+        let old_u2net = env::var_os("U2NET_PATH");
+        let old_u2netp = env::var_os("U2NETP_PATH");
+        let root = temp_path("managed-model-env");
+        let model_dir = root.join("models");
+        let custom_dir = root.join("custom");
+
+        env::remove_var("U2NET_HOME");
+        env::remove_var("U2NET_PATH");
+        env::remove_var("U2NETP_PATH");
+        assert!(backgroundremover_uses_managed_model_cache(&model_dir));
+
+        env::set_var("U2NET_HOME", custom_dir.join("home"));
+        env::set_var("U2NET_PATH", custom_dir.join("u2net.pth"));
+        env::set_var("U2NETP_PATH", custom_dir.join("u2netp.pth"));
+        assert!(!backgroundremover_uses_managed_model_cache(&model_dir));
+
+        if let Some(value) = old_home {
+            env::set_var("U2NET_HOME", value);
+        } else {
+            env::remove_var("U2NET_HOME");
+        }
+        if let Some(value) = old_u2net {
+            env::set_var("U2NET_PATH", value);
+        } else {
+            env::remove_var("U2NET_PATH");
+        }
+        if let Some(value) = old_u2netp {
+            env::set_var("U2NETP_PATH", value);
+        } else {
+            env::remove_var("U2NETP_PATH");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn backgroundremover_cache_clear_failure_cleans_temp_work_dir() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let old_engine = env::var_os("SPRITE_BACKGROUND_REMOVAL_ENGINE");
+        let old_command = env::var_os("BACKGROUNDREMOVER_COMMAND");
+        let old_home = env::var_os("U2NET_HOME");
+        let old_u2net = env::var_os("U2NET_PATH");
+        let old_u2netp = env::var_os("U2NETP_PATH");
+        let old_fail_clear = env::var_os("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR");
+        let old_tmp = env::var_os("TMP");
+        let old_temp = env::var_os("TEMP");
+        let old_tmpdir = env::var_os("TMPDIR");
+
+        let root = temp_path("cache-clear-failure-cleanup");
+        let temp_root = root.join("tmp");
+        fs::create_dir_all(&temp_root).expect("temp root should exist");
+        let state = test_state(root.join("data"), Some(root.join("resources-root")));
+        let command = write_corrupt_backgroundremover_command(&root);
+
+        env::set_var("SPRITE_BACKGROUND_REMOVAL_ENGINE", "backgroundremover");
+        env::set_var("BACKGROUNDREMOVER_COMMAND", &command);
+        env::remove_var("U2NET_HOME");
+        env::remove_var("U2NET_PATH");
+        env::remove_var("U2NETP_PATH");
+        env::set_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR", "1");
+        env::set_var("TMP", &temp_root);
+        env::set_var("TEMP", &temp_root);
+        env::set_var("TMPDIR", &temp_root);
+
+        let error = try_remove_background_with_backgroundremover(&state, &encode_test_png(), true)
+            .expect_err("forced cache-clear failure should return an error");
+
+        assert_eq!(error.code, "backgroundremover_cache_clear_failed");
+        let leaked_work_dirs = fs::read_dir(&temp_root)
+            .expect("temp root should be readable")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("marinara-bgrem-")
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            leaked_work_dirs.is_empty(),
+            "cache-clear failure should not leak temp backgroundremover work dirs"
+        );
+
+        if let Some(value) = old_engine {
+            env::set_var("SPRITE_BACKGROUND_REMOVAL_ENGINE", value);
+        } else {
+            env::remove_var("SPRITE_BACKGROUND_REMOVAL_ENGINE");
+        }
+        if let Some(value) = old_command {
+            env::set_var("BACKGROUNDREMOVER_COMMAND", value);
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_COMMAND");
+        }
+        if let Some(value) = old_home {
+            env::set_var("U2NET_HOME", value);
+        } else {
+            env::remove_var("U2NET_HOME");
+        }
+        if let Some(value) = old_u2net {
+            env::set_var("U2NET_PATH", value);
+        } else {
+            env::remove_var("U2NET_PATH");
+        }
+        if let Some(value) = old_u2netp {
+            env::set_var("U2NETP_PATH", value);
+        } else {
+            env::remove_var("U2NETP_PATH");
+        }
+        if let Some(value) = old_fail_clear {
+            env::set_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR", value);
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR");
+        }
+        if let Some(value) = old_tmp {
+            env::set_var("TMP", value);
+        } else {
+            env::remove_var("TMP");
+        }
+        if let Some(value) = old_temp {
+            env::set_var("TEMP", value);
+        } else {
+            env::remove_var("TEMP");
+        }
+        if let Some(value) = old_tmpdir {
+            env::set_var("TMPDIR", value);
+        } else {
+            env::remove_var("TMPDIR");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn optional_backgroundremover_cache_clear_failure_falls_back() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let old_engine = env::var_os("SPRITE_BACKGROUND_REMOVAL_ENGINE");
+        let old_legacy_engine = env::var_os("BACKGROUND_REMOVAL_ENGINE");
+        let old_command = env::var_os("BACKGROUNDREMOVER_COMMAND");
+        let old_home = env::var_os("U2NET_HOME");
+        let old_u2net = env::var_os("U2NET_PATH");
+        let old_u2netp = env::var_os("U2NETP_PATH");
+        let old_fail_clear = env::var_os("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR");
+
+        let root = temp_path("optional-cache-clear-failure-fallback");
+        let state = test_state(root.join("data"), Some(root.join("resources-root")));
+        let command = write_corrupt_backgroundremover_command(&root);
+
+        env::set_var("SPRITE_BACKGROUND_REMOVAL_ENGINE", "auto");
+        env::remove_var("BACKGROUND_REMOVAL_ENGINE");
+        env::set_var("BACKGROUNDREMOVER_COMMAND", &command);
+        env::remove_var("U2NET_HOME");
+        env::remove_var("U2NET_PATH");
+        env::remove_var("U2NETP_PATH");
+        env::set_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR", "1");
+
+        let result = try_remove_background_with_backgroundremover(&state, &encode_test_png(), false)
+            .expect("optional cache-clear failure should fall back");
+
+        assert!(
+            result.is_none(),
+            "optional cache-clear failure should allow built-in fallback"
+        );
+
+        if let Some(value) = old_engine {
+            env::set_var("SPRITE_BACKGROUND_REMOVAL_ENGINE", value);
+        } else {
+            env::remove_var("SPRITE_BACKGROUND_REMOVAL_ENGINE");
+        }
+        if let Some(value) = old_legacy_engine {
+            env::set_var("BACKGROUND_REMOVAL_ENGINE", value);
+        } else {
+            env::remove_var("BACKGROUND_REMOVAL_ENGINE");
+        }
+        if let Some(value) = old_command {
+            env::set_var("BACKGROUNDREMOVER_COMMAND", value);
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_COMMAND");
+        }
+        if let Some(value) = old_home {
+            env::set_var("U2NET_HOME", value);
+        } else {
+            env::remove_var("U2NET_HOME");
+        }
+        if let Some(value) = old_u2net {
+            env::set_var("U2NET_PATH", value);
+        } else {
+            env::remove_var("U2NET_PATH");
+        }
+        if let Some(value) = old_u2netp {
+            env::set_var("U2NETP_PATH", value);
+        } else {
+            env::remove_var("U2NETP_PATH");
+        }
+        if let Some(value) = old_fail_clear {
+            env::set_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR", value);
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR");
         }
         let _ = fs::remove_dir_all(root);
     }
