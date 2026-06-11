@@ -473,6 +473,10 @@ mod tests {
         br#"<svg xmlns="http://www.w3.org/2000/svg"></svg>"#
     }
 
+    fn avif_magic_bytes() -> &'static [u8] {
+        b"\0\0\0\x18ftypavif\0\0\0\0avifmif1"
+    }
+
     fn svg_upload_body(name: &str) -> Value {
         upload_body(name, "image/svg+xml", svg_bytes())
     }
@@ -575,16 +579,19 @@ mod tests {
     }
 
     #[test]
-    fn upload_background_rejects_avif_without_writing_file_or_metadata() {
+    fn upload_background_rejects_avif_magic_bytes_without_writing_file_or_metadata() {
         let state = test_state("reject-avif-upload");
         let result = backgrounds_call(
             &state,
             "POST",
             &["upload"],
-            upload_body("wall.avif", "image/avif", svg_bytes()),
+            upload_body("wall.avif", "image/avif", avif_magic_bytes()),
         );
 
-        assert!(result.is_err(), "AVIF upload should be unsupported");
+        assert!(
+            result.is_err(),
+            "AVIF upload should fail until decoder-backed validation exists"
+        );
         assert!(
             !state.backgrounds.root().join("wall.avif").exists(),
             "unsupported AVIF upload should not be stored"
