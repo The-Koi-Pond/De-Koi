@@ -48,6 +48,7 @@ pub(super) fn message_id_projection_only(options: Option<&Value>) -> bool {
         || options.get("before").is_some()
         || options.get("orderBy").is_some()
         || options.get("fieldSelections").is_some()
+        || options.get("whereIn").is_some()
     {
         return false;
     }

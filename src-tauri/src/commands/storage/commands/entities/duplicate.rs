@@ -167,3 +167,71 @@ pub(super) fn activate_default_chat_preset_if_needed(
     )?;
     Ok(())
 }
+
+pub(super) fn delete_chat_preset_with_default_activation(
+    state: &AppState,
+    id: &str,
+) -> Result<bool, AppError> {
+    let preset_id = id.to_string();
+    state
+        .storage
+        .update_collections_atomically(vec!["chat-presets"], move |collections| {
+            let [presets] = collections else {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Chat preset delete expected chat-presets collection",
+                ));
+            };
+            if presets.collection() != "chat-presets" {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Chat preset delete received unexpected collection",
+                ));
+            }
+
+            let rows = presets.rows_mut();
+            let deleted = rows
+                .iter()
+                .find(|row| row.get("id").and_then(Value::as_str) == Some(preset_id.as_str()))
+                .cloned();
+            let Some(deleted) = deleted else {
+                return Ok(false);
+            };
+            if chat_preset_is_default(&deleted) {
+                return Err(AppError::invalid_input(
+                    "Default chat presets cannot be deleted",
+                ));
+            }
+
+            let deleted_was_active = chat_preset_is_active(&deleted);
+            let deleted_mode = deleted
+                .get("mode")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            rows.retain(|row| row.get("id").and_then(Value::as_str) != Some(preset_id.as_str()));
+
+            if deleted_was_active {
+                if let Some(default_id) = deleted_mode.as_deref().and_then(|mode| {
+                    rows.iter()
+                        .find(|row| {
+                            row.get("mode").and_then(Value::as_str) == Some(mode)
+                                && chat_preset_is_default(row)
+                        })
+                        .and_then(|row| row.get("id"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                }) {
+                    if let Some(default) = rows.iter_mut().find(|row| {
+                        row.get("id").and_then(Value::as_str) == Some(default_id.as_str())
+                    }) {
+                        let Some(object) = default.as_object_mut() else {
+                            return Err(AppError::invalid_input("Stored record is not an object"));
+                        };
+                        object.insert("isActive".to_string(), json!(true));
+                        object.insert("active".to_string(), json!(true));
+                    }
+                }
+            }
+            Ok(true)
+        })
+}

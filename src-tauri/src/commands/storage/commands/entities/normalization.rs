@@ -562,12 +562,10 @@ pub(crate) fn validate_lorebook_folder_for_patch(
         // Clearing parentFolderId moves the folder to root.
         return Ok(());
     };
-    validate_lorebook_folder_parent(
-        state,
-        lorebook_folder_lorebook_id(&existing),
-        Some(id),
-        &parent_id,
-    )
+    let lorebook_id = lorebook_folder_lorebook_id(&existing).ok_or_else(|| {
+        AppError::invalid_input("lorebookId is required when parentFolderId is set")
+    })?;
+    validate_lorebook_folder_parent(state, Some(lorebook_id), Some(id), &parent_id)
 }
 
 pub(super) fn lorebook_folder_lorebook_id(value: &Value) -> Option<String> {

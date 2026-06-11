@@ -24,10 +24,14 @@ pub(crate) fn delete_entity(
             "Protected records cannot be deleted",
         ));
     }
-    if entity == "chat-presets" && chat_preset_is_default_id(state, id)? {
-        return Err(AppError::invalid_input(
-            "Default chat presets cannot be deleted",
-        ));
+    if entity == "chat-presets" {
+        if chat_preset_is_default_id(state, id)? {
+            return Err(AppError::invalid_input(
+                "Default chat presets cannot be deleted",
+            ));
+        }
+        let deleted = delete_chat_preset_with_default_activation(state, id)?;
+        return Ok(json!({ "deleted": deleted }));
     }
     if entity == "lorebook-entries" {
         let deleted = delete_lorebook_entry_with_character_book_sync(state, id)?;
@@ -40,6 +44,13 @@ pub(crate) fn delete_entity(
     if entity == "chat-folders" {
         let deleted = delete_chat_folder_with_chat_unfile(state, id)?;
         return Ok(json!({ "deleted": deleted }));
+    }
+    if entity == "lorebooks" {
+        let deleted = delete_lorebook_with_children_and_reference_cleanup(state, id)?;
+        if let Some(record) = deleted.as_ref() {
+            remove_owned_media(state, entity, record);
+        }
+        return Ok(json!({ "deleted": deleted.is_some() }));
     }
     let existing = owned_record_for_delete(state, entity, id)?;
     let message_chat_id = if entity == "messages" {
@@ -541,6 +552,45 @@ pub(super) fn delete_lorebook_children(
     Ok(())
 }
 
+pub(super) fn delete_lorebook_with_children_and_reference_cleanup(
+    state: &AppState,
+    id: &str,
+) -> Result<Option<Value>, AppError> {
+    let lorebook_id = id.to_string();
+    state.storage.update_collections_atomically(
+        vec![
+            "lorebooks",
+            "lorebook-entries",
+            "lorebook-folders",
+            "chats",
+            "characters",
+        ],
+        move |collections| {
+            let (lorebook_rows, entry_rows, folder_rows, chat_rows, character_rows) =
+                lorebook_delete_atomic_rows(collections)?;
+            let previous = lorebook_rows
+                .iter()
+                .find(|row| row.get("id").and_then(Value::as_str) == Some(lorebook_id.as_str()))
+                .cloned();
+            if previous.is_none() {
+                return Ok(None);
+            }
+
+            lorebook_rows
+                .retain(|row| row.get("id").and_then(Value::as_str) != Some(lorebook_id.as_str()));
+            entry_rows.retain(|row| {
+                row.get("lorebookId").and_then(Value::as_str) != Some(lorebook_id.as_str())
+            });
+            folder_rows.retain(|row| {
+                row.get("lorebookId").and_then(Value::as_str) != Some(lorebook_id.as_str())
+            });
+            clear_deleted_lorebook_from_chat_rows_in_place(chat_rows, &lorebook_id)?;
+            clear_deleted_lorebook_from_character_rows_in_place(character_rows, &lorebook_id)?;
+            Ok(previous)
+        },
+    )
+}
+
 pub(super) fn lorebook_entry_lorebook_id(entry: &Value) -> Option<&str> {
     entry
         .get("lorebookId")
@@ -849,6 +899,36 @@ pub(super) fn lorebook_metadata_atomic_rows(
         _ => Err(AppError::new(
             "storage_error",
             "Lorebook metadata sync received unexpected collections",
+        )),
+    }
+}
+
+pub(super) fn lorebook_delete_atomic_rows(
+    collections: &mut [marinara_storage::AtomicCollectionRows],
+) -> Result<LorebookDeleteAtomicRows<'_>, AppError> {
+    let [lorebooks, entries, folders, chats, characters] = collections else {
+        return Err(AppError::new(
+            "storage_error",
+            "Lorebook delete expected lorebook, entry, folder, chat, and character collections",
+        ));
+    };
+    match (
+        lorebooks.collection(),
+        entries.collection(),
+        folders.collection(),
+        chats.collection(),
+        characters.collection(),
+    ) {
+        ("lorebooks", "lorebook-entries", "lorebook-folders", "chats", "characters") => Ok((
+            lorebooks.rows_mut(),
+            entries.rows_mut(),
+            folders.rows_mut(),
+            chats.rows_mut(),
+            characters.rows_mut(),
+        )),
+        _ => Err(AppError::new(
+            "storage_error",
+            "Lorebook delete received unexpected collections",
         )),
     }
 }
@@ -1165,6 +1245,43 @@ pub(super) fn clear_deleted_lorebook_from_chats(
     Ok(())
 }
 
+pub(super) fn clear_deleted_lorebook_from_chat_rows_in_place(
+    chat_rows: &mut [Value],
+    lorebook_id: &str,
+) -> Result<(), AppError> {
+    for chat in chat_rows.iter_mut() {
+        let mut patch = Map::new();
+        if let Some(active_ids) =
+            remove_string_from_json_array(chat.get("activeLorebookIds"), lorebook_id)
+        {
+            patch.insert("activeLorebookIds".to_string(), active_ids);
+        }
+
+        let mut metadata = chat
+            .get("metadata")
+            .and_then(|value| shared::json_object_value(Some(value)))
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default();
+        if let Some(active_ids) =
+            remove_string_from_json_array(metadata.get("activeLorebookIds"), lorebook_id)
+        {
+            metadata.insert("activeLorebookIds".to_string(), active_ids);
+            patch.insert("metadata".to_string(), Value::Object(metadata));
+        }
+
+        if patch.is_empty() {
+            continue;
+        }
+        let Some(object) = chat.as_object_mut() else {
+            return Err(AppError::invalid_input("Stored record is not an object"));
+        };
+        for (key, value) in patch {
+            object.insert(key, value);
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn embedded_lorebook_id(data: &Value) -> Option<&str> {
     data.pointer("/extensions/importMetadata/embeddedLorebook/lorebookId")
         .and_then(Value::as_str)
@@ -1195,6 +1312,33 @@ pub(super) fn clear_deleted_lorebook_from_characters(
         state
             .storage
             .patch("characters", character_id, json!({ "data": data }))?;
+    }
+    Ok(())
+}
+
+pub(super) fn clear_deleted_lorebook_from_character_rows_in_place(
+    character_rows: &mut [Value],
+    lorebook_id: &str,
+) -> Result<(), AppError> {
+    for character in character_rows.iter_mut() {
+        let mut data = character.get("data").cloned().unwrap_or_else(|| json!({}));
+        if embedded_lorebook_id(&data) != Some(lorebook_id) {
+            continue;
+        }
+        let Some(data_object) = data.as_object_mut() else {
+            continue;
+        };
+        data_object.insert("character_book".to_string(), Value::Null);
+        if let Some(import_metadata) = data
+            .pointer_mut("/extensions/importMetadata")
+            .and_then(Value::as_object_mut)
+        {
+            import_metadata.remove("embeddedLorebook");
+        }
+        let Some(object) = character.as_object_mut() else {
+            return Err(AppError::invalid_input("Stored record is not an object"));
+        };
+        object.insert("data".to_string(), data);
     }
     Ok(())
 }

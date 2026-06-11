@@ -12,6 +12,13 @@ use tauri::State;
 
 type LorebookEntryAtomicRows<'a> = (&'a mut Vec<Value>, &'a mut Vec<Value>);
 type LorebookMetadataAtomicRows<'a> = (&'a mut Vec<Value>, &'a mut Vec<Value>, &'a mut Vec<Value>);
+type LorebookDeleteAtomicRows<'a> = (
+    &'a mut Vec<Value>,
+    &'a mut Vec<Value>,
+    &'a mut Vec<Value>,
+    &'a mut Vec<Value>,
+    &'a mut Vec<Value>,
+);
 type LorebookFolderDeleteAtomicRows<'a> =
     (&'a mut Vec<Value>, &'a mut Vec<Value>, &'a mut Vec<Value>);
 type ChatFolderDeleteAtomicRows<'a> = (&'a mut Vec<Value>, &'a mut Vec<Value>);
@@ -2009,6 +2016,44 @@ mod tests {
     }
 
     #[test]
+    fn storage_list_where_in_message_id_projection_honors_filter() {
+        let state = test_state("where-in-message-id-projection");
+        state
+            .storage
+            .replace_all(
+                "messages",
+                vec![
+                    json!({ "id": "message-a", "chatId": "chat-1", "createdAt": "2026-01-01T00:00:00Z" }),
+                    json!({ "id": "message-b", "chatId": "chat-1", "createdAt": "2026-01-02T00:00:00Z" }),
+                    json!({ "id": "message-c", "chatId": "chat-2", "createdAt": "2026-01-03T00:00:00Z" }),
+                ],
+            )
+            .expect("messages should seed");
+
+        let result = storage_list_inner(
+            &state,
+            "messages".to_string(),
+            Some(json!({
+                "whereIn": {
+                    "field": "id",
+                    "values": ["message-b"]
+                },
+                "fields": ["id"]
+            })),
+        )
+        .expect("whereIn id projection should list matching message ids");
+
+        assert_eq!(result, json!([{ "id": "message-b" }]));
+        assert!(!message_id_projection_only(Some(&json!({
+            "whereIn": {
+                "field": "id",
+                "values": ["message-b"]
+            },
+            "fields": ["id"]
+        }))));
+    }
+
+    #[test]
     fn lorebook_entries_list_by_lorebook_ids_reads_matching_books_once() {
         let state = test_state("lorebook-entries-where-in");
         state
@@ -2756,6 +2801,54 @@ mod tests {
         .expect("matching child ownership should allow nested create");
         assert_eq!(created["parentFolderId"], "parent");
         assert_eq!(created["lorebookId"], "book");
+    }
+
+    #[test]
+    fn lorebook_folder_patch_requires_child_ownership_for_parent() {
+        let state = test_state("lorebook-folder-patch-parent-ownership");
+        create_lorebook(&state, "book");
+        create_lorebook_folder(&state, "parent", "book", None, None);
+        create_record(
+            &state,
+            "lorebook-folders",
+            json!({ "id": "ownerless", "name": "Ownerless" }),
+        );
+        create_record(
+            &state,
+            "lorebook-folders",
+            json!({ "id": "blank-owner", "name": "Blank", "lorebookId": "   " }),
+        );
+        create_lorebook_folder(&state, "child", "book", None, None);
+
+        assert!(
+            storage_update_inner(
+                &state,
+                "lorebook-folders".to_string(),
+                "ownerless".to_string(),
+                json!({ "parentFolderId": "parent" }),
+            )
+            .is_err(),
+            "an ownerless existing folder cannot prove parent ownership"
+        );
+        assert!(
+            storage_update_inner(
+                &state,
+                "lorebook-folders".to_string(),
+                "blank-owner".to_string(),
+                json!({ "parentFolderId": "parent" }),
+            )
+            .is_err(),
+            "a blank-owner existing folder cannot prove parent ownership"
+        );
+
+        let moved = storage_update_inner(
+            &state,
+            "lorebook-folders".to_string(),
+            "child".to_string(),
+            json!({ "parentFolderId": "parent" }),
+        )
+        .expect("matching folder ownership should allow parent patch");
+        assert_eq!(moved["parentFolderId"], "parent");
     }
 
     #[test]
