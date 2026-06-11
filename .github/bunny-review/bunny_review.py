@@ -133,6 +133,16 @@ def truncate(text, limit):
     )
 
 
+def truncate_to_budget(text, limit):
+    if limit <= 0:
+        return ""
+    if len(text) <= limit:
+        return text
+    suffix = f"\n\n[truncated: section was {len(text)} chars, budget is {limit} chars]\n"
+    keep = max(0, limit - len(suffix))
+    return text[:keep].rstrip() + suffix
+
+
 def redact_for_model(text):
     text = str(text or "")
     text = SECRET_VALUE_RE.sub(lambda match: match.group(1) + match.group(2) + "[REDACTED]", text)
@@ -522,9 +532,6 @@ def build_global_review_context(base, files, *, compact=False):
         else MAX_GLOBAL_REVIEW_CONTEXT_CHARS
     )
     sections = [
-        ("diff stat", run_git(["diff", "--stat", f"{base}...HEAD"], 20_000)),
-        ("changed files", "\n".join(files) or "No changed files reported."),
-        ("numstat", run_git(["diff", "--numstat", f"{base}...HEAD"], 20_000)),
         ("file relationship map", build_global_file_map(base, files, compact=compact)),
     ]
     body = "\n\n".join(f"## {title}\n{redact_for_model(text)}" for title, text in sections)
@@ -558,6 +565,30 @@ def print_packet_section_telemetry(sections, *, compact):
     )
 
 
+def format_packet_section(title, body):
+    return f"## {title}\n```text\n{redact_for_model(body)}\n```"
+
+
+def format_packet_sections(sections):
+    return "\n\n".join(format_packet_section(title, body) for title, body in sections)
+
+
+def append_optional_global_context(sections, global_context):
+    if not global_context:
+        return
+    packet_so_far = format_packet_sections(sections)
+    section_title = "PR global review map"
+    section_overhead = len(format_packet_section(section_title, ""))
+    join_overhead = 2 if packet_so_far else 0
+    remaining = MAX_REVIEW_PACKET_CHARS - len(packet_so_far) - section_overhead - join_overhead
+    omitted = (
+        "Omitted because required focus-file patch context, path rules, CI, and "
+        "guidance consumed the packet budget."
+    )
+    if remaining >= len(omitted):
+        sections.append((section_title, truncate_to_budget(global_context, remaining)))
+
+
 def build_review_packet(
     base,
     ci_status,
@@ -589,10 +620,6 @@ def build_review_packet(
         ("diff stat", run_git(["diff", "--stat", f"{base}...HEAD"], 20_000)),
         ("changed files", "\n".join(files) or "No changed files reported."),
         ("numstat", run_git(["diff", "--numstat", f"{base}...HEAD"], 20_000)),
-    ]
-    if global_context:
-        sections.append(("PR global review map", global_context))
-    sections.extend([
         ("focus files", "\n".join(context_files) or "All changed files."),
         (
             "patch overview",
@@ -615,7 +642,7 @@ def build_review_packet(
             ),
         ),
         ("Bunny path rules", matching_path_rules(files)),
-    ])
+    ]
     if ci_status:
         sections.append(("CI status", ci_status))
     for path in select_guidance(files):
@@ -632,12 +659,11 @@ def build_review_packet(
         except Exception as exc:
             sections.append((f"guidance: {path}", f"Could not read: {exc}"))
 
+    append_optional_global_context(sections, global_context)
     print_packet_section_telemetry(sections, compact=compact)
-    packet = "\n\n".join(
-        f"## {title}\n```text\n{redact_for_model(body)}\n```" for title, body in sections
-    )
+    packet = format_packet_sections(sections)
     if len(packet) > MAX_REVIEW_PACKET_CHARS:
-        packet = truncate(packet, MAX_REVIEW_PACKET_CHARS)
+        packet = truncate_to_budget(packet, MAX_REVIEW_PACKET_CHARS)
     return packet
 
 
@@ -2344,11 +2370,12 @@ def produce_review(args):
             focus_note = (
                 f"This is chunk {index} of {len(chunks)}. Review only these focus files: "
                 + ", ".join(chunk)
-                + ". The packet also includes a PR global review map for every changed "
-                "file so sibling wiring, extracted implementations, and adjacent "
-                "contracts are visible while this pass cites findings only on focus-file "
-                "diff lines. Request extra context only for a concrete suspected defect "
-                "that the global map and focused patch cannot validate."
+                + ". When packet budget permits, the packet also includes a PR global "
+                "review map for every changed file so sibling wiring, extracted "
+                "implementations, and adjacent contracts are visible while this pass "
+                "cites findings only on focus-file diff lines. Request extra context "
+                "only for a concrete suspected defect that the global map and focused "
+                "patch cannot validate."
             )
             try:
                 chunk_reviews.append(
