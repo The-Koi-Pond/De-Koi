@@ -151,9 +151,13 @@ export function useExportSpritesArchive() {
   return useMutation({
     mutationFn: (variables: SpriteOwnerVariables & { expressions?: string[] }) => {
       const owner = getSpriteOwner(variables);
+      if (variables.expressions?.length === 0) {
+        throw new Error("No sprites selected.");
+      }
+      const body = variables.expressions === undefined ? {} : { expressions: variables.expressions };
       return spriteApi.exportArchive<SpriteArchiveExportResult>(
         owner.id,
-        { expressions: variables.expressions ?? [] },
+        body,
         { ownerType: owner.type },
       );
     },

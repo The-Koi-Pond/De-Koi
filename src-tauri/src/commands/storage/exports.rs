@@ -341,6 +341,7 @@ pub(crate) fn export_sprite_archive(
     let owner_kind = SpriteExportOwnerKind::from_request(owner_type)?;
     validate_export_path_segment(id, owner_kind.id_label())?;
 
+    let expressions_was_supplied = body.get("expressions").is_some();
     let requested_expressions = string_array_from_value(body.get("expressions"))
         .into_iter()
         .filter_map(|value| {
@@ -357,8 +358,13 @@ pub(crate) fn export_sprite_archive(
         .map(|(_, normalized)| normalized.clone())
         .collect::<HashSet<_>>();
     let mut seen_filenames = HashSet::new();
+    let mut seen_archive_filenames = HashSet::new();
     let mut exported_expressions = HashSet::new();
     let mut files = Vec::new();
+
+    if expressions_was_supplied && requested_expressions.is_empty() {
+        return Err(AppError::invalid_input("No sprites selected"));
+    }
 
     for dir in sprite_dirs_for_owner(state, id, owner_kind) {
         if !dir.is_dir() {
@@ -382,8 +388,13 @@ pub(crate) fn export_sprite_archive(
             if !seen_filenames.insert(filename.to_ascii_lowercase()) {
                 continue;
             }
+            let archive_filename = unique_safe_sprite_archive_filename(
+                &mut seen_archive_filenames,
+                filename,
+                expression,
+            );
             exported_expressions.insert(expression.to_ascii_lowercase());
-            files.push((filename.to_string(), expression.to_string(), path));
+            files.push((archive_filename, expression.to_string(), path));
         }
     }
 
@@ -1289,6 +1300,37 @@ fn safe_export_name(name: &str, fallback: &str) -> String {
     }
 }
 
+fn safe_sprite_archive_filename(filename: &str, fallback_stem: &str) -> String {
+    let trimmed = filename.trim();
+    let (stem, extension) = trimmed
+        .rsplit_once('.')
+        .filter(|(stem, extension)| !stem.is_empty() && !extension.is_empty())
+        .unwrap_or((trimmed, "png"));
+    let safe_fallback_stem = safe_export_name(fallback_stem, "sprite");
+    let safe_stem = safe_export_name(stem, &safe_fallback_stem);
+    let safe_extension = safe_export_name(extension, "png").to_ascii_lowercase();
+    format!("{safe_stem}.{safe_extension}")
+}
+
+fn unique_safe_sprite_archive_filename(
+    seen: &mut HashSet<String>,
+    filename: &str,
+    fallback_stem: &str,
+) -> String {
+    let safe_filename = safe_sprite_archive_filename(filename, fallback_stem);
+    let (stem, extension) = safe_filename
+        .rsplit_once('.')
+        .map(|(stem, extension)| (stem.to_string(), extension.to_string()))
+        .unwrap_or_else(|| (safe_filename.clone(), "png".to_string()));
+    let mut candidate = safe_filename;
+    let mut suffix = 2usize;
+    while !seen.insert(candidate.to_ascii_lowercase()) {
+        candidate = format!("{stem}-{suffix}.{extension}");
+        suffix += 1;
+    }
+    candidate
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1340,8 +1382,10 @@ mod tests {
             .expect("character should be created");
         let sprite_dir = state.data_dir.join("sprites").join("character-1");
         fs::create_dir_all(&sprite_dir).expect("sprite dir should be created");
-        fs::write(sprite_dir.join("happy.png"), [1_u8, 2, 3, 4]).expect("happy sprite should be written");
-        fs::write(sprite_dir.join("sad.webp"), [5_u8, 6, 7, 8]).expect("sad sprite should be written");
+        fs::write(sprite_dir.join("happy.png"), [1_u8, 2, 3, 4])
+            .expect("happy sprite should be written");
+        fs::write(sprite_dir.join("sad.webp"), [5_u8, 6, 7, 8])
+            .expect("sad sprite should be written");
 
         let export = export_sprite_archive(
             &state,
@@ -1383,7 +1427,8 @@ mod tests {
         let state = test_state("sprite-archive-missing");
         let sprite_dir = state.data_dir.join("sprites").join("character-1");
         fs::create_dir_all(&sprite_dir).expect("sprite dir should be created");
-        fs::write(sprite_dir.join("happy.png"), [1_u8, 2, 3, 4]).expect("happy sprite should be written");
+        fs::write(sprite_dir.join("happy.png"), [1_u8, 2, 3, 4])
+            .expect("happy sprite should be written");
 
         let error = export_sprite_archive(
             &state,
@@ -1395,6 +1440,111 @@ mod tests {
 
         assert_eq!(error.code, "not_found");
         assert!(error.message.contains("sad"));
+    }
+
+    #[test]
+    fn sprite_archive_rejects_explicit_empty_requested_sprites() {
+        let state = test_state("sprite-archive-empty-selection");
+        let sprite_dir = state.data_dir.join("sprites").join("character-1");
+        fs::create_dir_all(&sprite_dir).expect("sprite dir should be created");
+        fs::write(sprite_dir.join("happy.png"), [1_u8, 2, 3, 4])
+            .expect("happy sprite should be written");
+
+        let error = export_sprite_archive(
+            &state,
+            "character-1",
+            json!({ "expressions": [] }),
+            Some("character"),
+        )
+        .expect_err("explicit empty expression selection should fail the export");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("No sprites selected"));
+    }
+
+    #[test]
+    fn sprite_archive_omitted_expressions_exports_all_sprites() {
+        let state = test_state("sprite-archive-all");
+        let sprite_dir = state.data_dir.join("sprites").join("character-1");
+        fs::create_dir_all(&sprite_dir).expect("sprite dir should be created");
+        fs::write(sprite_dir.join("happy.png"), [1_u8, 2, 3, 4])
+            .expect("happy sprite should be written");
+        fs::write(sprite_dir.join("sad.png"), [5_u8, 6, 7, 8])
+            .expect("sad sprite should be written");
+
+        let export = export_sprite_archive(&state, "character-1", json!({}), Some("character"))
+            .expect("omitted expressions should export all sprites");
+        let bytes = general_purpose::STANDARD
+            .decode(export.get("base64").and_then(Value::as_str).unwrap())
+            .expect("zip payload should be valid base64");
+        let mut archive = ZipArchive::new(Cursor::new(bytes)).expect("payload should be a zip");
+
+        assert!(archive.by_name("character-1/happy.png").is_ok());
+        assert!(archive.by_name("character-1/sad.png").is_ok());
+    }
+
+    #[test]
+    fn sprite_archive_sanitizes_manifest_and_zip_entry_paths() {
+        let state = test_state("sprite-archive-safe-paths");
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "character-1",
+                    "name": "Safe Koi",
+                    "data": { "name": "Safe Koi" }
+                }),
+            )
+            .expect("character should be created");
+        let sprite_dir = state.data_dir.join("sprites").join("character-1");
+        fs::create_dir_all(&sprite_dir).expect("sprite dir should be created");
+        fs::write(sprite_dir.join("bad name.png"), [1_u8, 2, 3, 4])
+            .expect("sprite with a space should be written");
+
+        let export = export_sprite_archive(
+            &state,
+            "character-1",
+            json!({ "expressions": ["bad name"] }),
+            Some("character"),
+        )
+        .expect("sprite archive should export");
+        let bytes = general_purpose::STANDARD
+            .decode(export.get("base64").and_then(Value::as_str).unwrap())
+            .expect("zip payload should be valid base64");
+        let mut archive = ZipArchive::new(Cursor::new(bytes)).expect("payload should be a zip");
+        let mut manifest_text = String::new();
+        archive
+            .by_name("manifest.json")
+            .expect("manifest should be archived")
+            .read_to_string(&mut manifest_text)
+            .expect("manifest should be readable");
+        let manifest: Value =
+            serde_json::from_str(&manifest_text).expect("manifest should be JSON");
+        let sprite = manifest
+            .get("sprites")
+            .and_then(Value::as_array)
+            .and_then(|sprites| sprites.first())
+            .expect("manifest should list one sprite");
+
+        assert_eq!(
+            safe_sprite_archive_filename("..\\evil.png", "evil"),
+            "evil.png"
+        );
+        assert_eq!(
+            safe_sprite_archive_filename("..\\.png", "..\\evil"),
+            "evil.png"
+        );
+        assert_eq!(
+            sprite.get("filename").and_then(Value::as_str),
+            Some("bad_name.png")
+        );
+        assert_eq!(
+            sprite.get("path").and_then(Value::as_str),
+            Some("Safe_Koi/bad_name.png")
+        );
+        assert!(archive.by_name("Safe_Koi/bad_name.png").is_ok());
+        assert!(archive.by_name("Safe_Koi/bad name.png").is_err());
     }
 
     #[test]
