@@ -1721,7 +1721,7 @@ function fallbackSystemPrompt(
 
   if (mode === "game") {
     return [
-      "You are Marinara's Game Master. Run the game as a structured campaign, not as a normal chat or roleplay scene.",
+      "You are De-Koi's Game Master. Run the game as a structured campaign, not as a normal chat or roleplay scene.",
       "Narrate clear consequences, keep party members distinct, preserve game mechanics, and emit game tags when state, inventory, quests, encounters, music, or scene assets should change.",
       renderJsonBlock("Game setup", meta.gameSetupConfig),
       renderJsonBlock("Game state", input.chat.gameState ?? meta.gameState),
@@ -2667,7 +2667,7 @@ function buildConversationCommandBlock(
   const canSpotify =
     spotifyPlaybackAvailable && commandCapabilityEnabled(capabilities, ["spotify", "canSpotify", "canPlaySpotify"]);
   const instructions = [
-    "When useful, append one hidden command tag after the visible reply. Hidden tags are parsed by Marinara and stripped before the user sees the message. Never describe the tag in visible prose.",
+    "When useful, append one hidden command tag after the visible reply. Hidden tags are parsed by De-Koi and stripped before the user sees the message. Never describe the tag in visible prose.",
     hasSchedules
       ? '- Update availability with [schedule_update: status="online|idle|dnd|offline", activity="short activity"] when the character is correcting their current status or plans.'
       : "",

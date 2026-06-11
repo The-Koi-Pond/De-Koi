@@ -1020,7 +1020,7 @@ function skippedDanglingConnectionResult(agent: JsonRecord, connectionId: string
     tokensUsed: 0,
     durationMs: 0,
     success: false,
-    error: `${name} references an API connection that no longer exists. Marinara skipped this agent for this turn. Open Agent settings and choose a valid connection.`,
+    error: `${name} references an API connection that no longer exists. De-Koi skipped this agent for this turn. Open Agent settings and choose a valid connection.`,
   };
 }
 

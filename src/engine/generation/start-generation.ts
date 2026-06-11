@@ -467,7 +467,7 @@ function mirrorDiscordMessage(args: {
   } = {
     webhookUrl,
     content,
-    username: limitedDiscordName(args.username, "Marinara"),
+    username: limitedDiscordName(args.username, "De-Koi"),
   };
   if (args.avatarUrl) payload.avatarUrl = args.avatarUrl;
   void args.integrations.discord.mirrorMessage(payload).catch((error) => {
