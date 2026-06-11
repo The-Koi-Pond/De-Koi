@@ -106,14 +106,17 @@ function normalizeQuestObjectives(
 function normalizeQuestProgressRows(quests: readonly Partial<QuestProgress>[] | null | undefined): QuestProgress[] {
   return (quests ?? []).map((quest) => {
     const name = readString(quest.name) || "Quest";
+    const description = readString(quest.description);
+    const rewards = readStringList(quest.rewards);
+    const notes = readString(quest.notes);
     return {
       questEntryId: readString(quest.questEntryId) || makeManualTrackerRowId(),
       name,
-      ...(readString(quest.description) ? { description: readString(quest.description) } : {}),
+      ...(description ? { description } : {}),
       currentStage: typeof quest.currentStage === "number" && Number.isFinite(quest.currentStage) ? quest.currentStage : 0,
       objectives: normalizeQuestObjectives(quest.objectives),
-      ...(readStringList(quest.rewards) ? { rewards: readStringList(quest.rewards) } : {}),
-      ...(readString(quest.notes) ? { notes: readString(quest.notes) } : {}),
+      ...(rewards ? { rewards } : {}),
+      ...(notes ? { notes } : {}),
       completed: quest.completed === true,
     };
   });

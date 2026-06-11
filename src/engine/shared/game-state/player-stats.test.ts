@@ -58,4 +58,70 @@ describe("applyQuestUpdatesToPlayerStats", () => {
       ],
     });
   });
+
+  it("preserves generated quest metadata when updating an existing quest", () => {
+    const result = applyQuestUpdatesToPlayerStats(
+      {
+        ...emptyPlayerStats(),
+        activeQuests: [
+          {
+            questEntryId: "river-shrine",
+            name: "Restore the River Shrine",
+            currentStage: 0,
+            objectives: [],
+            completed: false,
+          },
+        ],
+      },
+      [
+        {
+          action: "update",
+          questName: "river-shrine",
+          description: "The shrine can be saved if the sluice is repaired.",
+          rewards: ["Moonstone charm"],
+          notes: "The old sluice gate is the real blocker.",
+        },
+      ],
+    );
+
+    expect(result.playerStats.activeQuests[0]).toMatchObject({
+      questEntryId: "river-shrine",
+      description: "The shrine can be saved if the sluice is repaired.",
+      rewards: ["Moonstone charm"],
+      notes: "The old sluice gate is the real blocker.",
+      completed: false,
+    });
+  });
+
+  it("preserves generated quest metadata when completing an existing quest", () => {
+    const result = applyQuestUpdatesToPlayerStats(
+      {
+        ...emptyPlayerStats(),
+        activeQuests: [
+          {
+            questEntryId: "river-shrine",
+            name: "Restore the River Shrine",
+            currentStage: 0,
+            objectives: [],
+            completed: false,
+          },
+        ],
+      },
+      [
+        {
+          action: "complete",
+          questName: "river-shrine",
+          rewards: ["Village renown"],
+          notes: "The village celebrates the restored water flow.",
+        },
+      ],
+    );
+
+    expect(result.playerStats.activeQuests[0]).toMatchObject({
+      questEntryId: "river-shrine",
+      rewards: ["Village renown"],
+      notes: "The village celebrates the restored water flow.",
+      completed: true,
+    });
+  });
 });
