@@ -1,4 +1,5 @@
 import { invokeTauri } from "./tauri-client";
+import { invalidateRemoteManagedAssetObjectUrlsAfter } from "./local-file-api";
 
 export const connectionCommandApi = {
   test: <T = unknown>(id: string) => invokeTauri<T>("connection_test", { id }),
@@ -9,6 +10,11 @@ export const connectionCommandApi = {
   models: <T = unknown>(id: string) => invokeTauri<T>("connection_models", { id }),
   saveDefaultParameters: (id: string, params: Record<string, unknown> | null) =>
     invokeTauri("connection_save_default_parameters", { id, params }),
+  uploadImage: <T = unknown>(id: string, image: string, filename?: string) =>
+    invalidateRemoteManagedAssetObjectUrlsAfter(
+      invokeTauri<T>("connection_image_upload", { id, body: { image, filename } }),
+      "entity-image",
+    ),
   reorderFolders: <T = unknown>(orderedIds: string[]) =>
     invokeTauri<T>("connection_folder_reorder", { orderedIds }),
   move: <T = unknown>(connectionId: string, folderId: string | null) =>

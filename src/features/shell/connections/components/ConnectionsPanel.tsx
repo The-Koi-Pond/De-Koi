@@ -1,13 +1,15 @@
 // ──────────────────────────────────────────────
 // Panel: API Connections (polished, with folders)
 // ──────────────────────────────────────────────
-import { useState, useEffect, useMemo } from "react";
+import { useCallback, useState, useEffect, useMemo, useRef, type ChangeEvent } from "react";
+import { toast } from "sonner";
 import { Reorder, useDragControls } from "framer-motion";
 import {
   isSyntheticConnection,
   useConnections,
   useDuplicateConnection,
   useDeleteConnection,
+  useUploadConnectionImage,
   useUpdateConnection,
 } from "../../../catalog/connections";
 import {
@@ -28,6 +30,7 @@ import {
   Plus,
   Trash2,
   Link,
+  Camera,
   Check,
   Shuffle,
   ExternalLink,
@@ -40,6 +43,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
+import { resolveEntityImageUrl } from "../../../../shared/api/local-file-api";
 import { boolish } from "../../../../engine/generation/runtime-records";
 import { TTSConfigCard } from "../../../shell/settings/index";
 
@@ -67,6 +71,8 @@ type ConnectionRowData = {
   name: string;
   provider: string;
   model: string;
+  imagePath?: string | null;
+  imageFilename?: string | null;
   useForRandom?: string | boolean | null;
   folderId?: string | null;
 };
@@ -76,12 +82,14 @@ function ConnectionRow({
   isSelected,
   onClickRow,
   onMove,
+  onImagePick,
   showMoveButton,
 }: {
   conn: ConnectionRowData;
   isSelected: boolean;
   onClickRow: () => void;
   onMove: () => void;
+  onImagePick: () => void;
   showMoveButton: boolean;
 }) {
   const duplicateConnection = useDuplicateConnection();
@@ -91,6 +99,23 @@ function ConnectionRow({
 
   const inRandomPool = boolish(conn.useForRandom, false);
   const colors = PROVIDER_COLORS[conn.provider] ?? DEFAULT_COLOR;
+  const [resolvedImagePath, setResolvedImagePath] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setResolvedImagePath(null);
+    if (!conn.imagePath && !conn.imageFilename) return;
+    resolveEntityImageUrl("connections", conn.imagePath, conn.imageFilename)
+      .then((url) => {
+        if (!cancelled) setResolvedImagePath(url);
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedImagePath(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conn.imageFilename, conn.imagePath]);
 
   return (
     <div
@@ -100,14 +125,26 @@ function ConnectionRow({
         isSelected && `ring-1 ${colors.ring} bg-[var(--sidebar-accent)]/50`,
       )}
     >
-      <div
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onImagePick();
+        }}
         className={cn(
-          "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm",
-          colors.from,
-          colors.to,
+          "relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl text-white shadow-sm transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-sky-400/50",
+          resolvedImagePath ? "bg-[var(--muted)]" : "bg-gradient-to-br",
+          !resolvedImagePath && colors.from,
+          !resolvedImagePath && colors.to,
         )}
+        title={conn.imagePath ? "Replace connection picture" : "Upload connection picture"}
+        aria-label={conn.imagePath ? "Replace connection picture" : "Upload connection picture"}
       >
-        <Link size="1rem" />
+        {resolvedImagePath ? (
+          <img src={resolvedImagePath} alt="" className="h-full w-full object-cover" draggable={false} />
+        ) : (
+          <Link size="1rem" />
+        )}
         {isSelected && (
           <div
             className={cn(
@@ -118,7 +155,10 @@ function ConnectionRow({
             <Check size="0.625rem" className="text-white" />
           </div>
         )}
-      </div>
+        <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+          <Camera size="0.875rem" />
+        </span>
+      </button>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium" title={conn.name}>
           {conn.name}
@@ -332,6 +372,9 @@ export function ConnectionsPanel() {
   const deleteFolderMut = useDeleteConnectionFolder();
   const reorderFoldersMut = useReorderConnectionFolders();
   const moveConnectionMut = useMoveConnection();
+  const uploadConnectionImage = useUploadConnectionImage();
+  const connectionImageInputRef = useRef<HTMLInputElement>(null);
+  const connectionImageTargetIdRef = useRef<string | null>(null);
 
   // Folder UI state
   const [creatingFolder, setCreatingFolder] = useState(false);
@@ -420,6 +463,50 @@ export function ConnectionsPanel() {
     setMovingConnectionId(null);
   };
 
+  const handlePickConnectionImage = useCallback((connectionId: string) => {
+    connectionImageTargetIdRef.current = connectionId;
+    if (connectionImageInputRef.current) {
+      connectionImageInputRef.current.value = "";
+      connectionImageInputRef.current.click();
+    }
+  }, []);
+
+  const handleConnectionImageSelected = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      const connectionId = connectionImageTargetIdRef.current;
+      if (!file || !connectionId) return;
+      if (!file.type.startsWith("image/")) {
+        connectionImageTargetIdRef.current = null;
+        toast.error("Choose an image file for the connection picture");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const image = typeof reader.result === "string" ? reader.result : "";
+        if (!image) {
+          toast.error("Could not read that image");
+          return;
+        }
+        try {
+          await uploadConnectionImage.mutateAsync({ id: connectionId, image, filename: file.name });
+          toast.success("Connection picture updated");
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "Failed to upload connection picture");
+        } finally {
+          connectionImageTargetIdRef.current = null;
+        }
+      };
+      reader.onerror = () => {
+        connectionImageTargetIdRef.current = null;
+        toast.error("Could not read that image");
+      };
+      reader.readAsDataURL(file);
+    },
+    [uploadConnectionImage],
+  );
+
   const renderConnectionRow = (conn: ConnectionRowData) => {
     const isSelected = activeConnectionId === conn.id;
     return (
@@ -429,6 +516,7 @@ export function ConnectionsPanel() {
         isSelected={isSelected}
         onClickRow={() => openConnectionDetail(conn.id)}
         onMove={() => setMovingConnectionId(conn.id)}
+        onImagePick={() => handlePickConnectionImage(conn.id)}
         showMoveButton={sortedFolders.length > 0}
       />
     );
@@ -440,6 +528,14 @@ export function ConnectionsPanel() {
 
   return (
     <div className="flex flex-col gap-2 p-3">
+      <input
+        ref={connectionImageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleConnectionImageSelected}
+      />
+
       <button
         onClick={() => openModal("create-connection")}
         className="flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-medium transition-all active:scale-[0.98] bg-gradient-to-r from-sky-400 to-blue-500 text-white shadow-md shadow-sky-400/15 hover:shadow-lg hover:shadow-sky-400/25"

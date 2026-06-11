@@ -1051,6 +1051,9 @@ fn apply_create_default_field(
             insert_default(object, field, json!(0));
         }
         ("connections", "enabled") => insert_default(object, field, Value::Bool(true)),
+        ("connections", "imagePath") | ("agents", "imagePath") => {
+            insert_default(object, field, Value::Null);
+        }
         ("connection-folders", "color") => {
             insert_default(object, field, Value::String("#38bdf8".to_string()));
         }

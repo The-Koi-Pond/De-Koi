@@ -28,6 +28,8 @@ pub(crate) mod connection_secrets;
 pub(crate) mod contracts;
 #[path = "storage/custom_tools.rs"]
 pub(crate) mod custom_tools;
+#[path = "storage/entity_images.rs"]
+pub(crate) mod entity_images;
 #[path = "storage/exports.rs"]
 pub(crate) mod exports;
 #[path = "storage/fonts.rs"]

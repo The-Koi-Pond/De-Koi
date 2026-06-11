@@ -1,6 +1,6 @@
 use super::{
-    avatars, characters, generation, images, llm, lorebook_images, personas, shared, sidecar,
-    sprites,
+    avatars, characters, entity_images, generation, images, llm, lorebook_images, personas, shared,
+    sidecar, sprites,
 };
 use crate::state::AppState;
 use marinara_core::AppError;
@@ -269,6 +269,33 @@ pub fn lorebook_image_upload(
     body: Value,
 ) -> Result<Value, AppError> {
     lorebook_images::update_lorebook_image(&state, &id, body)
+}
+
+#[tauri::command]
+pub fn agent_image_upload(
+    state: State<'_, AppState>,
+    id: String,
+    body: Value,
+) -> Result<Value, AppError> {
+    entity_images::update_entity_image(&state, "agents", &id, body)
+}
+
+#[tauri::command]
+pub fn agent_type_image_upload(
+    state: State<'_, AppState>,
+    agent_type: String,
+    body: Value,
+) -> Result<Value, AppError> {
+    super::agents::update_agent_image_by_type(&state, &agent_type, body)
+}
+
+#[tauri::command]
+pub fn connection_image_upload(
+    state: State<'_, AppState>,
+    id: String,
+    body: Value,
+) -> Result<Value, AppError> {
+    entity_images::update_entity_image(&state, "connections", &id, body)
 }
 
 #[tauri::command]

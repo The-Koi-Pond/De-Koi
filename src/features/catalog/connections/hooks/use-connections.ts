@@ -43,6 +43,9 @@ const CONNECTION_SUMMARY_OPTIONS = {
     "model",
     "baseUrl",
     "folderId",
+    "imagePath",
+    "imageFilePath",
+    "imageFilename",
     "isDefault",
     "default",
     "useForRandom",
@@ -60,6 +63,9 @@ export type ConnectionSummary = Pick<
   "id" | "name" | "provider" | "model" | "baseUrl" | "useForRandom" | "createdAt" | "updatedAt" | "synthetic"
 > & {
   folderId?: string | null;
+  imagePath?: string | null;
+  imageFilePath?: string | null;
+  imageFilename?: string | null;
   isDefault?: string | boolean | null;
   default?: string | boolean | null;
   defaultForAgents?: string | boolean | null;
@@ -238,6 +244,18 @@ export function useSaveConnectionDefaults() {
   return useMutation({
     mutationFn: ({ id, params }: { id: string; params: Record<string, unknown> | null }) =>
       connectionCommandApi.saveDefaultParameters(assertStoredConnectionId(id), params),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: connectionKeys.list() });
+      qc.invalidateQueries({ queryKey: connectionKeys.detail(variables.id) });
+    },
+  });
+}
+
+export function useUploadConnectionImage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, image, filename }: { id: string; image: string; filename?: string }) =>
+      connectionCommandApi.uploadImage<ConnectionRow>(assertStoredConnectionId(id), image, filename),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: connectionKeys.list() });
       qc.invalidateQueries({ queryKey: connectionKeys.detail(variables.id) });

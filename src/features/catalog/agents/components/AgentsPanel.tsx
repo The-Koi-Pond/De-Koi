@@ -1,8 +1,10 @@
 // ──────────────────────────────────────────────
 // Panel: Agents & Tools
 // ──────────────────────────────────────────────
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { toast } from "sonner";
 import {
+  Camera,
   Sparkles,
   Pencil,
   Plus,
@@ -23,6 +25,7 @@ import {
   useAgentConfigs,
   useDeleteAgent,
   useSetAgentEnabledByType,
+  useUploadAgentImage,
   type AgentConfigRow,
 } from "../hooks/use-agents";
 import { useCustomTools, useDeleteCustomTool, type CustomToolRow } from "../hooks/use-custom-tools";
@@ -39,6 +42,7 @@ import {
   type AgentCategory,
 } from "../../../../engine/contracts/types/agent";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
+import { resolveEntityImageUrl } from "../../../../shared/api/local-file-api";
 import { cn } from "../../../../shared/lib/utils";
 
 export function AgentsPanel() {
@@ -49,12 +53,15 @@ export function AgentsPanel() {
   const deleteTool = useDeleteCustomTool();
   const deleteRegex = useDeleteRegexScript();
   const setAgentEnabled = useSetAgentEnabledByType();
+  const uploadAgentImage = useUploadAgentImage();
   const updateRegex = useUpdateRegexScript();
   const reorderRegexScripts = useReorderRegexScripts();
   const openAgentDetail = useUIStore((s) => s.openAgentDetail);
   const openToolDetail = useUIStore((s) => s.openToolDetail);
   const openRegexDetail = useUIStore((s) => s.openRegexDetail);
   const createRegexScript = useCreateRegexScript();
+  const agentImageInputRef = useRef<HTMLInputElement>(null);
+  const agentImageTargetRef = useRef<{ id?: string; agentType?: string } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [draggedRegexId, setDraggedRegexId] = useState<string | null>(null);
@@ -145,6 +152,50 @@ export function AgentsPanel() {
     openAgentDetail("__new__");
   };
 
+  const handlePickAgentImage = useCallback((target: { id?: string; agentType?: string }) => {
+    agentImageTargetRef.current = target;
+    if (agentImageInputRef.current) {
+      agentImageInputRef.current.value = "";
+      agentImageInputRef.current.click();
+    }
+  }, []);
+
+  const handleAgentImageSelected = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      const target = agentImageTargetRef.current;
+      if (!file || !target) return;
+      if (!file.type.startsWith("image/")) {
+        agentImageTargetRef.current = null;
+        toast.error("Choose an image file for the agent picture");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const image = typeof reader.result === "string" ? reader.result : "";
+        if (!image) {
+          toast.error("Could not read that image");
+          return;
+        }
+        try {
+          await uploadAgentImage.mutateAsync({ ...target, image, filename: file.name });
+          toast.success("Agent picture updated");
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "Failed to upload agent picture");
+        } finally {
+          agentImageTargetRef.current = null;
+        }
+      };
+      reader.onerror = () => {
+        agentImageTargetRef.current = null;
+        toast.error("Could not read that image");
+      };
+      reader.readAsDataURL(file);
+    },
+    [uploadAgentImage],
+  );
+
   const handleCreateTool = () => {
     openToolDetail("__new__");
   };
@@ -169,6 +220,14 @@ export function AgentsPanel() {
 
   return (
     <div className="flex flex-col gap-1 p-3">
+      <input
+        ref={agentImageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleAgentImageSelected}
+      />
+
       {isLoading && <div className="py-4 text-center text-xs text-[var(--muted-foreground)]">Loading...</div>}
 
       {/* ── Regex Scripts (moved to top) ── */}
@@ -355,19 +414,23 @@ export function AgentsPanel() {
             {!agents.length ? (
               <p className="px-1 py-2 text-[0.625rem] text-[var(--muted-foreground)]">No agents in this category.</p>
             ) : (
-              agents.map((agent) =>
-                renderAgentCard({
-                  id: agent.id,
+              agents.map((agent) => {
+                const config = agentConfigByType.get(agent.id);
+                return renderAgentCard({
+                  id: config?.id ?? agent.id,
                   type: agent.id,
                   name: agent.name,
                   description: agent.description,
                   category: agent.category,
                   custom: false,
-                  enabled: agentEnabledFlag(agentConfigByType.get(agent.id)?.enabled, agent.enabledByDefault),
+                  imagePath: config?.imagePath ?? null,
+                  imageFilename: config?.imageFilename ?? null,
+                  enabled: agentEnabledFlag(config?.enabled, agent.enabledByDefault),
                   onToggle: (enabled) => setAgentEnabled.mutate({ agentType: agent.id, enabled }),
+                  onImagePick: () => handlePickAgentImage({ id: config?.id, agentType: agent.id }),
                   openAgentDetail,
-                }),
-              )
+                });
+              })
             )}
           </PanelSection>
         );
@@ -402,7 +465,11 @@ export function AgentsPanel() {
                   !enabled && "opacity-50",
                 )}
               >
-                <Sparkles size="0.875rem" className="mt-0.5 shrink-0 text-[var(--primary)]" />
+                <AgentImageButton
+                  imagePath={agent.imagePath}
+                  imageFilename={agent.imageFilename}
+                  onImagePick={() => handlePickAgentImage({ id: agent.id })}
+                />
                 <button className="min-w-0 flex-1 text-left" onClick={() => openAgentDetail(agent.id)}>
                   <div className="text-xs font-medium font-mono">{agent.name}</div>
                   <div className="text-[0.625rem] text-[var(--muted-foreground)] line-clamp-2">
@@ -529,8 +596,11 @@ type AgentPanelRow = {
   description: string;
   category: AgentCategory | "custom";
   custom: boolean;
+  imagePath?: string | null;
+  imageFilename?: string | null;
   enabled: boolean;
   onToggle: (enabled: boolean) => void;
+  onImagePick: () => void;
 };
 
 function renderAgentCard({
@@ -540,8 +610,11 @@ function renderAgentCard({
   description,
   category,
   custom,
+  imagePath,
+  imageFilename,
   enabled,
   onToggle,
+  onImagePick,
   openAgentDetail,
 }: AgentPanelRow & {
   openAgentDetail: (id: string) => void;
@@ -554,7 +627,7 @@ function renderAgentCard({
         !enabled && "opacity-50",
       )}
     >
-      <Sparkles size="0.875rem" className="mt-0.5 shrink-0 text-[var(--primary)]" />
+      <AgentImageButton imagePath={imagePath} imageFilename={imageFilename} onImagePick={onImagePick} />
       <button className="min-w-0 flex-1 text-left" onClick={() => openAgentDetail(custom ? id : type)}>
         <div className="truncate text-xs font-medium font-mono">{name}</div>
         <div className="mt-0.5 text-[0.625rem] text-[var(--muted-foreground)] line-clamp-2">
@@ -584,6 +657,59 @@ function renderAgentCard({
         <Pencil size="0.8125rem" />
       </button>
     </div>
+  );
+}
+
+function AgentImageButton({
+  imagePath,
+  imageFilename,
+  onImagePick,
+}: {
+  imagePath?: string | null;
+  imageFilename?: string | null;
+  onImagePick: () => void;
+}) {
+  const [resolvedImagePath, setResolvedImagePath] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setResolvedImagePath(null);
+    if (!imagePath && !imageFilename) return;
+    resolveEntityImageUrl("agents", imagePath, imageFilename)
+      .then((url) => {
+        if (!cancelled) setResolvedImagePath(url);
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedImagePath(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [imageFilename, imagePath]);
+
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onImagePick();
+      }}
+      className={cn(
+        "group/avatar relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-[var(--primary)] transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-amber-400/50",
+        resolvedImagePath ? "bg-[var(--muted)]" : "bg-[var(--secondary)]",
+      )}
+      title={imagePath ? "Replace agent picture" : "Upload agent picture"}
+      aria-label={imagePath ? "Replace agent picture" : "Upload agent picture"}
+    >
+      {resolvedImagePath ? (
+        <img src={resolvedImagePath} alt="" className="h-full w-full object-cover" draggable={false} />
+      ) : (
+        <Sparkles size="0.875rem" />
+      )}
+      <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover/avatar:opacity-100">
+        <Camera size="0.75rem" className="text-white" />
+      </span>
+    </button>
   );
 }
 

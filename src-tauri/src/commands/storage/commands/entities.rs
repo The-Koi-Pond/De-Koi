@@ -1,7 +1,7 @@
 use super::{
-    avatars, characters, chats, connection_secrets, contracts, game_state_snapshots, integrations,
-    lorebook_images, managed_thumbnails, media_uploads, message_swipes, personas, prompts, shared,
-    sprites,
+    avatars, characters, chats, connection_secrets, contracts, entity_images, game_state_snapshots,
+    integrations, lorebook_images, managed_thumbnails, media_uploads, message_swipes, personas,
+    prompts, shared, sprites,
 };
 use crate::builtins::is_protected_record;
 use crate::state::AppState;
@@ -2897,6 +2897,7 @@ fn remove_owned_media(state: &AppState, entity: &str, record: &Value) {
             }
         }
         "lorebooks" => lorebook_images::remove_lorebook_image_file(state, record),
+        "agents" | "connections" => entity_images::remove_entity_image_file(state, entity, record),
         "gallery" | "character-gallery" | "persona-gallery" | "global-gallery" => {
             remove_gallery_file(state, record)
         }
