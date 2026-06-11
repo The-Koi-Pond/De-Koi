@@ -5,14 +5,32 @@ export function normalizeInventoryName(value: string): string {
   return value.trim().replace(/\s+/g, " ");
 }
 
+function inventoryNameKey(value: string): string {
+  return normalizeInventoryName(value).toLowerCase();
+}
+
+function normalizeDetailedInventoryItem(item: InventoryItem): InventoryItem {
+  const partial = item as Partial<InventoryItem>;
+  const name = normalizeInventoryName(partial.name ?? "") || "Item";
+  const quantity =
+    typeof partial.quantity === "number" && Number.isFinite(partial.quantity) ? partial.quantity : 1;
+  return {
+    inventoryItemId: partial.inventoryItemId?.trim() || makeManualTrackerRowId(),
+    name,
+    description: partial.description?.trim() ?? "",
+    quantity,
+    location: partial.location?.trim() || "on_person",
+  };
+}
+
 export function removeInventoryUnit<T extends { name: string; quantity: number }>(items: T[], itemName: string): T[] {
-  const normalized = normalizeInventoryName(itemName).toLowerCase();
+  const normalized = inventoryNameKey(itemName);
   if (!normalized) return items;
 
   let changed = false;
   const next: T[] = [];
   for (const item of items) {
-    if (!changed && item.name.trim().toLowerCase() === normalized) {
+    if (!changed && inventoryNameKey(item.name) === normalized) {
       changed = true;
       if (item.quantity > 1) {
         next.push({ ...item, quantity: item.quantity - 1 });
@@ -25,16 +43,17 @@ export function removeInventoryUnit<T extends { name: string; quantity: number }
 }
 
 export function removeInventoryStack<T extends { name: string; quantity: number }>(items: T[], itemName: string): T[] {
-  const normalized = normalizeInventoryName(itemName).toLowerCase();
+  const normalized = inventoryNameKey(itemName);
   if (!normalized) return items;
-  const next = items.filter((item) => item.name.trim().toLowerCase() !== normalized);
+  const next = items.filter((item) => inventoryNameKey(item.name) !== normalized);
   return next.length === items.length ? items : next;
 }
 
 export function addInventoryUnit<T extends { name: string; quantity: number }>(items: T[], itemName: string): T[] {
   const name = normalizeInventoryName(itemName);
   if (!name) return items;
-  const existingIndex = items.findIndex((item) => item.name.trim().toLowerCase() === name.toLowerCase());
+  const key = inventoryNameKey(name);
+  const existingIndex = items.findIndex((item) => inventoryNameKey(item.name) === key);
   if (existingIndex >= 0) {
     return items.map((item, index) => (index === existingIndex ? { ...item, quantity: item.quantity + 1 } : item));
   }
@@ -49,10 +68,11 @@ export function addDetailedInventoryUnit(
   const name = normalizeInventoryName(itemName);
   if (!name) return items;
 
+  const normalizedItems = items.map(normalizeDetailedInventoryItem);
   const targetItemId = inventoryItemId?.trim();
   if (targetItemId) {
     let addedToExisting = false;
-    const updated = items.map((item) => {
+    const updated = normalizedItems.map((item) => {
       if (item.inventoryItemId !== targetItemId) return item;
       addedToExisting = true;
       return { ...item, quantity: item.quantity + 1 };
@@ -61,18 +81,20 @@ export function addDetailedInventoryUnit(
     if (addedToExisting) return updated;
   }
 
-  const normalizedName = name.toLowerCase();
-  const matchingIndexes = items
-    .map((item, index) => (item.name.trim().toLowerCase() === normalizedName ? index : -1))
+  const normalizedName = inventoryNameKey(name);
+  const matchingIndexes = normalizedItems
+    .map((item, index) => (inventoryNameKey(item.name) === normalizedName ? index : -1))
     .filter((index) => index >= 0);
 
   if (matchingIndexes.length === 1) {
     const targetIndex = matchingIndexes[0]!;
-    return items.map((item, index) => (index === targetIndex ? { ...item, quantity: item.quantity + 1 } : item));
+    return normalizedItems.map((item, index) =>
+      index === targetIndex ? { ...item, quantity: item.quantity + 1 } : item,
+    );
   }
 
   return [
-    ...items,
+    ...normalizedItems,
     {
       inventoryItemId: makeManualTrackerRowId(),
       name,
@@ -83,26 +105,49 @@ export function addDetailedInventoryUnit(
   ];
 }
 
+export function removeDetailedInventoryUnit(items: InventoryItem[], itemName: string): InventoryItem[] {
+  const normalized = inventoryNameKey(itemName);
+  if (!normalized) return items;
+
+  let changed = false;
+  const next: InventoryItem[] = [];
+  for (let index = 0; index < items.length; index += 1) {
+    const item = normalizeDetailedInventoryItem(items[index]!);
+    if (!changed && inventoryNameKey(item.name) === normalized) {
+      changed = true;
+      if (item.quantity > 1) {
+        next.push({ ...item, quantity: item.quantity - 1 });
+      }
+      continue;
+    }
+    next.push(item);
+  }
+  return changed ? next : items;
+}
+
 export function renameInventoryItem<T extends { name: string; quantity: number }>(
   items: T[],
   currentName: string,
   nextName: string,
 ): { items: T[]; resolvedName: string } | null {
-  const normalizedCurrentName = normalizeInventoryName(currentName).toLowerCase();
+  const normalizedCurrentName = inventoryNameKey(currentName);
   const cleanedNextName = normalizeInventoryName(nextName);
   if (!normalizedCurrentName || !cleanedNextName) return null;
 
-  const sourceIndex = items.findIndex((item) => item.name.trim().toLowerCase() === normalizedCurrentName);
+  const sourceIndex = items.findIndex((item) => inventoryNameKey(item.name) === normalizedCurrentName);
   if (sourceIndex < 0) return null;
 
   const sourceItem = items[sourceIndex]!;
-  if (normalizeInventoryName(sourceItem.name) === cleanedNextName) {
-    return { items, resolvedName: sourceItem.name };
+  if (inventoryNameKey(sourceItem.name) === inventoryNameKey(cleanedNextName)) {
+    return {
+      items: items.map((item, index) => (index === sourceIndex ? { ...item, name: cleanedNextName } : item)),
+      resolvedName: cleanedNextName,
+    };
   }
 
-  const normalizedNextName = cleanedNextName.toLowerCase();
+  const normalizedNextName = inventoryNameKey(cleanedNextName);
   const mergeIndex = items.findIndex(
-    (item, index) => index !== sourceIndex && normalizeInventoryName(item.name).toLowerCase() === normalizedNextName,
+    (item, index) => index !== sourceIndex && inventoryNameKey(item.name) === normalizedNextName,
   );
 
   if (mergeIndex === -1) {
@@ -139,13 +184,13 @@ export function renameInventoryItem<T extends { name: string; quantity: number }
 
 export function getNextInventoryItemName(items: Array<{ name: string }>): string {
   const baseName = "New item";
-  const existingNames = new Set(items.map((item) => normalizeInventoryName(item.name).toLowerCase()));
-  if (!existingNames.has(baseName.toLowerCase())) {
+  const existingNames = new Set(items.map((item) => inventoryNameKey(item.name)));
+  if (!existingNames.has(inventoryNameKey(baseName))) {
     return baseName;
   }
 
   let suffix = 2;
-  while (existingNames.has(`${baseName} ${suffix}`.toLowerCase())) {
+  while (existingNames.has(inventoryNameKey(`${baseName} ${suffix}`))) {
     suffix += 1;
   }
   return `${baseName} ${suffix}`;

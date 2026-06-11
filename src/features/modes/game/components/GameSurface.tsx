@@ -3297,7 +3297,7 @@ export function GameSurface({
       if (timedInventoryUpdates.length > 0) {
         setPendingInventorySegmentUpdates(timedInventoryUpdates);
       } else if (!tags.cleanContent.trim()) {
-        applyInventoryUpdates(tags.inventoryUpdates);
+        void applyInventoryUpdates(tags.inventoryUpdates);
       } else {
         setPendingInventorySegmentUpdates(tags.inventoryUpdates.map((update) => ({ segment: 0, update })));
       }

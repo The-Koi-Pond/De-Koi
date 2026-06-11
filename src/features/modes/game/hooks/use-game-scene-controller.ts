@@ -21,7 +21,7 @@ type UseGameSceneControllerParams = {
   appliedInventorySegmentsRef: MutableRefObject<Set<number>>;
   scopedAssetMap: GameAssetManifestMap;
   useSpotifyGameMusic: boolean;
-  applyInventoryUpdates: (updates: InventoryTag[]) => void;
+  applyInventoryUpdates: (updates: InventoryTag[]) => Promise<boolean>;
   playDirections: (directions: DirectionCommand[]) => void;
 };
 
@@ -164,8 +164,15 @@ export function useGameSceneController({
       }
 
       if (inventoryUpdates.length > 0) {
-        appliedInventorySegmentsRef.current.add(segmentIndex);
-        applyInventoryUpdates(inventoryUpdates);
+        void applyInventoryUpdates(inventoryUpdates)
+          .then((applied) => {
+            if (applied) {
+              appliedInventorySegmentsRef.current.add(segmentIndex);
+            }
+          })
+          .catch((error) => {
+            console.warn("Failed to apply inventory segment update", error);
+          });
       }
     },
     [

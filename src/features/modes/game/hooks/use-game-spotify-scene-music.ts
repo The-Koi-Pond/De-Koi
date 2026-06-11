@@ -167,13 +167,13 @@ export function useGameSpotifySceneMusic({
           }
         }
 
-        dispatchSpotifySceneTrackChange(track.uri);
         await gameApi.spotifyPlay({
           chatId: activeChatId,
           track,
           deviceId: spotifyDeviceId ?? undefined,
           mobileDeviceOnly: mobileViewport,
         } as { track: SceneSpotifyTrackSelection; deviceId?: string | null });
+        dispatchSpotifySceneTrackChange(track.uri);
         recentSpotifyTrackHistoryRef.current = appendRecentSpotifyTrack(recentSpotifyTrackHistoryRef.current, track.uri);
         persistMetadata(activeChatId, { gameRecentSpotifyTracks: recentSpotifyTrackHistoryRef.current }).catch(
           () => {},

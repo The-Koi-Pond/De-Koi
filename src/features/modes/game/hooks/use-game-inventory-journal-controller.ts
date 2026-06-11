@@ -4,7 +4,13 @@ import { useGameStateStore } from "../../../runtime/world-state/index";
 import type { GameStatePatchField, GameStatePatchValue } from "../../../runtime/world-state/types";
 import type { Chat } from "../../../../engine/contracts/types/chat";
 import type { InventoryTag, ReadableTag } from "../lib/game-tag-parser";
-import { addInventoryUnit, normalizeInventoryName, removeInventoryUnit } from "../lib/game-inventory-items";
+import {
+  addDetailedInventoryUnit,
+  addInventoryUnit,
+  normalizeInventoryName,
+  removeDetailedInventoryUnit,
+  removeInventoryUnit,
+} from "../lib/game-inventory-items";
 
 export type JournalReadable = ReadableTag & {
   sourceMessageId?: string | null;
@@ -157,8 +163,8 @@ export function useGameInventoryJournalController({
   }, []);
 
   const applyInventoryUpdates = useCallback(
-    (updates: InventoryTag[]) => {
-      if (updates.length === 0) return;
+    async (updates: InventoryTag[]): Promise<boolean> => {
+      if (updates.length === 0) return true;
 
       const notifications: InventoryNotification[] = [];
       const journalEntries: Array<{ item: string; action: "acquired" | "lost" }> = [];
@@ -181,7 +187,7 @@ export function useGameInventoryJournalController({
             if (nextPlayerStats) {
               nextPlayerStats = {
                 ...nextPlayerStats,
-                inventory: addInventoryUnit(nextPlayerStats.inventory, normalizedItemName),
+                inventory: addDetailedInventoryUnit(nextPlayerStats.inventory, normalizedItemName),
               };
             }
             notifications.push({
@@ -213,7 +219,7 @@ export function useGameInventoryJournalController({
               applied = true;
             }
             if (nextPlayerStats) {
-              const nextDetailedInventory = removeInventoryUnit(nextPlayerStats.inventory, normalizedItemName);
+              const nextDetailedInventory = removeDetailedInventoryUnit(nextPlayerStats.inventory, normalizedItemName);
               if (nextDetailedInventory !== nextPlayerStats.inventory) {
                 nextPlayerStats = { ...nextPlayerStats, inventory: nextDetailedInventory };
                 applied = true;
@@ -230,25 +236,36 @@ export function useGameInventoryJournalController({
         }
       }
 
-      const inventoryPersist =
-        updated !== previousInventory
-          ? persistMetadata(activeChatId, { gameInventory: updated }).catch(() => null)
-          : Promise.resolve(null);
+      try {
+        if (updated !== previousInventory) {
+          await persistMetadata(activeChatId, { gameInventory: updated });
+        }
+
+        if (currentGameState?.chatId === activeChatId && currentPlayerStats && nextPlayerStats !== currentPlayerStats) {
+          await patchVisibleGameState("playerStats", nextPlayerStats);
+        }
+      } catch (error) {
+        console.warn("Failed to persist inventory update", error);
+        showInventoryNotifications(
+          [
+            {
+              id: `inventory-error-${Date.now()}`,
+              kind: "error",
+              message: "Inventory update could not be saved. Try this step again.",
+            },
+          ],
+          6000,
+        );
+        return false;
+      }
 
       if (updated !== previousInventory) {
         inventoryItemsRef.current = updated;
         setInventoryItems(updated);
       }
 
-      if (currentGameState?.chatId === activeChatId && currentPlayerStats && nextPlayerStats !== currentPlayerStats) {
-        void patchVisibleGameState("playerStats", nextPlayerStats).catch((error) => {
-          console.warn("Failed to flush visible game-state patch", error);
-        });
-      }
-
       if (journalEntries.length > 0) {
         void (async () => {
-          await inventoryPersist;
           for (const entry of journalEntries) {
             try {
               const res = await gameApi.addJournalEntry({
@@ -274,6 +291,7 @@ export function useGameInventoryJournalController({
       if (consumedPendingUse) {
         setPendingInventoryUse(null);
       }
+      return true;
     },
     [activeChatId, patchVisibleGameState, persistMetadata, publishSessionChat, showInventoryNotifications],
   );
