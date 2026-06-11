@@ -47,7 +47,7 @@ concurrency:
 
 jobs:
   review:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.DE_KOI_BUNNY_RUNS_ON || '"ubuntu-latest"') }}
     timeout-minutes: 30
     env:
       PR_NUM: ${{ github.event.pull_request.number || inputs.pr_number }}
