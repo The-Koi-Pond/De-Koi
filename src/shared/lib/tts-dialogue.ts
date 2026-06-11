@@ -27,6 +27,11 @@ export interface TTSVoiceRequest {
   voice?: string;
 }
 
+export interface CachedTTSVoiceRequest extends TTSVoiceRequest {
+  cacheKey: string;
+  cacheAliases?: string[];
+}
+
 const TTS_NARRATOR_SPEAKER = "__tts_narrator__";
 
 function isSyntheticTTSNarrator(speaker?: string | null): boolean {
@@ -80,6 +85,58 @@ function stableTTSIndex(seed: string, length: number): number {
     hash |= 0;
   }
   return Math.abs(hash) % length;
+}
+
+function hashTTSCacheKey(value: string): string {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 33) ^ value.charCodeAt(index);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function buildTTSConfigCacheSignature(config: TTSConfig): string {
+  return [
+    config.source,
+    config.baseUrl,
+    config.model,
+    config.audioFormat,
+    config.speed,
+    config.elevenLabsStability,
+    config.elevenLabsLanguageCode,
+    config.voice,
+    config.narratorVoiceEnabled ? "narrator-voice" : "narrator-global",
+    config.narratorVoice,
+    config.voiceMode,
+    JSON.stringify(config.voiceAssignments ?? []),
+    config.npcDefaultVoicesEnabled ? "npc-defaults" : "npc-global",
+    JSON.stringify(config.npcDefaultMaleVoices ?? []),
+    JSON.stringify(config.npcDefaultFemaleVoices ?? []),
+  ].join("\n");
+}
+
+export function withTTSVoiceRequestCacheKeys(
+  requests: TTSVoiceRequest[],
+  config: TTSConfig,
+  messageId: string,
+): CachedTTSVoiceRequest[] {
+  const configSignature = buildTTSConfigCacheSignature(config);
+  return requests.map((request, index) => {
+    const requestSignature = [
+      configSignature,
+      request.voice ?? "",
+      request.speaker ?? "",
+      request.tone ?? "",
+      request.text,
+    ].join("\n");
+    const textHash = hashTTSCacheKey(requestSignature);
+    const messageHash = hashTTSCacheKey(`${messageId}\n${index}\n${requestSignature}`);
+    return {
+      ...request,
+      cacheKey: `chat-voice-line-v1:${messageId}:${index}:${messageHash}`,
+      cacheAliases: [`chat-voice-line-text-v1:${textHash}`],
+    };
+  });
 }
 
 function inferTTSNpcVoiceGender(hint?: TTSNpcVoiceHint | null): TTSNpcVoiceGender {

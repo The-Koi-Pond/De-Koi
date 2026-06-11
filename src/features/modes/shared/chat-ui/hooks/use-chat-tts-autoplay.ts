@@ -4,6 +4,7 @@ import {
   buildTTSVoiceRequests,
   clientSidePlaybackRate,
   normalizeTTSCharacterName,
+  withTTSVoiceRequestCacheKeys,
 } from "../../../../../shared/lib/tts-dialogue";
 import { ttsService } from "../../../../../shared/lib/tts-service";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
@@ -108,12 +109,13 @@ export function useChatTtsAutoplay({ chatId, mode, messages, characterMap, isStr
         : lastMessage.characterId
           ? characterMap.get(lastMessage.characterId)?.name
           : undefined;
-    const requests = buildTTSVoiceRequests(
-      lastMessage.content,
+    const requests = withTTSVoiceRequestCacheKeys(
+      buildTTSVoiceRequests(lastMessage.content, config, fallbackSpeaker, lastMessage.characterId).filter(
+        (request) => request.text.trim().length > 0,
+      ),
       config,
-      fallbackSpeaker,
-      lastMessage.characterId,
-    ).filter((request) => request.text.trim().length > 0);
+      lastMessage.id,
+    );
     if (requests.length === 0) return;
 
     void ttsService.speakSequence(requests, lastMessage.id, {

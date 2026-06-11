@@ -61,7 +61,11 @@ import { storageApi } from "../../../../../shared/api/storage-api";
 import { ttsService } from "../../../../../shared/lib/tts-service";
 import { useCachedTTSConfig } from "../../../../../shared/hooks/use-tts";
 import { isStreamingTTSActive, stopStreamingTTS, subscribeStreamingTTSActive } from "../hooks/use-streaming-tts";
-import { buildTTSVoiceRequests, clientSidePlaybackRate } from "../../../../../shared/lib/tts-dialogue";
+import {
+  buildTTSVoiceRequests,
+  clientSidePlaybackRate,
+  withTTSVoiceRequestCacheKeys,
+} from "../../../../../shared/lib/tts-dialogue";
 import {
   DIALOGUE_QUOTE_PATTERN_SOURCE,
   HTML_SAFE_DIALOGUE_QUOTE_PATTERN_SOURCE,
@@ -81,10 +85,7 @@ import { GenerationReplayDetailsModal, hasGenerationReplayDetails } from "./Gene
 import { ImagePromptPanel } from "./ImagePromptPanel";
 import { SwipeJumpControl } from "./SwipeJumpControl";
 import { readStoredThinking } from "../lib/message-thinking";
-import {
-  isImageMessageAttachment,
-  messageAttachmentsFromExtra,
-} from "../lib/message-attachments";
+import { isImageMessageAttachment, messageAttachmentsFromExtra } from "../lib/message-attachments";
 import { resolvePromptSnapshotFromExtra } from "../lib/prompt-snapshot";
 import { ResolvedAvatarImage } from "./ResolvedAvatarImage";
 import { MessageAttachmentImagePreview } from "./MessageAttachmentImagePreview";
@@ -1146,11 +1147,15 @@ export const ChatMessage = memo(function ChatMessage({
   const ttsVoiceRequests = useMemo(
     () =>
       ttsConfig
-        ? buildTTSVoiceRequests(message.content, ttsConfig, ttsSpeakerName, message.characterId).filter((request) =>
-            request.text.trim(),
+        ? withTTSVoiceRequestCacheKeys(
+            buildTTSVoiceRequests(message.content, ttsConfig, ttsSpeakerName, message.characterId).filter((request) =>
+              request.text.trim(),
+            ),
+            ttsConfig,
+            message.id,
           )
         : [],
-    [message.characterId, message.content, ttsConfig, ttsSpeakerName],
+    [message.characterId, message.content, message.id, ttsConfig, ttsSpeakerName],
   );
   const hasTTSContent = ttsVoiceRequests.length > 0;
   const [ttsState, setTTSState] = useState(ttsService.getState());
