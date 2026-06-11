@@ -353,6 +353,7 @@ pub(crate) fn responses_input(messages: &[LlmMessage], replay_encrypted_reasonin
 pub(crate) fn build_openai_responses_body(request: &LlmRequest, stream: bool) -> Value {
     let messages = request_messages(request);
     let preserve_encrypted_reasoning = openai_responses_preserve_encrypted_reasoning(request);
+    let send_sampling = should_send_openai_sampling_parameters(request);
     let mut body = json!({
         "model": request.connection.model,
         "input": responses_input(&messages, preserve_encrypted_reasoning),
@@ -362,11 +363,13 @@ pub(crate) fn build_openai_responses_body(request: &LlmRequest, stream: bool) ->
     if let Some(effort) = openai_reasoning_effort(request) {
         body["reasoning"] = json!({ "effort": effort, "summary": "auto" });
     }
-    if let Some(temperature) = param_f64(&request.parameters, &["temperature"]) {
-        body["temperature"] = json!(temperature);
-    }
-    if let Some(top_p) = param_f64(&request.parameters, &["topP", "top_p"]) {
-        body["top_p"] = json!(top_p);
+    if send_sampling {
+        if let Some(temperature) = param_f64(&request.parameters, &["temperature"]) {
+            body["temperature"] = json!(temperature);
+        }
+        if let Some(top_p) = param_f64(&request.parameters, &["topP", "top_p"]) {
+            body["top_p"] = json!(top_p);
+        }
     }
     if let Some(service_tier) = param_string(&request.parameters, &["serviceTier", "service_tier"])
         .filter(|value| is_openai_service_tier(value))
@@ -401,7 +404,7 @@ pub(crate) fn build_openai_responses_body(request: &LlmRequest, stream: bool) ->
     apply_custom_parameters_to_object(
         &mut body,
         &request.parameters,
-        false,
+        !send_sampling,
         false,
         OPENAI_RESPONSES_UNSUPPORTED_CUSTOM_PARAMETER_KEYS,
     );
@@ -600,9 +603,7 @@ pub(crate) fn process_openai_responses_sse_block(
             }
         }
         "response.output_item.added" => {
-            if let Some(item) = value.get("item") {
-                tool_calls.ingest_output_item(item);
-            }
+            tool_calls.ingest_output_item_event(&value);
         }
         "response.function_call_arguments.delta" => {
             tool_calls.ingest_arguments_delta(&value);
@@ -611,9 +612,7 @@ pub(crate) fn process_openai_responses_sse_block(
             tool_calls.ingest_arguments_done(&value);
         }
         "response.output_item.done" => {
-            if let Some(item) = value.get("item") {
-                tool_calls.ingest_output_item(item);
-            }
+            tool_calls.ingest_output_item_event(&value);
         }
         "response.completed" => {
             if let Some(output) = value
@@ -651,6 +650,7 @@ pub(crate) fn process_openai_responses_sse_block(
 #[derive(Default)]
 pub(crate) struct ResponsesToolCallAccumulator {
     calls: BTreeMap<String, ResponsesToolCallParts>,
+    item_keys: BTreeMap<String, String>,
 }
 
 #[derive(Default)]
@@ -670,17 +670,86 @@ impl ResponsesToolCallAccumulator {
             .map(str::to_string)
     }
 
+    fn item_keys(value: &Value) -> Vec<String> {
+        let mut keys = Vec::new();
+        for key in ["item_id", "output_item_id", "id"] {
+            if let Some(value) = value
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                keys.push(format!("id:{value}"));
+            }
+        }
+        for key in ["output_index", "item_index", "index"] {
+            if let Some(value) = value.get(key).and_then(Value::as_u64) {
+                keys.push(format!("index:{value}"));
+            }
+        }
+        keys
+    }
+
+    fn resolve_call_id(&self, value: &Value) -> Option<String> {
+        Self::call_id(value).or_else(|| {
+            Self::item_keys(value)
+                .into_iter()
+                .find_map(|key| self.item_keys.get(&key).cloned())
+        })
+    }
+
     fn entry_mut(&mut self, call_id: String) -> &mut ResponsesToolCallParts {
         self.calls.entry(call_id).or_default()
     }
 
+    fn merge_call_id(&mut self, from: String, to: &str) {
+        if from == to || !self.calls.contains_key(&from) {
+            return;
+        }
+        let Some(from_parts) = self.calls.remove(&from) else {
+            return;
+        };
+        let to_parts = self.calls.entry(to.to_string()).or_default();
+        if to_parts.name.is_none() {
+            to_parts.name = from_parts.name;
+        }
+        if to_parts.arguments.is_empty() {
+            to_parts.arguments = from_parts.arguments;
+        } else if !from_parts.arguments.is_empty() && !to_parts.arguments.contains(&from_parts.arguments) {
+            to_parts.arguments = format!("{}{}", from_parts.arguments, to_parts.arguments);
+        }
+    }
+
+    fn ingest_output_item_event(&mut self, event: &Value) {
+        let Some(item) = event.get("item") else {
+            return;
+        };
+        self.ingest_output_item_with_keys(item, Self::item_keys(event));
+    }
+
     fn ingest_output_item(&mut self, item: &Value) {
+        self.ingest_output_item_with_keys(item, Vec::new());
+    }
+
+    fn ingest_output_item_with_keys(&mut self, item: &Value, mut event_keys: Vec<String>) {
         if item.get("type").and_then(Value::as_str) != Some("function_call") {
             return;
         }
-        let Some(call_id) = Self::call_id(item) else {
+        let Some(call_id) = Self::call_id(item).or_else(|| {
+            event_keys
+                .iter()
+                .find_map(|key| self.item_keys.get(key).cloned())
+        }) else {
             return;
         };
+        for key in Self::item_keys(item) {
+            event_keys.push(key);
+        }
+        for key in event_keys {
+            if let Some(previous) = self.item_keys.insert(key, call_id.clone()) {
+                self.merge_call_id(previous, &call_id);
+            }
+        }
         let entry = self.entry_mut(call_id);
         if let Some(name) = item
             .get("name")
@@ -695,7 +764,7 @@ impl ResponsesToolCallAccumulator {
     }
 
     fn ingest_arguments_delta(&mut self, value: &Value) {
-        let Some(call_id) = Self::call_id(value) else {
+        let Some(call_id) = self.resolve_call_id(value) else {
             return;
         };
         let Some(delta) = value.get("delta").and_then(Value::as_str) else {
@@ -705,7 +774,7 @@ impl ResponsesToolCallAccumulator {
     }
 
     fn ingest_arguments_done(&mut self, value: &Value) {
-        let Some(call_id) = Self::call_id(value) else {
+        let Some(call_id) = self.resolve_call_id(value) else {
             return;
         };
         if let Some(arguments) = value.get("arguments").and_then(Value::as_str) {

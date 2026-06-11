@@ -130,13 +130,7 @@ pub(crate) async fn complete_anthropic_rich(request: LlmRequest) -> AppResult<Ll
     let content = json
         .get("content")
         .and_then(Value::as_array)
-        .and_then(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.get("text").and_then(Value::as_str))
-                .find(|text| !text.trim().is_empty())
-        })
-        .map(ToOwned::to_owned)
+        .and_then(|items| anthropic_text_content(items))
         .ok_or_else(|| {
             AppError::with_details(
                 "llm_response_error",
@@ -154,6 +148,16 @@ pub(crate) async fn complete_anthropic_rich(request: LlmRequest) -> AppResult<Ll
         usage: json.get("usage").cloned(),
         provider_metadata: None,
     })
+}
+
+pub(crate) fn anthropic_text_content(items: &[Value]) -> Option<String> {
+    let text = items
+        .iter()
+        .filter_map(|item| item.get("text").and_then(Value::as_str))
+        .filter(|text| !text.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    (!text.trim().is_empty()).then_some(text)
 }
 
 pub(crate) async fn stream_anthropic(

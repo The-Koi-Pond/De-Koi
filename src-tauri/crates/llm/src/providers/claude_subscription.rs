@@ -7,13 +7,16 @@ pub(crate) fn render_claude_subscription_transcript(
     let mut turns = Vec::new();
     for message in messages {
         let content = message.content.trim();
-        if content.is_empty() {
-            continue;
-        }
         if message.role == "system" {
+            if content.is_empty() {
+                continue;
+            }
             system.push(content.to_string());
             continue;
         }
+        let Some(content) = claude_subscription_visible_message_text(message) else {
+            continue;
+        };
         let label = if message.role == "assistant" {
             "Assistant"
         } else {
@@ -91,22 +94,34 @@ pub(crate) fn claude_subscription_session_id(chat_id: &str) -> String {
     .to_string()
 }
 
-pub(crate) fn claude_subscription_scratch_cwd() -> Option<PathBuf> {
-    let dir = env::temp_dir().join("marinara-claude-subscription-scratch");
-    fs::create_dir_all(&dir).ok()?;
-    Some(dir)
+pub(crate) fn claude_subscription_scratch_cwd_in(base: &Path) -> AppResult<PathBuf> {
+    let dir = base.join("marinara-claude-subscription-scratch");
+    fs::create_dir_all(&dir).map_err(|error| {
+        AppError::new(
+            "claude_subscription_session_error",
+            format!(
+                "Claude subscription session scratch directory could not be created: {}",
+                redact_sensitive_text(&error.to_string())
+            ),
+        )
+    })?;
+    Ok(dir)
+}
+
+pub(crate) fn claude_subscription_scratch_cwd() -> AppResult<PathBuf> {
+    claude_subscription_scratch_cwd_in(&env::temp_dir())
+}
+
+pub(crate) fn claude_subscription_visible_message_text(message: &LlmMessage) -> Option<String> {
+    let content = message.content.trim();
+    if !content.is_empty() {
+        return Some(content.to_string());
+    }
+    (!message.images.is_empty()).then(|| format!("[{} image attachment(s)]", message.images.len()))
 }
 
 pub(crate) fn render_claude_subscription_history_turn(message: &LlmMessage) -> Option<String> {
-    let content = message.content.trim();
-    if content.is_empty() && message.images.is_empty() {
-        return None;
-    }
-    let content = if content.is_empty() {
-        format!("[{} image attachment(s)]", message.images.len())
-    } else {
-        content.to_string()
-    };
+    let content = claude_subscription_visible_message_text(message)?;
     let label = match message.role.as_str() {
         "assistant" => "Assistant",
         "tool" => "Tool result",
@@ -175,10 +190,11 @@ pub(crate) fn render_claude_subscription_current_prompt(
         );
     }
     let history = &non_system[..non_system.len().saturating_sub(1)];
+    let current_text = claude_subscription_visible_message_text(trailing).unwrap_or_default();
     let current_prompt = if trailing.role == "tool" {
-        format!("Tool result: {}", trailing.content.trim())
+        format!("Tool result: {current_text}")
     } else {
-        trailing.content.trim().to_string()
+        current_text
     };
     let prompt = claude_subscription_session_prompt_with_history(
         history,
@@ -661,10 +677,9 @@ pub(crate) async fn complete_claude_subscription_rich(
         command.arg("--append-system-prompt").arg(system_prompt);
     }
     if let Some(session_id) = prompt_selection.session_id.as_ref() {
-        if let Some(cwd) = claude_subscription_scratch_cwd() {
-            command.arg("--session-id").arg(session_id);
-            command.current_dir(cwd);
-        }
+        let cwd = claude_subscription_scratch_cwd()?;
+        command.arg("--session-id").arg(session_id);
+        command.current_dir(cwd);
     } else {
         command.arg("--no-session-persistence");
     }

@@ -2743,6 +2743,59 @@ data: {"type":"response.output_item.done","item":{"type":"function_call","call_i
     }
 
     #[test]
+    fn openai_responses_stream_binds_item_id_argument_deltas() {
+        let mut emitted = Vec::new();
+        let mut tool_calls = ResponsesToolCallAccumulator::default();
+        let mut emit = |value: Value| {
+            emitted.push(value);
+            Ok(())
+        };
+
+        process_openai_responses_sse_block(
+            r#"event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","id":"item_1","call_id":"fc_1","name":"roll_dice","arguments":""}}"#,
+            &mut emit,
+            &mut tool_calls,
+        )
+        .expect("function_call item should parse");
+        process_openai_responses_sse_block(
+            r#"event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"item_1","delta":"{\"notation\""}"#,
+            &mut emit,
+            &mut tool_calls,
+        )
+        .expect("item_id argument delta should parse");
+        process_openai_responses_sse_block(
+            r#"event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":":\"1d20\"}"}"#,
+            &mut emit,
+            &mut tool_calls,
+        )
+        .expect("output_index argument delta should parse");
+        process_openai_responses_sse_block(
+            r#"event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","item_id":"item_1","arguments":"{\"notation\":\"1d20\"}"}"#,
+            &mut emit,
+            &mut tool_calls,
+        )
+        .expect("item_id arguments done should parse");
+
+        assert!(emitted.is_empty());
+        assert_eq!(
+            tool_calls.into_tool_calls(),
+            vec![json!({
+                "id": "fc_1",
+                "name": "roll_dice",
+                "arguments": "{\"notation\":\"1d20\"}",
+                "function": {
+                    "name": "roll_dice",
+                    "arguments": "{\"notation\":\"1d20\"}"
+                }
+            })]
+        );
+    }
+
+    #[test]
     fn openai_chatgpt_responses_body_does_not_replay_encrypted_reasoning() {
         let mut request = request_for("openai_chatgpt", "gpt-5-codex", json!({}));
         let mut assistant = test_message("assistant", "Earlier answer.");
@@ -3417,6 +3470,64 @@ data: {"type":"response.output_item.done","item":{"type":"function_call","call_i
     }
 
     #[test]
+    fn openai_responses_body_strips_sampling_for_restricted_models() {
+        let request = request_for(
+            "openai",
+            "anthropic/claude-opus-4-7",
+            json!({
+                "reasoningEffort": "high",
+                "temperature": 0.8,
+                "topP": 0.9,
+                "customParameters": {
+                    "temperature": 0.4,
+                    "top_p": 0.5
+                }
+            }),
+        );
+
+        let body = build_openai_responses_body(&request, false);
+
+        assert!(body.get("temperature").is_none());
+        assert!(body.get("top_p").is_none());
+        assert_eq!(body["reasoning"]["effort"], json!("high"));
+    }
+
+    #[test]
+    fn openai_responses_body_keeps_temperature_for_supported_models() {
+        let request = request_for(
+            "openai",
+            "gpt-4o",
+            json!({
+                "temperature": 0.8,
+                "topP": 0.9
+            }),
+        );
+
+        let body = build_openai_responses_body(&request, false);
+
+        assert_eq!(body["temperature"], json!(0.8));
+        assert_eq!(body["top_p"], json!(0.9));
+    }
+
+    #[test]
+    fn google_candidate_text_preserves_all_visible_parts() {
+        let candidate = json!({
+            "content": {
+                "parts": [
+                    { "text": "visible " },
+                    { "text": "private thought", "thought": true },
+                    { "text": "answer" }
+                ]
+            }
+        });
+
+        assert_eq!(
+            google_candidate_text(&candidate).as_deref(),
+            Some("visible answer")
+        );
+    }
+
+    #[test]
     fn google_stream_sse_emits_thinking_tokens_and_usage() {
         let mut emitted = Vec::new();
         let mut emit = |value: Value| {
@@ -3485,21 +3596,20 @@ data: {"type":"response.output_item.done","item":{"type":"function_call","call_i
     }
 
     #[test]
-    fn google_stream_max_tokens_finish_reason_is_incomplete() {
+    fn google_stream_max_tokens_finish_reason_is_terminal_after_tokens() {
         let mut emitted = Vec::new();
         let mut emit = |value: Value| {
             emitted.push(value);
             Ok(())
         };
 
-        let error = process_google_sse_block(
+        let status = process_google_sse_block(
             r#"data: {"candidates":[{"content":{"parts":[{"text":"Above the Skyport, the great brass heating lens lets out a wet,"}]},"finishReason":"MAX_TOKENS"}]}"#,
             &mut emit,
         )
-        .expect_err("Gemini MAX_TOKENS finish reason should not be treated as complete");
+        .expect("Gemini MAX_TOKENS finish reason should complete after delivered text");
 
-        assert_eq!(error.code, "llm_stream_incomplete");
-        assert!(error.message.contains("finishReason: MAX_TOKENS"));
+        assert_eq!(status, SseBlockStatus::Complete);
         assert_eq!(
             emitted[0],
             json!({ "type": "token", "text": "Above the Skyport, the great brass heating lens lets out a wet,", "data": "Above the Skyport, the great brass heating lens lets out a wet," })
@@ -3682,6 +3792,21 @@ data: {"type":"response.output_item.done","item":{"type":"function_call","call_i
         assert_eq!(
             body["thinking"],
             json!({ "type": "adaptive", "display": "summarized" })
+        );
+    }
+
+    #[test]
+    fn anthropic_text_content_preserves_multiple_text_blocks() {
+        let items = vec![
+            json!({ "type": "thinking", "thinking": "hidden" }),
+            json!({ "type": "text", "text": "First paragraph." }),
+            json!({ "type": "redacted_thinking" }),
+            json!({ "type": "text", "text": "Second paragraph." }),
+        ];
+
+        assert_eq!(
+            anthropic_text_content(&items).as_deref(),
+            Some("First paragraph.\n\nSecond paragraph.")
         );
     }
 
@@ -3927,6 +4052,68 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
         assert_eq!(prompt.prompt, "User: Regenerate from here.");
         assert_eq!(prompt.session_id, None);
         assert_eq!(prompt.prompt_shape, "transcript-fold");
+    }
+
+    #[test]
+    fn claude_subscription_transcript_preserves_image_only_turns() {
+        let mut image_only = test_message("user", "");
+        image_only.images = vec!["data:image/png;base64,abc".to_string()];
+        let request = LlmRequest {
+            connection: test_connection(),
+            messages: vec![image_only],
+            parameters: json!({
+                "_marinara": {
+                    "chatId": "chat-1",
+                    "regenerateMessageId": "message-1"
+                }
+            }),
+            tools: Vec::new(),
+        };
+
+        let prompt = claude_subscription_prompt(&request);
+
+        assert_eq!(prompt.prompt, "User: [1 image attachment(s)]");
+        assert_eq!(prompt.session_id, None);
+        assert_eq!(prompt.prompt_shape, "transcript-fold");
+    }
+
+    #[test]
+    fn claude_subscription_runtime_chat_preserves_image_only_current_turn() {
+        let mut image_only = test_message("user", "");
+        image_only.images = vec!["data:image/png;base64,abc".to_string()];
+        let request = LlmRequest {
+            connection: test_connection(),
+            messages: vec![test_message("assistant", "Earlier reply."), image_only],
+            parameters: json!({ "_marinara": { "chatId": "chat-1", "mode": "roleplay" } }),
+            tools: Vec::new(),
+        };
+
+        let prompt = claude_subscription_prompt(&request);
+
+        assert!(prompt.prompt.contains("Assistant: Earlier reply."));
+        assert!(prompt
+            .prompt
+            .contains("Current turn:\nUser: [1 image attachment(s)]"));
+        assert!(prompt.session_id.is_some());
+        assert_eq!(prompt.prompt_shape, "trailing-user");
+    }
+
+    #[test]
+    fn claude_subscription_scratch_cwd_failure_is_explicit() {
+        let base = env::temp_dir().join(format!(
+            "de-koi-claude-subscription-file-{}",
+            Uuid::new_v4()
+        ));
+        fs::write(&base, b"not a directory").expect("scratch blocker file should be writable");
+
+        let error = claude_subscription_scratch_cwd_in(&base)
+            .expect_err("file parent should block scratch directory creation");
+        let _ = fs::remove_file(&base);
+
+        assert_eq!(error.code, "claude_subscription_session_error");
+        assert!(error
+            .message
+            .contains("scratch directory could not be created"));
     }
 
     #[test]

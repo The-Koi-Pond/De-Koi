@@ -508,24 +508,7 @@ pub(crate) async fn complete_google_rich(request: LlmRequest) -> AppResult<LlmCo
                 redact_sensitive_json(json.clone()),
             )
         })?;
-    let content = candidate
-        .get("content")
-        .and_then(|content| content.get("parts"))
-        .and_then(Value::as_array)
-        .and_then(|parts| {
-            parts.iter().find_map(|part| {
-                if part
-                    .get("thought")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-                {
-                    None
-                } else {
-                    part.get("text").and_then(Value::as_str)
-                }
-            })
-        })
-        .map(ToOwned::to_owned)
+    let content = google_candidate_text(candidate)
         .ok_or_else(|| {
             AppError::with_details(
                 "llm_response_error",
@@ -543,6 +526,25 @@ pub(crate) async fn complete_google_rich(request: LlmRequest) -> AppResult<LlmCo
         usage: json.get("usageMetadata").cloned(),
         provider_metadata: None,
     })
+}
+
+pub(crate) fn google_candidate_text(candidate: &Value) -> Option<String> {
+    let text = candidate
+        .get("content")
+        .and_then(|content| content.get("parts"))
+        .and_then(Value::as_array)?
+        .iter()
+        .filter(|part| {
+            !part
+                .get("thought")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .filter_map(|part| part.get("text").and_then(Value::as_str))
+        .filter(|text| !text.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("");
+    (!text.trim().is_empty()).then_some(text)
 }
 
 pub(crate) async fn stream_google(
@@ -678,7 +680,10 @@ pub(crate) fn process_google_sse_block(
 }
 
 pub(crate) fn ensure_google_finish_reason_allows_complete(reason: &str) -> AppResult<()> {
-    if reason.eq_ignore_ascii_case("STOP") {
+    if matches!(
+        reason.to_ascii_uppercase().as_str(),
+        "STOP" | "MAX_TOKENS"
+    ) {
         return Ok(());
     }
     Err(AppError::new(
