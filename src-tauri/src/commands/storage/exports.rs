@@ -341,11 +341,23 @@ pub(crate) fn export_sprite_archive(
     let owner_kind = SpriteExportOwnerKind::from_request(owner_type)?;
     validate_export_path_segment(id, owner_kind.id_label())?;
 
-    let requested = string_array_from_value(body.get("expressions"))
+    let requested_expressions = string_array_from_value(body.get("expressions"))
         .into_iter()
-        .map(|value| value.to_ascii_lowercase())
+        .filter_map(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some((trimmed.to_string(), trimmed.to_ascii_lowercase()))
+            }
+        })
+        .collect::<Vec<_>>();
+    let requested = requested_expressions
+        .iter()
+        .map(|(_, normalized)| normalized.clone())
         .collect::<HashSet<_>>();
     let mut seen_filenames = HashSet::new();
+    let mut exported_expressions = HashSet::new();
     let mut files = Vec::new();
 
     for dir in sprite_dirs_for_owner(state, id, owner_kind) {
@@ -370,7 +382,27 @@ pub(crate) fn export_sprite_archive(
             if !seen_filenames.insert(filename.to_ascii_lowercase()) {
                 continue;
             }
+            exported_expressions.insert(expression.to_ascii_lowercase());
             files.push((filename.to_string(), expression.to_string(), path));
+        }
+    }
+
+    if !requested_expressions.is_empty() {
+        let missing = requested_expressions
+            .iter()
+            .filter_map(|(expression, normalized)| {
+                if exported_expressions.contains(normalized) {
+                    None
+                } else {
+                    Some(expression.as_str())
+                }
+            })
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(AppError::not_found(format!(
+                "Missing requested sprites: {}",
+                missing.join(", ")
+            )));
         }
     }
 
@@ -1262,7 +1294,9 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use std::fs;
+    use std::io::Read;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use zip::ZipArchive;
 
     fn test_state(label: &str) -> AppState {
         let nonce = SystemTime::now()
@@ -1288,6 +1322,79 @@ mod tests {
         general_purpose::STANDARD
             .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
             .expect("embedded test PNG should decode")
+    }
+
+    #[test]
+    fn sprite_archive_exports_every_requested_sprite_as_single_zip() {
+        let state = test_state("sprite-archive-selected");
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "character-1",
+                    "name": "Mira Koi",
+                    "data": { "name": "Mira Koi" }
+                }),
+            )
+            .expect("character should be created");
+        let sprite_dir = state.data_dir.join("sprites").join("character-1");
+        fs::create_dir_all(&sprite_dir).expect("sprite dir should be created");
+        fs::write(sprite_dir.join("happy.png"), [1_u8, 2, 3, 4]).expect("happy sprite should be written");
+        fs::write(sprite_dir.join("sad.webp"), [5_u8, 6, 7, 8]).expect("sad sprite should be written");
+
+        let export = export_sprite_archive(
+            &state,
+            "character-1",
+            json!({ "expressions": ["happy", "sad"] }),
+            Some("character"),
+        )
+        .expect("sprite archive should export");
+
+        assert_eq!(
+            export.get("contentType").and_then(Value::as_str),
+            Some("application/zip")
+        );
+        assert_eq!(
+            export.get("filename").and_then(Value::as_str),
+            Some("Mira_Koi-sprites.zip")
+        );
+        let bytes = general_purpose::STANDARD
+            .decode(export.get("base64").and_then(Value::as_str).unwrap())
+            .expect("zip payload should be valid base64");
+        let mut archive = ZipArchive::new(Cursor::new(bytes)).expect("payload should be a zip");
+        assert!(archive.by_name("manifest.json").is_ok());
+
+        let mut happy_bytes = Vec::new();
+        {
+            let mut happy = archive
+                .by_name("Mira_Koi/happy.png")
+                .expect("happy sprite should be archived");
+            happy
+                .read_to_end(&mut happy_bytes)
+                .expect("happy sprite should be readable");
+        }
+        assert_eq!(happy_bytes, vec![1, 2, 3, 4]);
+        assert!(archive.by_name("Mira_Koi/sad.webp").is_ok());
+    }
+
+    #[test]
+    fn sprite_archive_rejects_missing_requested_sprite() {
+        let state = test_state("sprite-archive-missing");
+        let sprite_dir = state.data_dir.join("sprites").join("character-1");
+        fs::create_dir_all(&sprite_dir).expect("sprite dir should be created");
+        fs::write(sprite_dir.join("happy.png"), [1_u8, 2, 3, 4]).expect("happy sprite should be written");
+
+        let error = export_sprite_archive(
+            &state,
+            "character-1",
+            json!({ "expressions": ["happy", "sad"] }),
+            Some("character"),
+        )
+        .expect_err("missing requested sprite should fail the export");
+
+        assert_eq!(error.code, "not_found");
+        assert!(error.message.contains("sad"));
     }
 
     #[test]
