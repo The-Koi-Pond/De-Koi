@@ -706,6 +706,11 @@ impl ResponsesToolCallAccumulator {
         if from == to || !self.calls.contains_key(&from) {
             return;
         }
+        for call_id in self.item_keys.values_mut() {
+            if call_id == &from {
+                *call_id = to.to_string();
+            }
+        }
         let Some(from_parts) = self.calls.remove(&from) else {
             return;
         };

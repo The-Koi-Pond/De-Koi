@@ -2796,6 +2796,59 @@ data: {"type":"response.function_call_arguments.done","item_id":"item_1","argume
     }
 
     #[test]
+    fn openai_responses_stream_merges_stale_item_aliases() {
+        let mut emitted = Vec::new();
+        let mut tool_calls = ResponsesToolCallAccumulator::default();
+        let mut emit = |value: Value| {
+            emitted.push(value);
+            Ok(())
+        };
+
+        process_openai_responses_sse_block(
+            r#"event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","id":"item_1","name":"roll_dice","arguments":""}}"#,
+            &mut emit,
+            &mut tool_calls,
+        )
+        .expect("function_call item should parse");
+        process_openai_responses_sse_block(
+            r#"event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","item_id":"item_1","delta":"{\"notation\""}"#,
+            &mut emit,
+            &mut tool_calls,
+        )
+        .expect("item_id argument delta should parse");
+        process_openai_responses_sse_block(
+            r#"event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"type":"function_call","id":"item_1","call_id":"fc_1","name":"roll_dice"}}"#,
+            &mut emit,
+            &mut tool_calls,
+        )
+        .expect("function_call item done should merge ids");
+        process_openai_responses_sse_block(
+            r#"event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":":\"1d20\"}"}"#,
+            &mut emit,
+            &mut tool_calls,
+        )
+        .expect("output_index argument delta should resolve to merged call id");
+
+        assert!(emitted.is_empty());
+        assert_eq!(
+            tool_calls.into_tool_calls(),
+            vec![json!({
+                "id": "fc_1",
+                "name": "roll_dice",
+                "arguments": "{\"notation\":\"1d20\"}",
+                "function": {
+                    "name": "roll_dice",
+                    "arguments": "{\"notation\":\"1d20\"}"
+                }
+            })]
+        );
+    }
+
+    #[test]
     fn openai_chatgpt_responses_body_does_not_replay_encrypted_reasoning() {
         let mut request = request_for("openai_chatgpt", "gpt-5-codex", json!({}));
         let mut assistant = test_message("assistant", "Earlier answer.");
