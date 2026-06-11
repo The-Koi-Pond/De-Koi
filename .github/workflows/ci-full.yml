@@ -113,11 +113,17 @@ jobs:
           browser=false
           docs=false
 
-          if matches '^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig(\.node)?\.json|vite\.config\.ts|vitest\.config\.ts|eslint\.config\.js|playwright\.config\.ts|lighthouserc\.cjs|knip\.json|rust-toolchain\.toml|deny\.toml|\.github/workflows/(ci-full|ci-sanity)\.yml|scripts/(run-vite|check-[^/]+|eslint-full-report)\.mjs)$'; then
+          # Full circus: dependency, workflow, build config, and cross-boundary
+          # changes are cheap to classify but expensive to get wrong.
+          if matches '^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig(\.node)?\.json|vite\.config\.ts|vitest\.config\.ts|eslint\.config\.js|playwright\.config\.ts|lighthouserc\.cjs|knip\.json|rust-toolchain\.toml|deny\.toml|\.github/workflows/[^/]+\.yml|scripts/(run-vite|check-[^/]+|eslint-full-report)\.mjs)$'; then
             broad=true
           fi
 
-          if matches '^(src/|tests/unit/|public/|scripts/|index\.html$|package.json$|pnpm-lock.yaml$|pnpm-workspace.yaml$|tsconfig(\.node)?\.json$|vite\.config\.ts$|vitest\.config\.ts$|eslint\.config\.js$|lighthouserc\.cjs$|knip\.json$)'; then
+          if matches '^(src-tauri/src/(commands/storage|http_dispatch|state)|src-tauri/crates/(assets|security)|src/engine/(agents-runtime|contracts|generation)/|src/shared/api/(agent|avatar|export|game|image-generation|import|integration-utility|local-file|lorebook-command|remote-runtime|storage|tracker-snapshot)-api\.ts|custom_components/)'; then
+            broad=true
+          fi
+
+          if matches '^(src/(app|engine|features|shared|styles)/|tests/unit/|public/|scripts/|index\.html$|package.json$|pnpm-lock.yaml$|pnpm-workspace.yaml$|tsconfig(\.node)?\.json$|vite\.config\.ts$|vitest\.config\.ts$|eslint\.config\.js$|lighthouserc\.cjs$|knip\.json$)'; then
             frontend=true
           fi
 
@@ -125,11 +131,11 @@ jobs:
             rust=true
           fi
 
-          if matches '^(src/app/|src/features/|src/shared/|src/styles/|public/|tests/e2e/|playwright\.config\.ts$|vite\.config\.ts$|index\.html$|package.json$|pnpm-lock.yaml$|pnpm-workspace.yaml$)'; then
+          if matches '^(src/app/|src/features/|src/styles/|src/shared/(api/(avatar|external-link|image-generation|import|integration-utility|local-file|remote-runtime|storage|window-controls)-api\.ts|lib/(notification-sound|text-blip-sound)\.ts|stores/ui|types/)|public/|tests/e2e/|playwright\.config\.ts$|vite\.config\.ts$|index\.html$|package.json$|pnpm-lock.yaml$|pnpm-workspace.yaml$)'; then
             browser=true
           fi
 
-          if matches '^(AGENTS\.md$|CONTRIBUTING\.md$|README\.md$|docs/|skills/|\.github/agents/|\.github/bunny-review/|\.github/pull_request_template\.md$|scripts/check-(docs|discovery-metadata|workflow-names|scratch-clean|line-endings)\.mjs$)'; then
+          if matches '^(AGENTS\.md$|CONTRIBUTING\.md$|README\.md$|docs/|skills/|\.agents/|\.github/agents/|\.github/bunny-review/|\.github/pull_request_template\.md$|scripts/check-(docs|agent-workflow|discovery-metadata|workflow-names|scratch-clean|line-endings)\.mjs$)'; then
             docs=true
           fi
 
