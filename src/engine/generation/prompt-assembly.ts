@@ -2961,6 +2961,7 @@ function promptRegexTargetCharacterId(
   input: PromptAssemblyInput,
   characters: GenerationCharacterContext[],
 ): string | null {
+  if (input.request.impersonate === true) return null;
   const requestedTarget = requestedCharacterTarget(input, characters);
   if (requestedTarget) return requestedTarget;
   return characters.length === 1 ? characters[0]!.id : null;

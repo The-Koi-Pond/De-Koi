@@ -237,6 +237,79 @@ function generationStorage(args: {
   };
 }
 
+function promptAssemblyRegexStorage(args: { characters: JsonRecord[]; regexScripts: JsonRecord[] }): StorageGateway {
+  const characters = new Map(args.characters.map((character) => [String(character.id), character]));
+  return {
+    async list<T = unknown>(entity: StorageEntity, options?: StorageListOptions): Promise<T[]> {
+      if (entity === "regex-scripts") return recordList<T>(args.regexScripts, options);
+      if (entity === "lorebooks") return [];
+      if (entity === "lorebook-folders") return [];
+      if (entity === "prompts") return [];
+      if (entity === "personas") return [];
+      if (entity === "agents") return [];
+      return [];
+    },
+    async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
+      if (entity === "characters") return asStorageValue<T | null>(characters.get(id) ?? null);
+      return null;
+    },
+    async create() {
+      throw new Error("create should not be called");
+    },
+    async update() {
+      throw new Error("update should not be called");
+    },
+    async delete() {
+      return { deleted: false };
+    },
+    async listChatMessages() {
+      return [];
+    },
+    async createChatMessage() {
+      throw new Error("createChatMessage should not be called");
+    },
+    async updateChatMessage() {
+      throw new Error("updateChatMessage should not be called");
+    },
+    async deleteChatMessage() {
+      return { deleted: false };
+    },
+    async patchChatMessageExtra<T = unknown>() {
+      return asStorageValue<T>({});
+    },
+    async addChatMessageSwipe<T = unknown>() {
+      return asStorageValue<T>({});
+    },
+    async patchChatMetadata<T = unknown>() {
+      return asStorageValue<T>({});
+    },
+    async patchChatSummaries<T = unknown>() {
+      return asStorageValue<T>({});
+    },
+    async listChatMemories() {
+      return [];
+    },
+    async getWorldState() {
+      return null;
+    },
+    async saveTrackerSnapshot<T = unknown>() {
+      return asStorageValue<T>({});
+    },
+    async listLorebookEntries() {
+      return [];
+    },
+    async listLorebookEntriesByLorebookIds() {
+      return [];
+    },
+    async createLorebookEntries() {
+      return [];
+    },
+    async promptFull() {
+      return null;
+    },
+  };
+}
+
 describe("user-message regeneration review guards", () => {
   it("keeps stored text attachments when literal user text mentions attached_file tags", () => {
     const source = buildUserMessageRegenerationSourceMessage({
@@ -593,5 +666,78 @@ describe("user-message regeneration review guards", () => {
     });
 
     expect(second.activatedLorebookEntries.map((entry) => entry.id)).toContain(loreEntry.id);
+  });
+
+  it("does not apply character-scoped prompt regex scripts during impersonation turns", async () => {
+    const storage = promptAssemblyRegexStorage({
+      characters: [
+        { id: "char-a", name: "Alpha", description: "Alpha description.", tags: [] },
+        { id: "char-b", name: "Beta", description: "Beta description.", tags: [] },
+      ],
+      regexScripts: [
+        {
+          id: "regex-alpha",
+          enabled: true,
+          promptOnly: true,
+          placement: ["user_input"],
+          findRegex: "secret",
+          flags: "g",
+          replaceString: "visible",
+          characterId: "char-a",
+        },
+      ],
+    });
+
+    const prompt = await assembleGenerationPrompt(storage, {
+      chat: {
+        id: "chat-1",
+        mode: "conversation",
+        characterIds: ["char-a", "char-b"],
+        metadata: {},
+      },
+      storedMessages: [{ role: "user", content: "secret" }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: { forCharacterId: "char-a", impersonate: true },
+      latestUserInput: "secret",
+    });
+
+    expect(prompt.messages.some((message) => message.content.includes("visible"))).toBe(false);
+    expect(prompt.messages.some((message) => message.content.includes("secret"))).toBe(true);
+  });
+
+  it("still applies character-scoped prompt regex scripts for real group targets", async () => {
+    const storage = promptAssemblyRegexStorage({
+      characters: [
+        { id: "char-a", name: "Alpha", description: "Alpha description.", tags: [] },
+        { id: "char-b", name: "Beta", description: "Beta description.", tags: [] },
+      ],
+      regexScripts: [
+        {
+          id: "regex-alpha",
+          enabled: true,
+          promptOnly: true,
+          placement: ["user_input"],
+          findRegex: "secret",
+          flags: "g",
+          replaceString: "visible",
+          characterId: "char-a",
+        },
+      ],
+    });
+
+    const prompt = await assembleGenerationPrompt(storage, {
+      chat: {
+        id: "chat-1",
+        mode: "conversation",
+        characterIds: ["char-a", "char-b"],
+        metadata: {},
+      },
+      storedMessages: [{ role: "user", content: "secret" }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: { forCharacterId: "char-a" },
+      latestUserInput: "secret",
+    });
+
+    expect(prompt.messages.some((message) => message.content.includes("visible"))).toBe(true);
   });
 });
