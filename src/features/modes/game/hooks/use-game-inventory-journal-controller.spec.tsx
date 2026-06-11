@@ -63,9 +63,11 @@ function InventoryControllerProbe({
 describe("useGameInventoryJournalController persistence", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
+  let consoleWarn: ReturnType<typeof vi.spyOn>;
   let previousPlayerStats: PlayerStats;
 
   beforeEach(() => {
+    consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
     previousPlayerStats = createPlayerStats();
     useGameStateStore.getState().setGameState({
       chatId: "chat-1",
@@ -98,19 +100,15 @@ describe("useGameInventoryJournalController persistence", () => {
     container?.remove();
     container = null;
     useGameStateStore.getState().reset();
+    consoleWarn.mockRestore();
     vi.clearAllMocks();
   });
 
-  it("rolls visible player stats back when compact metadata persistence fails", async () => {
+  it("does not patch visible player stats when compact metadata persistence fails", async () => {
     const persistMetadata = vi.fn(async () => {
       throw new Error("metadata failed");
     });
-    const patchVisibleGameStateMock = vi.fn(
-      async (field: GameStatePatchField, value: GameStatePatchValue[GameStatePatchField]) => {
-        const current = useGameStateStore.getState().current;
-        useGameStateStore.getState().setGameState(current ? ({ ...current, [field]: value } as GameState) : null);
-      },
-    );
+    const patchVisibleGameStateMock = vi.fn(async () => {});
     const patchVisibleGameState = patchVisibleGameStateMock as PatchVisibleGameState;
     let applyInventoryUpdates: ApplyInventoryUpdates | null = null;
 
@@ -133,12 +131,97 @@ describe("useGameInventoryJournalController persistence", () => {
     });
 
     expect(applied).toBe(false);
-    expect(patchVisibleGameStateMock).toHaveBeenCalledTimes(2);
     expect(persistMetadata).toHaveBeenCalledTimes(1);
-    expect(patchVisibleGameStateMock.mock.invocationCallOrder[0]).toBeLessThan(
-      persistMetadata.mock.invocationCallOrder[0]!,
-    );
+    expect(patchVisibleGameStateMock).not.toHaveBeenCalled();
     expect(useGameStateStore.getState().current?.playerStats?.inventory).toEqual([]);
     expect(gameApi.addJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it("keeps local player stats converged when visible patch flushing rejects after compact metadata persists", async () => {
+    const persistMetadata = vi.fn(async () => null);
+    const patchVisibleGameStateMock = vi.fn(async () => {
+      throw new Error("game-state flush failed");
+    });
+    const patchVisibleGameState = patchVisibleGameStateMock as PatchVisibleGameState;
+    let applyInventoryUpdates: ApplyInventoryUpdates | null = null;
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <InventoryControllerProbe
+          patchVisibleGameState={patchVisibleGameState}
+          persistMetadata={persistMetadata}
+          onReady={(apply) => {
+            applyInventoryUpdates = apply;
+          }}
+        />,
+      );
+    });
+
+    let applied = false;
+    await act(async () => {
+      applied = (await applyInventoryUpdates?.([{ action: "add", items: ["Iron Key"] }])) ?? false;
+    });
+
+    expect(applied).toBe(true);
+    expect(persistMetadata).toHaveBeenCalledWith("chat-1", { gameInventory: [{ name: "Iron Key", quantity: 1 }] });
+    expect(patchVisibleGameStateMock).toHaveBeenCalledTimes(1);
+    expect(useGameStateStore.getState().current?.playerStats?.inventory).toMatchObject([
+      {
+        name: "Iron Key",
+        description: "",
+        quantity: 1,
+        location: "on_person",
+      },
+    ]);
+    expect(useGameStateStore.getState().current?.playerStats?.inventory[0]?.inventoryItemId).toMatch(/^manual-/);
+  });
+
+  it("persists compact metadata and detailed player stats once on success", async () => {
+    const persistMetadata = vi.fn(async () => null);
+    const patchVisibleGameStateMock = vi.fn(
+      async (field: GameStatePatchField, value: GameStatePatchValue[GameStatePatchField]) => {
+        const current = useGameStateStore.getState().current;
+        useGameStateStore.getState().setGameState(current ? ({ ...current, [field]: value } as GameState) : null);
+      },
+    );
+    const patchVisibleGameState = patchVisibleGameStateMock as PatchVisibleGameState;
+    let applyInventoryUpdates: ApplyInventoryUpdates | null = null;
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <InventoryControllerProbe
+          patchVisibleGameState={patchVisibleGameState}
+          persistMetadata={persistMetadata}
+          onReady={(apply) => {
+            applyInventoryUpdates = apply;
+          }}
+        />,
+      );
+    });
+
+    let applied = false;
+    await act(async () => {
+      applied = (await applyInventoryUpdates?.([{ action: "add", items: ["Iron Key"] }])) ?? false;
+    });
+
+    expect(applied).toBe(true);
+    expect(persistMetadata).toHaveBeenCalledTimes(1);
+    expect(patchVisibleGameStateMock).toHaveBeenCalledTimes(1);
+    expect(persistMetadata).toHaveBeenCalledWith("chat-1", { gameInventory: [{ name: "Iron Key", quantity: 1 }] });
+    expect(patchVisibleGameStateMock).toHaveBeenCalledWith(
+      "playerStats",
+      expect.objectContaining({
+        inventory: [
+          expect.objectContaining({
+            name: "Iron Key",
+            description: "",
+            quantity: 1,
+            location: "on_person",
+          }),
+        ],
+      }),
+    );
   });
 });

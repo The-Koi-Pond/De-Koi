@@ -236,22 +236,11 @@ export function useGameInventoryJournalController({
         }
       }
 
-      let patchedGameState = false;
       try {
-        if (currentGameState?.chatId === activeChatId && currentPlayerStats && nextPlayerStats !== currentPlayerStats) {
-          patchedGameState = true;
-          await patchVisibleGameState("playerStats", nextPlayerStats);
-        }
-
         if (updated !== previousInventory) {
           await persistMetadata(activeChatId, { gameInventory: updated });
         }
       } catch (error) {
-        if (patchedGameState && currentPlayerStats) {
-          await patchVisibleGameState("playerStats", currentPlayerStats).catch((rollbackError) => {
-            console.warn("Failed to roll back inventory game-state patch", rollbackError);
-          });
-        }
         console.warn("Failed to persist inventory update", error);
         showInventoryNotifications(
           [
@@ -264,6 +253,19 @@ export function useGameInventoryJournalController({
           6000,
         );
         return false;
+      }
+
+      if (currentGameState?.chatId === activeChatId && currentPlayerStats && nextPlayerStats !== currentPlayerStats) {
+        try {
+          await patchVisibleGameState("playerStats", nextPlayerStats);
+        } catch (error) {
+          const current = useGameStateStore.getState().current;
+          if (current?.chatId === activeChatId) {
+            useGameStateStore.getState().setGameState({ ...current, playerStats: nextPlayerStats });
+          }
+          // The game-state patcher keeps failed flushes queued; compact metadata is already durable.
+          console.warn("Failed to flush visible inventory game-state patch", error);
+        }
       }
 
       if (updated !== previousInventory) {
