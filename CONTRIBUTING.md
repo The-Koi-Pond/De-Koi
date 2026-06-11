@@ -119,7 +119,7 @@ Use these as a guide:
 - Visible UI behavior: run the app and manually verify the workflow. Use Playwright or screenshots when the change is visual or flow-sensitive.
 - Remote runtime behavior: run `marinara-server`, check `/health`, configure the app's Remote Runtime URL, and exercise the supported shared API path when practical.
 
-CI Sanity runs lint, typecheck, tests, and build on `main` pushes and pull requests. CI Full runs size checks, docs/discovery/unused checks, Rust clippy/tests, and the Browser Smoke and Performance job when manually dispatched, scheduled, or triggered by a ready PR. Local validation should still describe exactly what was run and what remains unverified.
+CI Sanity runs lint, typecheck, tests, and build on `main` pushes and pull requests. CI Full classifies changed files and runs the lane-relevant size checks, docs/discovery/unused checks, Rust clippy/tests, and Browser Smoke checks when manually dispatched, scheduled, or triggered by a ready PR. Lighthouse runs in the separate advisory performance workflow. Local validation should still describe exactly what was run and what remains unverified.
 
 ## Pull Requests
 
