@@ -1,6 +1,7 @@
 import { ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "../../../../../../shared/lib/utils";
+import { normalizeScheduleBlocks, type ScheduleBlock } from "../../lib/chat-settings-metadata";
 
 const SCHEDULE_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
 const STATUS_OPTIONS = ["online", "idle", "dnd", "offline"] as const;
@@ -11,12 +12,6 @@ const STATUS_COLORS: Record<string, string> = {
   dnd: "bg-red-500",
   offline: "bg-gray-400",
 };
-
-interface ScheduleBlock {
-  time: string;
-  activity: string;
-  status: "online" | "idle" | "dnd" | "offline";
-}
 
 export function SelfiePromptControls({
   promptTemplate,
@@ -174,9 +169,12 @@ export function ScheduleEditor({
     if (!expandedCharId || !editDraft) return;
     const updated = { ...characterSchedules };
     const existingSchedule = updated[expandedCharId]!;
+    const days = Object.fromEntries(
+      Object.entries(editDraft.days).map(([day, blocks]) => [day, normalizeScheduleBlocks(blocks)]),
+    );
     const nextSchedule = {
       ...existingSchedule,
-      days: editDraft.days,
+      days,
       inactivityThresholdMinutes: parseRequiredMinutes(
         editDraft.inactivityThresholdMinutes,
         existingSchedule.inactivityThresholdMinutes,

@@ -4,6 +4,7 @@ import {
   metadataChoiceSelections,
   metadataScopedRegexMode,
   metadataTranslationProvider,
+  normalizeScheduleBlocks,
 } from "./chat-settings-metadata";
 
 describe("chat settings metadata helpers", () => {
@@ -47,6 +48,20 @@ describe("chat settings metadata helpers", () => {
         },
       },
     });
+  });
+
+  it("normalizes schedule blocks before editor saves metadata", () => {
+    expect(
+      normalizeScheduleBlocks([
+        { time: " 09:00-10:00 ", activity: " Breakfast ", status: "idle" },
+        { time: "", activity: "Missing time", status: "online" },
+        { time: "11:00-12:00", activity: "   ", status: "dnd" },
+        { time: "12:00-13:00", activity: "Fallback status", status: "busy" },
+      ]),
+    ).toEqual([
+      { time: "09:00-10:00", activity: "Breakfast", status: "idle" },
+      { time: "12:00-13:00", activity: "Fallback status", status: "online" },
+    ]);
   });
 
   it("keeps only valid preset choice selections", () => {

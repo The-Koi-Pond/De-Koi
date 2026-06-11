@@ -2,7 +2,7 @@ export type ChoiceSelections = Record<string, string | string[]>;
 export type TranslationProvider = "ai" | "deeplx" | "deepl" | "google";
 export type ScopedRegexModeValue = "disabled" | "exclusive" | "chat";
 const SCHEDULE_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
-interface ScheduleBlock {
+export interface ScheduleBlock {
   time: string;
   activity: string;
   status: "online" | "idle" | "dnd" | "offline";
@@ -51,12 +51,12 @@ function metadataScheduleStatus(value: unknown): ScheduleBlock["status"] {
   return value === "online" || value === "idle" || value === "dnd" || value === "offline" ? value : "online";
 }
 
-function metadataScheduleBlocks(value: unknown): ScheduleBlock[] {
+export function normalizeScheduleBlocks(value: unknown): ScheduleBlock[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item): ScheduleBlock[] => {
     const block = metadataRecord(item);
-    const time = metadataString(block.time);
-    const activity = metadataString(block.activity);
+    const time = metadataString(block.time).trim();
+    const activity = metadataString(block.activity).trim();
     if (!time || !activity) return [];
     return [{ time, activity, status: metadataScheduleStatus(block.status) }];
   });
@@ -73,10 +73,10 @@ export function metadataCharacterSchedules(value: unknown): CharacterScheduleMap
     const rawDays = metadataRecord(schedule.days);
     const days: Record<string, ScheduleBlock[]> = {};
     for (const day of SCHEDULE_DAYS) {
-      days[day] = metadataScheduleBlocks(rawDays[day]);
+      days[day] = normalizeScheduleBlocks(rawDays[day]);
     }
     for (const [day, blocks] of Object.entries(rawDays)) {
-      if (!(day in days)) days[day] = metadataScheduleBlocks(blocks);
+      if (!(day in days)) days[day] = normalizeScheduleBlocks(blocks);
     }
     characterSchedules[characterId] = {
       weekStart,

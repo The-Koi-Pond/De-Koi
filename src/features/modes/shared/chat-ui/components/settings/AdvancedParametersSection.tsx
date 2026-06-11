@@ -12,11 +12,24 @@ import {
   type EditableGenerationParameters,
 } from "../../../../../../shared/components/ui/GenerationParametersEditor";
 import type { Chat } from "../../../../../../engine/contracts/types/chat";
-import { useSaveConnectionDefaults } from "../../../../../catalog/connections/index";
+import {
+  isSyntheticConnection,
+  useSaveConnectionDefaults,
+  type ConnectionSummary,
+} from "../../../../../catalog/connections/index";
 import { useUpdateChatMetadata } from "../../../../../catalog/chats/index";
 import { ChatSettingsSectionHeader } from "./ChatSettingsSections";
 
 const EDITABLE_GENERATION_PARAMETER_KEY_SET = new Set<string>(EDITABLE_GENERATION_PARAMETER_KEYS);
+
+function storedConnectionForDefaults(
+  connectionId: string | null,
+  connections: ConnectionSummary[],
+): ConnectionSummary | null {
+  if (!connectionId) return null;
+  const connection = connections.find((candidate) => candidate.id === connectionId) ?? null;
+  return connection && !isSyntheticConnection(connection) ? connection : null;
+}
 
 function generationParameterRecord(value: unknown): Record<string, unknown> {
   return parseGenerationParameterRecord(value) ?? {};
@@ -42,13 +55,14 @@ export function AdvancedParametersSection({
   updateMeta: ReturnType<typeof useUpdateChatMetadata>;
   isConversation: boolean;
   connectionId: string | null;
-  connections: unknown[];
+  connections: ConnectionSummary[];
   promptPresetParameters?: unknown;
   inheritedGenerationParametersPending?: boolean;
 }) {
   const modeDefaults = isConversation ? CHAT_PARAMETER_DEFAULTS : ROLEPLAY_PARAMETER_DEFAULTS;
   // Use connection-saved defaults if available, otherwise fall back to mode defaults
-  const conn = connectionId ? (connections as Record<string, unknown>[]).find((c) => c.id === connectionId) : null;
+  const conn = connectionId ? (connections.find((c) => c.id === connectionId) ?? null) : null;
+  const storedConnection = storedConnectionForDefaults(connectionId, connections);
   const connectionDefaults = getEditableGenerationParameters(modeDefaults, conn?.defaultParameters);
   const defaults = getEditableGenerationParameters(connectionDefaults, isConversation ? null : promptPresetParameters);
   const saveDefaults = useSaveConnectionDefaults();
@@ -92,11 +106,11 @@ export function AdvancedParametersSection({
                 serviceTierOptions={serviceTierOptionsForProvider(conn?.provider)}
               />
               {/* Save as Default for Connection */}
-              {connectionId && connectionId !== "random" && (
+              {storedConnection && (
                 <button
                   onClick={() => {
                     saveDefaults.mutate({
-                      id: connectionId,
+                      id: storedConnection.id,
                       params: connectionScopedParams as unknown as Record<string, unknown>,
                     });
                   }}
