@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { StorageEntity, StorageGateway, StorageListOptions } from "../capabilities/storage";
 import { persistConnectedCommandTags } from "./connected-commands";
+import { loadCharacters } from "./prompt-assembly";
 import type { JsonRecord } from "./runtime-records";
 
 function asStorageValue<T>(value: unknown): T {
@@ -52,8 +53,8 @@ function commandStorage(args: {
             : entity === "lorebooks"
               ? args.lorebooks
               : entity === "lorebook-entries"
-              ? args.lorebookEntries
-              : [];
+                ? args.lorebookEntries
+                : [];
       return asStorageValue<T | null>(rows.find((row) => row.id === id) ?? null);
     },
     async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
@@ -69,11 +70,13 @@ function commandStorage(args: {
       const rows =
         entity === "characters"
           ? (args.characters ?? [])
-          : entity === "lorebooks"
-            ? args.lorebooks
-            : entity === "lorebook-entries"
-              ? args.lorebookEntries
-              : [];
+          : entity === "chats"
+            ? (args.chats ?? [])
+            : entity === "lorebooks"
+              ? args.lorebooks
+              : entity === "lorebook-entries"
+                ? args.lorebookEntries
+                : [];
       const index = rows.findIndex((row) => row.id === id);
       if (index >= 0) rows[index] = { ...rows[index], ...patch };
       return asStorageValue<T>(rows[index] ?? { id, ...patch });
@@ -565,6 +568,75 @@ describe("persistConnectedCommandTags", () => {
       },
     ]);
     expect(lorebookEntries.map((entry) => entry.name)).toEqual(["New Gate", "Fresh Gate"]);
+  });
+
+  it("stores target-attributed memory commands as character memories and chat memory chunks", async () => {
+    const chats: JsonRecord[] = [
+      {
+        id: "chat-1",
+        name: "Mira conversation",
+        mode: "conversation",
+        characterIds: ["char-1"],
+        memories: [
+          {
+            id: "existing-memory",
+            chatId: "chat-1",
+            content: "Memory for Mira: Existing fact.",
+            messageCount: 0,
+            createdAt: "2026-06-10T00:00:00.000Z",
+          },
+        ],
+        notes: [],
+        metadata: {},
+      },
+    ];
+    const characters: JsonRecord[] = [{ id: "char-1", name: "Mira", data: { name: "Mira", extensions: {} } }];
+    const storage = commandStorage({
+      chats,
+      characters,
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chats[0]!,
+      'Visible reply.\n[memory: target="Mira", summary="[2026-06-11 10:00] User loves jasmine tea."]',
+    );
+
+    expect(result.displayContent).toBe("Visible reply.");
+    expect(result.executedCommands).toEqual(["memory"]);
+    expect(result.createdNotes).toEqual([]);
+    expect(chats[0]?.notes).toEqual([]);
+    expect(chats[0]?.memories).toHaveLength(2);
+    expect((chats[0]?.memories as JsonRecord[])[1]).toMatchObject({
+      chatId: "chat-1",
+      content: "Memory for Mira: User loves jasmine tea.",
+      messageCount: 0,
+      messageIds: [],
+      hasEmbedding: false,
+      embeddingStatus: "unavailable",
+      embeddingSource: "command",
+      source: "connected_command",
+      sourceChatId: "chat-1",
+      target: "Mira",
+      targetCharacterName: "Mira",
+      targetCharacterId: "char-1",
+    });
+    const extensions = (characters[0]?.data as JsonRecord).extensions as JsonRecord;
+    expect(extensions.characterMemories).toMatchObject([
+      {
+        from: "Mira conversation",
+        fromCharId: "char-1",
+        sourceChatId: "chat-1",
+        summary: "User loves jasmine tea.",
+      },
+    ]);
+
+    const [characterContext] = await loadCharacters(storage, chats[0]!);
+    expect(characterContext?.memories).toEqual(
+      expect.arrayContaining([expect.stringContaining("User loves jasmine tea.")]),
+    );
   });
 
   it("keeps valid DM message text visible when the target character is missing", async () => {

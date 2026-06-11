@@ -317,6 +317,85 @@ async function persistNoteWrites(
   }
 }
 
+function existingChatMemories(chat: JsonRecord): JsonRecord[] {
+  return parseArray(chat.memories).filter(isRecord);
+}
+
+function commandMemoryContent(command: Extract<CharacterCommand, { type: "memory" }>, targetName: string): string {
+  return [`Memory for ${targetName || command.target}:`, stripConversationCommandTimestamps(command.summary)]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function stripConversationCommandTimestamps(value: string): string {
+  return value.replace(/^\s*\[[^\]]+\]\s*/g, "").trim();
+}
+
+async function persistTargetCharacterMemory(
+  storage: StorageGateway,
+  target: JsonRecord | null,
+  chat: JsonRecord,
+  command: Extract<CharacterCommand, { type: "memory" }>,
+  createdAt: string,
+): Promise<void> {
+  const targetCharacterId = readString(target?.id).trim();
+  if (!target || !targetCharacterId) return;
+  const data = parseData(target);
+  const extensions = parseRecord(data.extensions);
+  const existing = parseArray(extensions.characterMemories).filter(isRecord);
+  const memory = {
+    from: readString(chat.name).trim() || readString(chat.id).trim() || "Conversation",
+    fromCharId: stringArray(chat.characterIds)[0] ?? null,
+    sourceChatId: readString(chat.id).trim() || null,
+    summary: stripConversationCommandTimestamps(command.summary),
+    createdAt,
+  };
+  await storage.update("characters", targetCharacterId, {
+    data: {
+      ...data,
+      extensions: {
+        ...extensions,
+        characterMemories: [...existing, memory].slice(-100),
+      },
+    },
+  });
+}
+
+async function persistCommandMemory(
+  storage: StorageGateway,
+  chat: JsonRecord,
+  command: Extract<CharacterCommand, { type: "memory" }>,
+): Promise<JsonRecord | null> {
+  const chatId = readString(chat.id).trim();
+  if (!chatId) return null;
+  const target = await findByName(storage, "characters", command.target);
+  const targetCharacterId = readString(target?.id).trim();
+  const targetCharacterName = nameOf(target ?? {}) || command.target;
+  const createdAt = nowIso();
+  await persistTargetCharacterMemory(storage, target, chat, command, createdAt);
+  const memory: JsonRecord = {
+    id: newId("memory"),
+    chatId,
+    content: commandMemoryContent(command, targetCharacterName),
+    messageCount: 0,
+    messageIds: [],
+    firstMessageAt: createdAt,
+    lastMessageAt: createdAt,
+    createdAt,
+    hasEmbedding: false,
+    embeddingStatus: "unavailable",
+    embeddingSource: "command",
+    source: "connected_command",
+    sourceChatId: chatId,
+    target: command.target,
+    targetCharacterName,
+    targetCharacterId: targetCharacterId || null,
+  };
+  const currentChat = (await storage.get<JsonRecord>("chats", chatId).catch(() => null)) ?? chat;
+  await storage.update("chats", chatId, { memories: [...existingChatMemories(currentChat), memory] });
+  return memory;
+}
+
 export async function consumePendingConnectedInfluences(storage: StorageGateway, chat: JsonRecord): Promise<void> {
   const chatId = readString(chat.id).trim();
   const mode = readString(chat.mode || chat.chatMode);
@@ -1087,16 +1166,11 @@ async function executeCommand(
       return { name: command.type };
     }
     case "memory": {
-      const note = {
-        id: newId("memory"),
-        type: "memory",
-        content: `${command.target}: ${command.summary}`,
-        sourceChatId: chatId,
-        targetChatId: null,
-        createdAt: nowIso(),
-      };
-      createdNotes.push(note);
-      pendingNoteWrites.push({ chatId, note });
+      const memory = await persistCommandMemory(storage, chat, command);
+      if (!memory) {
+        eventsPushCommandError(events, command.type, "Could not resolve a chat for the memory command.");
+        return null;
+      }
       return { name: "memory" };
     }
     case "spotify":
