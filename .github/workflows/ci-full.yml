@@ -119,7 +119,7 @@ jobs:
             broad=true
           fi
 
-          if matches '^(src-tauri/src/(commands/storage|http_dispatch|state)|src-tauri/crates/(assets|security)|src/engine/(agents-runtime|contracts|generation)/|src/shared/api/(agent|avatar|export|game|image-generation|import|integration-utility|local-file|lorebook-command|remote-runtime|storage|tracker-snapshot)-api\.ts|custom_components/)'; then
+          if matches '^(src-tauri/src/(commands/storage|http_(dispatch|server)|state)|src-tauri/crates/(assets|security)|src/engine/(agents-runtime|contracts|generation)/|src/shared/api/(agent|avatar|export|game|image-generation|import|integration-utility|local-file|lorebook-command|remote-runtime|storage|tracker-snapshot)-api\.ts|custom_components/)'; then
             broad=true
           fi
 
@@ -131,7 +131,7 @@ jobs:
             rust=true
           fi
 
-          if matches '^(src/app/|src/features/|src/styles/|src/shared/(api/(avatar|external-link|image-generation|import|integration-utility|local-file|remote-runtime|storage|window-controls)-api\.ts|lib/(notification-sound|text-blip-sound)\.ts|stores/ui|types/)|public/|tests/e2e/|playwright\.config\.ts$|vite\.config\.ts$|index\.html$|package.json$|pnpm-lock.yaml$|pnpm-workspace.yaml$)'; then
+          if matches '^(src/app/|src/features/|src/styles/|src/shared/(api/[^/]+-api\.ts|lib/(notification-sound|text-blip-sound)\.ts|stores/ui|types/)|public/|tests/e2e/|playwright\.config\.ts$|vite\.config\.ts$|index\.html$|package.json$|pnpm-lock.yaml$|pnpm-workspace.yaml$)'; then
             browser=true
           fi
 
