@@ -35,6 +35,10 @@ MAX_COMPACT_FILE_PATCH_CHARS = 28_000
 MAX_COMPACT_FILE_SUMMARY_CHARS = 5_000
 MAX_COMPACT_FILE_CONTEXT_CHARS = 30_000
 MAX_COMPACT_GUIDANCE_CHARS = 6_000
+MAX_GLOBAL_REVIEW_CONTEXT_CHARS = 45_000
+MAX_COMPACT_GLOBAL_REVIEW_CONTEXT_CHARS = 22_000
+MAX_GLOBAL_FILE_MAP_CHARS = 3_000
+MAX_COMPACT_GLOBAL_FILE_MAP_CHARS = 1_400
 COMPACT_DIFF_UNIFIED_LINES = 20
 MAX_REVIEW_CHUNKS = 8
 MAX_CHUNK_PATCH_CHARS = 90_000
@@ -127,6 +131,16 @@ def truncate(text, limit):
         text[:limit]
         + f"\n\n[truncated: section was {len(text)} chars, limit is {limit} chars]\n"
     )
+
+
+def truncate_to_budget(text, limit):
+    if limit <= 0:
+        return ""
+    if len(text) <= limit:
+        return text
+    suffix = f"\n\n[truncated: section was {len(text)} chars, budget is {limit} chars]\n"
+    keep = max(0, limit - len(suffix))
+    return text[:keep].rstrip() + suffix
 
 
 def redact_for_model(text):
@@ -468,6 +482,62 @@ def build_file_context(base, files, *, compact=False):
     return body
 
 
+def file_interface_context(path):
+    try:
+        body = read_context_file(path)
+    except Exception as exc:
+        return f"Could not read current file: {exc}"
+    lines = []
+    suffix = pathlib.Path(path).suffix.lower()
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if suffix in {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}:
+            if line.startswith(("import ", "export ", "type ", "interface ", "class ", "function ", "const ")):
+                lines.append(line)
+        elif suffix == ".rs":
+            if line.startswith(("use ", "pub ", "impl ", "fn ", "struct ", "enum ")):
+                lines.append(line)
+        elif suffix in {".py"}:
+            if line.startswith(("import ", "from ", "def ", "class ")):
+                lines.append(line)
+        if len(lines) >= 80:
+            break
+    return "\n".join(lines) if lines else "No compact interface lines found."
+
+
+def build_global_file_map(base, files, *, compact=False):
+    sections = []
+    per_file_limit = (
+        MAX_COMPACT_GLOBAL_FILE_MAP_CHARS if compact else MAX_GLOBAL_FILE_MAP_CHARS
+    )
+    unified = 0 if compact else 8
+    for path in files:
+        stat = run_git(["diff", "--numstat", f"{base}...HEAD", "--", path], 1_000)
+        patch = diff_for_path(base, path, unified=unified)
+        body = (
+            f"numstat: {stat.strip() or 'unavailable'}\n"
+            f"current interface lines:\n{file_interface_context(path)}\n\n"
+            f"changed hunks:\n{patch}"
+        )
+        sections.append(f"### {path}\n{truncate(body, per_file_limit)}")
+    return "\n\n".join(sections) or "No changed file map available."
+
+
+def build_global_review_context(base, files, *, compact=False):
+    limit = (
+        MAX_COMPACT_GLOBAL_REVIEW_CONTEXT_CHARS
+        if compact
+        else MAX_GLOBAL_REVIEW_CONTEXT_CHARS
+    )
+    sections = [
+        ("file relationship map", build_global_file_map(base, files, compact=compact)),
+    ]
+    body = "\n\n".join(f"## {title}\n{redact_for_model(text)}" for title, text in sections)
+    return truncate(body, limit)
+
+
 def patch_overview(patch, files, context_files, *, compact, include_full_patch):
     packet_kind = "compact fallback" if compact else "standard"
     scope = "full diff" if include_full_patch else "focused chunk"
@@ -495,6 +565,30 @@ def print_packet_section_telemetry(sections, *, compact):
     )
 
 
+def format_packet_section(title, body):
+    return f"## {title}\n```text\n{redact_for_model(body)}\n```"
+
+
+def format_packet_sections(sections):
+    return "\n\n".join(format_packet_section(title, body) for title, body in sections)
+
+
+def append_optional_global_context(sections, global_context):
+    if not global_context:
+        return
+    packet_so_far = format_packet_sections(sections)
+    section_title = "PR global review map"
+    section_overhead = len(format_packet_section(section_title, ""))
+    join_overhead = 2 if packet_so_far else 0
+    remaining = MAX_REVIEW_PACKET_CHARS - len(packet_so_far) - section_overhead - join_overhead
+    omitted = (
+        "Omitted because required focus-file patch context, path rules, CI, and "
+        "guidance consumed the packet budget."
+    )
+    if remaining >= len(omitted):
+        sections.append((section_title, truncate_to_budget(global_context, remaining)))
+
+
 def build_review_packet(
     base,
     ci_status,
@@ -503,6 +597,7 @@ def build_review_packet(
     include_full_patch=True,
     *,
     compact=False,
+    global_context=None,
 ):
     files = changed_files(base)
     context_files = focus_files or files
@@ -564,12 +659,11 @@ def build_review_packet(
         except Exception as exc:
             sections.append((f"guidance: {path}", f"Could not read: {exc}"))
 
+    append_optional_global_context(sections, global_context)
     print_packet_section_telemetry(sections, compact=compact)
-    packet = "\n\n".join(
-        f"## {title}\n```text\n{redact_for_model(body)}\n```" for title, body in sections
-    )
+    packet = format_packet_sections(sections)
     if len(packet) > MAX_REVIEW_PACKET_CHARS:
-        packet = truncate(packet, MAX_REVIEW_PACKET_CHARS)
+        packet = truncate_to_budget(packet, MAX_REVIEW_PACKET_CHARS)
     return packet
 
 
@@ -2221,6 +2315,15 @@ def produce_review(args):
 
     chunks = chunk_changed_files(base, files)
     use_chunked_review = len(chunks) > 1
+    global_review_context = None
+    compact_global_review_context = None
+    if use_chunked_review:
+        global_review_context = build_global_review_context(base, files)
+        compact_global_review_context = build_global_review_context(
+            base,
+            files,
+            compact=True,
+        )
 
     from openai import OpenAI
 
@@ -2267,7 +2370,12 @@ def produce_review(args):
             focus_note = (
                 f"This is chunk {index} of {len(chunks)}. Review only these focus files: "
                 + ", ".join(chunk)
-                + "."
+                + ". When packet budget permits, the packet also includes a PR global "
+                "review map for every changed file so sibling wiring, extracted "
+                "implementations, and adjacent contracts are visible while this pass "
+                "cites findings only on focus-file diff lines. Request extra context "
+                "only for a concrete suspected defect that the global map and focused "
+                "patch cannot validate."
             )
             try:
                 chunk_reviews.append(
@@ -2282,6 +2390,11 @@ def produce_review(args):
                             focus_files=chunk,
                             include_full_patch=False,
                             compact=compact,
+                            global_context=(
+                                compact_global_review_context
+                                if compact
+                                else global_review_context
+                            ),
                         ),
                         triage_for_packet,
                         focus_note,
@@ -2304,7 +2417,7 @@ def produce_review(args):
                 return
         review_obj = merge_review_objects(chunk_reviews)
         review_obj.setdefault("what_i_checked", []).append(
-            f"Examined the PR in {len(chunks)} file chunk(s) so the large diff did not contaminate context retention."
+            f"Examined the PR in {len(chunks)} file chunk(s), each paired with a PR-wide global review map."
         )
     else:
         stats = build_stats("")
