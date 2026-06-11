@@ -12,6 +12,8 @@ import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { useEncounterStore } from "../../../../../shared/stores/encounter.store";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
+import { useAgentStore } from "../../../../../shared/stores/agent.store";
+import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { chatKeys } from "../../../../catalog/chats/index";
 import type {
   EncounterSettings,
@@ -84,6 +86,8 @@ export function useEncounter() {
             connectionId: null,
             settings,
             spellbookId,
+            debugMode: useUIStore.getState().debugMode,
+            debugSink: useAgentStore.getState().addDebugEntry,
           },
         );
         store.initCombat(res.combatState);

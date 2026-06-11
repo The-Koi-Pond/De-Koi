@@ -67,13 +67,28 @@ export async function initRoleplayEncounter(
   const context = await buildEncounterContext(capabilities.storage, input);
   const history = await recentHistory(capabilities.storage, input.chatId, input.settings.historyDepth);
   const messages = buildInitPrompt(context, history);
+  const debug = createRoleplayEncounterInitDebug(input);
+  debug("[debug/roleplay/encounter:init] request", {
+    chatId: input.chatId,
+    connectionId: input.connectionId ?? null,
+    historyMessages: history.length,
+    settings: input.settings,
+    messages,
+  });
 
-  const parsed = await completeJsonObject(capabilities, context.chat, input.connectionId ?? null, messages, {
+  const result = await completeJsonObject(capabilities, context.chat, input.connectionId ?? null, messages, {
     temperature: 0.8,
     maxTokens: COMBAT_BLUEPRINT_OUTPUT_TOKENS,
   });
+  debug("[debug/roleplay/encounter:init] raw response", {
+    chatId: input.chatId,
+    chars: result.raw.length,
+    raw: result.raw,
+  });
+  const parsed = result.parsed;
   const rawCombatState = recordValue(parsed?.combatState) ?? parsed;
   const combatState = sanitizeCombatInitState(rawCombatState, context.fallbackState);
+  debug("[debug/roleplay/encounter:init] parsed response", { chatId: input.chatId, combatState });
 
   return { combatState };
 }
@@ -92,10 +107,11 @@ export async function resolveRoleplayEncounterAction(
   const fallback = fallbackActionResult(input);
   const messages = buildActionPrompt(context, history, input);
 
-  const parsed = await completeJsonObject(capabilities, context.chat, input.connectionId ?? null, messages, {
+  const completion = await completeJsonObject(capabilities, context.chat, input.connectionId ?? null, messages, {
     temperature: 0.8,
     maxTokens: ACTION_OUTPUT_TOKENS,
   });
+  const parsed = completion.parsed;
   // completeJsonObject returns null only when the model output was unparseable
   // or the LLM call failed. In that case there is no real turn: synthesizing a
   // deterministic fallback would silently advance combat (and can reach
@@ -433,15 +449,27 @@ async function completeJsonObject(
   overrideConnectionId: string | null,
   messages: LlmMessage[],
   parameters: Record<string, unknown>,
-): Promise<JsonRecord | null> {
+): Promise<{ parsed: JsonRecord | null; raw: string }> {
   try {
     const connectionId = await resolveConnectionId(capabilities.storage, chat, overrideConnectionId);
     const raw = await capabilities.llm.complete({ connectionId, messages, parameters });
     const parsed = parseGameJsonish(raw);
-    return isRecord(parsed) ? parsed : null;
+    return { parsed: isRecord(parsed) ? parsed : null, raw };
   } catch {
-    return null;
+    return { parsed: null, raw: "" };
   }
+}
+
+function createRoleplayEncounterInitDebug(input: Pick<EncounterInitRequest, "debugMode" | "debugSink">) {
+  return (message: string, payload: unknown) => {
+    if (input.debugMode !== true) return;
+    input.debugSink?.({
+      level: "debug",
+      phase: "roleplay-encounter-init",
+      message,
+      args: [payload],
+    });
+  };
 }
 
 async function resolveConnectionId(
