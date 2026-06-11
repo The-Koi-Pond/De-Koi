@@ -15,6 +15,16 @@ function recordList<T = JsonRecord>(records: JsonRecord[], options?: StorageList
   return rows as T[];
 }
 
+function currentScheduleDayName(): string {
+  return ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][(new Date().getDay() + 6) % 7]!;
+}
+
+function nonCurrentScheduleDayName(): string {
+  return ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].find(
+    (day) => day !== currentScheduleDayName(),
+  )!;
+}
+
 function commandStorage(args: {
   characters?: JsonRecord[];
   chats?: JsonRecord[];
@@ -139,6 +149,7 @@ describe("character connected commands", () => {
         },
       },
     ];
+    const nonCurrentDayName = nonCurrentScheduleDayName();
     const chats = [
       {
         id: "chat-2",
@@ -149,11 +160,34 @@ describe("character connected commands", () => {
           characterSchedules: {
             "char-1": {
               weekStart: "2026-06-01T00:00:00.000Z",
-              days,
+              days: {
+                ...days,
+                [nonCurrentDayName]: [{ time: "00:00-24:00", activity: "local day", status: "online" }],
+              },
               inactivityThresholdMinutes: 5,
               idleResponseDelayMinutes: 2,
               dndResponseDelayMinutes: 8,
               talkativeness: 25,
+              localNote: "keep sibling metadata",
+            },
+          },
+        },
+      },
+      {
+        id: "chat-3",
+        mode: "conversation",
+        characterIds: ["char-1"],
+        metadata: {
+          conversationSchedulesEnabled: true,
+          characterSchedules: {
+            "char-1": {
+              weekStart: "2026-06-15T00:00:00.000Z",
+              days: {
+                ...days,
+                [currentScheduleDayName()]: [{ time: "00:00-00:00", activity: "closed", status: "offline" }],
+              },
+              inactivityThresholdMinutes: 15,
+              talkativeness: 10,
             },
           },
         },
@@ -204,9 +238,7 @@ describe("character connected commands", () => {
     expect(schedule.days).toBeDefined();
     expect(schedule).not.toHaveProperty("duration");
 
-    const dayName = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][
-      (new Date().getDay() + 6) % 7
-    ]!;
+    const dayName = currentScheduleDayName();
     expect((schedule.days as JsonRecord)[dayName]).toEqual([
       { time: "00:00-24:00", activity: "debugging", status: "dnd" },
     ]);
@@ -215,18 +247,81 @@ describe("character connected commands", () => {
     const siblingSchedules = metadataPatches[1]?.patch.characterSchedules as JsonRecord;
     const siblingSchedule = siblingSchedules["char-1"] as JsonRecord;
     expect(siblingSchedule).toMatchObject({
+      weekStart: "2026-06-01T00:00:00.000Z",
       inactivityThresholdMinutes: 5,
       idleResponseDelayMinutes: 2,
       dndResponseDelayMinutes: 8,
+      talkativeness: 25,
+      localNote: "keep sibling metadata",
     });
     expect((siblingSchedule.days as JsonRecord)[dayName]).toEqual([
       { time: "00:00-24:00", activity: "debugging", status: "dnd" },
     ]);
+    expect((siblingSchedule.days as JsonRecord)[nonCurrentDayName]).toEqual([
+      { time: "00:00-24:00", activity: "local day", status: "online" },
+    ]);
+    expect(metadataPatches.some((patch) => patch.chatId === "chat-3")).toBe(false);
 
     const characterData = updates[0]?.patch.data as JsonRecord;
     expect(characterData.extensions).toMatchObject({
       conversationStatus: "dnd",
       conversationActivity: "debugging",
+    });
+  });
+
+  it("updates character availability when no current schedule block can be patched", async () => {
+    const characters = [
+      {
+        id: "char-1",
+        data: {
+          name: "Mira",
+          extensions: {
+            conversationStatus: "idle",
+            conversationActivity: "reading",
+          },
+        },
+      },
+    ];
+    const metadataPatches: Array<{ chatId: string; patch: JsonRecord }> = [];
+    const updates: Array<{ entity: StorageEntity; id: string; patch: JsonRecord }> = [];
+    const storage = commandStorage({
+      characters,
+      lorebooks: [],
+      lorebookEntries: [],
+      metadataPatches,
+      updates,
+    });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      {
+        id: "chat-1",
+        mode: "conversation",
+        characterIds: ["char-1"],
+        metadata: {
+          conversationSchedulesEnabled: true,
+          characterSchedules: {
+            "char-1": {
+              weekStart: "2026-06-08T00:00:00.000Z",
+              days: {
+                [currentScheduleDayName()]: [{ time: "00:00-00:00", activity: "closed", status: "offline" }],
+              },
+              inactivityThresholdMinutes: 30,
+              talkativeness: 70,
+            },
+          },
+        },
+      },
+      '[schedule_update: status="online", activity="available"]',
+    );
+
+    expect(result.executedCommands).toEqual(["schedule_update"]);
+    expect(metadataPatches).toHaveLength(0);
+    const characterData = updates[0]?.patch.data as JsonRecord;
+    expect(characterData.extensions).toMatchObject({
+      conversationStatus: "online",
+      conversationActivity: "available",
+      conversationStatusSource: "schedule",
     });
   });
 

@@ -348,26 +348,12 @@ function patchCurrentScheduleBlock(
   };
 }
 
-function preserveScheduleTimingSettings(schedule: JsonRecord, existingValue: unknown): JsonRecord {
-  const existing = parseRecord(existingValue);
-  const next = { ...schedule };
-  if (typeof existing.inactivityThresholdMinutes === "number") {
-    next.inactivityThresholdMinutes = existing.inactivityThresholdMinutes;
-  }
-  if (typeof existing.idleResponseDelayMinutes === "number") {
-    next.idleResponseDelayMinutes = existing.idleResponseDelayMinutes;
-  }
-  if (typeof existing.dndResponseDelayMinutes === "number") {
-    next.dndResponseDelayMinutes = existing.dndResponseDelayMinutes;
-  }
-  return next;
-}
-
 async function syncScheduleUpdateToSiblingChats(
   storage: StorageGateway,
   sourceChatId: string,
   characterId: string,
-  schedule: JsonRecord,
+  command: ScheduleUpdateCommand,
+  now: Date,
 ): Promise<void> {
   const chats = await storage.list<JsonRecord>("chats");
   for (const chat of chats) {
@@ -377,7 +363,9 @@ async function syncScheduleUpdateToSiblingChats(
     const meta = parseRecord(chat.metadata);
     if (!conversationSchedulesEnabled(meta)) continue;
     const schedules = parseRecord(meta.characterSchedules);
-    schedules[characterId] = preserveScheduleTimingSettings(schedule, schedules[characterId]);
+    const updated = patchCurrentScheduleBlock(schedules[characterId], command, now);
+    if (!updated) continue;
+    schedules[characterId] = updated.schedule;
     await storage.patchChatMetadata(chatId, { characterSchedules: schedules });
   }
 }
@@ -697,28 +685,40 @@ async function applyScheduleUpdate(
   if (!characterId || !chatId) return false;
   const metadata = parseRecord(chat.metadata);
   const schedules = parseRecord(metadata.characterSchedules);
-  const updated = patchCurrentScheduleBlock(schedules[characterId], command, new Date(nowIso()));
-  if (!updated) return false;
-  schedules[characterId] = updated.schedule;
-  await storage.patchChatMetadata(chatId, { characterSchedules: schedules });
-  await syncScheduleUpdateToSiblingChats(storage, chatId, characterId, updated.schedule);
+  const now = new Date(nowIso());
+  const updated = patchCurrentScheduleBlock(schedules[characterId], command, now);
+  if (updated) {
+    schedules[characterId] = updated.schedule;
+    await storage.patchChatMetadata(chatId, { characterSchedules: schedules });
+    await syncScheduleUpdateToSiblingChats(storage, chatId, characterId, command, now);
+  }
   const row = await storage.get<JsonRecord>("characters", characterId);
+  let characterUpdated = false;
   if (row?.id) {
     const data = parseData(row);
     const extensions = parseRecord(data.extensions);
+    const status =
+      readString(updated?.status).trim() ||
+      command.status ||
+      readString(extensions.conversationStatus).trim() ||
+      "online";
+    const activity =
+      updated?.activity ??
+      (command.activity !== undefined ? command.activity : readString(extensions.conversationActivity));
     await storage.update("characters", characterId, {
       data: {
         ...data,
         extensions: {
           ...extensions,
-          conversationStatus: updated.status,
-          conversationActivity: updated.activity,
+          conversationStatus: status,
+          conversationActivity: activity,
           conversationStatusSource: "schedule",
         },
       },
     });
+    characterUpdated = true;
   }
-  return true;
+  return !!updated || characterUpdated;
 }
 
 function characterDataFromCreate(command: CreateCharacterCommand): JsonRecord {
