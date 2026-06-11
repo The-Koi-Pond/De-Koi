@@ -28,6 +28,7 @@ import {
   nowIso,
   parseArray,
   parseRecord,
+  readNumber,
   readString,
   stringArray,
   type JsonRecord,
@@ -608,14 +609,23 @@ async function applyScheduleUpdate(
 }
 
 function characterDataFromCreate(command: CreateCharacterCommand): JsonRecord {
+  const extensions: JsonRecord = {
+    altDescriptions: [],
+    ...(command.talkativeness != null ? { talkativeness: command.talkativeness } : {}),
+    ...(command.backstory !== undefined ? { backstory: command.backstory } : {}),
+    ...(command.appearance !== undefined ? { appearance: command.appearance } : {}),
+    ...(command.fav !== undefined ? { fav: command.fav } : {}),
+    ...(command.world !== undefined ? { world: command.world } : {}),
+  };
+  const depthPrompt = depthPromptFromCommand(command);
+  if (depthPrompt) extensions.depth_prompt = depthPrompt;
+
   return {
     name: command.name,
     description: command.description ?? "",
     personality: command.personality ?? "",
     first_mes: command.firstMessage ?? "",
     scenario: command.scenario ?? "",
-    backstory: command.backstory ?? "",
-    appearance: command.appearance ?? "",
     mes_example: command.mesExample ?? "",
     creator_notes: command.creatorNotes ?? "",
     system_prompt: command.systemPrompt ?? "",
@@ -624,16 +634,59 @@ function characterDataFromCreate(command: CreateCharacterCommand): JsonRecord {
     character_version: command.characterVersion ?? "1.0",
     tags: command.tags ?? [],
     alternate_greetings: command.alternateGreetings ?? [],
-    extensions: {
-      altDescriptions: [],
-      ...(command.talkativeness != null ? { talkativeness: command.talkativeness } : {}),
-      ...(command.depthPrompt ? { depth_prompt: command.depthPrompt } : {}),
-      ...(command.depthPromptDepth != null ? { depth_prompt_depth: command.depthPromptDepth } : {}),
-      ...(command.depthPromptRole ? { depth_prompt_role: command.depthPromptRole } : {}),
-    },
+    extensions,
     character_book: null,
   };
 }
+
+function isDepthPromptRole(value: unknown): value is "system" | "user" | "assistant" {
+  return value === "system" || value === "user" || value === "assistant";
+}
+
+function hasOwn(record: JsonRecord, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function depthPromptFromCommand(
+  command: Pick<
+    CreateCharacterCommand | UpdateCharacterCommand,
+    "depthPrompt" | "depthPromptDepth" | "depthPromptRole"
+  >,
+  current?: { depthPrompt?: unknown; depth?: unknown; role?: unknown },
+): JsonRecord | null {
+  const currentDepthPrompt = current?.depthPrompt;
+  const currentObject = parseRecord(currentDepthPrompt);
+  const currentPrompt = readString(currentObject.prompt) || readString(currentDepthPrompt);
+  const currentDepthValue = currentObject.depth ?? current?.depth;
+  const currentRoleValue = currentObject.role ?? current?.role;
+  if (
+    command.depthPrompt === undefined &&
+    command.depthPromptDepth === undefined &&
+    command.depthPromptRole === undefined &&
+    !currentPrompt &&
+    currentDepthValue === undefined &&
+    currentRoleValue === undefined
+  ) {
+    return null;
+  }
+
+  const currentDepth = readNumber(currentDepthValue, 4);
+  return {
+    prompt: command.depthPrompt ?? currentPrompt,
+    depth: command.depthPromptDepth ?? currentDepth,
+    role: command.depthPromptRole ?? (isDepthPromptRole(currentRoleValue) ? currentRoleValue : "system"),
+  };
+}
+
+const EXTENSION_TOP_LEVEL_CHARACTER_FIELDS = [
+  "backstory",
+  "appearance",
+  "fav",
+  "world",
+  "depth_prompt",
+  "depth_prompt_depth",
+  "depth_prompt_role",
+] as const;
 
 function characterDataPatch(data: JsonRecord, command: UpdateCharacterCommand): JsonRecord {
   const next: JsonRecord = { ...data, name: command.name || readString(data.name) };
@@ -642,31 +695,40 @@ function characterDataPatch(data: JsonRecord, command: UpdateCharacterCommand): 
     ["personality", "personality"],
     ["firstMessage", "first_mes"],
     ["scenario", "scenario"],
-    ["backstory", "backstory"],
-    ["appearance", "appearance"],
     ["mesExample", "mes_example"],
     ["creatorNotes", "creator_notes"],
     ["systemPrompt", "system_prompt"],
     ["postHistoryInstructions", "post_history_instructions"],
     ["creator", "creator"],
     ["characterVersion", "character_version"],
-    ["world", "world"],
   ];
   for (const [from, to] of fieldMap) {
     if (command[from] !== undefined) next[to] = command[from];
   }
   if (command.tags !== undefined) next.tags = command.tags;
   if (command.alternateGreetings !== undefined) next.alternate_greetings = command.alternateGreetings;
-  if (command.fav !== undefined) next.fav = command.fav;
   const extensions = {
     ...(data.extensions && typeof data.extensions === "object" && !Array.isArray(data.extensions)
       ? (data.extensions as JsonRecord)
       : {}),
   };
+  for (const key of EXTENSION_TOP_LEVEL_CHARACTER_FIELDS) {
+    if (!hasOwn(extensions, key) && hasOwn(data, key)) extensions[key] = data[key];
+    delete next[key];
+  }
   if (command.talkativeness !== undefined) extensions.talkativeness = command.talkativeness;
-  if (command.depthPrompt !== undefined) extensions.depth_prompt = command.depthPrompt;
-  if (command.depthPromptDepth !== undefined) extensions.depth_prompt_depth = command.depthPromptDepth;
-  if (command.depthPromptRole !== undefined) extensions.depth_prompt_role = command.depthPromptRole;
+  if (command.backstory !== undefined) extensions.backstory = command.backstory;
+  if (command.appearance !== undefined) extensions.appearance = command.appearance;
+  if (command.fav !== undefined) extensions.fav = command.fav;
+  if (command.world !== undefined) extensions.world = command.world;
+  const depthPrompt = depthPromptFromCommand(command, {
+    depthPrompt: extensions.depth_prompt,
+    depth: extensions.depth_prompt_depth,
+    role: extensions.depth_prompt_role,
+  });
+  if (depthPrompt) extensions.depth_prompt = depthPrompt;
+  delete extensions.depth_prompt_depth;
+  delete extensions.depth_prompt_role;
   next.extensions = extensions;
   return next;
 }
