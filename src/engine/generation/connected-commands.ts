@@ -1180,7 +1180,15 @@ async function executeCommand(
           limit: 1,
         });
         const track = search.tracks?.find((item) => item.uri);
-        if (track) await integrations.spotify.playTrack({ track });
+        if (!track) {
+          eventsPushCommandError(
+            events,
+            command.type,
+            `Spotify did not find a playable track for "${command.title}" by "${command.artist}".`,
+          );
+          return null;
+        }
+        await integrations.spotify.playTrack({ track });
         return { name: "spotify" };
       }
       eventsPushCommandError(events, command.type, "Spotify integration is not connected.");

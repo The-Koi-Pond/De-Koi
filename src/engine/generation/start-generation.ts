@@ -216,6 +216,40 @@ function shouldPauseForAgentInjectionReview(
   return parseRecord(chat.metadata).reviewWriterAgentOutputs === true;
 }
 
+function conversationCommandPromptEnabled(chat: JsonRecord): boolean {
+  const mode = readString(chat.mode || chat.chatMode).trim();
+  const meta = parseRecord(chat.metadata);
+  return mode === "conversation" && boolish(meta.characterCommands, false);
+}
+
+async function spotifyPlaybackAvailableForConversationCommand(integrations: IntegrationGateway): Promise<boolean> {
+  try {
+    const player = await integrations.spotify.player<JsonRecord>({});
+    return parseRecord(player).connected !== false;
+  } catch {
+    return false;
+  }
+}
+
+async function withRuntimeConversationCommandCapabilities(
+  chat: JsonRecord,
+  integrations: IntegrationGateway,
+): Promise<JsonRecord> {
+  if (!conversationCommandPromptEnabled(chat)) return chat;
+  const spotifyPlaybackAvailable = await spotifyPlaybackAvailableForConversationCommand(integrations);
+  const metadata = parseRecord(chat.metadata);
+  return {
+    ...chat,
+    metadata: {
+      ...metadata,
+      commandCapabilities: {
+        ...parseRecord(metadata.commandCapabilities),
+        spotifyPlaybackAvailable,
+      },
+    },
+  };
+}
+
 function reviewableAgentInjections(injections: AgentInjectionOverride[]): AgentInjectionOverride[] {
   return injections.filter((injection) => REVIEWABLE_WRITER_AGENT_TYPES.has(injection.agentType));
 }
@@ -3282,7 +3316,7 @@ export async function* startGeneration(
     preparedUserInput,
     storedMessages,
   );
-  const chatForGeneration = generationTrackerBaseline ? { ...chat, gameState: generationTrackerBaseline } : chat;
+  let chatForGeneration = generationTrackerBaseline ? { ...chat, gameState: generationTrackerBaseline } : chat;
   const resolvedGroupTarget = await resolveGroupTargetForGeneration({
     deps,
     input,
@@ -3349,6 +3383,10 @@ export async function* startGeneration(
 
   yield { type: "phase", data: "Assembling prompt..." };
   let prompt = directMessages;
+  if (!directMessages) {
+    chatForGeneration = await withRuntimeConversationCommandCapabilities(chatForGeneration, deps.integrations);
+    throwIfAborted(signal);
+  }
   let assembly = await assembleGenerationPrompt(deps.storage, {
     chat: chatForGeneration,
     storedMessages: generationMessages,
