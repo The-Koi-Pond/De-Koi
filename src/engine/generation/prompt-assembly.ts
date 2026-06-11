@@ -56,6 +56,7 @@ import {
   boolish,
   hiddenFromAi,
   isRecord,
+  nowIso,
   parseArray,
   parseRecord,
   readNumber,
@@ -88,6 +89,7 @@ export interface GenerationCharacterContext {
   firstMes?: string;
   postHistoryInstructions?: string;
   depthPrompt?: GenerationCharacterDepthPrompt;
+  memories?: string[];
   tags: string[];
 }
 
@@ -430,6 +432,7 @@ function loadCharacterContext(record: JsonRecord): GenerationCharacterContext {
     postHistoryInstructions:
       field(data, "post_history_instructions") || field(data, "postHistoryInstructions") || undefined,
     depthPrompt: characterDepthPrompt(data, extensions),
+    memories: sameDayCharacterMemories(extensions),
     tags: stringArray(data.tags ?? record.tags),
   };
 }
@@ -454,6 +457,29 @@ function characterDepthPrompt(data: JsonRecord, extensions: JsonRecord): Generat
     depth: normalizeDepthPromptDepth(depthPrompt.depth ?? extensions.depth_prompt_depth ?? data.depth_prompt_depth),
     role: normalizeDepthPromptRole(depthPrompt.role ?? extensions.depth_prompt_role ?? data.depth_prompt_role),
   };
+}
+
+function characterMemoryDate(value: unknown): string {
+  return readString(value).trim().slice(0, 10);
+}
+
+function sameDayCharacterMemories(extensions: JsonRecord): string[] {
+  const today = nowIso().slice(0, 10);
+  return parseArray(extensions.characterMemories)
+    .filter(isRecord)
+    .filter((memory) => {
+      const createdDate = characterMemoryDate(memory.createdAt);
+      return !createdDate || createdDate === today;
+    })
+    .map((memory) => {
+      const summary = cleanPromptText(readString(memory.summary).trim());
+      if (!summary) return "";
+      const createdDate = characterMemoryDate(memory.createdAt) || "recent";
+      const from = readString(memory.from).trim();
+      return `- ${createdDate}${from ? ` from ${from}` : ""}: ${summary}`;
+    })
+    .filter(Boolean)
+    .slice(-8);
 }
 
 function loadPersonaContext(record: JsonRecord): GenerationPersonaContext {
@@ -1236,6 +1262,7 @@ const CHARACTER_FIELD_LABELS: Record<string, string> = {
   systemPrompt: "System Prompt",
   post_history_instructions: "Post History Instructions",
   postHistoryInstructions: "Post History Instructions",
+  memories: "Memories",
 };
 
 function characterFieldValue(character: GenerationCharacterContext, fieldName: string): string {
@@ -1267,6 +1294,8 @@ function characterFieldValue(character: GenerationCharacterContext, fieldName: s
     case "post_history_instructions":
     case "postHistoryInstructions":
       return character.postHistoryInstructions ?? "";
+    case "memories":
+      return character.memories?.join("\n") ?? "";
     default:
       return "";
   }
@@ -1347,6 +1376,9 @@ function renderCharacters(
             CHARACTER_FIELD_LABELS[fieldName] ?? fieldName,
             characterMarkerFieldValue(character, fieldName, macros, groupScenarioOverride),
           ]),
+          ...(fields.includes("memories")
+            ? []
+            : ([["Memories", character.memories?.join("\n") ?? ""]] as Array<[string, string]>)),
         ],
         wrapFormat,
         2,
