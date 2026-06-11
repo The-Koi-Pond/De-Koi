@@ -41,6 +41,12 @@ export interface SpriteCleanupRestoreResult {
   error?: string;
 }
 
+export interface SpriteArchiveExportResult {
+  base64: string;
+  contentType: string;
+  filename: string;
+}
+
 interface SpriteOwnerVariables {
   spriteOwnerId?: string;
   characterId?: string;
@@ -137,6 +143,23 @@ export function useDeleteSprite() {
     onSuccess: (_data, variables) => {
       const owner = getSpriteOwner(variables);
       qc.invalidateQueries({ queryKey: spriteKeys.list(owner.id, owner.type) });
+    },
+  });
+}
+
+export function useExportSpritesArchive() {
+  return useMutation({
+    mutationFn: (variables: SpriteOwnerVariables & { expressions?: string[] }) => {
+      const owner = getSpriteOwner(variables);
+      if (variables.expressions?.length === 0) {
+        throw new Error("No sprites selected.");
+      }
+      const body = variables.expressions === undefined ? {} : { expressions: variables.expressions };
+      return spriteApi.exportArchive<SpriteArchiveExportResult>(
+        owner.id,
+        body,
+        { ownerType: owner.type },
+      );
     },
   });
 }

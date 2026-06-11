@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { SpriteGenerationModal } from "../../../../../shared/components/ui/SpriteGenerationModal";
+import { downloadPayloadFromApiValue, triggerDownload } from "../../../../../shared/api/download-payload";
 import { showAlertDialog, showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { getErrorMessage } from "../../../../../shared/lib/error-message";
 import { cn } from "../../../../../shared/lib/utils";
@@ -12,6 +13,7 @@ import {
   type SpriteInfo,
   useCleanupSavedSprites,
   useDeleteSprite,
+  useExportSpritesArchive,
   usePersonaSprites,
   useRestoreSpriteCleanupPoint,
   useSpriteCapabilities,
@@ -50,6 +52,7 @@ export function PersonaSpritesTab({
   const uploadSprite = useUploadSprite();
   const uploadSprites = useUploadSprites();
   const deleteSprite = useDeleteSprite();
+  const exportSpritesArchive = useExportSpritesArchive();
   const cleanupSavedSprites = useCleanupSavedSprites();
   const restoreSpriteCleanupPoint = useRestoreSpriteCleanupPoint();
   const queryClient = useQueryClient();
@@ -260,36 +263,30 @@ export function PersonaSpritesTab({
       if (spritesToExport.length === 0) return;
 
       setExporting(true);
-      let successCount = 0;
 
       try {
-        for (const sprite of spritesToExport) {
-          try {
-            await downloadSpriteFile(sprite);
-            successCount += 1;
-          } catch {
-            // Continue exporting remaining sprites.
-          }
-        }
-
-        if (successCount === 0) {
-          await showAlertDialog({
-            title: "Export Failed",
-            message: "No sprites were exported. Please try again.",
-            tone: "destructive",
-          });
-        } else {
-          toast.success(
-            modeLabel === "all"
-              ? `Exported ${successCount} sprite${successCount === 1 ? "" : "s"}.`
-              : `Exported ${successCount} ${category === "full-body" ? "full-body" : "expression"} sprite${successCount === 1 ? "" : "s"}.`,
-          );
-        }
+        const result = await exportSpritesArchive.mutateAsync({
+          spriteOwnerId: personaId,
+          ownerType: "persona",
+          expressions: spritesToExport.map((sprite) => sprite.expression),
+        });
+        triggerDownload(downloadPayloadFromApiValue(result, "sprites.zip", "application/zip"));
+        toast.success(
+          modeLabel === "all"
+            ? `Exported ${spritesToExport.length} sprites as an archive.`
+            : `Exported ${spritesToExport.length} ${category === "full-body" ? "full-body" : "expression"} sprite${spritesToExport.length === 1 ? "" : "s"} as an archive.`,
+        );
+      } catch (error) {
+        await showAlertDialog({
+          title: "Export Failed",
+          message: getErrorMessage(error, "No sprites were exported. Please try again."),
+          tone: "destructive",
+        });
       } finally {
         setExporting(false);
       }
     },
-    [category, downloadSpriteFile],
+    [category, exportSpritesArchive, personaId],
   );
 
   const handleCleanVisibleSprites = useCallback(async () => {

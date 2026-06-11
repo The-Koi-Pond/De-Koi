@@ -89,6 +89,8 @@ export const spriteApi = {
     const owner = spriteOwnerArgs(characterId, options);
     return resolveSpriteResponse(await invokeTauri<T>("sprite_list", owner), owner.characterId, owner.ownerType);
   },
+  exportArchive: <T = unknown>(characterId: string, body: Record<string, unknown>, options?: SpriteOwnerOptions) =>
+    invokeTauri<T>("sprite_export", { ...spriteOwnerArgs(characterId, options), body }),
   upload: async <T = unknown>(characterId: string, body: Record<string, unknown>, options?: SpriteOwnerOptions) => {
     const owner = spriteOwnerArgs(characterId, options);
     return resolveSpriteResponse(

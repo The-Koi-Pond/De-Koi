@@ -147,6 +147,7 @@ const REMOTE_COMMANDS = new Set([
   "sprite_generate_sheet_preview",
   "sprite_cleanup",
   "sprite_list",
+  "sprite_export",
   "sprite_upload",
   "sprite_upload_bulk",
   "sprite_delete",
