@@ -123,7 +123,7 @@ jobs:
             broad=true
           fi
 
-          if matches '^(src/(app|engine|features|shared|styles)/|tests/unit/|public/|scripts/|index\.html$|package.json$|pnpm-lock.yaml$|pnpm-workspace.yaml$|tsconfig(\.node)?\.json$|vite\.config\.ts$|vitest\.config\.ts$|eslint\.config\.js$|lighthouserc\.cjs$|knip\.json$)'; then
+          if matches '^(src/(app|engine|features|shared|styles)/|src/[^/]+\.(ts|tsx|d\.ts|css)$|tests/unit/|public/|scripts/|index\.html$|package.json$|pnpm-lock.yaml$|pnpm-workspace.yaml$|tsconfig(\.node)?\.json$|vite\.config\.ts$|vitest\.config\.ts$|eslint\.config\.js$|lighthouserc\.cjs$|knip\.json$)'; then
             frontend=true
           fi
 
