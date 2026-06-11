@@ -16,6 +16,7 @@ function recordList<T = JsonRecord>(records: JsonRecord[], options?: StorageList
 }
 
 function commandStorage(args: {
+  characters?: JsonRecord[];
   lorebooks: JsonRecord[];
   lorebookEntries: JsonRecord[];
   creates?: Array<{ entity: StorageEntity; value: JsonRecord }>;
@@ -23,6 +24,7 @@ function commandStorage(args: {
 }): StorageGateway {
   return {
     async list<T = unknown>(entity: StorageEntity, options?: StorageListOptions): Promise<T[]> {
+      if (entity === "characters") return recordList<T>(args.characters ?? [], options);
       if (entity === "lorebooks") return recordList<T>(args.lorebooks, options);
       if (entity === "lorebook-entries") return recordList<T>(args.lorebookEntries, options);
       return [];
@@ -33,12 +35,20 @@ function commandStorage(args: {
     async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
       const row = { id: `created-${args.creates?.length ?? 0}`, ...value };
       args.creates?.push({ entity, value: row });
+      if (entity === "characters") args.characters?.push(row);
       if (entity === "lorebook-entries") args.lorebookEntries.push(row);
       return asStorageValue<T>(row);
     },
     async update<T = unknown>(entity: StorageEntity, id: string, patch: Record<string, unknown>): Promise<T> {
       args.updates?.push({ entity, id, patch });
-      const rows = entity === "lorebooks" ? args.lorebooks : entity === "lorebook-entries" ? args.lorebookEntries : [];
+      const rows =
+        entity === "characters"
+          ? (args.characters ?? [])
+          : entity === "lorebooks"
+            ? args.lorebooks
+            : entity === "lorebook-entries"
+              ? args.lorebookEntries
+              : [];
       const index = rows.findIndex((row) => row.id === id);
       if (index >= 0) rows[index] = { ...rows[index], ...patch };
       return asStorageValue<T>(rows[index] ?? { id, ...patch });
@@ -90,6 +100,159 @@ function commandStorage(args: {
     },
   };
 }
+
+describe("character connected commands", () => {
+  it("creates character extension fields under data.extensions", async () => {
+    const creates: Array<{ entity: StorageEntity; value: JsonRecord }> = [];
+    const storage = commandStorage({ characters: [], lorebooks: [], lorebookEntries: [], creates });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      { id: "chat-1", mode: "conversation" },
+      [
+        '[create_character: name="Mira", backstory="Keeps city secrets", appearance="Silver coat"',
+        'fav=true, world="Harbor Nine", depth_prompt="Protect civilians"',
+        'depth_prompt_depth=7, depth_prompt_role="assistant"]',
+      ].join(" "),
+    );
+
+    expect(result.executedCommands).toEqual(["create_character"]);
+    expect(creates).toHaveLength(1);
+    expect(creates[0]?.entity).toBe("characters");
+    const data = creates[0]?.value.data as JsonRecord;
+    expect(data).not.toHaveProperty("backstory");
+    expect(data).not.toHaveProperty("appearance");
+    expect(data).not.toHaveProperty("fav");
+    expect(data).not.toHaveProperty("world");
+    expect(data.extensions).toMatchObject({
+      altDescriptions: [],
+      backstory: "Keeps city secrets",
+      appearance: "Silver coat",
+      fav: true,
+      world: "Harbor Nine",
+      depth_prompt: {
+        prompt: "Protect civilians",
+        depth: 7,
+        role: "assistant",
+      },
+    });
+    expect(data.extensions).not.toHaveProperty("depth_prompt_depth");
+    expect(data.extensions).not.toHaveProperty("depth_prompt_role");
+  });
+
+  it("updates character extension fields without writing top-level extension keys", async () => {
+    const characters = [
+      {
+        id: "char-1",
+        name: "Mira",
+        data: {
+          name: "Mira",
+          description: "old description",
+          extensions: {
+            altDescriptions: [],
+            backstory: "old backstory",
+            appearance: "old appearance",
+            fav: true,
+            world: "old world",
+            depth_prompt: {
+              prompt: "old prompt",
+              depth: 4,
+              role: "system",
+            },
+          },
+        },
+      },
+    ];
+    const updates: Array<{ entity: StorageEntity; id: string; patch: JsonRecord }> = [];
+    const storage = commandStorage({ characters, lorebooks: [], lorebookEntries: [], updates });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      { id: "chat-1", mode: "conversation" },
+      [
+        '[update_character: name="Mira", backstory="", appearance="Blue coat"',
+        'fav=false, world="Harbor Ten", depth_prompt_depth=2]',
+      ].join(" "),
+    );
+
+    expect(result.executedCommands).toEqual(["update_character"]);
+    expect(updates).toHaveLength(1);
+    const data = updates[0]?.patch.data as JsonRecord;
+    expect(data).not.toHaveProperty("backstory");
+    expect(data).not.toHaveProperty("appearance");
+    expect(data).not.toHaveProperty("fav");
+    expect(data).not.toHaveProperty("world");
+    expect(data.extensions).toMatchObject({
+      altDescriptions: [],
+      backstory: "",
+      appearance: "Blue coat",
+      fav: false,
+      world: "Harbor Ten",
+      depth_prompt: {
+        prompt: "old prompt",
+        depth: 2,
+        role: "system",
+      },
+    });
+    expect(data.extensions).not.toHaveProperty("depth_prompt_depth");
+    expect(data.extensions).not.toHaveProperty("depth_prompt_role");
+  });
+
+  it("migrates old top-level extension fields when updating command-created characters", async () => {
+    const characters = [
+      {
+        id: "char-1",
+        name: "Mira",
+        data: {
+          name: "Mira",
+          backstory: "legacy backstory",
+          appearance: "legacy appearance",
+          fav: true,
+          world: "Legacy Harbor",
+          extensions: {
+            altDescriptions: [],
+            depth_prompt: "legacy prompt",
+            depth_prompt_depth: "6",
+            depth_prompt_role: "assistant",
+          },
+        },
+      },
+    ];
+    const updates: Array<{ entity: StorageEntity; id: string; patch: JsonRecord }> = [];
+    const storage = commandStorage({ characters, lorebooks: [], lorebookEntries: [], updates });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      { id: "chat-1", mode: "conversation" },
+      '[update_character: name="Mira", appearance="updated appearance", depth_prompt_depth=2]',
+    );
+
+    expect(result.executedCommands).toEqual(["update_character"]);
+    expect(updates).toHaveLength(1);
+    const data = updates[0]?.patch.data as JsonRecord;
+    expect(data).not.toHaveProperty("backstory");
+    expect(data).not.toHaveProperty("appearance");
+    expect(data).not.toHaveProperty("fav");
+    expect(data).not.toHaveProperty("world");
+    expect(data).not.toHaveProperty("depth_prompt");
+    expect(data).not.toHaveProperty("depth_prompt_depth");
+    expect(data).not.toHaveProperty("depth_prompt_role");
+    expect(data.extensions).toMatchObject({
+      altDescriptions: [],
+      backstory: "legacy backstory",
+      appearance: "updated appearance",
+      fav: true,
+      world: "Legacy Harbor",
+      depth_prompt: {
+        prompt: "legacy prompt",
+        depth: 2,
+        role: "assistant",
+      },
+    });
+    expect(data.extensions).not.toHaveProperty("depth_prompt_depth");
+    expect(data.extensions).not.toHaveProperty("depth_prompt_role");
+  });
+});
 
 describe("persistConnectedCommandTags", () => {
   it("updates matched lorebook entries instead of appending duplicates", async () => {
