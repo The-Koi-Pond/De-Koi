@@ -331,31 +331,48 @@ function stripConversationCommandTimestamps(value: string): string {
   return value.replace(/^\s*\[[^\]]+\]\s*/g, "").trim();
 }
 
+function commandMemoryKey(chatId: string, target: string, summary: string): string {
+  return [chatId, target.trim().toLowerCase(), summary].join("\n");
+}
+
+function sameCommandMemory(memory: JsonRecord, key: string): boolean {
+  return readString(memory.commandMemoryKey).trim() === key;
+}
+
 async function persistTargetCharacterMemory(
   storage: StorageGateway,
   target: JsonRecord | null,
   chat: JsonRecord,
-  command: Extract<CharacterCommand, { type: "memory" }>,
-  createdAt: string,
+  memory: JsonRecord,
+  summary: string,
+  key: string,
 ): Promise<void> {
   const targetCharacterId = readString(target?.id).trim();
   if (!target || !targetCharacterId) return;
   const data = parseData(target);
   const extensions = parseRecord(data.extensions);
   const existing = parseArray(extensions.characterMemories).filter(isRecord);
-  const memory = {
+  const characterMemory = {
+    commandMemoryId: readString(memory.id).trim() || null,
+    commandMemoryKey: key,
     from: readString(chat.name).trim() || readString(chat.id).trim() || "Conversation",
     fromCharId: stringArray(chat.characterIds)[0] ?? null,
     sourceChatId: readString(chat.id).trim() || null,
-    summary: stripConversationCommandTimestamps(command.summary),
-    createdAt,
+    summary,
+    createdAt: readString(memory.createdAt).trim(),
   };
+  const deduped = existing.filter((entry) => {
+    const entryMemoryId = readString(entry.commandMemoryId).trim();
+    return entryMemoryId
+      ? entryMemoryId !== readString(memory.id).trim()
+      : readString(entry.commandMemoryKey).trim() !== key;
+  });
   await storage.update("characters", targetCharacterId, {
     data: {
       ...data,
       extensions: {
         ...extensions,
-        characterMemories: [...existing, memory].slice(-100),
+        characterMemories: [...deduped, characterMemory].slice(-100),
       },
     },
   });
@@ -372,27 +389,36 @@ async function persistCommandMemory(
   const targetCharacterId = readString(target?.id).trim();
   const targetCharacterName = nameOf(target ?? {}) || command.target;
   const createdAt = nowIso();
-  await persistTargetCharacterMemory(storage, target, chat, command, createdAt);
-  const memory: JsonRecord = {
-    id: newId("memory"),
-    chatId,
-    content: commandMemoryContent(command, targetCharacterName),
-    messageCount: 0,
-    messageIds: [],
-    firstMessageAt: createdAt,
-    lastMessageAt: createdAt,
-    createdAt,
-    hasEmbedding: false,
-    embeddingStatus: "unavailable",
-    embeddingSource: "command",
-    source: "connected_command",
-    sourceChatId: chatId,
-    target: command.target,
-    targetCharacterName,
-    targetCharacterId: targetCharacterId || null,
-  };
+  const summary = stripConversationCommandTimestamps(command.summary);
+  const key = commandMemoryKey(chatId, command.target, summary);
   const currentChat = (await storage.get<JsonRecord>("chats", chatId).catch(() => null)) ?? chat;
-  await storage.update("chats", chatId, { memories: [...existingChatMemories(currentChat), memory] });
+  const existingMemories = existingChatMemories(currentChat);
+  const existingMemory = existingMemories.find((candidate) => sameCommandMemory(candidate, key));
+  const memory: JsonRecord =
+    existingMemory ??
+    ({
+      id: newId("memory"),
+      chatId,
+      content: commandMemoryContent(command, targetCharacterName),
+      commandMemoryKey: key,
+      messageCount: 0,
+      messageIds: [],
+      firstMessageAt: createdAt,
+      lastMessageAt: createdAt,
+      createdAt,
+      hasEmbedding: false,
+      embeddingStatus: "unavailable",
+      embeddingSource: "command",
+      source: "connected_command",
+      sourceChatId: chatId,
+      target: command.target,
+      targetCharacterName,
+      targetCharacterId: targetCharacterId || null,
+    } satisfies JsonRecord);
+  if (!existingMemory) {
+    await storage.update("chats", chatId, { memories: [...existingMemories, memory] });
+  }
+  await persistTargetCharacterMemory(storage, target, chat, memory, summary, key);
   return memory;
 }
 
