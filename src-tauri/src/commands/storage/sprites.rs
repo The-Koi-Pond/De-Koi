@@ -2429,11 +2429,30 @@ fn configure_backgroundremover_process_tree(_process: &mut Command) {}
 
 #[cfg(unix)]
 fn kill_backgroundremover_process_tree(child: &mut Child) {
-    let process_group_id = child.id() as i32;
-    unsafe {
-        let _ = libc::kill(-process_group_id, libc::SIGKILL);
+    if let Ok(process_group_id) = i32::try_from(child.id()) {
+        unix_process_group::kill(process_group_id);
     }
     let _ = child.kill();
+}
+
+#[cfg(unix)]
+mod unix_process_group {
+    use std::os::raw::c_int;
+
+    const SIGKILL: c_int = 9;
+
+    unsafe extern "C" {
+        fn kill(pid: c_int, sig: c_int) -> c_int;
+    }
+
+    pub(super) fn kill(process_group_id: c_int) {
+        if process_group_id <= 0 {
+            return;
+        }
+        unsafe {
+            let _ = kill(-process_group_id, SIGKILL);
+        }
+    }
 }
 
 #[cfg(windows)]
