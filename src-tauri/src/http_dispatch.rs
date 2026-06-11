@@ -1,9 +1,9 @@
 use crate::state::AppState;
 use crate::storage_commands::{
     admin, agents, avatars, backgrounds, backup, bot_browser, characters, chats, custom_tools,
-    entity_commands, exports, fonts, game_assets, game_state_snapshots, generation, http, images,
-    imports, integrations, knowledge, llm, lorebook_images, managed_thumbnails, mari, personas,
-    profile, profile_commands, prompts, shared, sidecar, sprites, translation, updates,
+    entity_commands, entity_images, exports, fonts, game_assets, game_state_snapshots, generation,
+    http, images, imports, integrations, knowledge, llm, lorebook_images, managed_thumbnails, mari,
+    personas, profile, profile_commands, prompts, shared, sidecar, sprites, translation, updates,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -796,6 +796,23 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         ),
         "lorebook_image_upload" => lorebook_images::update_lorebook_image(
             state,
+            required_string(&args, "id")?,
+            optional_value(&args, "body"),
+        ),
+        "agent_image_upload" => entity_images::update_entity_image(
+            state,
+            "agents",
+            required_string(&args, "id")?,
+            optional_value(&args, "body"),
+        ),
+        "agent_type_image_upload" => agents::update_agent_image_by_type(
+            state,
+            required_string(&args, "agentType")?,
+            optional_value(&args, "body"),
+        ),
+        "connection_image_upload" => entity_images::update_entity_image(
+            state,
+            "connections",
             required_string(&args, "id")?,
             optional_value(&args, "body"),
         ),

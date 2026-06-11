@@ -444,6 +444,24 @@ fn migrate_local_media_references(storage: &FileStorage, data_dir: &Path) -> App
             filename_field: "imageFilename",
             value: StoredMediaValue::ManagedPrefix("marinara-lorebook-image:"),
         },
+        MediaReferenceMigration {
+            collection: "agents",
+            folder: "entity-images/agents",
+            primary_field: "imagePath",
+            mirror_fields: &["imageUrl"],
+            file_path_field: "imageFilePath",
+            filename_field: "imageFilename",
+            value: StoredMediaValue::AssetUrl,
+        },
+        MediaReferenceMigration {
+            collection: "connections",
+            folder: "entity-images/connections",
+            primary_field: "imagePath",
+            mirror_fields: &["imageUrl"],
+            file_path_field: "imageFilePath",
+            filename_field: "imageFilename",
+            value: StoredMediaValue::AssetUrl,
+        },
     ] {
         migrate_collection_media_references(storage, data_dir, migration)?;
     }

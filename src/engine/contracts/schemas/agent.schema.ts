@@ -60,6 +60,7 @@ export const createAgentConfigSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().default(""),
   credit: z.string().default(DEFAULT_AGENT_CREDIT),
+  imagePath: z.string().nullable().default(null),
   phase: agentPhaseSchema,
   enabled: z.boolean().default(true),
   connectionId: z.string().nullable().default(null),

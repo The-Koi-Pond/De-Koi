@@ -224,6 +224,19 @@ pub(crate) fn patch_agent_type(
     }
 }
 
+pub(crate) fn update_agent_image_by_type(
+    state: &AppState,
+    agent_type: &str,
+    body: Value,
+) -> AppResult<Value> {
+    let agent = get_or_create_agent_config(state, agent_type)?;
+    let id = agent
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::new("storage_error", "Agent config is missing an id"))?;
+    super::entity_images::update_entity_image(state, "agents", id, body)
+}
+
 pub(crate) fn agent_cadence_status(
     state: &AppState,
     agent_type: &str,

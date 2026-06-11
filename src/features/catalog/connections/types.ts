@@ -18,6 +18,9 @@ export interface ConnectionRow {
   synthetic?: boolean;
   model?: string | null;
   baseUrl?: string | null;
+  imagePath?: string | null;
+  imageFilePath?: string | null;
+  imageFilename?: string | null;
   useForRandom?: string | boolean | null;
   createdAt?: string;
   updatedAt?: string;

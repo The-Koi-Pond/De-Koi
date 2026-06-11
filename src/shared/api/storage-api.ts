@@ -131,6 +131,9 @@ function storageWriteInvalidationKinds(
     case "lorebooks":
     case "lorebook-entries":
       return value && ("image" in value || "imagePath" in value || "imageFilename" in value) ? ["lorebook"] : [];
+    case "agents":
+    case "connections":
+      return value && ("image" in value || "imagePath" in value || "imageFilename" in value) ? ["entity-image"] : [];
     case "characters":
       return value && ("avatarPath" in value || "avatarFilePath" in value || "avatarFilename" in value)
         ? ["avatar", "avatar-thumbnail"]
@@ -158,6 +161,9 @@ function storageDeleteInvalidationKinds(entity: StorageEntity): RemoteManagedAss
     case "lorebooks":
     case "lorebook-entries":
       return ["lorebook"];
+    case "agents":
+    case "connections":
+      return ["entity-image"];
     case "characters":
       return ["avatar", "avatar-thumbnail", "gallery", "sprite"];
     case "personas":

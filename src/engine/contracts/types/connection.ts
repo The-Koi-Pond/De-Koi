@@ -31,6 +31,11 @@ export interface APIConnection {
   maxContext: number;
   /** Whether this connection is the default */
   isDefault: boolean;
+  /** Optional user-selected picture for this connection */
+  imagePath: string | null;
+  imageFilePath?: string | null;
+  imageFilename?: string | null;
+  imageUpdatedAt?: string | null;
   /** Whether this connection is in the random-selection pool */
   useForRandom: boolean;
   /** Whether this connection is the default for all agents */

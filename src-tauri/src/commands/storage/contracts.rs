@@ -138,7 +138,7 @@ const REGEX_SCRIPT_FIELDS: &[TypedJsonField] = &[array("placement"), array("trim
 const CHAT_DEFAULTS: &[&str] = &["metadata", "gameState", "characterIds"];
 const CHAT_FOLDER_DEFAULTS: &[&str] = &["color", "collapsed", "sortOrder", "order"];
 const CHAT_FOLDER_FIELDS: &[TypedJsonField] = &[boolish("collapsed")];
-const CONNECTION_DEFAULTS: &[&str] = &["enabled"];
+const CONNECTION_DEFAULTS: &[&str] = &["enabled", "imagePath"];
 const CONNECTION_FOLDER_DEFAULTS: &[&str] = &["color", "collapsed", "sortOrder", "order"];
 const CHARACTER_DEFAULTS: &[&str] = &["data", "comment", "avatarPath"];
 const LOREBOOK_DEFAULTS: &[&str] = &[
@@ -185,13 +185,14 @@ const PROMPT_DEFAULTS: &[&str] = &[
     "isDefault",
 ];
 const CHAT_PRESET_DEFAULTS: &[&str] = &["settings", "isDefault", "default", "isActive", "active"];
-const AGENT_DEFAULTS: &[&str] = &["enabled", "credit"];
+const AGENT_DEFAULTS: &[&str] = &["enabled", "credit", "imagePath"];
 
 const LOREBOOK_CLEANUP: &[DeleteCleanup] = &[
     DeleteCleanup::DeleteLorebookChildren,
     DeleteCleanup::ClearLorebookReferences,
     DeleteCleanup::RemoveOwnedMedia,
 ];
+const CONNECTION_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::RemoveOwnedMedia];
 const PROMPT_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::DeletePromptChildren];
 const CHAT_PRESET_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::ActivateDefaultChatPreset];
 const CHAT_FOLDER_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::ClearChatFolder];
@@ -328,7 +329,7 @@ pub(crate) const COLLECTIONS: &[StorageCollectionContract] = &[
         true,
         AGENT_DEFAULTS,
         AGENT_FIELDS,
-        EMPTY_CLEANUP,
+        MEDIA_CLEANUP,
     ),
     contract(
         "agent-runs",
@@ -376,7 +377,7 @@ pub(crate) const COLLECTIONS: &[StorageCollectionContract] = &[
         true,
         CONNECTION_DEFAULTS,
         CONNECTION_FIELDS,
-        EMPTY_CLEANUP,
+        CONNECTION_CLEANUP,
     ),
     contract(
         "connection-folders",

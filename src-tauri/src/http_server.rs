@@ -1,7 +1,7 @@
 use crate::http_dispatch::{dispatch, InvokeRequest};
 use crate::state::AppState;
 use crate::storage_commands::{
-    avatars, connection_secrets, fonts, imports, integrations, llm, lorebook_images,
+    avatars, connection_secrets, entity_images, fonts, imports, integrations, llm, lorebook_images,
     managed_thumbnails, profile, prompts, sidecar,
 };
 use axum::body::Body;
@@ -407,6 +407,7 @@ fn managed_asset_path(state: &AppState, kind: &str, path: &str) -> Result<PathBu
         "font" => fonts::font_file_path(state, path),
         "gallery" => gallery_asset_path(state, path),
         "game" => Ok(PathBuf::from(state.game_assets.absolute_path_string(path)?)),
+        "entity-image" => entity_image_asset_path(state, path),
         "lorebook" => {
             let response = lorebook_images::lorebook_image_file_path(state, path)?;
             response
@@ -419,6 +420,31 @@ fn managed_asset_path(state: &AppState, kind: &str, path: &str) -> Result<PathBu
         "sprite" => sprite_asset_path(state, path),
         _ => Err(AppError::not_found("Managed asset type was not found")),
     }
+}
+
+fn entity_image_asset_path(state: &AppState, path: &str) -> Result<PathBuf, AppError> {
+    let mut segments = path.split('/');
+    let collection = managed_asset_path_segment(
+        segments
+            .next()
+            .ok_or_else(|| AppError::not_found("Entity image was not found"))?,
+        "Entity image was not found",
+    )?;
+    let filename = managed_asset_filename(
+        segments
+            .next()
+            .ok_or_else(|| AppError::not_found("Entity image was not found"))?,
+        "Entity image was not found",
+    )?;
+    if segments.next().is_some() {
+        return Err(AppError::not_found("Entity image was not found"));
+    }
+    let response = entity_images::entity_image_file_path(state, &collection, &filename)?;
+    response
+        .get("path")
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .ok_or_else(|| AppError::not_found("Entity image was not found"))
 }
 
 fn managed_thumbnail_asset_path(state: &AppState, path: &str) -> Result<PathBuf, AppError> {

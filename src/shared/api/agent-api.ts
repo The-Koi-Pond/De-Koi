@@ -1,4 +1,5 @@
 import { invokeTauri } from "./tauri-client";
+import { invalidateRemoteManagedAssetObjectUrlsAfter } from "./local-file-api";
 
 export type AgentCadenceStatus = {
   agentType: string;
@@ -18,6 +19,16 @@ export type AgentMemoryResponse = {
 export const agentApi = {
   patchByType: (agentType: string, patch: Record<string, unknown>) =>
     invokeTauri("agent_patch_by_type", { agentType, patch }),
+  uploadImage: <T = unknown>(id: string, image: string, filename?: string) =>
+    invalidateRemoteManagedAssetObjectUrlsAfter(
+      invokeTauri<T>("agent_image_upload", { id, body: { image, filename } }),
+      "entity-image",
+    ),
+  uploadImageByType: <T = unknown>(agentType: string, image: string, filename?: string) =>
+    invalidateRemoteManagedAssetObjectUrlsAfter(
+      invokeTauri<T>("agent_type_image_upload", { agentType, body: { image, filename } }),
+      "entity-image",
+    ),
   toggleByType: (agentType: string) => invokeTauri("agent_toggle_by_type", { agentType }),
   clearRunsForChat: (chatId: string) => invokeTauri<void>("agent_runs_clear_for_chat", { chatId }),
   clearEchoMessages: (chatId: string) => invokeTauri("agent_echo_messages_clear", { chatId }),

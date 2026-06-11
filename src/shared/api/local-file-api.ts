@@ -78,6 +78,7 @@ export type RemoteManagedAssetKind =
   | "avatar"
   | "avatar-thumbnail"
   | "background"
+  | "entity-image"
   | "font"
   | "gallery"
   | "game"
@@ -660,4 +661,15 @@ export async function resolveManagedLocalAssetUrl(url: string | null | undefined
     return resolveLorebookImageFileUrl(decodeLocalAssetPath(url.slice(LOREBOOK_IMAGE_URL_PREFIX.length)));
   }
   return filePathToAssetUrl(url);
+}
+
+export async function resolveEntityImageUrl(
+  collection: "agents" | "connections",
+  imagePath: string | null | undefined,
+  imageFilename: string | null | undefined,
+): Promise<string | null> {
+  const remotePath = imageFilename?.trim() ? `${collection}/${imageFilename}` : null;
+  const remoteUrl = await remoteManagedAssetResolvableUrl("entity-image", remotePath);
+  if (remoteUrl) return remoteUrl;
+  return resolveManagedLocalAssetUrl(imagePath);
 }

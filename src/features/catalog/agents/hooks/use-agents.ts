@@ -18,6 +18,10 @@ export interface AgentConfigRow {
   name: string;
   description: string;
   credit?: string;
+  imagePath?: string | null;
+  imageFilePath?: string | null;
+  imageFilename?: string | null;
+  imageUpdatedAt?: string | null;
   phase: string;
   enabled?: boolean | number | string | null;
   connectionId: string | null;
@@ -215,6 +219,30 @@ export function useUpdateAgentByType() {
   return useMutation({
     mutationFn: ({ agentType, ...data }: { agentType: string } & Record<string, unknown>) =>
       agentApi.patchByType(agentType, updateAgentConfigSchema.parse(data)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: agentKeys.all });
+    },
+  });
+}
+
+export function useUploadAgentImage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      agentType,
+      image,
+      filename,
+    }: {
+      id?: string;
+      agentType?: string;
+      image: string;
+      filename?: string;
+    }) => {
+      if (id) return agentApi.uploadImage<AgentConfigRow>(id, image, filename);
+      if (agentType) return agentApi.uploadImageByType<AgentConfigRow>(agentType, image, filename);
+      throw new Error("Agent id or type is required");
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: agentKeys.all });
     },

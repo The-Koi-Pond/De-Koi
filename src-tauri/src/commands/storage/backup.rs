@@ -13,6 +13,7 @@ const BACKUP_DIRS: &[&str] = &[
     "avatars",
     "sprites",
     "backgrounds",
+    "entity-images",
     "gallery",
     "game-assets",
     "fonts",
@@ -33,7 +34,7 @@ Manual recovery path:
 1. Close De-Koi before copying files.
 2. Copy the archive folders into your De-Koi app data directory.
 3. In the refactor app layout, JSON collections live in data/collections. Keep companion files beside them, including *.json.bak collection backups.
-4. Managed asset folders are avatars, sprites, backgrounds, gallery, game-assets, fonts, knowledge-sources, and lorebooks/images.
+4. Managed asset folders are avatars, sprites, backgrounds, entity-images, gallery, game-assets, fonts, knowledge-sources, and lorebooks/images.
 5. Legacy raw backups used storage/ for JSON data; current refactor backups use data/.
 ";
 
