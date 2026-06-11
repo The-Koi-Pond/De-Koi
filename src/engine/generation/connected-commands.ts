@@ -266,6 +266,110 @@ function activeCharacterId(chat: JsonRecord): string | null {
   return stringArray(chat.characterIds)[0] ?? null;
 }
 
+const SCHEDULE_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+type ScheduleUpdateCommand = Extract<CharacterCommand, { type: "schedule_update" }>;
+
+type PatchedScheduleUpdate = {
+  schedule: JsonRecord;
+  status: string;
+  activity: string;
+};
+
+function conversationSchedulesEnabled(meta: JsonRecord): boolean {
+  if (typeof meta.conversationSchedulesEnabled === "boolean") return meta.conversationSchedulesEnabled;
+  return Object.keys(parseRecord(meta.characterSchedules)).length > 0;
+}
+
+function currentScheduleDayName(now: Date): string {
+  return SCHEDULE_DAYS[(now.getDay() + 6) % 7]!;
+}
+
+function parseScheduleTimeMinutes(value: string): number | null {
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || minute < 0 || minute > 59) return null;
+  if (hour === 24) return minute === 0 ? 24 * 60 : null;
+  if (hour < 0 || hour > 23) return null;
+  return hour * 60 + minute;
+}
+
+function scheduleBlockIncludesMinutes(block: JsonRecord, currentMinutes: number): boolean {
+  const [startRaw, endRaw] = readString(block.time)
+    .split("-")
+    .map((part) => part.trim());
+  const start = parseScheduleTimeMinutes(startRaw ?? "");
+  const end = parseScheduleTimeMinutes(endRaw ?? "");
+  if (start === null || end === null) return false;
+  if (start <= end) return start <= currentMinutes && currentMinutes < end;
+  return currentMinutes >= start || currentMinutes < end;
+}
+
+function patchCurrentScheduleBlock(
+  scheduleValue: unknown,
+  command: ScheduleUpdateCommand,
+  now: Date,
+): PatchedScheduleUpdate | null {
+  if (!command.status && command.activity === undefined) return null;
+  const schedule = parseRecord(scheduleValue);
+  const days = parseRecord(schedule.days);
+  const dayName = currentScheduleDayName(now);
+  const daySchedule = parseArray(days[dayName]);
+  if (daySchedule.length === 0) return null;
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  let patchedStatus = "";
+  let patchedActivity = "";
+  let patched = false;
+  const patchedDaySchedule = daySchedule.map((block) => {
+    if (patched || !isRecord(block) || !scheduleBlockIncludesMinutes(block, currentMinutes)) return block;
+    const next = { ...block };
+    if (command.status) next.status = command.status;
+    if (command.activity !== undefined) next.activity = command.activity;
+    patchedStatus = readString(next.status);
+    patchedActivity = readString(next.activity);
+    patched = true;
+    return next;
+  });
+
+  if (!patched) return null;
+  return {
+    schedule: {
+      ...schedule,
+      days: {
+        ...days,
+        [dayName]: patchedDaySchedule,
+      },
+    },
+    status: patchedStatus,
+    activity: patchedActivity,
+  };
+}
+
+async function syncScheduleUpdateToSiblingChats(
+  storage: StorageGateway,
+  sourceChatId: string,
+  characterId: string,
+  command: ScheduleUpdateCommand,
+  now: Date,
+): Promise<void> {
+  const chats = await storage.list<JsonRecord>("chats");
+  for (const chat of chats) {
+    const chatId = readString(chat.id);
+    if (!chatId || chatId === sourceChatId || readString(chat.mode) !== "conversation") continue;
+    if (!stringArray(chat.characterIds).includes(characterId)) continue;
+    const meta = parseRecord(chat.metadata);
+    if (!conversationSchedulesEnabled(meta)) continue;
+    const schedules = parseRecord(meta.characterSchedules);
+    const updated = patchCurrentScheduleBlock(schedules[characterId], command, now);
+    if (!updated) continue;
+    schedules[characterId] = updated.schedule;
+    await storage.patchChatMetadata(chatId, { characterSchedules: schedules });
+  }
+}
+
 function isIllustratorAgent(agent: JsonRecord): boolean {
   return (
     readString(agent.id).trim() === "illustrator" || readString(agent.type || agent.agentType).trim() === "illustrator"
@@ -574,38 +678,47 @@ async function createSceneFromCommand(args: {
 async function applyScheduleUpdate(
   storage: StorageGateway,
   chat: JsonRecord,
-  command: Extract<CharacterCommand, { type: "schedule_update" }>,
+  command: ScheduleUpdateCommand,
 ): Promise<boolean> {
   const characterId = activeCharacterId(chat);
   const chatId = readString(chat.id);
+  if (!characterId || !chatId) return false;
   const metadata = parseRecord(chat.metadata);
   const schedules = parseRecord(metadata.characterSchedules);
-  const update = {
-    status: command.status ?? "online",
-    activity: command.activity ?? "",
-    duration: command.duration ?? "",
-    updatedAt: nowIso(),
-  };
-  if (characterId) schedules[characterId] = update;
-  await storage.patchChatMetadata(chatId, { characterSchedules: schedules });
-  if (characterId) {
-    const row = await storage.get<JsonRecord>("characters", characterId);
-    if (row?.id) {
-      const data = parseData(row);
-      const extensions = parseRecord(data.extensions);
-      await storage.update("characters", characterId, {
-        data: {
-          ...data,
-          extensions: {
-            ...extensions,
-            conversationStatus: update.status,
-            conversationActivity: update.activity,
-          },
-        },
-      });
-    }
+  const now = new Date(nowIso());
+  const updated = patchCurrentScheduleBlock(schedules[characterId], command, now);
+  if (updated) {
+    schedules[characterId] = updated.schedule;
+    await storage.patchChatMetadata(chatId, { characterSchedules: schedules });
+    await syncScheduleUpdateToSiblingChats(storage, chatId, characterId, command, now);
   }
-  return true;
+  const row = await storage.get<JsonRecord>("characters", characterId);
+  let characterUpdated = false;
+  if (row?.id) {
+    const data = parseData(row);
+    const extensions = parseRecord(data.extensions);
+    const status =
+      readString(updated?.status).trim() ||
+      command.status ||
+      readString(extensions.conversationStatus).trim() ||
+      "online";
+    const activity =
+      updated?.activity ??
+      (command.activity !== undefined ? command.activity : readString(extensions.conversationActivity));
+    await storage.update("characters", characterId, {
+      data: {
+        ...data,
+        extensions: {
+          ...extensions,
+          conversationStatus: status,
+          conversationActivity: activity,
+          conversationStatusSource: "schedule",
+        },
+      },
+    });
+    characterUpdated = true;
+  }
+  return !!updated || characterUpdated;
 }
 
 function characterDataFromCreate(command: CreateCharacterCommand): JsonRecord {
