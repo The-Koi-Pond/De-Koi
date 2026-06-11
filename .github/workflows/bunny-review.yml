@@ -1,4 +1,4 @@
-﻿# .github/workflows/bunny-review.yml
+# .github/workflows/bunny-review.yml
 name: Bunny Review
 
 on:

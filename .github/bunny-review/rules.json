@@ -31,7 +31,7 @@
     {
       "name": "Engine and runtime boundaries",
       "prefixes": ["src/engine/", "src/features/", "src/shared/api/", "src-tauri/"],
-      "guidance": ["skills/de-koi-architecture-guard/SKILL.md"],
+      "guidance": ["skills/marinara-architecture-guard/SKILL.md"],
       "checks": [
         "Engine code stays React-free and does not import feature internals, Tauri APIs, Zustand stores, or concrete shared API adapters.",
         "Feature code uses focused shared API wrappers instead of raw invokeTauri or raw remote-runtime fetch.",
@@ -41,7 +41,7 @@
     {
       "name": "Mode separation",
       "prefixes": ["src/engine/chat/", "src/engine/roleplay/", "src/engine/game/", "src/features/modes/"],
-      "guidance": ["skills/de-koi-mode-separation/SKILL.md"],
+      "guidance": ["skills/marinara-mode-separation/SKILL.md"],
       "checks": [
         "Chat, roleplay, and game behavior remain in their owning mode.",
         "Shared generation or prompt changes do not silently alter unrelated modes."
@@ -50,7 +50,7 @@
     {
       "name": "Bug fixes and privileged contracts",
       "prefixes": ["src-tauri/src/commands/", "src-tauri/src/storage/", "src-tauri/src/providers/", "src/shared/api/"],
-      "guidance": ["skills/de-koi-bugfix-discipline/SKILL.md"],
+      "guidance": ["skills/marinara-bugfix-discipline/SKILL.md"],
       "checks": [
         "Fixes address root causes instead of adding fake success, silent catches, broad fallbacks, or UI-only guards.",
         "Provider, storage, command, and transport changes preserve error contracts and hostable behavior.",
@@ -62,8 +62,8 @@
       "name": "Docs and agent guidance",
       "prefixes": ["README", "docs/", "skills/", "AGENTS.md", ".github/"],
       "guidance": [
-        "skills/de-koi-getting-started/SKILL.md",
-        "skills/de-koi-agent-workflow/references/de-koi-overrides.md"
+        "skills/marinara-getting-started/SKILL.md",
+        "skills/marinara-agent-workflow/references/marinara-overrides.md"
       ],
       "checks": [
         "Durable feature-area additions update relevant maps or guidance.",

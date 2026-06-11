@@ -379,7 +379,7 @@ def load_rules():
 
 
 def guidance_from_rules(files, rules):
-    guidance = ["AGENTS.md", "skills/de-koi-agent-workflow/SKILL.md"]
+    guidance = ["AGENTS.md", "skills/marinara-agent-workflow/SKILL.md"]
     for item in rules.get("path_instructions", []):
         prefixes = item.get("prefixes", [])
         if any(any(path.startswith(prefix) for prefix in prefixes) for path in files):
@@ -391,13 +391,13 @@ def select_guidance(files):
     rules = load_rules()
     if rules and "_load_error" not in rules:
         return guidance_from_rules(files, rules)
-    guidance = ["AGENTS.md", "skills/de-koi-agent-workflow/SKILL.md"]
+    guidance = ["AGENTS.md", "skills/marinara-agent-workflow/SKILL.md"]
     joined = "\n".join(files)
     if any(
         marker in joined
         for marker in ("src/engine/", "src/features/", "src/shared/api/", "src-tauri/")
     ):
-        guidance.append("skills/de-koi-architecture-guard/SKILL.md")
+        guidance.append("skills/marinara-architecture-guard/SKILL.md")
     if any(
         marker in joined
         for marker in (
@@ -411,14 +411,14 @@ def select_guidance(files):
             "memory",
         )
     ):
-        guidance.append("skills/de-koi-mode-separation/SKILL.md")
+        guidance.append("skills/marinara-mode-separation/SKILL.md")
     if any(
         marker in joined
         for marker in ("fix/", "storage", "imports", "provider", "transport", "commands")
     ):
-        guidance.append("skills/de-koi-bugfix-discipline/SKILL.md")
+        guidance.append("skills/marinara-bugfix-discipline/SKILL.md")
     if any(marker in joined for marker in ("README", "docs/", "skills/", "AGENTS.md")):
-        guidance.append("skills/de-koi-getting-started/SKILL.md")
+        guidance.append("skills/marinara-getting-started/SKILL.md")
     return list(dict.fromkeys(guidance))
 
 
@@ -1262,7 +1262,7 @@ def warn_is_blocking_proof_gap(item):
 
 def finding_summary(findings):
     if not findings:
-        return "No actionable defects isolated."
+        return "No bad machinery found."
     counts = {}
     for finding in findings:
         severity = str(finding.severity or "unknown").lower()
@@ -1305,7 +1305,7 @@ def merge_signal(review_obj, findings, nitpicks, pre_merge):
             "label": "REVIEW INCOMPLETE",
             "title": "Review Incomplete",
             "admonition": "CAUTION",
-            "detail": "Bunny Review did not complete, so no model findings are available.",
+            "detail": "Wah, the review machine jammed before Bunny could count the bugs.",
         }
     has_blocking = any(
         severity_meta(finding.severity)["rank"] <= severity_meta("high")["rank"]
@@ -1337,13 +1337,13 @@ def merge_signal(review_obj, findings, nitpicks, pre_merge):
             "label": "READY WITH NOTES",
             "title": "Ready With Notes",
             "admonition": "WARNING",
-            "detail": "No actionable defects were isolated, but non-blocking notes remain.",
+            "detail": "No payout-breaking bugs found, but a few loose coins are still rattling around.",
         }
     return {
         "label": "READY",
         "title": "Ready",
         "admonition": "TIP",
-        "detail": "No actionable findings were isolated for this head. Expected CI controls were observed passing.",
+        "detail": "Aha, no bad machinery found for this head. Expected CI controls paid out clean.",
     }
 
 
@@ -1398,15 +1398,15 @@ def review_callout(findings, pre_merge):
         return "\n".join(
             [
                 "> [!CAUTION]",
-                "> **Specimen unexamined.** Bunny Review did not complete, so no model findings are available.",
-                "> Repair the failed review control or rerun Bunny before treating this PR as reviewed.",
+                "> **Machine jammed.** Bunny Review did not complete, so no model findings are available.",
+                "> Fix the failed review control or rerun Bunny before calling this PR reviewed.",
             ]
         )
     if has_blocking or has_failed_check:
         return "\n".join(
             [
                 "> [!CAUTION]",
-                f"> **Specimen unstable.** {summary}",
+                f"> **Bad deal on the counter.** {summary}",
                 "> Repair blocking/high findings and failed controls before merge.",
             ]
         )
@@ -1414,14 +1414,14 @@ def review_callout(findings, pre_merge):
         return "\n".join(
             [
                 "> [!WARNING]",
-                f"> **Anomalies remain.** {summary}",
-                "> Examine the findings and warning rows before merge.",
+                f"> **The machine still rattles.** {summary}",
+                "> Check the findings and warning rows before merge.",
             ]
         )
     return "\n".join(
         [
             "> [!TIP]",
-            "> **No actionable defects isolated.** The examined mechanism yielded no merge-blocking specimen.",
+            "> **Jackpot stays clean.** Bunny found no actionable defects in the checked mechanism.",
         ]
     )
 
@@ -1737,7 +1737,7 @@ def ci_status_to_pre_merge_checks(ci_status):
                 "name": "CI Status",
                 "status": "fail",
                 "type": "CI Timing",
-                "detail": "One or more expected CI controls failed or were cancelled; the specimen is not fit for merge.",
+                "detail": "One or more expected CI controls failed or were cancelled; this payout is not fit for merge.",
             }
         ]
     if "warning:" in lowered or "still running" in lowered:
@@ -1801,10 +1801,10 @@ def render_walkthrough(
         "",
         render_review_metadata(review_obj, head_sha),
         "",
-        "### 🧭 Specimen Summary",
+        "### 🧭 Loot Summary",
     ])
-    body.extend([f"- {line}" for line in summary[:2]] or ["- No specimen summary produced."])
-    body.extend(["", "### 🔎 Isolated Defects"])
+    body.extend([f"- {line}" for line in summary[:2]] or ["- No loot summary produced."])
+    body.extend(["", "### 🔎 Bad Machinery"])
     if findings:
         body.extend(
             [
@@ -1830,7 +1830,7 @@ def render_walkthrough(
                 ]
             )
         else:
-            body.extend(["", "> [!TIP]", "> No actionable defects isolated."])
+            body.extend(["", "> [!TIP]", "> No bad machinery found."])
     if resolved:
         body.extend(["", "### ✅ Resolved Since Last Review"])
         for item in resolved[:5]:
@@ -1854,7 +1854,7 @@ def render_walkthrough(
     else:
         body.append("- None recorded.")
     agent_prompt = render_agent_prompt_details(
-        findings, "🤖 Copy prompt for isolated Bunny findings"
+        findings, "🤖 Copy prompt for Bunny's busted-machine findings"
     )
     if agent_prompt:
         body.extend(["", agent_prompt])
@@ -1882,7 +1882,7 @@ def render_walkthrough(
     if questions:
         body.extend(["", "### ❓ Open Questions"])
         body.extend([f"- {line}" for line in questions[:2]])
-    body.extend(["", "### 🧪 Observations"])
+    body.extend(["", "### 🧪 Coins Counted"])
     body.extend([f"- {line}" for line in checked[:3]] or ["- Review packet and diff context inspected."])
     if invalid_findings:
         body.extend(
@@ -1970,7 +1970,7 @@ def write_skipped_review(title, body, *, status="unknown", metadata=None):
         "nitpicks": [],
         "pre_merge_checks": [{"name": title, "status": status, "detail": body}],
         "open_questions": [],
-        "what_i_checked": ["No model pass ran; the specimen remained unexamined."],
+        "what_i_checked": ["No model pass ran; Bunny never got to shake the machine."],
     }
     if metadata:
         review_obj.update(metadata)
@@ -2270,7 +2270,7 @@ def produce_review(args):
     if not pr_num and not os.environ.get("OPENAI_API_KEY"):
         write_skipped_review(
             "Review Skipped",
-            "The reviewer could not run because `OPENAI_API_KEY` is absent from this workflow run. Repository-secret withholding leaves the specimen unexamined.",
+            "The reviewer could not run because `OPENAI_API_KEY` is absent from this workflow run. No key, no coin slot, no Bunny review.",
         )
         print("Bunny telemetry: skipped=missing_openai_api_key", flush=True)
         return
@@ -2301,7 +2301,7 @@ def produce_review(args):
     if not os.environ.get("OPENAI_API_KEY"):
         write_skipped_review(
             "Review Skipped",
-            "The reviewer could not run because `OPENAI_API_KEY` is absent from this workflow run. Repository-secret withholding leaves the specimen unexamined.",
+            "The reviewer could not run because `OPENAI_API_KEY` is absent from this workflow run. No key, no coin slot, no Bunny review.",
             metadata={
                 "head_sha": head_sha,
                 "head_commit_message": commit_subject(head_sha),
@@ -2555,7 +2555,7 @@ def patch_command_status_running(pr_num, head_sha, mode):
             "## 🐰 Bunny Review Running",
             "",
             "> [!NOTE]",
-            "> Reviewer workflow is running. The specimen is under observation.",
+            "> Wah, Bunny is shaking the machine and counting the fake coins.",
             "",
             f"- **Mode:** `{mode or 'unknown'}`",
             f"- **{commit_line(head_sha)}**",
@@ -2571,7 +2571,7 @@ def patch_command_status_complete(pr_num, head_sha):
             "## ✅ Bunny Review Completed",
             "",
             "> [!TIP]",
-            "> Review posted. The specimen has left the observation table.",
+            "> Review posted. Bunny counted the loot and left the receipt.",
             "",
             f"- **{commit_line(head_sha)}**",
         ]

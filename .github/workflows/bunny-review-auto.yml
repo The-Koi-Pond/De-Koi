@@ -1,4 +1,4 @@
-﻿name: Bunny Review Auto Dispatch
+name: Bunny Review Auto Dispatch
 
 # Set DE_KOI_PR_SYNC_AUTOMATION=off to pause automatic synchronize dispatches.
 on:
@@ -18,7 +18,7 @@ concurrency:
 jobs:
   dispatch:
     if: >
-      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.base.ref == 'refactor' &&
       github.event.pull_request.draft == false &&
       (github.event.action != 'synchronize' || vars.DE_KOI_PR_SYNC_AUTOMATION != 'off')
     runs-on: ${{ fromJSON(vars.DE_KOI_BUNNY_RUNS_ON || '"ubuntu-latest"') }}
@@ -37,7 +37,7 @@ jobs:
           # This pull_request_target workflow is intentionally a dispatcher only.
           # It must not checkout, install, or execute code from the pull request.
           TARGET_REF="$PR_BASE_REF"
-          if [ "$TARGET_REF" != "main" ]; then
+          if [ "$TARGET_REF" != "refactor" ]; then
             echo "::error::Unsupported Bunny review base ref: $TARGET_REF"
             exit 1
           fi
