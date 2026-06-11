@@ -138,7 +138,7 @@ export function getAvatarCropStyle(crop?: AvatarCropValue | null): CSSProperties
 
   if (isLegacyAvatarCrop(crop)) {
     const isIdentityCrop = crop.zoom === 1 && crop.offsetX === 0 && crop.offsetY === 0;
-    const transform = `scale(${crop.zoom}) translate(${crop.offsetX}px, ${crop.offsetY}px)`;
+    const transform = `scale(${crop.zoom}) translate(${crop.offsetX}%, ${crop.offsetY}%)`;
 
     if (crop.fullImage) {
       return {
