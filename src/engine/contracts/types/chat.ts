@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 
 import type { GenerationGuideSource } from "../../shared/text/generation-guide.js";
-import type { GenerationEvent } from "./generation.js";
+import type { GenerationEvent, LegacyStreamProtocolEvent } from "./generation.js";
 
 /** The primary chat modes the engine supports. */
 export type ChatMode = "conversation" | "roleplay" | "game";
@@ -563,7 +563,7 @@ export interface GenerateRequest {
 }
 
 /** An SSE event from the active generation stream. */
-export type StreamEvent = GenerationEvent;
+export type StreamEvent = GenerationEvent | LegacyStreamProtocolEvent;
 
 /** An OOC influence queued from a conversation chat to be injected into a roleplay chat. */
 export interface OocInfluence {

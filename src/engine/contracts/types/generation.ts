@@ -7,6 +7,11 @@ interface GenerationAgentConnectionWarning {
   model: string;
 }
 
+export type LegacyStreamProtocolEvent =
+  | { type: "agent_update"; data: string; agentId?: string; messageId?: string }
+  | { type: "game_state"; data: string; agentId?: string; messageId?: string }
+  | { type: "error"; data: string; agentId?: string; messageId?: string };
+
 export type GenerationEvent =
   | { type: "phase"; data: string }
   | { type: "thinking"; data: string }
