@@ -10,7 +10,6 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
-from urllib.parse import urlparse
 
 REPO_ROOT = pathlib.Path.cwd().resolve()
 BUNNY_MARKER = "<!-- bunny-review:walkthrough -->"
@@ -601,6 +600,7 @@ def build_review_packet(
     *,
     compact=False,
     global_context=None,
+    emit_telemetry=True,
 ):
     files = changed_files(base)
     context_files = focus_files or files
@@ -663,7 +663,8 @@ def build_review_packet(
             sections.append((f"guidance: {path}", f"Could not read: {exc}"))
 
     append_optional_global_context(sections, global_context)
-    print_packet_section_telemetry(sections, compact=compact)
+    if emit_telemetry:
+        print_packet_section_telemetry(sections, compact=compact)
     packet = format_packet_sections(sections)
     if len(packet) > MAX_REVIEW_PACKET_CHARS:
         packet = truncate_to_budget(packet, MAX_REVIEW_PACKET_CHARS)
@@ -692,14 +693,8 @@ def chunk_changed_files(base, files, *, max_patch_chars=MAX_CHUNK_PATCH_CHARS):
     return merged
 
 
-def model_base_host() -> str:
-    base_url = os.environ.get("LLM_BASE_URL", "").strip()
-    if not base_url:
-        return "default"
-    parsed = urlparse(base_url)
-    if parsed.hostname:
-        return f"{parsed.hostname}:{parsed.port}" if parsed.port else parsed.hostname
-    return "configured"
+def model_base_label() -> str:
+    return "custom" if os.environ.get("LLM_BASE_URL", "").strip() else "default"
 
 
 def approx_tokens_from_chars(chars: int) -> int:
@@ -710,27 +705,144 @@ def message_chars(messages) -> int:
     return sum(len(str(message.get("content", ""))) for message in messages)
 
 
-def should_force_packet_chunking(base, ci_status, mode, files):
-    if len(files) <= 1:
-        return False, "single-file review", 0, []
-    probe_packet = build_review_packet(base, ci_status, mode)
-    probe_chars = len(probe_packet)
-    if probe_chars <= MAX_SINGLE_PACKET_CHARS:
-        return False, "single packet under threshold", probe_chars, []
-    forced_chunks = chunk_changed_files(
-        base,
-        files,
-        max_patch_chars=MAX_FORCED_CHUNK_PATCH_CHARS,
+def safe_model_error(exc: Exception) -> str:
+    parts = [type(exc).__name__]
+    status_code = getattr(exc, "status_code", None)
+    response = getattr(exc, "response", None)
+    if status_code is None and response is not None:
+        status_code = getattr(response, "status_code", None)
+    if status_code is not None:
+        parts.append(f"status={status_code}")
+    code = getattr(exc, "code", None)
+    if code is not None:
+        safe_code = re.sub(r"[^A-Za-z0-9_.-]", "_", str(code))[:48]
+        if safe_code:
+            parts.append(f"code={safe_code}")
+    return ": ".join([parts[0], " ".join(parts[1:])]) if len(parts) > 1 else parts[0]
+
+
+def packet_chars_for_chunk(base, ci_status, mode, chunk, global_context):
+    return len(
+        build_review_packet(
+            base,
+            ci_status,
+            mode,
+            focus_files=chunk,
+            include_full_patch=False,
+            global_context=global_context,
+            emit_telemetry=False,
+        )
     )
-    if len(forced_chunks) <= 1:
-        forced_chunks = chunk_changed_files(
+
+
+def split_chunk(chunk):
+    midpoint = max(1, len(chunk) // 2)
+    return chunk[:midpoint], chunk[midpoint:]
+
+
+def enforce_packet_chunk_size(base, ci_status, mode, chunks, global_context):
+    result = []
+    queue = [list(chunk) for chunk in chunks]
+    forced = False
+    max_final_packet_chars = 0
+    oversized_unsplit = False
+    while queue:
+        chunk = queue.pop(0)
+        packet_chars = packet_chars_for_chunk(
+            base,
+            ci_status,
+            mode,
+            chunk,
+            global_context,
+        )
+        can_split = len(chunk) > 1 and len(result) + len(queue) + 2 <= MAX_REVIEW_CHUNKS
+        if packet_chars > MAX_SINGLE_PACKET_CHARS and can_split:
+            left, right = split_chunk(chunk)
+            queue = [left, right, *queue]
+            forced = True
+            continue
+        if packet_chars > MAX_SINGLE_PACKET_CHARS:
+            oversized_unsplit = True
+        max_final_packet_chars = max(max_final_packet_chars, packet_chars)
+        result.append(chunk)
+    return result, forced, max_final_packet_chars, oversized_unsplit
+
+
+def plan_review_chunks(base, ci_status, mode, files):
+    patch_chunks = chunk_changed_files(base, files)
+    all_packet_chars = len(
+        build_review_packet(
+            base,
+            ci_status,
+            mode,
+            emit_telemetry=False,
+        )
+    )
+    if len(patch_chunks) <= 1 and all_packet_chars <= MAX_SINGLE_PACKET_CHARS:
+        return {
+            "chunks": patch_chunks,
+            "patch_chunks": patch_chunks,
+            "forced_by_packet_size": False,
+            "reason": "single packet under threshold",
+            "probe_packet_chars": all_packet_chars,
+            "max_chunk_packet_chars": all_packet_chars,
+            "chunk_patch_threshold": MAX_CHUNK_PATCH_CHARS,
+            "global_review_context": None,
+            "compact_global_review_context": None,
+        }
+
+    chunk_patch_threshold = MAX_CHUNK_PATCH_CHARS
+    chunks = patch_chunks
+    forced_by_packet_size = False
+    if len(chunks) <= 1:
+        chunk_patch_threshold = MAX_FORCED_CHUNK_PATCH_CHARS
+        chunks = chunk_changed_files(
             base,
             files,
-            max_patch_chars=max(1, MAX_FORCED_CHUNK_PATCH_CHARS // 2),
+            max_patch_chars=chunk_patch_threshold,
         )
-    if len(forced_chunks) <= 1:
-        return False, "packet over threshold but chunker produced one chunk", probe_chars, []
-    return True, "assembled packet over threshold", probe_chars, forced_chunks
+        if len(chunks) <= 1:
+            chunk_patch_threshold = max(1, MAX_FORCED_CHUNK_PATCH_CHARS // 2)
+            chunks = chunk_changed_files(
+                base,
+                files,
+                max_patch_chars=chunk_patch_threshold,
+            )
+        forced_by_packet_size = len(chunks) > len(patch_chunks)
+
+    global_review_context = build_global_review_context(base, files)
+    compact_global_review_context = build_global_review_context(
+        base,
+        files,
+        compact=True,
+    )
+    chunks, packet_split, max_chunk_packet_chars, oversized_unsplit = (
+        enforce_packet_chunk_size(
+            base,
+            ci_status,
+            mode,
+            chunks,
+            global_review_context,
+        )
+    )
+    forced_by_packet_size = forced_by_packet_size or packet_split
+    if oversized_unsplit:
+        reason = "packet over threshold but max chunk split limit reached"
+    elif forced_by_packet_size:
+        reason = "assembled packet over threshold"
+    else:
+        reason = "raw patch chunking"
+    return {
+        "chunks": chunks,
+        "patch_chunks": patch_chunks,
+        "forced_by_packet_size": forced_by_packet_size,
+        "reason": reason,
+        "probe_packet_chars": all_packet_chars,
+        "max_chunk_packet_chars": max_chunk_packet_chars,
+        "chunk_patch_threshold": chunk_patch_threshold,
+        "global_review_context": global_review_context,
+        "compact_global_review_context": compact_global_review_context,
+    }
 
 
 def usage_value(usage, *path):
@@ -809,7 +921,7 @@ def model_call(client, messages, stats):
     print(
         "Bunny model request starting: "
         f"model={model}; "
-        f"base_host={model_base_host()}; "
+        f"base={model_base_label()}; "
         f"timeout_s={MODEL_REQUEST_TIMEOUT}; "
         f"max_retries={MODEL_MAX_RETRIES}; "
         f"messages={len(messages)}; "
@@ -827,12 +939,12 @@ def model_call(client, messages, stats):
         elapsed = time.monotonic() - started_at
         stats["model_request_failures"] += 1
         stats["model_request_elapsed_s"] += elapsed
-        stats["last_model_error"] = f"{type(exc).__name__}: {' '.join(str(exc).split())}"
+        stats["last_model_error"] = safe_model_error(exc)
         print(
             "Bunny model request failed: "
             f"elapsed_s={elapsed:.1f}; "
             f"error_type={type(exc).__name__}; "
-            f"message={stats['last_model_error']}",
+            f"error={stats['last_model_error']}",
             flush=True,
         )
         raise
@@ -2069,22 +2181,25 @@ def write_skipped_review(title, body, *, status="unknown", metadata=None):
 
 
 def model_failure_detail(exc):
-    message = " ".join(str(exc).split())
-    if len(message) > 500:
-        message = message[:497] + "..."
     if isinstance(exc, EmptyModelResponse):
+        message = " ".join(str(exc).split())
+        if len(message) > 500:
+            message = message[:497] + "..."
         return (
             "Bunny Review could not complete because the model endpoint returned "
             f"empty content before a review object was emitted: {message}"
         )
     if isinstance(exc, ValueError):
+        message = " ".join(str(exc).split())
+        if len(message) > 500:
+            message = message[:497] + "..."
         return (
             "Bunny Review could not complete because the model response could not "
             f"be parsed into the required JSON review object: {message}"
         )
     return (
         f"Bunny Review could not complete because the model provider rejected the "
-        f"review request: {type(exc).__name__}: {message}"
+        f"review request: {safe_model_error(exc)}"
     )
 
 
@@ -2401,42 +2516,25 @@ def produce_review(args):
         print("Bunny telemetry: skipped=missing_openai_api_key", flush=True)
         return
 
-    patch_chunks = chunk_changed_files(base, files)
-    chunks = patch_chunks
-    force_chunked, chunk_reason, probe_packet_chars, forced_chunks = (
-        False,
-        "raw patch chunking",
-        0,
-        [],
-    )
-    if len(patch_chunks) <= 1:
-        force_chunked, chunk_reason, probe_packet_chars, forced_chunks = (
-            should_force_packet_chunking(base, ci_status, effective_mode, files)
-        )
-        if force_chunked:
-            chunks = forced_chunks
+    chunk_plan = plan_review_chunks(base, ci_status, effective_mode, files)
+    patch_chunks = chunk_plan["patch_chunks"]
+    chunks = chunk_plan["chunks"]
+    global_review_context = chunk_plan["global_review_context"]
+    compact_global_review_context = chunk_plan["compact_global_review_context"]
     use_chunked_review = len(chunks) > 1
     print(
         "Bunny chunk decision: "
         f"files={len(files)}; "
         f"patch_chunks={len(patch_chunks)}; "
         f"chunks={len(chunks)}; "
-        f"forced_by_packet_size={str(force_chunked).lower()}; "
-        f"reason={chunk_reason}; "
-        f"probe_packet_chars={probe_packet_chars}; "
+        f"forced_by_packet_size={str(chunk_plan['forced_by_packet_size']).lower()}; "
+        f"reason={chunk_plan['reason']}; "
+        f"probe_packet_chars={chunk_plan['probe_packet_chars']}; "
+        f"max_chunk_packet_chars={chunk_plan['max_chunk_packet_chars']}; "
         f"single_packet_threshold={MAX_SINGLE_PACKET_CHARS}; "
-        f"chunk_patch_threshold={MAX_FORCED_CHUNK_PATCH_CHARS if force_chunked else MAX_CHUNK_PATCH_CHARS}",
+        f"chunk_patch_threshold={chunk_plan['chunk_patch_threshold']}",
         flush=True,
     )
-    global_review_context = None
-    compact_global_review_context = None
-    if use_chunked_review:
-        global_review_context = build_global_review_context(base, files)
-        compact_global_review_context = build_global_review_context(
-            base,
-            files,
-            compact=True,
-        )
 
     from openai import OpenAI
 
