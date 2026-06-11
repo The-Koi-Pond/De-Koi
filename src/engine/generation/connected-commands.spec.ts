@@ -32,6 +32,7 @@ function commandStorage(args: {
   lorebookEntries: JsonRecord[];
   creates?: Array<{ entity: StorageEntity; value: JsonRecord }>;
   updates?: Array<{ entity: StorageEntity; id: string; patch: JsonRecord }>;
+  messages?: Array<{ chatId: string; value: JsonRecord }>;
   metadataPatches?: Array<{ chatId: string; patch: JsonRecord }>;
 }): StorageGateway {
   return {
@@ -51,14 +52,15 @@ function commandStorage(args: {
             : entity === "lorebooks"
               ? args.lorebooks
               : entity === "lorebook-entries"
-                ? args.lorebookEntries
-                : [];
+              ? args.lorebookEntries
+              : [];
       return asStorageValue<T | null>(rows.find((row) => row.id === id) ?? null);
     },
     async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
       const row = { id: `created-${args.creates?.length ?? 0}`, ...value };
       args.creates?.push({ entity, value: row });
       if (entity === "characters") args.characters?.push(row);
+      if (entity === "chats") args.chats?.push(row);
       if (entity === "lorebook-entries") args.lorebookEntries.push(row);
       return asStorageValue<T>(row);
     },
@@ -82,8 +84,10 @@ function commandStorage(args: {
     async listChatMessages() {
       return [];
     },
-    async createChatMessage() {
-      throw new Error("createChatMessage should not be called");
+    async createChatMessage<T = unknown>(chatId: string, value: Record<string, unknown>) {
+      if (!args.messages) throw new Error("createChatMessage should not be called");
+      args.messages.push({ chatId, value });
+      return asStorageValue<T>({ id: `message-${args.messages.length}`, ...value });
     },
     async updateChatMessage() {
       throw new Error("updateChatMessage should not be called");
@@ -103,7 +107,7 @@ function commandStorage(args: {
       if (chat) {
         chat.metadata = { ...((chat.metadata as JsonRecord) ?? {}), ...patch };
       }
-      return asStorageValue<T>(chat ?? {});
+      return asStorageValue<T>(chat ?? { id: chatId, metadata: patch });
     },
     async patchChatSummaries<T = unknown>() {
       return asStorageValue<T>({});
@@ -561,5 +565,187 @@ describe("persistConnectedCommandTags", () => {
       },
     ]);
     expect(lorebookEntries.map((entry) => entry.name)).toEqual(["New Gate", "Fresh Gate"]);
+  });
+
+  it("keeps valid DM message text visible when the target character is missing", async () => {
+    const chats = [
+      {
+        id: "roleplay-1",
+        name: "Roleplay",
+        mode: "roleplay",
+        characterIds: ["speaker-1"],
+        folderId: "folder-1",
+        metadata: { roleplayDmCommandsEnabled: true },
+      },
+    ];
+    const creates: Array<{ entity: StorageEntity; value: JsonRecord }> = [];
+    const messages: Array<{ chatId: string; value: JsonRecord }> = [];
+    const storage = commandStorage({ chats, lorebooks: [], lorebookEntries: [], creates, messages });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chats[0]!,
+      'Visible narration.\n[dm: character="Cardless", message="Fallback text."]',
+    );
+
+    expect(result.displayContent).toBe("Visible narration.\nFallback text.");
+    expect(result.executedCommands).toEqual([]);
+    expect(result.events).toEqual([]);
+    expect(creates).toEqual([]);
+    expect(messages).toEqual([]);
+  });
+
+  it("creates a metadata-scoped DM thread instead of reusing a generic conversation", async () => {
+    const characters = [{ id: "bob-1", name: "Bob", data: { name: "Bob" } }];
+    const chats = [
+      {
+        id: "roleplay-1",
+        name: "Roleplay",
+        mode: "roleplay",
+        characterIds: ["speaker-1"],
+        folderId: "folder-1",
+        metadata: { roleplayDmCommandsEnabled: true },
+      },
+      {
+        id: "generic-bob",
+        name: "Bob",
+        mode: "conversation",
+        characterIds: ["bob-1"],
+        metadata: {},
+      },
+    ];
+    const creates: Array<{ entity: StorageEntity; value: JsonRecord }> = [];
+    const messages: Array<{ chatId: string; value: JsonRecord }> = [];
+    const storage = commandStorage({ characters, chats, lorebooks: [], lorebookEntries: [], creates, messages });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chats[0]!,
+      'Visible narration.\n[dm: character="Bob", message="Secret text."]',
+    );
+
+    expect(result.displayContent).toBe("Visible narration.");
+    expect(result.executedCommands).toEqual(["dm"]);
+    expect(creates).toHaveLength(1);
+    expect(creates[0]).toMatchObject({
+      entity: "chats",
+      value: {
+        name: "Bob",
+        mode: "conversation",
+        characterIds: ["bob-1"],
+        folderId: "folder-1",
+        metadata: {
+          roleplayDmThread: true,
+          dmOriginChatId: "roleplay-1",
+          dmTargetCharacterId: "bob-1",
+        },
+      },
+    });
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      chatId: "created-0",
+      value: { role: "assistant", characterId: "bob-1", content: "Secret text." },
+    });
+    expect(result.events[0]).toMatchObject({
+      type: "ooc_posted",
+      data: {
+        chatId: "created-0",
+        roleplayDmThread: true,
+        sourceChatId: "roleplay-1",
+        targetCharacterId: "bob-1",
+      },
+    });
+  });
+
+  it("keeps command-shaped DM payload text out of source command parsing", async () => {
+    const characters = [{ id: "bob-1", name: "Bob", data: { name: "Bob" } }];
+    const chats = [
+      {
+        id: "roleplay-1",
+        name: "Roleplay",
+        mode: "roleplay",
+        characterIds: ["speaker-1"],
+        folderId: "folder-1",
+        metadata: { roleplayDmCommandsEnabled: true },
+      },
+    ];
+    const creates: Array<{ entity: StorageEntity; value: JsonRecord }> = [];
+    const messages: Array<{ chatId: string; value: JsonRecord }> = [];
+    const storage = commandStorage({ characters, chats, lorebooks: [], lorebookEntries: [], creates, messages });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chats[0]!,
+      'Visible narration.\n[dm: character="Bob", message="Secret [selfie] <note>plain text</note>."]',
+    );
+
+    expect(result.displayContent).toBe("Visible narration.");
+    expect(result.executedCommands).toEqual(["dm"]);
+    expect(result.createdNotes).toEqual([]);
+    expect(result.assistantAttachments).toEqual([]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      chatId: "created-0",
+      value: { role: "assistant", characterId: "bob-1", content: "Secret [selfie] <note>plain text</note>." },
+    });
+  });
+
+  it("reuses and tags a linked conversation for the resolved target", async () => {
+    const characters = [{ id: "bob-1", name: "Bob", data: { name: "Bob" } }];
+    const chats = [
+      {
+        id: "roleplay-1",
+        name: "Roleplay",
+        mode: "roleplay",
+        connectedChatId: "linked-bob",
+        characterIds: ["speaker-1"],
+        folderId: "folder-1",
+        metadata: { roleplayDmCommandsEnabled: true },
+      },
+      {
+        id: "linked-bob",
+        name: "Bob DM",
+        mode: "conversation",
+        characterIds: ["bob-1"],
+        metadata: {},
+      },
+    ];
+    const creates: Array<{ entity: StorageEntity; value: JsonRecord }> = [];
+    const messages: Array<{ chatId: string; value: JsonRecord }> = [];
+    const metadataPatches: Array<{ chatId: string; patch: JsonRecord }> = [];
+    const storage = commandStorage({
+      characters,
+      chats,
+      lorebooks: [],
+      lorebookEntries: [],
+      creates,
+      messages,
+      metadataPatches,
+    });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chats[0]!,
+      '[dm: character="Bob", message="Linked text."]',
+    );
+
+    expect(result.displayContent).toBe("");
+    expect(result.suppressAssistantMessage).toBe(true);
+    expect(creates).toEqual([]);
+    expect(metadataPatches).toEqual([
+      {
+        chatId: "linked-bob",
+        patch: {
+          roleplayDmThread: true,
+          dmOriginChatId: "roleplay-1",
+          dmTargetCharacterId: "bob-1",
+        },
+      },
+    ]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      chatId: "linked-bob",
+      value: { role: "assistant", characterId: "bob-1", content: "Linked text." },
+    });
   });
 });

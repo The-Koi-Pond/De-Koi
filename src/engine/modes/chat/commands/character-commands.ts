@@ -84,6 +84,12 @@ export interface DirectMessageCommand {
   character: string;
   /** Text the character sends in the generated conversation DM */
   message: string;
+  /** Exact hidden command text to remove or replace after target resolution. */
+  raw?: string;
+  /** Resolved target character ID, set by connected-command execution. */
+  resolvedCharacterId?: string;
+  /** Resolved target character name, set by connected-command execution. */
+  resolvedCharacterName?: string;
 }
 
 interface SpotifyCommand {
@@ -762,9 +768,11 @@ export function parseDirectMessageCommands(content: string): {
   cleanContent: string;
   commands: DirectMessageCommand[];
   invalidCommands: number;
+  invalidCommandRaws: string[];
 } {
   const commands: DirectMessageCommand[] = [];
   let invalidCommands = 0;
+  const invalidCommandRaws: string[] = [];
 
   for (const match of content.matchAll(DIRECT_MESSAGE_RE)) {
     const params = match[1]!;
@@ -772,9 +780,10 @@ export function parseDirectMessageCommands(content: string): {
     const message = parseQuotedParam(params, "message");
     const cleanMessage = message ? stripConversationPromptTimestamps(message.trim()) : "";
     if (character && cleanMessage) {
-      commands.push({ type: "dm", character, message: cleanMessage });
+      commands.push({ type: "dm", character, message: cleanMessage, raw: match[0] });
     } else {
       invalidCommands += 1;
+      invalidCommandRaws.push(match[0]);
     }
   }
 
@@ -783,5 +792,5 @@ export function parseDirectMessageCommands(content: string): {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  return { cleanContent, commands, invalidCommands };
+  return { cleanContent, commands, invalidCommands, invalidCommandRaws };
 }

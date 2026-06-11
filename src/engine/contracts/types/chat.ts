@@ -223,6 +223,12 @@ export interface ChatMetadata {
   showInputTranslateButton?: boolean;
   /** Allow roleplay characters to create direct-message conversation chats with hidden [dm] commands. */
   roleplayDmCommandsEnabled?: boolean;
+  /** Marks a conversation chat as a roleplay-origin direct-message thread. */
+  roleplayDmThread?: boolean;
+  /** Roleplay chat that created or owns this direct-message thread. */
+  dmOriginChatId?: string | null;
+  /** Character targeted by this direct-message thread. */
+  dmTargetCharacterId?: string | null;
   /** Per-chat roleplay narration voice/style guidance. */
   narratorStyleInstructions?: string | null;
   /** Music source constraint for Spotify DJ in roleplay and visual novel chats. */

@@ -9,6 +9,7 @@ import {
   type CreateCharacterCommand,
   type CreateLorebookCommand,
   type CreatePersonaCommand,
+  type DirectMessageCommand,
   type UpdateCharacterCommand,
   type UpdateLorebookCommand,
   type UpdatePersonaCommand,
@@ -109,15 +110,125 @@ function roleplayDirectMessageCommandsEnabled(chat: JsonRecord): boolean {
   return mode === "roleplay" && boolish(parseRecord(chat.metadata).roleplayDmCommandsEnabled, false);
 }
 
-function parseConnectedCommands(
+function cleanCommandContent(content: string): string {
+  return content.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function replaceFirstLiteral(content: string, search: string, replacement: string): string {
+  const index = search ? content.indexOf(search) : -1;
+  if (index < 0) return content;
+  return `${content.slice(0, index)}${replacement}${content.slice(index + search.length)}`;
+}
+
+function roleplayDmThreadMetadata(sourceChatId: string, targetCharacterId: string): JsonRecord {
+  return {
+    roleplayDmThread: true,
+    dmOriginChatId: sourceChatId,
+    dmTargetCharacterId: targetCharacterId,
+  };
+}
+
+function matchesRoleplayDmThread(chat: JsonRecord, sourceChatId: string, targetCharacterId: string): boolean {
+  const metadata = parseRecord(chat.metadata);
+  return (
+    readString(chat.mode) === "conversation" &&
+    stringArray(chat.characterIds).includes(targetCharacterId) &&
+    boolish(metadata.roleplayDmThread, false) &&
+    readString(metadata.dmOriginChatId) === sourceChatId &&
+    readString(metadata.dmTargetCharacterId) === targetCharacterId
+  );
+}
+
+function isLinkedConversationForTarget(
+  chat: JsonRecord | null | undefined,
+  targetCharacterId: string,
+): chat is JsonRecord {
+  return (
+    !!chat && readString(chat.mode) === "conversation" && stringArray(chat.characterIds).includes(targetCharacterId)
+  );
+}
+
+function hasRoleplayDmThreadMetadata(chat: JsonRecord, sourceChatId: string, targetCharacterId: string): boolean {
+  const metadata = parseRecord(chat.metadata);
+  return (
+    boolish(metadata.roleplayDmThread, false) &&
+    readString(metadata.dmOriginChatId) === sourceChatId &&
+    readString(metadata.dmTargetCharacterId) === targetCharacterId
+  );
+}
+
+type IsolatedDirectMessageCommand = DirectMessageCommand & { placeholder: string };
+
+function isolateRoleplayDirectMessageContent(
+  content: string,
+  commands: DirectMessageCommand[],
+  invalidCommandRaws: string[],
+): { content: string; commands: IsolatedDirectMessageCommand[] } {
+  let isolatedContent = content;
+  const isolatedCommands = commands.map((command, index) => {
+    const placeholder = `__DE_KOI_ROLEPLAY_DM_PLACEHOLDER_${index}__`;
+    isolatedContent = replaceFirstLiteral(isolatedContent, readString(command.raw), placeholder);
+    return { ...command, placeholder };
+  });
+  for (const raw of invalidCommandRaws) {
+    isolatedContent = replaceFirstLiteral(isolatedContent, raw, "");
+  }
+  return { content: isolatedContent, commands: isolatedCommands };
+}
+
+async function findRoleplayDirectMessageChat(
+  storage: StorageGateway,
+  sourceChat: JsonRecord,
+  targetCharacterId: string,
+): Promise<JsonRecord | null> {
+  const sourceChatId = readString(sourceChat.id);
+  const linkedChatId = readString(sourceChat.connectedChatId).trim();
+  if (linkedChatId && linkedChatId !== sourceChatId) {
+    const linked = await storage.get<JsonRecord>("chats", linkedChatId).catch(() => null);
+    if (isLinkedConversationForTarget(linked, targetCharacterId)) return linked;
+  }
+
+  const rows = await storage.list<JsonRecord>("chats");
+  return rows.find((candidate) => matchesRoleplayDmThread(candidate, sourceChatId, targetCharacterId)) ?? null;
+}
+
+async function resolveRoleplayDirectMessageCommands(
+  storage: StorageGateway,
+  visibleContent: string,
+  commands: IsolatedDirectMessageCommand[],
+): Promise<{ cleanContent: string; commands: DirectMessageCommand[] }> {
+  let cleanContent = visibleContent;
+  const resolvedCommands: DirectMessageCommand[] = [];
+
+  for (const command of commands) {
+    const character = await findByName(storage, "characters", command.character);
+    const characterId = readString(character?.id);
+    if (!character || !characterId) {
+      cleanContent = replaceFirstLiteral(cleanContent, command.placeholder, command.message);
+      continue;
+    }
+
+    resolvedCommands.push({
+      ...command,
+      resolvedCharacterId: characterId,
+      resolvedCharacterName: nameOf(character) || command.character,
+    });
+    cleanContent = replaceFirstLiteral(cleanContent, command.placeholder, "");
+  }
+
+  return { cleanContent: cleanCommandContent(cleanContent), commands: resolvedCommands };
+}
+
+async function parseConnectedCommands(
+  storage: StorageGateway,
   chat: JsonRecord,
   content: string,
-): {
+): Promise<{
   cleanContent: string;
   commands: CharacterCommand[];
   parseEvents: ConnectedCommandEvent[];
   strippedHiddenContent: boolean;
-} {
+}> {
   if (!roleplayDirectMessageCommandsEnabled(chat)) {
     const parsed = parseCharacterCommands(content);
     return {
@@ -128,7 +239,17 @@ function parseConnectedCommands(
   }
 
   const directMessages = parseDirectMessageCommands(content);
-  const parsed = parseCharacterCommands(directMessages.cleanContent);
+  const isolated = isolateRoleplayDirectMessageContent(
+    content,
+    directMessages.commands,
+    directMessages.invalidCommandRaws,
+  );
+  const parsed = parseCharacterCommands(isolated.content);
+  const resolvedDirectMessages = await resolveRoleplayDirectMessageCommands(
+    storage,
+    parsed.cleanContent,
+    isolated.commands,
+  );
   const parseEvents: ConnectedCommandEvent[] =
     directMessages.invalidCommands > 0
       ? [
@@ -142,11 +263,10 @@ function parseConnectedCommands(
         ]
       : [];
   return {
-    cleanContent: parsed.cleanContent,
-    commands: [...parsed.commands, ...directMessages.commands],
+    cleanContent: resolvedDirectMessages.cleanContent,
+    commands: [...parsed.commands, ...resolvedDirectMessages.commands],
     parseEvents,
-    strippedHiddenContent:
-      directMessages.cleanContent !== content || parsed.cleanContent !== directMessages.cleanContent,
+    strippedHiddenContent: resolvedDirectMessages.cleanContent !== content || parsed.cleanContent !== content,
   };
 }
 
@@ -1095,9 +1215,8 @@ async function executeCommand(
       return { name: "fetch" };
     }
     case "dm": {
-      const character = await findByName(storage, "characters", command.character);
-      const characterId = readString(character?.id);
-      if (!character || !characterId) {
+      const characterId = readString(command.resolvedCharacterId);
+      if (!characterId) {
         eventsPushCommandError(
           events,
           command.type,
@@ -1105,20 +1224,18 @@ async function executeCommand(
         );
         return null;
       }
-      let targetChat =
-        (await storage.list<JsonRecord>("chats")).find((candidate) => {
-          const ids = stringArray(candidate.characterIds);
-          return readString(candidate.mode) === "conversation" && ids.includes(characterId);
-        }) ?? null;
+      const sourceChatId = readString(chat.id);
+      const metadata = roleplayDmThreadMetadata(sourceChatId, characterId);
+      let targetChat = await findRoleplayDirectMessageChat(storage, chat, characterId);
       const createdChat = !targetChat;
       if (!targetChat) {
-        const characterName = nameOf(character) || command.character;
+        const characterName = readString(command.resolvedCharacterName) || command.character;
         targetChat = await storage.create<JsonRecord>("chats", {
           name: characterName,
           mode: "conversation",
           characterIds: [characterId],
           folderId: chat.folderId ?? null,
-          metadata: {},
+          metadata,
         });
       }
       const targetChatId = readString(targetChat.id);
@@ -1130,7 +1247,11 @@ async function executeCommand(
         );
         return null;
       }
-      const targetChatName = readString(targetChat.name) || nameOf(character) || command.character;
+      if (!createdChat && !hasRoleplayDmThreadMetadata(targetChat, sourceChatId, characterId)) {
+        await storage.patchChatMetadata(targetChatId, metadata);
+      }
+      const targetChatName =
+        readString(targetChat.name) || readString(command.resolvedCharacterName) || command.character;
       await storage.createChatMessage(
         targetChatId,
         messageDefaults(targetChatId, {
@@ -1141,7 +1262,15 @@ async function executeCommand(
       );
       events.push({
         type: "ooc_posted",
-        data: { chatId: targetChatId, chatName: targetChatName, count: 1, createdChat },
+        data: {
+          chatId: targetChatId,
+          chatName: targetChatName,
+          count: 1,
+          createdChat,
+          roleplayDmThread: true,
+          sourceChatId,
+          targetCharacterId: characterId,
+        },
       });
       return { name: "dm", suppressSourceMessage: !visibleContent.trim() };
     }
@@ -1180,7 +1309,7 @@ export async function persistConnectedCommandTags(
 ): Promise<ConnectedCommandResult> {
   const createdNotes: JsonRecord[] = [];
   const pendingNoteWrites: Array<{ chatId: string; note: JsonRecord }> = [];
-  const parsed = parseConnectedCommands(chat, content);
+  const parsed = await parseConnectedCommands(storage, chat, content);
   const executedCommands: string[] = [];
   const events: ConnectedCommandEvent[] = [...parsed.parseEvents];
   const assistantAttachments: JsonRecord[] = [];
