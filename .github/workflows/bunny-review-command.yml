@@ -35,7 +35,7 @@ jobs:
           fi
           TARGET_REF="$(gh pr view "$PR_NUM" --repo "${{ github.repository }}" --json baseRefName -q .baseRefName)"
           PR_IS_DRAFT="$(gh pr view "$PR_NUM" --repo "${{ github.repository }}" --json isDraft -q .isDraft)"
-          if [ "$TARGET_REF" != "refactor" ]; then
+          if [ "$TARGET_REF" != "main" ]; then
             echo "::error::Unsupported Bunny review base ref: $TARGET_REF"
             exit 1
           fi
