@@ -8,6 +8,7 @@ multi-ecosystem-groups:
       day: "monday"
       time: "11:00"
       timezone: "America/New_York"
+    open-pull-requests-limit: 1
 
 updates:
   # pnpm workspace (root package.json + pnpm-lock.yaml)
@@ -16,7 +17,6 @@ updates:
     multi-ecosystem-group: "routine-dependencies"
     patterns:
       - "*"
-    open-pull-requests-limit: 1
     cooldown:
       default-days: 7
 
@@ -26,7 +26,6 @@ updates:
     multi-ecosystem-group: "routine-dependencies"
     patterns:
       - "*"
-    open-pull-requests-limit: 1
     cooldown:
       default-days: 7
 
@@ -36,7 +35,6 @@ updates:
     multi-ecosystem-group: "routine-dependencies"
     patterns:
       - "*"
-    open-pull-requests-limit: 1
     cooldown:
       default-days: 7
 
@@ -46,7 +44,6 @@ updates:
     multi-ecosystem-group: "routine-dependencies"
     patterns:
       - "*"
-    open-pull-requests-limit: 1
     cooldown:
       default-days: 7
 
@@ -56,6 +53,5 @@ updates:
     multi-ecosystem-group: "routine-dependencies"
     patterns:
       - "*"
-    open-pull-requests-limit: 1
     cooldown:
       default-days: 7
