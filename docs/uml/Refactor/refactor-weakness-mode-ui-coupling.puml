@@ -1,0 +1,132 @@
+@startuml name "Refactor weakness - mode UI coupling"
+title "Weak spot: ModeSurface and GameSurface as oversized module hosts"
+rightfooter Conceptual zoom-in; not a complete import graph
+
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+skinparam component {
+    BackgroundColor<<target>> #E8F5E9
+    BorderColor<<target>> #2E7D32
+    BackgroundColor<<actual>> #FFF8E1
+    BorderColor<<actual>> #F9A825
+    BackgroundColor<<problem>> #FFEBEE
+    BorderColor<<problem>> #C62828
+    BackgroundColor<<module>> #E3F2FD
+    BorderColor<<module>> #1565C0
+    BackgroundColor<<fix>> #F1F8E9
+    BorderColor<<fix>> #558B2F
+}
+
+legend right
+  |= Marker |= Meaning |
+  | <color:#2E7D32>green</color> | Intended concept from the redesign sketch |
+  | <color:#1565C0>blue</color> | Module/capability that should stay independently owned |
+  | <color:#F9A825>yellow</color> | Actual implementation with mixed responsibilities |
+  | <color:#C62828>red</color> | Failure pattern / architectural pressure point |
+  | <color:#1565C0>blue arrow</color> | Intended package-crossing dependency |
+  | <color:#C62828>red dashed arrow</color> | Package-crossing coupling that weakens modularity |
+  | <color:#558B2F>fix box</color> | Concrete remediation step |
+endlegend
+
+package "Concept target" {
+    component "Small neutral mode host\nselects active mode only" as TargetHost <<target>>
+    component "Conversation module\nowns conversation UI + flow" as TargetChat <<module>>
+    component "Roleplay module\nowns scene UI + flow" as TargetRoleplay <<module>>
+    component "Game module\nowns game UI + flow" as TargetGame <<module>>
+    component "Shared capability ports\nstorage, generation, assets, events" as TargetPorts <<target>>
+
+    TargetHost -[#1565C0]-> TargetChat : route
+    TargetHost -[#1565C0]-> TargetRoleplay : route
+    TargetHost -[#1565C0]-> TargetGame : route
+    TargetChat -[#1565C0]-> TargetPorts
+    TargetRoleplay -[#1565C0]-> TargetPorts
+    TargetGame -[#1565C0]-> TargetPorts
+}
+
+package "Actual weak spot in refactor" {
+    component "[file]\nModeSurface.tsx\nmode router + shared chat shell" as ModeSurface <<actual>>
+    component "[file]\nGameSurface.tsx\nlarge game UI orchestrator" as GameSurface <<problem>>
+
+    component "[folder]\nChats hooks/components" as Chats <<module>>
+    component "[folder]\nRoleplay hooks/components" as Roleplay <<module>>
+    component "[folder]\nGame hooks/stores/lib" as GameFeature <<module>>
+    component "[group]\nWorld-state / tracker store + API" as WorldState <<module>>
+    component "[folder]\nCharacters / connections / lorebooks" as Library <<module>>
+    component "[folder]\nAgents UI/store effects" as Agents <<module>>
+    component "[folder]\nVisuals sprites/backgrounds" as Visuals <<module>>
+    component "[folder]\nGeneration hooks" as GenerationHooks <<module>>
+    component "[folder]\nShared API adapters" as SharedApi <<module>>
+    component "[group]\nTTS / translation / Spotify side effects" as SideEffects <<module>>
+
+    ModeSurface -[#C62828,dashed]-> Chats : imports hooks + components
+    ModeSurface -[#C62828,dashed]-> Roleplay : imports scene hooks
+    ModeSurface -[#C62828,dashed]-> GameSurface : lazy-loads game surface
+    ModeSurface -[#C62828,dashed]-> WorldState : mutates tracker state
+    ModeSurface -[#C62828,dashed]-> Agents : handles agent review state
+    ModeSurface -[#C62828,dashed]-> Visuals : sprite placement/expression state
+    ModeSurface -[#C62828,dashed]-> GenerationHooks : starts generation
+    ModeSurface -[#C62828,dashed]-> SideEffects : TTS + translation behavior
+
+    GameSurface -[#C62828,dashed]-> Chats : reuses chat hooks/types/components
+    GameSurface -[#C62828,dashed]-> WorldState : direct patch/store orchestration
+    GameSurface -[#C62828,dashed]-> Library : character + connection lookups
+    GameSurface -[#C62828,dashed]-> Visuals : sprites, backgrounds, world info
+    GameSurface -[#C62828,dashed]-> SharedApi : storage, assets, image, Spotify APIs
+    GameSurface -[#C62828,dashed]-> GameFeature : owns broad game feature behavior
+}
+
+package "How to fix this weak spot" {
+    component "1. Split ModeSurface into\nModeHost + mode-owned surfaces" as FixModeSplit <<fix>>
+    component "2. Move cross-cutting effects to owners\ntracker -> world-state\nsprites -> visuals\nagent review -> agents\nTTS/translation -> dedicated hooks" as FixOwners <<fix>>
+    component "3. Split GameSurface into\nGameShell, GameNarration,\nGameStatePanel, GameMediaController,\nand useGameSurfaceModel" as FixGameSplit <<fix>>
+    component "4. Replace sibling feature imports with\npublic feature APIs or lower shared contracts" as FixPublicApis <<fix>>
+    component "Definition of done\nModeSurface imports only mode entry points + shell primitives.\nGameSurface delegates orchestration to game-owned hooks/services.\nNo mode surface mutates another feature's store directly." as DoneMode <<fix>>
+
+    FixModeSplit --> FixOwners
+    FixOwners --> FixGameSplit
+    FixGameSplit --> FixPublicApis
+    FixPublicApis --> DoneMode
+}
+
+note right of ModeSurface
+  The issue is not that ModeSurface routes modes.
+  The issue is that it also owns cross-cutting behavior:
+  chat loading, generation state, tracker refresh, sprite state,
+  TTS, translation, agent review, and mode-specific cleanup.
+end note
+
+note bottom of FixModeSplit
+  The goal is not to delete ModeSurface.
+  The goal is to make it boring:
+  read active mode, render the matching surface, pass shell-level props.
+end note
+
+note bottom of FixGameSplit
+  Split by responsibility, not by arbitrary size:
+  rendering, state synchronization, media side effects,
+  generation controls, and game-specific UI should have separate owners.
+end note
+
+note bottom of FixPublicApis
+  If game/roleplay/chat needs something from another feature,
+  expose a deliberate API or move the shared primitive down.
+  Avoid importing another feature's private hook/component directly.
+end note
+
+note right of GameSurface
+  The game engine is relatively modular.
+  The game UI is the weak implementation point:
+  it acts as UI, orchestrator, adapter caller, state patcher,
+  media coordinator, and cross-feature integrator.
+end note
+
+note bottom of TargetHost
+  Original concept pressure:
+  "Core" should coordinate modules through narrow capabilities.
+  Actual pressure:
+  React surfaces coordinate by importing many sibling modules directly.
+end note
+
+@enduml

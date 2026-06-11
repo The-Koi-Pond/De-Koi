@@ -2,6 +2,8 @@
 
 Use this as a quick map. The detailed source of truth for current maintenance docs is `docs/developer/architecture.html`, `docs/developer/modules.html`, and `docs/developer/impact-areas.html`.
 
+For architecture-sensitive changes, also consult `docs/uml/Refactor`. That folder contains PlantUML diagrams for current refactor-era boundaries, hotspots, and decision context. The `Refactor` name reflects De-Koi's origin as a Marinara Engine refactor, not a separate legacy branch.
+
 ## TypeScript
 
 ```text

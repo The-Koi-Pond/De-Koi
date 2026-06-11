@@ -1,0 +1,147 @@
+@startuml name "Refactor current boundary guardrails"
+title "Current refactor guardrails - boundaries are now enforceable"
+rightfooter Architecture enforcement snapshot; based on current De-Koi tooling
+
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+skinparam component {
+    BackgroundColor<<source>> #E3F2FD
+    BorderColor<<source>> #1565C0
+    BackgroundColor<<rule>> #E8F5E9
+    BorderColor<<rule>> #2E7D32
+    BackgroundColor<<ci>> #F1F8E9
+    BorderColor<<ci>> #558B2F
+    BackgroundColor<<risk>> #FFF8E1
+    BorderColor<<risk>> #F9A825
+    BackgroundColor<<blocked>> #FFEBEE
+    BorderColor<<blocked>> #C62828
+}
+
+legend right
+  |= Marker |= Meaning |
+  | <color:#1565C0>blue</color> | Source area being protected |
+  | <color:#2E7D32>green</color> | Enforced rule/check |
+  | <color:#558B2F>CI</color> | Runs in project validation |
+  | <color:#F9A825>yellow</color> | Still possible design risk not fully captured by import rules |
+  | <color:#C62828>red</color> | Blocked dependency pattern |
+  | <color:#C62828>red dashed arrow</color> | Forbidden import direction |
+  | <color:#2E7D32>green dashed arrow</color> | Check covers this boundary |
+endlegend
+
+package "Protected source areas" {
+    component "src/shared\nfrontend primitives" as Shared <<source>>
+    component "src/engine\nReact-free product engine" as Engine <<source>>
+    component "src/features/catalog\nresource/data layer" as Catalog <<source>>
+    component "src/features/runtime\nruntime systems" as Runtime <<source>>
+    component "src/features/modes\nconversation, roleplay, game, router" as Modes <<source>>
+    component "src/features/shell\napp-level tools" as Shell <<source>>
+    component "src-tauri/src/commands/storage/imports\nRust import command/service area" as RustImports <<source>>
+}
+
+package "Forbidden patterns now encoded" {
+    component "shared must not import\nfeatures or app" as RuleShared <<rule>>
+    component "engine must not import\nReact, Zustand, Tauri runtime,\nor src/shared/api adapters" as RuleEngine <<rule>>
+    component "feature layers flow downward\nshell -> modes/runtime/catalog\nmodes -> runtime/catalog\nruntime -> catalog" as RuleLayers <<rule>>
+    component "concrete modes must not\nimport each other" as RuleModes <<rule>>
+    component "cross-package callers must use\npublic feature entrypoints,\nnot private internals" as RulePrivate <<rule>>
+    component "Rust imports facade stays thin\nimports.rs max 80 lines;\nno parser/normalizer/fs logic" as RuleRust <<rule>>
+}
+
+package "Validation entrypoints" {
+    component ".dependency-cruiser.cjs\npackage graph rules" as DepCruise <<ci>>
+    component "eslint.config.js\nsource-level restricted imports" as Eslint <<ci>>
+    component "scripts/check-rust-structure.mjs\nRust import concentration guard" as RustScript <<ci>>
+    component "pnpm check:architecture\ndepcruise + Rust structure" as CheckArchitecture <<ci>>
+    component "pnpm check\narchitecture + typecheck + Rust + docs" as CheckAll <<ci>>
+    component "pnpm lint\nESLint restricted-import rules" as CheckLint <<ci>>
+    component ".github/workflows/ci.yml\ninstalls deps and runs gates" as Workflow <<ci>>
+}
+
+package "Blocked dependency directions" {
+    component "src/shared -> src/features/app" as BlockShared <<blocked>>
+    component "src/engine -> React/Zustand/Tauri/shared API" as BlockEngine <<blocked>>
+    component "catalog/runtime/modes -> higher feature layers" as BlockLayer <<blocked>>
+    component "chat <-> roleplay <-> game private coupling" as BlockModes <<blocked>>
+    component "external packages -> feature components/hooks/stores/lib/api internals" as BlockPrivate <<blocked>>
+    component "imports.rs regresses into import parser/normalizer/writer" as BlockRust <<blocked>>
+}
+
+package "Known blind spots" {
+    component "Large files can still pass\ndependency rules if their imports\nare legal" as BlindLargeFiles <<risk>>
+    component "Legal public entrypoint imports\ncan still create broad coordinators" as BlindPublicApi <<risk>>
+    component "Command registration can remain\ncentralized without failing rules" as BlindRegistry <<risk>>
+}
+
+DepCruise .[#2E7D32].> RuleShared
+DepCruise .[#2E7D32].> RuleEngine
+DepCruise .[#2E7D32].> RuleLayers
+DepCruise .[#2E7D32].> RuleModes
+DepCruise .[#2E7D32].> RulePrivate
+
+Eslint .[#2E7D32].> RuleShared
+Eslint .[#2E7D32].> RuleEngine
+Eslint .[#2E7D32].> RuleModes
+Eslint .[#2E7D32].> RulePrivate
+
+RustScript .[#2E7D32].> RuleRust
+
+RuleShared .[#2E7D32].> Shared
+RuleEngine .[#2E7D32].> Engine
+RuleLayers .[#2E7D32].> Catalog
+RuleLayers .[#2E7D32].> Runtime
+RuleLayers .[#2E7D32].> Modes
+RuleLayers .[#2E7D32].> Shell
+RuleModes .[#2E7D32].> Modes
+RulePrivate .[#2E7D32].> Catalog
+RulePrivate .[#2E7D32].> Runtime
+RulePrivate .[#2E7D32].> Modes
+RulePrivate .[#2E7D32].> Shell
+RuleRust .[#2E7D32].> RustImports
+
+Shared -[#C62828,dashed]-> BlockShared
+Engine -[#C62828,dashed]-> BlockEngine
+Catalog -[#C62828,dashed]-> BlockLayer
+Runtime -[#C62828,dashed]-> BlockLayer
+Modes -[#C62828,dashed]-> BlockModes
+Shell -[#C62828,dashed]-> BlockPrivate
+RustImports -[#C62828,dashed]-> BlockRust
+
+BlockShared .[#2E7D32].> RuleShared : blocked
+BlockEngine .[#2E7D32].> RuleEngine : blocked
+BlockLayer .[#2E7D32].> RuleLayers : blocked
+BlockModes .[#2E7D32].> RuleModes : blocked
+BlockPrivate .[#2E7D32].> RulePrivate : blocked
+BlockRust .[#2E7D32].> RuleRust : blocked
+
+CheckArchitecture --> DepCruise
+CheckArchitecture --> RustScript
+CheckAll --> CheckArchitecture
+CheckLint --> Eslint
+Workflow --> CheckArchitecture
+Workflow --> CheckLint
+Workflow --> CheckAll
+
+BlindLargeFiles -[#F9A825,dashed]-> Modes
+BlindPublicApi -[#F9A825,dashed]-> Modes
+BlindRegistry -[#F9A825,dashed]-> RustImports
+
+note top of CheckArchitecture
+  Current local result:
+  depcruise found no dependency violations.
+  Rust structure check passed.
+end note
+
+note bottom of BlindLargeFiles
+  This is why separate orchestration diagrams are useful.
+  Dependency checks prove legal direction, not healthy responsibility size.
+end note
+
+note bottom of RulePrivate
+  The important improvement is that modules now have public entrypoints.
+  Cross-package imports through components/hooks/stores/lib/api internals
+  are treated as architectural errors.
+end note
+
+@enduml

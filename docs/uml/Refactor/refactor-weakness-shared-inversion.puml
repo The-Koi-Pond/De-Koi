@@ -1,0 +1,116 @@
+@startuml name "Refactor weakness - shared layer inversion"
+title "Weak spot: shared frontend layer imports feature internals"
+rightfooter Conceptual zoom-in; not a complete import graph
+
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+skinparam component {
+    BackgroundColor<<target>> #E8F5E9
+    BorderColor<<target>> #2E7D32
+    BackgroundColor<<shared>> #E3F2FD
+    BorderColor<<shared>> #1565C0
+    BackgroundColor<<feature>> #FFF8E1
+    BorderColor<<feature>> #F9A825
+    BackgroundColor<<problem>> #FFEBEE
+    BorderColor<<problem>> #C62828
+    BackgroundColor<<fix>> #F1F8E9
+    BorderColor<<fix>> #558B2F
+}
+
+legend right
+  |= Marker |= Meaning |
+  | <color:#2E7D32>green</color> | Intended shared-layer rule |
+  | <color:#1565C0>blue</color> | Lower shared primitive |
+  | <color:#F9A825>yellow</color> | Feature-owned code |
+  | <color:#C62828>red dashed arrow</color> | Dependency inversion / shared reaches upward |
+  | <color:#558B2F>fix box</color> | Concrete remediation step |
+endlegend
+
+package "Concept target" {
+    component "Feature modules\nown product-specific hooks and UI" as TargetFeatures <<feature>>
+    component "Shared UI/hooks/stores\nfeature-neutral primitives" as TargetShared <<shared>>
+    component "Engine contracts / shared helpers\nmode-neutral domain primitives" as TargetEngineShared <<target>>
+
+    TargetFeatures -[#1565C0]-> TargetShared : allowed
+    TargetFeatures -[#1565C0]-> TargetEngineShared : allowed
+    TargetShared -[#1565C0]-> TargetEngineShared : allowed if generic
+}
+
+package "Actual inversion patterns" {
+    package "src/shared" {
+        component "[folder]\nshared/components/ui" as SharedComponents <<shared>>
+        component "[folder]\nshared/hooks" as SharedHooks <<shared>>
+        component "[folder]\nshared/stores" as SharedStores <<shared>>
+        component "[folder]\nshared/lib" as SharedLib <<shared>>
+    }
+
+    package "src/features" {
+        component "[folder]\nconnections hooks" as ConnectionsHooks <<feature>>
+        component "[folder]\ncharacters hooks" as CharactersHooks <<feature>>
+        component "[folder]\nagents hooks" as AgentHooks <<feature>>
+        component "[folder]\ngallery hooks" as GalleryHooks <<feature>>
+        component "[folder]\nworld-state store" as WorldStateStore <<feature>>
+    }
+
+    component "Feature-specific behavior\nhidden inside shared surface" as HiddenFeatureBehavior <<problem>>
+
+    SharedComponents -[#C62828,dashed]-> ConnectionsHooks : avatar/sprite modals load connections
+    SharedComponents -[#C62828,dashed]-> CharactersHooks : sprite capability hook
+    SharedHooks -[#C62828,dashed]-> AgentHooks : regex scripts hook
+    SharedStores -[#C62828,dashed]-> GalleryHooks : gallery image type
+    SharedStores -[#C62828,dashed]-> WorldStateStore : chat store resets game state
+
+    SharedComponents -[#C62828,dashed]-> HiddenFeatureBehavior
+    SharedHooks -[#C62828,dashed]-> HiddenFeatureBehavior
+    SharedStores -[#C62828,dashed]-> HiddenFeatureBehavior
+}
+
+package "How to fix this weak spot" {
+    component "1. Make shared UI presentational\nData comes from props, not feature hooks" as FixPresentational <<fix>>
+    component "2. Move feature-aware hooks back to owners\nregex scripts -> agents/generation\nsprite capability -> characters/visuals\nconnections lookup -> caller" as FixHooks <<fix>>
+    component "3. Promote neutral types/contracts downward\nChatImage, sprite capability DTOs,\nregex placement types -> shared/types or engine/contracts" as FixTypes <<fix>>
+    component "4. Decouple shared stores\nShared store may reset local UI state,\nbut should not import feature stores" as FixStores <<fix>>
+    component "Definition of done\nStatic import rule passes:\nsrc/shared has no imports from src/features.\nReusable shared modules accept injected data/callbacks." as DoneShared <<fix>>
+
+    FixPresentational --> FixHooks
+    FixHooks --> FixTypes
+    FixTypes --> FixStores
+    FixStores --> DoneShared
+}
+
+note right of SharedComponents
+  A shared component can be reusable while still being too high-level.
+  If it fetches connections or character sprite capabilities itself,
+  it is no longer a neutral UI primitive.
+end note
+
+note bottom of FixPresentational
+  Example target:
+  AvatarGenerationModal receives connections/options as props
+  or a feature-owned container wraps a shared presentational modal.
+end note
+
+note bottom of FixHooks
+  A hook that fetches agent, character, gallery, or connection data
+  is feature-owned even if the resulting UI is reusable.
+end note
+
+note bottom of DoneShared
+  This turns shared back into a lower layer.
+  Features can depend on shared; shared cannot depend on features.
+end note
+
+note right of SharedStores
+  Shared stores are especially risky because many features import them.
+  When a shared store imports a feature store, the dependency direction flips.
+end note
+
+note bottom of HiddenFeatureBehavior
+  Failure as an implementation of the sketch:
+  shared primitives become hidden feature modules,
+  so modules are no longer replaceable or independently owned.
+end note
+
+@enduml

@@ -15,6 +15,7 @@ Read these references only when needed:
 
 - `references/repo-layout.md` for the current architecture map and owner paths.
 - `references/dependency-boundaries.md` for import direction and placement decisions.
+- `docs/uml/Refactor` for PlantUML architecture diagrams about refactor-era boundaries, current hotspots, and architecture decision context.
 
 Also keep the root `AGENTS.md` in force.
 

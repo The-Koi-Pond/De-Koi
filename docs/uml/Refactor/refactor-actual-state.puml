@@ -1,0 +1,227 @@
+@startuml name "De-Koi refactor actual state"
+title "De-Koi refactor - current actual state after boundary cleanup"
+rightfooter Current snapshot of De-Koi refactor-era architecture; conceptual, not a complete import graph
+
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+skinparam component {
+    BackgroundColor<<healthy>> #E8F5E9
+    BorderColor<<healthy>> #2E7D32
+    BackgroundColor<<adapter>> #E3F2FD
+    BorderColor<<adapter>> #1565C0
+    BackgroundColor<<rust>> #EDE7F6
+    BorderColor<<rust>> #5E35B1
+    BackgroundColor<<mixed>> #FFF8E1
+    BorderColor<<mixed>> #F9A825
+    BackgroundColor<<pressure>> #FFEBEE
+    BorderColor<<pressure>> #C62828
+    BackgroundColor<<guard>> #F1F8E9
+    BorderColor<<guard>> #558B2F
+}
+
+skinparam note {
+    BackgroundColor #FFFDE7
+    BorderColor #9E9D24
+}
+
+legend right
+  |= Marker |= Meaning |
+  | <color:#2E7D32>green</color> | Healthy/enforced modular boundary |
+  | <color:#1565C0>blue</color> | Shared adapter or intended cross-layer dependency |
+  | <color:#5E35B1>purple</color> | Rust capability crate |
+  | <color:#F9A825>yellow</color> | Transitional or broad coordinator |
+  | <color:#C62828>red</color> | Remaining architecture pressure point |
+  | <color:#558B2F>guard</color> | Automated rule or CI check |
+  | <color:#1565C0>blue arrow</color> | Allowed package-crossing dependency |
+  | <color:#777777>gray arrow</color> | Local/same-layer dependency |
+  | <color:#C62828>red dashed arrow</color> | Not a boundary violation; shows remaining responsibility concentration |
+endlegend
+
+package "React application and feature layer" {
+    component "[folder]\nsrc/app\nApp shell and providers" as AppShell <<healthy>>
+
+    package "src/features/shell" {
+        component "[folder]\nSettings, imports, onboarding,\nProfessor Mari, integrations" as ShellFeatures <<healthy>>
+    }
+
+    package "src/features/modes" {
+        component "[file]\nrouter/components/ModeSurface.tsx\n2211 lines\nmode router plus shared conversation orchestration" as ModeSurface <<mixed>>
+        component "[folder]\nconversation\nconversation-owned surface" as ConversationUI <<healthy>>
+        component "[folder]\nroleplay\nscene and encounter surface" as RoleplayUI <<healthy>>
+        component "[file]\ngame/components/GameSurface.tsx\n8707 lines\ngame UI orchestration hotspot" as GameSurface <<pressure>>
+        component "[folder]\nshared/chat-ui\nshared transcript primitives" as SharedModeUI <<mixed>>
+    }
+
+    package "src/features/runtime" {
+        component "[folder]\ngeneration\nfrontend generation hooks" as RuntimeGeneration <<healthy>>
+        component "[folder]\nworld-state\ntracker store and API facade" as WorldState <<healthy>>
+        component "[folder]\nvisuals\nsprites, backgrounds, weather" as Visuals <<healthy>>
+        component "[folder]\nhaptics" as Haptics <<healthy>>
+    }
+
+    package "src/features/catalog" {
+        component "[group]\nchats, characters, personas,\nlorebooks, presets, connections,\nagents, gallery, knowledge" as Catalog <<healthy>>
+    }
+
+    package "src/shared" {
+        component "[folder]\ncomponents/hooks/lib/stores\nfeature-neutral frontend primitives" as SharedFrontend <<healthy>>
+        component "[folder]\napi\ntyped Tauri adapters" as SharedApi <<adapter>>
+    }
+}
+
+package "TypeScript product engine" {
+    component "[folder]\nsrc/engine/contracts\nDTOs, schemas, constants" as Contracts <<healthy>>
+    component "[folder]\nsrc/engine/capabilities\nStorage, LLM, assets, integrations ports" as Ports <<healthy>>
+    component "[folder]\nsrc/engine/generation-core\nprompt, lorebook, regex, context assembly" as GenerationCore <<healthy>>
+    component "[folder]\nsrc/engine/generation\nuse cases and orchestration" as EngineGeneration <<healthy>>
+    component "[folder]\nsrc/engine/agents-runtime\nagent execution pipeline" as AgentRuntime <<healthy>>
+    component "[folder]\nsrc/engine/modes/chat" as ChatEngine <<healthy>>
+    component "[folder]\nsrc/engine/modes/roleplay" as RoleplayEngine <<healthy>>
+    component "[folder]\nsrc/engine/modes/game" as GameEngine <<healthy>>
+}
+
+package "Tauri and Rust capability layer" {
+    component "[file]\nsrc-tauri/src/lib.rs\ncentral generate_handler! list" as CommandRegistry <<mixed>>
+
+    package "src-tauri/src/commands" {
+        component "[group]\ncommand facades\nthin Tauri command entrypoints" as Commands <<mixed>>
+        component "[folder]\nstorage/imports\nsplit import service modules" as ImportModules <<mixed>>
+    }
+
+    package "src-tauri/crates" {
+        component "[crate]\ncore" as RustCore <<rust>>
+        component "[crate]\nstorage" as RustStorage <<rust>>
+        component "[crate]\nassets" as RustAssets <<rust>>
+        component "[crate]\nllm" as RustLlm <<rust>>
+        component "[crate]\nintegrations" as RustIntegrations <<rust>>
+        component "[crate]\nsecurity" as RustSecurity <<rust>>
+    }
+}
+
+package "Enforcement now present" {
+    component "[file]\n.dependency-cruiser.cjs\nlayer and package-boundary rules" as DepCruise <<guard>>
+    component "[file]\neslint.config.js\nrestricted imports for shared, engine, modes" as Eslint <<guard>>
+    component "[file]\nscripts/check-rust-structure.mjs\nthin import facade guard" as RustStructure <<guard>>
+    component "[file]\n.github/workflows/ci.yml\nruns architecture, lint, typecheck,\ntests, build, Rust checks" as CI <<guard>>
+}
+
+' Intended top-level dependency direction
+AppShell -[#1565C0]-> ShellFeatures
+AppShell -[#1565C0]-> ModeSurface
+AppShell -[#1565C0]-> SharedFrontend
+
+ShellFeatures -[#1565C0]-> ModeSurface
+ShellFeatures -[#1565C0]-> RuntimeGeneration
+ShellFeatures -[#1565C0]-> Catalog
+ShellFeatures -[#1565C0]-> SharedApi
+
+ModeSurface -[#1565C0]-> ConversationUI
+ModeSurface -[#1565C0]-> RoleplayUI
+ModeSurface -[#1565C0]-> GameSurface
+ModeSurface -[#1565C0]-> SharedModeUI
+ModeSurface -[#1565C0]-> RuntimeGeneration
+ModeSurface -[#1565C0]-> WorldState
+ModeSurface -[#1565C0]-> Visuals
+ModeSurface -[#1565C0]-> Catalog
+ModeSurface -[#1565C0]-> SharedFrontend
+
+ConversationUI -[#1565C0]-> ChatEngine
+RoleplayUI -[#1565C0]-> RoleplayEngine
+GameSurface -[#1565C0]-> GameEngine
+
+ConversationUI -[#1565C0]-> SharedModeUI
+RoleplayUI -[#1565C0]-> SharedModeUI
+GameSurface -[#1565C0]-> SharedModeUI
+
+ConversationUI -[#1565C0]-> RuntimeGeneration
+RoleplayUI -[#1565C0]-> WorldState
+GameSurface -[#1565C0]-> WorldState
+GameSurface -[#1565C0]-> Visuals
+
+RuntimeGeneration -[#1565C0]-> EngineGeneration
+RuntimeGeneration -[#1565C0]-> SharedApi
+WorldState -[#1565C0]-> SharedApi
+Visuals -[#1565C0]-> SharedApi
+Catalog -[#1565C0]-> SharedApi
+
+EngineGeneration --> GenerationCore
+EngineGeneration --> AgentRuntime
+EngineGeneration --> Ports
+ChatEngine --> EngineGeneration
+RoleplayEngine --> EngineGeneration
+GameEngine --> EngineGeneration
+ChatEngine --> Contracts
+RoleplayEngine --> Contracts
+GameEngine --> Contracts
+GenerationCore --> Contracts
+Ports --> Contracts
+
+SharedApi -[#1565C0,dotted]-> Ports : implements capability ports
+SharedApi -[#1565C0]-> CommandRegistry : invoke/listen boundary
+CommandRegistry --> Commands
+Commands --> ImportModules
+Commands --> RustStorage
+Commands --> RustAssets
+Commands --> RustLlm
+Commands --> RustIntegrations
+Commands --> RustSecurity
+ImportModules --> RustStorage
+ImportModules --> RustAssets
+ImportModules --> RustSecurity
+RustStorage --> RustCore
+RustAssets --> RustCore
+RustLlm --> RustCore
+RustIntegrations --> RustCore
+
+' Guardrails apply to source graph, not runtime calls
+DepCruise .[#558B2F].> SharedFrontend : forbids shared -> features/app
+DepCruise .[#558B2F].> Ports : forbids engine -> React/Zustand/Tauri adapters
+DepCruise .[#558B2F].> ModeSurface : forbids mode cross-imports and private feature internals
+Eslint .[#558B2F].> SharedFrontend
+Eslint .[#558B2F].> ChatEngine
+RustStructure .[#558B2F].> ImportModules
+CI .[#558B2F].> DepCruise
+CI .[#558B2F].> Eslint
+CI .[#558B2F].> RustStructure
+
+' Remaining pressure is responsibility concentration, not currently failed dependency rules
+ModeSurface -[#C62828,dashed]-> ModeSurface : router also owns chat loading,\ngeneration flow, sprite metadata,\nTTS/translation, agent review,\nworld-state refresh
+GameSurface -[#C62828,dashed]-> GameSurface : UI, state sync, game effects,\nassets, audio, Spotify, sprites,\nNPC avatars, narration progress,\nmetadata persistence
+SharedModeUI -[#C62828,dashed]-> SharedModeUI : some shared mode UI files are large,\nnot boundary violations
+CommandRegistry -[#F9A825,dashed]-> CommandRegistry : centralized command list remains broad
+ImportModules -[#F9A825,dashed]-> ImportModules : import workflows are split,\nbut bulk/marinara modules are still dense
+
+note top of DepCruise
+  Current validation result:
+  pnpm.cmd check passed.
+  dependency-cruiser reported zero dependency violations
+  across 568 modules and 2019 dependencies.
+end note
+
+note right of ModeSurface
+  This is no longer mainly a package-boundary problem.
+  The problem is density: one React file still coordinates
+  several feature concerns that could have mode-owned controllers.
+end note
+
+note right of GameSurface
+  This is the largest remaining mismatch with the original sketch.
+  The engine and package boundaries are modular,
+  but the game UI surface is still a very large orchestrator.
+end note
+
+note bottom of SharedFrontend
+  The previous shared-layer inversion appears addressed:
+  src/shared is guarded from importing src/features or src/app.
+end note
+
+note bottom of ImportModules
+  The previous Rust import blob is substantially improved:
+  commands are thin and imports are split into service,
+  normalization, payloads, Marinara, preset, timestamps,
+  access, and bulk import modules.
+end note
+
+@enduml

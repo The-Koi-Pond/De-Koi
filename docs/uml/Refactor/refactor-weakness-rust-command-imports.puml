@@ -1,0 +1,138 @@
+@startuml name "Refactor weakness - Rust command and import concentration"
+title "Weak spot: Rust command facade and import normalization concentration"
+rightfooter Conceptual zoom-in; Rust layer is modular, but some facades are still too broad
+
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+skinparam component {
+    BackgroundColor<<target>> #E8F5E9
+    BorderColor<<target>> #2E7D32
+    BackgroundColor<<crate>> #EDE7F6
+    BorderColor<<crate>> #5E35B1
+    BackgroundColor<<facade>> #FFF8E1
+    BorderColor<<facade>> #F9A825
+    BackgroundColor<<problem>> #FFEBEE
+    BorderColor<<problem>> #C62828
+    BackgroundColor<<fix>> #F1F8E9
+    BorderColor<<fix>> #558B2F
+}
+
+legend right
+  |= Marker |= Meaning |
+  | <color:#2E7D32>green</color> | Intended command/capability split |
+  | <color:#5E35B1>purple</color> | Rust capability crate |
+  | <color:#F9A825>yellow</color> | Command facade / mixed transitional area |
+  | <color:#C62828>red</color> | Responsibility concentration |
+  | <color:#C62828>red dashed arrow</color> | Facade owns logic that should move behind service boundary |
+  | <color:#558B2F>fix box</color> | Concrete remediation step |
+endlegend
+
+package "Concept target" {
+    component "Tauri command registry\nthin command list or module registration" as TargetRegistry <<target>>
+    component "Thin import command" as TargetImportCommand <<target>>
+    component "Import service" as TargetImportService <<target>>
+    component "Normalization / sanitization service" as TargetSanitizer <<target>>
+    component "Storage service" as TargetStorage <<target>>
+    component "Asset service" as TargetAssets <<target>>
+
+    TargetRegistry -[#1565C0]-> TargetImportCommand
+    TargetImportCommand -[#1565C0]-> TargetImportService
+    TargetImportService -[#1565C0]-> TargetSanitizer
+    TargetImportService -[#1565C0]-> TargetStorage
+    TargetImportService -[#1565C0]-> TargetAssets
+}
+
+package "Actual weak spot in refactor" {
+    component "[file]\nsrc-tauri/src/lib.rs\ncentral generate_handler!" as CommandRegistry <<facade>>
+
+    package "src-tauri/src/commands/storage" {
+        component "[file]\nimports.rs\nroutes, folder tokens,\nnormalizers, import writers" as ImportsRs <<problem>>
+        component "[file]\nimports/bulk_imports.rs\nscan + run + progress" as BulkImports <<facade>>
+        component "[file]\nshared.rs\nstorage normalization helpers" as StorageShared <<facade>>
+        component "[group]\nprofile/assets legacy normalizers" as ProfileAssets <<facade>>
+        component "[group]\nmedia/image/provider commands" as MediaCommands <<facade>>
+    }
+
+    package "src-tauri/crates" {
+        component "[crate]\nstorage\nFileStorage" as RustStorage <<crate>>
+        component "[crate]\nassets\nAssetService" as RustAssets <<crate>>
+        component "[crate]\nsecurity\npath/name validation" as RustSecurity <<crate>>
+        component "[crate]\nllm\nprovider transport" as RustLlm <<crate>>
+        component "[crate]\nintegrations" as RustIntegrations <<crate>>
+    }
+
+    CommandRegistry -[#F9A825,dashed]-> CommandRegistry : every command registered in one list
+
+    CommandRegistry --> ImportsRs
+    CommandRegistry --> MediaCommands
+
+    ImportsRs -[#C62828,dashed]-> ImportsRs : import routing + parsing + normalization\n+ persistence in one facade
+    ImportsRs --> BulkImports
+    ImportsRs --> StorageShared
+    ImportsRs --> RustStorage
+    ImportsRs --> RustAssets
+    ImportsRs --> RustSecurity
+
+    BulkImports -[#C62828,dashed]-> ImportsRs : calls shared import helpers\nfrom broad parent module
+    StorageShared --> RustStorage
+    ProfileAssets --> RustAssets
+    ProfileAssets --> RustSecurity
+    MediaCommands --> RustAssets
+    MediaCommands --> RustLlm
+    MediaCommands --> RustIntegrations
+}
+
+package "How to fix this weak spot" {
+    component "1. Introduce focused import service\nImportService owns import workflows,\nnot the Tauri command file" as FixImportService <<fix>>
+    component "2. Extract normalizers/sanitizers\nST character, lorebook, preset,\nMarinara envelope, profile assets" as FixNormalizers <<fix>>
+    component "3. Keep commands thin\nparse request, validate command-level input,\ncall service, return DTO/event" as FixThinCommands <<fix>>
+    component "4. Move service tests next to service\nnormalization, path safety,\nlegacy compatibility, id remapping" as FixTests <<fix>>
+    component "5. Optional: command module registration\nEach command group exposes register_handlers()\nor a generated handler list per module" as FixRegistration <<fix>>
+    component "Definition of done\nimports.rs no longer owns normalization + persistence.\nBulk import calls ImportService.\nCommand registry is mechanical, not architectural glue." as DoneRust <<fix>>
+
+    FixImportService --> FixNormalizers
+    FixNormalizers --> FixThinCommands
+    FixThinCommands --> FixTests
+    FixTests --> FixRegistration
+    FixRegistration --> DoneRust
+}
+
+note right of ImportsRs
+  This is the Rust analogue of a too-large module.
+  It handles route dispatch, import payload parsing,
+  SillyTavern normalization, Marinara envelope import,
+  folder authorization tokens, image restore, and storage writes.
+end note
+
+note bottom of FixImportService
+  The service can live in src-tauri/src first.
+  It does not have to become a crate immediately.
+  Promote it to a crate only when it has a stable public boundary.
+end note
+
+note bottom of FixNormalizers
+  The original sketch's SanitizationModule maps here.
+  It should be callable by single import, bulk import,
+  profile import, and future import paths without duplicating rules.
+end note
+
+note bottom of FixThinCommands
+  Thin command rule:
+  no domain parsing loops, no large normalization functions,
+  no multi-entity write workflow directly in command handlers.
+end note
+
+note bottom of RustStorage
+  The crate split itself is healthy.
+  The weak point is that some command facades still contain
+  capability-level behavior instead of delegating to focused services.
+end note
+
+note bottom of CommandRegistry
+  Monolithic command registration is not fatal,
+  but it makes the host less module-owned than the original sketch implied.
+end note
+
+@enduml

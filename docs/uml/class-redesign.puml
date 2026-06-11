@@ -1,0 +1,90 @@
+@startuml name "De-Koi architecture refactor"
+title "De-Koi architecture refactor concept"
+rightfooter Development version; not final
+
+skinparam linetype ortho
+
+'package "Core" #DDDDDD {
+'  Object <|-- ArrayList
+'
+'}
+
+class Core {
+    + BaseFeature1
+    + BaseFeature2
+    + BaseFeature3
+    # ModuleList : IModule[]
+
+    + BaseFunction1()
+    + BaseFunction2()
+}
+
+interface IModule
+{
+    + CommonFunction1()
+    + CommonFunction2()
+}
+
+interface ITextGenModule
+{
+    + Generate(prompt : string)
+    + SendMessage(message : string)
+}
+
+interface IChatModule
+{
+    + CommonChatFunction1()
+    + CommonChatFunction2()
+}
+
+class ConvoModule
+{
+    + ConvoFunction1()
+    + ConvoFunction2()
+}
+
+class RoleplayModule
+{
+    + RpFunction1()
+    + RpFunction2()
+}
+
+class GameModeModule
+{
+    + GmFunction1()
+    + GmFunction2()
+}
+
+class DataImportModule
+{
+    - sanitizer : SanitizationModule
+}
+
+class SanitizationModule
+{
+    + Sanitize()
+}
+
+class SummarizationModule
+{
+    + Summarize()
+}
+
+class ProfessorMari
+{
+
+}
+
+IModule -up-* Core
+IChatModule <.. ConvoModule
+IChatModule <.. RoleplayModule
+IChatModule <.. GameModeModule
+IModule <.. DataImportModule
+IModule <.. SanitizationModule
+IModule <-- ITextGenModule
+IModule <.. SummarizationModule
+ITextGenModule <-- IChatModule
+ProfessorMari .up.> ITextGenModule
+SanitizationModule -down-o DataImportModule
+
+@enduml

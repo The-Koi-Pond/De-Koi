@@ -1,0 +1,34 @@
+@startuml
+
+start
+:User sends message;
+->Time passes;
+:Char replies to message;
+repeat
+    :Agent analyses message;
+    :Agent decides when Char
+    will send next message;
+    :App sets wake timer;
+    :App goes into hibernation;
+    ->Time passes;
+    split
+        :User messages be-
+        fore timer expires;
+        :App removes wake timer;
+        ->Time passes;
+        :Char replies to message;
+    split again
+        :Timer expires;
+        if (App in foreground?) is (Yes) then
+            :Char sends new message;
+        else (No)
+            :App wakes up in background;
+            :Char triggers message
+            generate request;
+            ->Message finishes generating;
+            :App sends notification;
+        endif
+    end split
+repeat while (Char still exists?) is (Yes) not (No)
+stop
+@enduml

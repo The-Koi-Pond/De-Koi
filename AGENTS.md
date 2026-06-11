@@ -79,6 +79,7 @@ For code changes, final responses must include behavior changed, primary files/m
 - `src/shared/api`: Embedded Tauri and hostable runtime wrappers. Feature code should call these wrappers instead of raw Tauri or raw remote-runtime fetch.
 - `src-tauri`: Rust command facades, hostable runtime dispatch, storage, LLM/provider transport, assets, imports, integrations, and other privileged capabilities.
 - `src-tauri/src/commands/storage/sidecar.rs`: Rust-owned Local Model sidecar config, curated GGUF/runtime downloader, loopback process management, synthetic `sidecar:local` connection materialization, and sidecar smoke tests.
+- `docs/uml/Refactor`: PlantUML architecture diagrams for current refactor-era boundaries, hotspots, and decision context; consult these for architecture-sensitive changes. The `Refactor` name reflects De-Koi's origin as a Marinara Engine refactor.
 - `public/sprites/mari`: Professor Mari visual assets used by onboarding, FAQ, title controls, and the Mari shell surface.
 - `.github/workflows/bunny-review.yml`, `.github/workflows/bunny-review-auto.yml`, `.github/workflows/bunny-review-command.yml`, `.github/bunny-review`: Bunny Review PR comment automation, trusted auto and slash-command dispatchers, review packet builder, CI dependencies, path rules, and model reviewer prompt.
 - `skills/frontend-design`: Repo-local frontend concept, layout, visual direction, and first-pass UI implementation workflow that pairs with Impeccable.

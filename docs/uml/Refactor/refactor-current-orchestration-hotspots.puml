@@ -1,0 +1,209 @@
+@startuml name "Refactor current orchestration hotspots"
+title "Current weak spot: oversized React orchestration files"
+rightfooter Self-contained refactor brief; density risks, not current dependency-rule failures
+
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+skinparam component {
+    BackgroundColor<<target>> #E8F5E9
+    BorderColor<<target>> #2E7D32
+    BackgroundColor<<owner>> #E3F2FD
+    BorderColor<<owner>> #1565C0
+    BackgroundColor<<hotspot>> #FFEBEE
+    BorderColor<<hotspot>> #C62828
+    BackgroundColor<<dense>> #FFF8E1
+    BorderColor<<dense>> #F9A825
+    BackgroundColor<<fix>> #F1F8E9
+    BorderColor<<fix>> #558B2F
+    BackgroundColor<<guard>> #FFFDE7
+    BorderColor<<guard>> #9E9D24
+}
+
+legend right
+  |= Marker |= Meaning |
+  | <color:#C62828>red</color> | Current orchestration hotspot |
+  | <color:#F9A825>yellow</color> | Dense support file / transitional area |
+  | <color:#1565C0>blue</color> | Natural owner module/controller |
+  | <color:#2E7D32>green</color> | Target responsibility split |
+  | <color:#558B2F>fix box</color> | Ordered solution step |
+  | <color:#9E9D24>guard box</color> | Definition of done / acceptance check |
+  | <color:#C62828>red dashed arrow</color> | Responsibility currently centralized in one file |
+  | <color:#2E7D32>green arrow</color> | Desired delegation/ownership |
+endlegend
+
+package "Current weak points" {
+    component "[file]\nModeSurface.tsx\n2211 lines\nrouter + conversation shell + cross-feature controller" as ModeSurface <<hotspot>>
+    component "[file]\nGameSurface.tsx\n8707 lines\nmain game UI + orchestration + adapters + side effects" as GameSurface <<hotspot>>
+    component "[file]\nChatSettingsDrawer.tsx\n6912 lines\nmany settings sections and feature flows" as ChatSettingsDrawer <<dense>>
+    component "[file]\nGameNarration.tsx\n5343 lines\nrendering + segment playback + callbacks" as GameNarration <<dense>>
+}
+
+package "ModeSurface currently owns" {
+    component "Conversation loading,\npagination, selection,\nmessage CRUD, swipes" as ModeChat <<owner>>
+    component "Generation start/retry\nand guided instruction assembly" as ModeGeneration <<owner>>
+    component "Roleplay encounter/scene hooks" as ModeRoleplay <<owner>>
+    component "World-state refresh\nand tracker patch flushing" as ModeWorldState <<owner>>
+    component "Sprite metadata,\nplacement, expressions,\nbackground persistence" as ModeSprites <<owner>>
+    component "Translation state sync\nand TTS playback" as ModeSpeech <<owner>>
+    component "Agent injection review UI state" as ModeAgents <<owner>>
+}
+
+ModeSurface -[#C62828,dashed]-> ModeChat
+ModeSurface -[#C62828,dashed]-> ModeGeneration
+ModeSurface -[#C62828,dashed]-> ModeRoleplay
+ModeSurface -[#C62828,dashed]-> ModeWorldState
+ModeSurface -[#C62828,dashed]-> ModeSprites
+ModeSurface -[#C62828,dashed]-> ModeSpeech
+ModeSurface -[#C62828,dashed]-> ModeAgents
+
+package "GameSurface currently owns" {
+    component "Game flow\nsetup, session start,\nturn generation, retry,\nmap generation, transitions" as GameFlow <<owner>>
+    component "World-state sync\nload, patch, flush,\ncheckpoints, metadata persistence" as GameWorldState <<owner>>
+    component "Scene assets\nscene analysis,\nimage prompt review,\nbackground/NPC generation,\nasset install" as GameAssets <<owner>>
+    component "Audio and music\nlocal audio manager,\nvolume persistence,\nscene SFX/ambient/music" as GameAudio <<owner>>
+    component "Spotify integration\ncandidate lookup,\ndevice/player handoff,\nscene track dispatch" as GameSpotify <<owner>>
+    component "Sprites and portraits\nsprite queries,\nfull-body pose,\nNPC portrait upload/generate" as GameSprites <<owner>>
+    component "Game systems\ncombat, inventory,\njournal, readables,\nQTEs, maps, widgets" as GameSystems <<owner>>
+    component "Narration control\nsegment progress,\nscene readiness,\nasync prep,\nreadable queue" as GameNarrationControl <<owner>>
+}
+
+GameSurface -[#C62828,dashed]-> GameFlow
+GameSurface -[#C62828,dashed]-> GameWorldState
+GameSurface -[#C62828,dashed]-> GameAssets
+GameSurface -[#C62828,dashed]-> GameAudio
+GameSurface -[#C62828,dashed]-> GameSpotify
+GameSurface -[#C62828,dashed]-> GameSprites
+GameSurface -[#C62828,dashed]-> GameSystems
+GameSurface -[#C62828,dashed]-> GameNarrationControl
+
+package "Target shape: ModeSurface" {
+    component "Small ModeHost\nactive chat + active mode only" as TargetModeHost <<target>>
+    component "ConversationSurface\nowns conversation model" as TargetConversation <<target>>
+    component "RoleplaySurface\nowns scene/encounter model" as TargetRoleplay <<target>>
+    component "GameSurface\ngame owns game model" as TargetGame <<target>>
+    component "useModeShellState\nshell overlays + shared layout props" as TargetModeShell <<target>>
+
+    TargetModeHost -[#2E7D32]-> TargetModeShell
+    TargetModeHost -[#2E7D32]-> TargetConversation
+    TargetModeHost -[#2E7D32]-> TargetRoleplay
+    TargetModeHost -[#2E7D32]-> TargetGame
+}
+
+package "Target owners: ModeSurface split" {
+    component "features/modes/conversation\nuseConversationSurfaceModel" as OwnerConversation <<owner>>
+    component "features/runtime/generation\nuseGenerationController" as OwnerGeneration <<owner>>
+    component "features/modes/roleplay\nuseRoleplaySurfaceModel" as OwnerRoleplay <<owner>>
+    component "features/runtime/world-state\nuseWorldStateRefreshController" as OwnerWorldState <<owner>>
+    component "features/runtime/visuals\nuseChatVisualState" as OwnerVisuals <<owner>>
+    component "shared or runtime/speech\nuseSpeechPlaybackController" as OwnerSpeech <<owner>>
+    component "agents/generation owner\nuseAgentInjectionReview" as OwnerAgents <<owner>>
+
+    TargetConversation -[#2E7D32]-> OwnerConversation
+    TargetConversation -[#2E7D32]-> OwnerGeneration
+    TargetConversation -[#2E7D32]-> OwnerVisuals
+    TargetConversation -[#2E7D32]-> OwnerSpeech
+    TargetConversation -[#2E7D32]-> OwnerAgents
+    TargetRoleplay -[#2E7D32]-> OwnerRoleplay
+    TargetRoleplay -[#2E7D32]-> OwnerWorldState
+    TargetRoleplay -[#2E7D32]-> OwnerVisuals
+}
+
+package "Target shape: GameSurface" {
+    component "GameSurface\ncomposition shell only" as TargetGameSurface <<target>>
+    component "useGameSurfaceModel\naggregates owner controllers" as TargetGameModel <<target>>
+    component "GameLayout\nrenders panels, modals,\nmobile controls, overlays" as TargetGameLayout <<target>>
+
+    TargetGameSurface -[#2E7D32]-> TargetGameModel
+    TargetGameSurface -[#2E7D32]-> TargetGameLayout
+}
+
+package "Target owners: GameSurface split" {
+    component "useGameFlowController\nsetup/start/turn/retry/transition" as FlowController <<owner>>
+    component "useGameWorldStateSync\nload, patch, checkpoint,\nmetadata persistence" as WorldController <<owner>>
+    component "useGameAssetGenerationController\nanalysis, prompt review,\nbackground/NPC generation" as AssetController <<owner>>
+    component "useGameAudioController\nmusic/SFX/ambient,\nvolume and unlock behavior" as AudioController <<owner>>
+    component "useGameSpotifyController\nSpotify candidate/player flow" as SpotifyController <<owner>>
+    component "useGameSpriteController\nsprite queries,\npose and portraits" as SpriteController <<owner>>
+    component "useGameSystemsController\ncombat, inventory,\njournal, QTE, map, widgets" as SystemsController <<owner>>
+    component "useGameNarrationController\nsegment progress,\nscene readiness,\nreadable queue" as NarrationController <<owner>>
+
+    TargetGameModel -[#2E7D32]-> FlowController
+    TargetGameModel -[#2E7D32]-> WorldController
+    TargetGameModel -[#2E7D32]-> AssetController
+    TargetGameModel -[#2E7D32]-> AudioController
+    TargetGameModel -[#2E7D32]-> SpotifyController
+    TargetGameModel -[#2E7D32]-> SpriteController
+    TargetGameModel -[#2E7D32]-> SystemsController
+    TargetGameModel -[#2E7D32]-> NarrationController
+}
+
+package "Target shape: dense support files" {
+    component "ChatSettingsDrawer\ncontainer: open/close,\ntab routing, save/cancel wiring" as TargetSettingsDrawer <<target>>
+    component "Settings sections\nGeneral, Generation,\nVisuals, Speech,\nAgents/Automation" as TargetSettingsSections <<owner>>
+    component "useChatSettingsModel\nmetadata draft + commit" as TargetSettingsModel <<owner>>
+    component "GameNarration\ncontainer: narration frame only" as TargetNarration <<target>>
+    component "Narration submodules\nSegmentList, Segment,\nPlayback hook, Effects hook,\npure parser/format helpers" as TargetNarrationParts <<owner>>
+
+    TargetSettingsDrawer -[#2E7D32]-> TargetSettingsModel
+    TargetSettingsDrawer -[#2E7D32]-> TargetSettingsSections
+    TargetNarration -[#2E7D32]-> TargetNarrationParts
+}
+
+package "Sequence of solution steps" {
+    component "1. Label current regions by owner\ninside each large file.\nNo behavior move yet." as Step1 <<fix>>
+    component "2. Extract read-only models first:\nselectors, metadata parsing,\nderived maps, pure formatting." as Step2 <<fix>>
+    component "3. Extract ModeSurface side effects:\nworld-state refresh,\nsprites/backgrounds,\ntranslation/TTS,\nagent review." as Step3 <<fix>>
+    component "4. Extract GameSurface persistence and side effects:\nworld-state/metadata,\naudio/Spotify,\nasset generation,\nsprites/portraits." as Step4 <<fix>>
+    component "5. Extract flow controllers:\nconversation actions,\nroleplay scene lifecycle,\ngame turn/retry/narration systems." as Step5 <<fix>>
+    component "6. Split dense support files by tab/section\nor narration event boundary.\nMove JSX before changing state." as Step6 <<fix>>
+    component "7. Reduce containers to composition only:\nModeHost, GameSurface,\nChatSettingsDrawer, GameNarration." as Step7 <<fix>>
+    component "8. Add focused tests for extracted pure helpers\nand risky controllers, then run full checks." as Step8 <<fix>>
+}
+
+Step1 --> Step2
+Step2 --> Step3
+Step3 --> Step4
+Step4 --> Step5
+Step5 --> Step6
+Step6 --> Step7
+Step7 --> Step8
+
+package "Definition of done" {
+    component "Mode host imports only mode entrypoints,\nshared shell primitives,\nactive chat selectors,\nand a small shell hook." as DoneMode <<guard>>
+    component "GameSurface imports mostly\nuseGameSurfaceModel,\nGameLayout,\nsmall types, and game components." as DoneGame <<guard>>
+    component "API adapters and side effects live\nin owner controllers,\nnot scattered through large surfaces." as DoneEffects <<guard>>
+    component "Support-file containers change only for\nlayout, section routing, and model wiring." as DoneSupport <<guard>>
+    component "Existing checks stay green:\npnpm check:architecture,\npnpm lint,\npnpm check." as DoneChecks <<guard>>
+}
+
+Step8 --> DoneMode
+Step8 --> DoneGame
+Step8 --> DoneEffects
+Step8 --> DoneSupport
+Step8 --> DoneChecks
+
+note top of ModeSurface
+  This is no longer mainly a package-boundary failure.
+  The imports are legal; the weakness is that one React file
+  still acts as a cross-feature controller.
+end note
+
+note top of GameSurface
+  GameSurface is the largest remaining mismatch with the redesign concept:
+  many independent game capabilities still meet directly in one UI file.
+end note
+
+note bottom of Step2
+  Start with read-only extraction because it is the least risky.
+  It creates names and seams before moving side effects.
+end note
+
+note bottom of Step6
+  Split by reason-to-change, not arbitrary line count:
+  tabs, settings domains, narration events, assets, audio,
+  world-state, sprites, and game flow should be independently reviewable.
+end note
+
+@enduml

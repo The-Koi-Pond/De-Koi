@@ -1,0 +1,166 @@
+@startuml name "Refactor current Rust import state"
+title "Current weak spot: Rust import workflows are split but still dense"
+rightfooter Self-contained refactor brief for remaining Rust import density
+
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+skinparam component {
+    BackgroundColor<<thin>> #E8F5E9
+    BorderColor<<thin>> #2E7D32
+    BackgroundColor<<module>> #E3F2FD
+    BorderColor<<module>> #1565C0
+    BackgroundColor<<crate>> #EDE7F6
+    BorderColor<<crate>> #5E35B1
+    BackgroundColor<<target>> #E8F5E9
+    BorderColor<<target>> #2E7D32
+    BackgroundColor<<dense>> #FFF8E1
+    BorderColor<<dense>> #F9A825
+    BackgroundColor<<risk>> #FFEBEE
+    BorderColor<<risk>> #C62828
+    BackgroundColor<<fix>> #F1F8E9
+    BorderColor<<fix>> #558B2F
+    BackgroundColor<<guard>> #FFFDE7
+    BorderColor<<guard>> #9E9D24
+}
+
+legend right
+  |= Marker |= Meaning |
+  | <color:#2E7D32>green</color> | Thin facade / target delegation |
+  | <color:#1565C0>blue</color> | Focused import module |
+  | <color:#5E35B1>purple</color> | Rust capability crate |
+  | <color:#F9A825>yellow</color> | Dense but acceptable transitional workflow module |
+  | <color:#C62828>red</color> | Remaining concentration risk |
+  | <color:#558B2F>fix box</color> | Ordered solution step |
+  | <color:#9E9D24>guard box</color> | Definition of done / acceptance check |
+endlegend
+
+package "Current healthy improvement" {
+    component "[file]\ncommands/storage/commands/imports.rs\n111 lines\nTauri commands call import_call/import_stream_channel" as CommandWrappers <<thin>>
+    component "[file]\ncommands/storage/imports.rs\nthin module facade\nforwards to service.rs" as ImportsFacade <<thin>>
+    component "[file]\nscripts/check-rust-structure.mjs\nkeeps imports.rs thin and limits service,\nmarinara, normalization size" as RustCheck <<guard>>
+
+    CommandWrappers -[#2E7D32]-> ImportsFacade
+    RustCheck .[#9E9D24].> ImportsFacade
+}
+
+package "Current import modules" {
+    component "[file]\nimports/service.rs\n366 lines\nroute dispatch + ST character/lorebook helpers" as ImportService <<dense>>
+    component "[file]\nimports/payloads.rs\n272 lines\nuploaded file and payload parsing helpers" as Payloads <<module>>
+    component "[file]\nimports/normalization.rs\n397 lines\nST character/lorebook normalization" as Normalization <<module>>
+    component "[file]\nimports/timestamps.rs\n102 lines\ntimestamp override handling" as Timestamps <<module>>
+    component "[file]\nimports/access.rs\n216 lines\nfolder/path access checks" as Access <<module>>
+    component "[file]\nimports/st_preset.rs\n403 lines\nSillyTavern preset import" as StPreset <<module>>
+    component "[file]\nimports/marinara.rs\n686 lines\nMarinara envelope import and asset restore" as MarinaraImport <<dense>>
+    component "[file]\nimports/bulk_imports.rs\n907 lines\nfolder scan, bulk run, progress events,\nchat/persona/background import" as BulkImports <<risk>>
+}
+
+ImportsFacade -[#2E7D32]-> ImportService
+ImportService -[#1565C0]-> Payloads
+ImportService -[#1565C0]-> Normalization
+ImportService -[#1565C0]-> Timestamps
+ImportService -[#1565C0]-> Access
+ImportService -[#1565C0]-> StPreset
+ImportService -[#1565C0]-> MarinaraImport
+ImportService -[#1565C0]-> BulkImports
+
+BulkImports -[#F9A825,dashed]-> Payloads
+BulkImports -[#F9A825,dashed]-> Normalization
+BulkImports -[#F9A825,dashed]-> StPreset
+MarinaraImport -[#F9A825,dashed]-> Normalization
+MarinaraImport -[#F9A825,dashed]-> Payloads
+
+package "Rust capability crates" {
+    component "[crate]\nstorage\nfile-backed collections" as StorageCrate <<crate>>
+    component "[crate]\nassets\nasset files and managed paths" as AssetsCrate <<crate>>
+    component "[crate]\nsecurity\npath/name validation" as SecurityCrate <<crate>>
+    component "[crate]\ncore\nerrors, ids, time" as CoreCrate <<crate>>
+}
+
+ImportService --> StorageCrate
+StPreset --> StorageCrate
+MarinaraImport --> StorageCrate
+BulkImports --> StorageCrate
+MarinaraImport --> AssetsCrate
+BulkImports --> AssetsCrate
+Access --> SecurityCrate
+StorageCrate --> CoreCrate
+AssetsCrate --> CoreCrate
+SecurityCrate --> CoreCrate
+
+package "Target shape" {
+    component "Thin command wrappers\nparse Tauri params,\ncall service,\nreturn DTO/event" as TargetCommands <<thin>>
+    component "ImportRouter\nroute command body to import use case;\nno domain loops" as TargetRouter <<thin>>
+    component "BulkImportService\nscan, plan, run,\nprogress event orchestration" as TargetBulkService <<target>>
+    component "SillyTavernImportService\ncharacter, chat, persona,\npreset, lorebook import use cases" as TargetSTService <<target>>
+    component "MarinaraEnvelopeService\nenvelope dispatch,\nid remap, asset restore coordination" as TargetMarinaraService <<target>>
+    component "ImportNormalizers\npure normalization and repair helpers" as TargetNormalizers <<target>>
+    component "ImportStorageWriter\ncollection writes and id remapping" as TargetWriter <<target>>
+    component "ImportProgressEmitter\nTauri channel/event adapter only" as TargetProgress <<target>>
+
+    TargetCommands -[#2E7D32]-> TargetRouter
+    TargetRouter -[#2E7D32]-> TargetBulkService
+    TargetRouter -[#2E7D32]-> TargetSTService
+    TargetRouter -[#2E7D32]-> TargetMarinaraService
+    TargetBulkService -[#2E7D32]-> TargetSTService
+    TargetBulkService -[#2E7D32]-> TargetProgress
+    TargetSTService -[#2E7D32]-> TargetNormalizers
+    TargetSTService -[#2E7D32]-> TargetWriter
+    TargetMarinaraService -[#2E7D32]-> TargetNormalizers
+    TargetMarinaraService -[#2E7D32]-> TargetWriter
+}
+
+package "Sequence of solution steps" {
+    component "1. Preserve the existing guard:\nkeep imports.rs thin and keep\npnpm check:architecture green." as Step1 <<fix>>
+    component "2. Split bulk_imports.rs by concern:\nscan model, path ids, import plan,\nprogress emitter, per-entity import runners." as Step2 <<fix>>
+    component "3. Extract pure scan/plan functions\nfrom filesystem and storage writes.\nAdd tests for path ids and selected totals." as Step3 <<fix>>
+    component "4. Move persona/chat/background import flows\nbehind focused ST import functions." as Step4 <<fix>>
+    component "5. Split Marinara envelope handling:\nenvelope dispatch, id remap,\nasset restore, collection writers." as Step5 <<fix>>
+    component "6. Keep service.rs as router/coordinator only.\nIf it starts absorbing logic again,\nmove that logic to a named use case." as Step6 <<fix>>
+    component "7. Add or update Rust structure limits\nfor new hotspot files once the split lands." as Step7 <<fix>>
+}
+
+Step1 --> Step2
+Step2 --> Step3
+Step3 --> Step4
+Step4 --> Step5
+Step5 --> Step6
+Step6 --> Step7
+
+package "Definition of done" {
+    component "bulk_imports.rs no longer mixes\nscan, path identity, event emission,\nand per-entity import writes." as DoneBulk <<guard>>
+    component "service.rs routes to use cases;\nit does not contain parsing loops,\nnormalization rules, or storage workflows." as DoneService <<guard>>
+    component "Marinara import logic is split by reason to change:\nenvelope parsing, id remap,\nasset restore, collection writes." as DoneMarinara <<guard>>
+    component "Progress event code is an adapter;\nit does not know import normalization rules." as DoneProgress <<guard>>
+    component "Checks pass:\npnpm check:architecture,\npnpm check,\nplus focused Rust tests for extracted pure logic." as DoneChecks <<guard>>
+}
+
+Step7 --> DoneBulk
+Step7 --> DoneService
+Step7 --> DoneMarinara
+Step7 --> DoneProgress
+Step7 --> DoneChecks
+
+note top of ImportsFacade
+  The previous main Rust pain point was substantially fixed:
+  imports.rs is now a thin facade instead of the import brain.
+end note
+
+note right of BulkImports
+  This is the current Rust weak point.
+  It passes the new guard, but still mixes scanning,
+  path identity, import execution, and progress events.
+end note
+
+note bottom of Step2
+  Start with bulk_imports.rs because it is the densest remaining file
+  and has obvious internal boundaries.
+end note
+
+note bottom of TargetRouter
+  Promotion to a separate crate is optional.
+  First make the local modules stable, focused, and testable.
+end note
+
+@enduml
