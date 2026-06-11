@@ -92,6 +92,32 @@ impl Drop for BackgroundRemoverWorkDir {
     }
 }
 
+struct BackgroundRemoverCaptureDir {
+    path: PathBuf,
+}
+
+impl BackgroundRemoverCaptureDir {
+    fn create() -> std::io::Result<Self> {
+        let path = env::temp_dir().join(format!(
+            "marinara-bgrem-output-{}-{}",
+            now_millis(),
+            new_id()
+        ));
+        fs::create_dir_all(&path)?;
+        Ok(Self { path })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for BackgroundRemoverCaptureDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum SpriteOwnerKind {
     Character,
@@ -2349,14 +2375,9 @@ fn cleanup_engine_status(state: &AppState) -> Value {
 fn backgroundremover_process_output(
     mut process: Command,
 ) -> std::io::Result<BackgroundRemoverProcessOutput> {
-    let capture_dir = env::temp_dir().join(format!(
-        "marinara-bgrem-output-{}-{}",
-        now_millis(),
-        new_id()
-    ));
-    fs::create_dir_all(&capture_dir)?;
-    let stdout_path = capture_dir.join("stdout.log");
-    let stderr_path = capture_dir.join("stderr.log");
+    let capture_dir = BackgroundRemoverCaptureDir::create()?;
+    let stdout_path = capture_dir.path().join("stdout.log");
+    let stderr_path = capture_dir.path().join("stderr.log");
     process.stdout(Stdio::from(fs::File::create(&stdout_path)?));
     process.stderr(Stdio::from(fs::File::create(&stderr_path)?));
     configure_backgroundremover_process_tree(&mut process);
@@ -2364,25 +2385,32 @@ fn backgroundremover_process_output(
     let started = Instant::now();
     let mut child = match process.spawn() {
         Ok(child) => child,
-        Err(error) => {
-            let _ = fs::remove_dir_all(&capture_dir);
-            return Err(error);
-        }
+        Err(error) => return Err(error),
     };
     loop {
-        if let Some(status) = child.try_wait()? {
+        let status = match child.try_wait() {
+            Ok(status) => status,
+            Err(error) => {
+                kill_backgroundremover_process_tree(&mut child);
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
+        if let Some(status) = status {
+            #[cfg(test)]
+            if env_bool("BACKGROUNDREMOVER_TEST_DELETE_CAPTURE_STDOUT_BEFORE_READ") {
+                let _ = fs::remove_file(&stdout_path);
+            }
             let output = Output {
                 status,
                 stdout: fs::read(&stdout_path)?,
                 stderr: fs::read(&stderr_path)?,
             };
-            let _ = fs::remove_dir_all(&capture_dir);
             return Ok(BackgroundRemoverProcessOutput::Completed(output));
         }
         if started.elapsed() >= timeout {
             kill_backgroundremover_process_tree(&mut child);
             let _ = child.wait();
-            let _ = fs::remove_dir_all(&capture_dir);
             return Ok(BackgroundRemoverProcessOutput::TimedOut);
         }
         let remaining = timeout.saturating_sub(started.elapsed());
@@ -3624,6 +3652,83 @@ mod background_remover_runtime_tests {
         } else {
             env::remove_var("BACKGROUNDREMOVER_TIMEOUT_MS");
         }
+    }
+
+    #[test]
+    fn backgroundremover_output_read_failure_cleans_capture_dir() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let old_delete_capture =
+            env::var_os("BACKGROUNDREMOVER_TEST_DELETE_CAPTURE_STDOUT_BEFORE_READ");
+        let old_tmp = env::var_os("TMP");
+        let old_temp = env::var_os("TEMP");
+        let old_tmpdir = env::var_os("TMPDIR");
+
+        let root = temp_path("capture-read-failure-cleanup");
+        let temp_root = root.join("tmp");
+        fs::create_dir_all(&temp_root).expect("temp root should exist");
+        env::set_var(
+            "BACKGROUNDREMOVER_TEST_DELETE_CAPTURE_STDOUT_BEFORE_READ",
+            "1",
+        );
+        env::set_var("TMP", &temp_root);
+        env::set_var("TEMP", &temp_root);
+        env::set_var("TMPDIR", &temp_root);
+
+        let command = if cfg!(windows) {
+            let mut command = Command::new("powershell");
+            command.args(["-NoProfile", "-Command", "Write-Output done"]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", "printf done"]);
+            command
+        };
+
+        let error = match backgroundremover_process_output(command) {
+            Ok(_) => panic!("forced capture read failure should return an error"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        let leaked_capture_dirs = fs::read_dir(&temp_root)
+            .expect("temp root should be readable")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("marinara-bgrem-output-")
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            leaked_capture_dirs.is_empty(),
+            "post-spawn output read failure should not leak capture dirs"
+        );
+
+        if let Some(value) = old_delete_capture {
+            env::set_var(
+                "BACKGROUNDREMOVER_TEST_DELETE_CAPTURE_STDOUT_BEFORE_READ",
+                value,
+            );
+        } else {
+            env::remove_var("BACKGROUNDREMOVER_TEST_DELETE_CAPTURE_STDOUT_BEFORE_READ");
+        }
+        if let Some(value) = old_tmp {
+            env::set_var("TMP", value);
+        } else {
+            env::remove_var("TMP");
+        }
+        if let Some(value) = old_temp {
+            env::set_var("TEMP", value);
+        } else {
+            env::remove_var("TEMP");
+        }
+        if let Some(value) = old_tmpdir {
+            env::set_var("TMPDIR", value);
+        } else {
+            env::remove_var("TMPDIR");
+        }
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
