@@ -13,6 +13,8 @@ export type CharacterImportRow = Record<string, unknown> & {
   data?: unknown;
   comment?: string;
   avatarPath?: string | null;
+  avatarFilePath?: string | null;
+  avatarFilename?: string | null;
 };
 
 type CharacterImportUpdatePatch = {
@@ -20,6 +22,8 @@ type CharacterImportUpdatePatch = {
   data: Record<string, unknown>;
   comment: string;
   avatarPath?: string;
+  avatarFilePath?: string | null;
+  avatarFilename?: string | null;
   versionSource: "import";
   versionReason: string;
   skipVersionSnapshot: true;
@@ -30,6 +34,8 @@ type CharacterImportVersionSnapshot = {
   data: Record<string, unknown>;
   comment: string;
   avatarPath: string | null;
+  avatarFilePath: string | null;
+  avatarFilename: string | null;
   version: string;
   source: "import";
   reason: string;
@@ -119,9 +125,7 @@ export function buildCharacterImportUpdatePlan(
     imported && typeof imported === "object" && !Array.isArray(imported) ? (imported as CharacterImportRow) : null;
   const importedData = characterImportData(importedRow);
   if (Object.keys(importedData).length === 0) throw new Error("Imported character record did not include card data.");
-  const missingRequiredFields = ["name", "description"].filter(
-    (field) => typeof importedData[field] !== "string",
-  );
+  const missingRequiredFields = ["name", "description"].filter((field) => typeof importedData[field] !== "string");
   if (missingRequiredFields.length > 0) {
     const displayName = readCharacterImportString(importedRow?.name) || importedName || "imported character";
     throw new Error(
@@ -140,7 +144,13 @@ export function buildCharacterImportUpdatePlan(
   };
 
   const importedAvatarPath = readCharacterImportString(importedRow?.avatarPath);
-  if (importedAvatarPath.trim()) patch.avatarPath = importedAvatarPath;
+  if (importedAvatarPath.trim()) {
+    const importedAvatarFilePath = readCharacterImportString(importedRow?.avatarFilePath);
+    const importedAvatarFilename = readCharacterImportString(importedRow?.avatarFilename);
+    patch.avatarPath = importedAvatarPath;
+    patch.avatarFilePath = importedAvatarFilePath.trim() ? importedAvatarFilePath : null;
+    patch.avatarFilename = importedAvatarFilename.trim() ? importedAvatarFilename : null;
+  }
 
   return {
     patch,
@@ -149,6 +159,8 @@ export function buildCharacterImportUpdatePlan(
       data: targetData,
       comment: readCharacterImportString(target?.comment),
       avatarPath: target?.avatarPath ?? null,
+      avatarFilePath: target?.avatarFilePath ?? null,
+      avatarFilename: target?.avatarFilename ?? null,
       version: readCharacterImportString(targetData.character_version, "current"),
       source: "import",
       reason: `Before in-place import from ${importedName}`,
