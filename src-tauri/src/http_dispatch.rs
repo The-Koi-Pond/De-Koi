@@ -617,6 +617,7 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                 state,
                 required_string(&args, "chatId")?,
                 optional_value(&args, "body"),
+                optional_bool(&args, "replace"),
             )
             .await
         }
@@ -1576,6 +1577,81 @@ mod tests {
 
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("limit"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_chat_memories_import_uses_explicit_replace_arg() {
+        let state = test_state("chat-memories-import-explicit-replace");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": [
+                        {
+                            "id": "existing",
+                            "chatId": "chat-1",
+                            "content": "replace me",
+                            "messageCount": 5,
+                            "firstMessageAt": "2026-06-01T10:00:00.000Z",
+                            "lastMessageAt": "2026-06-01T10:04:00.000Z",
+                            "createdAt": "2026-06-01T10:05:00.000Z"
+                        }
+                    ]
+                }),
+            )
+            .expect("chat should be created");
+
+        let result = dispatch(
+            &state,
+            InvokeRequest {
+                command: "chat_memories_import".to_string(),
+                args: Some(json!({
+                    "chatId": "chat-1",
+                    "replace": true,
+                    "body": {
+                        "type": "marinara_memory_recall",
+                        "version": 1,
+                        "data": {
+                            "sourceChat": {
+                                "id": "chat-1",
+                                "name": "Memory chat",
+                                "mode": "conversation",
+                                "memoryCount": 1
+                            },
+                            "chunks": [
+                                {
+                                    "content": "replacement memory",
+                                    "embedding": null,
+                                    "messageCount": 1,
+                                    "firstMessageAt": "2026-06-02T10:00:00.000Z",
+                                    "lastMessageAt": "2026-06-02T10:01:00.000Z",
+                                    "createdAt": "2026-06-02T10:02:00.000Z"
+                                }
+                            ]
+                        }
+                    }
+                })),
+            },
+        )
+        .await
+        .expect("explicit replace should import");
+
+        assert_eq!(result["imported"], json!(1));
+        assert_eq!(result["skipped"], json!(0));
+        assert_eq!(result["replaced"], json!(true));
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        let memories = chat["memories"]
+            .as_array()
+            .expect("memories should be an array");
+        assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0]["content"], json!("replacement memory"));
     }
 
     #[tokio::test]

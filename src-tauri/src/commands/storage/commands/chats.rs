@@ -59,8 +59,9 @@ pub async fn chat_memories_import(
     state: State<'_, AppState>,
     chat_id: String,
     body: Value,
+    replace: Option<bool>,
 ) -> Result<Value, AppError> {
-    chats::import_chat_memories(&state, &chat_id, body).await
+    chats::import_chat_memories(&state, &chat_id, body, replace).await
 }
 
 #[tauri::command]
