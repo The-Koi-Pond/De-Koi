@@ -339,6 +339,9 @@ pub(crate) fn import_st_character(state: &AppState, body: Value) -> AppResult<Va
 
 fn import_st_character_batch(state: &AppState, body: Value) -> AppResult<Value> {
     let files = decode_uploaded_files(&body, "files")?;
+    if files.is_empty() {
+        return Ok(json!({ "success": false, "error": "No files uploaded", "results": [] }));
+    }
     let mut timestamps_by_name: HashMap<String, Vec<Value>> = HashMap::new();
     if let Some(raw_timestamps) = body.get("fileTimestamps").and_then(Value::as_str) {
         if let Ok(Value::Array(entries)) = serde_json::from_str::<Value>(raw_timestamps) {
@@ -387,11 +390,17 @@ fn import_st_character_batch(state: &AppState, body: Value) -> AppResult<Value> 
                 .push(json!({ "filename": filename, "success": false, "error": error.message })),
         }
     }
-    Ok(json!({ "success": true, "results": results }))
+    let success = results
+        .iter()
+        .any(|result| result.get("success").and_then(Value::as_bool) == Some(true));
+    Ok(json!({ "success": success, "results": results }))
 }
 
 fn inspect_st_character_batch(body: Value) -> AppResult<Value> {
     let files = decode_uploaded_files(&body, "files")?;
+    if files.is_empty() {
+        return Ok(json!({ "success": false, "error": "No files uploaded", "results": [] }));
+    }
     let mut results = Vec::new();
     for file in files {
         let filename = file.name.clone();
@@ -416,7 +425,10 @@ fn inspect_st_character_batch(body: Value) -> AppResult<Value> {
             })),
         }
     }
-    Ok(json!({ "success": true, "results": results }))
+    let success = results
+        .iter()
+        .any(|result| result.get("success").and_then(Value::as_bool) == Some(true));
+    Ok(json!({ "success": success, "results": results }))
 }
 
 pub(crate) fn import_call(state: &AppState, rest: &[&str], body: Value) -> AppResult<Value> {

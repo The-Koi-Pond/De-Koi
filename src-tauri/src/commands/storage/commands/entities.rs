@@ -3374,6 +3374,49 @@ mod tests {
     }
 
     #[test]
+    fn deleting_character_preserves_avatar_still_used_by_another_character() {
+        let state = test_state("character-delete-shared-avatar");
+        let avatar_dir = state.data_dir.join("avatars").join("characters");
+        std::fs::create_dir_all(&avatar_dir).expect("avatar dir should be created");
+        let avatar_path = avatar_dir.join("shared.png");
+        std::fs::write(&avatar_path, b"managed").expect("shared avatar should be written");
+        let avatar_path_string = avatar_path.to_string_lossy().to_string();
+
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "target-character",
+                    "avatarPath": "http://asset.localhost/shared.png",
+                    "avatarFilePath": avatar_path_string,
+                    "avatarFilename": "shared.png"
+                }),
+            )
+            .expect("target character should be created");
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "temporary-import",
+                    "avatarPath": "http://asset.localhost/shared.png",
+                    "avatarFilePath": avatar_path.to_string_lossy().to_string(),
+                    "avatarFilename": "shared.png"
+                }),
+            )
+            .expect("temporary imported character should be created");
+
+        delete_entity(&state, "characters", "temporary-import", false)
+            .expect("temporary character delete should succeed");
+
+        assert!(
+            avatar_path.exists(),
+            "deleting a temporary import must not remove an avatar now owned by the target character"
+        );
+    }
+
+    #[test]
     fn deleting_message_uses_registered_tracker_snapshot_cleanup() {
         assert!(cleanup_registered(
             "messages",

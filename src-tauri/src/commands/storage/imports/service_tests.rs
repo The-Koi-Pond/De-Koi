@@ -250,6 +250,75 @@ fn import_st_character_batch_rejects_wrong_route_lorebook_json() {
 }
 
 #[test]
+fn import_st_character_batch_reports_failure_when_no_files_import() {
+    let app_root = temp_path("batch-no-imports");
+    let state =
+        AppState::from_data_dir(&app_root, Vec::new()).expect("test app state should initialize");
+
+    let empty_result = import_st_character_batch(&state, json!({}))
+        .expect("empty batch import should return a visible failure result");
+    assert_eq!(empty_result.get("success"), Some(&Value::Bool(false)));
+    assert_eq!(empty_result.get("results"), Some(&json!([])));
+    assert_eq!(
+        empty_result.get("error").and_then(Value::as_str),
+        Some("No files uploaded")
+    );
+
+    let failed_result = import_st_character_batch(
+        &state,
+        json!({
+            "files": [
+                uploaded_bytes(
+                    "invalid.json",
+                    "application/json",
+                    b"{ this is not json".to_vec()
+                )
+            ]
+        }),
+    )
+    .expect("all-failed batch import should return per-file failures");
+    assert_eq!(failed_result.get("success"), Some(&Value::Bool(false)));
+    let results = failed_result
+        .get("results")
+        .and_then(Value::as_array)
+        .expect("all-failed batch should include file results");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].get("success"), Some(&Value::Bool(false)));
+
+    let _ = fs::remove_dir_all(app_root);
+}
+
+#[test]
+fn inspect_st_character_batch_reports_failure_when_no_files_are_inspected() {
+    let empty_result = inspect_st_character_batch(json!({}))
+        .expect("empty inspect should return a visible failure result");
+    assert_eq!(empty_result.get("success"), Some(&Value::Bool(false)));
+    assert_eq!(empty_result.get("results"), Some(&json!([])));
+    assert_eq!(
+        empty_result.get("error").and_then(Value::as_str),
+        Some("No files uploaded")
+    );
+
+    let failed_result = inspect_st_character_batch(json!({
+        "files": [
+            uploaded_bytes(
+                "invalid.json",
+                "application/json",
+                b"{ this is not json".to_vec()
+            )
+        ]
+    }))
+    .expect("all-failed inspect should return per-file failures");
+    assert_eq!(failed_result.get("success"), Some(&Value::Bool(false)));
+    let results = failed_result
+        .get("results")
+        .and_then(Value::as_array)
+        .expect("all-failed inspect should include file results");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].get("success"), Some(&Value::Bool(false)));
+}
+
+#[test]
 fn import_st_character_maps_risuai_camel_case_fields() {
     let app_root = temp_path("risuai-camel-case-fields");
     let state =

@@ -178,6 +178,68 @@ pub(crate) fn remove_avatar_file(state: &AppState, collection: &str, record: &Va
     )
 }
 
+pub(crate) fn remove_character_avatar_file_if_unreferenced(state: &AppState, record: &Value) {
+    match character_avatar_referenced_elsewhere(state, record) {
+        Ok(true) => {}
+        Ok(false) => remove_avatar_file(state, "characters", record),
+        Err(error) => log::warn!(
+            "skipping character avatar cleanup because references could not be scanned: {error}"
+        ),
+    }
+}
+
+fn character_avatar_referenced_elsewhere(state: &AppState, record: &Value) -> AppResult<bool> {
+    let Some(path) = record_managed_avatar_canonical_path(state, record)? else {
+        return Ok(false);
+    };
+    let deleted_character_id = record.get("id").and_then(Value::as_str);
+    for character in state.storage.list("characters")? {
+        if deleted_character_id.is_some()
+            && character.get("id").and_then(Value::as_str) == deleted_character_id
+        {
+            continue;
+        }
+        if record_managed_avatar_matches_path(state, &character, &path)? {
+            return Ok(true);
+        }
+    }
+    for version in state.storage.list("character-versions")? {
+        if record_managed_avatar_matches_path(state, &version, &path)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn record_managed_avatar_matches_path(
+    state: &AppState,
+    record: &Value,
+    path: &Path,
+) -> AppResult<bool> {
+    Ok(record_managed_avatar_canonical_path(state, record)?.as_deref() == Some(path))
+}
+
+fn record_managed_avatar_canonical_path(
+    state: &AppState,
+    record: &Value,
+) -> AppResult<Option<PathBuf>> {
+    let Some(path) = managed_record_file_path(
+        state,
+        "avatars/characters",
+        record,
+        "avatarFilePath",
+        "avatarFilename",
+    )?
+    else {
+        return Ok(None);
+    };
+    match fs::canonicalize(path) {
+        Ok(path) => Ok(Some(path)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(AppError::from(error)),
+    }
+}
+
 pub(crate) fn remove_avatar_file_preserving_persona_snapshots(
     state: &AppState,
     collection: &str,
@@ -631,7 +693,10 @@ where
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
         Err(error) => {
-            log::warn!("could not scan {} for NPC avatar cleanup: {error}", dir.display());
+            log::warn!(
+                "could not scan {} for NPC avatar cleanup: {error}",
+                dir.display()
+            );
             return;
         }
     };
@@ -885,7 +950,10 @@ mod tests {
         )
         .expect("unicode NPC name should update");
 
-        assert_eq!(updated.get("name").and_then(Value::as_str), Some("\u{685C}"));
+        assert_eq!(
+            updated.get("name").and_then(Value::as_str),
+            Some("\u{685C}")
+        );
         let avatar_file_path = updated
             .get("avatarFilePath")
             .and_then(Value::as_str)

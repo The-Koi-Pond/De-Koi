@@ -282,6 +282,8 @@ export function useUpdateCharacter() {
       id: string;
       data?: Record<string, unknown>;
       avatarPath?: string;
+      avatarFilePath?: string | null;
+      avatarFilename?: string | null;
       comment?: string;
       versionSource?: string;
       versionReason?: string;

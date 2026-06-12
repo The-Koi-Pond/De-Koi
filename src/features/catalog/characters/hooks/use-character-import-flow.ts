@@ -106,7 +106,7 @@ export function useCharacterImportFlow(open: boolean) {
   const updateImportedCharacterInPlace = async (imported: unknown, importedName: string) => {
     if (!targetCharacterId) throw new Error("Choose a character to update.");
     const target = await storageApi.get<CharacterImportRow>("characters", targetCharacterId, {
-      fields: ["id", "data", "comment", "avatarPath"],
+      fields: ["id", "data", "comment", "avatarPath", "avatarFilePath", "avatarFilename"],
     });
     const plan = buildCharacterImportUpdatePlan(target, imported, importedName);
 

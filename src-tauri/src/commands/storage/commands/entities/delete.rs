@@ -1390,7 +1390,7 @@ pub(super) fn delete_cleanup_needs_existing_record(cleanup: &contracts::DeleteCl
 pub(super) fn remove_owned_media(state: &AppState, entity: &str, record: &Value) {
     match entity {
         "characters" => {
-            avatars::remove_avatar_file(state, entity, record);
+            avatars::remove_character_avatar_file_if_unreferenced(state, record);
             if let Some(id) = record.get("id").and_then(Value::as_str) {
                 sprites::remove_owned_sprite_dir(state, sprites::SpriteOwnerKind::Character, id);
             }
