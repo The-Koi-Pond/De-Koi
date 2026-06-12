@@ -187,14 +187,14 @@ function spotifyIntegrations(searchTracks: IntegrationGateway["spotify"]["search
   };
 }
 
-async function conversationPromptText(commandCapabilities: JsonRecord): Promise<string> {
+async function conversationPromptText(commandCapabilities: JsonRecord, metadata: JsonRecord = {}): Promise<string> {
   const result = await assembleGenerationPrompt(promptStorage(), {
     chat: {
       id: "chat-1",
       mode: "conversation",
       characterIds: ["char-1"],
       metadata: {
-        characterCommands: true,
+        ...metadata,
         commandCapabilities,
       },
     },
@@ -214,6 +214,9 @@ describe("conversation Spotify command prompting", () => {
     await expect(conversationPromptText({ spotifyPlaybackAvailable: true })).resolves.toContain(
       '[spotify: title="Song title", artist="Artist"]',
     );
+    await expect(
+      conversationPromptText({ spotifyPlaybackAvailable: true }, { characterCommands: false }),
+    ).resolves.not.toContain('[spotify: title="Song title", artist="Artist"]');
     await expect(
       conversationPromptText({ spotifyPlaybackAvailable: true, spotify: false }),
     ).resolves.not.toContain('[spotify: title="Song title", artist="Artist"]');

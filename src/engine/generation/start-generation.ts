@@ -219,7 +219,7 @@ function shouldPauseForAgentInjectionReview(
 function conversationCommandPromptEnabled(chat: JsonRecord): boolean {
   const mode = readString(chat.mode || chat.chatMode).trim();
   const meta = parseRecord(chat.metadata);
-  return mode === "conversation" && boolish(meta.characterCommands, false);
+  return mode === "conversation" && boolish(meta.characterCommands, true);
 }
 
 async function spotifyPlaybackAvailableForConversationCommand(integrations: IntegrationGateway): Promise<boolean> {
