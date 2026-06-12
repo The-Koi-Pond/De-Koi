@@ -1211,7 +1211,58 @@ def extract_json(content):
     end = cleaned.rfind("}")
     if start == -1 or end == -1 or end < start:
         raise ValueError("model response did not contain a JSON object")
-    return json.loads(cleaned[start : end + 1])
+    raw_json = cleaned[start : end + 1]
+    try:
+        return json.loads(raw_json)
+    except json.JSONDecodeError as exc:
+        repaired = repair_invalid_json_escapes(raw_json)
+        if repaired == raw_json:
+            raise ValueError(str(exc)) from exc
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError as repaired_exc:
+            raise ValueError(str(repaired_exc)) from repaired_exc
+
+
+def repair_invalid_json_escapes(raw_json):
+    valid_simple_escapes = {'"', "\\", "/", "b", "f", "n", "r", "t"}
+    repaired = []
+    in_string = False
+    index = 0
+    while index < len(raw_json):
+        char = raw_json[index]
+        if not in_string:
+            repaired.append(char)
+            if char == '"':
+                in_string = True
+            index += 1
+            continue
+        if char == '"':
+            repaired.append(char)
+            in_string = False
+            index += 1
+            continue
+        if char != "\\":
+            repaired.append(char)
+            index += 1
+            continue
+        next_char = raw_json[index + 1] if index + 1 < len(raw_json) else ""
+        if next_char in valid_simple_escapes:
+            repaired.append(char + next_char)
+            index += 2
+            continue
+        elif next_char == "u":
+            code = raw_json[index + 2 : index + 6]
+            if len(code) == 4 and all(digit in "0123456789abcdefABCDEF" for digit in code):
+                repaired.append(raw_json[index : index + 6])
+                index += 6
+                continue
+            else:
+                repaired.append("\\\\")
+        else:
+            repaired.append("\\\\")
+        index += 1
+    return "".join(repaired)
 
 
 def build_extra_context(request, stats):
