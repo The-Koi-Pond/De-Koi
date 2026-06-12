@@ -9,7 +9,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Command as StdCommand, Stdio};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
@@ -196,6 +196,19 @@ struct SidecarRuntimeRecord {
 struct SidecarRuntimeInstall {
     record: SidecarRuntimeRecord,
     server_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct GpuRuntimeHints {
+    nvidia: bool,
+    amd: bool,
+    intel: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LlamaStartupPlan {
+    label: &'static str,
+    gpu_layers: i32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -884,12 +897,32 @@ fn find_free_port() -> AppResult<u16> {
     Ok(port)
 }
 
-fn sidecar_args(config: &LocalSidecarConfig, model_path: &str, port: u16) -> Vec<String> {
-    let gpu_layers = if config.gpu_layers == -1 {
-        999
+fn llama_startup_plans(config: &LocalSidecarConfig) -> Vec<LlamaStartupPlan> {
+    if config.gpu_layers == -1 {
+        vec![
+            LlamaStartupPlan {
+                label: "max GPU offload",
+                gpu_layers: 999,
+            },
+            LlamaStartupPlan {
+                label: "CPU fallback",
+                gpu_layers: 0,
+            },
+        ]
     } else {
-        config.gpu_layers
-    };
+        vec![LlamaStartupPlan {
+            label: "configured GPU offload",
+            gpu_layers: config.gpu_layers,
+        }]
+    }
+}
+
+fn sidecar_args(
+    config: &LocalSidecarConfig,
+    model_path: &str,
+    port: u16,
+    plan: &LlamaStartupPlan,
+) -> Vec<String> {
     vec![
         "-m".to_string(),
         model_path.to_string(),
@@ -905,7 +938,7 @@ fn sidecar_args(config: &LocalSidecarConfig, model_path: &str, port: u16) -> Vec
         "--port".to_string(),
         port.to_string(),
         "-ngl".to_string(),
-        gpu_layers.to_string(),
+        plan.gpu_layers.to_string(),
     ]
 }
 
@@ -1466,18 +1499,134 @@ fn cleanup_previous_managed_model(
     Ok(())
 }
 
+fn command_output(command: &str, args: &[&str]) -> Option<String> {
+    let output = StdCommand::new(command).args(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(
+        format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .to_ascii_lowercase(),
+    )
+}
+
+fn lspci_display_controller_lines(output: &str) -> String {
+    output
+        .lines()
+        .filter(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower.contains("vga compatible controller")
+                || lower.contains("3d controller")
+                || lower.contains("display controller")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn current_gpu_runtime_hints() -> GpuRuntimeHints {
+    let mut hints = GpuRuntimeHints::default();
+    let mut probe = String::new();
+    for key in [
+        "CUDA_PATH",
+        "HIP_PATH",
+        "ROCM_PATH",
+        "VULKAN_SDK",
+        "ONEAPI_ROOT",
+    ] {
+        if let Ok(value) = std::env::var(key) {
+            probe.push_str(&value);
+            probe.push('\n');
+        }
+    }
+    for (command, args) in [
+        ("nvidia-smi", &["-L"][..]),
+        ("rocminfo", &[][..]),
+        ("rocm-smi", &[][..]),
+        ("vulkaninfo", &["--summary"][..]),
+        ("sycl-ls", &[][..]),
+    ] {
+        if let Some(output) = command_output(command, args) {
+            probe.push_str(&output);
+            probe.push('\n');
+        }
+    }
+    match current_platform() {
+        "win32" => {
+            if let Some(output) =
+                command_output("wmic", &["path", "win32_VideoController", "get", "name"])
+            {
+                probe.push_str(&output);
+            }
+        }
+        "linux" => {
+            if let Some(output) = command_output("lspci", &[]) {
+                probe.push_str(&lspci_display_controller_lines(&output));
+            }
+        }
+        _ => {}
+    }
+
+    let probe = probe.to_ascii_lowercase();
+    hints.nvidia = probe.contains("nvidia") || probe.contains("cuda");
+    hints.amd = probe.contains("amd")
+        || probe.contains("advanced micro devices")
+        || probe.contains("radeon")
+        || probe.contains("rocm")
+        || probe.contains("hip");
+    hints.intel = probe.contains("intel") || probe.contains("oneapi") || probe.contains("sycl");
+    hints
+}
+
+fn push_candidate_once(candidates: &mut Vec<&'static str>, variant: &'static str) {
+    if !candidates.contains(&variant) {
+        candidates.push(variant);
+    }
+}
+
 fn runtime_asset_candidates(preference: &str) -> Vec<&'static str> {
-    runtime_asset_candidates_for(current_platform(), current_arch(), preference)
+    runtime_asset_candidates_for_hints(
+        current_platform(),
+        current_arch(),
+        preference,
+        current_gpu_runtime_hints(),
+    )
 }
 
 fn runtime_asset_candidates_for(platform: &str, arch: &str, preference: &str) -> Vec<&'static str> {
+    runtime_asset_candidates_for_hints(platform, arch, preference, GpuRuntimeHints::default())
+}
+
+fn runtime_asset_candidates_for_hints(
+    platform: &str,
+    arch: &str,
+    preference: &str,
+    hints: GpuRuntimeHints,
+) -> Vec<&'static str> {
     match (platform, arch, preference) {
         ("win32", "x64", "nvidia") => vec!["win-x64-cuda"],
         ("win32", "x64", "amd") => vec!["win-x64-hip"],
         ("win32", "x64", "intel") => vec!["win-x64-sycl"],
         ("win32", "x64", "vulkan") => vec!["win-x64-vulkan"],
         ("win32", "x64", "cpu") => vec!["win-x64-cpu"],
-        ("win32", "x64", _) => vec!["win-x64-vulkan", "win-x64-cpu"],
+        ("win32", "x64", _) => {
+            let mut candidates = Vec::new();
+            if hints.nvidia {
+                push_candidate_once(&mut candidates, "win-x64-cuda");
+            }
+            if hints.amd {
+                push_candidate_once(&mut candidates, "win-x64-hip");
+            }
+            if hints.intel {
+                push_candidate_once(&mut candidates, "win-x64-sycl");
+            }
+            push_candidate_once(&mut candidates, "win-x64-vulkan");
+            push_candidate_once(&mut candidates, "win-x64-cpu");
+            candidates
+        }
         ("win32", "arm64", "auto") | ("win32", "arm64", "cpu") => vec!["win-arm64-cpu"],
         ("win32", "arm64", _) => Vec::new(),
         ("darwin", "arm64", "auto") => vec!["macos-arm64-metal"],
@@ -1488,7 +1637,18 @@ fn runtime_asset_candidates_for(platform: &str, arch: &str, preference: &str) ->
         ("linux", "x64", "amd") => vec!["linux-x64-rocm"],
         ("linux", "x64", "vulkan") | ("linux", "x64", "intel") => vec!["linux-x64-vulkan"],
         ("linux", "x64", "cpu") => vec!["linux-x64-cpu"],
-        ("linux", "x64", _) => vec!["linux-x64-vulkan", "linux-x64-cpu"],
+        ("linux", "x64", _) => {
+            let mut candidates = Vec::new();
+            if hints.nvidia {
+                push_candidate_once(&mut candidates, "linux-x64-cuda");
+            }
+            if hints.amd {
+                push_candidate_once(&mut candidates, "linux-x64-rocm");
+            }
+            push_candidate_once(&mut candidates, "linux-x64-vulkan");
+            push_candidate_once(&mut candidates, "linux-x64-cpu");
+            candidates
+        }
         ("linux", "arm64", "vulkan") | ("linux", "arm64", "amd") | ("linux", "arm64", "intel") => {
             vec!["linux-arm64-vulkan"]
         }
@@ -2048,45 +2208,50 @@ impl SidecarProcessState {
         self.status = "starting".to_string();
         self.startup_error = None;
 
-        let port = find_free_port()?;
-        let base_url = format!("http://127.0.0.1:{port}");
-        let args = sidecar_args(&config, &model_path, port);
         let log_path = log_path(state)?;
-        let (stdout, stderr) = open_sidecar_log(&log_path)?;
-        let mut command = Command::new(&executable);
-        command.args(&args).stdout(stdout).stderr(stderr);
-        #[cfg(target_os = "windows")]
-        {
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
-
-        let mut child = command.spawn().map_err(|error| {
-            AppError::new(
-                "sidecar_start_failed",
-                format!("Failed to start local sidecar executable at {executable}: {error}"),
-            )
-        })?;
-
-        match wait_for_ready(&base_url, &mut child).await {
-            Ok(()) => {
-                self.child = Some(child);
-                self.base_url = Some(base_url.clone());
-                self.signature = Some(signature);
-                self.status = "ready".to_string();
-                self.startup_error = None;
-                Ok(base_url)
+        let mut failed_attempts = Vec::new();
+        for plan in llama_startup_plans(&config) {
+            let port = find_free_port()?;
+            let base_url = format!("http://127.0.0.1:{port}");
+            let args = sidecar_args(&config, &model_path, port, &plan);
+            let (stdout, stderr) = open_sidecar_log(&log_path)?;
+            let mut command = Command::new(&executable);
+            command.args(&args).stdout(stdout).stderr(stderr);
+            #[cfg(target_os = "windows")]
+            {
+                command.creation_flags(CREATE_NO_WINDOW);
             }
-            Err(error) => {
-                let _ = child.start_kill();
-                let message = error.message.clone();
-                self.child = None;
-                self.base_url = None;
-                self.signature = None;
-                self.status = "server_error".to_string();
-                self.startup_error = Some(message);
-                Err(error)
+
+            let mut child = command.spawn().map_err(|error| {
+                AppError::new(
+                    "sidecar_start_failed",
+                    format!("Failed to start local sidecar executable at {executable}: {error}"),
+                )
+            })?;
+
+            match wait_for_ready(&base_url, &mut child).await {
+                Ok(()) => {
+                    self.child = Some(child);
+                    self.base_url = Some(base_url.clone());
+                    self.signature = Some(signature);
+                    self.status = "ready".to_string();
+                    self.startup_error = None;
+                    return Ok(base_url);
+                }
+                Err(error) => {
+                    let _ = child.start_kill();
+                    let message = format!("{} failed: {}", plan.label, error.message);
+                    failed_attempts.push(message);
+                }
             }
         }
+        let message = failed_attempts.join("; ");
+        self.child = None;
+        self.base_url = None;
+        self.signature = None;
+        self.status = "server_error".to_string();
+        self.startup_error = Some(message.clone());
+        Err(AppError::new("sidecar_start_failed", message))
     }
 }
 
@@ -2304,6 +2469,43 @@ pub(crate) async fn models(state: &AppState) -> AppResult<Value> {
     }]))
 }
 
+fn smoke_test_request(model: &str, nonce: &str) -> Value {
+    json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a local runtime smoke test. Follow the user's format exactly and include the verification token."
+            },
+            {
+                "role": "user",
+                "content": format!("Reply in exactly two lines.\nLine 1: TOKEN {nonce}\nLine 2: one short sentence confirming that the local sidecar test succeeded.")
+            }
+        ],
+        "max_tokens": 48,
+        "temperature": 0.2,
+        "reasoning_format": "none",
+        "chat_template_kwargs": {
+            "enable_thinking": false
+        }
+    })
+}
+
+fn smoke_test_output_text(payload: &Value) -> String {
+    let message = payload
+        .pointer("/choices/0/message")
+        .unwrap_or(&Value::Null);
+    for key in ["content", "reasoning_content", "reasoning"] {
+        if let Some(value) = message.get(key).and_then(Value::as_str) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+    String::new()
+}
+
 pub(crate) async fn test_message(state: &AppState) -> AppResult<Value> {
     let started = Instant::now();
     let config = read_config(state)?;
@@ -2321,21 +2523,7 @@ pub(crate) async fn test_message(state: &AppState) -> AppResult<Value> {
         .build()
         .map_err(|error| AppError::new("sidecar_client_error", error.to_string()))?
         .post(format!("{base_url}/v1/chat/completions"))
-        .json(&json!({
-            "model": config.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a local runtime smoke test. Follow the user's format exactly and include the verification token."
-                },
-                {
-                    "role": "user",
-                    "content": format!("Reply in exactly two lines.\nLine 1: TOKEN {nonce}\nLine 2: one short sentence confirming that the local sidecar test succeeded.")
-                }
-            ],
-            "max_tokens": 48,
-            "temperature": 0.2
-        }))
+        .json(&smoke_test_request(&config.model, &nonce))
         .send()
         .await
         .map_err(|error| AppError::new("sidecar_test_failed", error.to_string()))?;
@@ -2351,12 +2539,7 @@ pub(crate) async fn test_message(state: &AppState) -> AppResult<Value> {
             payload,
         ));
     }
-    let content = payload
-        .pointer("/choices/0/message/content")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim()
-        .to_string();
+    let content = smoke_test_output_text(&payload);
     if content.is_empty() {
         return Err(AppError::with_details(
             "sidecar_test_failed",
@@ -2881,6 +3064,157 @@ mod tests {
         assert_eq!(
             runtime_asset_candidates_for("darwin", "arm64", "auto"),
             vec!["macos-arm64-metal"]
+        );
+    }
+
+    #[test]
+    fn auto_runtime_candidates_prefer_detected_gpu_backends() {
+        let all_hints = GpuRuntimeHints {
+            nvidia: true,
+            amd: true,
+            intel: true,
+        };
+
+        assert_eq!(
+            runtime_asset_candidates_for_hints("win32", "x64", "auto", all_hints),
+            vec![
+                "win-x64-cuda",
+                "win-x64-hip",
+                "win-x64-sycl",
+                "win-x64-vulkan",
+                "win-x64-cpu"
+            ]
+        );
+        assert_eq!(
+            runtime_asset_candidates_for_hints("linux", "x64", "auto", all_hints),
+            vec![
+                "linux-x64-cuda",
+                "linux-x64-rocm",
+                "linux-x64-vulkan",
+                "linux-x64-cpu"
+            ]
+        );
+    }
+
+    #[test]
+    fn auto_runtime_candidates_keep_vulkan_cpu_fallback_without_gpu_hints() {
+        assert_eq!(
+            runtime_asset_candidates_for_hints("win32", "x64", "auto", GpuRuntimeHints::default()),
+            vec!["win-x64-vulkan", "win-x64-cpu"]
+        );
+        assert_eq!(
+            runtime_asset_candidates_for_hints("linux", "x64", "auto", GpuRuntimeHints::default()),
+            vec!["linux-x64-vulkan", "linux-x64-cpu"]
+        );
+    }
+
+    #[test]
+    fn linux_gpu_probe_ignores_non_display_pci_devices() {
+        let filtered = lspci_display_controller_lines(
+            "00:00.0 Host bridge: Advanced Micro Devices, Inc. [AMD] Device 14da\n\
+             01:00.0 VGA compatible controller: NVIDIA Corporation AD104 [GeForce RTX]\n\
+             02:00.0 Network controller: Intel Corporation Wi-Fi 6 AX200",
+        );
+
+        assert!(filtered.contains("NVIDIA"));
+        assert!(!filtered.contains("Advanced Micro Devices"));
+        assert!(!filtered.contains("Network controller"));
+    }
+
+    #[test]
+    fn gpu_layers_auto_builds_cpu_fallback_startup_plan() {
+        let auto_config = LocalSidecarConfig {
+            gpu_layers: -1,
+            ..LocalSidecarConfig::default()
+        };
+        let fixed_config = LocalSidecarConfig {
+            gpu_layers: 12,
+            ..LocalSidecarConfig::default()
+        };
+
+        let auto_plans = llama_startup_plans(&auto_config);
+        let fixed_plans = llama_startup_plans(&fixed_config);
+
+        assert_eq!(
+            auto_plans,
+            vec![
+                LlamaStartupPlan {
+                    label: "max GPU offload",
+                    gpu_layers: 999
+                },
+                LlamaStartupPlan {
+                    label: "CPU fallback",
+                    gpu_layers: 0
+                }
+            ]
+        );
+        assert_eq!(
+            fixed_plans,
+            vec![LlamaStartupPlan {
+                label: "configured GPU offload",
+                gpu_layers: 12
+            }]
+        );
+        assert!(
+            sidecar_args(&auto_config, "model.gguf", 1234, &auto_plans[0])
+                .windows(2)
+                .any(|pair| pair == ["-ngl", "999"])
+        );
+        assert!(
+            sidecar_args(&auto_config, "model.gguf", 1234, &auto_plans[1])
+                .windows(2)
+                .any(|pair| pair == ["-ngl", "0"])
+        );
+    }
+
+    #[test]
+    fn smoke_test_request_disables_reasoning_outputs() {
+        let request = smoke_test_request("local-sidecar", "abc123");
+
+        assert_eq!(request["reasoning_format"], json!("none"));
+        assert_eq!(
+            request["chat_template_kwargs"]["enable_thinking"],
+            json!(false)
+        );
+        assert!(request["messages"][1]["content"]
+            .as_str()
+            .expect("user content should be a string")
+            .contains("abc123"));
+    }
+
+    #[test]
+    fn smoke_test_output_accepts_reasoning_content_fallback() {
+        let content_payload = json!({
+            "choices": [{
+                "message": {
+                    "content": "TOKEN content"
+                }
+            }]
+        });
+        let reasoning_payload = json!({
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "reasoning_content": "TOKEN reasoning"
+                }
+            }]
+        });
+        let legacy_reasoning_payload = json!({
+            "choices": [{
+                "message": {
+                    "reasoning": "TOKEN legacy reasoning"
+                }
+            }]
+        });
+
+        assert_eq!(smoke_test_output_text(&content_payload), "TOKEN content");
+        assert_eq!(
+            smoke_test_output_text(&reasoning_payload),
+            "TOKEN reasoning"
+        );
+        assert_eq!(
+            smoke_test_output_text(&legacy_reasoning_payload),
+            "TOKEN legacy reasoning"
         );
     }
 
