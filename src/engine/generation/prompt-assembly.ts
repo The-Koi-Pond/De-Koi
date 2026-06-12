@@ -1719,7 +1719,7 @@ function fallbackSystemPrompt(
 
   if (mode === "game") {
     return [
-      "You are Marinara's Game Master. Run the game as a structured campaign, not as a normal chat or roleplay scene.",
+      "You are De-Koi's Game Master. Run the game as a structured campaign, not as a normal chat or roleplay scene.",
       "Narrate clear consequences, keep party members distinct, preserve game mechanics, and emit game tags when state, inventory, quests, encounters, music, or scene assets should change.",
       renderJsonBlock("Game setup", meta.gameSetupConfig),
       renderJsonBlock("Game state", input.chat.gameState ?? meta.gameState),
@@ -2640,7 +2640,7 @@ function buildConversationCommandBlock(
 ): ChatMLMessage | null {
   if (modeOf(chat) !== "conversation") return null;
   const meta = parseRecord(chat.metadata);
-  if (!boolish(meta.characterCommands, false)) return null;
+  if (!boolish(meta.characterCommands, true)) return null;
   const capabilities = conversationCommandCapabilities(chat, meta);
   const schedules = parseRecord(meta.characterSchedules);
   const hasSchedules =
@@ -2657,8 +2657,15 @@ function buildConversationCommandBlock(
   ]);
   const canMemory = commandCapabilityEnabled(capabilities, ["memory", "canSaveMemory"]);
   const canStartScene = commandCapabilityEnabled(capabilities, ["scene", "canStartScene", "canStartScenes"]);
+  const spotifyPlaybackAvailable = commandCapabilityEnabled(
+    capabilities,
+    ["spotifyPlaybackAvailable", "spotifyPlayback", "spotifyAvailable"],
+    false,
+  );
+  const canSpotify =
+    spotifyPlaybackAvailable && commandCapabilityEnabled(capabilities, ["spotify", "canSpotify", "canPlaySpotify"]);
   const instructions = [
-    "When useful, append one hidden command tag after the visible reply. Hidden tags are parsed by Marinara and stripped before the user sees the message. Never describe the tag in visible prose.",
+    "When useful, append one hidden command tag after the visible reply. Hidden tags are parsed by De-Koi and stripped before the user sees the message. Never describe the tag in visible prose.",
     hasSchedules
       ? '- Update availability with [schedule_update: status="online|idle|dnd|offline", activity="short activity"] when the character is correcting their current status or plans.'
       : "",
@@ -2673,6 +2680,9 @@ function buildConversationCommandBlock(
       : "",
     canStartScene
       ? '- Start a linked roleplay scene with [scene: scenario="what happens", background="optional setting", plan="optional short plan"] when the conversation clearly calls for a scene.'
+      : "",
+    canSpotify
+      ? '- Play music on the user\'s active Spotify player with [spotify: title="Song title", artist="Artist"] when a specific song naturally fits the conversation.'
       : "",
     hasConnectedRoleplayOrGame
       ? "- Send linked-chat context with <influence>one-shot OOC steering note</influence> or <note>durable fact for the linked prompt</note> when this conversation should affect the linked roleplay/game."

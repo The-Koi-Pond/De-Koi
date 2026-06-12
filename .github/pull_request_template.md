@@ -85,3 +85,7 @@ Reason:
 ## UI evidence
 
 <!-- Add before/after screenshots or recordings for visible UI changes. -->
+
+## Merge cleanup
+
+- [ ] Delete the issue branch after merging
