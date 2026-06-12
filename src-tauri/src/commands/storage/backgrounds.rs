@@ -99,7 +99,7 @@ fn background_tags(state: &AppState) -> AppResult<Value> {
 fn patch_background_tags(state: &AppState, id: &str, body: Value) -> AppResult<Value> {
     let filename = decode_path(id);
     require_background_file(state, &filename)?;
-    let tags = body.get("tags").cloned().unwrap_or_else(|| json!([]));
+    let tags = normalize_background_tags(body.get("tags"));
     let meta = upsert_background_meta(
         state,
         &filename,
@@ -129,7 +129,7 @@ fn require_background_file(state: &AppState, filename: &str) -> AppResult<()> {
 fn rename_background(state: &AppState, id: &str, body: Value) -> AppResult<Value> {
     let old_filename = decode_path(id);
     let requested = required_string(&body, "name")?;
-    let new_filename = safe_background_filename(requested);
+    let new_filename = safe_background_rename_filename(&old_filename, requested);
     if new_filename.is_empty() {
         return Err(AppError::invalid_input("Background name is invalid"));
     }
@@ -268,12 +268,17 @@ fn upsert_background_meta(state: &AppState, filename: &str, value: Value) -> App
                 patch.entry(key).or_insert(old_value);
             }
             patch.insert("filename".to_string(), Value::String(filename.to_string()));
+            normalize_background_meta_tags(&mut patch);
             return state
                 .storage
                 .patch("background-metadata", &id, Value::Object(patch));
         }
     }
-    state.storage.create("background-metadata", value)
+    let mut record = ensure_object(value)?;
+    normalize_background_meta_tags(&mut record);
+    state
+        .storage
+        .create("background-metadata", Value::Object(record))
 }
 
 fn find_background_meta(state: &AppState, filename: &str) -> AppResult<Option<Value>> {
@@ -391,9 +396,11 @@ fn safe_background_stem(name: &str) -> String {
         .to_string()
 }
 
-fn safe_background_filename(name: &str) -> String {
-    let stem = safe_background_stem(name);
-    let ext = supported_background_extension(name).unwrap_or("png");
+fn safe_background_rename_filename(current_name: &str, requested_name: &str) -> String {
+    let stem = safe_background_stem(requested_name);
+    let ext = supported_background_extension(requested_name)
+        .or_else(|| supported_background_extension(current_name))
+        .unwrap_or("png");
     format!(
         "{}.{}",
         if stem.is_empty() {
@@ -403,6 +410,34 @@ fn safe_background_filename(name: &str) -> String {
         },
         ext
     )
+}
+
+fn normalize_background_tags(value: Option<&Value>) -> Vec<String> {
+    let mut tags = Vec::new();
+    for raw in string_array_from_value(value) {
+        let tag = raw
+            .trim()
+            .to_ascii_lowercase()
+            .chars()
+            .filter(|ch| {
+                ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, ' ' | '_' | '-')
+            })
+            .collect::<String>();
+        if !tag.is_empty() && tag.len() <= 40 && !tags.contains(&tag) {
+            tags.push(tag);
+        }
+    }
+    tags
+}
+
+fn normalize_background_meta_tags(record: &mut Map<String, Value>) {
+    if record.contains_key("tags") {
+        let tags = normalize_background_tags(record.get("tags"));
+        record.insert(
+            "tags".to_string(),
+            Value::Array(tags.into_iter().map(Value::String).collect()),
+        );
+    }
 }
 
 fn unique_background_path(path: PathBuf) -> AppResult<PathBuf> {
@@ -500,6 +535,79 @@ mod tests {
                 .is_empty(),
             "failed tag update should not create stale metadata"
         );
+    }
+
+    #[test]
+    fn patch_background_tags_normalizes_before_persisting_metadata() {
+        let state = test_state("normalize-tags");
+        std::fs::write(state.backgrounds.root().join("forest.png"), b"png")
+            .expect("background fixture should be written");
+
+        let result = backgrounds_call(
+            &state,
+            "PATCH",
+            &["forest.png", "tags"],
+            json!({
+                "tags": [
+                    "  Cozy Forest!!  ",
+                    "cozy forest",
+                    "Castle-01",
+                    "bad/tag",
+                    "   ",
+                    "abcdefghijklmnopqrstuvwxyzabcdefghijklmno"
+                ]
+            }),
+        )
+        .expect("tag update should succeed");
+
+        assert_eq!(
+            result.get("tags").cloned(),
+            Some(json!(["cozy forest", "castle-01", "badtag"]))
+        );
+        assert_eq!(
+            backgrounds_call(&state, "GET", &["tags"], Value::Null)
+                .expect("tags should list")
+                .as_array()
+                .expect("tags result should be an array"),
+            &vec![json!("badtag"), json!("castle-01"), json!("cozy forest")]
+        );
+    }
+
+    #[test]
+    fn rename_background_preserves_existing_extension_when_request_has_none() {
+        let state = test_state("rename-preserve-extension");
+        for filename in ["forest.jpg", "sky.webp"] {
+            std::fs::write(state.backgrounds.root().join(filename), b"image")
+                .expect("background fixture should be written");
+        }
+
+        let jpg_result = backgrounds_call(
+            &state,
+            "PATCH",
+            &["forest.jpg", "rename"],
+            json!({ "name": "forest night" }),
+        )
+        .expect("jpg rename should succeed");
+        let webp_result = backgrounds_call(
+            &state,
+            "PATCH",
+            &["sky.webp", "rename"],
+            json!({ "name": "sky morning" }),
+        )
+        .expect("webp rename should succeed");
+
+        assert_eq!(
+            jpg_result.get("filename").and_then(Value::as_str),
+            Some("forest night.jpg")
+        );
+        assert_eq!(
+            webp_result.get("filename").and_then(Value::as_str),
+            Some("sky morning.webp")
+        );
+        assert!(state.backgrounds.root().join("forest night.jpg").is_file());
+        assert!(state.backgrounds.root().join("sky morning.webp").is_file());
+        assert!(!state.backgrounds.root().join("forest night.png").exists());
+        assert!(!state.backgrounds.root().join("sky morning.png").exists());
     }
 
     #[test]
