@@ -2223,6 +2223,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dispatch_normalizes_remote_background_tag_updates() {
+        let state = test_state("background-tag-update");
+        std::fs::write(state.backgrounds.root().join("background.png"), b"png")
+            .expect("background fixture should be written");
+
+        let result = dispatch(
+            &state,
+            InvokeRequest {
+                command: "background_tags_update".to_string(),
+                args: Some(json!({
+                    "filename": "background.png",
+                    "tags": [
+                        "  Cozy Forest!!  ",
+                        "cozy forest",
+                        "Castle-01",
+                        "bad/tag",
+                        "",
+                        "abcdefghijklmnopqrstuvwxyzabcdefghijklmno"
+                    ]
+                })),
+            },
+        )
+        .await
+        .expect("remote background tag update should dispatch");
+
+        assert_eq!(
+            result.get("tags").cloned(),
+            Some(json!(["cozy forest", "castle-01", "badtag"]))
+        );
+        let row = state
+            .storage
+            .list("background-metadata")
+            .expect("metadata should list")
+            .into_iter()
+            .next()
+            .expect("metadata should be created");
+        assert_eq!(row.get("tags").cloned(), result.get("tags").cloned());
+    }
+
+    #[tokio::test]
     async fn dispatch_rejects_invalid_managed_thumbnail_size_arguments() {
         let state = test_state("managed-thumbnail-size");
         let error = dispatch(
