@@ -174,6 +174,16 @@ function expectNodeFailure(args, message) {
   }
 }
 
+function expectNodeFailureOutput(args, message, pattern) {
+  try {
+    runNode(args, { stdio: "pipe" });
+    failures.push(message);
+  } catch (error) {
+    const output = `${error.stdout ?? ""}${error.stderr ?? ""}`;
+    if (!pattern.test(output)) failures.push(`${message}: expected output to match ${pattern}`);
+  }
+}
+
 rmSync(scratchDir, { recursive: true, force: true });
 mkdirSync(scratchDir, { recursive: true });
 
@@ -244,6 +254,144 @@ expect(
 rmSync("docs/pr-evidence/issue-181", { recursive: true, force: true });
 
 runNode(["-e", "import { chromium } from '@playwright/test'; if (!chromium?.launch) process.exit(1);"]);
+
+const prBody = `## Linked issue
+
+N/A - workflow automation fixture.
+
+## Why this change
+
+- Fixture.
+
+## What changed
+
+- Fixture.
+
+## Refactor impact
+
+Primary owner: docs/workflow
+
+Impact areas reviewed:
+
+- Fixture.
+
+Boundary notes:
+
+- Fixture.
+
+Pressure points touched:
+
+- Fixture.
+
+## Validation
+
+- [ ] Matching validation command passes locally (for example \`pnpm check:agent-workflow\`)
+- [ ] Full \`pnpm check\` passes before PR push/handoff
+- [ ] Human/manual validation completed by contributor or reviewer
+
+### Manual verification notes
+
+- \`pnpm check:agent-workflow\` passed in fixture setup.
+
+## Feature Discoverability
+
+Check exactly one:
+
+- [ ] N/A because this PR is only workflow automation.
+
+Reason:
+
+- Fixture.
+
+## Docs and release impact
+
+- [ ] Updated repo skills or \`AGENTS.md\`
+
+## UI evidence
+
+N/A - no UI change.
+`;
+const prFixture = `${scratchDir}/pr-health-pr.json`;
+writeFileSync(
+  prFixture,
+  JSON.stringify(
+    {
+      number: 181,
+      title: "Workflow fixture",
+      body: prBody,
+      state: "OPEN",
+      isDraft: false,
+      mergeable: "MERGEABLE",
+      mergeStateStatus: "CLEAN",
+      statusCheckRollup: [
+        { name: "Bunny Review", status: "COMPLETED", conclusion: "SUCCESS" },
+        { name: "pnpm check:agent-workflow", status: "COMPLETED", conclusion: "SUCCESS" },
+      ],
+      reviewDecision: "",
+      labels: [],
+      files: [{ path: "docs/workflow-fixture.md" }],
+      headRefName: "fixture",
+      baseRefName: "main",
+      url: "https://example.invalid/pr/181",
+    },
+    null,
+    2,
+  ),
+);
+const threadFixture = `${scratchDir}/pr-health-threads.json`;
+writeFileSync(
+  threadFixture,
+  JSON.stringify(
+    [
+      {
+        data: {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                nodes: [{ isResolved: true, isOutdated: false, path: "docs/ok.md", line: 1, comments: { nodes: [] } }],
+                pageInfo: { hasNextPage: true, endCursor: "cursor-1" },
+              },
+            },
+          },
+        },
+      },
+      {
+        data: {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                nodes: [
+                  {
+                    isResolved: false,
+                    isOutdated: false,
+                    path: "docs/hidden.md",
+                    line: 7,
+                    comments: { nodes: [{ url: "https://example.invalid/review-thread" }] },
+                  },
+                ],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          },
+        },
+      },
+    ],
+    null,
+    2,
+  ),
+);
+expectNodeFailureOutput(
+  [
+    ".agents/automation/scripts/pr-health.mjs",
+    "181",
+    "--pr-json",
+    prFixture,
+    "--threads-json",
+    threadFixture,
+  ],
+  "pr-health must fail when an unresolved thread appears on a later captured page",
+  /unresolved review thread: docs\/hidden\.md:7/,
+);
 
 const prHealthSource = readFileSync(".agents/automation/scripts/pr-health.mjs", "utf8");
 expect(prHealthSource.includes("pageInfo"), "pr-health review-thread query must request pageInfo");

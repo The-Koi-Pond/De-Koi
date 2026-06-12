@@ -199,11 +199,6 @@ function missingTemplateHeadings(body) {
   });
 }
 
-function reviewThreadNodes(result) {
-  if (Array.isArray(result)) return result;
-  return result?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? null;
-}
-
 function reviewDecisionState(value) {
   const state = value || "";
   return {
@@ -262,8 +257,28 @@ function threadConnection(result) {
   return result?.data?.repository?.pullRequest?.reviewThreads ?? null;
 }
 
+function looksLikeThreadNode(value) {
+  return value && typeof value === "object" && ("isResolved" in value || "isOutdated" in value);
+}
+
+function reviewThreadNodes(result) {
+  if (Array.isArray(result)) {
+    if (result.every(looksLikeThreadNode)) return result;
+    const pageNodes = result.flatMap((page) => threadConnection(page)?.nodes ?? []);
+    return pageNodes.length > 0 || result.length === 0 ? pageNodes : null;
+  }
+  return threadConnection(result)?.nodes ?? null;
+}
+
 function offlineThreadsComplete(result) {
   if (result?._paginationComplete === true || result?.paginationComplete === true) return true;
+  if (Array.isArray(result)) {
+    if (result.every(looksLikeThreadNode)) return true;
+    const connections = result.map(threadConnection);
+    if (connections.some((connection) => !connection || !Array.isArray(connection.nodes))) return false;
+    if (connections.length === 0) return true;
+    return connections[connections.length - 1]?.pageInfo?.hasNextPage === false;
+  }
   const pageInfo = threadConnection(result)?.pageInfo;
   return pageInfo ? pageInfo.hasNextPage === false : false;
 }
@@ -369,7 +384,7 @@ if (options.threadsJson) {
     context: `review threads for PR #${options.prNumber}`,
     required: false,
   });
-  if (threadResult && !Array.isArray(threadResult) && !offlineThreadsComplete(threadResult)) {
+  if (threadResult && !offlineThreadsComplete(threadResult)) {
     fail("offline review-thread JSON does not prove pagination is complete");
   }
 } else {
