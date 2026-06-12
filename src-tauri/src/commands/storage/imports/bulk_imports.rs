@@ -1,5 +1,5 @@
 use super::*;
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Duration, Local, NaiveDateTime, TimeZone, Utc};
 use std::path::Component;
 
 fn bool_option(value: Option<&Value>) -> Option<bool> {
@@ -413,6 +413,27 @@ fn character_lookup_from_state(state: &AppState) -> CharacterLookup {
     lookup
 }
 
+fn character_lookup_from_state_for_ids(
+    state: &AppState,
+    character_ids: &[String],
+) -> CharacterLookup {
+    let mut lookup = HashMap::new();
+    if character_ids.is_empty() {
+        return lookup;
+    }
+    if let Ok(characters) = state.storage.list("characters") {
+        for character in characters {
+            let Some(character_id) = character.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            if character_ids.iter().any(|id| id == character_id) {
+                add_character_lookup_record(&mut lookup, &character, None);
+            }
+        }
+    }
+    lookup
+}
+
 fn lookup_character_id(lookup: &CharacterLookup, alias: impl AsRef<str>) -> Option<String> {
     let key = normalized_st_lookup_key(alias.as_ref());
     if key.is_empty() {
@@ -590,7 +611,7 @@ fn st_message_display_text(row: &Value) -> Option<String> {
         .filter(|value| !value.trim().is_empty())
 }
 
-fn st_message_timestamp(row: &Value) -> Option<String> {
+fn st_message_datetime(row: &Value) -> Option<DateTime<Utc>> {
     let raw = row
         .get("send_date")
         .or_else(|| row.get("sendDate"))
@@ -599,7 +620,7 @@ fn st_message_timestamp(row: &Value) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())?;
     if let Ok(parsed) = DateTime::parse_from_rfc3339(raw) {
-        return Some(parsed.with_timezone(&Utc).to_rfc3339());
+        return Some(parsed.with_timezone(&Utc));
     }
     for pattern in [
         "%Y-%m-%d %H:%M:%S",
@@ -611,7 +632,7 @@ fn st_message_timestamp(row: &Value) -> Option<String> {
     ] {
         if let Ok(parsed) = NaiveDateTime::parse_from_str(raw, pattern) {
             if let Some(local) = Local.from_local_datetime(&parsed).single() {
-                return Some(local.with_timezone(&Utc).to_rfc3339());
+                return Some(local.with_timezone(&Utc));
             }
         }
     }
@@ -632,6 +653,7 @@ fn st_message_hidden_from_ai(row: &Value) -> bool {
 struct StChatImportContext {
     character_lookup: CharacterLookup,
     default_character_id: Option<String>,
+    timestamp_overrides: Option<(String, String)>,
 }
 
 fn st_row_character_id(row: &Value, context: &StChatImportContext, role: &str) -> Value {
@@ -686,6 +708,72 @@ fn st_message_extra(row: &Value) -> Value {
         extra.insert("hiddenFromAi".to_string(), Value::Bool(true));
     }
     Value::Object(extra)
+}
+
+fn st_datetime_from_rfc3339(value: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(value)
+        .map(|time| time.with_timezone(&Utc))
+        .ok()
+}
+
+fn st_created_timestamp_override(context: &StChatImportContext) -> Option<DateTime<Utc>> {
+    context
+        .timestamp_overrides
+        .as_ref()
+        .and_then(|(created_at, _)| st_datetime_from_rfc3339(created_at))
+}
+
+fn normalized_st_message_timestamp(
+    candidate: DateTime<Utc>,
+    previous: &mut Option<DateTime<Utc>>,
+) -> String {
+    let normalized = if let Some(previous_timestamp) = previous.as_ref() {
+        if candidate <= *previous_timestamp {
+            previous_timestamp.clone() + Duration::milliseconds(1)
+        } else {
+            candidate
+        }
+    } else {
+        candidate
+    };
+    *previous = Some(normalized.clone());
+    normalized.to_rfc3339()
+}
+
+fn st_file_timestamp_overrides(file: &Value) -> Option<(String, String)> {
+    timestamp_overrides_from_value(
+        file.get("timestampOverrides")
+            .or_else(|| file.get("__timestampOverrides")),
+    )
+    .or_else(|| {
+        timestamp_overrides_from_value(Some(&json!({
+            "createdAt": file.get("createdAt").cloned().unwrap_or(Value::Null),
+            "updatedAt": file.get("updatedAt").cloned().unwrap_or(Value::Null),
+        })))
+    })
+    .or_else(|| {
+        timestamp_overrides_from_value(
+            file.get("lastModified")
+                .or_else(|| file.get("last_modified")),
+        )
+    })
+}
+
+fn st_timestamp_overrides_from_body_and_file(
+    body: &Value,
+    file: &Value,
+) -> Option<(String, String)> {
+    timestamp_overrides_from_value(
+        body.get("timestampOverrides")
+            .or_else(|| body.get("__timestampOverrides")),
+    )
+    .or_else(|| {
+        timestamp_overrides_from_value(Some(&json!({
+            "createdAt": body.get("createdAt").cloned().unwrap_or(Value::Null),
+            "updatedAt": body.get("updatedAt").cloned().unwrap_or(Value::Null),
+        })))
+    })
+    .or_else(|| st_file_timestamp_overrides(file))
 }
 
 pub(super) fn scan_st_folder(body: Value) -> AppResult<Value> {
@@ -946,6 +1034,10 @@ fn import_st_chat_text(
         chat.entry("importedCharacterName".to_string())
             .or_insert(Value::String(character_name));
     }
+    if let Some((created_at, updated_at)) = context.timestamp_overrides.as_ref() {
+        chat.insert("createdAt".to_string(), Value::String(created_at.clone()));
+        chat.insert("updatedAt".to_string(), Value::String(updated_at.clone()));
+    }
     let mut created_chat_id = None;
     let mut created_message_ids = Vec::new();
     let result = (|| -> AppResult<Value> {
@@ -953,6 +1045,8 @@ fn import_st_chat_text(
         let chat_id = created_record_id(&chat_record, "chat")?;
         created_chat_id = Some(chat_id.clone());
         let mut imported = 0usize;
+        let fallback_timestamp = st_created_timestamp_override(&context).unwrap_or_else(Utc::now);
+        let mut previous_timestamp = None;
         for row in parsed_rows {
             let content = row
                 .get("mes")
@@ -975,11 +1069,13 @@ fn import_st_chat_text(
                 "activeSwipeIndex": 0,
                 "swipes": [{ "content": content, "extra": extra }]
             });
-            if let Some(created_at) = st_message_timestamp(&row) {
-                if let Some(object) = message_payload.as_object_mut() {
-                    object.insert("createdAt".to_string(), Value::String(created_at.clone()));
-                    object.insert("updatedAt".to_string(), Value::String(created_at));
-                }
+            let created_at = normalized_st_message_timestamp(
+                st_message_datetime(&row).unwrap_or_else(|| fallback_timestamp.clone()),
+                &mut previous_timestamp,
+            );
+            if let Some(object) = message_payload.as_object_mut() {
+                object.insert("createdAt".to_string(), Value::String(created_at.clone()));
+                object.insert("updatedAt".to_string(), Value::String(created_at));
             }
             let message =
                 crate::storage_commands::message_swipes::create_message(state, message_payload)?;
@@ -1008,10 +1104,10 @@ fn import_st_chat_text(
 }
 
 pub(super) fn import_st_chat(state: &AppState, body: Value) -> AppResult<Value> {
-    let uploaded = decode_uploaded_file_value(
-        body.get("file")
-            .ok_or_else(|| AppError::invalid_input("file is required"))?,
-    )?;
+    let file = body
+        .get("file")
+        .ok_or_else(|| AppError::invalid_input("file is required"))?;
+    let uploaded = decode_uploaded_file_value(file)?;
     let text = String::from_utf8(uploaded.bytes)
         .map_err(|_| AppError::invalid_input("Chat import file must be UTF-8 JSONL"))?;
     let chat_name = Path::new(&uploaded.name)
@@ -1024,17 +1120,20 @@ pub(super) fn import_st_chat(state: &AppState, body: Value) -> AppResult<Value> 
         &text,
         chat_name,
         None,
-        StChatImportContext::default(),
+        StChatImportContext {
+            timestamp_overrides: st_timestamp_overrides_from_body_and_file(&body, file),
+            ..StChatImportContext::default()
+        },
     )
 }
 
 pub(super) fn import_st_chat_into_group(state: &AppState, body: Value) -> AppResult<Value> {
     let target_chat_id = required_string(&body, "chatId")?;
     let target = get_required(state, "chats", target_chat_id)?;
-    let uploaded = decode_uploaded_file_value(
-        body.get("file")
-            .ok_or_else(|| AppError::invalid_input("file is required"))?,
-    )?;
+    let file = body
+        .get("file")
+        .ok_or_else(|| AppError::invalid_input("file is required"))?;
+    let uploaded = decode_uploaded_file_value(file)?;
     let text = String::from_utf8(uploaded.bytes)
         .map_err(|_| AppError::invalid_input("Chat import file must be UTF-8 JSONL"))?;
     let mut inherited = target.clone();
@@ -1054,18 +1153,12 @@ pub(super) fn import_st_chat_into_group(state: &AppState, body: Value) -> AppRes
         .map(|name| name.to_string_lossy().replace('_', " "))
         .filter(|name| !name.trim().is_empty())
         .unwrap_or_else(|| "Imported".to_string());
-    let mut context = StChatImportContext {
-        character_lookup: character_lookup_from_state(state),
+    let target_character_ids = shared::string_array_from_value(target.get("characterIds"));
+    let context = StChatImportContext {
+        character_lookup: character_lookup_from_state_for_ids(state, &target_character_ids),
         default_character_id: None,
+        timestamp_overrides: st_timestamp_overrides_from_body_and_file(&body, file),
     };
-    if let Some(character_id) = target
-        .get("characterIds")
-        .and_then(Value::as_array)
-        .and_then(|ids| ids.first())
-        .and_then(Value::as_str)
-    {
-        context.default_character_id = Some(character_id.to_string());
-    }
     import_st_chat_text(state, &text, branch_name, Some(inherited), context).map_err(|error| {
         let mut rollback_errors = Vec::new();
         restore_record(state, "chats", &target, &mut rollback_errors);
@@ -1467,6 +1560,7 @@ fn run_st_bulk_import_inner(
                     StChatImportContext {
                         character_lookup: character_lookup.clone(),
                         default_character_id,
+                        timestamp_overrides: None,
                     },
                 )
             });
@@ -1524,6 +1618,7 @@ fn run_st_bulk_import_inner(
                     StChatImportContext {
                         character_lookup: character_lookup.clone(),
                         default_character_id: None,
+                        timestamp_overrides: None,
                     },
                 )
             });
@@ -2024,6 +2119,146 @@ mod tests {
     }
 
     #[test]
+    fn import_st_chat_text_normalizes_message_timestamps_in_line_order() {
+        let app_root = temp_path("chat-st-monotonic-timestamps");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+
+        import_st_chat_text(
+            &state,
+            concat!(
+                r#"{"is_user":true,"mes":"first","send_date":"2026-01-01T12:00:00Z"}"#,
+                "\n",
+                r#"{"character_name":"Bot","mes":"second","send_date":"2026-01-01T12:00:00Z"}"#,
+                "\n",
+                r#"{"is_user":true,"mes":"third","send_date":"2026-01-01T11:59:00Z"}"#,
+                "\n",
+                r#"{"character_name":"Bot","mes":"fourth","send_date":"not a date"}"#
+            ),
+            "Imported Chat".to_string(),
+            None,
+            StChatImportContext::default(),
+        )
+        .expect("chat import should succeed");
+
+        let messages = state
+            .storage
+            .list("messages")
+            .expect("messages should list");
+        assert_eq!(messages.len(), 4);
+        let mut sorted = messages.clone();
+        sorted.sort_by_key(|message| {
+            message
+                .get("createdAt")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        });
+        let sorted_contents = sorted
+            .iter()
+            .map(|message| {
+                message
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .expect("message should include content")
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            sorted_contents,
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth".to_string()
+            ],
+            "createdAt sorting should preserve the original ST JSONL line order"
+        );
+
+        let timestamps = sorted
+            .iter()
+            .map(|message| {
+                DateTime::parse_from_rfc3339(
+                    message
+                        .get("createdAt")
+                        .and_then(Value::as_str)
+                        .expect("message should include createdAt"),
+                )
+                .expect("message createdAt should be parseable")
+                .with_timezone(&Utc)
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            timestamps.windows(2).all(|pair| pair[0] < pair[1]),
+            "normalized ST message timestamps should be strictly increasing"
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+    }
+
+    #[test]
+    fn import_st_chat_honors_file_last_modified_timestamp_override() {
+        let app_root = temp_path("chat-st-file-last-modified");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        let mut file = uploaded_jsonl_file(
+            "Override Chat.jsonl",
+            concat!(
+                r#"{"is_user":true,"mes":"hello"}"#,
+                "\n",
+                r#"{"character_name":"Bot","mes":"hi"}"#
+            ),
+        );
+        file.as_object_mut()
+            .expect("uploaded file should be an object")
+            .insert("lastModified".to_string(), json!(1767225600000_i64));
+
+        let result =
+            import_st_chat(&state, json!({ "file": file })).expect("chat import should succeed");
+        let chat_id = result
+            .get("chatId")
+            .and_then(Value::as_str)
+            .expect("import result should include chat id");
+        let chat = state
+            .storage
+            .get("chats", chat_id)
+            .expect("chat should be readable")
+            .expect("chat should exist");
+        assert_eq!(
+            chat.get("createdAt").and_then(Value::as_str),
+            Some("2026-01-01T00:00:00+00:00")
+        );
+        assert_eq!(
+            chat.get("updatedAt").and_then(Value::as_str),
+            Some("2026-01-01T00:00:00+00:00")
+        );
+
+        let mut messages = state
+            .storage
+            .list("messages")
+            .expect("messages should list");
+        messages.sort_by_key(|message| {
+            message
+                .get("content")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        });
+        assert_eq!(
+            messages[0].get("createdAt").and_then(Value::as_str),
+            Some("2026-01-01T00:00:00+00:00"),
+            "first row without send_date should use the trusted file timestamp"
+        );
+        assert_eq!(
+            messages[1].get("createdAt").and_then(Value::as_str),
+            Some("2026-01-01T00:00:00.001+00:00"),
+            "later rows should advance from the trusted timestamp in line order"
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+    }
+
+    #[test]
     fn import_st_chat_text_rolls_back_chat_when_message_write_fails() {
         let app_root = temp_path("chat-rollback");
         let state = AppState::from_data_dir(&app_root, Vec::new())
@@ -2043,6 +2278,133 @@ mod tests {
         assert!(
             state.storage.list("chats").unwrap().is_empty(),
             "failed chat import must remove the created chat"
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+    }
+
+    #[test]
+    fn import_st_chat_into_group_scopes_speaker_lookup_to_target_roster() {
+        let app_root = temp_path("chat-st-branch-roster-lookup");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        let target_character = state
+            .storage
+            .create("characters", json!({ "data": { "name": "Target Bot" } }))
+            .expect("target character should create");
+        let target_character_id = target_character
+            .get("id")
+            .and_then(Value::as_str)
+            .expect("target character should include id")
+            .to_string();
+        let outside_character = state
+            .storage
+            .create("characters", json!({ "data": { "name": "Outside Bot" } }))
+            .expect("outside character should create");
+        let outside_character_id = outside_character
+            .get("id")
+            .and_then(Value::as_str)
+            .expect("outside character should include id")
+            .to_string();
+        let target_chat = state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "name": "Target",
+                    "mode": "roleplay",
+                    "characterIds": [target_character_id],
+                    "createdAt": "2020-01-01T00:00:00Z",
+                    "updatedAt": "2020-01-01T00:00:00Z",
+                    "metadata": {}
+                }),
+            )
+            .expect("target chat should create");
+        let target_chat_id = target_chat
+            .get("id")
+            .and_then(Value::as_str)
+            .expect("target chat should include id")
+            .to_string();
+
+        let result = import_st_chat_into_group(
+            &state,
+            json!({
+                "chatId": target_chat_id,
+                "timestampOverrides": {
+                    "createdAt": "2026-02-03T04:05:06Z",
+                    "updatedAt": "2026-02-03T04:06:07Z"
+                },
+                "file": uploaded_jsonl_file(
+                    "Branch.jsonl",
+                    concat!(
+                        r#"{"name":"Outside Bot","mes":"outside speaker"}"#,
+                        "\n",
+                        r#"{"name":"Target Bot","mes":"target speaker"}"#,
+                        "\n",
+                        r#"{"name":"Unknown Bot","mes":"unknown speaker"}"#
+                    ),
+                )
+            }),
+        )
+        .expect("branch import should succeed");
+        let branch_chat_id = result
+            .get("chatId")
+            .and_then(Value::as_str)
+            .expect("import result should include chat id");
+        let branch = state
+            .storage
+            .get("chats", branch_chat_id)
+            .expect("branch should be readable")
+            .expect("branch should exist");
+        assert_eq!(
+            shared::string_array_from_value(branch.get("characterIds")),
+            vec![target_character_id.clone()],
+            "branch import should not add globally matched speakers outside the target roster"
+        );
+        assert_eq!(
+            branch.get("createdAt").and_then(Value::as_str),
+            Some("2026-02-03T04:05:06+00:00"),
+            "branch chat should honor trusted timestamp overrides instead of target chat timestamps"
+        );
+        assert_eq!(
+            branch.get("updatedAt").and_then(Value::as_str),
+            Some("2026-02-03T04:06:07+00:00")
+        );
+
+        let messages = state
+            .storage
+            .list("messages")
+            .expect("messages should list");
+        assert_eq!(
+            row_with_content(&messages, "target speaker")
+                .get("characterId")
+                .and_then(Value::as_str),
+            Some(target_character_id.as_str())
+        );
+        assert!(
+            row_with_content(&messages, "outside speaker")
+                .get("characterId")
+                .is_none_or(Value::is_null),
+            "globally known speakers outside the target roster should stay unlinked"
+        );
+        assert!(
+            row_with_content(&messages, "unknown speaker")
+                .get("characterId")
+                .is_none_or(Value::is_null),
+            "unknown branch speakers should not fall back to the first target character"
+        );
+        assert!(
+            !shared::string_array_from_value(branch.get("characterIds"))
+                .iter()
+                .any(|id| id == &outside_character_id),
+            "outside character id must not be added to branch membership"
+        );
+        assert_eq!(
+            row_with_content(&messages, "outside speaker")
+                .get("createdAt")
+                .and_then(Value::as_str),
+            Some("2026-02-03T04:05:06+00:00"),
+            "branch messages without send_date should use trusted timestamp overrides"
         );
 
         let _ = fs::remove_dir_all(app_root);
@@ -2219,6 +2581,7 @@ mod tests {
         let context = StChatImportContext {
             character_lookup: character_lookup_from_state(&state),
             default_character_id: None,
+            timestamp_overrides: None,
         };
 
         let result = import_st_chat_text(
@@ -2281,6 +2644,7 @@ mod tests {
         let context = StChatImportContext {
             character_lookup: character_lookup_from_state(&state),
             default_character_id: None,
+            timestamp_overrides: None,
         };
 
         let result = import_st_chat_text(
