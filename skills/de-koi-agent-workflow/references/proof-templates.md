@@ -4,6 +4,8 @@ Use these templates only when they add clarity. Tiny tasks do not need ceremony.
 
 ## Pack-Derived Templates
 
+- `bug-class-proof-packs.md`: targeted adjacent-invariant proof rows for risky
+  bug classes without making tiny bugfixes heavier.
 - `templates/bugfix-verification.template.json`: structured bugfix proof ledger for risky fixes, UI regressions with screenshots, or PR-affecting bugs.
 - `templates/risk-claim-matrix.template.json`: claim-boundary proof rows for storage, import/export, user data, prompt/provider/parser, auth/secrets, destructive actions, compatibility, and new abstractions.
 - `templates/reviewer-thread-ledger.template.json`: PR inline review or automated review thread tracking.

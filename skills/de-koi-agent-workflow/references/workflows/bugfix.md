@@ -37,6 +37,10 @@ there before the PR leaves local hands.
 
 Proof must cover the user-facing symptom or core behavior, not merely the edited line. Risky work needs representative positive rows, realistic negative controls, and explicit manual blockers for anything untested.
 
+For risky or boundary fixes, consult `../bug-class-proof-packs.md` before
+Bunny/PR handoff so adjacent invariants are checked with the focused proof
+instead of discovered later in review.
+
 Before nontrivial edits, use the smallest useful architecture gate: tiny fixes name only the cheap gate; normal fixes also name callers and contracts; risky or cross-layer fixes trace boundary path, input/output/persistence/error behavior, dependency direction, shared-code justification, forbidden shortcuts avoided, and docs/skills impact.
 
 When machine proof cannot cover the whole claim, manual tests must name the start command, exact app path or route, action sequence, expected result, failure signal, and any unverified mode/provider/viewport/platform/data coverage.

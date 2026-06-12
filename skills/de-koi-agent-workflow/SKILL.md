@@ -49,6 +49,10 @@ Use `references/de-koi-overrides.md` when auditing a source-pack assumption or d
 
 Read `references/proof-templates.md` as the template index when a task needs a risk matrix, PR proof block, reviewer thread ledger, manual verification script, debt note, or final done shape. The concrete pack-derived templates live under `references/templates/`.
 
+Read `references/bug-class-proof-packs.md` before Bunny/PR handoff for risky
+bugfixes so the focused proof includes the few adjacent invariants that match
+the bug class.
+
 Read `references/source-map.md` when auditing or updating this skill against `cha1latte/chai-agent-workflow-pack`.
 
 ## Repo Boundary Gate
@@ -142,6 +146,9 @@ tests merely to satisfy proof wording.
 Treat these as risky: storage, migrations, import/export, installers, user data, prompt assembly, provider transport, auth/secrets, destructive actions, cross-entrypoint behavior, legacy compatibility, and new abstractions.
 
 Risky work needs claim-boundary proof: core claim, entrypoints, current and legacy paths, positive rows, negative controls, ground-truth facts, user-facing copy when relevant, manual blockers, and untested paths.
+
+Use `references/bug-class-proof-packs.md` to choose the smallest class-specific
+proof rows that could contradict a risky bugfix before Bunny/PR handoff.
 
 Ground-truth facts for app-owned behavior must come from the app, artifact, fresh build/install, code path, or focused harness. Use external docs only for outside behavior such as third-party APIs, operating-system semantics, or tool behavior.
 

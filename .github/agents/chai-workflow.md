@@ -163,6 +163,10 @@ Risky work needs explicit claim-boundary proof:
 - Ground-truth facts used
 - Manual blockers
 
+Before Bunny/PR handoff, use
+`skills/de-koi-agent-workflow/references/bug-class-proof-packs.md` to choose the
+few adjacent proof rows that match the bug class.
+
 Untested rows are risks, not implied proof.
 
 ## Done Report Shape
