@@ -25,22 +25,23 @@ MAX_CONTEXT_CHARS = 80_000
 MAX_CONTEXT_FILE_CHARS = 20_000
 MAX_SEARCH_HITS = 30
 MAX_SEARCH_FILE_BYTES = 250_000
-MAX_IDENTIFIER_CONTEXT_CHARS = 30_000
-MAX_COMPACT_IDENTIFIER_CONTEXT_CHARS = 8_000
-MAX_IDENTIFIER_TERMS = 24
-MAX_IDENTIFIER_HITS_PER_TERM = 12
+MAX_IDENTIFIER_CONTEXT_CHARS = 12_000
+MAX_COMPACT_IDENTIFIER_CONTEXT_CHARS = 4_000
+MAX_IDENTIFIER_TERMS = 16
+MAX_IDENTIFIER_HITS_PER_TERM = 6
 MAX_FILE_PATCH_CHARS = 55_000
 MAX_FILE_SUMMARY_CHARS = 9_000
 MAX_COMPACT_FILE_PATCH_CHARS = 28_000
 MAX_COMPACT_FILE_SUMMARY_CHARS = 5_000
 MAX_COMPACT_FILE_CONTEXT_CHARS = 30_000
-MAX_COMPACT_GUIDANCE_CHARS = 6_000
-MAX_GLOBAL_REVIEW_CONTEXT_CHARS = 45_000
-MAX_COMPACT_GLOBAL_REVIEW_CONTEXT_CHARS = 22_000
-MAX_GLOBAL_FILE_MAP_CHARS = 3_000
-MAX_COMPACT_GLOBAL_FILE_MAP_CHARS = 1_400
+MAX_GUIDANCE_DIGEST_CHARS = 4_000
+MAX_COMPACT_GUIDANCE_DIGEST_CHARS = 2_000
+MAX_GLOBAL_REVIEW_CONTEXT_CHARS = 9_000
+MAX_COMPACT_GLOBAL_REVIEW_CONTEXT_CHARS = 4_000
+MAX_GLOBAL_FILE_MAP_CHARS = 900
+MAX_COMPACT_GLOBAL_FILE_MAP_CHARS = 500
 COMPACT_DIFF_UNIFIED_LINES = 20
-MAX_REVIEW_CHUNKS = 8
+MAX_REVIEW_CHUNKS = 10
 MAX_CHUNK_PATCH_CHARS = 90_000
 MAX_SINGLE_PACKET_CHARS = 60_000
 MAX_FORCED_CHUNK_PATCH_CHARS = 35_000
@@ -48,7 +49,7 @@ MAX_INLINE_COMMENT_CHARS = 1_200
 MAX_CONTRACT_STATE_ENTRIES = 12
 MAX_CONTRACT_STATE_TEXT_CHARS = 320
 MAX_CONTRACT_STATE_LIST_ITEMS = 3
-MODEL_REQUEST_TIMEOUT = 120
+DEFAULT_MODEL_REQUEST_TIMEOUT = 120
 MODEL_MAX_RETRIES = 1
 SECRET_VALUE_RE = re.compile(
     r"(?i)(api[_-]?key|token|secret|password|passwd|authorization|bearer|client[_-]?secret)"
@@ -65,6 +66,39 @@ class ReviewTooLarge(Exception):
 
 class EmptyModelResponse(Exception):
     pass
+
+
+class ModelRequestTimeout(Exception):
+    def __init__(self, cause):
+        self.cause = cause
+        super().__init__(safe_model_error(cause))
+
+
+def positive_int_env(name, default):
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        print(
+            f"Bunny config warning: {name}={raw!r} is not an integer; using {default}.",
+            flush=True,
+        )
+        return default
+    if value <= 0:
+        print(
+            f"Bunny config warning: {name}={raw!r} must be positive; using {default}.",
+            flush=True,
+        )
+        return default
+    return value
+
+
+MODEL_REQUEST_TIMEOUT = positive_int_env(
+    "BUNNY_MODEL_REQUEST_TIMEOUT_SECONDS",
+    DEFAULT_MODEL_REQUEST_TIMEOUT,
+)
 
 
 @dataclass
@@ -270,11 +304,20 @@ def search_repo_with_python(pattern):
     return "\n".join(hits) or "no matches"
 
 
-def search_repo_hits(pattern, max_hits):
+def search_repo_hits(pattern, max_hits, exclude_paths=None):
     result = search_repo(pattern)
     if result == "no matches" or result.startswith("refused:"):
         return []
-    return result.splitlines()[:max_hits]
+    excluded = tuple(str(path).replace("\\", "/") + ":" for path in (exclude_paths or []))
+    hits = []
+    for line in result.splitlines():
+        normalized = line.replace("\\", "/")
+        if excluded and any(normalized.startswith(path) for path in excluded):
+            continue
+        hits.append(line)
+        if len(hits) >= max_hits:
+            break
+    return hits
 
 
 def extract_changed_identifiers(patch):
@@ -309,30 +352,47 @@ def extract_changed_identifiers(patch):
         "list",
         "id",
     }
-    counts = {}
+    metadata = {}
     for line in patch.splitlines():
         if not line.startswith(("+", "-")) or line.startswith(("+++", "---")):
             continue
+        body = line[1:].strip()
+        is_declaration = bool(
+            re.search(
+                r"\b(export|import|function|class|interface|type|enum|const|let|var)\b",
+                body,
+            )
+        )
+        is_public = body.startswith(("export ", "import "))
         for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", line):
             if token.lower() in stop_words:
                 continue
-            counts[token] = counts.get(token, 0) + 1
+            item = metadata.setdefault(
+                token,
+                {"count": 0, "declaration": False, "public": False},
+            )
+            item["count"] += 1
+            item["declaration"] = item["declaration"] or is_declaration
+            item["public"] = item["public"] or is_public
     preferred = sorted(
-        counts,
+        metadata,
         key=lambda token: (
+            not metadata[token]["public"],
+            not metadata[token]["declaration"],
+            metadata[token]["count"] < 2,
             not any(char.isupper() for char in token) and "_" not in token,
-            -counts[token],
+            -metadata[token]["count"],
             token.lower(),
         ),
     )
     return preferred[:MAX_IDENTIFIER_TERMS]
 
 
-def build_identifier_context(patch, limit=MAX_IDENTIFIER_CONTEXT_CHARS):
+def build_identifier_context(patch, limit=MAX_IDENTIFIER_CONTEXT_CHARS, exclude_paths=None):
     terms = extract_changed_identifiers(patch)
     sections = []
     for term in terms:
-        hits = search_repo_hits(term, MAX_IDENTIFIER_HITS_PER_TERM)
+        hits = search_repo_hits(term, MAX_IDENTIFIER_HITS_PER_TERM, exclude_paths=exclude_paths)
         if not hits:
             continue
         sections.append(f"### {term}\n" + "\n".join(hits))
@@ -380,48 +440,30 @@ def load_rules():
         return {"_load_error": str(exc)}
 
 
-def guidance_from_rules(files, rules):
-    guidance = ["AGENTS.md", "skills/marinara-agent-workflow/SKILL.md"]
-    for item in rules.get("path_instructions", []):
-        prefixes = item.get("prefixes", [])
-        if any(any(path.startswith(prefix) for prefix in prefixes) for path in files):
-            guidance.extend(item.get("guidance", []))
-    return list(dict.fromkeys(guidance))
+def markdown_section(text, heading):
+    match = re.search(rf"^##\s+{re.escape(heading)}\s*$", text, flags=re.MULTILINE)
+    if not match:
+        return ""
+    rest = text[match.end() :]
+    next_match = re.search(r"^##\s+", rest, flags=re.MULTILINE)
+    end = match.end() + next_match.start() if next_match else len(text)
+    return text[match.start() : end].strip()
 
 
-def select_guidance(files):
-    rules = load_rules()
-    if rules and "_load_error" not in rules:
-        return guidance_from_rules(files, rules)
-    guidance = ["AGENTS.md", "skills/marinara-agent-workflow/SKILL.md"]
-    joined = "\n".join(files)
-    if any(
-        marker in joined
-        for marker in ("src/engine/", "src/features/", "src/shared/api/", "src-tauri/")
-    ):
-        guidance.append("skills/marinara-architecture-guard/SKILL.md")
-    if any(
-        marker in joined
-        for marker in (
-            "chat",
-            "roleplay",
-            "game",
-            "modes",
-            "prompt",
-            "generation",
-            "summary",
-            "memory",
-        )
-    ):
-        guidance.append("skills/marinara-mode-separation/SKILL.md")
-    if any(
-        marker in joined
-        for marker in ("fix/", "storage", "imports", "provider", "transport", "commands")
-    ):
-        guidance.append("skills/marinara-bugfix-discipline/SKILL.md")
-    if any(marker in joined for marker in ("README", "docs/", "skills/", "AGENTS.md")):
-        guidance.append("skills/marinara-getting-started/SKILL.md")
-    return list(dict.fromkeys(guidance))
+def build_repo_guidance_digest(*, compact=False):
+    limit = MAX_COMPACT_GUIDANCE_DIGEST_CHARS if compact else MAX_GUIDANCE_DIGEST_CHARS
+    try:
+        agents = read_text("AGENTS.md", 16_000)
+        hard_rules = markdown_section(agents, "Hard Rules") or agents
+    except Exception as exc:
+        hard_rules = f"Could not read AGENTS.md hard rules: {exc}"
+    lines = [
+        hard_rules,
+        "",
+        "Bunny path rules are provided separately as structured JSON for matched paths.",
+        "Keep findings tied to changed lines in the focused patch context.",
+    ]
+    return truncate("\n".join(lines).strip(), limit)
 
 
 def matching_path_rules(files):
@@ -514,14 +556,12 @@ def build_global_file_map(base, files, *, compact=False):
     per_file_limit = (
         MAX_COMPACT_GLOBAL_FILE_MAP_CHARS if compact else MAX_GLOBAL_FILE_MAP_CHARS
     )
-    unified = 0 if compact else 8
     for path in files:
         stat = run_git(["diff", "--numstat", f"{base}...HEAD", "--", path], 1_000)
-        patch = diff_for_path(base, path, unified=unified)
         body = (
             f"numstat: {stat.strip() or 'unavailable'}\n"
-            f"current interface lines:\n{file_interface_context(path)}\n\n"
-            f"changed hunks:\n{patch}"
+            f"current interface lines:\n{file_interface_context(path)}\n"
+            "changed-line evidence: see the focused per-file patch context for this chunk."
         )
         sections.append(f"### {path}\n{truncate(body, per_file_limit)}")
     return "\n\n".join(sections) or "No changed file map available."
@@ -642,25 +682,14 @@ def build_review_packet(
                 MAX_COMPACT_IDENTIFIER_CONTEXT_CHARS
                 if compact
                 else MAX_IDENTIFIER_CONTEXT_CHARS,
+                exclude_paths=context_files,
             ),
         ),
         ("Bunny path rules", matching_path_rules(files)),
+        ("repo guidance digest", build_repo_guidance_digest(compact=compact)),
     ]
     if ci_status:
         sections.append(("CI status", ci_status))
-    for path in select_guidance(files):
-        try:
-            sections.append(
-                (
-                    f"guidance: {path}",
-                    read_text(
-                        path,
-                        MAX_COMPACT_GUIDANCE_CHARS if compact else 30_000,
-                    ),
-                )
-            )
-        except Exception as exc:
-            sections.append((f"guidance: {path}", f"Could not read: {exc}"))
 
     append_optional_global_context(sections, global_context)
     if emit_telemetry:
@@ -705,7 +734,15 @@ def message_chars(messages) -> int:
     return sum(len(str(message.get("content", ""))) for message in messages)
 
 
+def is_timeout_error(exc: Exception) -> bool:
+    if isinstance(exc, TimeoutError):
+        return True
+    return any("timeout" in cls.__name__.lower() for cls in type(exc).__mro__)
+
+
 def safe_model_error(exc: Exception) -> str:
+    if isinstance(exc, ModelRequestTimeout):
+        return safe_model_error(exc.cause)
     parts = [type(exc).__name__]
     status_code = getattr(exc, "status_code", None)
     response = getattr(exc, "response", None)
@@ -947,6 +984,8 @@ def model_call(client, messages, stats):
             f"error={stats['last_model_error']}",
             flush=True,
         )
+        if is_timeout_error(exc):
+            raise ModelRequestTimeout(exc) from exc
         raise
     elapsed = time.monotonic() - started_at
     stats["model_request_elapsed_s"] += elapsed
@@ -1089,7 +1128,15 @@ def three_pass_review(client, skill, triage_content, stats):
     )
 
 
-def review_with_compact_empty_response_fallback(
+def compact_retry_reason(exc):
+    if isinstance(exc, EmptyModelResponse):
+        return "model endpoint returned empty content"
+    if isinstance(exc, ModelRequestTimeout):
+        return "model request timed out"
+    return None
+
+
+def review_with_compact_failure_fallback(
     client,
     skill,
     stats,
@@ -1106,19 +1153,23 @@ def review_with_compact_empty_response_fallback(
             triage_for_packet(review_packet, focus_note),
             stats,
         )
-    except EmptyModelResponse as exc:
+    except Exception as exc:
+        reason = compact_retry_reason(exc)
+        if reason is None:
+            raise
         compact_packet = build_packet(compact=True)
         stats["review_packet_chars"] += len(compact_packet)
         stats["fallback_packet_chars"] += len(compact_packet)
         stats["fallback_reviews"] += 1
         print(
             "Bunny compact fallback: "
-            f"{exc}; retry_packet_chars={len(compact_packet)}",
+            f"{reason}: {safe_model_error(exc)}; "
+            f"retry_packet_chars={len(compact_packet)}",
             flush=True,
         )
         compact_note = (
             f"{focus_note} This is a compact fallback packet after the model "
-            "endpoint returned empty content for the standard packet."
+            f"{reason} for the standard packet."
         )
         return three_pass_review(
             client,
@@ -2189,6 +2240,14 @@ def model_failure_detail(exc):
             "Bunny Review could not complete because the model endpoint returned "
             f"empty content before a review object was emitted: {message}"
         )
+    if isinstance(exc, ModelRequestTimeout):
+        message = " ".join(safe_model_error(exc).split())
+        if len(message) > 500:
+            message = message[:497] + "..."
+        return (
+            "Bunny Review could not complete because the model provider timed out "
+            f"before a review object was emitted: {message}"
+        )
     if isinstance(exc, ValueError):
         message = " ".join(str(exc).split())
         if len(message) > 500:
@@ -2590,7 +2649,7 @@ def produce_review(args):
             )
             try:
                 chunk_reviews.append(
-                    review_with_compact_empty_response_fallback(
+                    review_with_compact_failure_fallback(
                         client,
                         skill,
                         stats,
@@ -2633,7 +2692,7 @@ def produce_review(args):
     else:
         stats = build_stats("")
         try:
-            review_obj = review_with_compact_empty_response_fallback(
+            review_obj = review_with_compact_failure_fallback(
                 client,
                 skill,
                 stats,
