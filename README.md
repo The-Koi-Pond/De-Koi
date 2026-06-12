@@ -23,6 +23,7 @@ This repository is an active refactor branch. The app is usable from source, but
 Use the `refactor` branch copy of this documentation for current development and integration work. `main` and historical `staging` branch docs may describe legacy architecture and should not be treated as authoritative for the refactor build unless a maintainer explicitly asks for that branch context.
 The refactor build keeps an explicit in-app update check in Settings > Advanced. It opens the matching release page for manual install; signed Tauri auto-install artifacts are not configured on this branch yet. See [Release Update Strategy](docs/release-update-strategy.md) for the stable refactor update policy.
 Token budget displays and prompt budget paths currently use deterministic estimates rather than provider-exact tokenizers. See [Token Budget Estimates](docs/token-budget-estimates.md) for the tokenizer support decision and future requirements.
+Storage is file-backed JSON collections plus managed asset files. See [De-Koi Storage Schema](docs/database-schema.md) for the current collection catalog and [Legacy Marinara Storage Schema](docs/legacy-database-schema.md) for the generated comparison source.
 
 ## Screenshots
 

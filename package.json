@@ -8,6 +8,9 @@
   "scripts": {
     "dev": "node scripts/run-vite.mjs",
     "docs:dev": "node scripts/run-vite.mjs docs/developer --host 127.0.0.1 --port 4174",
+    "docs:schema": "node scripts/generate-storage-schema.mjs",
+    "docs:schema:legacy": "node scripts/generate-legacy-storage-schema.mjs",
+    "docs:schema:all": "pnpm docs:schema && pnpm docs:schema:legacy",
     "build": "tsc -b && node scripts/run-vite.mjs build",
     "typecheck": "tsc -b",
     "format": "prettier --write --ignore-unknown .",

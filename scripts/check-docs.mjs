@@ -1,5 +1,9 @@
+import { execFile } from "node:child_process";
 import { access, readdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 async function collectFiles(root) {
   const entries = await readdir(root, { withFileTypes: true });
@@ -29,6 +33,8 @@ const baseRequiredDocs = [
   "docs/developer/impact-areas.html",
   "docs/developer/docs.css",
   "docs/developer/shared.js",
+  "docs/database-schema.md",
+  "docs/legacy-database-schema.md",
 ];
 
 const expectedSkillFiles = [
@@ -49,6 +55,18 @@ const skillDocs = (await collectFiles("skills")).filter(
 const requiredDocs = [...new Set([...baseRequiredDocs, ...expectedSkillFiles, ...skillDocs])].sort();
 
 await Promise.all(requiredDocs.map((path) => access(path)));
+
+try {
+  await execFileAsync(process.execPath, ["scripts/generate-storage-schema.mjs", "--check"], {
+    windowsHide: true,
+  });
+  await execFileAsync(process.execPath, ["scripts/generate-legacy-storage-schema.mjs", "--check", "--skip-missing"], {
+    windowsHide: true,
+  });
+} catch (error) {
+  const output = [error.stdout, error.stderr].filter(Boolean).join("\n").trim();
+  throw new Error(output || error.message);
+}
 
 const htmlDocs = requiredDocs.filter((path) => path.endsWith(".html"));
 const htmlByPath = new Map(await Promise.all(htmlDocs.map(async (path) => [path, await readFile(path, "utf8")])));
