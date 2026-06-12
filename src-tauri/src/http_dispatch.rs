@@ -1435,6 +1435,83 @@ mod tests {
             .is_some()
     }
 
+    #[tokio::test]
+    async fn dispatch_rejects_unknown_agent_by_type_commands() {
+        for (label, command, args) in [
+            (
+                "patch",
+                "agent_patch_by_type",
+                json!({ "agentType": "bogus-agent", "patch": { "enabled": true } }),
+            ),
+            (
+                "toggle",
+                "agent_toggle_by_type",
+                json!({ "agentType": "bogus-agent" }),
+            ),
+            (
+                "cadence",
+                "agent_cadence_status",
+                json!({ "agentType": "bogus-agent", "chatId": "chat-1" }),
+            ),
+        ] {
+            let state = test_state(&format!("unknown-agent-{label}"));
+            let error = dispatch(
+                &state,
+                InvokeRequest {
+                    command: command.to_string(),
+                    args: Some(args),
+                },
+            )
+            .await
+            .expect_err("unknown by-type agent command should reject");
+
+            assert_eq!(
+                error.code, "not_found",
+                "{command} should reject unknown types"
+            );
+            assert!(
+                state
+                    .storage
+                    .list("agents")
+                    .expect("agents should be readable")
+                    .is_empty(),
+                "{command} must not create an arbitrary agent row"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn dispatch_accepts_known_builtin_agent_by_type_commands() {
+        let state = test_state("known-builtin-agent-dispatch");
+
+        let patched = dispatch(
+            &state,
+            InvokeRequest {
+                command: "agent_patch_by_type".to_string(),
+                args: Some(json!({ "agentType": "director", "patch": { "enabled": false } })),
+            },
+        )
+        .await
+        .expect("known built-in by-type patch should dispatch");
+        let status = dispatch(
+            &state,
+            InvokeRequest {
+                command: "agent_cadence_status".to_string(),
+                args: Some(json!({ "agentType": "director", "chatId": "chat-1" })),
+            },
+        )
+        .await
+        .expect("known built-in cadence status should dispatch");
+
+        assert_eq!(
+            patched.get("type").and_then(Value::as_str),
+            Some("director")
+        );
+        assert_eq!(patched.get("enabled").and_then(Value::as_bool), Some(false));
+        assert_eq!(status["agentType"], "director");
+        assert_eq!(status["runInterval"], 5);
+    }
+
     fn write_game_asset_png(state: &AppState, path: &str) {
         let absolute = PathBuf::from(
             state
