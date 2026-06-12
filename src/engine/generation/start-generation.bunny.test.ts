@@ -693,7 +693,7 @@ describe("user-message regeneration review guards", () => {
         id: "chat-1",
         mode: "conversation",
         characterIds: ["char-a", "char-b"],
-        metadata: {},
+        metadata: { characterCommands: false },
       },
       storedMessages: [{ role: "user", content: "secret" }],
       connection: { provider: "openai", model: "qa-model" },
