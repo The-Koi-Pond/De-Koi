@@ -1,10 +1,10 @@
-# Marinara Automation Support
+# De-Koi Automation Support
 
-This folder contains repo-local support for assistant-side automation. It does not change Marinara Engine runtime behavior and does not require chai to use new command phrases.
+This folder contains repo-local support for assistant-side automation. It does not change De-Koi runtime behavior and does not require chai to use new command phrases.
 
 Use these files when a task should be automated safely.
 
-For Marinara workflow users, a terse bug request such as "fix this bug",
+For De-Koi workflow users, a terse bug request such as "fix this bug",
 "look for the smallest bug and fix it", "go", or a pasted bug screenshot means a
 local fix and verification loop by default. Do not turn ordinary bugfix language
 into commit, push, draft PR creation, Bunny Review, CI polling, PR health,
@@ -16,7 +16,7 @@ declaration changes, schema/version/release/auth/prompt-pipeline scope jumps,
 unrelated dirty files that would ship, or an unprovable core claim.
 
 - `references/automation-ledger.md` defines the scratch ledger format agents use to record task state, proof, blockers, and final gates.
-- `references/browser-recipes.md` lists repeatable browser verification recipes for Marinara UI work.
+- `references/browser-recipes.md` lists repeatable browser verification recipes for De-Koi UI work.
 - `references/automation-gates.md` makes autopilot exceptions and hard stops explicit.
 - `references/automated-bugfix-playbook.md` gives the end-to-end autopilot bugfix flow.
 - `templates/backend-repro.mjs` is the starting point for backend/logic scratch repros.
@@ -124,8 +124,8 @@ repo-shared workflow surface that affects agent behavior:
 
 - `AGENTS.md`, `CONTRIBUTING.md`, `.github/agents/`, and `.github/pull_request_template.md`
 - `.github/ISSUE_TEMPLATE/` and `.github/bunny-review/`
-- `skills/marinara-agent-workflow/`, `skills/marinara-architecture-guard/`,
-  `skills/marinara-mode-separation/`, and `skills/marinara-bugfix-discipline/`
+- `skills/de-koi-agent-workflow/`, `skills/de-koi-architecture-guard/`,
+  `skills/de-koi-mode-separation/`, and `skills/de-koi-bugfix-discipline/`
 - `.agents/automation/`, root validation scripts such as
   `scripts/check-agent-workflow.mjs`, and `package.json`
 
@@ -134,9 +134,9 @@ useful audit context, label it as personal context and keep repo-shared fixes in
 repo-shared files.
 
 ```bash
-Copy-Item .agents/automation/templates/ui-repro-playwright.mjs scratch/issue-123-ui-repro.mjs
-Copy-Item .agents/automation/templates/backend-repro.mjs scratch/issue-123-backend-repro.mjs
-Copy-Item .agents/automation/templates/command-repro.mjs scratch/issue-123-command-repro.mjs
+cp .agents/automation/templates/ui-repro-playwright.mjs scratch/issue-123-ui-repro.mjs
+cp .agents/automation/templates/backend-repro.mjs scratch/issue-123-backend-repro.mjs
+cp .agents/automation/templates/command-repro.mjs scratch/issue-123-command-repro.mjs
 ```
 
 For tiny post-review convention fixes, do not burn time repeating a full local

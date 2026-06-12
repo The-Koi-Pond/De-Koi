@@ -9,7 +9,7 @@
  * path, and do not use Chrome-only proof for Rust/Tauri-backed behavior.
  */
 import { mkdirSync } from "node:fs";
-import { chromium } from "playwright";
+import { chromium } from "@playwright/test";
 
 const BASE_URL = process.env.MARINARA_URL ?? "http://localhost:1420";
 const RUNTIME = process.env.REPRO_RUNTIME ?? "Chrome web shell";

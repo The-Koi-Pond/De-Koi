@@ -13,7 +13,7 @@ When rules overlap, the stricter safety gate wins unless a task-specific autopil
 
 ## Default Local-Fix Trigger
 
-For Marinara workflow users, ordinary bug-fix language is enough to activate the
+For De-Koi workflow users, ordinary bug-fix language is enough to activate the
 local bugfix path when the selected bug is narrow and machine-provable. Treat all
 of these as standing approval for local fix and verification only: "fix this
 bug", "fix this", "go", "look for the smallest bug and fix it", a pasted bug

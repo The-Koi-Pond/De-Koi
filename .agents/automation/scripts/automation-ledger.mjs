@@ -211,8 +211,9 @@ function traceEvent(updates, defaults = {}) {
 function readLedger(path) {
   try {
     return mergeTemplate(JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")));
-  } catch {
-    return structuredClone(template);
+  } catch (error) {
+    if (error?.code === "ENOENT") return structuredClone(template);
+    throw new Error(`Could not read existing automation ledger ${path}: ${error.message}`);
   }
 }
 

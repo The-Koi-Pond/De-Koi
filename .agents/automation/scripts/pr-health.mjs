@@ -214,10 +214,10 @@ function reviewDecisionState(value) {
 
 function threadQuery() {
   return `
-query($owner:String!, $name:String!, $number:Int!) {
+query($owner:String!, $name:String!, $number:Int!, $after:String) {
   repository(owner:$owner, name:$name) {
     pullRequest(number:$number) {
-      reviewThreads(first:100) {
+      reviewThreads(first:100, after:$after) {
         nodes {
           isResolved
           isOutdated
@@ -232,10 +232,40 @@ query($owner:String!, $name:String!, $number:Int!) {
             }
           }
         }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
       }
     }
   }
 }`;
+}
+
+function threadArgs(owner, name, number, after = null) {
+  const args = [
+    "api",
+    "graphql",
+    "-f",
+    `owner=${owner}`,
+    "-f",
+    `name=${name}`,
+    "-F",
+    `number=${number}`,
+  ];
+  if (after) args.push("-f", `after=${after}`);
+  args.push("-f", `query=${threadQuery()}`);
+  return args;
+}
+
+function threadConnection(result) {
+  return result?.data?.repository?.pullRequest?.reviewThreads ?? null;
+}
+
+function offlineThreadsComplete(result) {
+  if (result?._paginationComplete === true || result?.paginationComplete === true) return true;
+  const pageInfo = threadConnection(result)?.pageInfo;
+  return pageInfo ? pageInfo.hasNextPage === false : false;
 }
 
 const warnings = [];
@@ -272,21 +302,9 @@ const prArgs = [
   "--json",
   PR_JSON_FIELDS,
 ];
-const threadArgs = [
-  "api",
-  "graphql",
-  "-f",
-  `owner=${owner}`,
-  "-f",
-  `name=${name}`,
-  "-F",
-  `number=${options.prNumber}`,
-  "-f",
-  `query=${threadQuery()}`,
-];
 const offlineCaptureCommands = [
   `${ghCommand(prArgs)} | Out-File -Encoding utf8 scratch/pr-health-${options.prNumber}-pr.json`,
-  `${ghCommand(threadArgs)} | Out-File -Encoding utf8 scratch/pr-health-${options.prNumber}-threads.json`,
+  `${ghCommand(threadArgs(owner, name, options.prNumber))} | Out-File -Encoding utf8 scratch/pr-health-${options.prNumber}-threads.json`,
 ];
 
 const pr = options.prJson
@@ -344,18 +362,47 @@ if (!pr) {
   );
 }
 
-const threadResult = options.threadsJson
-  ? readJsonFile(options.threadsJson, {
-      warnings,
-      context: `review threads for PR #${options.prNumber}`,
-      required: false,
-    })
-  : readGhJson(threadArgs, {
+let threadResult = null;
+if (options.threadsJson) {
+  threadResult = readJsonFile(options.threadsJson, {
+    warnings,
+    context: `review threads for PR #${options.prNumber}`,
+    required: false,
+  });
+  if (threadResult && !Array.isArray(threadResult) && !offlineThreadsComplete(threadResult)) {
+    fail("offline review-thread JSON does not prove pagination is complete");
+  }
+} else {
+  const allNodes = [];
+  let after = null;
+  let page = 0;
+  while (page < 20) {
+    const pageResult = readGhJson(threadArgs(owner, name, options.prNumber, after), {
       warnings,
       fallbackCommands,
       context: `review threads for PR #${options.prNumber}`,
-      required: false,
+      required: page === 0,
     });
+    if (!pageResult) break;
+    const connection = threadConnection(pageResult);
+    if (!connection || !Array.isArray(connection.nodes)) break;
+    allNodes.push(...connection.nodes);
+    page += 1;
+    if (!connection.pageInfo?.hasNextPage) {
+      threadResult = allNodes;
+      break;
+    }
+    after = connection.pageInfo.endCursor;
+    if (!after) {
+      fail("review thread pagination reported another page without an endCursor");
+      break;
+    }
+  }
+  if (!threadResult && allNodes.length > 0) {
+    fail("review thread pagination did not complete within the safety limit");
+    threadResult = allNodes;
+  }
+}
 const reviewThreads = reviewThreadNodes(threadResult);
 if (!reviewThreads) {
   fail("review thread state unavailable; cannot prove there are no unresolved inline comments");

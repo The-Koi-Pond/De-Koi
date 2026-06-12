@@ -150,10 +150,26 @@ function hasReviewDisposition(item) {
   return Boolean(item?.finding && disposition && action);
 }
 
+function isManualBlockerResolved(blocker) {
+  if (blocker?.resolved === true || blocker?.cleared === true) return true;
+  const disposition = String(blocker?.disposition ?? blocker?.status ?? blocker?.resolution ?? "").toLowerCase();
+  return ["resolved", "cleared", "not-blocking", "not_blocking", "accepted-risk", "accepted_risk"].includes(disposition);
+}
+
 function manualBlockerFailures(manualBlockers) {
   return asArray(manualBlockers).flatMap((blocker, index) => {
-    if (blocker && typeof blocker === "object" && "blockingCoreClaim" in blocker) return [];
-    return [`manualBlockers[${index}] must state blockingCoreClaim true/false`];
+    const failures = [];
+    if (!blocker || typeof blocker !== "object" || !("blockingCoreClaim" in blocker)) {
+      failures.push(`manualBlockers[${index}] must state blockingCoreClaim true/false`);
+      return failures;
+    }
+    if (typeof blocker.blockingCoreClaim !== "boolean") {
+      failures.push(`manualBlockers[${index}].blockingCoreClaim must be a boolean`);
+    }
+    if (blocker.blockingCoreClaim === true && !isManualBlockerResolved(blocker)) {
+      failures.push(`manualBlockers[${index}] blocks the core claim until it is resolved or cleared`);
+    }
+    return failures;
   });
 }
 

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 export function shellQuote(value) {
   const text = String(value);
   if (/^[A-Za-z0-9_./:@=-]+$/.test(text)) return text;
-  return `"${text.replace(/"/g, '\\"')}"`;
+  return `'${text.replace(/'/g, "'\\''")}'`;
 }
 
 export function ghCommand(args) {

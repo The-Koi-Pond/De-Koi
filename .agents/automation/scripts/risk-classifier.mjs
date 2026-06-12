@@ -12,7 +12,7 @@ const RISK_CATEGORIES = [
   {
     name: "import-export",
     keywords: ["import", "export"],
-    pathRules: [/(^|\/)(import|export)(\/|\.|$)/i],
+    pathRules: [/(^|\/|[-_.])(imports?|importer|exports?|exporter|import-export|export-import)(\/|[-_.]|$)/i],
   },
   {
     name: "prompt-agent-lorebook",

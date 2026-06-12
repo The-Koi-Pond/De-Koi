@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 function usage() {
   console.log(`Usage:
@@ -32,17 +32,17 @@ function parseArgs(argv) {
       continue;
     }
     if (arg === "--ledger") {
-      options.ledger = argv[index + 1] ?? null;
+      options.ledger = optionValue(argv, index, "--ledger");
       index += 1;
       continue;
     }
     if (arg === "--url") {
-      options.urls.push(argv[index + 1] ?? null);
+      options.urls.push(optionValue(argv, index, "--url"));
       index += 1;
       continue;
     }
     if (arg === "--description") {
-      options.description = argv[index + 1] ?? null;
+      options.description = optionValue(argv, index, "--description");
       index += 1;
       continue;
     }
@@ -55,6 +55,25 @@ function parseArgs(argv) {
   }
   options.urls = options.urls.filter(Boolean);
   return options;
+}
+
+function optionValue(argv, index, optionName) {
+  const value = argv[index + 1];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${optionName} requires a value`);
+  }
+  return value;
+}
+
+function safeEvidenceSlug(value) {
+  const slug = String(value ?? "")
+    .replace(/^#/, "issue-")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!slug || slug === "." || slug === ".." || !/[a-zA-Z0-9]/.test(slug)) {
+    throw new Error("Evidence slug must include at least one alphanumeric character and cannot be . or ..");
+  }
+  return slug;
 }
 
 function updateLedger(ledgerPath, evidence) {
@@ -110,8 +129,18 @@ if (options.sourcePaths.length > 0) {
     process.exit(3);
   }
 
-  const safeSlug = options.issueOrSlug.replace(/^#/, "issue-").replace(/[^a-zA-Z0-9._-]+/g, "-");
-  targetDir = join("docs", "pr-evidence", safeSlug);
+  const safeSlug = safeEvidenceSlug(options.issueOrSlug);
+  const evidenceRoot = resolve("docs", "pr-evidence");
+  targetDir = resolve(evidenceRoot, safeSlug);
+  const relativeTargetDir = relative(evidenceRoot, targetDir);
+  if (
+    !relativeTargetDir ||
+    relativeTargetDir === ".." ||
+    relativeTargetDir.startsWith(`..${sep}`) ||
+    isAbsolute(relativeTargetDir)
+  ) {
+    throw new Error("Evidence target directory escaped docs/pr-evidence");
+  }
   mkdirSync(targetDir, { recursive: true });
 
   for (const sourcePath of options.sourcePaths) {
@@ -119,7 +148,7 @@ if (options.sourcePaths.length > 0) {
     if (!stats.isFile()) throw new Error(`${sourcePath} is not a file`);
 
     const targetPath = join(targetDir, basename(sourcePath));
-    const normalizedTargetPath = targetPath.replaceAll("\\", "/");
+    const normalizedTargetPath = relative(".", targetPath).replaceAll("\\", "/");
     copyFileSync(sourcePath, targetPath);
     copied.push(normalizedTargetPath);
     evidence.push({
