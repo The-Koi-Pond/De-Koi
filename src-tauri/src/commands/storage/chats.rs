@@ -2006,7 +2006,8 @@ fn public_memory_recall_export_chunk(memory: &Value, fallback_now: &str) -> Opti
 }
 
 type MemoryRecallImportKey = (String, String, String);
-type NormalizedMemoryRecallImportChunk = (Map<String, Value>, MemoryRecallImportKey, String);
+type MemoryRecallImportKeys = Vec<MemoryRecallImportKey>;
+type NormalizedMemoryRecallImportChunk = (Map<String, Value>, MemoryRecallImportKeys, String);
 
 fn memory_recall_import_timestamp_key(value: &Value) -> (String, String) {
     let has_first_message_at = value.get("firstMessageAt").is_some();
@@ -2037,9 +2038,25 @@ fn memory_recall_import_key_for_content(value: &Value, content: &str) -> MemoryR
     (first_message_at, last_message_at, content.to_string())
 }
 
-fn memory_recall_import_key(memory: &Value) -> Option<MemoryRecallImportKey> {
+fn memory_recall_import_keys_for_content(value: &Value, content: &str) -> MemoryRecallImportKeys {
+    let primary_key = memory_recall_import_key_for_content(value, content);
+    let mut keys = vec![primary_key.clone()];
+    let has_range_field =
+        value.get("firstMessageAt").is_some() || value.get("lastMessageAt").is_some();
+    if has_range_field && primary_key.0.is_empty() && primary_key.1.is_empty() {
+        if let Some(created_at) = string_field_trimmed(value, "createdAt") {
+            let created_at_key = (created_at.clone(), created_at, content.to_string());
+            if !keys.contains(&created_at_key) {
+                keys.push(created_at_key);
+            }
+        }
+    }
+    keys
+}
+
+fn memory_recall_import_keys(memory: &Value) -> Option<MemoryRecallImportKeys> {
     let content = string_field_trimmed(memory, "content")?;
-    Some(memory_recall_import_key_for_content(memory, &content))
+    Some(memory_recall_import_keys_for_content(memory, &content))
 }
 
 fn memory_recall_import_chunks(body: &Value) -> AppResult<(&Vec<Value>, String)> {
@@ -2086,11 +2103,7 @@ fn normalize_memory_recall_import_chunk(
 ) -> Option<NormalizedMemoryRecallImportChunk> {
     let content = string_field_trimmed(value, "content")?;
     let (first_message_at, last_message_at) = memory_recall_import_timestamp_key(value);
-    let key = (
-        first_message_at.clone(),
-        last_message_at.clone(),
-        content.clone(),
-    );
+    let keys = memory_recall_import_keys_for_content(value, &content);
     let incoming_created_at = string_field_trimmed(value, "createdAt");
     let created_at = incoming_created_at
         .clone()
@@ -2119,7 +2132,7 @@ fn normalize_memory_recall_import_chunk(
         memory.insert("embedding".to_string(), embedding);
     }
 
-    Some((memory, key, content))
+    Some((memory, keys, content))
 }
 
 pub(crate) async fn import_chat_memories(
@@ -2139,22 +2152,24 @@ pub(crate) async fn import_chat_memories(
     };
     let mut seen = memories
         .iter()
-        .filter_map(memory_recall_import_key)
+        .filter_map(memory_recall_import_keys)
+        .flatten()
         .collect::<HashSet<_>>();
     let now = now_iso();
     let mut imported = 0usize;
     let mut skipped = 0usize;
     for value in incoming {
-        let Some((mut memory, key, content)) =
+        let Some((mut memory, keys, content)) =
             normalize_memory_recall_import_chunk(value, chat_id, &source_chat_id, &now)
         else {
             skipped += 1;
             continue;
         };
-        if !seen.insert(key) {
+        if keys.iter().any(|key| seen.contains(key)) {
             skipped += 1;
             continue;
         }
+        seen.extend(keys);
         let has_embedding = memory
             .get("embedding")
             .and_then(Value::as_array)
@@ -6605,6 +6620,15 @@ mod tests {
                             "content": "range-less memory",
                             "messageCount": 1,
                             "createdAt": "2026-06-01T10:00:00.000Z"
+                        },
+                        {
+                            "id": "blank-legacy",
+                            "chatId": "chat-1",
+                            "content": "blank range memory",
+                            "messageCount": 1,
+                            "firstMessageAt": "",
+                            "lastMessageAt": "",
+                            "createdAt": "2026-06-01T10:30:00.000Z"
                         }
                     ]
                 }),
@@ -6632,6 +6656,12 @@ mod tests {
                             "createdAt": "2026-06-01T10:00:00.000Z"
                         },
                         {
+                            "content": "blank range memory",
+                            "embedding": null,
+                            "messageCount": 1,
+                            "createdAt": "2026-06-01T10:30:00.000Z"
+                        },
+                        {
                             "content": "range-less memory",
                             "embedding": null,
                             "messageCount": 1,
@@ -6648,7 +6678,7 @@ mod tests {
         .expect("legacy range-less import should dedupe by normalized key");
 
         assert_eq!(result["imported"], json!(1));
-        assert_eq!(result["skipped"], json!(1));
+        assert_eq!(result["skipped"], json!(2));
         assert_eq!(result["replaced"], json!(false));
         let chat = state
             .storage
@@ -6658,10 +6688,11 @@ mod tests {
         let memories = chat["memories"]
             .as_array()
             .expect("memories should be an array");
-        assert_eq!(memories.len(), 2);
+        assert_eq!(memories.len(), 3);
         assert_eq!(memories[0]["id"], json!("legacy"));
+        assert_eq!(memories[1]["id"], json!("blank-legacy"));
         assert_eq!(
-            memories[1]["firstMessageAt"],
+            memories[2]["firstMessageAt"],
             json!("2026-06-01T11:00:00.000Z")
         );
     }
