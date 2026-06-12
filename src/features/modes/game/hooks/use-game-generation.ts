@@ -2,11 +2,10 @@ import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { runGenerationWithUi, useGenerate, type GenerateArgs } from "../../../runtime/generation/index";
 import { startGameTurnGeneration, type StartGameTurnInput } from "../../../../engine/modes/game/turn/game-turn.service";
+import type { StreamEvent } from "../../../../engine/contracts/types/chat";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { integrationGateway } from "../../../../shared/api/integration-gateway";
-
-type StreamEvent = { type: string; data?: unknown };
 
 export type GenerateGameTurnArgs = GenerateArgs & StartGameTurnInput;
 

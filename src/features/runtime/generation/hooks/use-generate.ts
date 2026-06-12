@@ -9,7 +9,7 @@ import {
   type CharacterCardFieldUpdate,
   type EditableCharacterCardField,
 } from "../../../../engine/contracts/types/agent";
-import type { Chat, Message } from "../../../../engine/contracts/types/chat";
+import type { Chat, Message, StreamEvent } from "../../../../engine/contracts/types/chat";
 import type {
   CharacterStat,
   CustomTrackerField,
@@ -76,7 +76,6 @@ export type GenerateArgs = GenerationReplayInput & {
   [key: string]: unknown;
 };
 
-type StreamEvent = { type: string; data?: unknown };
 type QueryClient = ReturnType<typeof useQueryClient>;
 type GenerationStreamFactory = (args: GenerateArgs, signal: AbortSignal) => AsyncGenerator<StreamEvent>;
 type AgentResultEffectOptions = {
