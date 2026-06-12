@@ -2009,12 +2009,26 @@ type MemoryRecallImportKey = (String, String, String);
 type NormalizedMemoryRecallImportChunk = (Map<String, Value>, MemoryRecallImportKey, String);
 
 fn memory_recall_import_timestamp_key(value: &Value) -> (String, String) {
+    let has_first_message_at = value.get("firstMessageAt").is_some();
+    let has_last_message_at = value.get("lastMessageAt").is_some();
     let created_at = string_field_trimmed(value, "createdAt");
-    let first_message_at = string_field_trimmed(value, "firstMessageAt")
-        .or_else(|| created_at.clone())
+    let first_message_at_raw = string_field_trimmed(value, "firstMessageAt");
+    let last_message_at_raw = string_field_trimmed(value, "lastMessageAt");
+    let can_fallback_to_created_at = !has_first_message_at && !has_last_message_at;
+    let first_message_at = first_message_at_raw
+        .clone()
+        .or_else(|| {
+            can_fallback_to_created_at
+                .then(|| created_at.clone())
+                .flatten()
+        })
         .unwrap_or_default();
-    let last_message_at =
-        string_field_trimmed(value, "lastMessageAt").unwrap_or_else(|| first_message_at.clone());
+    let last_message_at = last_message_at_raw
+        .or_else(|| {
+            (!has_last_message_at && (first_message_at_raw.is_some() || can_fallback_to_created_at))
+                .then(|| first_message_at.clone())
+        })
+        .unwrap_or_default();
     (first_message_at, last_message_at)
 }
 
@@ -2071,15 +2085,16 @@ fn normalize_memory_recall_import_chunk(
     now: &str,
 ) -> Option<NormalizedMemoryRecallImportChunk> {
     let content = string_field_trimmed(value, "content")?;
-    let key = memory_recall_import_key_for_content(value, &content);
+    let (first_message_at, last_message_at) = memory_recall_import_timestamp_key(value);
+    let key = (
+        first_message_at.clone(),
+        last_message_at.clone(),
+        content.clone(),
+    );
     let incoming_created_at = string_field_trimmed(value, "createdAt");
     let created_at = incoming_created_at
         .clone()
         .unwrap_or_else(|| now.to_string());
-    let first_message_at =
-        string_field_trimmed(value, "firstMessageAt").or(incoming_created_at.clone());
-    let last_message_at =
-        string_field_trimmed(value, "lastMessageAt").or_else(|| first_message_at.clone());
     let message_count = positive_usize_field(value, "messageCount").unwrap_or(1);
 
     let mut memory = Map::new();
@@ -2095,12 +2110,9 @@ fn normalize_memory_recall_import_chunk(
     memory.insert("messageCount".to_string(), json!(message_count));
     memory.insert(
         "firstMessageAt".to_string(),
-        Value::String(first_message_at.unwrap_or_default()),
+        Value::String(first_message_at),
     );
-    memory.insert(
-        "lastMessageAt".to_string(),
-        Value::String(last_message_at.unwrap_or_default()),
-    );
+    memory.insert("lastMessageAt".to_string(), Value::String(last_message_at));
     memory.insert("createdAt".to_string(), Value::String(created_at));
     let embedding = public_memory_recall_embedding(value.get("embedding"));
     if !embedding.is_null() {
@@ -6411,8 +6423,6 @@ mod tests {
                             "content": "replacement memory",
                             "embedding": null,
                             "messageCount": 0,
-                            "firstMessageAt": "",
-                            "lastMessageAt": "",
                             "createdAt": "2026-06-02T10:00:00.000Z"
                         }
                     ]
@@ -6619,8 +6629,6 @@ mod tests {
                             "content": "range-less memory",
                             "embedding": null,
                             "messageCount": 1,
-                            "firstMessageAt": "",
-                            "lastMessageAt": "",
                             "createdAt": "2026-06-01T10:00:00.000Z"
                         },
                         {
@@ -6655,6 +6663,99 @@ mod tests {
         assert_eq!(
             memories[1]["firstMessageAt"],
             json!("2026-06-01T11:00:00.000Z")
+        );
+    }
+
+    #[tokio::test]
+    async fn import_chat_memories_dedupes_reimported_no_date_chunks() {
+        let state = test_state("memory-import-no-date-dedupe");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": []
+                }),
+            )
+            .expect("chat should seed");
+
+        let no_date_body = json!({
+            "type": "marinara_memory_recall",
+            "version": 1,
+            "data": {
+                "sourceChat": {
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "mode": "conversation",
+                    "memoryCount": 1
+                },
+                "chunks": [
+                    {
+                        "content": "no date memory",
+                        "embedding": null,
+                        "messageCount": 1
+                    }
+                ]
+            }
+        });
+
+        let first_result = import_chat_memories(&state, "chat-1", no_date_body.clone(), None)
+            .await
+            .expect("first no-date import should append");
+        let second_result = import_chat_memories(&state, "chat-1", no_date_body, None)
+            .await
+            .expect("second no-date import should dedupe");
+        let ranged_result = import_chat_memories(
+            &state,
+            "chat-1",
+            json!({
+                "type": "marinara_memory_recall",
+                "version": 1,
+                "data": {
+                    "sourceChat": {
+                        "id": "chat-1",
+                        "name": "Memory chat",
+                        "mode": "conversation",
+                        "memoryCount": 1
+                    },
+                    "chunks": [
+                        {
+                            "content": "no date memory",
+                            "embedding": null,
+                            "messageCount": 1,
+                            "firstMessageAt": "2026-06-01T12:00:00.000Z",
+                            "lastMessageAt": "2026-06-01T12:01:00.000Z",
+                            "createdAt": "2026-06-01T12:02:00.000Z"
+                        }
+                    ]
+                }
+            }),
+            None,
+        )
+        .await
+        .expect("distinct real range should append");
+
+        assert_eq!(first_result["imported"], json!(1));
+        assert_eq!(second_result["imported"], json!(0));
+        assert_eq!(second_result["skipped"], json!(1));
+        assert_eq!(ranged_result["imported"], json!(1));
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        let memories = chat["memories"]
+            .as_array()
+            .expect("memories should be an array");
+        assert_eq!(memories.len(), 2);
+        assert_eq!(memories[0]["content"], json!("no date memory"));
+        assert_eq!(memories[0]["firstMessageAt"], json!(""));
+        assert_eq!(memories[0]["lastMessageAt"], json!(""));
+        assert_eq!(
+            memories[1]["firstMessageAt"],
+            json!("2026-06-01T12:00:00.000Z")
         );
     }
 
