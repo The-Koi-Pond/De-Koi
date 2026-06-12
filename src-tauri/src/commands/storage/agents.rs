@@ -272,6 +272,9 @@ pub(crate) fn update_agent_image_by_type(
     agent_type: &str,
     body: Value,
 ) -> AppResult<Value> {
+    if find_agent_config(state, agent_type)?.is_none() && !is_built_in_agent_type(agent_type) {
+        return Err(unknown_built_in_agent_type(agent_type));
+    }
     let agent = get_or_create_agent_config(state, agent_type)?;
     let id = agent
         .get("id")

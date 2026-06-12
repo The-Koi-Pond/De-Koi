@@ -1453,6 +1453,11 @@ mod tests {
                 "agent_cadence_status",
                 json!({ "agentType": "bogus-agent", "chatId": "chat-1" }),
             ),
+            (
+                "image-upload",
+                "agent_type_image_upload",
+                json!({ "agentType": "bogus-agent", "body": upload_body("bogus-agent.png") }),
+            ),
         ] {
             let state = test_state(&format!("unknown-agent-{label}"));
             let error = dispatch(
@@ -1510,6 +1515,31 @@ mod tests {
         assert_eq!(patched.get("enabled").and_then(Value::as_bool), Some(false));
         assert_eq!(status["agentType"], "director");
         assert_eq!(status["runInterval"], 5);
+
+        let uploaded = dispatch(
+            &state,
+            InvokeRequest {
+                command: "agent_type_image_upload".to_string(),
+                args: Some(json!({
+                    "agentType": "illustrator",
+                    "body": {
+                        "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lTmZsgAAAABJRU5ErkJggg==",
+                        "filename": "illustrator.png"
+                    }
+                })),
+            },
+        )
+        .await
+        .expect("known built-in by-type image upload should dispatch");
+
+        assert_eq!(
+            uploaded.get("type").and_then(Value::as_str),
+            Some("illustrator")
+        );
+        assert!(uploaded
+            .get("imagePath")
+            .and_then(Value::as_str)
+            .is_some_and(|path| !path.starts_with("data:image/")));
     }
 
     fn write_game_asset_png(state: &AppState, path: &str) {
