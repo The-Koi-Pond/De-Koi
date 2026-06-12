@@ -248,6 +248,10 @@ runNode(["-e", "import { chromium } from '@playwright/test'; if (!chromium?.laun
 const prHealthSource = readFileSync(".agents/automation/scripts/pr-health.mjs", "utf8");
 expect(prHealthSource.includes("pageInfo"), "pr-health review-thread query must request pageInfo");
 expect(prHealthSource.includes("while (page < 20)"), "pr-health must paginate review-thread reads");
+expect(
+  prHealthSource.includes('"UI evidence"') && !prHealthSource.includes('"UI evidence (if applicable)"'),
+  "pr-health required headings must match the repository PR template",
+);
 
 if (failures.length > 0) {
   console.error("Agent workflow checks failed:");

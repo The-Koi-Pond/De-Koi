@@ -12,7 +12,7 @@ const REQUIRED_TEMPLATE_HEADINGS = [
   "What changed",
   "Validation",
   "Docs and release impact",
-  "UI evidence (if applicable)",
+  "UI evidence",
 ];
 
 function usage() {
