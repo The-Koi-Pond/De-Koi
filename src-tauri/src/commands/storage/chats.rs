@@ -2054,9 +2054,18 @@ fn memory_recall_import_keys_for_content(value: &Value, content: &str) -> Memory
     keys
 }
 
-fn memory_recall_import_keys(memory: &Value) -> Option<MemoryRecallImportKeys> {
+fn memory_recall_existing_keys(memory: &Value) -> Option<MemoryRecallImportKeys> {
     let content = string_field_trimmed(memory, "content")?;
-    Some(memory_recall_import_keys_for_content(memory, &content))
+    let mut keys = memory_recall_import_keys_for_content(memory, &content);
+    let has_range_field =
+        memory.get("firstMessageAt").is_some() || memory.get("lastMessageAt").is_some();
+    if !has_range_field && string_field_trimmed(memory, "createdAt").is_some() {
+        let range_less_key = (String::new(), String::new(), content);
+        if !keys.contains(&range_less_key) {
+            keys.push(range_less_key);
+        }
+    }
+    Some(keys)
 }
 
 fn memory_recall_import_chunks(body: &Value) -> AppResult<(&Vec<Value>, String)> {
@@ -2152,7 +2161,7 @@ pub(crate) async fn import_chat_memories(
     };
     let mut seen = memories
         .iter()
-        .filter_map(memory_recall_import_keys)
+        .filter_map(memory_recall_existing_keys)
         .flatten()
         .collect::<HashSet<_>>();
     let now = now_iso();
@@ -2169,7 +2178,6 @@ pub(crate) async fn import_chat_memories(
             skipped += 1;
             continue;
         }
-        seen.extend(keys);
         let has_embedding = memory
             .get("embedding")
             .and_then(Value::as_array)
@@ -2182,6 +2190,11 @@ pub(crate) async fn import_chat_memories(
         } else {
             memory.insert("hasEmbedding".to_string(), json!(true));
             memory.insert("embeddingStatus".to_string(), json!("vectorized"));
+        }
+        if let Some(stored_keys) = memory_recall_existing_keys(&Value::Object(memory.clone())) {
+            seen.extend(stored_keys);
+        } else {
+            seen.extend(keys);
         }
         memories.push(Value::Object(memory));
         imported += 1;
@@ -6656,6 +6669,11 @@ mod tests {
                             "createdAt": "2026-06-01T10:00:00.000Z"
                         },
                         {
+                            "content": "range-less memory",
+                            "embedding": null,
+                            "messageCount": 1
+                        },
+                        {
                             "content": "blank range memory",
                             "embedding": null,
                             "messageCount": 1,
@@ -6678,7 +6696,7 @@ mod tests {
         .expect("legacy range-less import should dedupe by normalized key");
 
         assert_eq!(result["imported"], json!(1));
-        assert_eq!(result["skipped"], json!(2));
+        assert_eq!(result["skipped"], json!(3));
         assert_eq!(result["replaced"], json!(false));
         let chat = state
             .storage
