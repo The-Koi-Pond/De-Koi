@@ -2005,12 +2005,27 @@ fn public_memory_recall_export_chunk(memory: &Value, fallback_now: &str) -> Opti
     }))
 }
 
-fn memory_recall_import_key(memory: &Value) -> Option<(String, String, String)> {
-    Some((
-        string_field_trimmed(memory, "firstMessageAt").unwrap_or_default(),
-        string_field_trimmed(memory, "lastMessageAt").unwrap_or_default(),
-        string_field_trimmed(memory, "content")?,
-    ))
+type MemoryRecallImportKey = (String, String, String);
+type NormalizedMemoryRecallImportChunk = (Map<String, Value>, MemoryRecallImportKey, String);
+
+fn memory_recall_import_timestamp_key(value: &Value) -> (String, String) {
+    let created_at = string_field_trimmed(value, "createdAt");
+    let first_message_at = string_field_trimmed(value, "firstMessageAt")
+        .or_else(|| created_at.clone())
+        .unwrap_or_default();
+    let last_message_at =
+        string_field_trimmed(value, "lastMessageAt").unwrap_or_else(|| first_message_at.clone());
+    (first_message_at, last_message_at)
+}
+
+fn memory_recall_import_key_for_content(value: &Value, content: &str) -> MemoryRecallImportKey {
+    let (first_message_at, last_message_at) = memory_recall_import_timestamp_key(value);
+    (first_message_at, last_message_at, content.to_string())
+}
+
+fn memory_recall_import_key(memory: &Value) -> Option<MemoryRecallImportKey> {
+    let content = string_field_trimmed(memory, "content")?;
+    Some(memory_recall_import_key_for_content(memory, &content))
 }
 
 fn memory_recall_import_chunks(body: &Value) -> AppResult<(&Vec<Value>, String)> {
@@ -2054,13 +2069,17 @@ fn normalize_memory_recall_import_chunk(
     chat_id: &str,
     source_chat_id: &str,
     now: &str,
-) -> Option<(Map<String, Value>, (String, String, String), String)> {
+) -> Option<NormalizedMemoryRecallImportChunk> {
     let content = string_field_trimmed(value, "content")?;
-    let created_at = string_field_trimmed(value, "createdAt").unwrap_or_else(|| now.to_string());
+    let key = memory_recall_import_key_for_content(value, &content);
+    let incoming_created_at = string_field_trimmed(value, "createdAt");
+    let created_at = incoming_created_at
+        .clone()
+        .unwrap_or_else(|| now.to_string());
     let first_message_at =
-        string_field_trimmed(value, "firstMessageAt").unwrap_or_else(|| created_at.clone());
+        string_field_trimmed(value, "firstMessageAt").or(incoming_created_at.clone());
     let last_message_at =
-        string_field_trimmed(value, "lastMessageAt").unwrap_or_else(|| first_message_at.clone());
+        string_field_trimmed(value, "lastMessageAt").or_else(|| first_message_at.clone());
     let message_count = positive_usize_field(value, "messageCount").unwrap_or(1);
 
     let mut memory = Map::new();
@@ -2076,11 +2095,11 @@ fn normalize_memory_recall_import_chunk(
     memory.insert("messageCount".to_string(), json!(message_count));
     memory.insert(
         "firstMessageAt".to_string(),
-        Value::String(first_message_at.clone()),
+        Value::String(first_message_at.unwrap_or_default()),
     );
     memory.insert(
         "lastMessageAt".to_string(),
-        Value::String(last_message_at.clone()),
+        Value::String(last_message_at.unwrap_or_default()),
     );
     memory.insert("createdAt".to_string(), Value::String(created_at));
     let embedding = public_memory_recall_embedding(value.get("embedding"));
@@ -2088,11 +2107,7 @@ fn normalize_memory_recall_import_chunk(
         memory.insert("embedding".to_string(), embedding);
     }
 
-    Some((
-        memory,
-        (first_message_at, last_message_at, content.clone()),
-        content,
-    ))
+    Some((memory, key, content))
 }
 
 pub(crate) async fn import_chat_memories(
@@ -2104,9 +2119,7 @@ pub(crate) async fn import_chat_memories(
     let chat = get_required(state, "chats", chat_id)?;
     let embedding_context = memory_embedding_context(state, &chat);
     let (incoming, source_chat_id) = memory_recall_import_chunks(&body)?;
-    let replace = replace
-        .or_else(|| body.get("replace").and_then(Value::as_bool))
-        .unwrap_or(false);
+    let replace = replace.unwrap_or(false);
     let mut memories = if replace {
         Vec::new()
     } else {
@@ -6386,7 +6399,6 @@ mod tests {
             json!({
                 "type": "marinara_memory_recall",
                 "version": 1,
-                "replace": true,
                 "data": {
                     "sourceChat": {
                         "id": "chat-1",
@@ -6406,7 +6418,7 @@ mod tests {
                     ]
                 }
             }),
-            None,
+            Some(true),
         )
         .await
         .expect("memory import should succeed");
@@ -6428,6 +6440,78 @@ mod tests {
         assert_eq!(memories[0]["firstMessageAt"], memories[0]["createdAt"]);
         assert_eq!(memories[0]["lastMessageAt"], memories[0]["createdAt"]);
         assert!(memories[0].get("sourceChatId").is_none());
+    }
+
+    #[tokio::test]
+    async fn import_chat_memories_ignores_payload_replace_without_explicit_option() {
+        let state = test_state("memory-import-payload-replace-ignored");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": [
+                        {
+                            "id": "existing",
+                            "chatId": "chat-1",
+                            "content": "keep me",
+                            "messageCount": 5,
+                            "firstMessageAt": "2026-06-01T10:00:00.000Z",
+                            "lastMessageAt": "2026-06-01T10:04:00.000Z",
+                            "createdAt": "2026-06-01T10:05:00.000Z"
+                        }
+                    ]
+                }),
+            )
+            .expect("chat should seed");
+
+        let result = import_chat_memories(
+            &state,
+            "chat-1",
+            json!({
+                "type": "marinara_memory_recall",
+                "version": 1,
+                "replace": true,
+                "data": {
+                    "sourceChat": {
+                        "id": "chat-1",
+                        "name": "Memory chat",
+                        "mode": "conversation",
+                        "memoryCount": 1
+                    },
+                    "chunks": [
+                        {
+                            "content": "append me",
+                            "embedding": null,
+                            "messageCount": 1,
+                            "firstMessageAt": "2026-06-02T10:00:00.000Z",
+                            "lastMessageAt": "2026-06-02T10:01:00.000Z",
+                            "createdAt": "2026-06-02T10:02:00.000Z"
+                        }
+                    ]
+                }
+            }),
+            None,
+        )
+        .await
+        .expect("payload replace should not clear existing memories");
+
+        assert_eq!(result["imported"], json!(1));
+        assert_eq!(result["skipped"], json!(0));
+        assert_eq!(result["replaced"], json!(false));
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        let memories = chat["memories"]
+            .as_array()
+            .expect("memories should be an array");
+        assert_eq!(memories.len(), 2);
+        assert_eq!(memories[0]["id"], json!("existing"));
+        assert_eq!(memories[1]["content"], json!("append me"));
     }
 
     #[tokio::test]
@@ -6461,7 +6545,6 @@ mod tests {
             json!({
                 "type": "marinara_memory_recall",
                 "version": 1,
-                "replace": true,
                 "data": {
                     "sourceChat": {
                         "id": "chat-1",
@@ -6481,7 +6564,7 @@ mod tests {
                     ]
                 }
             }),
-            None,
+            Some(true),
         )
         .await
         .expect_err("empty replacement set should be rejected");
@@ -6493,6 +6576,86 @@ mod tests {
             .expect("chat should read")
             .expect("chat should exist");
         assert_eq!(memory_ids(&chat["memories"]), vec!["existing"]);
+    }
+
+    #[tokio::test]
+    async fn import_chat_memories_dedupes_legacy_range_less_existing_memories() {
+        let state = test_state("memory-import-range-less-dedupe");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": [
+                        {
+                            "id": "legacy",
+                            "chatId": "chat-1",
+                            "content": "range-less memory",
+                            "messageCount": 1,
+                            "createdAt": "2026-06-01T10:00:00.000Z"
+                        }
+                    ]
+                }),
+            )
+            .expect("chat should seed");
+
+        let result = import_chat_memories(
+            &state,
+            "chat-1",
+            json!({
+                "type": "marinara_memory_recall",
+                "version": 1,
+                "data": {
+                    "sourceChat": {
+                        "id": "chat-1",
+                        "name": "Memory chat",
+                        "mode": "conversation",
+                        "memoryCount": 2
+                    },
+                    "chunks": [
+                        {
+                            "content": "range-less memory",
+                            "embedding": null,
+                            "messageCount": 1,
+                            "firstMessageAt": "",
+                            "lastMessageAt": "",
+                            "createdAt": "2026-06-01T10:00:00.000Z"
+                        },
+                        {
+                            "content": "range-less memory",
+                            "embedding": null,
+                            "messageCount": 1,
+                            "firstMessageAt": "2026-06-01T11:00:00.000Z",
+                            "lastMessageAt": "2026-06-01T11:01:00.000Z",
+                            "createdAt": "2026-06-01T11:02:00.000Z"
+                        }
+                    ]
+                }
+            }),
+            None,
+        )
+        .await
+        .expect("legacy range-less import should dedupe by normalized key");
+
+        assert_eq!(result["imported"], json!(1));
+        assert_eq!(result["skipped"], json!(1));
+        assert_eq!(result["replaced"], json!(false));
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        let memories = chat["memories"]
+            .as_array()
+            .expect("memories should be an array");
+        assert_eq!(memories.len(), 2);
+        assert_eq!(memories[0]["id"], json!("legacy"));
+        assert_eq!(
+            memories[1]["firstMessageAt"],
+            json!("2026-06-01T11:00:00.000Z")
+        );
     }
 
     #[tokio::test]
