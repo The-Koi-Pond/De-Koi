@@ -617,6 +617,7 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                 state,
                 required_string(&args, "chatId")?,
                 optional_value(&args, "body"),
+                optional_bool(&args, "replace"),
             )
             .await
         }

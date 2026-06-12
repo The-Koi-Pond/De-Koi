@@ -34,8 +34,11 @@ export const chatCommandApi = {
   memoriesClear: (chatId: string | null) => invokeTauri("chat_memories_clear", { chatId }),
   memoriesRefresh: <T = unknown>(chatId: string | null) => invokeTauri<T>("chat_memories_refresh", { chatId }),
   memoriesExport: <T = unknown>(chatId: string) => invokeTauri<T>("chat_memories_export", { chatId }),
-  memoriesImport: <T = unknown>(chatId: string, body: unknown) =>
-    invokeTauri<T>("chat_memories_import", { chatId, body }),
+  memoriesImport: <T = unknown>(chatId: string, body: unknown, replace?: boolean) =>
+    invokeTauri<T>(
+      "chat_memories_import",
+      typeof replace === "boolean" ? { chatId, body, replace } : { chatId, body },
+    ),
   notesList: <T = unknown>(chatId: string | null) => invokeTauri<T>("chat_notes_list", { chatId }),
   noteDelete: (chatId: string | null, noteId: string) => invokeTauri("chat_note_delete", { chatId, noteId }),
   notesClear: (chatId: string | null) => invokeTauri("chat_notes_clear", { chatId }),
