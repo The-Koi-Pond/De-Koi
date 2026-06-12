@@ -729,14 +729,14 @@ fn normalized_st_message_timestamp(
 ) -> String {
     let normalized = if let Some(previous_timestamp) = previous.as_ref() {
         if candidate <= *previous_timestamp {
-            previous_timestamp.clone() + Duration::milliseconds(1)
+            *previous_timestamp + Duration::milliseconds(1)
         } else {
             candidate
         }
     } else {
         candidate
     };
-    *previous = Some(normalized.clone());
+    *previous = Some(normalized);
     normalized.to_rfc3339()
 }
 
@@ -1070,7 +1070,7 @@ fn import_st_chat_text(
                 "swipes": [{ "content": content, "extra": extra }]
             });
             let created_at = normalized_st_message_timestamp(
-                st_message_datetime(&row).unwrap_or_else(|| fallback_timestamp.clone()),
+                st_message_datetime(&row).unwrap_or(fallback_timestamp),
                 &mut previous_timestamp,
             );
             if let Some(object) = message_payload.as_object_mut() {
