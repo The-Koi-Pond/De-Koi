@@ -392,6 +392,40 @@ expectNodeFailureOutput(
   "pr-health must fail when an unresolved thread appears on a later captured page",
   /unresolved review thread: docs\/hidden\.md:7/,
 );
+const emptyThreadFixture = `${scratchDir}/pr-health-empty-threads.json`;
+writeFileSync(
+  emptyThreadFixture,
+  JSON.stringify(
+    [
+      {
+        data: {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                nodes: [],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          },
+        },
+      },
+    ],
+    null,
+    2,
+  ),
+);
+const emptyThreadsHealth = JSON.parse(
+  runNode([
+    ".agents/automation/scripts/pr-health.mjs",
+    "181",
+    "--pr-json",
+    prFixture,
+    "--threads-json",
+    emptyThreadFixture,
+  ]),
+);
+expect(emptyThreadsHealth.reviewThreads.unresolved === 0, "empty offline page captures must count as zero unresolved threads");
+expect(emptyThreadsHealth.ready === true, "empty offline page captures must not block otherwise clean PR health");
 
 const prHealthSource = readFileSync(".agents/automation/scripts/pr-health.mjs", "utf8");
 expect(prHealthSource.includes("pageInfo"), "pr-health review-thread query must request pageInfo");

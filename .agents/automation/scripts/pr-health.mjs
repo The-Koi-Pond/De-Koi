@@ -264,8 +264,11 @@ function looksLikeThreadNode(value) {
 function reviewThreadNodes(result) {
   if (Array.isArray(result)) {
     if (result.every(looksLikeThreadNode)) return result;
-    const pageNodes = result.flatMap((page) => threadConnection(page)?.nodes ?? []);
-    return pageNodes.length > 0 || result.length === 0 ? pageNodes : null;
+    const connections = result.map(threadConnection);
+    if (connections.every((connection) => connection && Array.isArray(connection.nodes))) {
+      return connections.flatMap((connection) => connection.nodes);
+    }
+    return result.length === 0 ? [] : null;
   }
   return threadConnection(result)?.nodes ?? null;
 }
