@@ -1,14 +1,14 @@
 # Contributing to De-Koi
 
-De-Koi is an unofficial Marinara Engine fork currently being rebuilt on the `refactor` branch as a local-first Tauri desktop app with a React UI, a React-free TypeScript product engine, and Rust capability modules. Use this guide with `README.md`, `AGENTS.md`, and the developer docs under `docs/developer/`.
+De-Koi is an unofficial Marinara Engine fork currently being rebuilt on the `main` branch as a local-first Tauri desktop app with a React UI, a React-free TypeScript product engine, and Rust capability modules. Use this guide with `README.md`, `AGENTS.md`, and the developer docs under `docs/developer/`.
 
 ## Branches
 
-Current development targets `refactor`.
+Current development targets `main`.
 
-- Base feature, bug fix, and documentation branches on `refactor`.
-- Open pull requests against `refactor`.
-- Do not target `main` unless a maintainer explicitly asks for a mainline or release change.
+- Base feature, bug fix, and documentation branches on `main`.
+- Open pull requests against `main`.
+- Do not target legacy integration branches unless a maintainer explicitly asks for compatibility work.
 - Keep PRs focused. Separate architecture moves, product behavior, UI polish, and docs-only work when they can be reviewed independently.
 
 ## Development Setup
@@ -25,7 +25,7 @@ Typical local setup:
 ```sh
 git clone https://github.com/The-Koi-Pond/De-Koi.git
 cd De-Koi
-git checkout refactor
+git checkout main
 pnpm install
 pnpm tauri dev
 ```
@@ -48,7 +48,7 @@ docker compose up --build
 
 ## Current Source Shape
 
-The refactor branch is layered by ownership:
+The main branch is layered by ownership:
 
 - `src/app` owns React bootstrap, app shell, providers, and startup effects.
 - `src/features` owns user-facing React workflows.
@@ -61,7 +61,7 @@ The refactor branch is layered by ownership:
 - `src/engine` owns React-free product behavior, contracts, generation, agents, capability ports, and mode engines.
 - `src-tauri` owns the Tauri host, command facades, HTTP server and dispatch, and Rust capability crates for core, storage, assets, LLM, integrations, and security.
 
-This ownership map follows the current refactor actual-state design. Keep contributor guidance consistent with the developer docs and architecture diagrams when those change.
+This ownership map follows the current main-branch actual-state design. Keep contributor guidance consistent with the developer docs and architecture diagrams when those change.
 
 ## Architecture Rules
 
@@ -125,9 +125,9 @@ Leave PR template checkboxes unchecked until a human has actually verified each 
 
 ## Docs And Release Notes
 
-Keep docs accurate for the refactor branch:
+Keep docs accurate for the main branch:
 
 - Update `README.md` and `docs/developer/` when run commands, architecture, source ownership, or validation changes.
 - Update `AGENTS.md` or repo skills only when contributor or agent workflow rules change.
-- Do not restore old `staging`, package-workspace, installer, release, screenshot, or changelog claims unless they are true for the refactor branch.
+- Do not restore old `staging`, `refactor`, package-workspace, installer, release, screenshot, or changelog claims unless they are true for the main branch.
 - Public release packaging, installation pages, final screenshots, release notes, and license metadata are still being rebuilt around the new architecture.

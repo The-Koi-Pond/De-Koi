@@ -57,9 +57,9 @@ evidence explicit in the final report.
 
 ## Branches And PR Targets
 
-The source pack has Marinara assumptions about legacy `staging` and team-branch workflow. This checkout targets `The-Koi-Pond/De-Koi` on the `refactor` branch unless the current task says otherwise.
+The source pack has Marinara assumptions about legacy `staging` and team-branch workflow. This checkout targets `The-Koi-Pond/De-Koi` on the `main` branch unless the current task says otherwise.
 
-Always verify `git status --short --branch`, `git branch --show-current`, and `git remote -v` before shipping. Do not assume `staging`, `main`, fork workflow, or team-branch workflow unless the current repo and user request confirm it.
+Always verify `git status --short --branch`, `git branch --show-current`, and `git remote -v` before shipping. Do not assume legacy `staging`, `refactor`, fork workflow, or team-branch workflow unless the current repo and user request confirm it.
 
 Never push directly to protected branches or force-push without explicit approval.
 

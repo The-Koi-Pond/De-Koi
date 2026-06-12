@@ -107,7 +107,7 @@ Use this for code reviews, PR preparation, PR iteration, and ready-for-review ga
 
 - For reviews, lead with findings ordered by severity. If no issues are found, say so.
 - Before pushing or opening a PR, check the dirty tree, remotes, branch, intended files, and target branch.
-- New refactor-line PRs should target `refactor` and be draft by default unless the maintainer says otherwise.
+- New De-Koi PRs should target `main` and be draft by default unless the maintainer says otherwise.
 - Before pushing, opening, or handing off a PR, run `pnpm check` after the final
   diff. It does not include the advisory unused-code check; run
   `pnpm check:unused` separately when dead-code risk matters.

@@ -50,5 +50,5 @@ Repo-specific tracked automation lives under `.agents/automation/scripts/`: `pro
 - Issue templates: `.github/ISSUE_TEMPLATE/issue_report.md` and `.github/ISSUE_TEMPLATE/feature_request.md`.
 - Architecture docs: `docs/developer/architecture.html`, `modules.html`, and `impact-areas.html`.
 - Durable bug/work tracking: GitHub issues and PRs, not repo-local update files.
-- Current refactor workflow target: `The-Koi-Pond/De-Koi`, branch `refactor`.
+- Current De-Koi workflow target: `The-Koi-Pond/De-Koi`, branch `main`.
 - Repo-local automation scripts are present under `.agents/automation/scripts`.

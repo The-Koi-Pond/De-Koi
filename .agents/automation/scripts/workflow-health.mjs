@@ -9,11 +9,11 @@ const DEFAULT_VAULT_TASKS =
   process.env.MARINARA_VAULT_TASKS ?? "D:\\Downloads\\ME-Knowledge-Base\\ME-Knowledge-Base\\05-tasks";
 const ACTIVE_TASK_STATUSES = new Set(["Up Next", "In Progress", "In Review"]);
 const WORKFLOW_POLICY = {
-  defaultBaseBranch: "refactor",
-  expectedPrTarget: "The-Koi-Pond/De-Koi:refactor",
-  comparisonBase: "origin/refactor",
+  defaultBaseBranch: "main",
+  expectedPrTarget: "The-Koi-Pond/De-Koi:main",
+  comparisonBase: "origin/main",
   teamBranchPreferred: true,
-  protectedBranches: ["main", "refactor"],
+  protectedBranches: ["main"],
 };
 const WORKFLOW_POLICY_SCAN_ROOTS = [
   "AGENTS.md",
@@ -26,19 +26,19 @@ const WORKFLOW_POLICY_SCAN_ROOTS = [
 const STALE_BRANCH_GUIDANCE = [
   {
     pattern: new RegExp(String.raw`\bupstream/` + "stag" + String.raw`ing\b`, "i"),
-    message: "stale branch guidance references the old integration branch; default De-Koi work should use origin/refactor",
+    message: "stale branch guidance references the old integration branch; default De-Koi work should use origin/main",
   },
   {
     pattern: new RegExp(String.raw`\bPasta-Devs/Marinara-Engine:` + "stag" + String.raw`ing\b`, "i"),
-    message: "stale PR target references the old Marinara staging branch; default De-Koi PRs target The-Koi-Pond/De-Koi:refactor",
+    message: "stale PR target references the old Marinara staging branch; default De-Koi PRs target The-Koi-Pond/De-Koi:main",
   },
   {
-    pattern: /\borigin\/main\b/i,
-    message: "stale comparison guidance references origin/main; default De-Koi work compares against origin/refactor",
+    pattern: /\borigin\/refactor\b/i,
+    message: "stale comparison guidance references origin/refactor; default De-Koi work compares against origin/main",
   },
   {
-    pattern: /\bThe-Koi-Pond\/De-Koi:main\b/i,
-    message: "stale PR target references De-Koi main; default De-Koi PRs target The-Koi-Pond/De-Koi:refactor",
+    pattern: /\bThe-Koi-Pond\/De-Koi:refactor\b/i,
+    message: "stale PR target references De-Koi refactor; default De-Koi PRs target The-Koi-Pond/De-Koi:main",
   },
   {
     pattern: /\b(?:CodeRabbit\b.{0,80}\b(?:required|gate|blocking)|(?:required|gate|blocking)\b.{0,80}\bCodeRabbit)\b/i,
@@ -46,16 +46,18 @@ const STALE_BRANCH_GUIDANCE = [
   },
   {
     pattern: new RegExp(
-      String.raw`\bThe-Koi-Pond/De-Koi:` +
+      String.raw`\bThe-Koi-Pond/De-Koi:(?:` +
         "stag" +
-        String.raw`ing\b|(?:default base(?: branch)?|PR target|target(?:ing|s)?)\s+` +
+        String.raw`ing|refactor)\b|(?:default base(?: branch)?|PR target|target(?:ing|s)?|comparison base|compare(?:s)? against|base branch)\b.{0,80}\b` +
+        "`?(?:" +
+        "stag" +
+        String.raw`ing|refactor)` +
         "`?" +
-        "stag" +
-        String.raw`ing` +
-        "`?",
+        String.raw`\b`,
       "i",
     ),
-    message: "stale target guidance may imply the old integration branch; default Marinara PRs target refactor",
+    message: "stale target guidance may imply an old integration branch; default De-Koi PRs target main",
+    skipIf: (text) => /\bdo not assume\b/i.test(text),
   },
 ];
 
@@ -500,7 +502,8 @@ function workflowPolicyWarnings(root) {
     if (relativePath === ".agents/automation/scripts/workflow-health.mjs") continue;
     const body = readFileSync(file, "utf8");
     for (const rule of STALE_BRANCH_GUIDANCE) {
-      if (rule.pattern.test(body)) {
+      const lines = body.split(/\r?\n/);
+      if (lines.some((line) => rule.pattern.test(line) && !rule.skipIf?.(line))) {
         warnings.push(`${relativePath}: ${rule.message}`);
       }
     }

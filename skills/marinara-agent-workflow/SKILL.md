@@ -66,7 +66,7 @@ For contract or boundary issues, complete the Contract Lane Gate before editing:
 
 Canonical lanes are `src/engine`, `src/features`, `src/shared/api`, `src-tauri`, `docs/workflow`, and `cross-boundary`. Use `cross-boundary` only when more than one lane must change, and still name the primary owning lane in `primaryOwnerDetail` or the contract text. Treat broad tracker issues as classification-only until they are sliced into owner-lane implementation PRs.
 
-For new implementation work on the refactor line, read `CONTRIBUTING.md`, confirm the current checkout against `origin/refactor`, and start from a fresh topic branch unless the user explicitly says to continue the current branch. For PRs, read `.github/pull_request_template.md` and preserve its sections.
+For new implementation work on De-Koi, read `CONTRIBUTING.md`, confirm the current checkout against `origin/main`, and start from a fresh topic branch unless the user explicitly says to continue the current branch. For PRs, read `.github/pull_request_template.md` and preserve its sections.
 
 This workflow does not restate Marinara's architecture rules. For module ownership, import direction, mode boundaries, or hostable runtime details, load the specific owner skill:
 

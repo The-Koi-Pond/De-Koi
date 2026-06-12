@@ -89,9 +89,8 @@ node .agents/automation/scripts/workflow-health.mjs --json
 ```
 
 `workflow-health` also prints the active workflow policy: default base branch
-`refactor`, PR target `The-Koi-Pond/De-Koi:refactor`, comparison base
-`origin/refactor`, and whether stale workflow docs still reference an older
-branch target.
+`main`, PR target `The-Koi-Pond/De-Koi:main`, comparison base `origin/main`, and
+whether stale workflow docs still reference an older branch target.
 
 If GitHub checks or Bunny Review are still running after an explicit PR/shipping
 action, keep polling without asking for another "okay". Report back only when

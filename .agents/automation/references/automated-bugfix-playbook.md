@@ -221,8 +221,8 @@ install/build tax without weakening the proof requirements.
 Safe use:
 
 1. Confirm the worktree has no uncommitted changes and no in-progress branch.
-2. Fetch `origin/refactor`.
-3. Create or switch to a fresh issue branch based on current `origin/refactor`.
+2. Fetch `origin/main`.
+3. Create or switch to a fresh issue branch based on current `origin/main`.
 4. Reuse the existing `node_modules` only when `pnpm-lock.yaml` has not changed.
 5. Run the same reproduction, focused verification, PR health, and baseline gates.
 
@@ -230,5 +230,5 @@ Hard stops:
 
 - Unknown dirty files in the warm worktree.
 - Lockfile changed since the cache was prepared.
-- Branch cannot be proven to start from current `origin/refactor`.
+- Branch cannot be proven to start from current `origin/main`.
 - Any cleanup would require destructive reset/removal without explicit approval.
