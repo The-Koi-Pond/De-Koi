@@ -1,0 +1,12 @@
+{
+  "brokenContract": "",
+  "producer": "",
+  "consumer": "",
+  "impliedContract": "",
+  "actualEnforcement": "",
+  "primaryOwnerLane": "",
+  "primaryOwnerDetail": "",
+  "consumerOnlyLanes": [],
+  "wrongLaneFixToAvoid": "",
+  "regressionProof": []
+}
