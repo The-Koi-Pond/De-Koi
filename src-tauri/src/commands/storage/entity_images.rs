@@ -172,4 +172,26 @@ mod tests {
             Some("illustrator")
         );
     }
+
+    #[test]
+    fn agent_type_image_upload_rejects_unknown_type_without_creating_config() {
+        let state = test_state("unknown-agent-type-upload");
+
+        let error = super::super::agents::update_agent_image_by_type(
+            &state,
+            "bogus-agent",
+            json!({ "image": small_png_data_url(), "filename": "bogus.png" }),
+        )
+        .expect_err("unknown by-type agent image upload should reject");
+
+        assert_eq!(error.code, "not_found");
+        assert!(
+            state
+                .storage
+                .list("agents")
+                .expect("agents should be readable")
+                .is_empty(),
+            "unknown by-type image uploads must not persist arbitrary agent rows"
+        );
+    }
 }

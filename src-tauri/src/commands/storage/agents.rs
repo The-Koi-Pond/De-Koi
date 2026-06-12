@@ -4,6 +4,43 @@ use super::*;
 use std::collections::HashSet;
 
 const MAX_ASSISTANT_RUN_INTERVAL: i64 = 100;
+const BUILT_IN_AGENT_TYPES: &[&str] = &[
+    "world-state",
+    "prose-guardian",
+    "continuity",
+    "expression",
+    "echo-chamber",
+    "director",
+    "quest",
+    "illustrator",
+    "lorebook-keeper",
+    "card-evolution-auditor",
+    "prompt-reviewer",
+    "combat",
+    "background",
+    "character-tracker",
+    "persona-stats",
+    "html",
+    "chat-summary",
+    "spotify",
+    "editor",
+    "knowledge-retrieval",
+    "knowledge-router",
+    "schedule-planner",
+    "response-orchestrator",
+    "autonomous-messenger",
+    "custom-tracker",
+    "cyoa",
+    "secret-plot-driver",
+];
+
+fn is_built_in_agent_type(agent_type: &str) -> bool {
+    BUILT_IN_AGENT_TYPES.contains(&agent_type)
+}
+
+fn unknown_built_in_agent_type(agent_type: &str) -> AppError {
+    AppError::not_found(format!("Unknown built-in agent type: {agent_type}"))
+}
 
 fn parse_settings(value: Option<&Value>) -> Map<String, Value> {
     match value {
@@ -200,6 +237,9 @@ pub(crate) fn toggle_agent_type(state: &AppState, agent_type: &str) -> AppResult
             .storage
             .patch("agents", id, json!({ "enabled": enabled }))
     } else {
+        if !is_built_in_agent_type(agent_type) {
+            return Err(unknown_built_in_agent_type(agent_type));
+        }
         state
             .storage
             .create("agents", json!({ "type": agent_type, "enabled": true }))
@@ -218,6 +258,9 @@ pub(crate) fn patch_agent_type(
             .unwrap_or(agent_type);
         state.storage.patch("agents", id, body)
     } else {
+        if !is_built_in_agent_type(agent_type) {
+            return Err(unknown_built_in_agent_type(agent_type));
+        }
         let mut object = ensure_object(body)?;
         object.insert("type".to_string(), Value::String(agent_type.to_string()));
         state.storage.create("agents", Value::Object(object))
@@ -229,6 +272,9 @@ pub(crate) fn update_agent_image_by_type(
     agent_type: &str,
     body: Value,
 ) -> AppResult<Value> {
+    if find_agent_config(state, agent_type)?.is_none() && !is_built_in_agent_type(agent_type) {
+        return Err(unknown_built_in_agent_type(agent_type));
+    }
     let agent = get_or_create_agent_config(state, agent_type)?;
     let id = agent
         .get("id")
@@ -243,6 +289,9 @@ pub(crate) fn agent_cadence_status(
     chat_id: &str,
 ) -> AppResult<Value> {
     let config = find_agent_config(state, agent_type)?;
+    if config.is_none() && !is_built_in_agent_type(agent_type) {
+        return Err(unknown_built_in_agent_type(agent_type));
+    }
     let settings = parse_settings(config.as_ref().and_then(|agent| agent.get("settings")));
     let fallback_interval = default_run_interval(agent_type);
     let run_interval = positive_run_interval(
@@ -575,6 +624,71 @@ mod tests {
                 }),
             )
             .expect("message should write");
+    }
+
+    #[test]
+    fn by_type_mutations_reject_unknown_agent_types_without_creating_rows() {
+        let state = test_state("unknown-agent-type-mutations");
+
+        let patch_error = patch_agent_type(&state, "bogus-agent", json!({ "enabled": true }))
+            .expect_err("unknown by-type patch should reject");
+        let toggle_error = toggle_agent_type(&state, "bogus-agent")
+            .expect_err("unknown by-type toggle should reject");
+
+        assert_eq!(patch_error.code, "not_found");
+        assert_eq!(toggle_error.code, "not_found");
+        assert!(
+            state
+                .storage
+                .list("agents")
+                .expect("agents should be readable")
+                .is_empty(),
+            "unknown by-type mutations must not persist arbitrary agent rows"
+        );
+    }
+
+    #[test]
+    fn by_type_mutations_still_create_known_builtin_agent_rows() {
+        let state = test_state("known-builtin-agent-mutations");
+
+        let patched = patch_agent_type(&state, "director", json!({ "enabled": false }))
+            .expect("known built-in patch should create a config row");
+        let toggled = toggle_agent_type(&state, "illustrator")
+            .expect("known built-in toggle should create a config row");
+
+        assert_eq!(
+            patched.get("type").and_then(Value::as_str),
+            Some("director")
+        );
+        assert_eq!(patched.get("enabled").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            toggled.get("type").and_then(Value::as_str),
+            Some("illustrator")
+        );
+        assert_eq!(toggled.get("enabled").and_then(Value::as_bool), Some(true));
+    }
+
+    #[test]
+    fn cadence_status_rejects_unknown_agent_type_without_fake_status() {
+        let state = test_state("unknown-agent-type-cadence");
+
+        let error = agent_cadence_status(&state, "bogus-agent", "chat-1")
+            .expect_err("unknown cadence status should reject");
+
+        assert_eq!(error.code, "not_found");
+    }
+
+    #[test]
+    fn cadence_status_still_reports_known_builtin_without_config_row() {
+        let state = test_state("known-builtin-cadence");
+
+        let status = agent_cadence_status(&state, "director", "chat-1")
+            .expect("known built-in cadence status should use defaults");
+
+        assert_eq!(status["agentType"], "director");
+        assert_eq!(status["runInterval"], 5);
+        assert_eq!(status["remainingAssistantMessages"], 0);
+        assert_eq!(status["runsNextAssistantMessage"], true);
     }
 
     #[test]
