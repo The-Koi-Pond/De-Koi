@@ -4,6 +4,7 @@ export interface UploadFilePayload {
   name: string;
   type: string;
   size: number;
+  lastModified: number;
   base64: string;
 }
 
@@ -38,6 +39,7 @@ export async function fileToUploadPayload(file: File, options: FilePayloadOption
     name: file.name,
     type: file.type,
     size: file.size,
+    lastModified: file.lastModified,
     base64: btoa(binary),
   };
 }
