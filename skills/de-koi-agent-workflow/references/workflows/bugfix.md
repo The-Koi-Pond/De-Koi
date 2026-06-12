@@ -18,7 +18,7 @@ Use this when the user gives a bug report, screenshot, failing check, broken UI 
 12. Report root cause, files changed, docs/release-note status when relevant, verification, related issues not fixed, and manual blockers.
 
 Ordinary bugfix language means local fix and verification. Commit, push, PR
-creation, CodeRabbit, CI polling, screenshot upload, ready marking, and merge
+creation, Bunny Review, CI polling, screenshot upload, ready marking, and merge
 start only after an explicit shipping request.
 
 Do not run full `pnpm check` for every ordinary local bugfix. Use the focused

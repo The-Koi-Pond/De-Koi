@@ -47,7 +47,7 @@ Load only the workflow card that matches the current lane:
 
 Use `references/de-koi-overrides.md` when auditing a source-pack assumption or deciding how to translate pack wording into this repo.
 
-Read `references/proof-templates.md` as the template index when a task needs a risk matrix, PR proof block, reviewer thread ledger, manual verification script, debt note, or final done shape. The concrete pack-derived templates live under `references/templates/`.
+Read `references/proof-templates.md` as the template index when a task needs a risk matrix, PR proof block, reviewer thread ledger, manual verification script, debt note, or final done shape. The concrete pack-derived templates live under `references/templates/`. Use tracked repo tooling in `.agents/automation/scripts/proof-health.mjs` and `.agents/automation/scripts/automation-ledger.mjs` for proof gates that must work for every contributor.
 
 Read `references/bug-class-proof-packs.md` before Bunny/PR handoff for risky
 bugfixes so the focused proof includes the few adjacent invariants that match
@@ -63,7 +63,7 @@ Before nontrivial edits, scale the gate to risk:
 - Normal: owner, impact area, callers, contracts, affected modes/capabilities, checks.
 - Risky or cross-layer: boundary path, input/output/persistence/error behavior, dependency direction, shared-code justification, forbidden shortcuts avoided, docs/skills impact.
 
-For new implementation work on the refactor line, read `CONTRIBUTING.md`, confirm the current checkout against `origin/refactor`, and start from a fresh topic branch unless the user explicitly says to continue the current branch. For PRs, read `.github/pull_request_template.md` and preserve its sections.
+For new implementation work on De-Koi, read `CONTRIBUTING.md`, confirm the current checkout against `origin/main`, and start from a fresh topic branch unless the user explicitly says to continue the current branch. For PRs, read `.github/pull_request_template.md` and preserve its sections.
 
 This workflow does not restate De-Koi's architecture rules. For module ownership, import direction, mode boundaries, or hostable runtime details, load the specific owner skill:
 
@@ -91,7 +91,7 @@ reviews, risky debugging, and architecture; save credits by avoiding unnecessary
 agents, browser proof, and PR/CI loops.
 
 Ordinary bugfix language means local fix and verification by default. Do not
-commit, push, open or update PRs, trigger CodeRabbit, poll CI, mark ready, upload
+commit, push, open or update PRs, trigger Bunny Review, poll CI, mark ready, upload
 screenshots, or merge unless the user explicitly asks to ship, push, open a PR,
 or ready the work.
 
@@ -101,6 +101,11 @@ validation command after editing, and a compact final receipt. Upgrade to the
 full workflow as soon as the bug is nontrivial, PR-affecting, cross-boundary,
 storage/import/export/prompt/provider/security-sensitive,
 browser-evidence-dependent, or uncertain.
+
+For repo-shared workflow guidance, Bunny Review means the trusted GitHub status
+and tools under `.github/bunny-review/`, not a required personal/global agent
+skill. Personal Bunny skills can be convenient wrappers, but the repo-owned
+status is the PR gate every contributor can rely on.
 
 Use a proof ladder before browser automation: static inspection, existing test
 output, temporary uncommitted tests or harnesses, route/module repros, and

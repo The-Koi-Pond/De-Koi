@@ -45,6 +45,15 @@ Use `Debt: none` when no known debt remains. Otherwise classify as `deliberate-p
 
 Use `Mud risk: none` when the change keeps ownership clear. Otherwise classify as `throwaway-code-survived`, `piecemeal-growth`, `keep-it-working-pressure`, `shearing-layer-drift`, `swept-under-rug`, or `reconstruction-needed` and name containment.
 
+## Repo Automation
+
+- Canonical proof-health script: `.agents/automation/scripts/proof-health.mjs`
+- Canonical automation-ledger script: `.agents/automation/scripts/automation-ledger.mjs`
+- Canonical risk classifier: `.agents/automation/scripts/risk-classifier.mjs`
+- PR health helper: `.agents/automation/scripts/pr-health.mjs`
+- Workflow health helper: `.agents/automation/scripts/workflow-health.mjs`
+- Root fixture entrypoint: `pnpm check:agent-workflow`
+
 ## Maintainer Self-Review
 
 Ask before saying done:

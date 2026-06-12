@@ -70,7 +70,7 @@ The main branch is layered by ownership:
 - `src/engine` owns React-free product behavior, contracts, generation, agents, capability ports, and mode engines.
 - `src-tauri` owns the Tauri host, command facades, HTTP server and dispatch, and Rust capability crates for core, storage, assets, LLM, integrations, and security.
 
-This ownership map follows the current refactor actual-state design. Keep contributor guidance consistent with the developer docs and architecture diagrams when those change.
+This ownership map follows the current main-branch actual-state design. Keep contributor guidance consistent with the developer docs and architecture diagrams when those change.
 
 ## Architecture Rules
 
@@ -175,7 +175,7 @@ Leave PR template checkboxes unchecked until a human has actually verified each 
 
 ## Docs And Release Notes
 
-Keep docs accurate for the refactor branch:
+Keep docs accurate for the main branch:
 
 - Update `README.md` and `docs/developer/` when run commands, architecture, source ownership, or validation changes.
 - Update `AGENTS.md` or repo skills only when contributor or agent workflow rules change.
