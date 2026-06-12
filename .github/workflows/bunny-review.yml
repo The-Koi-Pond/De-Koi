@@ -32,6 +32,10 @@ on:
         description: Explicit Bunny-reviewed head SHA from the dispatcher, when known.
         required: false
         default: ""
+      model_request_timeout_seconds:
+        description: Per-model-request timeout in seconds. Falls back to the repo variable or Bunny's default.
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -137,6 +141,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_MODEL: gpt-5.5
+          BUNNY_MODEL_REQUEST_TIMEOUT_SECONDS: ${{ inputs.model_request_timeout_seconds || vars.DE_KOI_BUNNY_MODEL_REQUEST_TIMEOUT_SECONDS || '120' }}
           CI_STATUS: CI checks are still running; final CI results will be appended before posting.
           BUNNY_REVIEW_PROMPT_PATH: /tmp/bunny-review-tool/.github/bunny-review/reviewer-prompt.md
           BUNNY_REVIEW_SKILL_PATH: /tmp/bunny-review-tool/.github/bunny-review/SKILL.md
