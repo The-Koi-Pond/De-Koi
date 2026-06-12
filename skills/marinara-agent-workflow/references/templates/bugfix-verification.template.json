@@ -6,6 +6,18 @@
     "intendedFiles": [],
     "riskFlags": []
   },
+  "contractLaneGate": {
+    "brokenContract": "",
+    "producer": "",
+    "consumer": "",
+    "impliedContract": "",
+    "actualEnforcement": "",
+    "primaryOwnerLane": "",
+    "primaryOwnerDetail": "",
+    "consumerOnlyLanes": [],
+    "wrongLaneFixToAvoid": "",
+    "regressionProof": []
+  },
   "reproduction": {
     "steps": [],
     "reproducedBeforeFix": false,
@@ -13,6 +25,8 @@
   },
   "riskClaimMatrix": [],
   "verification": {
+    "runtimeUsed": "",
+    "runtimeProofNotes": "",
     "originalReproPassed": false,
     "edgeRowsTested": [],
     "negativeRowsTested": [],

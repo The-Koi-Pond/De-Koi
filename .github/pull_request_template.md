@@ -45,21 +45,24 @@ Pressure points touched:
 
 <!-- Check only what you personally ran or manually verified. Treat unchecked items as explicit TODOs. -->
 
-- [ ] `pnpm check` passes locally
-- [ ] `pnpm typecheck` passes locally
-- [ ] `pnpm build` passes locally
-- [ ] `pnpm check:architecture` passes locally
-- [ ] `pnpm check:docs` passes locally
-- [ ] `cargo check --manifest-path src-tauri/Cargo.toml --workspace` passes locally
-- [ ] Rust clippy/tests were run for Rust behavior changes
-- [ ] Browser or Tauri app manual verification completed
-- [ ] Playwright, screenshot, or recording evidence added for UI changes
-- [ ] Remote runtime smoke checked when relevant
+- [ ] Focused proof or matching lane command passes locally
+- [ ] Full `pnpm check` passes before PR push/handoff
+- [ ] Human/manual validation completed by contributor or reviewer
 
 ### Manual verification notes
 
-<!-- Describe exactly what you tested in a real browser/app/runtime, step by step. If an AI agent filled this out, verify it yourself before ticking boxes. -->
+<!-- Describe exact commands and manual steps, including typecheck/build/docs/architecture/Rust/browser/remote-runtime checks when they apply. If an AI agent filled this out, verify it yourself before ticking boxes. -->
 
+-
+
+## Feature Discoverability
+
+Check exactly one:
+
+- [ ] Updated `src/features/shell/discovery/` because this PR adds or materially changes a user-discoverable feature, workflow, setting, mode, panel, import path, agent, media capability, or advanced tool.
+- [ ] N/A because this PR is only a bugfix, refactor, test, docs, internal wiring, visual polish, copy edit, or compatibility fix and does not add a new thing users need to find.
+
+Reason:
 -
 
 ## Docs and release impact

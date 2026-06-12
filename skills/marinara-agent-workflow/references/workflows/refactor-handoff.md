@@ -18,10 +18,24 @@ Use this card when refactor work needs stronger guardrails around:
 - Identify the owner subsystem or architectural boundary before moving code.
 - Name the likely code-smell risk: bloat, repeated conditionals, shotgun surgery, disposable code, or coupling.
 - Keep the first PR small enough to review.
+- Treat broad tracker issues as classification-only until they are sliced by contract owner lane.
 - Prefer preserving behavior first, then improving structure in follow-up PRs when the safer path is split work.
 - Verify the user-facing or API-facing behavior, not only the files touched.
 - If behavior cannot be verified, say exactly what proof is missing.
 - Do not call a refactor safe while known risky paths are untested.
+
+## Safe Extraction Queue
+
+Use this queue for hygiene-first testability work that must not change product
+behavior:
+
+- `GameSurface.tsx`: extract pure game time parsing, combat status normalization, inventory transforms, and background tag scoring one cluster at a time.
+- `ChatMessage.tsx`: extract speaker-tag rendering, chat HTML/CSS sanitizing, attachment helpers, and timestamp formatting one cluster at a time.
+- `PresetEditor.tsx`: extract tab/section reorder helpers, marker config readers, macro reference data, and textarea commit helpers one cluster at a time.
+- `SettingsPanel.tsx`: extract tracker appearance option helpers, background-library normalization, import button state helpers, and advanced-setting option data one cluster at a time.
+
+Each extraction PR must move one pure helper cluster plus focused tests, preserve
+all UI behavior, and avoid broad component rewrites.
 
 ## Blockers Vs Review Notes
 
@@ -46,6 +60,7 @@ Treat these as review notes unless they create concrete correctness, proof, data
 ```text
 Core claim: <what behavior remains true after the refactor>
 Owner boundary: <subsystem/service/module/component this work belongs to>
+Contract lane gate: <broken contract, producer, consumer, owner lane, wrong-lane fix to avoid, proof>
 Risk: <none or storage/auth/import/export/prompt/destructive/user-data/etc.>
 Positive proof: <commands, screenshots, scripts, or API/UI checks>
 Negative controls: <should-not-change or should-not-match cases>

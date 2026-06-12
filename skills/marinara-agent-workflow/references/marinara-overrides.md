@@ -8,7 +8,7 @@ Use this file when auditing source-pack assumptions or translating workflow-pack
 
 ## Architecture Sources
 
-The pack's `docs/ARCHITECTURE_MAP.md` reference maps to:
+When the source pack asks for its architecture map, use these repo-local sources:
 
 - `AGENTS.md`
 - `docs/developer/architecture.html`
@@ -33,11 +33,27 @@ Do not store secrets, private user data, bulky raw logs, or machine-local paths 
 
 ## Automation Helpers
 
-The source pack mentions `.agents/automation/scripts/*`, `workflow-health`, `pr-health`, `proof-health`, `publish-evidence`, and `automation-ledger`. This repo does not currently provide those helpers.
+This repo provides helpers under `.agents/automation/scripts/*`, including
+`workflow-health`, `pr-health`, `proof-health`, `publish-evidence`, and
+`automation-ledger`. Prefer them when they match the active workflow, but do not
+create helper work for its own sake. Tiny local bugs may use a compact receipt
+instead of a ledger when they are narrow, low-risk, machine-provable, and not
+PR-affecting.
 
-When a helper is missing, use equivalent direct checks: `git status`, `git remote -v`, focused tests, `pnpm typecheck`, `pnpm build`, `cargo check --manifest-path src-tauri/Cargo.toml`, `pnpm check:docs`, GitHub CLI/API checks, browser automation, or manual verification scripts.
+Use `workflow-health` for nontrivial work, PR work, issue selection, and risky
+workflow changes. It is optional for a tiny one-file local bug unless repo
+policy, dirty-tree risk, or visible scope risk requires it.
 
-Do not treat missing pack automation as a blocker. Treat it as a reason to make the evidence explicit in the final report.
+If a helper is unavailable or fails from local environment friction, use
+equivalent direct checks: `git status`, `git remote -v`, focused tests,
+`pnpm typecheck`, `pnpm build`, `cargo check --manifest-path src-tauri/Cargo.toml`,
+`pnpm check:docs`, GitHub CLI/API checks, browser automation, or manual
+verification scripts. Ordinary bugfix language still means local fix and
+verification; GitHub PR creation, Bunny Review, CI polling, ready marking, and
+merge require an explicit shipping request.
+
+Do not treat helper friction as permission to skip the underlying gate. Make the
+evidence explicit in the final report.
 
 ## Branches And PR Targets
 
@@ -72,7 +88,17 @@ For UI changes, classify UX risk:
 
 For medium/high UX risk, define the primary user path, expected states, mobile/theme proof, and whether an Impeccable critique/polish pass is useful.
 
-Use Playwright or the in-app browser for repeatable UI proof when practical. Commit screenshots only when they are intentional docs/reference assets, not temporary proof clutter.
+Use the proof ladder for UI proof: static inspection, targeted tests, scratch
+harnesses, route/module repros, or jsdom/component proof before Playwright or the
+in-app browser. Use browser proof when visual layout, interaction, routing,
+responsive behavior, screenshots, console/network behavior, or browser-only
+behavior is the claim. Name the runtime in every UI/runtime proof: `Chrome web
+shell`, `Chrome + Remote Runtime`, `Tauri dev app`, or `scratch/backend harness`.
+Chrome web-shell proof is enough for React/UI-only claims, but not for storage,
+imports/exports, managed files/assets, providers, LLM streaming, haptics, native
+dialogs, updater behavior, app data paths, window controls, Tauri commands, or
+Rust-backed behavior. Commit screenshots only when they are intentional
+docs/reference assets, not temporary proof clutter.
 
 ## Issue Intake Extras
 

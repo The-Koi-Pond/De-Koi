@@ -14,7 +14,7 @@ This map explains how source files connect to this repo-local skill.
 - `workflows/vault-capture.md` -> `references/workflows/durable-notes.md`
 - `REFACTOR_HANDOFF.md` -> `references/workflows/refactor-handoff.md`
 
-These cards are source-derived but rewritten where needed so they do not assume a root `CHANGELOG.md`, `.agents/automation` helpers, legacy `staging` workflow, missing templates, missing labels, or Obsidian vaults.
+These cards are source-derived but rewritten where needed so they do not assume a root `CHANGELOG.md`, legacy branch workflow, missing templates, missing labels, or Obsidian vaults. Repo-local `.agents/automation` helpers may be used when present, with direct checks as fallback.
 
 ## Imported As Templates
 
@@ -22,9 +22,12 @@ These cards are source-derived but rewritten where needed so they do not assume 
 - `templates/risk-claim-matrix.template.json` -> `references/templates/risk-claim-matrix.template.json`
 - `templates/reviewer-thread-ledger.template.json` -> `references/templates/reviewer-thread-ledger.template.json`
 - `templates/pr-proof-block.md` -> `references/templates/pr-proof-block.md`
+- `templates/contract-lane-gate.template.json` -> `references/templates/contract-lane-gate.template.json`
 - `templates/status-snippets.md` -> `references/templates/status-snippets.md`
 
 The JSON and PR proof templates are kept source-shaped. `status-snippets.md` is lightly rewritten from `Vault` to `Durable note`. The index for when to use these is `references/proof-templates.md`.
+
+Repo-specific tracked automation lives under `.agents/automation/scripts/`: `proof-health.mjs`, `risk-classifier.mjs`, `automation-ledger.mjs`, `pr-health.mjs`, and `workflow-health.mjs`. The root `scripts/check-agent-workflow.mjs` is the package-script fixture entrypoint for `pnpm check:agent-workflow`.
 
 ## Rewritten For Marinara
 
@@ -48,4 +51,4 @@ The JSON and PR proof templates are kept source-shaped. `status-snippets.md` is 
 - Architecture docs: `docs/developer/architecture.html`, `modules.html`, and `impact-areas.html`.
 - Durable bug/work tracking: GitHub issues and PRs, not repo-local update files.
 - Current refactor workflow target: `The-Koi-Pond/De-Koi`, branch `refactor`.
-- No root `CHANGELOG.md` and no `.agents/automation/scripts` are present in this checkout.
+- Repo-local automation scripts are present under `.agents/automation/scripts`.

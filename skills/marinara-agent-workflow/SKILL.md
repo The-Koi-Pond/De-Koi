@@ -40,7 +40,7 @@ Load only the workflow card that matches the current lane:
 
 Use `references/marinara-overrides.md` when auditing a source-pack assumption or deciding how to translate pack wording into this repo.
 
-Read `references/proof-templates.md` as the template index when a task needs a risk matrix, PR proof block, reviewer thread ledger, manual verification script, debt note, or final done shape. The concrete pack-derived templates live under `references/templates/`.
+Read `references/proof-templates.md` as the template index when a task needs a risk matrix, PR proof block, reviewer thread ledger, manual verification script, debt note, or final done shape. The concrete pack-derived templates live under `references/templates/`. Use tracked repo tooling in `.agents/automation/scripts/proof-health.mjs` and `.agents/automation/scripts/automation-ledger.mjs` for proof gates that must work for every contributor.
 
 Read `references/source-map.md` when auditing or updating this skill against `cha1latte/chai-agent-workflow-pack`.
 
@@ -48,9 +48,23 @@ Read `references/source-map.md` when auditing or updating this skill against `ch
 
 Before nontrivial edits, scale the gate to risk:
 
-- Tiny: owner, impact, affected modes/capabilities, checks.
+- Tiny local bug: core claim, likely owner/lane, risk level, and proof target.
 - Normal: owner, impact area, callers, contracts, affected modes/capabilities, checks.
 - Risky or cross-layer: boundary path, input/output/persistence/error behavior, dependency direction, shared-code justification, forbidden shortcuts avoided, docs/skills impact.
+
+For contract or boundary issues, complete the Contract Lane Gate before editing:
+
+- Broken contract
+- Producer
+- Consumer
+- Implied contract
+- Actual enforcement
+- Primary owner lane
+- Consumer-only lanes
+- Wrong-lane fix to avoid
+- Regression proof
+
+Canonical lanes are `src/engine`, `src/features`, `src/shared/api`, `src-tauri`, `docs/workflow`, and `cross-boundary`. Use `cross-boundary` only when more than one lane must change, and still name the primary owning lane in `primaryOwnerDetail` or the contract text. Treat broad tracker issues as classification-only until they are sliced into owner-lane implementation PRs.
 
 For new implementation work on the refactor line, read `CONTRIBUTING.md`, confirm the current checkout against `origin/refactor`, and start from a fresh topic branch unless the user explicitly says to continue the current branch. For PRs, read `.github/pull_request_template.md` and preserve its sections.
 
@@ -69,9 +83,38 @@ If ownership, callers, contract shape, or dependency direction cannot be named c
 3. Name the owner and expected impact before editing.
 4. Reproduce or inspect enough evidence to avoid patching the wrong layer.
 5. Make the smallest coherent change in the owning module.
-6. Verify the claim with commands, UI proof, screenshots, or a manual script.
+6. Verify the claim with the cheapest proof that exercises it: targeted command, focused test, scratch harness, route/module repro, jsdom/component proof, browser proof, or manual script.
 7. Review the diff for ownership, duplication, coupling, bloat, repeated conditionals, and hidden fallbacks.
 8. Report verification gaps as gaps, not confidence.
+
+## Credit-Aware Defaults
+
+Keep coding and review quality high. Use high/adaptive reasoning for code edits,
+reviews, risky debugging, and architecture; save credits by avoiding unnecessary
+agents, browser proof, and PR/CI loops.
+
+Ordinary bugfix language means local fix and verification by default. Do not
+commit, push, open or update PRs, wait on Bunny Review, poll CI, mark ready, upload
+screenshots, or merge unless the user explicitly asks to ship, push, open a PR,
+or ready the work.
+
+For repo-shared workflow guidance, Bunny Review means the trusted GitHub status
+and tools under `.github/bunny-review/`, not a required personal/global agent
+skill. Personal Bunny skills can be convenient wrappers, but the repo-owned
+status is the PR gate every contributor can rely on.
+
+For a narrow, low-risk, machine-provable local bug, use the tiny path: no full
+ledger by default, a narrow owner/proof gate before editing, the matching
+validation command after editing, and a compact final receipt. Upgrade to the
+full workflow as soon as the bug is nontrivial, PR-affecting, cross-boundary,
+storage/import/export/prompt/provider/security-sensitive,
+browser-evidence-dependent, or uncertain.
+
+Use a proof ladder before browser automation: static inspection, targeted tests,
+scratch harnesses, route/module repros, and jsdom/component proof first; use
+Playwright/browser proof when visual layout, interaction, routing, responsive
+behavior, screenshots, console/network behavior, or browser-only behavior is the
+claim.
 
 ## Risky Work
 

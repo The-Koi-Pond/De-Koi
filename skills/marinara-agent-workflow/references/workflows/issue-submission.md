@@ -27,6 +27,8 @@ This repo currently has `.github/ISSUE_TEMPLATE/issue_report.md` and `.github/IS
 
 When labels are available, apply only labels from the live repo label list. Leave uncertain labels off rather than guessing.
 
+For broad tracker issues about refactors, Knip, storage/import/export, provider/runtime contracts, prompt/retrieval, or other boundary work, make the issue classification-only until sliced. Do not word the tracker as approval for one large implementation PR, and include the expected owner-lane classification work in the body.
+
 ## Posting Rule
 
 Do not invent facts. Leave template checkboxes unchecked unless the target team explicitly wants otherwise.
