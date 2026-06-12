@@ -2146,6 +2146,11 @@ pub(crate) async fn import_chat_memories(
         memories.push(Value::Object(memory));
         imported += 1;
     }
+    if replace && imported == 0 {
+        return Err(AppError::invalid_input(
+            "Memory Recall replace import must contain at least one importable chunk",
+        ));
+    }
     set_chat_array_field(state, chat_id, "memories", memories)?;
     Ok(json!({ "imported": imported, "skipped": skipped, "replaced": replace }))
 }
@@ -6423,6 +6428,71 @@ mod tests {
         assert_eq!(memories[0]["firstMessageAt"], memories[0]["createdAt"]);
         assert_eq!(memories[0]["lastMessageAt"], memories[0]["createdAt"]);
         assert!(memories[0].get("sourceChatId").is_none());
+    }
+
+    #[tokio::test]
+    async fn import_chat_memories_replace_rejects_empty_replacement_set() {
+        let state = test_state("memory-import-replace-empty");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": [
+                        {
+                            "id": "existing",
+                            "chatId": "chat-1",
+                            "content": "keep me",
+                            "messageCount": 5,
+                            "firstMessageAt": "2026-06-01T10:00:00.000Z",
+                            "lastMessageAt": "2026-06-01T10:04:00.000Z",
+                            "createdAt": "2026-06-01T10:05:00.000Z"
+                        }
+                    ]
+                }),
+            )
+            .expect("chat should seed");
+
+        let error = import_chat_memories(
+            &state,
+            "chat-1",
+            json!({
+                "type": "marinara_memory_recall",
+                "version": 1,
+                "replace": true,
+                "data": {
+                    "sourceChat": {
+                        "id": "chat-1",
+                        "name": "Memory chat",
+                        "mode": "conversation",
+                        "memoryCount": 1
+                    },
+                    "chunks": [
+                        {
+                            "content": "   ",
+                            "embedding": null,
+                            "messageCount": 1,
+                            "firstMessageAt": "2026-06-02T10:00:00.000Z",
+                            "lastMessageAt": "2026-06-02T10:01:00.000Z",
+                            "createdAt": "2026-06-02T10:02:00.000Z"
+                        }
+                    ]
+                }
+            }),
+            None,
+        )
+        .await
+        .expect_err("empty replacement set should be rejected");
+
+        assert_eq!(error.code, "invalid_input");
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        assert_eq!(memory_ids(&chat["memories"]), vec!["existing"]);
     }
 
     #[tokio::test]
