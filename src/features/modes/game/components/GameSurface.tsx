@@ -2366,6 +2366,20 @@ export function GameSurface({
     return null;
   }, [latestAssistantMsg, messages]);
 
+  const latestPlayerAction = useMemo(() => {
+    if (!latestAssistantMsg) return null;
+    const assistantIndex = messages.findIndex((message) => message.id === latestAssistantMsg.id);
+    if (assistantIndex < 0) return null;
+    for (let i = assistantIndex - 1; i >= 0; i--) {
+      const message = messages[i]!;
+      if (message.role === "user" && message.content.trim()) {
+        return stripGameDirectAddressPrefix(message.content);
+      }
+      if (message.role === "assistant" || message.role === "narrator") return null;
+    }
+    return null;
+  }, [latestAssistantMsg, messages]);
+
   // Keep latest assistant message in a ref so the Zustand subscription can read it
   const latestAssistantMsgRef = useRef(latestAssistantMsg);
   latestAssistantMsgRef.current = latestAssistantMsg;
@@ -2582,6 +2596,10 @@ export function GameSurface({
         currentSpotifyTrack: recentSpotifyTrackHistoryRef.current[0] ?? null,
         recentSpotifyTracks: recentSpotifyTrackHistoryRef.current,
         currentAmbient: useGameAssetStore.getState().currentAmbient,
+        currentLocation: gameSnapshot?.location ?? null,
+        genre: typeof setupConfig?.genre === "string" ? setupConfig.genre : null,
+        setting: typeof setupConfig?.setting === "string" ? setupConfig.setting : null,
+        worldOverview: typeof chatMeta.gameWorldOverview === "string" ? chatMeta.gameWorldOverview : null,
         currentWeather: gameSnapshot?.weather ?? null,
         currentTimeOfDay: gameSnapshot?.time ?? null,
         turnNumber: sceneTurnNumber,
@@ -2593,6 +2611,7 @@ export function GameSurface({
         imagePromptInstructions:
           typeof chatMeta.gameImagePromptInstructions === "string" ? chatMeta.gameImagePromptInstructions : null,
       },
+      playerAction: latestPlayerAction ?? undefined,
     };
   }, [
     chatMeta.enableSpriteGeneration,
@@ -2600,13 +2619,16 @@ export function GameSurface({
     chatMeta.gameImagePromptInstructions,
     chatMeta.gameSceneConnectionId,
     chatMeta.gameSetupConfig,
+    chatMeta.gameWorldOverview,
     currentBackground,
     gameSceneIllustrationAllowed,
+    gameSnapshot?.location,
     gameSnapshot?.time,
     gameSnapshot?.weather,
     gameState,
     getScopedAssetMap,
     hudWidgets,
+    latestPlayerAction,
     npcs,
     sceneTurnNumber,
     sceneWrapCharacterNames,
@@ -3337,6 +3359,10 @@ export function GameSurface({
       currentSpotifyTrack: recentSpotifyTrackHistoryRef.current[0] ?? null,
       recentSpotifyTracks: recentSpotifyTrackHistoryRef.current,
       currentAmbient: useGameAssetStore.getState().currentAmbient,
+      currentLocation: gameSnapshot?.location ?? null,
+      genre: typeof setupConfig?.genre === "string" ? setupConfig.genre : null,
+      setting: typeof setupConfig?.setting === "string" ? setupConfig.setting : null,
+      worldOverview: typeof chatMeta.gameWorldOverview === "string" ? chatMeta.gameWorldOverview : null,
       currentWeather: gameSnapshot?.weather ?? null,
       currentTimeOfDay: gameSnapshot?.time ?? null,
       turnNumber: sceneTurnNumber,
@@ -3369,6 +3395,7 @@ export function GameSurface({
             chatId: activeChatId,
             connectionId: sceneConnId || undefined,
             narration: tags.cleanContent,
+            playerAction: latestPlayerAction ?? undefined,
             context: analysisContext,
           },
           {
@@ -3390,16 +3417,18 @@ export function GameSurface({
       } else {
         // No scene model at all: parse inline tags from the main model
         if (useSpotifyGameMusic) {
-          void fetchSpotifySceneCandidates(tags.cleanContent, analysisContext).then((availableSpotifyTracks) => {
-            const fallback = availableSpotifyTracks[0];
-            if (!fallback) return;
-            void playSpotifySceneTrack({
-              uri: fallback.uri,
-              name: fallback.name,
-              artist: fallback.artist,
-              album: fallback.album ?? null,
-            });
-          });
+          void fetchSpotifySceneCandidates(tags.cleanContent, analysisContext, latestPlayerAction).then(
+            (availableSpotifyTracks) => {
+              const fallback = availableSpotifyTracks[0];
+              if (!fallback) return;
+              void playSpotifySceneTrack({
+                uri: fallback.uri,
+                name: fallback.name,
+                artist: fallback.artist,
+                album: fallback.album ?? null,
+              });
+            },
+          );
         }
         applyInlineTags(tags, assets, msg);
         return;
@@ -6899,6 +6928,10 @@ export function GameSurface({
       currentMusic: useGameAssetStore.getState().currentMusic,
       recentMusic: recentMusicHistoryRef.current,
       currentAmbient: useGameAssetStore.getState().currentAmbient,
+      currentLocation: gameSnapshot?.location ?? null,
+      genre: typeof setupConfig?.genre === "string" ? setupConfig.genre : null,
+      setting: typeof setupConfig?.setting === "string" ? setupConfig.setting : null,
+      worldOverview: typeof chatMeta.gameWorldOverview === "string" ? chatMeta.gameWorldOverview : null,
       currentWeather: gameSnapshot?.weather ?? null,
       currentTimeOfDay: gameSnapshot?.time ?? null,
       turnNumber: sceneTurnNumber,
@@ -6911,7 +6944,13 @@ export function GameSurface({
 
     if (sceneConnId) {
       sceneAnalysis.mutate(
-        { chatId: activeChatId, connectionId: sceneConnId, narration: tags.cleanContent, context },
+        {
+          chatId: activeChatId,
+          connectionId: sceneConnId,
+          narration: tags.cleanContent,
+          playerAction: latestPlayerAction ?? undefined,
+          context,
+        },
         {
           onSuccess: (result) => {
             onSuccess(result);
@@ -6922,7 +6961,7 @@ export function GameSurface({
       );
     } else {
       sceneAnalysis.mutate(
-        { narration: tags.cleanContent, context },
+        { narration: tags.cleanContent, playerAction: latestPlayerAction ?? undefined, context },
         {
           onSuccess: (result) => {
             onSuccess(result);
@@ -6947,6 +6986,7 @@ export function GameSurface({
     sceneAnalysisEnabled,
     sceneTurnNumber,
     gameSceneIllustrationAllowed,
+    latestPlayerAction,
   ]);
 
   const normalizedWidgets = useMemo(() => normalizeHudWidgets(hudWidgets), [hudWidgets]);

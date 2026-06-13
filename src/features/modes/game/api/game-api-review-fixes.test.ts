@@ -35,6 +35,10 @@ const chatCommandApiMock = vi.hoisted(() => ({
   branch: vi.fn(),
 }));
 
+const llmApiMock = vi.hoisted(() => ({
+  complete: vi.fn(),
+}));
+
 vi.mock("../../../../shared/api/storage-api", () => ({
   storageApi: storageApiMock,
 }));
@@ -58,6 +62,10 @@ vi.mock("../../../../shared/api/url-binary-api", () => ({
 
 vi.mock("../../../../shared/api/chat-command-api", () => ({
   chatCommandApi: chatCommandApiMock,
+}));
+
+vi.mock("../../../../shared/api/llm-api", () => ({
+  llmApi: llmApiMock,
 }));
 
 import { gameApi } from "./game-api";
@@ -669,6 +677,107 @@ describe("game API review guards", () => {
       }),
     );
     expectReadyPartyMetadata(currentParty);
+  });
+
+  it("passes selected persona, party, GM, and lorebook context into the game setup prompt", async () => {
+    const contextualSetupConfig: GameSetupConfig = {
+      ...setupConfig,
+      gmMode: "character",
+      gmCharacterId: "gm-1",
+      personaId: "persona-1",
+      partyCharacterIds: ["party-1"],
+      activeLorebookIds: ["lorebook-1"],
+    };
+    const chat = {
+      id: "chat-1",
+      connectionId: "chat-conn",
+      metadata: {
+        gameSetupConfig: contextualSetupConfig,
+        gamePartyCharacterIds: contextualSetupConfig.partyCharacterIds,
+      },
+    };
+    const characterRows: Record<string, Record<string, unknown>> = {
+      "gm-1": {
+        id: "gm-1",
+        data: {
+          name: "Archivist GM",
+          description: "A fourth-wall aware historian.",
+          personality: "Dry, precise, secretly fond.",
+          scenario: "Guides a campaign from behind the curtain.",
+          extensions: { backstory: "Bound to the ruined academy.", appearance: "Ink-stained robes." },
+          tags: ["gm"],
+        },
+      },
+      "party-1": {
+        id: "party-1",
+        data: {
+          name: "Mira Scout",
+          description: "A bright-eyed scout with stormglass goggles.",
+          personality: "Brave and impulsive.",
+          scenario: "Travels with the player.",
+          extensions: {
+            backstory: "Mira knows the academy's old escape routes.",
+            appearance: "Short cloak, brass charms.",
+            rpgStats: { attributes: [{ name: "DEX", value: 14 }], hp: { value: 9, max: 9 } },
+          },
+          tags: ["party"],
+        },
+      },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "chats") return chat;
+      if (entity === "personas" && id === "persona-1") {
+        return {
+          id: "persona-1",
+          name: "Captain Celia",
+          description: "A principled sky-captain.",
+          personality: "Warm, stubborn, clever.",
+          scenario: "Searching the floating academy.",
+          backstory: "Owes a debt to the storm sea.",
+          appearance: "Long coat, comet pin.",
+        };
+      }
+      if (entity === "characters") return characterRows[id] ?? null;
+      return null;
+    });
+    storageApiMock.list.mockImplementation(async (entity: string) =>
+      entity === "lorebook-entries"
+        ? [
+            {
+              id: "entry-1",
+              lorebookId: "lorebook-1",
+              name: "Moonlit Doctrine",
+              content: "All academy machines obey moon-signed contracts.",
+              enabled: true,
+              constant: true,
+              order: 2,
+            },
+          ]
+        : [],
+    );
+    llmApiMock.complete.mockResolvedValue(JSON.stringify(BASIC_SETUP_RESPONSE));
+    mockUpdateEcho();
+
+    await setupGame({
+      chatId: "chat-1",
+      connectionId: "gm-conn",
+      preferences: "academy mystery",
+      setupConfig: contextualSetupConfig,
+    });
+
+    const prompt = llmApiMock.complete.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
+    expect(prompt).toContain("<gm_character>");
+    expect(prompt).toContain("Archivist GM");
+    expect(prompt).toContain("<user_player>");
+    expect(prompt).toContain("Captain Celia");
+    expect(prompt).toContain("<party_info>");
+    expect(prompt).toContain("Mira Scout");
+    expect(prompt).toContain('"rpgStats"');
+    expect(prompt).toContain("Allowed characterCards names: Captain Celia, Mira Scout");
+    expect(prompt).toContain("Allowed partyArcs names: Mira Scout");
+    expect(prompt).toContain("<lorebook_context>");
+    expect(prompt).toContain("Moonlit Doctrine");
+    expect(prompt).toContain("All academy machines obey moon-signed contracts.");
   });
 
   it("preserves current party metadata through game setup JSON repair", async () => {
