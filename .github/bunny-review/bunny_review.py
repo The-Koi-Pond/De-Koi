@@ -179,6 +179,8 @@ def truncate_to_budget(text, limit):
     if len(text) <= limit:
         return text
     suffix = f"\n\n[truncated: section was {len(text)} chars, budget is {limit} chars]\n"
+    if len(suffix) >= limit:
+        return suffix[:limit]
     keep = max(0, limit - len(suffix))
     return text[:keep].rstrip() + suffix
 
@@ -501,6 +503,20 @@ def guidance_omission_section(path, reason):
     return f"## guidance: {path}\n[guidance omitted: {reason}]"
 
 
+def aggregate_guidance_omission_section(paths, limit):
+    body = "\n".join(
+        [
+            "Selected guidance files were omitted from individual sections because "
+            "their minimum notes exceed the guidance digest budget.",
+            "Bunny must request focused context if one of these guidance files is "
+            "needed to validate a concrete finding.",
+            "",
+            *[f"- {path}" for path in paths],
+        ]
+    )
+    return fit_guidance_section("guidance omissions", body, limit)
+
+
 def fit_guidance_section(title, body, budget):
     section = f"## {title}\n{body}".strip()
     if len(section) <= budget:
@@ -541,17 +557,29 @@ def build_path_guidance_sections(paths, limit, file_limit):
             }
         )
 
+    minimum_digest = join_digest_sections(item["minimum"] for item in selected)
+    if len(minimum_digest) > limit:
+        return [aggregate_guidance_omission_section(paths, limit)]
+
     sections = []
     for index, item in enumerate(selected):
         later_minimum = join_digest_sections(
             entry["minimum"] for entry in selected[index + 1 :]
         )
         current = join_digest_sections(sections)
-        separator = 2 if current else 0
-        reserved_for_later = len(later_minimum) + (2 if later_minimum else 0)
-        budget = limit - len(current) - separator - reserved_for_later
+        before_current = 2 if current else 0
+        after_current = 2 if later_minimum else 0
+        budget = (
+            limit
+            - len(current)
+            - before_current
+            - len(later_minimum)
+            - after_current
+        )
         if budget <= 0:
-            sections.append(item["minimum"])
+            break
+        if len(item["minimum"]) > budget:
+            sections.append(truncate_to_budget(item["minimum"], budget))
             continue
         sections.append(
             fit_guidance_section(f"guidance: {item['path']}", item["body"], budget)
