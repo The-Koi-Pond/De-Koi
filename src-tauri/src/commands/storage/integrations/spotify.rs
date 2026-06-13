@@ -1996,7 +1996,7 @@ async fn generate_dj_mari_playlist_plan(
     Ok(tracks)
 }
 
-fn extract_json_text(text: &str) -> &str {
+fn extract_json_source(text: &str) -> &str {
     let trimmed = text.trim();
     if let Some(start) = trimmed.find("```") {
         if let Some(end) = trimmed[start + 3..].find("```") {
@@ -2007,14 +2007,16 @@ fn extract_json_text(text: &str) -> &str {
                 .unwrap_or_else(|| block.trim());
         }
     }
-    if let Some(candidate) = extract_balanced_json_text(trimmed) {
-        return candidate;
-    }
     trimmed
 }
 
-fn extract_balanced_json_text(text: &str) -> Option<&str> {
-    let start = text.find(|ch| ch == '{' || ch == '[')?;
+fn extract_balanced_json_text(text: &str, start: usize) -> Option<&str> {
+    let opening = text[start..].chars().next()?;
+    let closing = match opening {
+        '{' => '}',
+        '[' => ']',
+        _ => return None,
+    };
     let mut in_string = false;
     let mut escaped = false;
     let mut depth = 0_u32;
@@ -2035,27 +2037,62 @@ fn extract_balanced_json_text(text: &str) -> Option<&str> {
             continue;
         }
         match ch {
-            '{' | '[' => depth += 1,
-            '}' | ']' => {
-                depth = depth.saturating_sub(1);
+            current if current == opening => depth += 1,
+            current if current == closing => {
                 if depth == 0 {
-                    return Some(text[start..start + offset + ch.len_utf8()].trim());
+                    return None;
+                }
+                depth -= 1;
+                if depth == 0 {
+                    let end = start + offset + ch.len_utf8();
+                    return Some(text[start..end].trim());
                 }
             }
+            '}' | ']' if depth == 0 => return None,
+            '}' | ']' => {}
             _ => {}
         }
     }
     None
 }
 
-fn parse_generated_tracks(raw: &str) -> AppResult<Vec<GeneratedTrack>> {
-    let parsed: Value = serde_json::from_str(extract_json_text(raw)).map_err(|error| {
+fn parse_spotify_dj_json(candidate: &str) -> AppResult<Value> {
+    serde_json::from_str(candidate).map_err(|error| {
         AppError::with_details(
             "spotify_dj_mari_parse_error",
             format!("Spotify DJ returned malformed JSON: {error}. Retry with a JSON-capable model/provider."),
             json!({ "recoverable": true }),
         )
-    })?;
+    })
+}
+
+fn is_spotify_dj_payload_shape(value: &Value) -> bool {
+    value.get("tracks").and_then(Value::as_array).is_some() || value.as_array().is_some()
+}
+
+fn find_spotify_dj_json_payload(text: &str) -> Option<&str> {
+    for opening in ['{', '['] {
+        for (start, _) in text.match_indices(opening) {
+            let Some(candidate) = extract_balanced_json_text(text, start) else {
+                continue;
+            };
+            if serde_json::from_str::<Value>(candidate)
+                .map(|value| is_spotify_dj_payload_shape(&value))
+                .unwrap_or(false)
+            {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+fn parse_generated_tracks(raw: &str) -> AppResult<Vec<GeneratedTrack>> {
+    let source = extract_json_source(raw);
+    let parsed = match find_spotify_dj_json_payload(source) {
+        Some(candidate) => parse_spotify_dj_json(candidate)?,
+        None => parse_spotify_dj_json(source)?,
+    };
     let tracks = parsed
         .get("tracks")
         .and_then(Value::as_array)
@@ -3492,6 +3529,32 @@ mod tests {
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].title, "First Song");
         assert_eq!(tracks[0].artist, "First Artist");
+    }
+
+    #[test]
+    fn spotify_dj_plan_parser_skips_bracketed_prose_before_tracks_object() {
+        let tracks = parse_generated_tracks(
+            r#"DJ Mari says [not JSON, just stage direction].
+            {"tracks":[{"title":"Object Song","artist":"Object Artist","reason":"fits"}]}"#,
+        )
+        .expect("valid tracks object after bracketed prose should parse");
+
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].title, "Object Song");
+        assert_eq!(tracks[0].artist, "Object Artist");
+    }
+
+    #[test]
+    fn spotify_dj_plan_parser_accepts_top_level_array_before_trailing_malformed_text() {
+        let tracks = parse_generated_tracks(
+            r#"[{"title":"Array Song","artist":"Array Artist","reason":"fits"}]
+            {"tracks":[{"title":"Broken","artist":"Artist"}"#,
+        )
+        .expect("valid top-level array before malformed trailing text should parse");
+
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].title, "Array Song");
+        assert_eq!(tracks[0].artist, "Array Artist");
     }
 
     #[test]
