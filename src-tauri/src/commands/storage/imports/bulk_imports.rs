@@ -469,6 +469,47 @@ fn st_preset_scan_item(data_dir: &Path, path: &Path) -> Value {
     item
 }
 
+fn preset_payload_has_timestamp_override(payload: &Value) -> bool {
+    timestamp_overrides_from_value(
+        payload
+            .get("timestampOverrides")
+            .or_else(|| payload.get("__timestampOverrides")),
+    )
+    .or_else(|| {
+        timestamp_overrides_from_value(Some(&json!({
+            "createdAt": payload.get("createdAt").cloned().unwrap_or(Value::Null),
+            "updatedAt": payload.get("updatedAt").cloned().unwrap_or(Value::Null),
+        })))
+    })
+    .or_else(|| {
+        payload
+            .get("metadata")
+            .and_then(|metadata| metadata.get("timestamps"))
+            .and_then(|timestamps| timestamp_overrides_from_value(Some(timestamps)))
+    })
+    .is_some()
+}
+
+fn attach_st_preset_file_timestamp(mut payload: Value, path: &Path) -> Value {
+    if preset_payload_has_timestamp_override(&payload) {
+        return payload;
+    }
+    let modified = modified_at(path);
+    if modified.is_null() {
+        return payload;
+    }
+    if let Some(object) = payload.as_object_mut() {
+        object.insert(
+            "__timestampOverrides".to_string(),
+            json!({
+                "createdAt": modified,
+                "updatedAt": modified,
+            }),
+        );
+    }
+    payload
+}
+
 #[derive(Clone, Debug, Default)]
 struct StGroupMetadata {
     id: Option<String>,
@@ -1439,6 +1480,7 @@ fn run_st_bulk_import_inner(
         let result = fs::read(&path)
             .map_err(AppError::from)
             .and_then(|bytes| parse_object(&bytes))
+            .map(|payload| attach_st_preset_file_timestamp(payload, &path))
             .and_then(|payload| import_st_preset_payload(state, payload, Some(&file_stem(&path))));
         match result {
             Ok(_) => bump_imported(&mut imported, "presets"),
@@ -2531,6 +2573,70 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(app_root);
+    }
+
+    #[test]
+    fn run_st_bulk_import_preserves_st_preset_file_timestamp() {
+        let app_root = temp_path("app");
+        let st_root = temp_path("source");
+        let data_dir = st_root.join("data").join("default-user");
+        fs::create_dir_all(data_dir.join("characters"))
+            .expect("fixture characters directory should mark the ST data root");
+        let preset_path = data_dir.join("presets").join("Timestamped.json");
+        write_json(
+            &preset_path,
+            &json!({
+                "name": "Timestamped",
+                "prompts": []
+            }),
+        );
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        let (folder_path, folder_token) = folder_access(&st_root);
+        let scan = scan_st_folder(json!({
+            "folderPath": folder_path,
+            "folderToken": folder_token,
+        }))
+        .expect("fixture scan should succeed");
+        let presets = scan_ids(&scan, "presets");
+        assert_eq!(presets.len(), 1);
+        let expected_modified_at = timestamp_overrides_from_value(Some(&modified_at(&preset_path)))
+            .map(|(created_at, _)| created_at)
+            .expect("fixture preset should expose a parseable file modified timestamp");
+
+        let result = run_st_bulk_import(
+            &state,
+            json!({
+                "folderPath": folder_path,
+                "folderToken": folder_token,
+                "options": {
+                    "presets": presets,
+                }
+            }),
+        )
+        .expect("bulk preset import should succeed");
+        assert_eq!(result["success"], Value::Bool(true));
+
+        let preset = state
+            .storage
+            .list("prompts")
+            .expect("prompts should list")
+            .into_iter()
+            .find(|prompt| {
+                prompt.get("name").and_then(Value::as_str) == Some("Imported: Timestamped")
+            })
+            .expect("imported preset should exist");
+        assert_eq!(
+            preset.get("createdAt").and_then(Value::as_str),
+            Some(expected_modified_at.as_str())
+        );
+        assert_eq!(
+            preset.get("updatedAt").and_then(Value::as_str),
+            Some(expected_modified_at.as_str())
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+        let _ = fs::remove_dir_all(st_root);
     }
 
     #[test]
