@@ -504,10 +504,20 @@ def guidance_omission_section(path, reason):
 
 
 def aggregate_guidance_omission_section(paths, limit):
-    body = "\n".join(
-        [
+    if "AGENTS.md" in paths:
+        intro = [
+            "AGENTS.md was omitted because the minimum guidance notes exceed the "
+            "guidance digest budget.",
+            "Selected guidance files were also omitted from individual sections.",
+        ]
+    else:
+        intro = [
             "Selected guidance files were omitted from individual sections because "
             "their minimum notes exceed the guidance digest budget.",
+        ]
+    body = "\n".join(
+        [
+            *intro,
             "Bunny must request focused context if one of these guidance files is "
             "needed to validate a concrete finding.",
             "",
@@ -541,7 +551,22 @@ def read_guidance_body(path, limit):
     return truncate_to_budget(body.strip() or "[empty guidance file]", limit)
 
 
-def build_path_guidance_sections(paths, limit, file_limit):
+def build_agents_guidance_body():
+    notes = "\n".join(
+        [
+            "Bunny path rules are provided separately as structured JSON for matched paths.",
+            "Keep findings tied to changed lines in the focused patch context.",
+        ]
+    )
+    try:
+        agents = read_text("AGENTS.md", 16_000)
+        hard_rules = markdown_section(agents, "Hard Rules") or agents
+    except Exception as exc:
+        hard_rules = f"Could not read AGENTS.md hard rules: {exc}"
+    return f"{notes}\n\n{hard_rules}".strip()
+
+
+def guidance_items_for_paths(paths, file_limit):
     selected = []
     for path in paths:
         body = read_guidance_body(path, file_limit)
@@ -552,14 +577,18 @@ def build_path_guidance_sections(paths, limit, file_limit):
         selected.append(
             {
                 "path": path,
+                "title": f"guidance: {path}",
                 "body": body,
                 "minimum": minimum_section,
             }
         )
+    return selected
 
+
+def build_guidance_sections(selected, limit):
     minimum_digest = join_digest_sections(item["minimum"] for item in selected)
     if len(minimum_digest) > limit:
-        return [aggregate_guidance_omission_section(paths, limit)]
+        return [aggregate_guidance_omission_section([item["path"] for item in selected], limit)]
 
     sections = []
     for index, item in enumerate(selected):
@@ -582,9 +611,13 @@ def build_path_guidance_sections(paths, limit, file_limit):
             sections.append(truncate_to_budget(item["minimum"], budget))
             continue
         sections.append(
-            fit_guidance_section(f"guidance: {item['path']}", item["body"], budget)
+            fit_guidance_section(item["title"], item["body"], budget)
         )
     return sections
+
+
+def build_path_guidance_sections(paths, limit, file_limit):
+    return build_guidance_sections(guidance_items_for_paths(paths, file_limit), limit)
 
 
 def build_repo_guidance_digest(files, *, compact=False):
@@ -593,25 +626,21 @@ def build_repo_guidance_digest(files, *, compact=False):
     selected_guidance = [
         path for path in guidance_paths_for_files(files) if path != "AGENTS.md"
     ]
-    sections = build_path_guidance_sections(selected_guidance, limit, file_limit)
-    remaining = limit - len(join_digest_sections(sections)) - (2 if sections else 0)
-
-    notes = "\n".join(
+    sections = build_guidance_sections(
         [
-            "Bunny path rules are provided separately as structured JSON for matched paths.",
-            "Keep findings tied to changed lines in the focused patch context.",
-        ]
+            {
+                "path": "AGENTS.md",
+                "title": "AGENTS.md hard rules",
+                "body": build_agents_guidance_body(),
+                "minimum": guidance_omission_section(
+                    "AGENTS.md",
+                    "required repo guidance, but the guidance digest budget was exhausted",
+                ),
+            },
+            *guidance_items_for_paths(selected_guidance, file_limit),
+        ],
+        limit,
     )
-    try:
-        agents = read_text("AGENTS.md", 16_000)
-        hard_rules = markdown_section(agents, "Hard Rules") or agents
-    except Exception as exc:
-        hard_rules = f"Could not read AGENTS.md hard rules: {exc}"
-    agents_body = f"{notes}\n\n{hard_rules}".strip()
-    if remaining > 0:
-        agents_section = fit_guidance_section("AGENTS.md hard rules", agents_body, remaining)
-        if agents_section:
-            sections.append(agents_section)
     return join_digest_sections(sections)
 
 
