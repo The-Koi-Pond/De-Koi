@@ -88,6 +88,23 @@ fn normalizes_sillytavern_selective_logic_numbers() {
 }
 
 #[test]
+fn normalizes_numeric_lorebook_entry_roles() {
+    for (role, expected) in [(0, "system"), (1, "user"), (2, "assistant")] {
+        let entry = normalize_lorebook_entry(
+            "book-1",
+            &json!({
+                "content": "Lore",
+                "key": ["moon"],
+                "role": role
+            }),
+            role as usize,
+        );
+
+        assert_eq!(entry["role"], expected);
+    }
+}
+
+#[test]
 fn detects_entry_tag_from_content_signals() {
     let entry = normalize_lorebook_entry(
         "book-1",

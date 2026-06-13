@@ -1606,6 +1606,82 @@ mod tests {
     }
 
     #[test]
+    fn legacy_prompt_overrides_import_remaps_renamed_sprite_and_game_keys() {
+        let state = test_state("prompt-overrides-renamed-keys");
+        let mut tables = Map::new();
+        tables.insert(
+            "prompt_overrides".to_string(),
+            json!([
+                {
+                    "key": "sprites.singlePortrait",
+                    "template": "Portrait ${defaultPrompt}",
+                    "enabled": "true"
+                },
+                {
+                    "key": "sprites.expressionSheet",
+                    "template": "Expressions ${defaultPrompt}",
+                    "enabled": "true"
+                },
+                {
+                    "key": "sprites.singleFullBody",
+                    "template": "Full body ${defaultPrompt}",
+                    "enabled": "true"
+                },
+                {
+                    "key": "sprites.fullBodySheet",
+                    "template": "Full body sheet ${defaultPrompt}",
+                    "enabled": "true"
+                },
+                {
+                    "key": "game.npcPortrait",
+                    "template": "NPC ${defaultPrompt}",
+                    "enabled": "true"
+                },
+                {
+                    "key": "game.sceneIllustration",
+                    "template": "Scene ${defaultPrompt}",
+                    "enabled": "true"
+                },
+                {
+                    "key": "game.unknown",
+                    "template": "Unknown ${defaultPrompt}",
+                    "enabled": "true"
+                }
+            ]),
+        );
+
+        let result =
+            import_legacy_profile_tables_with_restored_assets(&state, &tables, 0, None, || Ok(()))
+                .expect("legacy profile import should remap renamed prompt override keys");
+
+        let rows = state
+            .storage
+            .list("prompt-overrides")
+            .expect("prompt overrides should be readable");
+        let keys = rows
+            .iter()
+            .map(|row| row["key"].as_str().expect("key should be a string"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            keys,
+            vec![
+                "sprite.portraitSingle",
+                "sprite.expressionSheet",
+                "sprite.fullBodySingle",
+                "sprite.fullBodySheet",
+                "game.portrait",
+                "game.illustration",
+            ]
+        );
+        assert_eq!(rows[0]["id"], "sprite.portraitSingle");
+        assert_eq!(rows[0]["template"], "Portrait ${defaultPrompt}");
+        assert_eq!(rows[4]["id"], "game.portrait");
+        assert_eq!(rows[4]["template"], "NPC ${defaultPrompt}");
+        assert_eq!(result["imported"]["prompt-overrides"], 6);
+        assert_eq!(result["imported"]["unsupportedPromptOverrides"], 1);
+    }
+
+    #[test]
     fn legacy_connected_notes_import_onto_target_chat_notes() {
         let state = test_state("connected-notes");
         let mut tables = Map::new();

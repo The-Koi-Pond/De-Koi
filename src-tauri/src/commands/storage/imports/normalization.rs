@@ -1,6 +1,5 @@
-use super::*;
 use super::lorebook_signals::{detect_category, detect_entry_tag};
-
+use super::*;
 pub(super) fn string_field(value: &Value, key: &str) -> String {
     value
         .get(key)
@@ -235,6 +234,15 @@ fn selective_logic_value(value: Option<&Value>) -> &'static str {
     }
 }
 
+fn lorebook_entry_role(value: Option<&Value>) -> &'static str {
+    match value {
+        Some(Value::String(raw)) if raw == "user" => "user",
+        Some(Value::String(raw)) if raw == "assistant" => "assistant",
+        Some(Value::Number(raw)) if raw.as_i64() == Some(1) => "user",
+        Some(Value::Number(raw)) if raw.as_i64() == Some(2) => "assistant",
+        _ => "system",
+    }
+}
 pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: usize) -> Value {
     let keys = entry.get("key").or_else(|| entry.get("keys"));
     let secondary = entry
@@ -246,11 +254,6 @@ pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: 
         .and_then(Value::as_bool)
         .map(|disabled| !disabled)
         .unwrap_or_else(|| bool_field(entry.get("enabled"), true));
-    let role = entry
-        .get("role")
-        .and_then(Value::as_str)
-        .filter(|role| matches!(*role, "user" | "assistant" | "system"))
-        .unwrap_or("system");
     let position = match entry.get("position") {
         Some(Value::String(raw)) if raw == "after_char" => 1,
         Some(Value::String(raw)) if raw == "at_depth" || raw == "depth" => 2,
@@ -291,7 +294,7 @@ pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: 
         "position": position,
         "depth": number(entry.get("depth"), 4),
         "order": number(entry.get("order").or_else(|| entry.get("insertion_order")).or_else(|| entry.get("uid")).or_else(|| entry.get("id")), index as i64),
-        "role": role,
+        "role": lorebook_entry_role(entry.get("role")),
         "sticky": optional_number(entry.get("sticky")),
         "cooldown": optional_number(entry.get("cooldown")),
         "delay": optional_number(entry.get("delay")),
@@ -324,7 +327,6 @@ pub(super) fn normalize_imported_lorebook_entry(
             }
         }
     }
-
     if !object.contains_key("keys") {
         if let Some(keys) = entry.get("key").or_else(|| entry.get("keys")) {
             object.insert(
@@ -370,12 +372,10 @@ pub(super) fn normalize_imported_lorebook_entry(
             object.insert("position".to_string(), json!(position));
         }
     }
-    if !matches!(
-        object.get("role").and_then(Value::as_str),
-        Some("user" | "assistant" | "system")
-    ) {
-        object.insert("role".to_string(), Value::String("system".to_string()));
-    }
+    object.insert(
+        "role".to_string(),
+        json!(lorebook_entry_role(object.get("role"))),
+    );
     object.insert(
         "selectiveLogic".to_string(),
         Value::String(
