@@ -30,7 +30,7 @@
     "check:rust:deny": "cargo deny --manifest-path src-tauri/Cargo.toml check --config deny.toml",
     "check:rust:deps": "cargo machete src-tauri",
     "check:docs": "node scripts/check-docs.mjs && pnpm check:bunny-review",
-    "check:bunny-review": "python .github/bunny-review/check_guidance_digest.py",
+    "check:bunny-review": "node .github/bunny-review/run_guidance_check.mjs",
     "check:discovery": "node scripts/check-discovery-metadata.mjs",
     "check:agent-workflow": "node scripts/check-agent-workflow.mjs",
     "check:launcher-safety": "node scripts/check-launcher-safety.mjs",
