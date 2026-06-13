@@ -1324,6 +1324,25 @@ def three_pass_review(client, skill, triage_content, stats):
     )
 
 
+def emergency_single_pass_review(client, skill, triage_content, stats):
+    emergency_prompt = (
+        "Emergency fallback: the standard multi-pass Bunny review timed out before "
+        "a review object was emitted. Run one compact final pass using only the packet "
+        "already provided. Do not request extra context. Do not run a second specialist "
+        "pass. Report only concrete changed-line defects you can verify from the packet. "
+        "If no concrete defect is visible, return an empty findings array and describe "
+        "the timeout fallback in what_i_checked. Reply only with FINAL_REVIEW followed "
+        "by one JSON object matching the Bunny Review schema."
+    )
+    messages = [
+        {"role": "system", "content": skill},
+        {"role": "user", "content": triage_content},
+        {"role": "user", "content": emergency_prompt},
+    ]
+    response = model_call(client, messages, stats)
+    return extract_json_or_repair(client, messages, response, stats)
+
+
 def compact_retry_reason(exc):
     if isinstance(exc, EmptyModelResponse):
         return "model endpoint returned empty content"
@@ -1367,12 +1386,25 @@ def review_with_compact_failure_fallback(
             f"{focus_note} This is a compact fallback packet after the model "
             f"{reason} for the standard packet."
         )
-        return three_pass_review(
-            client,
-            skill,
-            triage_for_packet(compact_packet, compact_note),
-            stats,
-        )
+        compact_triage = triage_for_packet(compact_packet, compact_note)
+        try:
+            return three_pass_review(
+                client,
+                skill,
+                compact_triage,
+                stats,
+            )
+        except Exception as compact_exc:
+            compact_reason = compact_retry_reason(compact_exc)
+            if compact_reason is None:
+                raise
+            print(
+                "Bunny emergency single-pass fallback: "
+                f"{compact_reason}: {safe_model_error(compact_exc)}",
+                flush=True,
+            )
+            stats["fallback_reviews"] += 1
+            return emergency_single_pass_review(client, skill, compact_triage, stats)
 
 
 def parse_context_request(content):
