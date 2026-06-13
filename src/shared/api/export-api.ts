@@ -14,7 +14,7 @@ async function download(command: string, args: Record<string, unknown>, fallback
 
 export const exportApi = {
   prompt: (presetId: string): Promise<DownloadPayload> =>
-    exportDownload("prompt_export", { presetId }, "marinara-preset.json"),
+    exportDownload("prompt_export", { presetId }, "preset.marinara.json"),
   promptsBulk: (ids: string[]): Promise<DownloadPayload> =>
     exportDownload("prompts_export_bulk", { ids }, "marinara-presets.zip"),
   character: (id: string, format?: ExportFormat): Promise<DownloadPayload> =>

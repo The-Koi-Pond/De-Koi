@@ -285,6 +285,7 @@ pub(super) fn import_st_preset_payload(
                 "presencePenalty": clamp_number(raw.get("presence_penalty").and_then(Value::as_f64), 0.0, -2.0, 2.0),
                 "reasoningEffort": st_reasoning_effort(raw.get("reasoning_effort")),
                 "verbosity": Value::Null,
+                "serviceTier": Value::Null,
                 "assistantPrefill": "",
                 "customParameters": {},
                 "squashSystemMessages": raw.get("squash_system_messages").and_then(Value::as_bool).unwrap_or(true),
@@ -303,9 +304,9 @@ pub(super) fn import_st_preset_payload(
                 object.insert("default".to_string(), value.clone());
             }
         }
-        let preset = state
-            .storage
-            .create("prompts", with_entity_defaults("prompts", preset_body)?)?;
+        let mut preset_body = with_entity_defaults("prompts", preset_body)?;
+        apply_timestamp_overrides(&mut preset_body, &raw, &raw);
+        let mut preset = state.storage.create("prompts", preset_body)?;
         let preset_id = created_record_id(&preset, "preset")?;
         created_preset_id = Some(preset_id.clone());
 
@@ -397,14 +398,20 @@ pub(super) fn import_st_preset_payload(
             }
         }
 
-        state.storage.patch(
-            "prompts",
-            &preset_id,
-            json!({
-                "sectionOrder": section_ids,
-                "groupOrder": group_ids
-            }),
-        )?;
+        if let Some(object) = preset.as_object_mut() {
+            object.insert(
+                "sectionOrder".to_string(),
+                Value::Array(section_ids.iter().cloned().map(Value::String).collect()),
+            );
+            object.insert(
+                "groupOrder".to_string(),
+                Value::Array(group_ids.iter().cloned().map(Value::String).collect()),
+            );
+        }
+        apply_timestamp_overrides(&mut preset, &raw, &raw);
+        preset = state
+            .storage
+            .upsert_with_id("prompts", &preset_id, preset)?;
         flush_import_writes(state)?;
 
         Ok(json!({
