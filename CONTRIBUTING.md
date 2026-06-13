@@ -120,6 +120,15 @@ Use these as a guide:
 
 CI Sanity runs lint, typecheck, tests, and build on `main` pushes and pull requests. CI Full classifies changed files and runs the lane-relevant size checks, docs/discovery/unused checks, Rust clippy/tests, and Browser Smoke checks when manually dispatched, scheduled, or triggered by a ready PR. Lighthouse runs in the separate advisory performance workflow. Local validation should still describe exactly what was run and what remains unverified.
 
+## Issues
+
+Use the GitHub issue templates when filing work:
+
+- Use `.github/ISSUE_TEMPLATE/issue_report.md` for bugs, regressions, and usability problems.
+- Use `.github/ISSUE_TEMPLATE/feature_request.md` for improvements and new capabilities.
+
+Keep the matching template headings intact, fill unknown fields honestly, and leave template checkboxes unchecked until the requested details have actually been provided.
+
 ## Pull Requests
 
 Every PR should include:
@@ -179,5 +188,5 @@ Keep docs accurate for the main branch:
 
 - Update `README.md` and `docs/developer/` when run commands, architecture, source ownership, or validation changes.
 - Update `AGENTS.md` or repo skills only when contributor or agent workflow rules change.
-- Do not restore old `staging`, package-workspace, installer, release, screenshot, or changelog claims unless they are true for the main branch.
+- Do not restore old `refactor`, `staging`, package-workspace, installer, release, screenshot, or changelog claims unless they are true for the main branch.
 - Public release packaging, installation pages, final screenshots, release notes, and license metadata are still being rebuilt around the new architecture.
