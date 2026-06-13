@@ -202,12 +202,16 @@ fn configured_embedding_model(connection: &Value) -> Option<String> {
 fn memory_embedding_context_from_connection(
     connection_id: String,
     mut connection: Value,
-) -> Option<MemoryEmbeddingContext> {
-    let model = configured_embedding_model(&connection)?;
+) -> AppResult<MemoryEmbeddingContext> {
+    let model = configured_embedding_model(&connection).ok_or_else(|| {
+        AppError::invalid_input(format!(
+            "Embedding connection {connection_id} is missing an embeddingModel"
+        ))
+    })?;
     if let Some(object) = connection.as_object_mut() {
         object.insert("model".to_string(), Value::String(model.clone()));
     }
-    Some(MemoryEmbeddingContext {
+    Ok(MemoryEmbeddingContext {
         connection_id,
         connection,
         model,
@@ -216,6 +220,10 @@ fn memory_embedding_context_from_connection(
 
 fn no_embedding_connection_configured(error: &AppError) -> bool {
     error.code == "invalid_input" && error.message.starts_with("No embedding connection")
+}
+
+fn has_no_connection_rows(state: &AppState) -> AppResult<bool> {
+    Ok(state.storage.list("connections")?.is_empty())
 }
 
 async fn memory_embedding_context(
@@ -230,19 +238,22 @@ async fn memory_embedding_context(
     {
         let (embedding_connection_id, connection) =
             prompts::resolve_embedding_connection_for_id_async(state, connection_id).await?;
-        if let Some(context) =
-            memory_embedding_context_from_connection(embedding_connection_id, connection)
-        {
-            return Ok(Some(context));
-        }
+        return Ok(Some(memory_embedding_context_from_connection(
+            embedding_connection_id,
+            connection,
+        )?));
     }
 
     match prompts::resolve_default_embedding_connection_async(state).await {
-        Ok((connection_id, connection)) => Ok(memory_embedding_context_from_connection(
+        Ok((connection_id, connection)) => Ok(Some(memory_embedding_context_from_connection(
             connection_id,
             connection,
-        )),
-        Err(error) if no_embedding_connection_configured(&error) => Ok(None),
+        )?)),
+        Err(error)
+            if no_embedding_connection_configured(&error) && has_no_connection_rows(state)? =>
+        {
+            Ok(None)
+        }
         Err(error) => Err(error),
     }
 }
@@ -1450,6 +1461,132 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn refresh_chat_memories_errors_when_configured_embedding_target_lacks_model() {
+        let state = test_state("memory-refresh-missing-target-model");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "connectionId": "chat-connection"
+                }),
+            )
+            .expect("chat should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "chat-connection",
+                    "name": "Chat",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "embeddingConnectionId": "embedding-connection"
+                }),
+            )
+            .expect("chat connection should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "embedding-connection",
+                    "name": "Embeddings",
+                    "provider": "custom",
+                    "model": "chat-model"
+                }),
+            )
+            .expect("embedding connection should seed");
+        for index in 0..5 {
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({
+                        "id": format!("message-{index}"),
+                        "chatId": "chat-1",
+                        "role": if index % 2 == 0 { "user" } else { "assistant" },
+                        "content": format!("visible memory {index}"),
+                        "createdAt": format!("2026-06-01T10:0{index}:00.000Z")
+                    }),
+                )
+                .expect("message should seed");
+        }
+
+        let error = refresh_chat_memories(&state, "chat-1")
+            .await
+            .expect_err("configured embedding target without a model should not fall back");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("embeddingModel"));
+        assert!(error.message.contains("embedding-connection"));
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        assert!(chat.get("memories").is_none());
+    }
+
+    #[tokio::test]
+    async fn refresh_chat_memories_errors_when_default_embedding_connection_lacks_model() {
+        let state = test_state("memory-refresh-default-missing-model");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat"
+                }),
+            )
+            .expect("chat should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "default-connection",
+                    "name": "Default",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "isDefault": true
+                }),
+            )
+            .expect("default connection should seed");
+        for index in 0..5 {
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({
+                        "id": format!("message-{index}"),
+                        "chatId": "chat-1",
+                        "role": if index % 2 == 0 { "user" } else { "assistant" },
+                        "content": format!("visible memory {index}"),
+                        "createdAt": format!("2026-06-01T10:0{index}:00.000Z")
+                    }),
+                )
+                .expect("message should seed");
+        }
+
+        let error = refresh_chat_memories(&state, "chat-1")
+            .await
+            .expect_err("default embedding connection without a model should not fall back");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("embedding model"));
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        assert!(chat.get("memories").is_none());
+    }
+
+    #[tokio::test]
     async fn refresh_chat_memories_errors_when_configured_embedding_connection_is_invalid() {
         let state = test_state("memory-refresh-invalid-embedding");
         state
@@ -1483,6 +1620,85 @@ mod tests {
 
         assert_eq!(error.code, "not_found");
         assert!(error.message.contains("missing-embedding"));
+    }
+
+    #[tokio::test]
+    async fn import_chat_memories_errors_when_configured_embedding_target_lacks_model() {
+        let state = test_state("memory-import-missing-target-model");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "connectionId": "chat-connection"
+                }),
+            )
+            .expect("chat should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "chat-connection",
+                    "name": "Chat",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "embeddingConnectionId": "embedding-connection"
+                }),
+            )
+            .expect("chat connection should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "embedding-connection",
+                    "name": "Embeddings",
+                    "provider": "custom",
+                    "model": "chat-model",
+                    "embeddingModel": "   "
+                }),
+            )
+            .expect("embedding connection should seed");
+
+        let error = import_chat_memories(
+            &state,
+            "chat-1",
+            json!({
+                "type": "marinara_memory_recall",
+                "version": 1,
+                "data": {
+                    "sourceChat": {
+                        "id": "source-chat",
+                        "name": "Source chat",
+                        "mode": "conversation",
+                        "memoryCount": 1
+                    },
+                    "chunks": [
+                        {
+                            "content": "needs vectorization",
+                            "embedding": null,
+                            "messageCount": 1
+                        }
+                    ]
+                }
+            }),
+            None,
+        )
+        .await
+        .expect_err("configured embedding target without a model should not import");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("embeddingModel"));
+        assert!(error.message.contains("embedding-connection"));
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        assert!(chat.get("memories").is_none());
     }
 
     #[tokio::test]
