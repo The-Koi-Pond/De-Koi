@@ -21,7 +21,12 @@ export function normalizeMaybeJsonStringArray(value: unknown): string[] {
   const trimmed = value.trim();
   if (!trimmed) return [];
   try {
-    return normalizeStringArray(JSON.parse(trimmed));
+    const parsed = JSON.parse(trimmed);
+    if (typeof parsed === "string") {
+      const parsedTrimmed = parsed.trim();
+      return parsedTrimmed ? [parsedTrimmed] : [];
+    }
+    return normalizeStringArray(parsed);
   } catch {
     return [trimmed];
   }

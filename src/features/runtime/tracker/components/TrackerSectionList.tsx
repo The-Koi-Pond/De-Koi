@@ -38,6 +38,7 @@ export function TrackerSectionList({
     gameState,
     gameStateRefreshing,
     getSnapshot,
+    flushPatch,
     inventory,
     patchField,
     patchPlayerStats,
@@ -61,6 +62,7 @@ export function TrackerSectionList({
   const { rerunTracker, trackerRetryBusy } = useTrackerRerun({
     activeChatId,
     enabledAgentTypes,
+    flushPatch,
     gameStateRefreshing,
   });
   const {
