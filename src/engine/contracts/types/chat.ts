@@ -308,6 +308,8 @@ export interface ChatMetadata {
   gameCombatState?: import("./game.js").GameCombatStateSnapshot | null;
   /** User's initial game setup preferences */
   gameSetupConfig?: import("./game.js").GameSetupConfig | null;
+  /** Image style profile chosen for this game chat. Missing uses setup config or global default profile. */
+  imageStyleProfileId?: string | null;
   /** Tracked NPCs with reputation */
   gameNpcs?: import("./game.js").GameNpc[];
   /** Current-session turn number when the last rare generated scene illustration was created. */

@@ -101,6 +101,19 @@ function npcPortraitSpeciesRule(label: string, detail: string): string {
     : "Unless the description explicitly says otherwise, depict this NPC as a human or humanoid person. Do not infer an animal species from the name, mood, speech verbs, or setting.";
 }
 
+function npcPortraitIdentityCue(detail: string): string {
+  const gender = detail.match(/\bGender:\s*([^.\n]+)/i)?.[1]?.trim();
+  const pronouns = detail.match(/\bPronouns:\s*([^.\n]+)/i)?.[1]?.trim();
+  return [gender ? `Gender: ${gender}.` : "", pronouns ? `Pronouns: ${pronouns}.` : ""].filter(Boolean).join(" ");
+}
+
+function withPortraitIdentityCue(kind: GameImageAssetKind, detail: string, prompt: string): string {
+  if (kind !== "portrait") return prompt;
+  const identityCue = npcPortraitIdentityCue(detail);
+  if (!identityCue || prompt.includes(identityCue)) return prompt;
+  return `${prompt}${prompt.endsWith(".") ? "" : "."} ${identityCue}`;
+}
+
 export function sceneAssetPrompt(
   kind: GameImageAssetKind,
   label: string,
@@ -134,17 +147,21 @@ export function sceneAssetPrompt(
         "high detail",
       ]);
     }
-    return compileSceneAssetPrompt(kind, settings, gameAssetNegativePrompt(kind), artStyle, [
-      "portrait",
-      label,
-      detailPart,
-      style,
-      speciesRule,
-      "centered bust portrait",
-      "expressive face",
-      "clean readable silhouette",
-      "no text",
-    ]);
+    return withPortraitIdentityCue(
+      kind,
+      detail,
+      compileSceneAssetPrompt(kind, settings, gameAssetNegativePrompt(kind), artStyle, [
+        "portrait",
+        label,
+        detailPart,
+        style,
+        speciesRule,
+        "centered bust portrait",
+        "expressive face",
+        "clean readable silhouette",
+        "no text",
+      ]),
+    );
   }
   if (kind === "background") {
     return compileSceneAssetPrompt(
@@ -165,20 +182,28 @@ export function sceneAssetPrompt(
     );
   }
   if (settings.includeAppearances === false) {
-    return compileSceneAssetPrompt(
+    return withPortraitIdentityCue(
+      kind,
+      detail,
+      compileSceneAssetPrompt(
+        kind,
+        settings,
+        gameAssetNegativePrompt(kind),
+        artStyle,
+        `Portrait of ${label}. ${style}. ${speciesRule} Centered bust portrait, expressive face, clean readable silhouette, no text.`,
+      ),
+    );
+  }
+  return withPortraitIdentityCue(
+    kind,
+    detail,
+    compileSceneAssetPrompt(
       kind,
       settings,
       gameAssetNegativePrompt(kind),
       artStyle,
-      `Portrait of ${label}. ${style}. ${speciesRule} Centered bust portrait, expressive face, clean readable silhouette, no text.`,
-    );
-  }
-  return compileSceneAssetPrompt(
-    kind,
-    settings,
-    gameAssetNegativePrompt(kind),
-    artStyle,
-    `Portrait of ${label}. ${detail}. ${style}. ${speciesRule} Centered bust portrait, expressive face, clean readable silhouette, no text.`,
+      `Portrait of ${label}. ${detail}. ${style}. ${speciesRule} Centered bust portrait, expressive face, clean readable silhouette, no text.`,
+    ),
   );
 }
 

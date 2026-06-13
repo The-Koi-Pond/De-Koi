@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameMap, GameSetupConfig, SessionSummary } from "../../../../engine/contracts/types/game";
+import { createDefaultImageStyleProfileSettings } from "../../../../engine/generation/image-style-profiles";
 import type { WeatherState } from "../../../../engine/modes/game/world/weather.service";
 
 const storageApiMock = vi.hoisted(() => ({
@@ -254,6 +255,23 @@ describe("game API review guards", () => {
     expect(imageSize(payload, "background", "width", 1280)).toBe(512);
   });
 
+  it("honors configured image dimensions through the documented 4096 cap", async () => {
+    mockPromptPreviewChat();
+
+    expect(imageSize({ imageSizes: { background: { width: 4096 } } }, "background", "width", 1280)).toBe(4096);
+    expect(imageSize({ imageSizes: { background: { width: 4097 } } }, "background", "width", 1280)).toBe(1280);
+
+    const result = await previewGeneratedAssets({
+      chatId: "chat-1",
+      backgroundTag: "crystal harbor",
+      imageSizes: {
+        background: { width: 4096, height: 3072 },
+      },
+    });
+
+    expect(result.items.find((item) => item.kind === "background")).toMatchObject({ width: 4096, height: 3072 });
+  });
+
   it("uses stable prompt review ids for empty or punctuation-only keys", () => {
     expect(imageReviewId("background", "")).toBe("background:generated");
     expect(imageReviewId("background", "!!!")).toBe("background:generated");
@@ -287,6 +305,54 @@ describe("game API review guards", () => {
     } as never);
 
     expect(result.items.find((item) => item.kind === "background")).toMatchObject({ prompt: "override prompt" });
+  });
+
+  it("includes NPC gender and pronoun cues in generated portrait prompts", async () => {
+    mockPromptPreviewChat();
+
+    const result = await previewGeneratedAssets({
+      chatId: "chat-1",
+      npcsNeedingAvatars: [
+        {
+          name: "Vesper",
+          description: "masked duelist with silver hair",
+          gender: "nonbinary",
+          pronouns: "they/them",
+        },
+      ],
+    });
+
+    const portrait = result.items.find((item) => item.kind === "portrait");
+    expect(portrait?.prompt).toContain("Gender: nonbinary.");
+    expect(portrait?.prompt).toContain("Pronouns: they/them.");
+    expect(portrait?.prompt).toContain("masked duelist");
+  });
+
+  it("uses the game setup image style profile for generated asset prompts", async () => {
+    const styleProfiles = createDefaultImageStyleProfileSettings();
+    mockChat({
+      id: "chat-1",
+      characterIds: [],
+      metadata: {
+        gameSessionNumber: 1,
+        gameSetupConfig: { imageStyleProfileId: "danbooru" },
+      },
+    });
+    storageApiMock.list.mockResolvedValue([]);
+
+    const result = await previewGeneratedAssets({
+      chatId: "chat-1",
+      backgroundTag: "moonlit shrine",
+      imagePromptSettings: {
+        styleProfileId: null,
+        styleProfiles,
+      },
+    });
+
+    const background = result.items.find((item) => item.kind === "background");
+    expect(background?.prompt).toContain("masterpiece");
+    expect(background?.prompt).toContain("scenery");
+    expect(background?.negativePrompt).toContain("worst quality");
   });
 
   it("resolves managed character avatars for illustration references", async () => {
@@ -372,6 +438,30 @@ describe("game API review guards", () => {
     ).rejects.toThrow("The operation was aborted.");
 
     expect(imageGenerationApiMock.generate).not.toHaveBeenCalled();
+  });
+
+  it("passes 4096 dimensions through generated image requests", async () => {
+    mockChat(gameImageChat());
+    gameAssetsApiMock.upload.mockResolvedValue({ item: { path: "backgrounds/generated/crystal-harbor.png" } });
+    imageGenerationApiMock.generate.mockResolvedValue({
+      base64: "AQID",
+      mimeType: "image/png",
+    });
+
+    await generateAssets({
+      chatId: "chat-1",
+      backgroundTag: "crystal harbor",
+      imageSizes: {
+        background: { width: 4096, height: 4096 },
+      },
+    });
+
+    expect(imageGenerationApiMock.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        width: 4096,
+        height: 4096,
+      }),
+    );
   });
 
   it("adds stored player skill modifiers to unresolved skill checks", async () => {

@@ -11,6 +11,7 @@ import {
   imageReviewId,
   imageSize,
   imageUrlFromGeneration,
+  npcPortraitDetail,
   promptOverride,
   registeredGameImagePrompt,
   uploadGeneratedAsset,
@@ -27,7 +28,7 @@ export async function previewGeneratedAssets(
     (typeof record.artStylePrompt === "string" && record.artStylePrompt) ||
     (typeof setup.artStylePrompt === "string" && setup.artStylePrompt) ||
     "";
-  const promptSettings = imagePromptSettings(record);
+  const promptSettings = imagePromptSettings(record, meta);
   const items: g.GameImagePromptReviewItem[] = [];
   if (typeof record.backgroundTag === "string" && record.backgroundTag.trim()) {
     const id = imageReviewId("background", record.backgroundTag);
@@ -95,10 +96,7 @@ export async function previewGeneratedAssets(
   for (const npc of npcs.slice(0, 10)) {
     const npcRecord = g.asRecord(npc);
     const name = g.readTrimmed(npcRecord.name) || "NPC";
-    const detail =
-      typeof npcRecord.description === "string" && npcRecord.description.trim()
-        ? npcRecord.description
-        : "distinctive character portrait";
+    const detail = npcPortraitDetail(npcRecord);
     const id = imageReviewId("portrait", name);
     const defaultPrompt = g.sceneAssetPrompt("portrait", name, detail, artStyle, promptSettings);
     items.push({
