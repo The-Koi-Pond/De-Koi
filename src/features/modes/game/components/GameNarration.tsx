@@ -39,11 +39,32 @@ import { findNamedEntry, findNamedMapValue } from "../lib/game-character-name-ma
 import type { GameSegmentEdit } from "../lib/game-segment-edits";
 import { parseGmTags, stripGmTagsKeepReadables } from "../lib/game-tag-parser";
 import { audioManager } from "../lib/game-audio";
-import {
-  DIALOGUE_QUOTE_CAPTURE_GROUP_PATTERN_SOURCE,
-  stripSurroundingDialogueQuotes,
-} from "../../../../shared/lib/dialogue-quotes";
 import { formatNarration } from "../lib/game-narration-format";
+import {
+  effectDisplayLength,
+  estimateSessionHistoryTokens,
+  formatTokenEstimate,
+  narrationSegmentAnchorKey,
+  parseNarrationSegments,
+  slicePreservingEffects,
+  truncateMessageContentAtSegment,
+  type GameSideLine,
+  type NarrationMessage,
+  type NarrationSegment,
+} from "../lib/game-narration-segments";
+import {
+  buildVoiceConfigSignature,
+  getGameSegmentVoiceKeyForRequests,
+  getGameSegmentVoiceRequest,
+  getGameSideLineVoiceKeyForRequests,
+  getGameVoicePlayerSpeakerNames,
+  queueGameVoiceEntryPlan,
+  resolveGameVoiceEntryPlan,
+  type GameSegmentVoiceEntry,
+  type GameSegmentVoiceRequest,
+  type GameVoiceEntryPlan,
+} from "../lib/game-narration-voice";
+import { isPartyTurnMessage } from "../lib/game-surface-helpers";
 import type { SpriteInfo } from "../../../catalog/sprites/index";
 import { useTranslate } from "../../../../shared/hooks/use-translate";
 import { useTTSConfig } from "../../../../shared/hooks/use-tts";
@@ -55,26 +76,9 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { createMessageMacroResolver, findCharacterByName } from "../../../../shared/lib/chat-macros";
 import { playTextBlip } from "../../../../shared/lib/text-blip-sound";
 import { animateTextHtml } from "./AnimatedText";
-import { ttsService } from "../../../../shared/lib/tts-service";
-import { getOrCreateCachedTTSAudioBlob } from "../../../../shared/lib/tts-audio-cache";
-import {
-  resolveTTSVoiceForSpeaker,
-  splitTTSChunks,
-  ttsConfigMatchesSpeaker,
-} from "../../../../shared/lib/tts-dialogue";
 import type { Message } from "../../../../engine/contracts/types/chat";
-import type { PartyDialogueLine, GameNpc, SkillCheckResult } from "../../../../engine/contracts/types/game";
-import type { TTSConfig } from "../../../../engine/contracts/types/tts";
+import type { PartyDialogueLine, SkillCheckResult } from "../../../../engine/contracts/types/game";
 import type { CharacterMap, PersonaInfo } from "../../shared/chat-ui/types";
-
-const PARTY_TURN_MESSAGE_RE = /^\[(?:party-turn|party-chat)]\s*/i;
-
-function isPartyTurnMessage(message: { role?: string; content?: string }): boolean {
-  return (
-    (message.role === "assistant" || message.role === "narrator") &&
-    PARTY_TURN_MESSAGE_RE.test((message.content ?? "").trimStart())
-  );
-}
 
 /** Build inline style for a color that may be a plain color or a CSS gradient. */
 function nameColorStyle(color?: string): CSSProperties | undefined {
@@ -94,95 +98,6 @@ function nameColorStyle(color?: string): CSSProperties | undefined {
   return { color };
 }
 
-function normalizeSpriteExpressionKey(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/^full_/, "")
-    .replace(/[_\s-]+/g, "_");
-}
-
-const GAME_TTS_EMOTIONS = [
-  "neutral",
-  "happy",
-  "sad",
-  "angry",
-  "surprised",
-  "scared",
-  "disgusted",
-  "thinking",
-  "laughing",
-  "crying",
-  "blushing",
-  "smirk",
-  "embarrassed",
-  "determined",
-  "confused",
-  "sleepy",
-] as const;
-
-type GameTtsEmotion = (typeof GAME_TTS_EMOTIONS)[number];
-
-const GAME_TTS_EMOTION_SET = new Set<string>(GAME_TTS_EMOTIONS);
-
-const GAME_TTS_EMOTION_ALIASES: Record<string, GameTtsEmotion> = {
-  afraid: "scared",
-  anger: "angry",
-  amused: "laughing",
-  blush: "blushing",
-  confused_look: "confused",
-  confusion: "confused",
-  cry: "crying",
-  determined_look: "determined",
-  disgust: "disgusted",
-  drowsy: "sleepy",
-  embarrassed_smile: "embarrassed",
-  fear: "scared",
-  fearful: "scared",
-  flustered: "blushing",
-  focused: "determined",
-  grin: "happy",
-  joyful: "happy",
-  laugh: "laughing",
-  nervous: "scared",
-  pensive: "thinking",
-  puzzled: "confused",
-  sad_look: "sad",
-  sadness: "sad",
-  serious: "determined",
-  shocked: "surprised",
-  shy: "blushing",
-  sleep: "sleepy",
-  sleepy_eyes: "sleepy",
-  smile: "happy",
-  smirking: "smirk",
-  sobbing: "crying",
-  startled: "surprised",
-  surprise: "surprised",
-  think: "thinking",
-  tired: "sleepy",
-  worried: "scared",
-};
-
-function normalizeGameTtsEmotion(value?: string | null): GameTtsEmotion | null {
-  const normalized = value ? normalizeSpriteExpressionKey(value) : "";
-  if (!normalized) return null;
-  if (GAME_TTS_EMOTION_SET.has(normalized)) return normalized as GameTtsEmotion;
-  if (GAME_TTS_EMOTION_ALIASES[normalized]) return GAME_TTS_EMOTION_ALIASES[normalized];
-
-  const parts = normalized.split("_").filter(Boolean);
-  for (const part of parts) {
-    if (GAME_TTS_EMOTION_SET.has(part)) return part as GameTtsEmotion;
-    if (GAME_TTS_EMOTION_ALIASES[part]) return GAME_TTS_EMOTION_ALIASES[part];
-  }
-
-  return null;
-}
-
-function resolveGameSegmentTtsEmotion(segment: NarrationSegment): GameTtsEmotion {
-  return normalizeGameTtsEmotion(segment.sprite) ?? (segment.partyType === "thought" ? "thinking" : "neutral");
-}
-
 const PARTY_TYPE_ICONS: Record<string, string> = {
   side: "💬",
   extra: "💬",
@@ -197,71 +112,12 @@ function isMobileGameViewport(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
 }
 
-type NarrationMessage = Pick<Message, "id" | "chatId" | "role" | "content" | "characterId" | "extra"> & {
-  characterName?: string;
-};
-
-const APPROX_MESSAGE_TOKEN_OVERHEAD = 4;
-
-function estimateTextTokenCount(text: string): number {
-  const trimmed = text.trim();
-  if (!trimmed) return 0;
-  const wordEstimate = trimmed.split(/\s+/).filter(Boolean).length * 1.3;
-  const charEstimate = trimmed.length / 4;
-  return Math.ceil(Math.max(wordEstimate, charEstimate));
-}
-
-function estimateMessageTokenCount(message: NarrationMessage): number {
-  const stored = message.extra?.tokenCount;
-  if (typeof stored === "number" && Number.isFinite(stored) && stored > 0) return stored;
-  const textTokens = estimateTextTokenCount(message.content);
-  return textTokens > 0 ? textTokens + APPROX_MESSAGE_TOKEN_OVERHEAD : 0;
-}
-
-function estimateSessionHistoryTokens(messages: NarrationMessage[]): number {
-  let startIndex = 0;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.extra?.isConversationStart) {
-      startIndex = i;
-      break;
-    }
-  }
-  return messages.slice(startIndex).reduce((total, message) => total + estimateMessageTokenCount(message), 0);
-}
-
-function formatTokenEstimate(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens >= 10_000_000 ? 0 : 1).replace(/\.0$/, "")}m`;
-  if (tokens >= 10_000) return `${Math.round(tokens / 1_000)}k`;
-  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
-  return tokens.toLocaleString();
-}
-
-interface NarrationSegment {
-  id: string;
-  type: "narration" | "dialogue" | "readable" | "system";
-  speaker?: string;
-  sprite?: string;
-  content: string;
-  color?: string;
-  sourceMessageId?: string | null;
-  sourceSegmentIndex?: number | null;
-  sourceRole?: Message["role"] | null;
-  /** Party dialogue delivery subtype for visual styling */
-  partyType?: "main" | "side" | "extra" | "action" | "thought" | "whisper";
-  /** Whisper target character */
-  whisperTarget?: string;
-  /** Readable subtype (note or book) — only set when type === "readable" */
-  readableType?: "note" | "book";
-  /** Full readable content for overlay display — only set when type === "readable" */
-  readableContent?: string;
-}
-
-function narrationSegmentAnchorKey(segment: NarrationSegment): string {
-  if (segment.sourceMessageId && segment.sourceSegmentIndex != null) {
-    return `${segment.sourceMessageId}:${segment.sourceSegmentIndex}`;
-  }
-  if (segment.sourceMessageId) return `${segment.sourceMessageId}:${segment.id}`;
-  return segment.id;
+function normalizeSpriteExpressionKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^full_/, "")
+    .replace(/[_\s-]+/g, "_");
 }
 
 type SpeakerAvatarInfo = {
@@ -271,23 +127,6 @@ type SpeakerAvatarInfo = {
   dialogueColor?: string;
 };
 
-type GameSegmentVoiceEntry =
-  | { status: "loading"; speaker?: string; tone?: string; voice?: string; chunks: string[] }
-  | { status: "ready"; speaker?: string; tone?: string; voice?: string; chunks: string[]; urls: string[] }
-  | { status: "error"; speaker?: string; tone?: string; voice?: string; chunks: string[] };
-
-interface GameSegmentVoiceRequest {
-  speaker?: string;
-  tone?: string;
-  voice?: string;
-  chunks: string[];
-}
-
-type GameSideLine = PartyDialogueLine & {
-  voiceSourceMessageId?: string | null;
-  voiceSourceSegmentIndex?: number | null;
-  voiceSourceRole?: Message["role"] | null;
-};
 
 const EMPTY_GAME_SIDE_LINES: GameSideLine[] = [];
 const MAX_SIDE_LINES_PER_SEGMENT = 4;
@@ -328,22 +167,6 @@ function isSyntheticGameStartMessage(message: Pick<NarrationMessage, "role" | "c
   return message.role === "user" && SYNTHETIC_GAME_START_MESSAGE_RE.test(message.content || "");
 }
 
-interface GameVoiceAudioJob {
-  cacheKey: string;
-  textCacheKey: string;
-  chunk: string;
-  speaker?: string;
-  tone?: string;
-  voice?: string;
-}
-
-interface GameVoiceEntryPlan {
-  key: string;
-  audioJobs: GameVoiceAudioJob[];
-  controller: AbortController;
-}
-
-const GAME_TTS_CHUNK_ATTEMPTS = 2;
 
 interface GameNarrationProps {
   messages: NarrationMessage[];
@@ -495,62 +318,6 @@ interface GameNarrationProps {
   onMaxNavOffsetChange?: (max: number) => void;
 }
 
-/** Regex matching explicit {effect:text} tags used by AnimatedText. */
-const EFFECT_TAG_RE = /\{(shake|shout|whisper|glow|pulse|wave|flicker|drip|bounce|tremble|glitch|expand):([^}]+)\}/gi;
-
-/** Count visible characters (effect tag syntax excluded). */
-function effectDisplayLength(content: string): number {
-  return content.replace(EFFECT_TAG_RE, "$2").length;
-}
-
-/**
- * Slice content by visible character count while keeping {effect:text} tags
- * intact around their visible portion. This prevents the typewriter from
- * splitting a tag mid-syntax (e.g. "{shak" appearing as raw text).
- */
-function slicePreservingEffects(content: string, maxVisible: number): string {
-  const re = new RegExp(EFFECT_TAG_RE.source, "gi");
-  let result = "";
-  let visible = 0;
-  let lastIdx = 0;
-  let m: RegExpExecArray | null;
-
-  while ((m = re.exec(content)) !== null) {
-    const plain = content.slice(lastIdx, m.index);
-    const room = maxVisible - visible;
-    if (room <= 0) break;
-
-    if (plain.length <= room) {
-      result += plain;
-      visible += plain.length;
-    } else {
-      result += plain.slice(0, room);
-      return result;
-    }
-
-    const inner = m[2];
-    const room2 = maxVisible - visible;
-    if (room2 <= 0) break;
-
-    if (inner.length <= room2) {
-      result += m[0]; // full tag
-      visible += inner.length;
-    } else {
-      result += `{${m[1]}:${inner.slice(0, room2)}}`;
-      return result;
-    }
-
-    lastIdx = m.index + m[0].length;
-  }
-
-  const tail = content.slice(lastIdx);
-  const room = maxVisible - visible;
-  if (room > 0) {
-    result += tail.slice(0, room);
-  }
-
-  return result;
-}
 
 function getGameTranslationHtml(message: NarrationMessage, translatedText: string): string {
   const content =
@@ -560,242 +327,6 @@ function getGameTranslationHtml(message: NarrationMessage, translatedText: strin
   return animateTextHtml(formatNarration(content.trim(), false));
 }
 
-function hashVoiceKey(value: string): string {
-  let hash = 0;
-  for (let i = 0; i < value.length; i++) {
-    hash = (hash << 5) - hash + value.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash).toString(36);
-}
-
-function buildVoiceConfigSignature(config?: TTSConfig | null): string {
-  if (!config) return "tts:none";
-  return [
-    config.source,
-    config.baseUrl,
-    config.model,
-    config.voice,
-    config.voiceMode,
-    JSON.stringify(config.voiceAssignments ?? []),
-    config.npcDefaultVoicesEnabled ? "npc-defaults" : "npc-global",
-    JSON.stringify(config.npcDefaultMaleVoices ?? []),
-    JSON.stringify(config.npcDefaultFemaleVoices ?? []),
-    config.speed,
-    config.elevenLabsStability,
-    config.elevenLabsLanguageCode,
-    config.dialogueOnly ? "dialogue" : "all-text",
-    config.dialogueScope,
-    config.dialogueCharacterName,
-  ].join("|");
-}
-
-function buildVoiceLineTextCacheKey(
-  config: TTSConfig,
-  job: Omit<GameVoiceAudioJob, "cacheKey" | "textCacheKey">,
-): string {
-  const rawKey = [
-    config.source,
-    config.baseUrl,
-    config.model,
-    config.speed,
-    config.elevenLabsStability,
-    config.elevenLabsLanguageCode,
-    job.voice ?? "",
-    job.speaker ?? "",
-    job.tone ?? "",
-    job.chunk,
-  ].join("\n");
-  return `game-voice-line-v1:${rawKey.length}:${hashVoiceKey(rawKey)}`;
-}
-
-function buildVoiceLineSegmentCacheKey(segmentVoiceKey: string, jobIndex: number, textCacheKey: string): string {
-  return `game-voice-line-v3:${segmentVoiceKey}:${jobIndex}:${hashVoiceKey(textCacheKey)}`;
-}
-
-function buildGameVoiceAudioJobs(
-  key: string,
-  requests: GameSegmentVoiceRequest[],
-  config: TTSConfig,
-): GameVoiceAudioJob[] {
-  let voiceJobIndex = 0;
-  return requests.flatMap((request) =>
-    request.chunks.map((chunk) => {
-      const jobIndex = voiceJobIndex;
-      voiceJobIndex += 1;
-      const job = {
-        chunk,
-        speaker: request.speaker,
-        tone: request.tone,
-        voice: request.voice,
-      };
-      const textCacheKey = buildVoiceLineTextCacheKey(config, job);
-      return {
-        ...job,
-        cacheKey: buildVoiceLineSegmentCacheKey(key, jobIndex, textCacheKey),
-        textCacheKey,
-      };
-    }),
-  );
-}
-
-function waitForGameTTSRetry(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(new DOMException("TTS request aborted", "AbortError"));
-      return;
-    }
-    const timeout = window.setTimeout(resolve, ms);
-    signal.addEventListener(
-      "abort",
-      () => {
-        window.clearTimeout(timeout);
-        reject(new DOMException("TTS request aborted", "AbortError"));
-      },
-      { once: true },
-    );
-  });
-}
-
-async function generateGameVoiceJobBlob(job: GameVoiceAudioJob, controller: AbortController): Promise<Blob> {
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= GAME_TTS_CHUNK_ATTEMPTS; attempt += 1) {
-    if (controller.signal.aborted) throw new DOMException("TTS request aborted", "AbortError");
-    try {
-      return await getOrCreateCachedTTSAudioBlob(
-        job.cacheKey,
-        () =>
-          ttsService.generateAudio(job.chunk, {
-            speaker: job.speaker,
-            tone: job.tone,
-            voice: job.voice,
-            signal: controller.signal,
-          }),
-        [job.textCacheKey],
-      );
-    } catch (err) {
-      if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) throw err;
-      lastError = err;
-      if (attempt < GAME_TTS_CHUNK_ATTEMPTS) {
-        await waitForGameTTSRetry(350 * attempt, controller.signal);
-      }
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error("TTS request failed");
-}
-
-function findNpcVoiceHint(speaker: string | null | undefined, gameNpcs: GameNpc[]) {
-  const speakerName = speaker?.trim();
-  if (!speakerName) return null;
-  const normalizedSpeaker = speakerName.toLowerCase();
-  const npc = gameNpcs.find((candidate) => candidate.name.trim().toLowerCase() === normalizedSpeaker);
-  if (!npc) return { name: speakerName };
-  return { name: npc.name, description: npc.description, gender: npc.gender, pronouns: npc.pronouns, notes: npc.notes };
-}
-
-type GameSegmentVoiceOptions = {
-  playerSpeakerNames?: ReadonlySet<string>;
-};
-
-function normalizeGameVoiceSpeakerName(value: string | null | undefined): string {
-  return value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
-}
-
-function getGameVoicePlayerSpeakerNames(personaName: string | undefined): Set<string> {
-  const names = new Set(["you", "player", "player character", "playername", "player name", "protagonist", "pc"]);
-  const normalizedPersonaName = normalizeGameVoiceSpeakerName(personaName);
-  if (normalizedPersonaName) names.add(normalizedPersonaName);
-  return names;
-}
-
-function isGameVoicePlayerSpeaker(
-  speaker: string | null | undefined,
-  playerSpeakerNames: ReadonlySet<string> | undefined,
-): boolean {
-  const normalizedSpeaker = normalizeGameVoiceSpeakerName(speaker);
-  return Boolean(normalizedSpeaker && playerSpeakerNames?.has(normalizedSpeaker));
-}
-
-function isGameVoicePlayerTaggedNarration(
-  content: string,
-  playerSpeakerNames: ReadonlySet<string> | undefined,
-): boolean {
-  if (!playerSpeakerNames?.size) return false;
-  const speakerMatch = content.match(/^\s*\[([^\]]+)\](?:\s*\[[^\]]+\])?/);
-  if (!speakerMatch) return false;
-  return isGameVoicePlayerSpeaker(speakerMatch[1], playerSpeakerNames);
-}
-
-function shouldSkipGameVoiceSegment(segment: NarrationSegment, options: GameSegmentVoiceOptions): boolean {
-  if (segment.sourceRole === "user" || segment.sourceRole === "system") return true;
-  if (segment.partyType === "thought") return true;
-  if (isGameVoicePlayerSpeaker(segment.speaker, options.playerSpeakerNames)) return true;
-  return segment.type === "narration" && isGameVoicePlayerTaggedNarration(segment.content, options.playerSpeakerNames);
-}
-
-function getGameSegmentVoiceRequest(
-  segment: NarrationSegment,
-  config: TTSConfig,
-  gameNpcs: GameNpc[] = [],
-  options: GameSegmentVoiceOptions = {},
-): GameSegmentVoiceRequest | null {
-  if (shouldSkipGameVoiceSegment(segment, options)) return null;
-  if (segment.type !== "dialogue" && segment.type !== "narration") return null;
-
-  if (segment.type === "dialogue") {
-    if (!ttsConfigMatchesSpeaker(config, segment.speaker)) return null;
-    const chunks = splitTTSChunks(segment.content);
-    if (chunks.length === 0) return null;
-    const tone = resolveGameSegmentTtsEmotion(segment);
-    const voice = resolveTTSVoiceForSpeaker(
-      config,
-      segment.speaker,
-      undefined,
-      findNpcVoiceHint(segment.speaker, gameNpcs),
-    );
-    if (config.source === "elevenlabs" && !voice) return null;
-    return {
-      chunks,
-      speaker: segment.speaker,
-      tone,
-      voice,
-    };
-  }
-
-  if (config.dialogueOnly) return null;
-  const chunks = splitTTSChunks(segment.content);
-  if (chunks.length === 0) return null;
-  const voice = config.voice;
-  if (config.source === "elevenlabs" && !voice) return null;
-  return { chunks, voice };
-}
-
-function getGameSegmentVoiceKeyForRequests(
-  segment: NarrationSegment,
-  configSignature: string,
-  requests: GameSegmentVoiceRequest[],
-): string | null {
-  if (!segment.sourceMessageId || segment.sourceSegmentIndex == null || requests.length === 0) return null;
-  return `${segment.sourceMessageId}:${segment.sourceSegmentIndex}:${hashVoiceKey(configSignature)}`;
-}
-
-function getGameSideLineVoiceKeyForRequests(
-  segment: NarrationSegment,
-  line: GameSideLine,
-  sideIndex: number,
-  configSignature: string,
-  requests: GameSegmentVoiceRequest[],
-): string | null {
-  if (requests.length === 0) return null;
-  const sourceMessageId = line.voiceSourceMessageId ?? segment.sourceMessageId;
-  const sourceSegmentIndex = line.voiceSourceSegmentIndex ?? segment.sourceSegmentIndex;
-  if (!sourceMessageId || sourceSegmentIndex == null) return null;
-
-  const suffix = line.voiceSourceSegmentIndex == null ? `:side:${sideIndex}` : "";
-  return `${sourceMessageId}:${sourceSegmentIndex}${suffix}:${hashVoiceKey(configSignature)}`;
-}
 
 function withSegmentSource(
   segment: NarrationSegment,
@@ -2660,20 +2191,14 @@ export function GameNarration({
 
     const plans: GameVoiceEntryPlan[] = [];
     const queuePlan = (key: string | null, requests: GameSegmentVoiceRequest[]) => {
-      if (!key || gameVoiceCacheRef.current.has(key) || gameVoicePendingRef.current.has(key)) return;
-      const audioJobs = buildGameVoiceAudioJobs(key, requests, ttsConfig);
-      if (audioJobs.length === 0) return;
-
-      const controller = new AbortController();
-      gameVoicePendingRef.current.set(key, controller);
-      gameVoiceCacheRef.current.set(key, {
-        status: "loading",
-        chunks: audioJobs.map((job) => job.chunk),
-        speaker: audioJobs[0]?.speaker,
-        tone: audioJobs[0]?.tone,
-        voice: audioJobs[0]?.voice,
+      const plan = queueGameVoiceEntryPlan({
+        key,
+        requests,
+        config: ttsConfig,
+        cache: gameVoiceCacheRef.current,
+        pending: gameVoicePendingRef.current,
       });
-      plans.push({ key, audioJobs, controller });
+      if (plan) plans.push(plan);
     };
 
     for (const [segmentIndex, segment] of segments.entries()) {
@@ -2695,51 +2220,16 @@ export function GameNarration({
 
     const runPlans = async () => {
       for (const plan of plans) {
-        const { key, audioJobs, controller } = plan;
-        if (controller.signal.aborted) continue;
-
-        const blobs: Blob[] = [];
-        let failed = false;
-        for (const [jobIndex, job] of audioJobs.entries()) {
-          if (controller.signal.aborted) break;
-          try {
-            const blob = await generateGameVoiceJobBlob(job, controller);
-            blobs.push(blob);
-          } catch (err) {
-            if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) break;
-            failed = true;
-            console.warn(`[game-tts] Failed to generate voice line chunk ${jobIndex + 1}/${audioJobs.length}`, err);
-            break;
-          }
-        }
-
-        try {
-          if (controller.signal.aborted) return;
-          const urls = blobs.map((blob) => URL.createObjectURL(blob));
-          if (!failed && urls.length === audioJobs.length) {
-            gameVoiceCacheRef.current.set(key, {
-              status: "ready",
-              chunks: audioJobs.map((job) => job.chunk),
-              speaker: audioJobs[0]?.speaker,
-              tone: audioJobs[0]?.tone,
-              voice: audioJobs[0]?.voice,
-              urls,
-            });
-          } else {
-            for (const url of urls) URL.revokeObjectURL(url);
-            gameVoiceCacheRef.current.set(key, {
-              status: "error",
-              chunks: audioJobs.map((job) => job.chunk),
-              speaker: audioJobs[0]?.speaker,
-              tone: audioJobs[0]?.tone,
-              voice: audioJobs[0]?.voice,
-            });
-          }
-        } finally {
-          gameVoicePendingRef.current.delete(key);
-          if (!controller.signal.aborted) {
-            setGameVoiceVersion((version) => version + 1);
-          }
+        const didUpdate = await resolveGameVoiceEntryPlan({
+          plan,
+          cache: gameVoiceCacheRef.current,
+          pending: gameVoicePendingRef.current,
+          onChunkError: (jobIndex, audioJobCount, err) => {
+            console.warn(`[game-tts] Failed to generate voice line chunk ${jobIndex + 1}/${audioJobCount}`, err);
+          },
+        });
+        if (didUpdate) {
+          setGameVoiceVersion((version) => version + 1);
         }
       }
     };
@@ -4995,473 +4485,3 @@ function ExpressionReaction({ expression }: { expression?: string }) {
 /** Split PascalCase/camelCase identifiers into space-separated words.
  *  "FatuiAgent" → "Fatui Agent", "darkKnight" → "dark Knight"
  *  Already-spaced names pass through unchanged. */
-function humanizeName(name: string): string {
-  if (name.includes(" ") || name.includes("_")) return name;
-  return name.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
-}
-
-function normalizeInlineVnDialogueLines(source: string): string {
-  return source
-    .replace(
-      /([^\n])\s+(\[[^\]]+\]\s*\[(?:main|side|extra|action|thought|whisper(?::[^\]]+)?)\]\s*(?:\[[^\]]+\])?\s*:)/gi,
-      "$1\n$2",
-    )
-    .replace(
-      /(\[[^\]]+\]\s*\[(?:main|side|extra|whisper(?::[^\]]+)?)\]\s*(?:\[[^\]]+\])?\s*:\s*(?:"[^"]*"|“[^”]*”|«[^»]*»))\s+(?=\S)/gi,
-      "$1\n",
-    );
-}
-
-type TruncationLine = {
-  text: string;
-  originalStart: number;
-  originalEnd: number;
-};
-
-function findReadableBlockEnd(source: string, start: number): number {
-  let depth = 0;
-  for (let i = start; i < source.length; i++) {
-    if (source[i] === "[") depth++;
-    else if (source[i] === "]") {
-      depth--;
-      if (depth === 0) return i;
-    }
-  }
-  return -1;
-}
-
-function splitTextIntoBoundedLines(text: string, originalStart: number): TruncationLine[] {
-  const lines: TruncationLine[] = [];
-  let lineStart = 0;
-
-  for (let i = 0; i <= text.length; i++) {
-    if (i < text.length && text[i] !== "\n") continue;
-    const rawLine = text.slice(lineStart, i);
-    const lineText = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-    lines.push({
-      text: lineText,
-      originalStart: originalStart + lineStart,
-      originalEnd: originalStart + lineStart + lineText.length,
-    });
-    lineStart = i + 1;
-  }
-
-  return lines;
-}
-
-function splitInlineVnDialogueLineMetadata(line: TruncationLine): TruncationLine[] {
-  const headerRe = /\[[^\]]+\]\s*\[(?:main|side|extra|action|thought|whisper(?::[^\]]+)?)\]\s*(?:\[[^\]]+\])?\s*:/gi;
-  const pieces: TruncationLine[] = [];
-  let chunkStart = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = headerRe.exec(line.text))) {
-    if (match.index > chunkStart && /\s/.test(line.text[match.index - 1] ?? "")) {
-      pieces.push({
-        text: line.text.slice(chunkStart, match.index),
-        originalStart: line.originalStart + chunkStart,
-        originalEnd: line.originalStart + match.index,
-      });
-      chunkStart = match.index;
-    }
-  }
-  pieces.push({
-    text: line.text.slice(chunkStart),
-    originalStart: line.originalStart + chunkStart,
-    originalEnd: line.originalEnd,
-  });
-
-  return pieces.flatMap((piece) => {
-    const splitRe =
-      /^(\s*\[[^\]]+\]\s*\[(?:main|side|extra|whisper(?::[^\]]+)?)\]\s*(?:\[[^\]]+\])?\s*:\s*(?:"[^"]*"|“[^”]*”|«[^»]*»))\s+(?=\S)/i;
-    const split = splitRe.exec(piece.text);
-    if (!split || split[1].length >= piece.text.length) return [piece];
-
-    const splitAt = split[1].length;
-    return [
-      {
-        text: piece.text.slice(0, splitAt),
-        originalStart: piece.originalStart,
-        originalEnd: piece.originalStart + splitAt,
-      },
-      {
-        text: piece.text.slice(splitAt).trimStart(),
-        originalStart: piece.originalStart + splitAt + (piece.text.slice(splitAt).match(/^\s*/)?.[0].length ?? 0),
-        originalEnd: piece.originalEnd,
-      },
-    ];
-  });
-}
-
-function buildTruncationLines(rawContent: string): TruncationLine[] {
-  const chunks: TruncationLine[] = [];
-  const readableTagRe = /\[(?:Note|Book):/gi;
-  let cursor = 0;
-  let placeholderIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = readableTagRe.exec(rawContent))) {
-    const start = match.index;
-    const end = findReadableBlockEnd(rawContent, start);
-    if (end < 0) continue;
-
-    if (start > cursor) {
-      chunks.push(...splitTextIntoBoundedLines(rawContent.slice(cursor, start), cursor));
-    }
-    chunks.push({
-      text: `__READABLE_${placeholderIndex}__`,
-      originalStart: start,
-      originalEnd: end + 1,
-    });
-    placeholderIndex += 1;
-    cursor = end + 1;
-    readableTagRe.lastIndex = cursor;
-  }
-
-  if (cursor < rawContent.length) {
-    chunks.push(...splitTextIntoBoundedLines(rawContent.slice(cursor), cursor));
-  }
-
-  return chunks.flatMap((chunk) => {
-    if (/^__READABLE_\d+__$/.test(chunk.text)) return [chunk];
-    return splitInlineVnDialogueLineMetadata(chunk).map((line) => ({
-      ...line,
-      text: stripGmTagsKeepReadables(line.text),
-    }));
-  });
-}
-
-function parseNarrationSegments(message: NarrationMessage, speakerColors: Map<string, string>): NarrationSegment[] {
-  // Use stripGmTagsKeepReadables so [Note:] and [Book:] stay inline for position-aware display.
-  // Extract them first as placeholders so multi-line readables don't break line-based parsing.
-  const withReadables = stripGmTagsKeepReadables(message.content || "");
-  const readableContents: Array<{ type: "note" | "book"; content: string }> = [];
-  let source = withReadables;
-  // Replace [Note: ...] and [Book: ...] with placeholders (balanced bracket aware)
-  for (const tag of ["[Note:", "[Book:"] as const) {
-    const rType = tag === "[Note:" ? "note" : "book";
-    let searchFrom = 0;
-    while (true) {
-      const idx = source.toLowerCase().indexOf(tag.toLowerCase(), searchFrom);
-      if (idx === -1) break;
-      let depth = 0;
-      let end = -1;
-      for (let i = idx; i < source.length; i++) {
-        if (source[i] === "[") depth++;
-        else if (source[i] === "]") {
-          depth--;
-          if (depth === 0) {
-            end = i;
-            break;
-          }
-        }
-      }
-      if (end === -1) {
-        searchFrom = idx + 1;
-        continue;
-      }
-      const inner = source.slice(idx + tag.length, end).trim();
-      const placeholderIdx = readableContents.length;
-      readableContents.push({ type: rType, content: inner });
-      const placeholder = `__READABLE_${placeholderIdx}__`;
-      source = source.slice(0, idx) + placeholder + source.slice(end + 1);
-      searchFrom = idx + placeholder.length;
-    }
-  }
-
-  const lines = normalizeInlineVnDialogueLines(source).split(/\r?\n/);
-  const parsed: NarrationSegment[] = [];
-  const readablePlaceholderRe = /^__READABLE_(\d+)__$/;
-  const compactDialogueRegex = /^\s*\[([^\]]+)\]\s*(?:\[([^\]]+)\])?\s*:\s*(.+)$/;
-  const legacyDialogueRegex = /^\s*Dialogue\s*\[([^\]]+)\]\s*(?:\[([^\]]+)\])?\s*:\s*(.+)$/i;
-  const narrationPrefixRegex = /^\s*Narration\s*:\s*(.+)$/i;
-  const partyLineRegex =
-    /^\s*\[([^\]]+)\]\s*\[(main|side|extra|action|thought|whisper(?::([^\]]+))?)\]\s*(?:\[([^\]]+)\])?\s*:\s*(.+)$/i;
-
-  let fallbackText = "";
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) {
-      if (fallbackText.trim()) {
-        parsed.push({
-          id: `${message.id}-fallback-${parsed.length}`,
-          type: "narration",
-          content: fallbackText.trim(),
-        });
-        fallbackText = "";
-      }
-      continue;
-    }
-
-    // Detect readable placeholders ([Note:] / [Book:] inline markers)
-    const readableMatch = line.match(readablePlaceholderRe);
-    if (readableMatch) {
-      if (fallbackText.trim()) {
-        parsed.push({
-          id: `${message.id}-fallback-${parsed.length}`,
-          type: "narration",
-          content: fallbackText.trim(),
-        });
-        fallbackText = "";
-      }
-      const rIdx = parseInt(readableMatch[1]!, 10);
-      const readable = readableContents[rIdx];
-      if (readable) {
-        parsed.push({
-          id: `${message.id}-readable-${parsed.length}`,
-          type: "readable",
-          content: readable.type === "book" ? "You find a book..." : "You find a note...",
-          readableType: readable.type,
-          readableContent: readable.content,
-        });
-      }
-      continue;
-    }
-
-    // Parse party dialogue lines inline as VN segments
-    const partyMatch = line.match(partyLineRegex);
-    if (partyMatch) {
-      if (fallbackText.trim()) {
-        parsed.push({
-          id: `${message.id}-fallback-${parsed.length}`,
-          type: "narration",
-          content: fallbackText.trim(),
-        });
-        fallbackText = "";
-      }
-      const character = humanizeName(partyMatch[1]!.trim());
-      let rawType = partyMatch[2]!.toLowerCase().replace(/:.*$/, "") as NarrationSegment["partyType"];
-      const whisperTarget = partyMatch[3]?.trim() ? humanizeName(partyMatch[3].trim()) : undefined;
-      const expression = partyMatch[4]?.trim() || undefined;
-      let content = partyMatch[5]!.trim();
-
-      // Normalize `extra` to the current `side` display lane.
-      if (rawType === "extra") rawType = "side";
-
-      // Strip surrounding dialogue quotes for spoken dialogue types
-      if ((rawType === "main" || rawType === "side" || rawType === "whisper") && content.length >= 2) {
-        content = stripSurroundingDialogueQuotes(content);
-      }
-
-      const color = findNamedMapValue(speakerColors, character);
-      // Remap action → plain narration (no special styling)
-      if (rawType === "action") {
-        parsed.push({
-          id: `${message.id}-party-action-${character}-${parsed.length}`,
-          type: "narration",
-          content,
-        });
-        continue;
-      }
-      const isSpoken = rawType === "main" || rawType === "whisper" || rawType === "thought" || rawType === "side";
-      parsed.push({
-        id: `${message.id}-party-${rawType}-${character}-${parsed.length}`,
-        type: isSpoken ? "dialogue" : "narration",
-        speaker: character,
-        sprite: expression,
-        content,
-        color,
-        partyType: rawType,
-        whisperTarget,
-      });
-      continue;
-    }
-
-    const narrationMatch = line.match(narrationPrefixRegex);
-    if (narrationMatch) {
-      if (fallbackText.trim()) {
-        parsed.push({
-          id: `${message.id}-fallback-${parsed.length}`,
-          type: "narration",
-          content: fallbackText.trim(),
-        });
-        fallbackText = "";
-      }
-      parsed.push({
-        id: `${message.id}-n-${parsed.length}`,
-        type: "narration",
-        content: narrationMatch[1]!.trim(),
-      });
-      continue;
-    }
-
-    const dialogueMatch = line.match(legacyDialogueRegex) || line.match(compactDialogueRegex);
-    if (dialogueMatch) {
-      if (fallbackText.trim()) {
-        parsed.push({
-          id: `${message.id}-fallback-${parsed.length}`,
-          type: "narration",
-          content: fallbackText.trim(),
-        });
-        fallbackText = "";
-      }
-      const speaker = humanizeName(dialogueMatch[1]!.trim());
-      let content = dialogueMatch[3]!.trim();
-      content = stripSurroundingDialogueQuotes(content);
-      parsed.push({
-        id: `${message.id}-d-${parsed.length}`,
-        type: "dialogue",
-        speaker,
-        sprite: dialogueMatch[2]?.trim() || undefined,
-        content,
-        color: findNamedMapValue(speakerColors, speaker),
-      });
-      continue;
-    }
-
-    fallbackText += `${fallbackText ? "\n" : ""}${line}`;
-  }
-
-  if (fallbackText.trim()) {
-    parsed.push({
-      id: `${message.id}-fallback-${parsed.length}`,
-      type: "narration",
-      content: fallbackText.trim(),
-    });
-  }
-
-  // If all segments are plain fallback narration (GM didn't use structured format),
-  // try to extract inline dialogue like: "Hello," she said. / «Hmm,» he muttered.
-  if (parsed.length > 0 && parsed.every((s) => s.type === "narration")) {
-    const expanded = splitInlineDialogue(parsed, message.id, speakerColors);
-    if (expanded.some((s) => s.type === "dialogue")) {
-      return expanded;
-    }
-  }
-
-  return parsed;
-}
-
-/**
- * Truncate an assistant message's raw content so that it ends just after the
- * Nth segment (inclusive) that `parseNarrationSegments` would emit. Used by
- * the Interrupt feature so the model on the next turn can't see narration
- * the player never read.
- *
- * The parser-facing text is normalized for segment detection, but the returned
- * string is always a byte-for-byte prefix of the original raw content.
- */
-function truncateMessageContentAtSegment(rawContent: string, segmentIndexInclusive: number): string {
-  if (segmentIndexInclusive < 0) return "";
-
-  const lines = buildTruncationLines(rawContent || "");
-  const readablePlaceholderRe = /^__READABLE_(\d+)__$/;
-  const compactDialogueRegex = /^\s*\[([^\]]+)\]\s*(?:\[([^\]]+)\])?\s*:\s*(.+)$/;
-  const legacyDialogueRegex = /^\s*Dialogue\s*\[([^\]]+)\]\s*(?:\[([^\]]+)\])?\s*:\s*(.+)$/i;
-  const narrationPrefixRegex = /^\s*Narration\s*:\s*(.+)$/i;
-  const partyLineRegex =
-    /^\s*\[([^\]]+)\]\s*\[(main|side|extra|action|thought|whisper(?::([^\]]+))?)\]\s*(?:\[([^\]]+)\])?\s*:\s*(.+)$/i;
-
-  const target = segmentIndexInclusive + 1;
-  let segmentCount = 0;
-  let pendingFallback = false;
-  let lastIncludedLineIdx = -1;
-
-  for (let i = 0; i < lines.length; i++) {
-    if (segmentCount >= target) break;
-    const line = lines[i]!.text.trim();
-
-    if (!line) {
-      if (pendingFallback) {
-        segmentCount++;
-        pendingFallback = false;
-      }
-      continue;
-    }
-
-    const isSpecial =
-      readablePlaceholderRe.test(line) ||
-      partyLineRegex.test(line) ||
-      narrationPrefixRegex.test(line) ||
-      legacyDialogueRegex.test(line) ||
-      compactDialogueRegex.test(line);
-
-    if (isSpecial) {
-      if (pendingFallback) {
-        segmentCount++;
-        pendingFallback = false;
-        if (segmentCount >= target) break;
-      }
-      segmentCount++;
-      lastIncludedLineIdx = i;
-    } else {
-      pendingFallback = true;
-      lastIncludedLineIdx = i;
-    }
-  }
-
-  if (lastIncludedLineIdx < 0) return rawContent;
-  return rawContent.slice(0, lines[lastIncludedLineIdx]!.originalEnd);
-}
-
-/**
- * Fallback: split narration segments that contain inline quoted speech into
- * separate narration + dialogue segments. Handles patterns like:
- *   "Hello there," she said warmly.
- *   «Watch out!» Alaric warned.
- *   「小心！」 Alaric warned.
- */
-function splitInlineDialogue(
-  segments: NarrationSegment[],
-  msgId: string,
-  speakerColors: Map<string, string>,
-): NarrationSegment[] {
-  const result: NarrationSegment[] = [];
-  // Match common dialogue quote pairs followed by optional comma/period and a speaker name.
-  const inlineDialogueRe = new RegExp(
-    `(?:^|(?<=\\s))(?:${DIALOGUE_QUOTE_CAPTURE_GROUP_PATTERN_SOURCE}|'([^']+)')[,.]?\\s+([A-Z][a-z]+(?:\\s[A-Z][a-z]+)?)\\s+(?:said|says|whispered|whispers|muttered|mutters|replied|replies|called|calls|shouted|shouts|asked|asks|warned|warns|growled|growls|hissed|hisses|exclaimed|exclaims|murmured|murmurs|sighed|sighs|snapped|snaps|barked|barks|declared|declares|continued|continues|added|adds|spoke|speaks|began|begins|remarked|remarks|chuckled|chuckles|laughed|laughs|cried|cries)\\b`,
-    "gi",
-  );
-
-  for (const seg of segments) {
-    if (seg.type !== "narration") {
-      result.push(seg);
-      continue;
-    }
-
-    const text = seg.content;
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
-    let didSplit = false;
-    inlineDialogueRe.lastIndex = 0;
-
-    while ((match = inlineDialogueRe.exec(text)) !== null) {
-      didSplit = true;
-      const before = text.slice(lastIndex, match.index).trim();
-      if (before) {
-        result.push({
-          id: `${msgId}-fallback-split-${result.length}`,
-          type: "narration",
-          content: before,
-        });
-      }
-
-      const speech = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5] ?? match[6] ?? "";
-      const speaker = match[7]!;
-      result.push({
-        id: `${msgId}-inline-d-${result.length}`,
-        type: "dialogue",
-        speaker,
-        content: `"${speech}"`,
-        color: findNamedMapValue(speakerColors, speaker),
-      });
-      lastIndex = match.index + match[0].length;
-    }
-
-    if (didSplit) {
-      const after = text.slice(lastIndex).trim();
-      if (after) {
-        result.push({
-          id: `${msgId}-fallback-split-${result.length}`,
-          type: "narration",
-          content: after,
-        });
-      }
-    } else {
-      result.push(seg);
-    }
-  }
-
-  return result;
-}
