@@ -1,4 +1,4 @@
-use super::{chats, shared};
+use super::{chat_memory, chats, shared};
 use crate::state::AppState;
 use marinara_core::AppError;
 use serde_json::{json, Value};
@@ -14,7 +14,7 @@ pub fn chat_memories_list(
     exclude_recent_start_at: Option<String>,
 ) -> Result<Value, AppError> {
     let exclude_recent_message_ids = exclude_recent_message_ids.unwrap_or_default();
-    chats::list_chat_memories_excluding_recent(
+    chat_memory::list_chat_memories_excluding_recent(
         &state,
         &chat_id,
         limit.map(|value| value as usize),
@@ -30,12 +30,12 @@ pub fn chat_memory_delete(
     chat_id: String,
     memory_id: String,
 ) -> Result<Value, AppError> {
-    chats::delete_chat_memory(&state, &chat_id, &memory_id)
+    chat_memory::delete_chat_memory(&state, &chat_id, &memory_id)
 }
 
 #[tauri::command]
 pub fn chat_memories_clear(state: State<'_, AppState>, chat_id: String) -> Result<Value, AppError> {
-    chats::set_chat_array_field(&state, &chat_id, "memories", Vec::new())
+    chat_memory::clear_chat_memories(&state, &chat_id)
 }
 
 #[tauri::command]
@@ -43,7 +43,7 @@ pub async fn chat_memories_refresh(
     state: State<'_, AppState>,
     chat_id: String,
 ) -> Result<Value, AppError> {
-    chats::refresh_chat_memories(&state, &chat_id).await
+    chat_memory::refresh_chat_memories(&state, &chat_id).await
 }
 
 #[tauri::command]
@@ -51,7 +51,7 @@ pub fn chat_memories_export(
     state: State<'_, AppState>,
     chat_id: String,
 ) -> Result<Value, AppError> {
-    chats::export_chat_memories(&state, &chat_id)
+    chat_memory::export_chat_memories(&state, &chat_id)
 }
 
 #[tauri::command]
@@ -61,7 +61,7 @@ pub async fn chat_memories_import(
     body: Value,
     replace: Option<bool>,
 ) -> Result<Value, AppError> {
-    chats::import_chat_memories(&state, &chat_id, body, replace).await
+    chat_memory::import_chat_memories(&state, &chat_id, body, replace).await
 }
 
 #[tauri::command]

@@ -1,9 +1,10 @@
 use crate::state::AppState;
 use crate::storage_commands::{
-    admin, agents, avatars, backgrounds, backup, bot_browser, characters, chats, custom_tools,
-    entity_commands, entity_images, exports, fonts, game_assets, game_state_snapshots, generation,
-    http, images, imports, integrations, knowledge, llm, lorebook_images, managed_thumbnails, mari,
-    personas, profile, profile_commands, prompts, shared, sidecar, sprites, translation, updates,
+    admin, agents, avatars, backgrounds, backup, bot_browser, characters, chat_memory, chats,
+    custom_tools, entity_commands, entity_images, exports, fonts, game_assets,
+    game_state_snapshots, generation, http, images, imports, integrations, knowledge, llm,
+    lorebook_images, managed_thumbnails, mari, personas, profile, profile_commands, prompts,
+    shared, sidecar, sprites, translation, updates,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -585,7 +586,7 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "chat_memories_list" => {
             let exclude_recent_message_ids = optional_string_vec(&args, "excludeRecentMessageIds")?;
             let exclude_recent_start_at = optional_string(&args, "excludeRecentStartAt");
-            chats::list_chat_memories_excluding_recent(
+            chat_memory::list_chat_memories_excluding_recent(
                 state,
                 required_string(&args, "chatId")?,
                 optional_u32_strict(&args, "limit")?.map(|value| value as usize),
@@ -594,25 +595,22 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                 exclude_recent_start_at.as_deref(),
             )
         }
-        "chat_memory_delete" => chats::delete_chat_memory(
+        "chat_memory_delete" => chat_memory::delete_chat_memory(
             state,
             required_string(&args, "chatId")?,
             required_string(&args, "memoryId")?,
         ),
-        "chat_memories_clear" => chats::set_chat_array_field(
-            state,
-            required_string(&args, "chatId")?,
-            "memories",
-            Vec::new(),
-        ),
+        "chat_memories_clear" => {
+            chat_memory::clear_chat_memories(state, required_string(&args, "chatId")?)
+        }
         "chat_memories_refresh" => {
-            chats::refresh_chat_memories(state, required_string(&args, "chatId")?).await
+            chat_memory::refresh_chat_memories(state, required_string(&args, "chatId")?).await
         }
         "chat_memories_export" => {
-            chats::export_chat_memories(state, required_string(&args, "chatId")?)
+            chat_memory::export_chat_memories(state, required_string(&args, "chatId")?)
         }
         "chat_memories_import" => {
-            chats::import_chat_memories(
+            chat_memory::import_chat_memories(
                 state,
                 required_string(&args, "chatId")?,
                 optional_value(&args, "body"),
