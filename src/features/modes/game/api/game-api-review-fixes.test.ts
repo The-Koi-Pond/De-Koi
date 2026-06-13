@@ -179,6 +179,30 @@ function expectReadyPartyMetadata(currentParty: string[]) {
   );
 }
 
+function setupCharacterRow(id: string, name: string): Record<string, unknown> {
+  return {
+    id,
+    data: {
+      name,
+      description: `${name} description`,
+      personality: `${name} personality`,
+      scenario: `${name} travels with the party.`,
+    },
+  };
+}
+
+function setupGuideNpc() {
+  return {
+    id: "guide",
+    name: "Guide NPC",
+    description: "A local guide who knows the academy's locked doors.",
+    location: "Moonlit Academy",
+    reputation: 12,
+    met: true,
+    notes: ["Carries a brass key."],
+  };
+}
+
 function gameImageChat(metadata: Record<string, unknown> = {}) {
   return {
     id: "chat-1",
@@ -653,13 +677,19 @@ describe("game API review guards", () => {
   it("preserves current party metadata when setup reruns with stale setup config", async () => {
     const staleConfig = { ...setupConfig, partyCharacterIds: ["stale-char"] };
     const currentParty = ["char-1", "npc:guide"];
-    storageApiMock.get.mockResolvedValue({
+    const chat = {
       id: "chat-1",
       connectionId: "chat-conn",
       metadata: {
         gameSetupConfig: staleConfig,
         gamePartyCharacterIds: currentParty,
+        gameNpcs: [setupGuideNpc()],
       },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "chats") return chat;
+      if (entity === "characters" && id === "char-1") return setupCharacterRow("char-1", "Mira Scout");
+      return null;
     });
     mockUpdateEcho();
 
@@ -694,17 +724,7 @@ describe("game API review guards", () => {
       metadata: {
         gameSetupConfig: contextualSetupConfig,
         gamePartyCharacterIds: contextualSetupConfig.partyCharacterIds,
-        gameNpcs: [
-          {
-            id: "guide",
-            name: "Guide NPC",
-            description: "A local guide who knows the academy's locked doors.",
-            location: "Moonlit Academy",
-            reputation: 12,
-            met: true,
-            notes: ["Carries a brass key."],
-          },
-        ],
+        gameNpcs: [setupGuideNpc()],
       },
     };
     const characterRows: Record<string, Record<string, unknown>> = {
@@ -940,13 +960,19 @@ describe("game API review guards", () => {
   it("preserves current party metadata through game setup JSON repair", async () => {
     const staleConfig = { ...setupConfig, partyCharacterIds: ["stale-char"] };
     const currentParty = ["char-1", "npc:guide"];
-    storageApiMock.get.mockResolvedValue({
+    const chat = {
       id: "chat-1",
       connectionId: "chat-conn",
       metadata: {
         gameSetupConfig: staleConfig,
         gamePartyCharacterIds: currentParty,
+        gameNpcs: [setupGuideNpc()],
       },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "chats") return chat;
+      if (entity === "characters" && id === "char-1") return setupCharacterRow("char-1", "Mira Scout");
+      return null;
     });
     mockUpdateEcho();
 
@@ -964,6 +990,41 @@ describe("game API review guards", () => {
     );
 
     expectReadyPartyMetadata(currentParty);
+  });
+
+  it("validates selected setup context before applying repaired setup JSON", async () => {
+    const staleConfig = { ...setupConfig, partyCharacterIds: ["stale-char"] };
+    const currentParty = ["npc:missing-guide"];
+    storageApiMock.get.mockImplementation(async (entity: string) =>
+      entity === "chats"
+        ? {
+            id: "chat-1",
+            connectionId: "chat-conn",
+            metadata: {
+              gameSetupConfig: staleConfig,
+              gamePartyCharacterIds: currentParty,
+              gameNpcs: [setupGuideNpc()],
+            },
+          }
+        : null,
+    );
+    mockUpdateEcho();
+
+    await expect(
+      applyGameJsonRepair(
+        {
+          kind: "game_setup",
+          applyEndpoint: "/game/repair",
+          applyBody: {
+            chatId: "chat-1",
+            preferences: "coastal ruins",
+            setupConfig: staleConfig,
+          },
+        },
+        JSON.stringify(BASIC_SETUP_RESPONSE),
+      ),
+    ).rejects.toThrow('Selected game party NPC "npc:missing-guide" was not found');
+    expect(readyMetadataPatch()).toBeUndefined();
   });
 
   it.each([

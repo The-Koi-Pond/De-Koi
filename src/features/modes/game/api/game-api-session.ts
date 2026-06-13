@@ -248,13 +248,14 @@ export async function setupGame(data: {
   const baseSetupConfig =
     data.setupConfig ?? (isGameSetupConfig(existingMeta.gameSetupConfig) ? existingMeta.gameSetupConfig : undefined);
   const setupConfig = effectiveSetupConfigFromMeta(baseSetupConfig, existingMeta);
+  const promptContext = await setupPromptContext(setupConfig, existingMeta);
   const setup =
     data.setup ??
     (await g.llmJson({
       connectionId: data.connectionId,
       fallback,
       system: g.buildSetupPrompt({
-        ...(await setupPromptContext(setupConfig, existingMeta)),
+        ...promptContext,
         rating: setupConfig?.rating ?? "sfw",
         enableCustomWidgets: setupConfig?.enableCustomWidgets !== false,
         language: setupConfig?.language,
