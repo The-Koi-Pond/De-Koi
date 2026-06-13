@@ -372,6 +372,22 @@ export async function concludeSession(data: {
   return { summary, sessionChat, ...(checkpointWarning ? { checkpointWarning } : {}) };
 }
 
+async function resolveCampaignProgressionTarget(
+  currentChat: g.Chat,
+  currentMeta: Record<string, unknown>,
+  sessionNumber: number,
+): Promise<g.Chat> {
+  const gameId = g.readTrimmed(currentMeta.gameId);
+  if (!gameId || !Number.isFinite(sessionNumber)) return currentChat;
+  const sessions = await g.storageApi.list<g.Chat>("chats");
+  return (
+    sessions
+      .filter((chat) => g.chatMeta(chat).gameId === gameId)
+      .sort((a, b) => gameSessionSortValue(a) - gameSessionSortValue(b))
+      .find((chat) => gameSessionSortValue(chat) === sessionNumber) ?? currentChat
+  );
+}
+
 export async function updateCampaignProgression(data: {
   chatId: string;
   sessionNumber: number;
@@ -380,9 +396,12 @@ export async function updateCampaignProgression(data: {
 }): Promise<g.UpdateCampaignProgressionResponse> {
   const chat = await g.getChat(data.chatId);
   const meta = g.chatMeta(chat);
-  const transcript = await g.sessionTranscript(data.chatId);
+  const sessionNumber = Number(data.sessionNumber);
+  const targetChat = await resolveCampaignProgressionTarget(chat, meta, sessionNumber);
+  const targetSessionNumber = gameSessionSortValue(targetChat) || sessionNumber || 1;
+  const transcript = await g.sessionTranscript(targetChat.id);
   const fallback = {
-    storyArc: transcript.trim() ? `Session ${data.sessionNumber} advanced the campaign.` : null,
+    storyArc: transcript.trim() ? `Session ${targetSessionNumber} advanced the campaign.` : null,
     plotTwists: [],
     partyArcs: [],
   };
@@ -397,19 +416,23 @@ export async function updateCampaignProgression(data: {
       parameters: { temperature: 0.4, maxTokens: 1800 },
       repair: {
         kind: "campaign_progression",
-        title: `Repair Session ${data.sessionNumber} Plot JSON`,
+        title: `Repair Session ${targetSessionNumber} Plot JSON`,
         applyBody: {
           chatId: data.chatId,
-          sessionNumber: data.sessionNumber,
+          sessionNumber: targetSessionNumber,
           connectionId: data.connectionId,
         },
       },
     }));
   const campaignProgression = normalizeCampaignProgression(generated, fallback);
-  const sessionChat = await g.patchChatMetadata(data.chatId, {
+  const metadataPatch = {
     gameCampaignProgression: campaignProgression,
     gameCampaignProgressionUpdatedAt: g.nowIso(),
-  });
+  };
+  const sessionChat = await g.patchChatMetadata(data.chatId, metadataPatch);
+  if (targetChat.id !== data.chatId) {
+    await g.patchChatMetadata(targetChat.id, metadataPatch);
+  }
   return { sessionChat, gameId: String(meta.gameId ?? ""), campaignProgression };
 }
 
