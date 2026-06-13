@@ -78,13 +78,46 @@ function compactPersonaSetupContext(record: Record<string, unknown>): SetupChara
   return { card: JSON.stringify(promptRecord, null, 2), name };
 }
 
-async function setupCharacterContext(characterId: string): Promise<SetupCharacterPromptContext | null> {
-  if (!characterId || characterId.startsWith("npc:")) return null;
-  const character = await g.storageApi.get<Record<string, unknown>>("characters", characterId);
-  if (!character) {
-    throw new Error(`Selected game character "${characterId}" was not found. Update game setup and try again.`);
+function compactNpcSetupContext(record: Record<string, unknown>, fallbackName?: string): SetupCharacterPromptContext {
+  const name = g.readTrimmed(record.name) || fallbackName || null;
+  const reputation = Number(record.reputation);
+  const promptRecord = withoutEmptyValues({
+    name,
+    description: g.readTrimmed(record.description),
+    gender: g.readTrimmed(record.gender),
+    pronouns: g.readTrimmed(record.pronouns),
+    location: g.readTrimmed(record.location),
+    reputation: Number.isFinite(reputation) ? reputation : null,
+    met: typeof record.met === "boolean" ? record.met : null,
+    notes: g.stringArray(record.notes),
+  });
+  return { card: JSON.stringify(promptRecord, null, 2), name };
+}
+
+function setupNpcContext(characterId: string, meta: Record<string, unknown>): SetupCharacterPromptContext {
+  const npcId = characterId.slice("npc:".length);
+  const npc = (Array.isArray(meta.gameNpcs) ? meta.gameNpcs.map(g.asRecord) : []).find((row) => {
+    const rowId = g.readTrimmed(row.id);
+    return characterId === rowId || characterId === `npc:${rowId}`;
+  });
+  if (!npc) {
+    throw new Error(`Selected game party NPC "${characterId}" was not found. Update game setup and try again.`);
   }
-  return compactCharacterSetupContext(character, characterId);
+  return compactNpcSetupContext(npc, npcId || characterId);
+}
+
+async function setupCharacterContext(
+  characterId: string,
+  meta: Record<string, unknown>,
+): Promise<SetupCharacterPromptContext | null> {
+  const id = g.readTrimmed(characterId);
+  if (!id) return null;
+  if (id.startsWith("npc:")) return setupNpcContext(id, meta);
+  const character = await g.storageApi.get<Record<string, unknown>>("characters", id);
+  if (!character) {
+    throw new Error(`Selected game character "${id}" was not found. Update game setup and try again.`);
+  }
+  return compactCharacterSetupContext(character, id);
 }
 
 async function setupPersonaContext(personaId: string | undefined): Promise<SetupCharacterPromptContext | null> {
@@ -100,28 +133,47 @@ async function setupPersonaContext(personaId: string | undefined): Promise<Setup
 async function setupLorebookContext(lorebookIds: string[]): Promise<string | null> {
   const ids = Array.from(new Set(lorebookIds.map((id) => id.trim()).filter(Boolean)));
   if (ids.length === 0) return null;
+  const lorebooks = await g.storageApi.list<g.Lorebook>("lorebooks", {
+    whereIn: { field: "id", values: ids },
+  });
+  const foundIds = new Set(lorebooks.map((lorebook) => g.readTrimmed(lorebook.id)));
+  const missingIds = ids.filter((id) => !foundIds.has(id));
+  if (missingIds.length > 0) {
+    throw new Error(`Selected game lorebook "${missingIds[0]}" was not found. Update game setup and try again.`);
+  }
   const entries = await g.storageApi.list<g.LorebookEntry>("lorebook-entries", {
     whereIn: { field: "lorebookId", values: ids },
   });
-  const context = entries
+  const contextEntries = entries
     .filter((entry) => entry.enabled !== false && entry.constant === true)
+    .map((entry) => ({ ...entry, content: g.readTrimmed(entry.content) }))
+    .filter((entry) => entry.content);
+  const contextLorebookIds = new Set(contextEntries.map((entry) => g.readTrimmed(entry.lorebookId)).filter(Boolean));
+  const emptyIds = ids.filter((id) => !contextLorebookIds.has(id));
+  if (emptyIds.length > 0) {
+    throw new Error(
+      `Selected game lorebook "${emptyIds[0]}" has no enabled constant setup context. Update game setup and try again.`,
+    );
+  }
+  const context = contextEntries
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     .map((entry) => {
       const name = g.readTrimmed(entry.name);
-      const content = g.readTrimmed(entry.content);
-      return content ? `${name ? `${name}:\n` : ""}${content}` : "";
+      return `${name ? `${name}:\n` : ""}${entry.content}`;
     })
-    .filter(Boolean)
     .join("\n\n");
-  return context || null;
+  return context;
 }
 
-async function setupPromptContext(config: g.GameSetupConfig | undefined): Promise<SetupPromptContext> {
+async function setupPromptContext(
+  config: g.GameSetupConfig | undefined,
+  meta: Record<string, unknown>,
+): Promise<SetupPromptContext> {
   if (!config) return {};
   const [persona, gmCharacter, ...partyCharacters] = await Promise.all([
     setupPersonaContext(config.personaId),
-    config.gmMode === "character" ? setupCharacterContext(config.gmCharacterId ?? "") : Promise.resolve(null),
-    ...g.stringArray(config.partyCharacterIds).map((id) => setupCharacterContext(id)),
+    config.gmMode === "character" ? setupCharacterContext(config.gmCharacterId ?? "", meta) : Promise.resolve(null),
+    ...g.stringArray(config.partyCharacterIds).map((id) => setupCharacterContext(id, meta)),
   ]);
   return {
     personaCard: persona?.card ?? null,
@@ -202,7 +254,7 @@ export async function setupGame(data: {
       connectionId: data.connectionId,
       fallback,
       system: g.buildSetupPrompt({
-        ...(await setupPromptContext(setupConfig)),
+        ...(await setupPromptContext(setupConfig, existingMeta)),
         rating: setupConfig?.rating ?? "sfw",
         enableCustomWidgets: setupConfig?.enableCustomWidgets !== false,
         language: setupConfig?.language,

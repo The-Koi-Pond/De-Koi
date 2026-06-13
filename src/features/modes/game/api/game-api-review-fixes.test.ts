@@ -685,7 +685,7 @@ describe("game API review guards", () => {
       gmMode: "character",
       gmCharacterId: "gm-1",
       personaId: "persona-1",
-      partyCharacterIds: ["party-1"],
+      partyCharacterIds: ["party-1", "npc:guide"],
       activeLorebookIds: ["lorebook-1"],
     };
     const chat = {
@@ -694,6 +694,17 @@ describe("game API review guards", () => {
       metadata: {
         gameSetupConfig: contextualSetupConfig,
         gamePartyCharacterIds: contextualSetupConfig.partyCharacterIds,
+        gameNpcs: [
+          {
+            id: "guide",
+            name: "Guide NPC",
+            description: "A local guide who knows the academy's locked doors.",
+            location: "Moonlit Academy",
+            reputation: 12,
+            met: true,
+            notes: ["Carries a brass key."],
+          },
+        ],
       },
     };
     const characterRows: Record<string, Record<string, unknown>> = {
@@ -740,21 +751,23 @@ describe("game API review guards", () => {
       if (entity === "characters") return characterRows[id] ?? null;
       return null;
     });
-    storageApiMock.list.mockImplementation(async (entity: string) =>
-      entity === "lorebook-entries"
-        ? [
-            {
-              id: "entry-1",
-              lorebookId: "lorebook-1",
-              name: "Moonlit Doctrine",
-              content: "All academy machines obey moon-signed contracts.",
-              enabled: true,
-              constant: true,
-              order: 2,
-            },
-          ]
-        : [],
-    );
+    storageApiMock.list.mockImplementation(async (entity: string) => {
+      if (entity === "lorebooks") return [{ id: "lorebook-1", name: "Academy Lore" }];
+      if (entity === "lorebook-entries") {
+        return [
+          {
+            id: "entry-1",
+            lorebookId: "lorebook-1",
+            name: "Moonlit Doctrine",
+            content: "All academy machines obey moon-signed contracts.",
+            enabled: true,
+            constant: true,
+            order: 2,
+          },
+        ];
+      }
+      return [];
+    });
     llmApiMock.complete.mockResolvedValue(JSON.stringify(BASIC_SETUP_RESPONSE));
     mockUpdateEcho();
 
@@ -772,9 +785,11 @@ describe("game API review guards", () => {
     expect(prompt).toContain("Captain Celia");
     expect(prompt).toContain("<party_info>");
     expect(prompt).toContain("Mira Scout");
+    expect(prompt).toContain("Guide NPC");
+    expect(prompt).toContain("Carries a brass key.");
     expect(prompt).toContain('"rpgStats"');
-    expect(prompt).toContain("Allowed characterCards names: Captain Celia, Mira Scout");
-    expect(prompt).toContain("Allowed partyArcs names: Mira Scout");
+    expect(prompt).toContain("Allowed characterCards names: Captain Celia, Mira Scout, Guide NPC");
+    expect(prompt).toContain("Allowed partyArcs names: Mira Scout, Guide NPC");
     expect(prompt).toContain("<lorebook_context>");
     expect(prompt).toContain("Moonlit Doctrine");
     expect(prompt).toContain("All academy machines obey moon-signed contracts.");
@@ -784,14 +799,17 @@ describe("game API review guards", () => {
     {
       label: "persona",
       config: { ...setupConfig, partyCharacterIds: [], personaId: "missing-persona" },
-      missingEntity: "personas",
       expectedMessage: 'Selected game persona "missing-persona" was not found',
     },
     {
       label: "party character",
       config: { ...setupConfig, partyCharacterIds: ["missing-party"] },
-      missingEntity: "characters",
       expectedMessage: 'Selected game character "missing-party" was not found',
+    },
+    {
+      label: "party NPC",
+      config: { ...setupConfig, partyCharacterIds: ["npc:missing-guide"] },
+      expectedMessage: 'Selected game party NPC "npc:missing-guide" was not found',
     },
     {
       label: "GM character",
@@ -801,10 +819,9 @@ describe("game API review guards", () => {
         gmCharacterId: "missing-gm",
         partyCharacterIds: [],
       },
-      missingEntity: "characters",
       expectedMessage: 'Selected game character "missing-gm" was not found',
     },
-  ])("does not generate setup with silently missing selected $label context", async ({ config, missingEntity, expectedMessage }) => {
+  ])("does not generate setup with silently missing selected $label context", async ({ config, expectedMessage }) => {
     storageApiMock.get.mockImplementation(async (entity: string) => {
       if (entity === "chats") {
         return {
@@ -816,10 +833,67 @@ describe("game API review guards", () => {
           },
         };
       }
-      if (entity === missingEntity) return null;
       return null;
     });
     storageApiMock.list.mockResolvedValue([]);
+
+    await expect(
+      setupGame({
+        chatId: "chat-1",
+        connectionId: "gm-conn",
+        preferences: "academy mystery",
+        setupConfig: config,
+      }),
+    ).rejects.toThrow(expectedMessage);
+    expect(llmApiMock.complete).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: "missing active lorebook",
+      lorebooks: [],
+      entries: [],
+      expectedMessage: 'Selected game lorebook "lorebook-1" was not found',
+    },
+    {
+      label: "active lorebook with no enabled constant content",
+      lorebooks: [{ id: "lorebook-1", name: "Empty Lore" }],
+      entries: [
+        {
+          id: "entry-1",
+          lorebookId: "lorebook-1",
+          name: "Draft",
+          content: "Draft-only lore",
+          enabled: true,
+          constant: false,
+          order: 1,
+        },
+      ],
+      expectedMessage: 'Selected game lorebook "lorebook-1" has no enabled constant setup context',
+    },
+  ])("does not generate setup with $label", async ({ lorebooks, entries, expectedMessage }) => {
+    const config: GameSetupConfig = {
+      ...setupConfig,
+      partyCharacterIds: [],
+      activeLorebookIds: ["lorebook-1"],
+    };
+    storageApiMock.get.mockImplementation(async (entity: string) =>
+      entity === "chats"
+        ? {
+            id: "chat-1",
+            connectionId: "chat-conn",
+            metadata: {
+              gameSetupConfig: config,
+              gamePartyCharacterIds: config.partyCharacterIds,
+            },
+          }
+        : null,
+    );
+    storageApiMock.list.mockImplementation(async (entity: string) => {
+      if (entity === "lorebooks") return lorebooks;
+      if (entity === "lorebook-entries") return entries;
+      return [];
+    });
 
     await expect(
       setupGame({
