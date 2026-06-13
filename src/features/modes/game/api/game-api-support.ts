@@ -167,6 +167,7 @@ export interface RegenerateSessionLorebookResponse {
 
 export interface UpdateCampaignProgressionResponse {
   sessionChat: Chat;
+  targetSessionChat: Chat;
   gameId: string;
   campaignProgression: {
     storyArc: string | null;

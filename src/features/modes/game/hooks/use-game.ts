@@ -306,10 +306,16 @@ export function useUpdateCampaignProgression() {
     },
     onSuccess: (res, variables) => {
       publishSessionChat(qc, res.sessionChat);
+      if (res.targetSessionChat.id !== res.sessionChat.id) {
+        publishSessionChat(qc, res.targetSessionChat);
+      }
       toast.success(`Plot arcs updated from session ${variables.sessionNumber}.`, {
         id: `game-campaign-progression:${variables.chatId}:${variables.sessionNumber}`,
       });
       qc.invalidateQueries({ queryKey: chatKeys.detail(res.sessionChat.id) });
+      if (res.targetSessionChat.id !== res.sessionChat.id) {
+        qc.invalidateQueries({ queryKey: chatKeys.detail(res.targetSessionChat.id) });
+      }
       qc.invalidateQueries({ queryKey: chatKeys.list() });
       qc.invalidateQueries({ queryKey: gameKeys.sessions(res.gameId) });
     },
