@@ -42,7 +42,10 @@ export function usePartyTurn() {
     mutationFn: generatePartyTurn,
     onSuccess: (result, variables) => {
       if (result.npcs) {
-        useGameModeStore.getState().setNpcs(result.npcs);
+        const store = useGameModeStore.getState();
+        if (store.activeSessionChatId === variables.chatId) {
+          store.setNpcs(result.npcs);
+        }
         qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
       }
       qc.invalidateQueries({ queryKey: chatKeys.messages(variables.chatId) });

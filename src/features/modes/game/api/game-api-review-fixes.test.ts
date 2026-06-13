@@ -629,6 +629,49 @@ describe("game API review guards", () => {
     expect(result.npcs).toMatchObject([{ id: "npc-1", reputation: 30, met: true }]);
   });
 
+  it.each([
+    {
+      label: "unknown",
+      npcs: [{ id: "npc-1", name: "Mira", reputation: 15, met: false, notes: [] }],
+      tagTarget: "Ren",
+      expectedError: "not found",
+    },
+    {
+      label: "ambiguous",
+      npcs: [
+        { id: "npc-1", name: "Mira", reputation: 15, met: false, notes: [] },
+        { id: "npc-2", name: "mira", reputation: 10, met: false, notes: [] },
+      ],
+      tagTarget: "Mira",
+      expectedError: "ambiguous",
+    },
+  ])("rejects $label party-turn reputation targets before storing clean dialogue", async ({ npcs, tagTarget, expectedError }) => {
+    const chat = {
+      id: "chat-1",
+      characterIds: [],
+      metadata: {
+        gameNpcs: npcs,
+        gameCharacterCards: [{ name: "Mira" }],
+      },
+    };
+    mockChat(chat);
+    storageApiMock.list.mockResolvedValue([]);
+    llmApiMock.complete.mockResolvedValue(
+      `[party-turn]\n[Mira] [main]: We can help. [reputation: npc="${tagTarget}" action="helped"]`,
+    );
+
+    await expect(
+      partyTurn({
+        chatId: "chat-1",
+        narration: "Mira waits.",
+        connectionId: "conn-1",
+      }),
+    ).rejects.toThrow(expectedError);
+
+    expect(storageApiMock.create).not.toHaveBeenCalled();
+    expect(storageApiMock.update).not.toHaveBeenCalled();
+  });
+
   it("cleans up party-turn messages when reputation persistence fails", async () => {
     const chat = {
       id: "chat-1",

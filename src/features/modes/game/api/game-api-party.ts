@@ -66,6 +66,29 @@ async function partyIdsMatchingName(
   return matches;
 }
 
+function resolvePartyReputationActions(
+  npcs: g.GameNpc[],
+  actions: Array<{ npcName: string; action: string }>,
+): Array<{ npcId: string; action: string }> {
+  return actions.map((action) => {
+    const target = action.npcName.trim();
+    const idMatches = npcs.filter((npc) => g.readTrimmed(npc.id) === target);
+    const matches =
+      idMatches.length > 0 ? idMatches : npcs.filter((npc) => normalizedName(npc.name) === normalizedName(target));
+    if (matches.length === 0) {
+      throw new Error(`Party-turn reputation target was not found: ${target}.`);
+    }
+    if (matches.length > 1) {
+      throw new Error(`Party-turn reputation target is ambiguous: ${target}.`);
+    }
+    const npcId = g.readTrimmed(matches[0]!.id);
+    if (!npcId) {
+      throw new Error(`Party-turn reputation target has no stored NPC id: ${target}.`);
+    }
+    return { npcId, action: action.action };
+  });
+}
+
 export async function upsertPartyCard(data: {
   chatId: string;
   characterName: string;
@@ -215,12 +238,10 @@ export async function partyTurn(input: {
   if (!clean || g.parsePartyDialogue(clean).length === 0) {
     throw new Error("The party response was empty or malformed.");
   }
+  const npcs = Array.isArray(meta.gameNpcs) ? (meta.gameNpcs as g.GameNpc[]) : [];
   const reputationResult =
     reputationActions.length > 0
-      ? g.processReputationActions(
-          Array.isArray(meta.gameNpcs) ? (meta.gameNpcs as g.GameNpc[]) : [],
-          reputationActions.map((action) => ({ npcId: action.npcName, action: action.action })),
-        )
+      ? g.processReputationActions(npcs, resolvePartyReputationActions(npcs, reputationActions))
       : null;
   const message = await g.createChatMessage(input.chatId, {
     role: "assistant",
