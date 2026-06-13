@@ -33,15 +33,22 @@ export interface PendingInventoryUse {
 }
 
 type InventoryItemSummary = { name: string; quantity: number };
+const MAX_INVENTORY_TAG_COUNT = 99;
+
+function inventoryTagCount(update: InventoryTag): number {
+  const raw = Number(update.count ?? 1);
+  return Number.isFinite(raw) ? Math.min(MAX_INVENTORY_TAG_COUNT, Math.max(1, Math.floor(raw))) : 1;
+}
+
+function inventoryQuantityText(itemName: string, quantity: number): string {
+  return quantity === 1 ? itemName : `${quantity} x ${itemName}`;
+}
 
 type UseGameInventoryJournalControllerParams = {
   activeChatId: string;
   chatMeta: Record<string, unknown>;
   sceneRuntimeScopeKey: string;
-  patchVisibleGameState: <K extends GameStatePatchField>(
-    field: K,
-    value: GameStatePatchValue[K],
-  ) => Promise<unknown>;
+  patchVisibleGameState: <K extends GameStatePatchField>(field: K, value: GameStatePatchValue[K]) => Promise<unknown>;
   persistMetadata: (chatId: string, patch: Record<string, unknown>) => Promise<unknown>;
   publishSessionChat: (sessionChat: Chat | null | undefined) => void;
 };
@@ -92,7 +99,9 @@ export function useGameInventoryJournalController({
   );
 
   const setInventoryFromMetadata = useCallback((metadata: Record<string, unknown>) => {
-    const nextInventory = Array.isArray(metadata.gameInventory) ? (metadata.gameInventory as InventoryItemSummary[]) : [];
+    const nextInventory = Array.isArray(metadata.gameInventory)
+      ? (metadata.gameInventory as InventoryItemSummary[])
+      : [];
     setInventoryItems(nextInventory);
     inventoryItemsRef.current = nextInventory;
   }, []);
@@ -167,7 +176,7 @@ export function useGameInventoryJournalController({
       if (updates.length === 0) return true;
 
       const notifications: InventoryNotification[] = [];
-      const journalEntries: Array<{ item: string; action: "acquired" | "lost" }> = [];
+      const journalEntries: Array<{ item: string; action: "acquired" | "lost"; quantity: number }> = [];
       const previousInventory = inventoryItemsRef.current;
       let updated = previousInventory;
       const pendingUse = pendingInventoryUseRef.current;
@@ -177,29 +186,52 @@ export function useGameInventoryJournalController({
       let nextPlayerStats = currentPlayerStats;
 
       for (const invUpdate of updates) {
+        const requestedQuantity = inventoryTagCount(invUpdate);
         for (const itemName of invUpdate.items) {
           const normalizedItemName = normalizeInventoryName(itemName);
           if (!normalizedItemName) continue;
 
-          let applied = false;
+          let appliedQuantity = 0;
           if (invUpdate.action === "add") {
-            updated = addInventoryUnit(updated, normalizedItemName);
-            if (nextPlayerStats) {
-              nextPlayerStats = {
-                ...nextPlayerStats,
-                inventory: addDetailedInventoryUnit(nextPlayerStats.inventory, normalizedItemName),
-              };
+            for (let index = 0; index < requestedQuantity; index += 1) {
+              updated = addInventoryUnit(updated, normalizedItemName);
+              if (nextPlayerStats) {
+                nextPlayerStats = {
+                  ...nextPlayerStats,
+                  inventory: addDetailedInventoryUnit(nextPlayerStats.inventory, normalizedItemName),
+                };
+              }
+              appliedQuantity += 1;
             }
             notifications.push({
               id: `gain-${normalizedItemName}-${Date.now()}-${notifications.length}`,
               kind: "gain",
-              message: `You gained ${normalizedItemName}!`,
+              message: `You gained ${inventoryQuantityText(normalizedItemName, appliedQuantity)}!`,
             });
-            applied = true;
           } else {
-            const nextInventory = removeInventoryUnit(updated, normalizedItemName);
-            if (nextInventory !== updated) {
-              updated = nextInventory;
+            for (let index = 0; index < requestedQuantity; index += 1) {
+              let appliedUnit = false;
+              const nextInventory = removeInventoryUnit(updated, normalizedItemName);
+              if (nextInventory !== updated) {
+                updated = nextInventory;
+                appliedUnit = true;
+              }
+              if (nextPlayerStats) {
+                const nextDetailedInventory = removeDetailedInventoryUnit(
+                  nextPlayerStats.inventory,
+                  normalizedItemName,
+                );
+                if (nextDetailedInventory !== nextPlayerStats.inventory) {
+                  nextPlayerStats = { ...nextPlayerStats, inventory: nextDetailedInventory };
+                  appliedUnit = true;
+                }
+              }
+              if (appliedUnit) {
+                appliedQuantity += 1;
+              }
+            }
+            if (appliedQuantity > 0) {
+              const quantityText = inventoryQuantityText(normalizedItemName, appliedQuantity);
               const matchesPendingUse =
                 !!pendingUse && normalizedItemName.toLowerCase() === pendingUse.normalizedItemName.toLowerCase();
               if (matchesPendingUse) {
@@ -207,30 +239,23 @@ export function useGameInventoryJournalController({
                 notifications.push({
                   id: `use-consumed-${normalizedItemName}-${Date.now()}-${notifications.length}`,
                   kind: "use-consumed",
-                  message: `${normalizedItemName} was used and removed from inventory.`,
+                  message: `Inventory use removed ${quantityText}.`,
                 });
               } else {
                 notifications.push({
                   id: `loss-${normalizedItemName}-${Date.now()}-${notifications.length}`,
                   kind: "loss",
-                  message: `You lost ${normalizedItemName}!`,
+                  message: `You lost ${quantityText}!`,
                 });
-              }
-              applied = true;
-            }
-            if (nextPlayerStats) {
-              const nextDetailedInventory = removeDetailedInventoryUnit(nextPlayerStats.inventory, normalizedItemName);
-              if (nextDetailedInventory !== nextPlayerStats.inventory) {
-                nextPlayerStats = { ...nextPlayerStats, inventory: nextDetailedInventory };
-                applied = true;
               }
             }
           }
 
-          if (applied) {
+          if (appliedQuantity > 0) {
             journalEntries.push({
               item: normalizedItemName,
               action: invUpdate.action === "add" ? "acquired" : "lost",
+              quantity: appliedQuantity,
             });
           }
         }
@@ -283,7 +308,7 @@ export function useGameInventoryJournalController({
                 data: {
                   item: entry.item,
                   action: entry.action,
-                  quantity: 1,
+                  quantity: entry.quantity,
                 },
               });
               publishSessionChat(res.sessionChat);

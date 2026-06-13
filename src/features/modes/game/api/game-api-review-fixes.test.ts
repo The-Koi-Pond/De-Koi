@@ -68,7 +68,7 @@ import { RESTORED_CHECKPOINT_ANCHOR_META_KEY } from "./game-api-checkpoint-helpe
 import { runGameLorebookKeeperAfterConclusion } from "./game-api-lorebook-keeper";
 import { moveOnMap } from "./game-api-map";
 import { mapForMovement, moveMapPartyPosition, setupMapFromResponse } from "./game-api-map-helpers";
-import { transitionGameState } from "./game-api-mechanics";
+import { skillCheck, transitionGameState } from "./game-api-mechanics";
 import { resolveWeatherUpdate } from "./game-api-mechanics-helpers";
 import { removePartyMember, upsertPartyCard } from "./game-api-party";
 import { normalizedName, partyCardNameMatches } from "./game-api-party-helpers";
@@ -372,6 +372,42 @@ describe("game API review guards", () => {
     ).rejects.toThrow("The operation was aborted.");
 
     expect(imageGenerationApiMock.generate).not.toHaveBeenCalled();
+  });
+
+  it("adds stored player skill modifiers to unresolved skill checks", async () => {
+    storageApiMock.get.mockImplementation(async (entity: string) => {
+      if (entity !== "chats") return null;
+      return {
+        id: "chat-1",
+        metadata: {
+          gameCharacterCards: [
+            {
+              rpgStats: {
+                attributes: [{ name: "Wisdom", value: 14 }],
+              },
+            },
+          ],
+        },
+        gameState: {
+          playerStats: {
+            skills: {
+              perception: 3,
+            },
+          },
+        },
+      };
+    });
+
+    const result = await skillCheck({
+      chatId: "chat-1",
+      skill: "Perception",
+      dc: 15,
+      preRolledD20: 10,
+    });
+
+    expect(result.result.modifier).toBe(5);
+    expect(result.result.total).toBe(15);
+    expect(result.result.success).toBe(true);
   });
 
   it("normalizes NPC avatar names through gallery and metadata merge", async () => {
