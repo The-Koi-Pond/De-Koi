@@ -543,7 +543,7 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             &["list-directory"],
             json!({
                 "path": optional_string(&args, "path").unwrap_or_default(),
-                "pickerSelected": optional_bool(&args, "pickerSelected").unwrap_or(false),
+                "pickerSelected": false,
             }),
         ),
         "import_st_bulk_scan" => import_call(state, &args, &["st-bulk", "scan"], "payload"),
