@@ -34,12 +34,16 @@ MAX_FILE_SUMMARY_CHARS = 9_000
 MAX_COMPACT_FILE_PATCH_CHARS = 28_000
 MAX_COMPACT_FILE_SUMMARY_CHARS = 5_000
 MAX_COMPACT_FILE_CONTEXT_CHARS = 30_000
-MAX_GUIDANCE_DIGEST_CHARS = 4_000
-MAX_COMPACT_GUIDANCE_DIGEST_CHARS = 2_000
-MAX_GLOBAL_REVIEW_CONTEXT_CHARS = 9_000
-MAX_COMPACT_GLOBAL_REVIEW_CONTEXT_CHARS = 4_000
-MAX_GLOBAL_FILE_MAP_CHARS = 900
-MAX_COMPACT_GLOBAL_FILE_MAP_CHARS = 500
+MAX_GUIDANCE_DIGEST_CHARS = 12_000
+MAX_COMPACT_GUIDANCE_DIGEST_CHARS = 5_000
+MAX_GUIDANCE_FILE_CHARS = 3_000
+MAX_COMPACT_GUIDANCE_FILE_CHARS = 1_500
+MAX_GLOBAL_REVIEW_CONTEXT_CHARS = 24_000
+MAX_COMPACT_GLOBAL_REVIEW_CONTEXT_CHARS = 10_000
+MAX_GLOBAL_FILE_MAP_CHARS = 1_800
+MAX_COMPACT_GLOBAL_FILE_MAP_CHARS = 900
+MAX_GLOBAL_HUNK_CHARS = 900
+MAX_COMPACT_GLOBAL_HUNK_CHARS = 450
 COMPACT_DIFF_UNIFIED_LINES = 20
 MAX_REVIEW_CHUNKS = 10
 MAX_CHUNK_PATCH_CHARS = 90_000
@@ -175,6 +179,8 @@ def truncate_to_budget(text, limit):
     if len(text) <= limit:
         return text
     suffix = f"\n\n[truncated: section was {len(text)} chars, budget is {limit} chars]\n"
+    if len(suffix) >= limit:
+        return suffix[:limit]
     keep = max(0, limit - len(suffix))
     return text[:keep].rstrip() + suffix
 
@@ -450,20 +456,192 @@ def markdown_section(text, heading):
     return text[match.start() : end].strip()
 
 
-def build_repo_guidance_digest(*, compact=False):
-    limit = MAX_COMPACT_GUIDANCE_DIGEST_CHARS if compact else MAX_GUIDANCE_DIGEST_CHARS
+def guidance_paths_for_files(files):
+    rules = load_rules()
+    guidance = ["AGENTS.md", "skills/de-koi-agent-workflow/SKILL.md"]
+    if rules and "_load_error" not in rules:
+        for item in rules.get("path_instructions", []):
+            prefixes = item.get("prefixes", [])
+            if any(any(path.startswith(prefix) for prefix in prefixes) for path in files):
+                guidance.extend(item.get("guidance", []))
+    else:
+        joined = "\n".join(files)
+        if any(
+            marker in joined
+            for marker in ("src/engine/", "src/features/", "src/shared/api/", "src-tauri/")
+        ):
+            guidance.append("skills/de-koi-architecture-guard/SKILL.md")
+        if any(
+            marker in joined
+            for marker in (
+                "chat",
+                "roleplay",
+                "game",
+                "modes",
+                "prompt",
+                "generation",
+                "summary",
+                "memory",
+            )
+        ):
+            guidance.append("skills/de-koi-mode-separation/SKILL.md")
+        if any(
+            marker in joined
+            for marker in ("fix/", "storage", "imports", "provider", "transport", "commands")
+        ):
+            guidance.append("skills/de-koi-bugfix-discipline/SKILL.md")
+        if any(marker in joined for marker in ("README", "docs/", "skills/", "AGENTS.md")):
+            guidance.append("skills/de-koi-getting-started/SKILL.md")
+    return list(dict.fromkeys(guidance))
+
+
+def join_digest_sections(sections):
+    return "\n\n".join(section for section in sections if section).strip()
+
+
+def guidance_omission_section(path, reason):
+    return f"## guidance: {path}\n[guidance omitted: {reason}]"
+
+
+def aggregate_guidance_omission_section(paths, limit):
+    if "AGENTS.md" in paths:
+        intro = [
+            "AGENTS.md was omitted because the minimum guidance notes exceed the "
+            "guidance digest budget.",
+            "Selected guidance files were also omitted from individual sections.",
+        ]
+    else:
+        intro = [
+            "Selected guidance files were omitted from individual sections because "
+            "their minimum notes exceed the guidance digest budget.",
+        ]
+    body = "\n".join(
+        [
+            *intro,
+            "Bunny must request focused context if one of these guidance files is "
+            "needed to validate a concrete finding.",
+            "",
+            *[f"- {path}" for path in paths],
+        ]
+    )
+    return fit_guidance_section("guidance omissions", body, limit)
+
+
+def fit_guidance_section(title, body, budget):
+    section = f"## {title}\n{body}".strip()
+    if len(section) <= budget:
+        return section
+    note = f"\n\n[truncated: guidance section was {len(section)} chars, budget is {budget} chars]"
+    prefix = f"## {title}\n"
+    keep = budget - len(prefix) - len(note)
+    if keep > 0:
+        return prefix + body[:keep].rstrip() + note
+    omission = guidance_omission_section(
+        title.removeprefix("guidance: "),
+        "digest budget was exhausted before content could fit",
+    )
+    return truncate_to_budget(omission, budget)
+
+
+def read_guidance_body(path, limit):
+    try:
+        body = read_text(path, limit)
+    except Exception as exc:
+        return f"Could not read: {exc}"
+    return truncate_to_budget(body.strip() or "[empty guidance file]", limit)
+
+
+def build_agents_guidance_body():
+    notes = "\n".join(
+        [
+            "Bunny path rules are provided separately as structured JSON for matched paths.",
+            "Keep findings tied to changed lines in the focused patch context.",
+        ]
+    )
     try:
         agents = read_text("AGENTS.md", 16_000)
         hard_rules = markdown_section(agents, "Hard Rules") or agents
     except Exception as exc:
         hard_rules = f"Could not read AGENTS.md hard rules: {exc}"
-    lines = [
-        hard_rules,
-        "",
-        "Bunny path rules are provided separately as structured JSON for matched paths.",
-        "Keep findings tied to changed lines in the focused patch context.",
+    return f"{notes}\n\n{hard_rules}".strip()
+
+
+def guidance_items_for_paths(paths, file_limit):
+    selected = []
+    for path in paths:
+        body = read_guidance_body(path, file_limit)
+        minimum_section = guidance_omission_section(
+            path,
+            "selected by path rules, but remaining digest budget was reserved for other selected guidance files",
+        )
+        selected.append(
+            {
+                "path": path,
+                "title": f"guidance: {path}",
+                "body": body,
+                "minimum": minimum_section,
+            }
+        )
+    return selected
+
+
+def build_guidance_sections(selected, limit):
+    minimum_digest = join_digest_sections(item["minimum"] for item in selected)
+    if len(minimum_digest) > limit:
+        return [aggregate_guidance_omission_section([item["path"] for item in selected], limit)]
+
+    sections = []
+    for index, item in enumerate(selected):
+        later_minimum = join_digest_sections(
+            entry["minimum"] for entry in selected[index + 1 :]
+        )
+        current = join_digest_sections(sections)
+        before_current = 2 if current else 0
+        after_current = 2 if later_minimum else 0
+        budget = (
+            limit
+            - len(current)
+            - before_current
+            - len(later_minimum)
+            - after_current
+        )
+        if budget <= 0:
+            break
+        if len(item["minimum"]) > budget:
+            sections.append(truncate_to_budget(item["minimum"], budget))
+            continue
+        sections.append(
+            fit_guidance_section(item["title"], item["body"], budget)
+        )
+    return sections
+
+
+def build_path_guidance_sections(paths, limit, file_limit):
+    return build_guidance_sections(guidance_items_for_paths(paths, file_limit), limit)
+
+
+def build_repo_guidance_digest(files, *, compact=False):
+    limit = MAX_COMPACT_GUIDANCE_DIGEST_CHARS if compact else MAX_GUIDANCE_DIGEST_CHARS
+    file_limit = MAX_COMPACT_GUIDANCE_FILE_CHARS if compact else MAX_GUIDANCE_FILE_CHARS
+    selected_guidance = [
+        path for path in guidance_paths_for_files(files) if path != "AGENTS.md"
     ]
-    return truncate("\n".join(lines).strip(), limit)
+    sections = build_guidance_sections(
+        [
+            {
+                "path": "AGENTS.md",
+                "title": "AGENTS.md hard rules",
+                "body": build_agents_guidance_body(),
+                "minimum": guidance_omission_section(
+                    "AGENTS.md",
+                    "required repo guidance, but the guidance digest budget was exhausted",
+                ),
+            },
+            *guidance_items_for_paths(selected_guidance, file_limit),
+        ],
+        limit,
+    )
+    return join_digest_sections(sections)
 
 
 def matching_path_rules(files):
@@ -556,12 +734,15 @@ def build_global_file_map(base, files, *, compact=False):
     per_file_limit = (
         MAX_COMPACT_GLOBAL_FILE_MAP_CHARS if compact else MAX_GLOBAL_FILE_MAP_CHARS
     )
+    hunk_limit = MAX_COMPACT_GLOBAL_HUNK_CHARS if compact else MAX_GLOBAL_HUNK_CHARS
+    unified = 0 if compact else 3
     for path in files:
         stat = run_git(["diff", "--numstat", f"{base}...HEAD", "--", path], 1_000)
+        hunk_sketch = truncate(diff_for_path(base, path, unified=unified), hunk_limit)
         body = (
             f"numstat: {stat.strip() or 'unavailable'}\n"
-            f"current interface lines:\n{file_interface_context(path)}\n"
-            "changed-line evidence: see the focused per-file patch context for this chunk."
+            f"current interface lines:\n{file_interface_context(path)}\n\n"
+            f"changed hunk sketch:\n{hunk_sketch}"
         )
         sections.append(f"### {path}\n{truncate(body, per_file_limit)}")
     return "\n\n".join(sections) or "No changed file map available."
@@ -686,7 +867,7 @@ def build_review_packet(
             ),
         ),
         ("Bunny path rules", matching_path_rules(files)),
-        ("repo guidance digest", build_repo_guidance_digest(compact=compact)),
+        ("repo guidance digest", build_repo_guidance_digest(files, compact=compact)),
     ]
     if ci_status:
         sections.append(("CI status", ci_status))
