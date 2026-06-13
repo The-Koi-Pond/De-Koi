@@ -128,12 +128,7 @@ export function formatChatText(chat: Chat, messages: Message[]) {
   return [...header, "", ...body].join("\n\n");
 }
 
-export function formatChatJsonl(messages: Message[]) {
-  const jsonl = messages.map((message) => JSON.stringify(message)).join("\n");
-  return jsonl ? `${jsonl}\n` : "";
-}
-
-function formatChatTranscriptJsonl(chat: Chat, messages: Message[]) {
+export function formatChatJsonl(chat: Chat, messages: Message[]) {
   const rows: ChatTranscriptJsonlRow[] = [
     { format: "marinara-chat-transcript-jsonl", version: 1, rowType: "format" },
     chatTranscriptHeaderRow(chat),
@@ -173,7 +168,7 @@ export function buildChatTranscriptZipFiles(
     },
     ...chats.map(({ chat, messages }) => ({
       name: chatExportFilename(chat, format),
-      data: format === "text" ? formatChatText(chat, messages) : formatChatTranscriptJsonl(chat, messages),
+      data: format === "text" ? formatChatText(chat, messages) : formatChatJsonl(chat, messages),
     })),
   ];
 }
