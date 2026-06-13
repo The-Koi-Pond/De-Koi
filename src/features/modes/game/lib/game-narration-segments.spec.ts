@@ -59,11 +59,28 @@ describe("game narration segment parsing", () => {
   });
 
   it("stamps parsed segments with source identity and rendered indexes", () => {
-    const segments = parseNarrationSegments(message(['Narration: Start.', '"Hi," Amber said.'].join("\n"), "user"), new Map());
+    const segments = parseNarrationSegments(
+      message(
+        [
+          "Narration: Start.",
+          "[Note: First clue]",
+          '[Amber][main]: "Ready."',
+          '"Hi," Lisa said.',
+        ].join("\n"),
+        "user",
+      ),
+      new Map(),
+    );
 
-    expect(segments.map((segment) => segment.sourceMessageId)).toEqual(["m1", "m1"]);
-    expect(segments.map((segment) => segment.sourceRole)).toEqual(["user", "user"]);
-    expect(segments.map((segment) => segment.sourceSegmentIndex)).toEqual([0, 1]);
+    expect(segments).toEqual([
+      expect.objectContaining({ type: "narration", content: "Start." }),
+      expect.objectContaining({ type: "readable", readableContent: "First clue" }),
+      expect.objectContaining({ type: "dialogue", speaker: "Amber", content: "Ready." }),
+      expect.objectContaining({ type: "dialogue", speaker: "Lisa", content: '"Hi," Lisa said.' }),
+    ]);
+    expect(segments.map((segment) => segment.sourceMessageId)).toEqual(["m1", "m1", "m1", "m1"]);
+    expect(segments.map((segment) => segment.sourceRole)).toEqual(["user", "user", "user", "user"]);
+    expect(segments.map((segment) => segment.sourceSegmentIndex)).toEqual([0, 1, 2, 3]);
   });
 
   it("truncates raw content at parsed segment boundaries without rewriting the prefix", () => {
@@ -93,21 +110,47 @@ describe("game narration segment parsing", () => {
     ]);
   });
 
-  it("keeps readable-looking text inside dialogue lines as dialogue content", () => {
+  it("preserves dialogue metadata while splitting readable blocks inside compact dialogue lines", () => {
     const raw = '[Amber][main]: "See [Note: clue] on the desk."';
-    const segments = parseNarrationSegments(message(raw), new Map());
+    const segments = parseNarrationSegments(message(raw), new Map([["Amber", "#f80"]]));
 
     expect(segments).toEqual([
       expect.objectContaining({
         type: "dialogue",
         speaker: "Amber",
-        content: "See [Note: clue] on the desk.",
+        content: "See",
+        color: "#f80",
         sourceMessageId: "m1",
         sourceSegmentIndex: 0,
         sourceRole: "assistant",
       }),
+      expect.objectContaining({
+        type: "readable",
+        readableType: "note",
+        readableContent: "clue",
+        sourceSegmentIndex: 1,
+      }),
+      expect.objectContaining({
+        type: "dialogue",
+        speaker: "Amber",
+        content: "on the desk.",
+        color: "#f80",
+        sourceSegmentIndex: 2,
+      }),
     ]);
-    expect(truncateMessageContentAtSegment(raw, 0)).toBe(raw);
+    expect(truncateMessageContentAtSegment(raw, 0)).toBe('[Amber][main]: "See ');
+    expect(truncateMessageContentAtSegment(raw, 1)).toBe('[Amber][main]: "See [Note: clue]');
+    expect(truncateMessageContentAtSegment(raw, 2)).toBe(raw);
+  });
+
+  it("preserves dialogue metadata while splitting readable blocks inside legacy dialogue lines", () => {
+    const segments = parseNarrationSegments(message('Dialogue [Amber]: "See [Book: field notes] later."'), new Map());
+
+    expect(segments).toEqual([
+      expect.objectContaining({ type: "dialogue", speaker: "Amber", content: "See", sourceSegmentIndex: 0 }),
+      expect.objectContaining({ type: "readable", readableType: "book", readableContent: "field notes", sourceSegmentIndex: 1 }),
+      expect.objectContaining({ type: "dialogue", speaker: "Amber", content: "later.", sourceSegmentIndex: 2 }),
+    ]);
   });
 
   it("preserves inline dialogue attribution and aligns truncation to rendered segments", () => {
