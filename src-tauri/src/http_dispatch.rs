@@ -33,6 +33,12 @@ fn required_string<'a>(args: &'a Map<String, Value>, key: &str) -> AppResult<&'a
         .ok_or_else(|| AppError::invalid_input(format!("{key} is required")))
 }
 
+fn required_string_allow_empty<'a>(args: &'a Map<String, Value>, key: &str) -> AppResult<&'a str> {
+    args.get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::invalid_input(format!("{key} is required")))
+}
+
 fn optional_value(args: &Map<String, Value>, key: &str) -> Value {
     args.get(key).cloned().unwrap_or(Value::Null)
 }
@@ -253,7 +259,7 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "game_assets_write_text" => {
             state.game_assets.write_text(
                 required_string(&args, "path")?,
-                required_string(&args, "content")?,
+                required_string_allow_empty(&args, "content")?,
             )?;
             Ok(json!({ "saved": true }))
         }
@@ -315,7 +321,7 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             state,
             json!({
                 "path": required_string(&args, "path")?,
-                "description": required_string(&args, "description")?,
+                "description": required_string_allow_empty(&args, "description")?,
             }),
         ),
         "game_assets_upload" => {
@@ -2408,6 +2414,97 @@ mod tests {
             error.message.contains("size"),
             "size validation error should mention size"
         );
+    }
+
+    #[tokio::test]
+    async fn dispatch_accepts_empty_remote_game_asset_text_content() {
+        let state = test_state("remote-empty-game-asset-text");
+
+        let result = dispatch(
+            &state,
+            InvokeRequest {
+                command: "game_assets_write_text".to_string(),
+                args: Some(json!({
+                    "path": "notes/blank.md",
+                    "content": ""
+                })),
+            },
+        )
+        .await
+        .expect("empty text content should be a valid remote asset save");
+
+        assert_eq!(result["saved"], true);
+        assert_eq!(
+            state
+                .game_assets
+                .read_text("notes/blank.md")
+                .expect("blank asset should be readable"),
+            ""
+        );
+
+        let error = dispatch(
+            &state,
+            InvokeRequest {
+                command: "game_assets_write_text".to_string(),
+                args: Some(json!({
+                    "path": "notes/missing-content.md"
+                })),
+            },
+        )
+        .await
+        .expect_err("missing content should still be invalid");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("content"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_accepts_empty_remote_game_asset_folder_description() {
+        let state = test_state("remote-empty-game-asset-description");
+
+        let result = dispatch(
+            &state,
+            InvokeRequest {
+                command: "game_assets_folder_description".to_string(),
+                args: Some(json!({
+                    "path": "locations",
+                    "description": ""
+                })),
+            },
+        )
+        .await
+        .expect("empty folder description should clear remote metadata");
+
+        assert_eq!(result["path"], "locations");
+        assert_eq!(result["description"], "");
+
+        let tree = state
+            .game_assets
+            .tree()
+            .expect("asset tree should be readable");
+        let locations = tree["children"]
+            .as_array()
+            .expect("tree children should be an array")
+            .iter()
+            .find(|item| item.get("path").and_then(Value::as_str) == Some("locations"))
+            .expect("locations folder should exist");
+        assert_eq!(locations["description"], "");
+
+        let error = dispatch(
+            &state,
+            InvokeRequest {
+                command: "game_assets_folder_description".to_string(),
+                args: Some(json!({
+                    "path": "",
+                    "description": ""
+                })),
+            },
+        )
+        .await
+        .expect_err("empty path should still be invalid");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("path"));
     }
 
     #[tokio::test]
