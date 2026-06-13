@@ -138,9 +138,10 @@ jobs:
       - name: Run review while CI completes
         timeout-minutes: 25
         env:
+          LLM_API_KEY: ${{ secrets.DE_KOI_BUNNY_LLM_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
-          LLM_MODEL: gpt-5.5
+          LLM_BASE_URL: ${{ vars.DE_KOI_BUNNY_LLM_BASE_URL || secrets.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.DE_KOI_BUNNY_LLM_MODEL || 'gpt-5.5' }}
           BUNNY_MODEL_REQUEST_TIMEOUT_SECONDS: ${{ inputs.model_request_timeout_seconds || vars.DE_KOI_BUNNY_MODEL_REQUEST_TIMEOUT_SECONDS || '120' }}
           CI_STATUS: CI checks are still running; final CI results will be appended before posting.
           BUNNY_REVIEW_PROMPT_PATH: /tmp/bunny-review-tool/.github/bunny-review/reviewer-prompt.md

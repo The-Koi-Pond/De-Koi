@@ -907,6 +907,21 @@ def model_base_label() -> str:
     return "custom" if os.environ.get("LLM_BASE_URL", "").strip() else "default"
 
 
+def model_api_key() -> str:
+    return os.environ.get("LLM_API_KEY", "").strip() or os.environ.get(
+        "OPENAI_API_KEY", ""
+    ).strip()
+
+
+def missing_model_api_key_message() -> str:
+    return (
+        "The reviewer could not run because no model API key is configured. "
+        "Set `DE_KOI_BUNNY_LLM_API_KEY` for provider-specific Bunny credentials "
+        "or keep `OPENAI_API_KEY` for the default provider. No key, no coin slot, "
+        "no Bunny review."
+    )
+
+
 def approx_tokens_from_chars(chars: int) -> int:
     return max(1, round(chars / 4))
 
@@ -2761,12 +2776,13 @@ def parse_command_mode():
 
 def produce_review(args):
     pr_num = os.environ.get("PR_NUM", "")
-    if not pr_num and not os.environ.get("OPENAI_API_KEY"):
+    api_key = model_api_key()
+    if not pr_num and not api_key:
         write_skipped_review(
             "Review Skipped",
-            "The reviewer could not run because `OPENAI_API_KEY` is absent from this workflow run. No key, no coin slot, no Bunny review.",
+            missing_model_api_key_message(),
         )
-        print("Bunny telemetry: skipped=missing_openai_api_key", flush=True)
+        print("Bunny telemetry: skipped=missing_model_api_key", flush=True)
         return
 
     requested_mode = args.mode or parse_command_mode()
@@ -2792,10 +2808,10 @@ def produce_review(args):
         print("Bunny telemetry: skipped=no_new_diff_reviewed", flush=True)
         return
 
-    if not os.environ.get("OPENAI_API_KEY"):
+    if not api_key:
         write_skipped_review(
             "Review Skipped",
-            "The reviewer could not run because `OPENAI_API_KEY` is absent from this workflow run. No key, no coin slot, no Bunny review.",
+            missing_model_api_key_message(),
             metadata={
                 "head_sha": head_sha,
                 "head_commit_message": commit_subject(head_sha),
@@ -2804,7 +2820,7 @@ def produce_review(args):
                 "mode": effective_mode,
             },
         )
-        print("Bunny telemetry: skipped=missing_openai_api_key", flush=True)
+        print("Bunny telemetry: skipped=missing_model_api_key", flush=True)
         return
 
     chunk_plan = plan_review_chunks(base, ci_status, effective_mode, files)
@@ -2830,7 +2846,7 @@ def produce_review(args):
     from openai import OpenAI
 
     client = OpenAI(
-        api_key=os.environ["OPENAI_API_KEY"],
+        api_key=api_key,
         base_url=os.environ.get("LLM_BASE_URL"),
         max_retries=MODEL_MAX_RETRIES,
     )
