@@ -119,7 +119,7 @@ function reportPersistenceFailure(chatId: string, error: unknown) {
   const lastToastAt = lastFailureToastAt.get(chatId);
   if (lastToastAt === undefined || now - lastToastAt > 30_000) {
     lastFailureToastAt.set(chatId, now);
-    toast.error("Game progress could not be saved. Marinara will retry automatically.");
+    toast.error("Game progress could not be saved. De-Koi will retry automatically.");
   }
 }
 
