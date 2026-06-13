@@ -214,29 +214,37 @@ fn memory_embedding_context_from_connection(
     })
 }
 
-fn memory_embedding_context(state: &AppState, chat: &Value) -> Option<MemoryEmbeddingContext> {
+fn no_embedding_connection_configured(error: &AppError) -> bool {
+    error.code == "invalid_input" && error.message.starts_with("No embedding connection")
+}
+
+async fn memory_embedding_context(
+    state: &AppState,
+    chat: &Value,
+) -> AppResult<Option<MemoryEmbeddingContext>> {
     if let Some(connection_id) = chat
         .get("connectionId")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        if let Ok((embedding_connection_id, connection)) =
-            prompts::resolve_embedding_connection_for_id(state, connection_id)
+        let (embedding_connection_id, connection) =
+            prompts::resolve_embedding_connection_for_id_async(state, connection_id).await?;
+        if let Some(context) =
+            memory_embedding_context_from_connection(embedding_connection_id, connection)
         {
-            if let Some(context) =
-                memory_embedding_context_from_connection(embedding_connection_id, connection)
-            {
-                return Some(context);
-            }
+            return Ok(Some(context));
         }
     }
 
-    prompts::resolve_default_embedding_connection(state)
-        .ok()
-        .and_then(|(connection_id, connection)| {
-            memory_embedding_context_from_connection(connection_id, connection)
-        })
+    match prompts::resolve_default_embedding_connection_async(state).await {
+        Ok((connection_id, connection)) => Ok(memory_embedding_context_from_connection(
+            connection_id,
+            connection,
+        )),
+        Err(error) if no_embedding_connection_configured(&error) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 async fn embed_memory_content(
@@ -703,7 +711,7 @@ pub(crate) fn delete_chat_memory(
 
 pub(crate) async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> AppResult<Value> {
     let chat = get_required(state, "chats", chat_id)?;
-    let embedding_context = memory_embedding_context(state, &chat);
+    let embedding_context = memory_embedding_context(state, &chat).await?;
     let existing_memories = chat_memory_values_for_mutation(&chat)?;
     let existing_by_chunk = existing_memories
         .into_iter()
@@ -1038,7 +1046,7 @@ pub(crate) async fn import_chat_memories(
     replace: Option<bool>,
 ) -> AppResult<Value> {
     let chat = get_required(state, "chats", chat_id)?;
-    let embedding_context = memory_embedding_context(state, &chat);
+    let embedding_context = memory_embedding_context(state, &chat).await?;
     let (incoming, source_chat_id) = memory_recall_import_chunks(&body)?;
     let replace = replace.unwrap_or(false);
     let mut memories = if replace {
@@ -1339,8 +1347,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn memory_embedding_context_prefers_dedicated_embedding_connection() {
+    #[tokio::test]
+    async fn memory_embedding_context_prefers_dedicated_embedding_connection() {
         let state = test_state("memory-embedding-context");
         let chat = state
             .storage
@@ -1380,10 +1388,160 @@ mod tests {
             )
             .unwrap();
 
-        let context = memory_embedding_context(&state, &chat).unwrap();
+        let context = memory_embedding_context(&state, &chat)
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(context.connection_id, "embedding-connection");
         assert_eq!(context.model, "text-embedding-3-small");
+    }
+
+    #[tokio::test]
+    async fn refresh_chat_memories_uses_lexical_embedding_when_no_provider_is_configured() {
+        let state = test_state("memory-no-provider-lexical");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat"
+                }),
+            )
+            .expect("chat should seed");
+        for index in 0..5 {
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({
+                        "id": format!("message-{index}"),
+                        "chatId": "chat-1",
+                        "role": if index % 2 == 0 { "user" } else { "assistant" },
+                        "content": format!("visible memory {index}"),
+                        "createdAt": format!("2026-06-01T10:0{index}:00.000Z")
+                    }),
+                )
+                .expect("message should seed");
+        }
+
+        refresh_chat_memories(&state, "chat-1")
+            .await
+            .expect("memory refresh should fall back to lexical embeddings");
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        let memory = chat["memories"][0]
+            .as_object()
+            .expect("memory should be an object");
+
+        assert_eq!(memory.get("embeddingSource"), Some(&json!("lexical")));
+        assert_eq!(
+            memory
+                .get("embedding")
+                .and_then(Value::as_array)
+                .expect("lexical embedding should be stored")
+                .len(),
+            MEMORY_EMBEDDING_DIMS
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_chat_memories_errors_when_configured_embedding_connection_is_invalid() {
+        let state = test_state("memory-refresh-invalid-embedding");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "connectionId": "chat-connection"
+                }),
+            )
+            .expect("chat should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "chat-connection",
+                    "name": "Chat",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "embeddingConnectionId": "missing-embedding"
+                }),
+            )
+            .expect("connection should seed");
+
+        let error = refresh_chat_memories(&state, "chat-1")
+            .await
+            .expect_err("invalid configured embedding connection should not fall back");
+
+        assert_eq!(error.code, "not_found");
+        assert!(error.message.contains("missing-embedding"));
+    }
+
+    #[tokio::test]
+    async fn import_chat_memories_errors_when_configured_embedding_connection_is_invalid() {
+        let state = test_state("memory-import-invalid-embedding");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "connectionId": "chat-connection"
+                }),
+            )
+            .expect("chat should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "chat-connection",
+                    "name": "Chat",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "embeddingConnectionId": "missing-embedding"
+                }),
+            )
+            .expect("connection should seed");
+
+        let error = import_chat_memories(
+            &state,
+            "chat-1",
+            json!({
+                "type": "marinara_memory_recall",
+                "version": 1,
+                "data": {
+                    "sourceChat": {
+                        "id": "source-chat",
+                        "name": "Source chat",
+                        "mode": "conversation",
+                        "memoryCount": 1
+                    },
+                    "chunks": [
+                        {
+                            "content": "needs vectorization",
+                            "embedding": null,
+                            "messageCount": 1
+                        }
+                    ]
+                }
+            }),
+            None,
+        )
+        .await
+        .expect_err("invalid configured embedding connection should not fall back");
+
+        assert_eq!(error.code, "not_found");
+        assert!(error.message.contains("missing-embedding"));
     }
 
     #[tokio::test]

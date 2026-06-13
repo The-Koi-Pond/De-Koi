@@ -406,6 +406,7 @@ pub(crate) async fn resolve_embedding_connection_for_id_async(
     Ok((connection_id.to_string(), connection))
 }
 
+#[cfg(test)]
 pub(crate) fn resolve_default_embedding_connection(state: &AppState) -> AppResult<(String, Value)> {
     let connections = connection_secrets::connections_for_runtime(state)?;
     let embedding_candidates = connections
