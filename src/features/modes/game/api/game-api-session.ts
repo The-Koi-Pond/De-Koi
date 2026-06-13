@@ -80,23 +80,29 @@ function compactPersonaSetupContext(record: Record<string, unknown>): SetupChara
 
 async function setupCharacterContext(characterId: string): Promise<SetupCharacterPromptContext | null> {
   if (!characterId || characterId.startsWith("npc:")) return null;
-  const character = await g.storageApi.get<Record<string, unknown>>("characters", characterId).catch(() => null);
-  return character ? compactCharacterSetupContext(character, characterId) : null;
+  const character = await g.storageApi.get<Record<string, unknown>>("characters", characterId);
+  if (!character) {
+    throw new Error(`Selected game character "${characterId}" was not found. Update game setup and try again.`);
+  }
+  return compactCharacterSetupContext(character, characterId);
 }
 
 async function setupPersonaContext(personaId: string | undefined): Promise<SetupCharacterPromptContext | null> {
   const id = g.readTrimmed(personaId);
   if (!id) return null;
-  const persona = await g.storageApi.get<Record<string, unknown>>("personas", id).catch(() => null);
-  return persona ? compactPersonaSetupContext(persona) : null;
+  const persona = await g.storageApi.get<Record<string, unknown>>("personas", id);
+  if (!persona) {
+    throw new Error(`Selected game persona "${id}" was not found. Update game setup and try again.`);
+  }
+  return compactPersonaSetupContext(persona);
 }
 
 async function setupLorebookContext(lorebookIds: string[]): Promise<string | null> {
   const ids = Array.from(new Set(lorebookIds.map((id) => id.trim()).filter(Boolean)));
   if (ids.length === 0) return null;
-  const entries = await g.storageApi
-    .list<g.LorebookEntry>("lorebook-entries", { whereIn: { field: "lorebookId", values: ids } })
-    .catch(() => []);
+  const entries = await g.storageApi.list<g.LorebookEntry>("lorebook-entries", {
+    whereIn: { field: "lorebookId", values: ids },
+  });
   const context = entries
     .filter((entry) => entry.enabled !== false && entry.constant === true)
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
