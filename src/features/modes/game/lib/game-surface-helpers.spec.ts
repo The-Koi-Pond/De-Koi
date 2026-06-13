@@ -31,6 +31,7 @@ describe("game surface helpers", () => {
     ).toBe(true);
     expect(stripPartyTurnMarker(" [party-turn] Amber: Ready")).toBe("Amber: Ready");
     expect(stripGameDirectAddressPrefix("[To the GM] look around")).toBe("look around");
+    expect(stripGameDirectAddressPrefix("  [To the party] regroup")).toBe("regroup");
   });
 
   it("counts assistant and narrator turns for scene numbering", () => {

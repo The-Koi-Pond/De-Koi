@@ -127,7 +127,7 @@ export function stripPartyTurnMarker(content: string): string {
 }
 
 export function stripGameDirectAddressPrefix(content: string): string {
-  return content.replace(GAME_DIRECT_ADDRESS_RE, "").trim();
+  return content.trimStart().replace(GAME_DIRECT_ADDRESS_RE, "").trim();
 }
 
 export function normalizeGameDay(value: unknown): number {

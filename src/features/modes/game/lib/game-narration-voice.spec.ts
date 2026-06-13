@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { TTSConfig } from "../../../../engine/contracts/types/tts";
 import {
   buildVoiceConfigSignature,
+  getGameSideLineVoiceKeyForRequests,
   getGameSegmentVoiceKeyForRequests,
   getGameSegmentVoiceRequest,
   getGameVoicePlayerSpeakerNames,
   queueGameVoiceEntryPlan,
+  resolveGameVoiceEntryPlan,
   type GameSegmentVoiceEntry,
 } from "./game-narration-voice";
 import type { NarrationSegment } from "./game-narration-segments";
@@ -80,6 +82,7 @@ describe("game narration voice planning", () => {
     const playerNames = getGameVoicePlayerSpeakerNames("Traveler");
 
     expect(getGameSegmentVoiceRequest(segment({ sourceRole: "user" }), baseTtsConfig, [], { playerSpeakerNames: playerNames })).toBeNull();
+    expect(getGameSegmentVoiceRequest(segment({ sourceRole: "system" }), baseTtsConfig, [], { playerSpeakerNames: playerNames })).toBeNull();
     expect(getGameSegmentVoiceRequest(segment({ partyType: "thought" }), baseTtsConfig, [], { playerSpeakerNames: playerNames })).toBeNull();
     expect(getGameSegmentVoiceRequest(segment({ speaker: "Traveler" }), baseTtsConfig, [], { playerSpeakerNames: playerNames })).toBeNull();
     expect(
@@ -90,6 +93,31 @@ describe("game narration voice planning", () => {
         { playerSpeakerNames: playerNames },
       ),
     ).toBeNull();
+  });
+
+  it("keys voice cache entries by source identity, config, and line text", () => {
+    const signature = buildVoiceConfigSignature(baseTtsConfig);
+    const firstRequest = getGameSegmentVoiceRequest(segment({ content: "Light it up." }), baseTtsConfig);
+    const changedRequest = getGameSegmentVoiceRequest(segment({ content: "Hold the line." }), baseTtsConfig);
+    expect(firstRequest).not.toBeNull();
+    expect(changedRequest).not.toBeNull();
+
+    expect(getGameSegmentVoiceKeyForRequests(segment(), signature, [firstRequest!])).not.toBe(
+      getGameSegmentVoiceKeyForRequests(segment(), signature, [changedRequest!]),
+    );
+
+    const sideLine = {
+      character: "Amber",
+      type: "side" as const,
+      content: "Light it up.",
+    };
+    const changedSideLine = {
+      ...sideLine,
+      content: "Hold the line.",
+    };
+    expect(getGameSideLineVoiceKeyForRequests(segment(), sideLine, 0, signature, [firstRequest!])).not.toBe(
+      getGameSideLineVoiceKeyForRequests(segment(), changedSideLine, 0, signature, [changedRequest!]),
+    );
   });
 
   it("queues voice plans with explicit cache and abort-controller state", () => {
@@ -115,5 +143,25 @@ describe("game narration voice planning", () => {
     plan?.controller.abort();
     expect(plan?.controller.signal.aborted).toBe(true);
     expect(queueGameVoiceEntryPlan({ key, requests: [request!], config: baseTtsConfig, cache, pending })).toBeNull();
+  });
+
+  it("clears pending state when a queued voice plan is aborted before resolution", async () => {
+    const cache = new Map<string, GameSegmentVoiceEntry>();
+    const pending = new Map<string, AbortController>();
+    const request = getGameSegmentVoiceRequest(segment(), baseTtsConfig);
+    const key = getGameSegmentVoiceKeyForRequests(segment(), buildVoiceConfigSignature(baseTtsConfig), [request!]);
+    const plan = queueGameVoiceEntryPlan({
+      key,
+      requests: [request!],
+      config: baseTtsConfig,
+      cache,
+      pending,
+    });
+    expect(plan).not.toBeNull();
+
+    plan!.controller.abort();
+    await expect(resolveGameVoiceEntryPlan({ plan: plan!, cache, pending })).resolves.toBe(false);
+    expect(pending.has(key!)).toBe(false);
+    expect(queueGameVoiceEntryPlan({ key, requests: [request!], config: baseTtsConfig, cache: new Map(), pending })).not.toBeNull();
   });
 });

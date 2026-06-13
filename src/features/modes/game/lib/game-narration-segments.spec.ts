@@ -69,6 +69,37 @@ describe("game narration segment parsing", () => {
     expect(truncateMessageContentAtSegment(raw, -1)).toBe("");
   });
 
+  it("keeps inline readable blocks in parsed order with surrounding narration", () => {
+    const segments = parseNarrationSegments(
+      message("Narration: The shelf holds [Note: First clue] beside [Book: Field Notes] now."),
+      new Map(),
+    );
+
+    expect(segments).toEqual([
+      expect.objectContaining({ type: "narration", content: "The shelf holds" }),
+      expect.objectContaining({ type: "readable", readableType: "note", readableContent: "First clue" }),
+      expect.objectContaining({ type: "narration", content: "beside" }),
+      expect.objectContaining({ type: "readable", readableType: "book", readableContent: "Field Notes" }),
+      expect.objectContaining({ type: "narration", content: "now." }),
+    ]);
+  });
+
+  it("preserves inline dialogue attribution and aligns truncation to rendered segments", () => {
+    const raw = '"Hi," Amber said. The torch flared. "Careful," Lisa whispered. Tail.';
+    const segments = parseNarrationSegments(message(raw), new Map([["Amber", "#f80"]]));
+
+    expect(segments).toEqual([
+      expect.objectContaining({ type: "dialogue", speaker: "Amber", content: '"Hi," Amber said.', color: "#f80" }),
+      expect.objectContaining({ type: "narration", content: "The torch flared." }),
+      expect.objectContaining({ type: "dialogue", speaker: "Lisa", content: '"Careful," Lisa whispered.' }),
+      expect.objectContaining({ type: "narration", content: "Tail." }),
+    ]);
+    expect(truncateMessageContentAtSegment(raw, 0)).toBe('"Hi," Amber said.');
+    expect(truncateMessageContentAtSegment(raw, 1)).toBe('"Hi," Amber said. The torch flared.');
+    expect(truncateMessageContentAtSegment(raw, 2)).toBe('"Hi," Amber said. The torch flared. "Careful," Lisa whispered.');
+    expect(truncateMessageContentAtSegment(raw, 3)).toBe(raw);
+  });
+
   it("counts and slices effect-tagged text by visible characters", () => {
     expect(effectDisplayLength("A {shake:boom} now")).toBe("A boom now".length);
     expect(slicePreservingEffects("A {shake:boom} now", 5)).toBe("A {shake:boo}");

@@ -184,6 +184,16 @@ function buildVoiceLineSegmentCacheKey(segmentVoiceKey: string, jobIndex: number
   return `game-voice-line-v3:${segmentVoiceKey}:${jobIndex}:${hashVoiceKey(textCacheKey)}`;
 }
 
+function buildGameVoiceRequestSignature(requests: GameSegmentVoiceRequest[]): string {
+  return requests
+    .map((request) =>
+      [request.speaker ?? "", request.tone ?? "", request.voice ?? "", request.chunks.length, ...request.chunks].join(
+        "\u001f",
+      ),
+    )
+    .join("\u001e");
+}
+
 function buildGameVoiceAudioJobs(
   key: string,
   requests: GameSegmentVoiceRequest[],
@@ -345,7 +355,9 @@ export function getGameSegmentVoiceKeyForRequests(
   requests: GameSegmentVoiceRequest[],
 ): string | null {
   if (!segment.sourceMessageId || segment.sourceSegmentIndex == null || requests.length === 0) return null;
-  return `${segment.sourceMessageId}:${segment.sourceSegmentIndex}:${hashVoiceKey(configSignature)}`;
+  return `${segment.sourceMessageId}:${segment.sourceSegmentIndex}:${hashVoiceKey(configSignature)}:${hashVoiceKey(
+    buildGameVoiceRequestSignature(requests),
+  )}`;
 }
 
 export function getGameSideLineVoiceKeyForRequests(
@@ -361,7 +373,9 @@ export function getGameSideLineVoiceKeyForRequests(
   if (!sourceMessageId || sourceSegmentIndex == null) return null;
 
   const suffix = line.voiceSourceSegmentIndex == null ? `:side:${sideIndex}` : "";
-  return `${sourceMessageId}:${sourceSegmentIndex}${suffix}:${hashVoiceKey(configSignature)}`;
+  return `${sourceMessageId}:${sourceSegmentIndex}${suffix}:${hashVoiceKey(configSignature)}:${hashVoiceKey(
+    buildGameVoiceRequestSignature(requests),
+  )}`;
 }
 
 export function queueGameVoiceEntryPlan(args: {
@@ -405,24 +419,24 @@ export async function resolveGameVoiceEntryPlan(args: {
     onChunkError,
   } = args;
 
-  if (controller.signal.aborted) return false;
-
-  const blobs: Blob[] = [];
-  let failed = false;
-  for (const [jobIndex, job] of audioJobs.entries()) {
-    if (controller.signal.aborted) break;
-    try {
-      const blob = await generateGameVoiceJobBlob(job, controller);
-      blobs.push(blob);
-    } catch (err) {
-      if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) break;
-      failed = true;
-      onChunkError?.(jobIndex, audioJobs.length, err);
-      break;
-    }
-  }
-
   try {
+    if (controller.signal.aborted) return false;
+
+    const blobs: Blob[] = [];
+    let failed = false;
+    for (const [jobIndex, job] of audioJobs.entries()) {
+      if (controller.signal.aborted) break;
+      try {
+        const blob = await generateGameVoiceJobBlob(job, controller);
+        blobs.push(blob);
+      } catch (err) {
+        if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) break;
+        failed = true;
+        onChunkError?.(jobIndex, audioJobs.length, err);
+        break;
+      }
+    }
+
     if (controller.signal.aborted) return false;
     const urls = blobs.map((blob) => createObjectUrl(blob));
     if (!failed && urls.length === audioJobs.length) {

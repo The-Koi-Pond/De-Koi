@@ -77,6 +77,8 @@ export function formatTokenEstimate(tokens: number): string {
 }
 
 const EFFECT_TAG_RE = /\{(shake|shout|whisper|glow|pulse|wave|flicker|drip|bounce|tremble|glitch|expand):([^}]+)\}/gi;
+const INLINE_DIALOGUE_VERBS_PATTERN =
+  "said|says|whispered|whispers|muttered|mutters|replied|replies|called|calls|shouted|shouts|asked|asks|warned|warns|growled|growls|hissed|hisses|exclaimed|exclaims|murmured|murmurs|sighed|sighs|snapped|snaps|barked|barks|declared|declares|continued|continues|added|adds|spoke|speaks|began|begins|remarked|remarks|chuckled|chuckles|laughed|laughs|cried|cries";
 
 export function effectDisplayLength(content: string): number {
   return content.replace(EFFECT_TAG_RE, "$2").length;
@@ -141,6 +143,17 @@ function normalizeInlineVnDialogueLines(source: string): string {
       /(\[[^\]]+\]\s*\[(?:main|side|extra|whisper(?::[^\]]+)?)\]\s*(?:\[[^\]]+\])?\s*:\s*(?:"[^"]*"|“[^”]*”|«[^»]*»))\s+(?=\S)/gi,
       "$1\n",
     );
+}
+
+function createInlineDialogueRegex(): RegExp {
+  return new RegExp(
+    `(?:^|(?<=\\s))(?:${DIALOGUE_QUOTE_CAPTURE_GROUP_PATTERN_SOURCE}|'([^']+)')[,.]?\\s+([A-Z][a-z]+(?:\\s[A-Z][a-z]+)?)\\s+(?:${INLINE_DIALOGUE_VERBS_PATTERN})\\b[.!?]?`,
+    "gi",
+  );
+}
+
+function getInlineDialogueSpeaker(match: RegExpExecArray): string | undefined {
+  return match[8]?.trim();
 }
 
 type TruncationLine = {
@@ -310,55 +323,69 @@ export function parseNarrationSegments(
     /^\s*\[([^\]]+)\]\s*\[(main|side|extra|action|thought|whisper(?::([^\]]+))?)\]\s*(?:\[([^\]]+)\])?\s*:\s*(.+)$/i;
 
   let fallbackText = "";
+  const flushFallback = () => {
+    if (!fallbackText.trim()) return;
+    parsed.push({
+      id: `${message.id}-fallback-${parsed.length}`,
+      type: "narration",
+      content: fallbackText.trim(),
+    });
+    fallbackText = "";
+  };
+  const appendFallbackPiece = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const narrationMatch = trimmed.match(narrationPrefixRegex);
+    const content = (narrationMatch?.[1] ?? trimmed).trim();
+    if (!content) return;
+    fallbackText += `${fallbackText ? "\n" : ""}${content}`;
+  };
+  const pushReadable = (readableIndex: number) => {
+    const readable = readableContents[readableIndex];
+    if (!readable) return;
+    parsed.push({
+      id: `${message.id}-readable-${parsed.length}`,
+      type: "readable",
+      content: readable.type === "book" ? "You find a book..." : "You find a note...",
+      readableType: readable.type,
+      readableContent: readable.content,
+    });
+  };
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line) {
-      if (fallbackText.trim()) {
-        parsed.push({
-          id: `${message.id}-fallback-${parsed.length}`,
-          type: "narration",
-          content: fallbackText.trim(),
-        });
-        fallbackText = "";
-      }
+      flushFallback();
+      continue;
+    }
+
+    let consumedReadablePlaceholder = false;
+    const readablePlaceholderGlobalRe = /__READABLE_(\d+)__/g;
+    let readableCursor = 0;
+    let readablePiece: RegExpExecArray | null;
+    while ((readablePiece = readablePlaceholderGlobalRe.exec(line))) {
+      consumedReadablePlaceholder = true;
+      appendFallbackPiece(line.slice(readableCursor, readablePiece.index));
+      flushFallback();
+      pushReadable(Number.parseInt(readablePiece[1]!, 10));
+      readableCursor = readablePiece.index + readablePiece[0].length;
+    }
+    if (consumedReadablePlaceholder) {
+      appendFallbackPiece(line.slice(readableCursor));
       continue;
     }
 
     const readableMatch = line.match(readablePlaceholderRe);
     if (readableMatch) {
-      if (fallbackText.trim()) {
-        parsed.push({
-          id: `${message.id}-fallback-${parsed.length}`,
-          type: "narration",
-          content: fallbackText.trim(),
-        });
-        fallbackText = "";
-      }
-      const rIdx = parseInt(readableMatch[1]!, 10);
-      const readable = readableContents[rIdx];
-      if (readable) {
-        parsed.push({
-          id: `${message.id}-readable-${parsed.length}`,
-          type: "readable",
-          content: readable.type === "book" ? "You find a book..." : "You find a note...",
-          readableType: readable.type,
-          readableContent: readable.content,
-        });
-      }
+      flushFallback();
+      const rIdx = Number.parseInt(readableMatch[1]!, 10);
+      pushReadable(rIdx);
       continue;
     }
 
     const partyMatch = line.match(partyLineRegex);
     if (partyMatch) {
-      if (fallbackText.trim()) {
-        parsed.push({
-          id: `${message.id}-fallback-${parsed.length}`,
-          type: "narration",
-          content: fallbackText.trim(),
-        });
-        fallbackText = "";
-      }
+      flushFallback();
       const character = humanizeName(partyMatch[1]!.trim());
       let rawType = partyMatch[2]!.toLowerCase().replace(/:.*$/, "") as NarrationSegment["partyType"];
       const whisperTarget = partyMatch[3]?.trim() ? humanizeName(partyMatch[3].trim()) : undefined;
@@ -395,14 +422,7 @@ export function parseNarrationSegments(
 
     const narrationMatch = line.match(narrationPrefixRegex);
     if (narrationMatch) {
-      if (fallbackText.trim()) {
-        parsed.push({
-          id: `${message.id}-fallback-${parsed.length}`,
-          type: "narration",
-          content: fallbackText.trim(),
-        });
-        fallbackText = "";
-      }
+      flushFallback();
       parsed.push({
         id: `${message.id}-n-${parsed.length}`,
         type: "narration",
@@ -413,14 +433,7 @@ export function parseNarrationSegments(
 
     const dialogueMatch = line.match(legacyDialogueRegex) || line.match(compactDialogueRegex);
     if (dialogueMatch) {
-      if (fallbackText.trim()) {
-        parsed.push({
-          id: `${message.id}-fallback-${parsed.length}`,
-          type: "narration",
-          content: fallbackText.trim(),
-        });
-        fallbackText = "";
-      }
+      flushFallback();
       const speaker = humanizeName(dialogueMatch[1]!.trim());
       let content = dialogueMatch[3]!.trim();
       content = stripSurroundingDialogueQuotes(content);
@@ -435,16 +448,10 @@ export function parseNarrationSegments(
       continue;
     }
 
-    fallbackText += `${fallbackText ? "\n" : ""}${line}`;
+    appendFallbackPiece(line);
   }
 
-  if (fallbackText.trim()) {
-    parsed.push({
-      id: `${message.id}-fallback-${parsed.length}`,
-      type: "narration",
-      content: fallbackText.trim(),
-    });
-  }
+  flushFallback();
 
   if (parsed.length > 0 && parsed.every((s) => s.type === "narration")) {
     const expanded = splitInlineDialogue(parsed, message.id, speakerColors);
@@ -469,18 +476,29 @@ export function truncateMessageContentAtSegment(rawContent: string, segmentIndex
 
   const target = segmentIndexInclusive + 1;
   let segmentCount = 0;
-  let pendingFallback = false;
-  let lastIncludedLineIdx = -1;
+  let pendingFallbackEnd: number | null = null;
+  let lastIncludedEnd: number | null = null;
 
-  for (let i = 0; i < lines.length; i++) {
+  const includeSegmentThrough = (endOffset: number): boolean => {
+    segmentCount++;
+    lastIncludedEnd = endOffset;
+    return segmentCount >= target;
+  };
+
+  const flushPendingFallback = (): boolean => {
+    if (pendingFallbackEnd == null) return false;
+    const reachedTarget = includeSegmentThrough(pendingFallbackEnd);
+    pendingFallbackEnd = null;
+    return reachedTarget;
+  };
+
+  lineLoop: for (let i = 0; i < lines.length; i++) {
     if (segmentCount >= target) break;
-    const line = lines[i]!.text.trim();
+    const rawLine = lines[i]!;
+    const line = rawLine.text.trim();
 
     if (!line) {
-      if (pendingFallback) {
-        segmentCount++;
-        pendingFallback = false;
-      }
+      if (flushPendingFallback()) break;
       continue;
     }
 
@@ -492,21 +510,52 @@ export function truncateMessageContentAtSegment(rawContent: string, segmentIndex
       compactDialogueRegex.test(line);
 
     if (isSpecial) {
-      if (pendingFallback) {
-        segmentCount++;
-        pendingFallback = false;
-        if (segmentCount >= target) break;
-      }
-      segmentCount++;
-      lastIncludedLineIdx = i;
+      if (flushPendingFallback()) break;
+      if (includeSegmentThrough(rawLine.originalEnd)) break;
     } else {
-      pendingFallback = true;
-      lastIncludedLineIdx = i;
+      const inlineBounds = getInlineDialogueTruncationBounds(rawLine);
+      if (inlineBounds.length > 0) {
+        if (flushPendingFallback()) break;
+        for (const endOffset of inlineBounds) {
+          if (includeSegmentThrough(endOffset)) break lineLoop;
+        }
+      } else {
+        pendingFallbackEnd = rawLine.originalEnd;
+      }
     }
   }
 
-  if (lastIncludedLineIdx < 0) return rawContent;
-  return rawContent.slice(0, lines[lastIncludedLineIdx]!.originalEnd);
+  if (lastIncludedEnd == null) {
+    if (pendingFallbackEnd != null) return rawContent.slice(0, pendingFallbackEnd);
+    return rawContent;
+  }
+  return rawContent.slice(0, lastIncludedEnd);
+}
+
+function trimTrailingWhitespaceOffset(line: TruncationLine, relativeEnd: number): number {
+  let end = relativeEnd;
+  while (end > 0 && /\s/.test(line.text[end - 1] ?? "")) end -= 1;
+  return line.originalStart + end;
+}
+
+function getInlineDialogueTruncationBounds(line: TruncationLine): number[] {
+  const bounds: number[] = [];
+  const inlineDialogueRe = createInlineDialogueRegex();
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = inlineDialogueRe.exec(line.text)) !== null) {
+    const before = line.text.slice(lastIndex, match.index).trim();
+    if (before) bounds.push(trimTrailingWhitespaceOffset(line, match.index));
+    bounds.push(line.originalStart + match.index + match[0].length);
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (bounds.length > 0 && line.text.slice(lastIndex).trim()) {
+    bounds.push(line.originalEnd);
+  }
+
+  return bounds;
 }
 
 function splitInlineDialogue(
@@ -515,10 +564,7 @@ function splitInlineDialogue(
   speakerColors: Map<string, string>,
 ): NarrationSegment[] {
   const result: NarrationSegment[] = [];
-  const inlineDialogueRe = new RegExp(
-    `(?:^|(?<=\\s))(?:${DIALOGUE_QUOTE_CAPTURE_GROUP_PATTERN_SOURCE}|'([^']+)')[,.]?\\s+([A-Z][a-z]+(?:\\s[A-Z][a-z]+)?)\\s+(?:said|says|whispered|whispers|muttered|mutters|replied|replies|called|calls|shouted|shouts|asked|asks|warned|warns|growled|growls|hissed|hisses|exclaimed|exclaims|murmured|murmurs|sighed|sighs|snapped|snaps|barked|barks|declared|declares|continued|continues|added|adds|spoke|speaks|began|begins|remarked|remarks|chuckled|chuckles|laughed|laughs|cried|cries)\\b`,
-    "gi",
-  );
+  const inlineDialogueRe = createInlineDialogueRegex();
 
   for (const seg of segments) {
     if (seg.type !== "narration") {
@@ -543,13 +589,16 @@ function splitInlineDialogue(
         });
       }
 
-      const speech = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5] ?? match[6] ?? "";
-      const speaker = match[7]!;
+      const speaker = getInlineDialogueSpeaker(match);
+      if (!speaker) {
+        lastIndex = match.index + match[0].length;
+        continue;
+      }
       result.push({
         id: `${msgId}-inline-d-${result.length}`,
         type: "dialogue",
         speaker,
-        content: `"${speech}"`,
+        content: match[0].trim(),
         color: findNamedMapValue(speakerColors, speaker),
       });
       lastIndex = match.index + match[0].length;
