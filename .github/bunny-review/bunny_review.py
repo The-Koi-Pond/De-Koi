@@ -1343,6 +1343,31 @@ def emergency_single_pass_review(client, skill, triage_content, stats):
     return extract_json_or_repair(client, messages, response, stats)
 
 
+def incomplete_timeout_fallback_review(exc):
+    detail = model_failure_detail(exc)
+    return {
+        "change_summary": [
+            "Bunny Review could not complete model inspection after the compact timeout fallback.",
+        ],
+        "findings": [],
+        "nitpicks": [],
+        "pre_merge_checks": [
+            {
+                "name": "Review Failed",
+                "status": "fail",
+                "type": "Review Control",
+                "detail": detail,
+            }
+        ],
+        "open_questions": [],
+        "what_i_checked": [
+            "The standard review pass timed out.",
+            "The compact fallback pass timed out or returned no usable review object.",
+            "The emergency single-pass fallback also failed before emitting a review object.",
+        ],
+    }
+
+
 def compact_retry_reason(exc):
     if isinstance(exc, EmptyModelResponse):
         return "model endpoint returned empty content"
@@ -1404,7 +1429,18 @@ def review_with_compact_failure_fallback(
                 flush=True,
             )
             stats["fallback_reviews"] += 1
-            return emergency_single_pass_review(client, skill, compact_triage, stats)
+            try:
+                return emergency_single_pass_review(client, skill, compact_triage, stats)
+            except Exception as emergency_exc:
+                emergency_reason = compact_retry_reason(emergency_exc)
+                if emergency_reason is None:
+                    raise
+                print(
+                    "Bunny incomplete timeout fallback: "
+                    f"{emergency_reason}: {safe_model_error(emergency_exc)}",
+                    flush=True,
+                )
+                return incomplete_timeout_fallback_review(emergency_exc)
 
 
 def parse_context_request(content):
