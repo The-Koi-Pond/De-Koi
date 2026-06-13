@@ -493,30 +493,98 @@ def guidance_paths_for_files(files):
     return list(dict.fromkeys(guidance))
 
 
+def join_digest_sections(sections):
+    return "\n\n".join(section for section in sections if section).strip()
+
+
+def guidance_omission_section(path, reason):
+    return f"## guidance: {path}\n[guidance omitted: {reason}]"
+
+
+def fit_guidance_section(title, body, budget):
+    section = f"## {title}\n{body}".strip()
+    if len(section) <= budget:
+        return section
+    note = f"\n\n[truncated: guidance section was {len(section)} chars, budget is {budget} chars]"
+    prefix = f"## {title}\n"
+    keep = budget - len(prefix) - len(note)
+    if keep > 0:
+        return prefix + body[:keep].rstrip() + note
+    omission = guidance_omission_section(
+        title.removeprefix("guidance: "),
+        "digest budget was exhausted before content could fit",
+    )
+    return truncate_to_budget(omission, budget)
+
+
+def read_guidance_body(path, limit):
+    try:
+        body = read_text(path, limit)
+    except Exception as exc:
+        return f"Could not read: {exc}"
+    return truncate_to_budget(body.strip() or "[empty guidance file]", limit)
+
+
+def build_path_guidance_sections(paths, limit, file_limit):
+    selected = []
+    for path in paths:
+        body = read_guidance_body(path, file_limit)
+        minimum_section = guidance_omission_section(
+            path,
+            "selected by path rules, but remaining digest budget was reserved for other selected guidance files",
+        )
+        selected.append(
+            {
+                "path": path,
+                "body": body,
+                "minimum": minimum_section,
+            }
+        )
+
+    sections = []
+    for index, item in enumerate(selected):
+        later_minimum = join_digest_sections(
+            entry["minimum"] for entry in selected[index + 1 :]
+        )
+        current = join_digest_sections(sections)
+        separator = 2 if current else 0
+        reserved_for_later = len(later_minimum) + (2 if later_minimum else 0)
+        budget = limit - len(current) - separator - reserved_for_later
+        if budget <= 0:
+            sections.append(item["minimum"])
+            continue
+        sections.append(
+            fit_guidance_section(f"guidance: {item['path']}", item["body"], budget)
+        )
+    return sections
+
+
 def build_repo_guidance_digest(files, *, compact=False):
     limit = MAX_COMPACT_GUIDANCE_DIGEST_CHARS if compact else MAX_GUIDANCE_DIGEST_CHARS
     file_limit = MAX_COMPACT_GUIDANCE_FILE_CHARS if compact else MAX_GUIDANCE_FILE_CHARS
+    selected_guidance = [
+        path for path in guidance_paths_for_files(files) if path != "AGENTS.md"
+    ]
+    sections = build_path_guidance_sections(selected_guidance, limit, file_limit)
+    remaining = limit - len(join_digest_sections(sections)) - (2 if sections else 0)
+
+    notes = "\n".join(
+        [
+            "Bunny path rules are provided separately as structured JSON for matched paths.",
+            "Keep findings tied to changed lines in the focused patch context.",
+        ]
+    )
     try:
         agents = read_text("AGENTS.md", 16_000)
         hard_rules = markdown_section(agents, "Hard Rules") or agents
     except Exception as exc:
         hard_rules = f"Could not read AGENTS.md hard rules: {exc}"
-    lines = [
-        "## AGENTS.md hard rules",
-        hard_rules,
-        "",
-        "Bunny path rules are provided separately as structured JSON for matched paths.",
-        "Keep findings tied to changed lines in the focused patch context.",
-    ]
-    for path in guidance_paths_for_files(files):
-        if path == "AGENTS.md":
-            continue
-        try:
-            body = read_text(path, file_limit)
-        except Exception as exc:
-            body = f"Could not read: {exc}"
-        lines.extend(["", f"## guidance: {path}", body])
-    return truncate("\n".join(lines).strip(), limit)
+    agents_body = f"{notes}\n\n{hard_rules}".strip()
+    if remaining > 0:
+        agents_section = fit_guidance_section("AGENTS.md hard rules", agents_body, remaining)
+        if agents_section:
+            sections.append(agents_section)
+    return join_digest_sections(sections)
 
 
 def matching_path_rules(files):
