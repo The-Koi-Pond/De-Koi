@@ -100,6 +100,22 @@ describe("game narration segment parsing", () => {
     expect(truncateMessageContentAtSegment(raw, 3)).toBe(raw);
   });
 
+  it("splits mixed readable and inline-dialogue narration the same way truncation counts it", () => {
+    const raw = ['Narration: Intro.', "[Note: First clue]", '"Hi," Amber said. Tail.'].join("\n");
+    const segments = parseNarrationSegments(message(raw), new Map());
+
+    expect(segments).toEqual([
+      expect.objectContaining({ type: "narration", content: "Intro." }),
+      expect.objectContaining({ type: "readable", readableType: "note", readableContent: "First clue" }),
+      expect.objectContaining({ type: "dialogue", speaker: "Amber", content: '"Hi," Amber said.' }),
+      expect.objectContaining({ type: "narration", content: "Tail." }),
+    ]);
+    expect(truncateMessageContentAtSegment(raw, 0)).toBe("Narration: Intro.");
+    expect(truncateMessageContentAtSegment(raw, 1)).toBe("Narration: Intro.\n[Note: First clue]");
+    expect(truncateMessageContentAtSegment(raw, 2)).toBe('Narration: Intro.\n[Note: First clue]\n"Hi," Amber said.');
+    expect(truncateMessageContentAtSegment(raw, 3)).toBe(raw);
+  });
+
   it("counts and slices effect-tagged text by visible characters", () => {
     expect(effectDisplayLength("A {shake:boom} now")).toBe("A boom now".length);
     expect(slicePreservingEffects("A {shake:boom} now", 5)).toBe("A {shake:boo}");

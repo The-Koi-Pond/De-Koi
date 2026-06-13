@@ -453,7 +453,7 @@ export function parseNarrationSegments(
 
   flushFallback();
 
-  if (parsed.length > 0 && parsed.every((s) => s.type === "narration")) {
+  if (parsed.length > 0) {
     const expanded = splitInlineDialogue(parsed, message.id, speakerColors);
     if (expanded.some((s) => s.type === "dialogue")) {
       return expanded;
