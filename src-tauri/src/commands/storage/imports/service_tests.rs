@@ -549,9 +549,42 @@ fn import_st_preset_keeps_reasoning_effort_auto_unset_and_keeps_fallbacks() {
 
         let preset = created_prompt_from_import_result(&state, &result);
         assert_eq!(preset["parameters"]["reasoningEffort"], expected_effort);
+        assert_eq!(preset["parameters"]["serviceTier"], Value::Null);
 
         let _ = fs::remove_dir_all(app_root);
     }
+}
+
+#[test]
+fn import_st_preset_honors_timestamp_overrides() {
+    let app_root = temp_path("st-preset-timestamp-overrides");
+    let state =
+        AppState::from_data_dir(&app_root, Vec::new()).expect("test app state should initialize");
+    let result = import_call(
+        &state,
+        &["st-preset"],
+        json!({
+            "name": "Timestamped Preset",
+            "__timestampOverrides": {
+                "createdAt": "2024-06-13T12:34:56Z",
+                "updatedAt": "2024-06-14T01:02:03Z"
+            },
+            "prompts": []
+        }),
+    )
+    .expect("ST preset import should succeed");
+
+    let preset = created_prompt_from_import_result(&state, &result);
+    assert_eq!(
+        preset.get("createdAt").and_then(Value::as_str),
+        Some("2024-06-13T12:34:56+00:00")
+    );
+    assert_eq!(
+        preset.get("updatedAt").and_then(Value::as_str),
+        Some("2024-06-14T01:02:03+00:00")
+    );
+
+    let _ = fs::remove_dir_all(app_root);
 }
 
 #[test]

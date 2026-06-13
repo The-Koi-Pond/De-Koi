@@ -226,7 +226,7 @@ const PRIVILEGED_REMOTE_COMMANDS = new Set([
 ]);
 const ADMIN_SECRET_STORAGE_KEY = "marinara-admin-secret";
 const LEGACY_ADMIN_SECRET_STORAGE_KEY = "marinara_admin_secret";
-const SUPPORTED_REMOTE_RUNTIME_MARKERS = new Set(["marinara-server", "de-koi-server"]);
+const REMOTE_RUNTIME_MARKERS = new Set(["de-koi-server", "marinara-server"]);
 
 export type RuntimeTarget = {
   baseUrl: string;
@@ -315,16 +315,6 @@ export function remoteFetchInit(init: RequestInit): RequestInit {
   };
 }
 
-function isSupportedRemoteRuntimeHealth(body: RemoteRuntimeHealthPayload | null): body is RemoteRuntimeHealthPayload {
-  return (
-    !!body &&
-    typeof body === "object" &&
-    body.ok === true &&
-    typeof body.runtime === "string" &&
-    SUPPORTED_REMOTE_RUNTIME_MARKERS.has(body.runtime)
-  );
-}
-
 function tryWriteAdminSecretStorage(write: () => void): void {
   try {
     write();
@@ -397,6 +387,10 @@ function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function isSupportedRemoteRuntime(value: unknown): boolean {
+  return typeof value === "string" && REMOTE_RUNTIME_MARKERS.has(value);
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
@@ -432,8 +426,8 @@ export async function checkRemoteRuntimeHealth(
     }
 
     const body = (await response.json().catch(() => null)) as RemoteRuntimeHealthPayload | null;
-    if (!isSupportedRemoteRuntimeHealth(body)) {
-      return { status: "unreachable", message: "Remote runtime did not return a De-Koi health response." };
+    if (!body || typeof body !== "object" || body.ok !== true || !isSupportedRemoteRuntime(body.runtime)) {
+      return { status: "unreachable", message: "Remote runtime did not return a compatible health response." };
     }
 
     if (body.writable !== true) {
