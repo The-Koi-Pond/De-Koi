@@ -58,7 +58,7 @@ export function reportReactRootError(
     reactRootUncaughtErrors.add(error);
   }
 
-  console.error(`[Marinara] React ${type} error`, error, {
+  console.error(`[De-Koi] React ${type} error`, error, {
     componentStack: errorInfo?.componentStack ?? "",
   });
 }
@@ -70,11 +70,11 @@ export function installGlobalErrorDiagnostics() {
   window.addEventListener("error", (event) => {
     if (isObject(event.error) && reactRootUncaughtErrors.has(event.error)) return;
 
-    console.error("[Marinara] Unhandled window error", event.error ?? event.message);
+    console.error("[De-Koi] Unhandled window error", event.error ?? event.message);
   });
 
   window.addEventListener("unhandledrejection", (event) => {
-    console.error("[Marinara] Unhandled promise rejection", event.reason);
+    console.error("[De-Koi] Unhandled promise rejection", event.reason);
   });
 }
 
@@ -172,13 +172,13 @@ export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, Glo
                 textTransform: "uppercase",
               }}
             >
-              Marinara crashed
+              De-Koi crashed
             </p>
             <h1 id="global-error-title" style={{ fontSize: "1.25rem", lineHeight: 1.3, margin: "0 0 0.75rem" }}>
               Something went wrong while rendering the app.
             </h1>
             <p style={{ color: "var(--muted-foreground, #a1a1aa)", lineHeight: 1.6, margin: "0 0 1rem" }}>
-              Reload Marinara to keep working, or copy the debug details below when reporting the issue.
+              Reload De-Koi to keep working, or copy the debug details below when reporting the issue.
             </p>
 
             <div
