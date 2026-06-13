@@ -28,6 +28,7 @@ export interface GameSceneAnalysisRequest {
   chatId?: string;
   connectionId?: string | null;
   narration: string;
+  playerAction?: string | null;
   context?: JsonRecord;
 }
 
@@ -197,6 +198,10 @@ function normalizeSceneAnalyzerContext(value: unknown): SceneAnalyzerContext {
     currentSpotifyTrack: readNullableString(context.currentSpotifyTrack),
     recentSpotifyTracks: stringArray(context.recentSpotifyTracks),
     currentAmbient: readNullableString(context.currentAmbient),
+    currentLocation: readNullableString(context.currentLocation),
+    genre: readNullableString(context.genre),
+    setting: readNullableString(context.setting),
+    worldOverview: readNullableString(context.worldOverview),
     currentWeather: readNullableString(context.currentWeather),
     currentTimeOfDay: readNullableString(context.currentTimeOfDay),
     canGenerateIllustrations: boolish(context.canGenerateIllustrations, false),
@@ -215,6 +220,7 @@ function scenePostProcessContext(context: SceneAnalyzerContext): PostProcessCont
     validWidgetIds: new Set(context.activeWidgets.map((widget) => readString(widget.id)).filter(Boolean)),
     characterNames: context.characterNames,
     canGenerateBackgrounds: context.canGenerateBackgrounds,
+    canGenerateIllustrations: context.canGenerateIllustrations,
   };
 }
 
@@ -250,7 +256,10 @@ export async function analyzeGameScene(
     connectionId,
     messages: [
       { role: "system", content: buildSceneAnalyzerSystemPrompt(sceneContext) },
-      { role: "user", content: buildSceneAnalyzerUserPrompt(input.narration, undefined, sceneContext) },
+      {
+        role: "user",
+        content: buildSceneAnalyzerUserPrompt(input.narration, input.playerAction ?? undefined, sceneContext),
+      },
     ],
     parameters: { maxTokens: 1200, temperature: 0.2 },
   });

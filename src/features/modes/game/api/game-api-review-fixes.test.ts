@@ -35,6 +35,10 @@ const chatCommandApiMock = vi.hoisted(() => ({
   branch: vi.fn(),
 }));
 
+const llmApiMock = vi.hoisted(() => ({
+  complete: vi.fn(),
+}));
+
 vi.mock("../../../../shared/api/storage-api", () => ({
   storageApi: storageApiMock,
 }));
@@ -58,6 +62,10 @@ vi.mock("../../../../shared/api/url-binary-api", () => ({
 
 vi.mock("../../../../shared/api/chat-command-api", () => ({
   chatCommandApi: chatCommandApiMock,
+}));
+
+vi.mock("../../../../shared/api/llm-api", () => ({
+  llmApi: llmApiMock,
 }));
 
 import { gameApi } from "./game-api";
@@ -169,6 +177,30 @@ function expectReadyPartyMetadata(currentParty: string[]) {
       }),
     }),
   );
+}
+
+function setupCharacterRow(id: string, name: string): Record<string, unknown> {
+  return {
+    id,
+    data: {
+      name,
+      description: `${name} description`,
+      personality: `${name} personality`,
+      scenario: `${name} travels with the party.`,
+    },
+  };
+}
+
+function setupGuideNpc() {
+  return {
+    id: "guide",
+    name: "Guide NPC",
+    description: "A local guide who knows the academy's locked doors.",
+    location: "Moonlit Academy",
+    reputation: 12,
+    met: true,
+    notes: ["Carries a brass key."],
+  };
 }
 
 function gameImageChat(metadata: Record<string, unknown> = {}) {
@@ -645,13 +677,19 @@ describe("game API review guards", () => {
   it("preserves current party metadata when setup reruns with stale setup config", async () => {
     const staleConfig = { ...setupConfig, partyCharacterIds: ["stale-char"] };
     const currentParty = ["char-1", "npc:guide"];
-    storageApiMock.get.mockResolvedValue({
+    const chat = {
       id: "chat-1",
       connectionId: "chat-conn",
       metadata: {
         gameSetupConfig: staleConfig,
         gamePartyCharacterIds: currentParty,
+        gameNpcs: [setupGuideNpc()],
       },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "chats") return chat;
+      if (entity === "characters" && id === "char-1") return setupCharacterRow("char-1", "Mira Scout");
+      return null;
     });
     mockUpdateEcho();
 
@@ -671,16 +709,270 @@ describe("game API review guards", () => {
     expectReadyPartyMetadata(currentParty);
   });
 
+  it("passes selected persona, party, GM, and lorebook context into the game setup prompt", async () => {
+    const contextualSetupConfig: GameSetupConfig = {
+      ...setupConfig,
+      gmMode: "character",
+      gmCharacterId: "gm-1",
+      personaId: "persona-1",
+      partyCharacterIds: ["party-1", "npc:guide"],
+      activeLorebookIds: ["lorebook-1"],
+    };
+    const chat = {
+      id: "chat-1",
+      connectionId: "chat-conn",
+      metadata: {
+        gameSetupConfig: contextualSetupConfig,
+        gamePartyCharacterIds: contextualSetupConfig.partyCharacterIds,
+        gameNpcs: [setupGuideNpc()],
+      },
+    };
+    const characterRows: Record<string, Record<string, unknown>> = {
+      "gm-1": {
+        id: "gm-1",
+        data: {
+          name: "Archivist GM",
+          description: "A fourth-wall aware historian.",
+          personality: "Dry, precise, secretly fond.",
+          scenario: "Guides a campaign from behind the curtain.",
+          extensions: { backstory: "Bound to the ruined academy.", appearance: "Ink-stained robes." },
+          tags: ["gm"],
+        },
+      },
+      "party-1": {
+        id: "party-1",
+        data: {
+          name: "Mira Scout",
+          description: "A bright-eyed scout with stormglass goggles.",
+          personality: "Brave and impulsive.",
+          scenario: "Travels with the player.",
+          extensions: {
+            backstory: "Mira knows the academy's old escape routes.",
+            appearance: "Short cloak, brass charms.",
+            rpgStats: { attributes: [{ name: "DEX", value: 14 }], hp: { value: 9, max: 9 } },
+          },
+          tags: ["party"],
+        },
+      },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "chats") return chat;
+      if (entity === "personas" && id === "persona-1") {
+        return {
+          id: "persona-1",
+          name: "Captain Celia",
+          description: "A principled sky-captain.",
+          personality: "Warm, stubborn, clever.",
+          scenario: "Searching the floating academy.",
+          backstory: "Owes a debt to the storm sea.",
+          appearance: "Long coat, comet pin.",
+        };
+      }
+      if (entity === "characters") return characterRows[id] ?? null;
+      return null;
+    });
+    storageApiMock.list.mockImplementation(async (entity: string) => {
+      if (entity === "lorebooks") return [{ id: "lorebook-1", name: "Academy Lore" }];
+      if (entity === "lorebook-entries") {
+        return [
+          {
+            id: "entry-1",
+            lorebookId: "lorebook-1",
+            name: "Moonlit Doctrine",
+            content: "All academy machines obey moon-signed contracts.",
+            enabled: true,
+            constant: true,
+            order: 2,
+          },
+        ];
+      }
+      return [];
+    });
+    llmApiMock.complete.mockResolvedValue(JSON.stringify(BASIC_SETUP_RESPONSE));
+    mockUpdateEcho();
+
+    await setupGame({
+      chatId: "chat-1",
+      connectionId: "gm-conn",
+      preferences: "academy mystery",
+      setupConfig: contextualSetupConfig,
+    });
+
+    const prompt = llmApiMock.complete.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
+    expect(prompt).toContain("<gm_character>");
+    expect(prompt).toContain("Archivist GM");
+    expect(prompt).toContain("<user_player>");
+    expect(prompt).toContain("Captain Celia");
+    expect(prompt).toContain("<party_info>");
+    expect(prompt).toContain("Mira Scout");
+    expect(prompt).toContain("Guide NPC");
+    expect(prompt).toContain("Carries a brass key.");
+    expect(prompt).toContain('"rpgStats"');
+    expect(prompt).toContain("Allowed characterCards names: Captain Celia, Mira Scout, Guide NPC");
+    expect(prompt).toContain("Allowed partyArcs names: Mira Scout, Guide NPC");
+    expect(prompt).toContain("<lorebook_context>");
+    expect(prompt).toContain("Moonlit Doctrine");
+    expect(prompt).toContain("All academy machines obey moon-signed contracts.");
+  });
+
+  it.each([
+    {
+      label: "persona",
+      config: { ...setupConfig, partyCharacterIds: [], personaId: "missing-persona" },
+      expectedMessage: 'Selected game persona "missing-persona" was not found',
+    },
+    {
+      label: "party character",
+      config: { ...setupConfig, partyCharacterIds: ["missing-party"] },
+      expectedMessage: 'Selected game character "missing-party" was not found',
+    },
+    {
+      label: "party NPC",
+      config: { ...setupConfig, partyCharacterIds: ["npc:missing-guide"] },
+      expectedMessage: 'Selected game party NPC "npc:missing-guide" was not found',
+    },
+    {
+      label: "GM character",
+      config: {
+        ...setupConfig,
+        gmMode: "character" as const,
+        gmCharacterId: "missing-gm",
+        partyCharacterIds: [],
+      },
+      expectedMessage: 'Selected game character "missing-gm" was not found',
+    },
+  ])("does not generate setup with silently missing selected $label context", async ({ config, expectedMessage }) => {
+    storageApiMock.get.mockImplementation(async (entity: string) => {
+      if (entity === "chats") {
+        return {
+          id: "chat-1",
+          connectionId: "chat-conn",
+          metadata: {
+            gameSetupConfig: config,
+            gamePartyCharacterIds: config.partyCharacterIds,
+          },
+        };
+      }
+      return null;
+    });
+    storageApiMock.list.mockResolvedValue([]);
+
+    await expect(
+      setupGame({
+        chatId: "chat-1",
+        connectionId: "gm-conn",
+        preferences: "academy mystery",
+        setupConfig: config,
+      }),
+    ).rejects.toThrow(expectedMessage);
+    expect(llmApiMock.complete).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: "missing active lorebook",
+      lorebooks: [],
+      entries: [],
+      expectedMessage: 'Selected game lorebook "lorebook-1" was not found',
+    },
+    {
+      label: "active lorebook with no enabled constant content",
+      lorebooks: [{ id: "lorebook-1", name: "Empty Lore" }],
+      entries: [
+        {
+          id: "entry-1",
+          lorebookId: "lorebook-1",
+          name: "Draft",
+          content: "Draft-only lore",
+          enabled: true,
+          constant: false,
+          order: 1,
+        },
+      ],
+      expectedMessage: 'Selected game lorebook "lorebook-1" has no enabled constant setup context',
+    },
+  ])("does not generate setup with $label", async ({ lorebooks, entries, expectedMessage }) => {
+    const config: GameSetupConfig = {
+      ...setupConfig,
+      partyCharacterIds: [],
+      activeLorebookIds: ["lorebook-1"],
+    };
+    storageApiMock.get.mockImplementation(async (entity: string) =>
+      entity === "chats"
+        ? {
+            id: "chat-1",
+            connectionId: "chat-conn",
+            metadata: {
+              gameSetupConfig: config,
+              gamePartyCharacterIds: config.partyCharacterIds,
+            },
+          }
+        : null,
+    );
+    storageApiMock.list.mockImplementation(async (entity: string) => {
+      if (entity === "lorebooks") return lorebooks;
+      if (entity === "lorebook-entries") return entries;
+      return [];
+    });
+
+    await expect(
+      setupGame({
+        chatId: "chat-1",
+        connectionId: "gm-conn",
+        preferences: "academy mystery",
+        setupConfig: config,
+      }),
+    ).rejects.toThrow(expectedMessage);
+    expect(llmApiMock.complete).not.toHaveBeenCalled();
+  });
+
+  it("does not generate setup when active lorebook context cannot be loaded", async () => {
+    const config: GameSetupConfig = {
+      ...setupConfig,
+      partyCharacterIds: [],
+      activeLorebookIds: ["lorebook-1"],
+    };
+    storageApiMock.get.mockImplementation(async (entity: string) =>
+      entity === "chats"
+        ? {
+            id: "chat-1",
+            connectionId: "chat-conn",
+            metadata: {
+              gameSetupConfig: config,
+              gamePartyCharacterIds: config.partyCharacterIds,
+            },
+          }
+        : null,
+    );
+    storageApiMock.list.mockRejectedValue(new Error("lorebook storage unavailable"));
+
+    await expect(
+      setupGame({
+        chatId: "chat-1",
+        connectionId: "gm-conn",
+        preferences: "academy mystery",
+        setupConfig: config,
+      }),
+    ).rejects.toThrow("lorebook storage unavailable");
+    expect(llmApiMock.complete).not.toHaveBeenCalled();
+  });
+
   it("preserves current party metadata through game setup JSON repair", async () => {
     const staleConfig = { ...setupConfig, partyCharacterIds: ["stale-char"] };
     const currentParty = ["char-1", "npc:guide"];
-    storageApiMock.get.mockResolvedValue({
+    const chat = {
       id: "chat-1",
       connectionId: "chat-conn",
       metadata: {
         gameSetupConfig: staleConfig,
         gamePartyCharacterIds: currentParty,
+        gameNpcs: [setupGuideNpc()],
       },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "chats") return chat;
+      if (entity === "characters" && id === "char-1") return setupCharacterRow("char-1", "Mira Scout");
+      return null;
     });
     mockUpdateEcho();
 
@@ -698,6 +990,41 @@ describe("game API review guards", () => {
     );
 
     expectReadyPartyMetadata(currentParty);
+  });
+
+  it("validates selected setup context before applying repaired setup JSON", async () => {
+    const staleConfig = { ...setupConfig, partyCharacterIds: ["stale-char"] };
+    const currentParty = ["npc:missing-guide"];
+    storageApiMock.get.mockImplementation(async (entity: string) =>
+      entity === "chats"
+        ? {
+            id: "chat-1",
+            connectionId: "chat-conn",
+            metadata: {
+              gameSetupConfig: staleConfig,
+              gamePartyCharacterIds: currentParty,
+              gameNpcs: [setupGuideNpc()],
+            },
+          }
+        : null,
+    );
+    mockUpdateEcho();
+
+    await expect(
+      applyGameJsonRepair(
+        {
+          kind: "game_setup",
+          applyEndpoint: "/game/repair",
+          applyBody: {
+            chatId: "chat-1",
+            preferences: "coastal ruins",
+            setupConfig: staleConfig,
+          },
+        },
+        JSON.stringify(BASIC_SETUP_RESPONSE),
+      ),
+    ).rejects.toThrow('Selected game party NPC "npc:missing-guide" was not found');
+    expect(readyMetadataPatch()).toBeUndefined();
   });
 
   it.each([

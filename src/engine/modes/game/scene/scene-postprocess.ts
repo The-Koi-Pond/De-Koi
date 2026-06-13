@@ -192,6 +192,7 @@ export interface PostProcessContext {
   validWidgetIds: Set<string>;
   characterNames: string[];
   canGenerateBackgrounds?: boolean;
+  canGenerateIllustrations?: boolean;
 }
 
 /**
@@ -420,7 +421,9 @@ export function postProcessSceneResult(raw: SceneAnalysis, ctx: PostProcessConte
 
   capCombinedDirections(result);
 
-  result.illustration = sanitizeIllustration((result as unknown as Record<string, unknown>).illustration);
+  result.illustration = ctx.canGenerateIllustrations
+    ? sanitizeIllustration((result as unknown as Record<string, unknown>).illustration)
+    : null;
 
   return result;
 }

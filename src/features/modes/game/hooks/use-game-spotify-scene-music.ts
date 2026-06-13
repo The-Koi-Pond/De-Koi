@@ -4,7 +4,11 @@ import { toast } from "sonner";
 import { gameApi } from "../api/game-api";
 import { spotifyApi } from "../../../../shared/api/integration-utility-api";
 import { dispatchSpotifySceneTrackChange } from "../../../../shared/lib/spotify-playback-events";
-import type { SceneAnalysis, SceneSpotifyTrackCandidate, SceneSpotifyTrackSelection } from "../../../../engine/contracts/types/scene";
+import type {
+  SceneAnalysis,
+  SceneSpotifyTrackCandidate,
+  SceneSpotifyTrackSelection,
+} from "../../../../engine/contracts/types/scene";
 
 type GameSpotifyCandidatesResponse = {
   enabled: boolean;
@@ -32,6 +36,7 @@ type SpotifyDevicesSnapshot = {
 
 type SpotifySceneRetryRequest = {
   narration: string;
+  playerAction?: string | null;
   context: Record<string, unknown>;
   sceneConnectionId?: string | null;
 };
@@ -48,6 +53,7 @@ type UseGameSpotifySceneMusicParams = {
     chatId?: string;
     connectionId?: string;
     narration: string;
+    playerAction?: string | null;
     context: Record<string, unknown>;
   }) => Promise<SceneAnalysis>;
   sceneAnalysisPending: boolean;
@@ -105,7 +111,8 @@ export function useGameSpotifySceneMusic({
     resetRecentSpotifyTrackHistory(recentSpotifyTracks);
   }, [activeChatId, recentSpotifyTracks, resetRecentSpotifyTrackHistory]);
 
-  const canRetrySpotifyMusic = enabled && !!activeChatId && !isStreaming && !sceneAnalysisPending && !spotifyRetryPending;
+  const canRetrySpotifyMusic =
+    enabled && !!activeChatId && !isStreaming && !sceneAnalysisPending && !spotifyRetryPending;
 
   const fetchSpotifySceneCandidates = useCallback(
     async (
@@ -174,7 +181,10 @@ export function useGameSpotifySceneMusic({
           mobileDeviceOnly: mobileViewport,
         } as { track: SceneSpotifyTrackSelection; deviceId?: string | null });
         dispatchSpotifySceneTrackChange(track.uri);
-        recentSpotifyTrackHistoryRef.current = appendRecentSpotifyTrack(recentSpotifyTrackHistoryRef.current, track.uri);
+        recentSpotifyTrackHistoryRef.current = appendRecentSpotifyTrack(
+          recentSpotifyTrackHistoryRef.current,
+          track.uri,
+        );
         persistMetadata(activeChatId, { gameRecentSpotifyTracks: recentSpotifyTrackHistoryRef.current }).catch(
           () => {},
         );
@@ -196,7 +206,11 @@ export function useGameSpotifySceneMusic({
     setRetryMenuOpen(false);
 
     try {
-      const availableSpotifyTracks = await fetchSpotifySceneCandidates(retryRequest.narration, retryRequest.context);
+      const availableSpotifyTracks = await fetchSpotifySceneCandidates(
+        retryRequest.narration,
+        retryRequest.context,
+        retryRequest.playerAction,
+      );
       if (availableSpotifyTracks.length === 0) {
         toast.error("No Spotify tracks were available for this scene.");
         return;
@@ -208,6 +222,7 @@ export function useGameSpotifySceneMusic({
           chatId: activeChatId,
           connectionId: retryRequest.sceneConnectionId || undefined,
           narration: retryRequest.narration,
+          playerAction: retryRequest.playerAction ?? undefined,
           context: { ...retryRequest.context, availableSpotifyTracks },
         });
         selectedTrack = result.spotifyTrack ?? null;
