@@ -1092,7 +1092,7 @@ export function useExportChat() {
       if (format === "text") {
         downloadTextFile(formatChatText(chat, messages), filename, "text/plain;charset=utf-8");
       } else {
-        downloadTextFile(formatChatJsonl(messages), filename, "application/x-ndjson;charset=utf-8");
+        downloadTextFile(formatChatJsonl(chat, messages), filename, "application/x-ndjson;charset=utf-8");
       }
       return { format };
     },

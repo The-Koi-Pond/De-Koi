@@ -2184,6 +2184,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dispatch_rejects_remote_empty_bulk_character_export() {
+        let state = test_state("remote-empty-character-export");
+        let error = dispatch(
+            &state,
+            InvokeRequest {
+                command: "characters_export_bulk".to_string(),
+                args: Some(json!({ "ids": ["missing-character"] })),
+            },
+        )
+        .await
+        .expect_err("remote stale bulk export IDs should fail visibly");
+
+        assert_eq!(error.code, "not_found");
+        assert!(error.message.contains("No matching"));
+    }
+
+    #[tokio::test]
     async fn dispatch_supports_remote_chat_gallery_upload() {
         let state = test_state("chat-gallery-upload");
         let result = dispatch(

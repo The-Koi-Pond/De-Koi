@@ -94,6 +94,9 @@ pub(crate) fn export_records(
             });
         }
     }
+    if items.is_empty() {
+        return Err(no_matching_bulk_export_error(collection));
+    }
     let mut zip = ExportZip::new();
     zip.add_json(
         "manifest.json",
@@ -274,6 +277,9 @@ pub(crate) fn export_lorebooks(state: &AppState, body: Value) -> AppResult<Value
             &item,
         )?;
         exported_count += 1;
+    }
+    if exported_count == 0 {
+        return Err(no_matching_bulk_export_error("lorebooks"));
     }
     Ok(binary_download(
         zip.finish()?,
@@ -510,10 +516,27 @@ fn export_named_records(
         )?;
         exported_count += 1;
     }
+    if exported_count == 0 {
+        return Err(no_matching_bulk_export_error(collection));
+    }
     Ok(binary_download(
         zip.finish()?,
         "application/zip",
         named_zip_filename(collection, compatible),
+    ))
+}
+
+fn no_matching_bulk_export_error(collection: &str) -> AppError {
+    AppError::not_found(format!(
+        "No matching {} found to export",
+        match collection {
+            "characters" => "characters",
+            "personas" => "personas",
+            "prompts" => "presets",
+            "lorebooks" => "lorebooks",
+            "messages" => "messages",
+            _ => "records",
+        }
     ))
 }
 
@@ -1364,6 +1387,73 @@ mod tests {
         general_purpose::STANDARD
             .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
             .expect("embedded test PNG should decode")
+    }
+
+    #[test]
+    fn bulk_named_exports_reject_when_no_requested_records_match() {
+        for (collection, kind) in [
+            ("characters", "marinara_characters"),
+            ("personas", "marinara_personas"),
+            ("prompts", "marinara_presets"),
+        ] {
+            let state = test_state(collection);
+            let error = export_records(
+                &state,
+                kind,
+                collection,
+                json!({ "ids": ["missing-record"] }),
+            )
+            .expect_err("stale bulk export IDs should fail visibly");
+
+            assert_eq!(error.code, "not_found");
+            assert!(
+                error.message.contains("No matching"),
+                "{collection} should report that no records matched"
+            );
+        }
+    }
+
+    #[test]
+    fn bulk_lorebook_exports_reject_when_no_requested_records_match() {
+        let state = test_state("lorebooks-empty-bulk");
+        let error = export_lorebooks(&state, json!({ "ids": ["missing-lorebook"] }))
+            .expect_err("stale lorebook bulk export IDs should fail visibly");
+
+        assert_eq!(error.code, "not_found");
+        assert!(error.message.contains("No matching"));
+    }
+
+    #[test]
+    fn bulk_named_exports_still_succeed_when_some_requested_records_match() {
+        let state = test_state("characters-partial-bulk");
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "character-1",
+                    "name": "Mira",
+                    "data": { "name": "Mira" }
+                }),
+            )
+            .expect("character should be seeded");
+
+        let export = export_records(
+            &state,
+            "marinara_characters",
+            "characters",
+            json!({ "ids": ["missing-character", "character-1"] }),
+        )
+        .expect("partial matches should still produce a ZIP");
+
+        assert_eq!(
+            export.get("contentType").and_then(Value::as_str),
+            Some("application/zip")
+        );
+        assert_eq!(
+            export.get("filename").and_then(Value::as_str),
+            Some("marinara-characters.zip")
+        );
     }
 
     #[test]
