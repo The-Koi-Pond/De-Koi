@@ -226,6 +226,7 @@ const PRIVILEGED_REMOTE_COMMANDS = new Set([
 ]);
 const ADMIN_SECRET_STORAGE_KEY = "marinara-admin-secret";
 const LEGACY_ADMIN_SECRET_STORAGE_KEY = "marinara_admin_secret";
+const SUPPORTED_REMOTE_RUNTIME_MARKERS = new Set(["marinara-server", "de-koi-server"]);
 
 export type RuntimeTarget = {
   baseUrl: string;
@@ -312,6 +313,16 @@ export function remoteFetchInit(init: RequestInit): RequestInit {
     ...init,
     cache: "no-store",
   };
+}
+
+function isSupportedRemoteRuntimeHealth(body: RemoteRuntimeHealthPayload | null): body is RemoteRuntimeHealthPayload {
+  return (
+    !!body &&
+    typeof body === "object" &&
+    body.ok === true &&
+    typeof body.runtime === "string" &&
+    SUPPORTED_REMOTE_RUNTIME_MARKERS.has(body.runtime)
+  );
 }
 
 function tryWriteAdminSecretStorage(write: () => void): void {
@@ -421,8 +432,8 @@ export async function checkRemoteRuntimeHealth(
     }
 
     const body = (await response.json().catch(() => null)) as RemoteRuntimeHealthPayload | null;
-    if (!body || typeof body !== "object" || body.ok !== true || body.runtime !== "marinara-server") {
-      return { status: "unreachable", message: "Remote runtime did not return a Marinara health response." };
+    if (!isSupportedRemoteRuntimeHealth(body)) {
+      return { status: "unreachable", message: "Remote runtime did not return a De-Koi health response." };
     }
 
     if (body.writable !== true) {
