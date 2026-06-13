@@ -36,6 +36,7 @@ import {
 } from "../agents-runtime/pipeline/agent-pipeline";
 import type { AgentToolContext } from "../agents-runtime/executor/agent-executor";
 import type { LorebookEntry } from "../contracts/types/lorebook";
+import { LOCAL_SIDECAR_CONNECTION_ID, LOCAL_SIDECAR_MODEL } from "../contracts/types/sidecar";
 import type { GenerationCharacterContext, GenerationPersonaContext } from "./prompt-assembly";
 import {
   lorebookEntryPassesContextFilters,
@@ -296,6 +297,11 @@ function isFullBodySpriteExpression(expression: string): boolean {
   return expression.toLowerCase().startsWith("full_");
 }
 
+function fullBodySpriteExpressionAlias(expression: string): string {
+  if (!isFullBodySpriteExpression(expression)) return expression;
+  return expression.slice("full_".length).trim() || expression;
+}
+
 function spriteExpressionsForAgent(sprites: SpriteAssetInfo[], displayModes: readonly SpriteDisplayMode[]): string[] {
   const customExpressions = sprites.map((sprite) => readString(sprite.expression).trim()).filter(Boolean);
   const expressions = displayModes.includes("expressions")
@@ -305,7 +311,9 @@ function spriteExpressionsForAgent(sprites: SpriteAssetInfo[], displayModes: rea
       ]
     : [];
   const fullBody = displayModes.includes("full-body")
-    ? customExpressions.filter((expression) => isFullBodySpriteExpression(expression))
+    ? customExpressions
+        .filter((expression) => isFullBodySpriteExpression(expression))
+        .map((expression) => fullBodySpriteExpressionAlias(expression))
     : [];
 
   return uniqueStrings([...expressions, ...fullBody]);
@@ -502,6 +510,21 @@ async function loadConnection(storage: StorageGateway, connectionId: string | nu
   if (!connectionId) return null;
   const connection = await storage.get<JsonRecord>("connections", connectionId);
   return isRecord(connection) ? connection : null;
+}
+
+function syntheticLocalSidecarConnection(connectionId: string): JsonRecord | null {
+  if (connectionId !== LOCAL_SIDECAR_CONNECTION_ID) return null;
+  return {
+    id: LOCAL_SIDECAR_CONNECTION_ID,
+    name: "Local Model",
+    provider: "sidecar",
+    model: LOCAL_SIDECAR_MODEL,
+    enabled: true,
+  };
+}
+
+async function loadRequestedAgentConnection(storage: StorageGateway, connectionId: string): Promise<JsonRecord | null> {
+  return (await loadConnection(storage, connectionId)) ?? syntheticLocalSidecarConnection(connectionId);
 }
 
 async function loadDefaultAgentConnection(storage: StorageGateway): Promise<JsonRecord | null> {
@@ -1143,7 +1166,7 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     const usesDefaultAgentConnection = !requestedConnectionId && !!defaultAgentConnection;
     let connection: JsonRecord;
     if (requestedConnectionId) {
-      const loadedConnection = await loadConnection(deps.storage, requestedConnectionId);
+      const loadedConnection = await loadRequestedAgentConnection(deps.storage, requestedConnectionId);
       if (!loadedConnection) {
         skippedResults.push(skippedDanglingConnectionResult(agent, requestedConnectionId));
         continue;
