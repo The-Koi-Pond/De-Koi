@@ -87,9 +87,9 @@ import { RESTORED_CHECKPOINT_ANCHOR_META_KEY } from "./game-api-checkpoint-helpe
 import { runGameLorebookKeeperAfterConclusion } from "./game-api-lorebook-keeper";
 import { moveOnMap } from "./game-api-map";
 import { mapForMovement, moveMapPartyPosition, setupMapFromResponse } from "./game-api-map-helpers";
-import { advanceTime, skillCheck, transitionGameState, updateWeather } from "./game-api-mechanics";
+import { advanceTime, skillCheck, transitionGameState, updateReputation, updateWeather } from "./game-api-mechanics";
 import { resolveWeatherUpdate } from "./game-api-mechanics-helpers";
-import { removePartyMember, upsertPartyCard } from "./game-api-party";
+import { partyTurn, removePartyMember, upsertPartyCard } from "./game-api-party";
 import { normalizedName, partyCardNameMatches } from "./game-api-party-helpers";
 import { applyGameJsonRepair } from "./game-api-repair";
 import { createGame, setupGame, updateCampaignProgression } from "./game-api-session";
@@ -546,6 +546,119 @@ describe("game API review guards", () => {
     expect(result.result.modifier).toBe(5);
     expect(result.result.total).toBe(15);
     expect(result.result.success).toBe(true);
+  });
+
+  it("returns reputation milestones from updates", async () => {
+    const chat = {
+      id: "chat-1",
+      metadata: {
+        gameNpcs: [{ id: "npc-1", name: "Mira", reputation: 15, met: false, notes: [] }],
+      },
+    };
+    mockChat(chat);
+    mockUpdateEcho();
+
+    const result = await updateReputation({
+      chatId: "chat-1",
+      actions: [{ npcId: "npc-1", action: "helped" }],
+    });
+
+    expect(result.changes).toMatchObject([{ npcId: "npc-1", npcName: "Mira", action: "helped" }]);
+    expect(result.milestones).toMatchObject([
+      {
+        npcName: "Mira",
+        previousTier: "neutral",
+        newTier: "friendly",
+        direction: "improved",
+      },
+    ]);
+  });
+
+  it("applies party-turn reputation tags before storing clean dialogue", async () => {
+    const chat = {
+      id: "chat-1",
+      characterIds: [],
+      metadata: {
+        gameNpcs: [{ id: "npc-1", name: "Mira", reputation: 15, met: false, notes: [] }],
+        gameCharacterCards: [{ name: "Mira" }],
+      },
+    };
+    mockChat(chat);
+    storageApiMock.list.mockResolvedValue([]);
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => ({
+      id,
+      ...patch,
+    }));
+    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => ({
+      id: `${entity}-1`,
+      ...value,
+    }));
+    llmApiMock.complete.mockResolvedValue(
+      '[party-turn]\n[Mira] [main]: We can help. [reputation: npc="Mira" action="helped"]',
+    );
+
+    const result = await partyTurn({
+      chatId: "chat-1",
+      narration: "Mira waits.",
+      connectionId: "conn-1",
+    });
+
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "chats",
+      "chat-1",
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          gameNpcs: [
+            expect.objectContaining({
+              id: "npc-1",
+              reputation: 30,
+              met: true,
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "messages",
+      expect.objectContaining({
+        content: "[party-turn]\n[Mira] [main]: We can help.",
+        swipes: [{ content: "[party-turn]\n[Mira] [main]: We can help." }],
+      }),
+    );
+    expect(result.raw).toBe("[Mira] [main]: We can help.");
+    expect(result.npcs).toMatchObject([{ id: "npc-1", reputation: 30, met: true }]);
+  });
+
+  it("cleans up party-turn messages when reputation persistence fails", async () => {
+    const chat = {
+      id: "chat-1",
+      characterIds: [],
+      metadata: {
+        gameNpcs: [{ id: "npc-1", name: "Mira", reputation: 15, met: false, notes: [] }],
+        gameCharacterCards: [{ name: "Mira" }],
+      },
+    };
+    mockChat(chat);
+    storageApiMock.list.mockResolvedValue([]);
+    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => ({
+      id: entity === "messages" ? "message-1" : `${entity}-1`,
+      ...value,
+    }));
+    storageApiMock.update.mockRejectedValue(new Error("reputation failed"));
+    storageApiMock.delete.mockResolvedValue({ deleted: true });
+    llmApiMock.complete.mockResolvedValue(
+      '[party-turn]\n[Mira] [main]: We can help. [reputation: npc="Mira" action="helped"]',
+    );
+
+    await expect(
+      partyTurn({
+        chatId: "chat-1",
+        narration: "Mira waits.",
+        connectionId: "conn-1",
+      }),
+    ).rejects.toThrow("reputation failed");
+
+    expect(storageApiMock.delete).toHaveBeenCalledWith("messages", "message-1");
   });
 
   it("normalizes NPC avatar names through gallery and metadata merge", async () => {
