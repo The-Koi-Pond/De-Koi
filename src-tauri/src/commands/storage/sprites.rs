@@ -670,6 +670,12 @@ pub(crate) fn restore_sprite_cleanup_point(
     if restored > 0 && failed.is_empty() {
         let _ = fs::remove_dir_all(&restore_point_dir);
     }
+    if restored == 0 && !failed.is_empty() {
+        return Err(AppError::new(
+            "sprite_restore_failed",
+            "No saved sprites were restored",
+        ));
+    }
     Ok(
         json!({ "restored": restored, "failed": failed, "sprites": list_sprites_for_dir(&dir, owner_kind, character_id)? }),
     )
@@ -3086,6 +3092,42 @@ mod sprite_cleanup_restore_point_tests {
         assert!(protected.exists());
         assert!(!middle.exists());
         assert!(newest.exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn restore_point_fails_when_no_saved_sprite_restores() {
+        let (state, root, sprite_dir) = test_state("restore-all-failed");
+        let restore_point_id = "100-all-failed";
+        let restore_point_dir =
+            sprite_cleanup_restore_points_dir(&sprite_dir).join(restore_point_id);
+        fs::create_dir_all(&restore_point_dir).expect("restore point dir should be created");
+        fs::write(
+            restore_point_dir.join("manifest.json"),
+            serde_json::to_vec_pretty(&json!({
+                "id": restore_point_id,
+                "entries": [{
+                    "expression": "neutral",
+                    "originalFilename": "neutral.png",
+                    "cleanedFilename": "neutral-cleaned.png",
+                    "restorePointFilename": "missing-neutral.png"
+                }]
+            }))
+            .expect("manifest should serialize"),
+        )
+        .expect("manifest should be written");
+
+        let error = restore_sprite_cleanup_point(
+            &state,
+            "character-1",
+            json!({ "restorePointId": restore_point_id }),
+            None,
+        )
+        .expect_err("all-failed restore should fail visibly");
+
+        assert_eq!(error.code, "sprite_restore_failed");
+        assert_eq!(error.message, "No saved sprites were restored");
 
         let _ = fs::remove_dir_all(root);
     }
