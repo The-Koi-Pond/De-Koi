@@ -30,6 +30,34 @@ export async function rollDice(data: { notation: string }) {
   return { result: g.rollGameDice(data.notation) };
 }
 
+function normalizedSkillKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function readPlayerSkillModifier(chat: g.Chat, skill: string): number {
+  const gameState = g.asRecord((chat as { gameState?: unknown }).gameState);
+  const playerStats = g.asRecord(gameState.playerStats);
+  const skills = g.asRecord(playerStats.skills);
+  const trimmedSkill = skill.trim();
+  const candidates = Array.from(new Set([trimmedSkill, trimmedSkill.toLowerCase(), normalizedSkillKey(trimmedSkill)]));
+  for (const key of candidates) {
+    const modifier = Number(skills[key]);
+    if (Number.isFinite(modifier)) return modifier;
+  }
+
+  const normalized = normalizedSkillKey(trimmedSkill);
+  for (const [key, value] of Object.entries(skills)) {
+    if (normalizedSkillKey(key) !== normalized) continue;
+    const modifier = Number(value);
+    if (Number.isFinite(modifier)) return modifier;
+  }
+  return 0;
+}
+
 export async function skillCheck(data: {
   chatId: string;
   skill: string;
@@ -40,14 +68,18 @@ export async function skillCheck(data: {
   skillModifier?: number;
   messageId?: string;
 }) {
-  const meta = g.chatMeta(await g.getChat(data.chatId));
+  const chat = await g.getChat(data.chatId);
+  const meta = g.chatMeta(chat);
   const attrs = playerAttributes(meta);
   const attr = g.getGoverningAttribute(data.skill);
   const attrScore = Number(attrs[attr] ?? 10);
+  const explicitSkillModifier = Number(data.skillModifier);
   const result = g.resolveSkillCheck({
     skill: data.skill,
     dc: data.dc,
-    skillModifier: Number(data.skillModifier ?? 0),
+    skillModifier: Number.isFinite(explicitSkillModifier)
+      ? explicitSkillModifier
+      : readPlayerSkillModifier(chat, data.skill),
     attributeModifier: Math.floor((attrScore - 10) / 2),
     advantage: data.advantage,
     disadvantage: data.disadvantage,

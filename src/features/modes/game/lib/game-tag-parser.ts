@@ -44,6 +44,7 @@ export interface ElementAttackTag {
 export interface InventoryTag {
   action: "add" | "remove";
   items: string[];
+  count?: number;
 }
 
 export interface SegmentInventoryUpdate {
@@ -528,7 +529,7 @@ function parseInventoryTagBody(body: string): InventoryTag | null {
   if (itemsQuoted) {
     itemStr = itemsQuoted[1]!;
   } else {
-    const itemsUnquoted = /items?\s*=\s*([^,\]\s][^,\]]*)/i.exec(body);
+    const itemsUnquoted = /items?\s*=\s*([^,\]\s][\s\S]*?)(?=\s+\w+\s*=|$)/i.exec(body);
     if (itemsUnquoted) itemStr = itemsUnquoted[1]!;
   }
 
@@ -537,7 +538,12 @@ function parseInventoryTagBody(body: string): InventoryTag | null {
     .map((item) => item.trim().replace(/^["']|["']$/g, ""))
     .filter(Boolean);
 
-  return items.length > 0 ? { action, items } : null;
+  const attrs = parseTagAttributes(body);
+  const rawCount = attrs.get("count") ?? attrs.get("quantity") ?? attrs.get("qty");
+  const parsedCount = rawCount == null ? NaN : Number(rawCount);
+  const count = Number.isFinite(parsedCount) ? Math.floor(parsedCount) : 0;
+
+  return items.length > 0 ? { action, items, ...(count > 0 ? { count } : {}) } : null;
 }
 
 function parsePartyCharacterName(body: string): string {
@@ -581,7 +587,7 @@ export function parseSegmentInventoryUpdates(content: string): SegmentInventoryU
     .replace(/\[skill_check:\s*[^\]]+\]/gi, "")
     .replace(/\[status:\s*[^\]]+\]/gi, "")
     .replace(/\[element_attack:\s*[^\]]+\]/gi, "")
-    .replace(/\[party_change:\s*[^\]]+\]/gi, "")
+    .replace(/\[(?:party_change|party_add):\s*[^\]]+\]/gi, "")
     .replace(/\[party-turn\]/gi, "")
     .replace(/\[party-chat\]/gi, "")
     .replace(/\[dice:\s*[^\]]+\]/gi, "");
@@ -978,13 +984,15 @@ export function parseGmTags(content: string): ParsedGmTags {
   text = text.replace(/\[inventory:\s*[^\]]+\]/gi, "");
 
   // [party_change: character="Name" change="add | remove"] — can appear multiple times
-  const partyChangeRegex = /\[party_change:\s*([^\]]+)\]/gi;
+  // [party_add: character="Name"] — legacy alias for `party_change` add
+  const partyChangeRegex = /\[(party_change|party_add):\s*([^\]]+)\]/gi;
   let partyChangeMatch: RegExpExecArray | null;
   while ((partyChangeMatch = partyChangeRegex.exec(text)) !== null) {
-    const update = parsePartyChangeTagBody(partyChangeMatch[1] ?? "");
+    const tagName = partyChangeMatch[1]?.toLowerCase();
+    const update = parsePartyChangeTagBody(partyChangeMatch[2] ?? "", tagName === "party_add" ? "add" : undefined);
     if (update) result.partyChanges.push(update);
   }
-  text = text.replace(/\[party_change:\s*[^\]]+\]/gi, "");
+  text = text.replace(/\[(?:party_change|party_add):\s*[^\]]+\]/gi, "");
 
   // [Note: content] or [Book: content] — readable documents (balanced brackets)
   {
@@ -1035,7 +1043,7 @@ export function stripGmTags(content: string): string {
     .replace(/\[status:\s*[^\]]+\]/gi, "")
     .replace(/\[element_attack:\s*[^\]]+\]/gi, "")
     .replace(/\[inventory:\s*[^\]]+\]/gi, "")
-    .replace(/\[party_change:\s*[^\]]+\]/gi, "")
+    .replace(/\[(?:party_change|party_add):\s*[^\]]+\]/gi, "")
     .replace(/\[party-turn\]/gi, "")
     .replace(/\[party-chat\]/gi, "")
     .replace(/\[dice:\s*[^\]]+\]/gi, "");
@@ -1076,7 +1084,7 @@ export function stripGmTagsKeepReadables(content: string): string {
     .replace(/\[skill_check:\s*[^\]]+\]/gi, "")
     .replace(/\[element_attack:\s*[^\]]+\]/gi, "")
     .replace(/\[inventory:\s*[^\]]+\]/gi, "")
-    .replace(/\[party_change:\s*[^\]]+\]/gi, "")
+    .replace(/\[(?:party_change|party_add):\s*[^\]]+\]/gi, "")
     .replace(/\[party-turn\]/gi, "")
     .replace(/\[party-chat\]/gi, "")
     .replace(/\[dice:\s*[^\]]+\]/gi, "");

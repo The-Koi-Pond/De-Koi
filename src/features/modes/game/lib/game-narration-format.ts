@@ -115,12 +115,13 @@ export function formatNarration(content: string, boldDialogue = true): string {
         [attrs.npc, attrs.action].filter(Boolean).join(": "),
       );
     })
-    .replace(/\[party_change:\s*([^\]]+)\]/gi, (_match, rawAttrs: string) => {
+    .replace(/\[(party_change|party_add):\s*([^\]]+)\]/gi, (_match, tagName: string, rawAttrs: string) => {
       const attrs = parseCommandAttributes(rawAttrs);
+      const change = tagName.toLowerCase() === "party_add" ? "add" : attrs.change;
       return commandBadge(
         "bg-cyan-500/15 text-cyan-200 ring-1 ring-cyan-400/20",
         "👥 Party",
-        [attrs.change, attrs.character].filter(Boolean).join(": "),
+        [change, attrs.character].filter(Boolean).join(": "),
       );
     })
     .replace(/\[session_end:\s*([^\]]+)\]/gi, (_match, rawAttrs: string) => {

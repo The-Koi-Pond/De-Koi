@@ -224,4 +224,95 @@ describe("useGameInventoryJournalController persistence", () => {
       }),
     );
   });
+
+  it("applies inventory tag counts to metadata, player stats, and journal quantity", async () => {
+    const persistMetadata = vi.fn(async () => null);
+    const patchVisibleGameStateMock = vi.fn(
+      async (field: GameStatePatchField, value: GameStatePatchValue[GameStatePatchField]) => {
+        const current = useGameStateStore.getState().current;
+        useGameStateStore.getState().setGameState(current ? ({ ...current, [field]: value } as GameState) : null);
+      },
+    );
+    const patchVisibleGameState = patchVisibleGameStateMock as PatchVisibleGameState;
+    let applyInventoryUpdates: ApplyInventoryUpdates | null = null;
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <InventoryControllerProbe
+          patchVisibleGameState={patchVisibleGameState}
+          persistMetadata={persistMetadata}
+          onReady={(apply) => {
+            applyInventoryUpdates = apply;
+          }}
+        />,
+      );
+    });
+
+    let applied = false;
+    await act(async () => {
+      applied = (await applyInventoryUpdates?.([{ action: "add", items: ["Potion"], count: 3 }])) ?? false;
+    });
+
+    expect(applied).toBe(true);
+    expect(persistMetadata).toHaveBeenCalledWith("chat-1", { gameInventory: [{ name: "Potion", quantity: 3 }] });
+    expect(patchVisibleGameStateMock).toHaveBeenCalledWith(
+      "playerStats",
+      expect.objectContaining({
+        inventory: [
+          expect.objectContaining({
+            name: "Potion",
+            quantity: 3,
+          }),
+        ],
+      }),
+    );
+    expect(gameApi.addJournalEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          item: "Potion",
+          quantity: 3,
+        }),
+      }),
+    );
+  });
+
+  it("caps extreme inventory tag counts before applying repeated item units", async () => {
+    const persistMetadata = vi.fn(async () => null);
+    const patchVisibleGameStateMock = vi.fn(
+      async (field: GameStatePatchField, value: GameStatePatchValue[GameStatePatchField]) => {
+        const current = useGameStateStore.getState().current;
+        useGameStateStore.getState().setGameState(current ? ({ ...current, [field]: value } as GameState) : null);
+      },
+    );
+    const patchVisibleGameState = patchVisibleGameStateMock as PatchVisibleGameState;
+    let applyInventoryUpdates: ApplyInventoryUpdates | null = null;
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <InventoryControllerProbe
+          patchVisibleGameState={patchVisibleGameState}
+          persistMetadata={persistMetadata}
+          onReady={(apply) => {
+            applyInventoryUpdates = apply;
+          }}
+        />,
+      );
+    });
+
+    await act(async () => {
+      await applyInventoryUpdates?.([{ action: "add", items: ["Coin"], count: 1000000 }]);
+    });
+
+    expect(persistMetadata).toHaveBeenCalledWith("chat-1", { gameInventory: [{ name: "Coin", quantity: 99 }] });
+    expect(gameApi.addJournalEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          item: "Coin",
+          quantity: 99,
+        }),
+      }),
+    );
+  });
 });
