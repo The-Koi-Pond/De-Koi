@@ -460,6 +460,9 @@ export async function resolveGameVoiceEntryPlan(args: {
     }
     return true;
   } finally {
+    if (controller.signal.aborted && cache.get(key)?.status === "loading") {
+      cache.delete(key);
+    }
     pending.delete(key);
   }
 }

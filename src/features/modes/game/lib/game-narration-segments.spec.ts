@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Message } from "../../../../engine/contracts/types/chat";
 import {
   effectDisplayLength,
   parseNarrationSegments,
@@ -7,11 +8,11 @@ import {
   type NarrationMessage,
 } from "./game-narration-segments";
 
-function message(content: string): NarrationMessage {
+function message(content: string, role: Message["role"] = "assistant"): NarrationMessage {
   return {
     id: "m1",
     chatId: "c1",
-    role: "assistant",
+    role,
     content,
     characterId: null,
     extra: {
@@ -57,6 +58,14 @@ describe("game narration segment parsing", () => {
     ]);
   });
 
+  it("stamps parsed segments with source identity and rendered indexes", () => {
+    const segments = parseNarrationSegments(message(['Narration: Start.', '"Hi," Amber said.'].join("\n"), "user"), new Map());
+
+    expect(segments.map((segment) => segment.sourceMessageId)).toEqual(["m1", "m1"]);
+    expect(segments.map((segment) => segment.sourceRole)).toEqual(["user", "user"]);
+    expect(segments.map((segment) => segment.sourceSegmentIndex)).toEqual([0, 1]);
+  });
+
   it("truncates raw content at parsed segment boundaries without rewriting the prefix", () => {
     const raw = [
       "Narration: First beat.",
@@ -82,6 +91,23 @@ describe("game narration segment parsing", () => {
       expect.objectContaining({ type: "readable", readableType: "book", readableContent: "Field Notes" }),
       expect.objectContaining({ type: "narration", content: "now." }),
     ]);
+  });
+
+  it("keeps readable-looking text inside dialogue lines as dialogue content", () => {
+    const raw = '[Amber][main]: "See [Note: clue] on the desk."';
+    const segments = parseNarrationSegments(message(raw), new Map());
+
+    expect(segments).toEqual([
+      expect.objectContaining({
+        type: "dialogue",
+        speaker: "Amber",
+        content: "See [Note: clue] on the desk.",
+        sourceMessageId: "m1",
+        sourceSegmentIndex: 0,
+        sourceRole: "assistant",
+      }),
+    ]);
+    expect(truncateMessageContentAtSegment(raw, 0)).toBe(raw);
   });
 
   it("preserves inline dialogue attribution and aligns truncation to rendered segments", () => {

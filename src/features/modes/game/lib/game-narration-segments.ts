@@ -79,6 +79,10 @@ export function formatTokenEstimate(tokens: number): string {
 const EFFECT_TAG_RE = /\{(shake|shout|whisper|glow|pulse|wave|flicker|drip|bounce|tremble|glitch|expand):([^}]+)\}/gi;
 const INLINE_DIALOGUE_VERBS_PATTERN =
   "said|says|whispered|whispers|muttered|mutters|replied|replies|called|calls|shouted|shouts|asked|asks|warned|warns|growled|growls|hissed|hisses|exclaimed|exclaims|murmured|murmurs|sighed|sighs|snapped|snaps|barked|barks|declared|declares|continued|continues|added|adds|spoke|speaks|began|begins|remarked|remarks|chuckled|chuckles|laughed|laughs|cried|cries";
+const PARTY_DIALOGUE_PREFIX_RE =
+  /^\s*\[[^\]]+\]\s*\[(?:main|side|extra|action|thought|whisper(?::[^\]]+)?)\]\s*(?:\[[^\]]+\])?\s*:/i;
+const LEGACY_DIALOGUE_PREFIX_RE = /^\s*Dialogue\s*\[[^\]]+\]\s*(?:\[[^\]]+\])?\s*:/i;
+const COMPACT_DIALOGUE_PREFIX_RE = /^\s*\[[^\]]+\]\s*(?:\[[^\]]+\])?\s*:/;
 
 export function effectDisplayLength(content: string): number {
   return content.replace(EFFECT_TAG_RE, "$2").length;
@@ -193,6 +197,16 @@ function splitTextIntoBoundedLines(text: string, originalStart: number): Truncat
   return lines;
 }
 
+function isReadableTagInsideDialogueLine(source: string, tagStart: number): boolean {
+  const lineStart = Math.max(source.lastIndexOf("\n", tagStart - 1), source.lastIndexOf("\r", tagStart - 1)) + 1;
+  const prefix = source.slice(lineStart, tagStart);
+  return (
+    PARTY_DIALOGUE_PREFIX_RE.test(prefix) ||
+    LEGACY_DIALOGUE_PREFIX_RE.test(prefix) ||
+    COMPACT_DIALOGUE_PREFIX_RE.test(prefix)
+  );
+}
+
 function splitInlineVnDialogueLineMetadata(line: TruncationLine): TruncationLine[] {
   const headerRe = /\[[^\]]+\]\s*\[(?:main|side|extra|action|thought|whisper(?::[^\]]+)?)\]\s*(?:\[[^\]]+\])?\s*:/gi;
   const pieces: TruncationLine[] = [];
@@ -248,6 +262,10 @@ function buildTruncationLines(rawContent: string): TruncationLine[] {
     const start = match.index;
     const end = findReadableBlockEnd(rawContent, start);
     if (end < 0) continue;
+    if (isReadableTagInsideDialogueLine(rawContent, start)) {
+      readableTagRe.lastIndex = end + 1;
+      continue;
+    }
 
     if (start > cursor) {
       chunks.push(...splitTextIntoBoundedLines(rawContent.slice(cursor, start), cursor));
@@ -302,6 +320,10 @@ export function parseNarrationSegments(
       }
       if (end === -1) {
         searchFrom = idx + 1;
+        continue;
+      }
+      if (isReadableTagInsideDialogueLine(source, idx)) {
+        searchFrom = end + 1;
         continue;
       }
       const inner = source.slice(idx + tag.length, end).trim();
@@ -456,11 +478,11 @@ export function parseNarrationSegments(
   if (parsed.length > 0) {
     const expanded = splitInlineDialogue(parsed, message.id, speakerColors);
     if (expanded.some((s) => s.type === "dialogue")) {
-      return expanded;
+      return stampNarrationSegmentSources(expanded, message);
     }
   }
 
-  return parsed;
+  return stampNarrationSegmentSources(parsed, message);
 }
 
 export function truncateMessageContentAtSegment(rawContent: string, segmentIndexInclusive: number): string {
@@ -619,4 +641,16 @@ function splitInlineDialogue(
   }
 
   return result;
+}
+
+function stampNarrationSegmentSources(
+  segments: NarrationSegment[],
+  message: NarrationMessage,
+): NarrationSegment[] {
+  return segments.map((segment, index) => ({
+    ...segment,
+    sourceMessageId: message.id,
+    sourceSegmentIndex: index,
+    sourceRole: message.role,
+  }));
 }

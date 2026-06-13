@@ -162,6 +162,7 @@ describe("game narration voice planning", () => {
     plan!.controller.abort();
     await expect(resolveGameVoiceEntryPlan({ plan: plan!, cache, pending })).resolves.toBe(false);
     expect(pending.has(key!)).toBe(false);
-    expect(queueGameVoiceEntryPlan({ key, requests: [request!], config: baseTtsConfig, cache: new Map(), pending })).not.toBeNull();
+    expect(cache.has(key!)).toBe(false);
+    expect(queueGameVoiceEntryPlan({ key, requests: [request!], config: baseTtsConfig, cache, pending })).not.toBeNull();
   });
 });
