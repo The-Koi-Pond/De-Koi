@@ -23,6 +23,7 @@ fn spotify_refresh_lock(agent_id: &str) -> Arc<tokio::sync::Mutex<()>> {
 }
 
 const SPOTIFY_SCOPES: &str = "streaming user-modify-playback-state user-read-playback-state user-read-currently-playing user-read-private playlist-read-private playlist-modify-public playlist-modify-private user-library-read";
+const SPOTIFY_PLAYBACK_CONTROL_SCOPE: &str = "user-modify-playback-state";
 const SPOTIFY_DEFAULT_REDIRECT_URI: &str = "http://127.0.0.1:8754/spotify/callback";
 const SPOTIFY_REDIRECT_URI_ENV: &str = "SPOTIFY_REDIRECT_URI";
 const AUTH_TTL_MS: u128 = 10 * 60_000;
@@ -884,6 +885,7 @@ pub(crate) async fn game_spotify_play(
     let route = ParsedPath::new("");
     let body = Value::Null;
     let credentials = resolve_credentials(state, &route, &body).await?;
+    require_spotify_scope(&credentials, SPOTIFY_PLAYBACK_CONTROL_SCOPE)?;
     let device_id = spotify_scene_device_id(&credentials, device_id, mobile_device_only).await?;
     let _ = spotify_player_repeat_command(&credentials, "off", device_id.as_deref()).await;
     let response = spotify_api_with_device_retry(
@@ -895,10 +897,9 @@ pub(crate) async fn game_spotify_play(
     )
     .await?;
     if !(200..300).contains(&response.status) && response.status != 204 {
-        return Err(AppError::with_details(
-            "spotify_api_error",
+        return Err(spotify_control_error(
+            &response,
             "Spotify scene music playback failed",
-            json!({ "status": response.status, "body": response.body }),
         ));
     }
     let repeat =
@@ -1149,6 +1150,24 @@ fn spotify_response_ok(response: &SpotifyResponse) -> bool {
     (200..300).contains(&response.status) || response.status == 204
 }
 
+fn spotify_missing_scope_error(scope: &str) -> AppError {
+    AppError::with_details(
+        "spotify_scope_required",
+        format!(
+            "Spotify is connected, but playback controls need the {scope} scope. Reconnect Spotify from the Spotify DJ agent and approve the requested scopes."
+        ),
+        json!({ "missingScope": scope, "recoverable": true }),
+    )
+}
+
+fn require_spotify_scope(credentials: &SpotifyCredentials, scope: &str) -> AppResult<()> {
+    if credentials.scopes.iter().any(|existing| existing == scope) {
+        Ok(())
+    } else {
+        Err(spotify_missing_scope_error(scope))
+    }
+}
+
 fn spotify_should_retry_device(response: &SpotifyResponse, device_id: Option<&str>) -> bool {
     if device_id.map(str::trim).unwrap_or_default().is_empty() {
         return response.status == 404
@@ -1165,6 +1184,62 @@ fn spotify_should_retry_device(response: &SpotifyResponse, device_id: Option<&st
         || body.contains("restriction")
         || body.contains("not found")
         || body.contains("no active")
+}
+
+fn spotify_control_error(response: &SpotifyResponse, fallback: &str) -> AppError {
+    let message = spotify_error_message(&response.body, fallback);
+    let lower = message.to_ascii_lowercase();
+    let body = response.body.to_ascii_lowercase();
+    let details = json!({
+        "status": response.status,
+        "body": response.body,
+        "recoverable": true
+    });
+    if lower.contains("insufficient client scope") || body.contains("insufficient client scope") {
+        return spotify_missing_scope_error(SPOTIFY_PLAYBACK_CONTROL_SCOPE);
+    }
+    if lower.contains("no active device") || body.contains("no active device") {
+        return AppError::with_details(
+            "spotify_no_active_device",
+            "No active Spotify playback device was found. Open Spotify on a device, then try the control again.",
+            details,
+        );
+    }
+    if lower.contains("device not found") || body.contains("device not found") {
+        return AppError::with_details(
+            "spotify_device_unavailable",
+            "Spotify could not find that playback device. Pick another device or reopen Spotify on the target device.",
+            details,
+        );
+    }
+    if lower.contains("restriction")
+        || lower.contains("restricted")
+        || lower.contains("not available on this device")
+        || body.contains("restriction")
+        || body.contains("restricted")
+    {
+        return AppError::with_details(
+            "spotify_device_restricted",
+            "Spotify rejected that command on the current device. Some devices, podcasts, ads, or account states do not allow remote playback controls.",
+            details,
+        );
+    }
+    AppError::with_details("spotify_api_error", fallback, details)
+}
+
+fn spotify_volume_error(response: &SpotifyResponse) -> AppError {
+    let message = spotify_error_message(&response.body, "Spotify volume failed");
+    if message
+        .to_ascii_lowercase()
+        .contains("cannot control device volume")
+    {
+        return AppError::with_details(
+            "SPOTIFY_VOLUME_UNSUPPORTED",
+            "This Spotify device does not allow remote volume control. Use the device volume buttons instead.",
+            json!({ "status": response.status, "recoverable": true }),
+        );
+    }
+    spotify_control_error(response, "Spotify volume failed")
 }
 
 fn authorize(state: &AppState, route: &ParsedPath, body: &Value) -> AppResult<Value> {
@@ -1932,19 +2007,53 @@ fn extract_json_text(text: &str) -> &str {
                 .unwrap_or_else(|| block.trim());
         }
     }
-    if let (Some(start), Some(end)) = (trimmed.find('{'), trimmed.rfind('}')) {
-        if start <= end {
-            return &trimmed[start..=end];
-        }
+    if let Some(candidate) = extract_balanced_json_text(trimmed) {
+        return candidate;
     }
     trimmed
 }
 
+fn extract_balanced_json_text(text: &str) -> Option<&str> {
+    let start = text.find(|ch| ch == '{' || ch == '[')?;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut depth = 0_u32;
+    for (offset, ch) in text[start..].char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' && in_string {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            in_string = !in_string;
+            continue;
+        }
+        if in_string {
+            continue;
+        }
+        match ch {
+            '{' | '[' => depth += 1,
+            '}' | ']' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(text[start..start + offset + ch.len_utf8()].trim());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 fn parse_generated_tracks(raw: &str) -> AppResult<Vec<GeneratedTrack>> {
     let parsed: Value = serde_json::from_str(extract_json_text(raw)).map_err(|error| {
-        AppError::new(
-            "spotify_dj_mari_plan_error",
-            format!("DJ Mari returned a playlist plan that could not be parsed: {error}"),
+        AppError::with_details(
+            "spotify_dj_mari_parse_error",
+            format!("Spotify DJ returned malformed JSON: {error}. Retry with a JSON-capable model/provider."),
+            json!({ "recoverable": true }),
         )
     })?;
     let tracks = parsed
@@ -2265,6 +2374,7 @@ async fn start_dj_mari_playlist_playback(
     playlist_uri: &str,
     device_id: Option<&str>,
 ) -> AppResult<Value> {
+    require_spotify_scope(credentials, SPOTIFY_PLAYBACK_CONTROL_SCOPE)?;
     let device_id = device_id.filter(|value| !value.trim().is_empty());
     if let Some(device_id) = device_id {
         let _ = spotify_api(
@@ -2286,7 +2396,7 @@ async fn start_dj_mari_playlist_playback(
     if !(200..300).contains(&response.status) && response.status != 204 {
         return Ok(json!({
             "started": false,
-            "error": spotify_error_message(&response.body, "Spotify could not start the new playlist.")
+            "error": spotify_control_error(&response, "Spotify could not start the new playlist.").message
         }));
     }
     Ok(json!({ "started": true, "error": Value::Null }))
@@ -2335,6 +2445,7 @@ async fn player_control(
     method: &str,
 ) -> AppResult<Value> {
     let credentials = resolve_credentials(state, route, &body).await?;
+    require_spotify_scope(&credentials, SPOTIFY_PLAYBACK_CONTROL_SCOPE)?;
     let device_id = body.get("deviceId").and_then(Value::as_str);
     let is_play = path.ends_with("/play");
     let payload = if path.ends_with("/play") {
@@ -2395,10 +2506,9 @@ async fn player_control(
     let response =
         spotify_api_with_device_retry(&credentials, path, device_id, method, payload).await?;
     if !(200..300).contains(&response.status) && response.status != 204 {
-        return Err(AppError::with_details(
-            "spotify_api_error",
+        return Err(spotify_control_error(
+            &response,
             "Spotify playback command failed",
-            json!({ "status": response.status, "body": response.body }),
         ));
     }
     if is_play {
@@ -2431,6 +2541,7 @@ async fn player_control(
 
 async fn player_volume(state: &AppState, route: &ParsedPath, body: Value) -> AppResult<Value> {
     let credentials = resolve_credentials(state, route, &body).await?;
+    require_spotify_scope(&credentials, SPOTIFY_PLAYBACK_CONTROL_SCOPE)?;
     let volume = body
         .get("volume")
         .and_then(Value::as_i64)
@@ -2446,25 +2557,14 @@ async fn player_volume(state: &AppState, route: &ParsedPath, body: Value) -> App
     )
     .await?;
     if !(200..300).contains(&response.status) && response.status != 204 {
-        let body_text = response.body.to_ascii_lowercase();
-        if body_text.contains("cannot control device volume") {
-            return Err(AppError::with_details(
-                "SPOTIFY_VOLUME_UNSUPPORTED",
-                "This Spotify device does not allow remote volume control. Use the device volume buttons instead.",
-                json!({ "status": response.status }),
-            ));
-        }
-        return Err(AppError::with_details(
-            "spotify_api_error",
-            "Spotify volume failed",
-            json!({ "status": response.status, "body": response.body }),
-        ));
+        return Err(spotify_volume_error(&response));
     }
     Ok(json!({ "success": true, "volume": volume }))
 }
 
 async fn player_shuffle(state: &AppState, route: &ParsedPath, body: Value) -> AppResult<Value> {
     let credentials = resolve_credentials(state, route, &body).await?;
+    require_spotify_scope(&credentials, SPOTIFY_PLAYBACK_CONTROL_SCOPE)?;
     let enabled = body
         .get("enabled")
         .and_then(Value::as_bool)
@@ -2479,17 +2579,14 @@ async fn player_shuffle(state: &AppState, route: &ParsedPath, body: Value) -> Ap
     )
     .await?;
     if !(200..300).contains(&response.status) && response.status != 204 {
-        return Err(AppError::with_details(
-            "spotify_api_error",
-            "Spotify shuffle failed",
-            json!({ "status": response.status, "body": response.body }),
-        ));
+        return Err(spotify_control_error(&response, "Spotify shuffle failed"));
     }
     Ok(json!({ "success": true, "shuffle": enabled }))
 }
 
 async fn player_repeat(state: &AppState, route: &ParsedPath, body: Value) -> AppResult<Value> {
     let credentials = resolve_credentials(state, route, &body).await?;
+    require_spotify_scope(&credentials, SPOTIFY_PLAYBACK_CONTROL_SCOPE)?;
     let repeat = body.get("state").and_then(Value::as_str).unwrap_or("off");
     if !matches!(repeat, "off" | "track" | "context") {
         return Err(AppError::invalid_input(
@@ -2506,17 +2603,14 @@ async fn player_repeat(state: &AppState, route: &ParsedPath, body: Value) -> App
     )
     .await?;
     if !(200..300).contains(&response.status) && response.status != 204 {
-        return Err(AppError::with_details(
-            "spotify_api_error",
-            "Spotify repeat failed",
-            json!({ "status": response.status, "body": response.body }),
-        ));
+        return Err(spotify_control_error(&response, "Spotify repeat failed"));
     }
     Ok(json!({ "success": true, "repeat": repeat }))
 }
 
 async fn player_transfer(state: &AppState, route: &ParsedPath, body: Value) -> AppResult<Value> {
     let credentials = resolve_credentials(state, route, &body).await?;
+    require_spotify_scope(&credentials, SPOTIFY_PLAYBACK_CONTROL_SCOPE)?;
     let device_id = required_string(&body, "deviceId")?;
     let response = spotify_api(
         &credentials,
@@ -2526,11 +2620,7 @@ async fn player_transfer(state: &AppState, route: &ParsedPath, body: Value) -> A
     )
     .await?;
     if !(200..300).contains(&response.status) && response.status != 204 {
-        return Err(AppError::with_details(
-            "spotify_api_error",
-            "Spotify transfer failed",
-            json!({ "status": response.status, "body": response.body }),
-        ));
+        return Err(spotify_control_error(&response, "Spotify transfer failed"));
     }
     Ok(json!({ "success": true }))
 }
@@ -3327,6 +3417,101 @@ mod tests {
             json: json!({}),
         };
         assert!(!spotify_should_retry_device(&auth_error, Some("device")));
+    }
+
+    #[test]
+    fn spotify_control_scope_error_is_recoverable_and_specific() {
+        let credentials = SpotifyCredentials {
+            access_token: "access-token".to_string(),
+            agent_id: "spotify".to_string(),
+            cache_key: "spotify:token".to_string(),
+            expires_at: 0,
+            scopes: vec!["user-read-playback-state".to_string()],
+        };
+
+        let error = require_spotify_scope(&credentials, SPOTIFY_PLAYBACK_CONTROL_SCOPE)
+            .expect_err("missing playback control scope should reject");
+
+        assert_eq!(error.code, "spotify_scope_required");
+        assert!(error.message.contains(SPOTIFY_PLAYBACK_CONTROL_SCOPE));
+        assert_eq!(
+            error
+                .details
+                .as_ref()
+                .and_then(|details| details.get("recoverable"))
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn spotify_control_errors_name_device_and_scope_failures() {
+        let no_active_device = SpotifyResponse {
+            status: 404,
+            body: r#"{"error":{"message":"No active device found"}}"#.to_string(),
+            json: json!({}),
+        };
+        let no_active_error =
+            spotify_control_error(&no_active_device, "Spotify playback command failed");
+        assert_eq!(no_active_error.code, "spotify_no_active_device");
+        assert!(no_active_error
+            .message
+            .contains("No active Spotify playback device"));
+
+        let insufficient_scope = SpotifyResponse {
+            status: 403,
+            body: r#"{"error":{"message":"Insufficient client scope"}}"#.to_string(),
+            json: json!({}),
+        };
+        let scope_error =
+            spotify_control_error(&insufficient_scope, "Spotify playback command failed");
+        assert_eq!(scope_error.code, "spotify_scope_required");
+        assert!(scope_error.message.contains(SPOTIFY_PLAYBACK_CONTROL_SCOPE));
+
+        let restricted_device = SpotifyResponse {
+            status: 403,
+            body: r#"{"error":{"message":"Player command failed: Restriction violated"}}"#
+                .to_string(),
+            json: json!({}),
+        };
+        let restricted_error =
+            spotify_control_error(&restricted_device, "Spotify playback command failed");
+        assert_eq!(restricted_error.code, "spotify_device_restricted");
+        assert!(restricted_error.message.contains("current device"));
+    }
+
+    #[test]
+    fn spotify_dj_plan_parser_uses_first_complete_json_payload() {
+        let tracks = parse_generated_tracks(
+            r#"DJ Mari says:
+            {"tracks":[{"title":"First Song","artist":"First Artist","reason":"fits"}]}
+            {"tracks":[{"title":"Trailing Song","artist":"Trailing Artist"}"#,
+        )
+        .expect("first complete JSON payload should parse");
+
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].title, "First Song");
+        assert_eq!(tracks[0].artist, "First Artist");
+    }
+
+    #[test]
+    fn spotify_dj_plan_parser_returns_recoverable_malformed_json_error() {
+        let error =
+            match parse_generated_tracks(r#"{"tracks":[{"title":"Broken","artist":"Artist"}"#) {
+                Ok(_) => panic!("malformed DJ JSON should reject"),
+                Err(error) => error,
+            };
+
+        assert_eq!(error.code, "spotify_dj_mari_parse_error");
+        assert!(error.message.contains("Spotify DJ returned malformed JSON"));
+        assert_eq!(
+            error
+                .details
+                .as_ref()
+                .and_then(|details| details.get("recoverable"))
+                .and_then(Value::as_bool),
+            Some(true)
+        );
     }
 
     #[test]
