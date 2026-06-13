@@ -50,20 +50,6 @@ pub(crate) fn image_dimension(body: &Value, key: &str, fallback: u64) -> u64 {
         .unwrap_or(fallback)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn image_dimension_accepts_documented_4096_cap() {
-        let body = json!({ "width": 4096, "height": 4097 });
-
-        assert_eq!(image_dimension(&body, "width", 1024), 4096);
-        assert_eq!(image_dimension(&body, "height", 1024), 1024);
-    }
-}
-
 pub(crate) fn avatar_generation_preview(_state: &AppState, body: Value) -> AppResult<Value> {
     let name = body
         .get("name")
@@ -254,5 +240,19 @@ pub(crate) async fn test_image_generation(state: &AppState, id: &str) -> AppResu
             "prompt": prompt,
             "error": error.message
         })),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn image_dimension_accepts_documented_4096_cap() {
+        let body = json!({ "width": 4096, "height": 4097 });
+
+        assert_eq!(image_dimension(&body, "width", 1024), 4096);
+        assert_eq!(image_dimension(&body, "height", 1024), 1024);
     }
 }
