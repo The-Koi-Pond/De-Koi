@@ -71,7 +71,6 @@ pub(super) fn embedded_lorebook(payload: &Value) -> Option<Value> {
         .max_by_key(|book| lorebook_entry_count(book))
         .cloned()
 }
-
 pub(super) fn alt_descriptions(data: &Value) -> Value {
     data.get("extensions")
         .and_then(|extensions| extensions.get("altDescriptions"))
@@ -85,7 +84,6 @@ pub(super) fn alt_descriptions(data: &Value) -> Value {
         .cloned()
         .unwrap_or_else(|| json!([]))
 }
-
 pub(super) fn strip_stale_embedded_lorebook_pointer(data: &mut Value) {
     if let Some(book) = data.pointer_mut("/extensions/importMetadata/embeddedLorebook") {
         if let Some(object) = book.as_object_mut() {
@@ -93,7 +91,6 @@ pub(super) fn strip_stale_embedded_lorebook_pointer(data: &mut Value) {
         }
     }
 }
-
 pub(super) fn character_import_extensions(
     payload: &Value,
     data: &Value,
@@ -170,7 +167,6 @@ pub(super) fn normalize_character_data(
     strip_stale_embedded_lorebook_pointer(&mut normalized);
     normalized
 }
-
 trait ImportStringFallback {
     fn if_empty(self, fallback: &str) -> String;
 }
@@ -235,11 +231,14 @@ fn selective_logic_value(value: Option<&Value>) -> &'static str {
 }
 
 fn lorebook_entry_role(value: Option<&Value>) -> &'static str {
-    match value {
-        Some(Value::String(raw)) if raw == "user" => "user",
-        Some(Value::String(raw)) if raw == "assistant" => "assistant",
-        Some(Value::Number(raw)) if raw.as_i64() == Some(1) => "user",
-        Some(Value::Number(raw)) if raw.as_i64() == Some(2) => "assistant",
+    let raw = match value {
+        Some(Value::String(raw)) => raw.trim().to_ascii_lowercase(),
+        Some(Value::Number(raw)) => raw.as_i64().unwrap_or(0).to_string(),
+        _ => String::new(),
+    };
+    match raw.as_str() {
+        "1" | "user" => "user",
+        "2" | "assistant" => "assistant",
         _ => "system",
     }
 }
