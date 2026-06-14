@@ -4,7 +4,7 @@ use base64::{engine::general_purpose, Engine as _};
 use marinara_core::{now_millis, AppError, AppResult};
 use serde_json::{json, Value};
 use std::fs;
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 
@@ -101,17 +101,10 @@ fn copy_dir_contents(source: &Path, target: &Path) -> AppResult<()> {
 
 fn copy_backup_file(source_path: &Path, target_path: &Path) -> AppResult<()> {
     if is_connections_collection_file(source_path) {
-        let mut value: Value = serde_json::from_slice(&fs::read(source_path)?)?;
-        match &mut value {
-            Value::Array(rows) => {
-                for row in rows {
-                    connection_secrets::mask_connection_for_read(row);
-                }
-            }
-            Value::Object(_) => connection_secrets::mask_connection_for_read(&mut value),
-            _ => {}
-        }
-        fs::write(target_path, serde_json::to_vec_pretty(&value)?)?;
+        fs::write(
+            target_path,
+            masked_connections_collection_bytes(source_path)?,
+        )?;
     } else if is_connections_sidecar_file(source_path) {
         // Durability sidecars (.bak / .corrupted-* / .tmp-*) duplicate raw
         // apiKeyEncrypted material; keep them out of portable backups.
@@ -262,13 +255,87 @@ fn zip_dir_contents(
                 if is_connections_sidecar_file(&path) {
                     continue;
                 }
-                zip.start_file(zip_entry, options).map_err(zip_error)?;
-                let mut file = fs::File::open(path)?;
-                std::io::copy(&mut file, zip).map_err(zip_io_error)?;
+                zip.start_file(&zip_entry, options).map_err(zip_error)?;
+                if is_connections_collection_file(&path) {
+                    let bytes = masked_connections_collection_bytes(&path)?;
+                    zip.write_all(&bytes).map_err(zip_io_error)?;
+                } else {
+                    let mut file = fs::File::open(path)?;
+                    std::io::copy(&mut file, zip).map_err(zip_io_error)?;
+                }
             }
         }
     }
     Ok(())
+}
+
+fn masked_connections_collection_bytes(path: &Path) -> AppResult<Vec<u8>> {
+    let mut value: Value = serde_json::from_slice(&fs::read(path)?)?;
+    match &mut value {
+        Value::Array(rows) => {
+            for row in rows {
+                connection_secrets::mask_connection_for_read(row);
+                mask_backup_connection_secret_fields(row);
+            }
+        }
+        Value::Object(_) => {
+            connection_secrets::mask_connection_for_read(&mut value);
+            mask_backup_connection_secret_fields(&mut value);
+        }
+        _ => {}
+    }
+    Ok(serde_json::to_vec_pretty(&value)?)
+}
+
+fn mask_backup_connection_secret_fields(value: &mut Value) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                mask_backup_connection_secret_fields(item);
+            }
+        }
+        Value::Object(object) => {
+            for (key, value) in object.iter_mut() {
+                if is_backup_connection_secret_key(key) {
+                    *value = Value::String(String::new());
+                } else {
+                    mask_backup_connection_secret_fields(value);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_backup_connection_secret_key(key: &str) -> bool {
+    let normalized: String = key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(|character| character.to_lowercase())
+        .collect();
+    matches!(
+        normalized.as_str(),
+        "accesstoken"
+            | "apikey"
+            | "apikeyencrypted"
+            | "apikeyhash"
+            | "apikeymasked"
+            | "authorization"
+            | "clientsecret"
+            | "cookie"
+            | "credential"
+            | "credentials"
+            | "encryptedvalue"
+            | "password"
+            | "refreshtoken"
+            | "secret"
+            | "sessionid"
+            | "sessiontoken"
+            | "token"
+    ) || normalized.ends_with("token")
+        || normalized.ends_with("secret")
+        || normalized.ends_with("password")
+        || normalized.contains("credential")
 }
 
 fn zip_backup_folder(folder: &Path, backup_name: &str) -> AppResult<Vec<u8>> {
@@ -337,6 +404,7 @@ pub(crate) fn download_profile_zip_bytes(state: &AppState) -> AppResult<Vec<u8>>
 mod tests {
     use super::*;
     use crate::state::AppState;
+    use std::io::Read;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_state(label: &str) -> AppState {
@@ -480,6 +548,69 @@ mod tests {
         // The sidecar skip must never widen into dropping the masked
         // connections.json itself from downloaded archives.
         assert!(masked_archived);
+    }
+
+    #[test]
+    fn existing_backup_download_remasks_connections_json() {
+        let state = test_state("existing-connections-remask");
+        let name = "marinara-backup-existing";
+        let backup_dir = state.data_dir.join("backups").join(name);
+        let collections_dir = backup_dir.join("data/collections");
+        fs::create_dir_all(&collections_dir).expect("collections dir should be created");
+        fs::write(
+            collections_dir.join("connections.json"),
+            serde_json::to_vec_pretty(&json!([
+                {
+                    "id": "conn-1",
+                    "name": "OpenAI",
+                    "apiKey": "sk-plain-secret",
+                    "apiKeyEncrypted": "ciphertext-secret",
+                    "providerMetadata": {
+                        "refreshToken": "refresh-secret",
+                        "display": "safe metadata"
+                    }
+                }
+            ]))
+            .expect("connection fixture should serialize"),
+        )
+        .expect("raw existing connection backup should be written");
+        fs::write(
+            collections_dir.join("characters.json"),
+            serde_json::to_vec_pretty(&json!([{ "id": "char-1", "name": "Keep Character" }]))
+                .expect("character fixture should serialize"),
+        )
+        .expect("unrelated collection should be written");
+
+        let downloaded =
+            download_backup(&state, Some(name)).expect("existing backup should download");
+        let bytes = general_purpose::STANDARD
+            .decode(
+                downloaded["base64"]
+                    .as_str()
+                    .expect("download should include base64 zip"),
+            )
+            .expect("downloaded zip base64 should decode");
+        let mut archive =
+            zip::ZipArchive::new(Cursor::new(bytes)).expect("downloaded zip should open");
+        let mut connections = String::new();
+        archive
+            .by_name(&format!("{name}/data/collections/connections.json"))
+            .expect("connections.json should be present")
+            .read_to_string(&mut connections)
+            .expect("connections.json should read");
+        let mut characters = String::new();
+        archive
+            .by_name(&format!("{name}/data/collections/characters.json"))
+            .expect("characters.json should be present")
+            .read_to_string(&mut characters)
+            .expect("characters.json should read");
+
+        assert!(!connections.contains("sk-plain-secret"));
+        assert!(!connections.contains("ciphertext-secret"));
+        assert!(!connections.contains("refresh-secret"));
+        assert!(connections.contains("OpenAI"));
+        assert!(connections.contains("safe metadata"));
+        assert!(characters.contains("Keep Character"));
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use super::super::connection_secrets;
 use super::super::images::percent_encode_component;
 use super::super::shared::*;
 use super::super::*;
@@ -5,6 +6,7 @@ use marinara_security::redact_sensitive_text;
 
 const TTS_SETTINGS_KEY: &str = "tts";
 const TTS_API_KEY_MASK: &str = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}";
+const TTS_API_KEY_ENCRYPTED_FIELD: &str = "apiKeyEncrypted";
 const MAX_TTS_AUDIO_BYTES: usize = 20 * 1024 * 1024;
 const DEFAULT_TTS_REQUEST_TIMEOUT_MS: u64 = 60_000;
 const MIN_TTS_REQUEST_TIMEOUT_MS: u64 = 1_000;
@@ -162,11 +164,22 @@ fn load_config(state: &AppState) -> AppResult<Value> {
         .get("app-settings", TTS_SETTINGS_KEY)?
         .and_then(|entry| entry.get("value").cloned().or(Some(entry)))
         .unwrap_or_else(default_config);
-    Ok(config_with_defaults(value))
+    let mut config = config_with_defaults(value);
+    if let Some(encrypted) = config
+        .get(TTS_API_KEY_ENCRYPTED_FIELD)
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+    {
+        config["apiKey"] = Value::String(decrypt_tts_api_key(state, encrypted)?);
+    }
+    Ok(config)
 }
 
 fn get_config(state: &AppState) -> AppResult<Value> {
     let mut config = load_config(state)?;
+    if let Some(object) = config.as_object_mut() {
+        object.remove(TTS_API_KEY_ENCRYPTED_FIELD);
+    }
     if config
         .get("apiKey")
         .and_then(Value::as_str)
@@ -186,10 +199,45 @@ fn put_config(state: &AppState, body: Value) -> AppResult<Value> {
             .cloned()
             .unwrap_or_else(|| Value::String(String::new()));
     }
-    state
-        .storage
-        .upsert_with_id("app-settings", TTS_SETTINGS_KEY, json!({ "value": config }))?;
+    let stored_config = config_for_storage(state, config)?;
+    state.storage.upsert_with_id(
+        "app-settings",
+        TTS_SETTINGS_KEY,
+        json!({ "value": stored_config }),
+    )?;
     Ok(Value::Null)
+}
+
+fn config_for_storage(state: &AppState, mut config: Value) -> AppResult<Value> {
+    let Some(object) = config.as_object_mut() else {
+        return Ok(config_with_defaults(config));
+    };
+    object.remove(TTS_API_KEY_ENCRYPTED_FIELD);
+    let api_key = object
+        .get("apiKey")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if api_key.is_empty() {
+        object.insert("apiKey".to_string(), Value::String(String::new()));
+        return Ok(config);
+    }
+
+    object.insert(
+        TTS_API_KEY_ENCRYPTED_FIELD.to_string(),
+        Value::String(encrypt_tts_api_key(state, &api_key)?),
+    );
+    object.insert("apiKey".to_string(), Value::String(String::new()));
+    Ok(config)
+}
+
+fn encrypt_tts_api_key(state: &AppState, api_key: &str) -> AppResult<String> {
+    connection_secrets::encrypt_secret(state, api_key)
+}
+
+fn decrypt_tts_api_key(state: &AppState, encrypted: &str) -> AppResult<String> {
+    connection_secrets::decrypt_secret(state, encrypted)
 }
 
 fn tts_request_timeout_ms(config: &Value) -> u64 {
@@ -1461,5 +1509,72 @@ mod tests {
             openai_voices_url("http://127.0.0.1:8081/v1", Some("tts-1"), Some(" /voices ")),
             "http://127.0.0.1:8081/v1/voices?model=tts-1"
         );
+    }
+
+    #[test]
+    fn put_config_encrypts_api_key_in_app_settings() {
+        let state = test_state("encrypted-api-key");
+
+        put_config(
+            &state,
+            json!({
+                "enabled": true,
+                "source": "openai",
+                "baseUrl": "https://api.openai.com/v1",
+                "apiKey": "sk-tts-secret",
+                "model": "tts-1"
+            }),
+        )
+        .expect("TTS config should save");
+
+        let stored = state
+            .storage
+            .get("app-settings", TTS_SETTINGS_KEY)
+            .expect("raw settings should read")
+            .expect("TTS settings should exist");
+        assert!(
+            !stored.to_string().contains("sk-tts-secret"),
+            "raw app settings must not contain the plaintext key"
+        );
+        assert!(
+            stored["value"]["apiKeyEncrypted"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty()),
+            "encrypted TTS key should be stored separately"
+        );
+        assert_eq!(stored["value"]["apiKey"], "");
+
+        let public_config = get_config(&state).expect("public TTS config should load");
+        assert_eq!(public_config["apiKey"], TTS_API_KEY_MASK);
+        assert!(public_config.get("apiKeyEncrypted").is_none());
+
+        let internal_config = load_config(&state).expect("internal TTS config should load");
+        assert_eq!(internal_config["apiKey"], "sk-tts-secret");
+    }
+
+    #[test]
+    fn load_config_accepts_legacy_plaintext_api_key() {
+        let state = test_state("legacy-plaintext-api-key");
+        state
+            .storage
+            .upsert_with_id(
+                "app-settings",
+                TTS_SETTINGS_KEY,
+                json!({
+                    "value": {
+                        "enabled": true,
+                        "source": "openai",
+                        "apiKey": "legacy-tts-secret"
+                    }
+                }),
+            )
+            .expect("legacy TTS settings should be stored");
+
+        let internal_config = load_config(&state).expect("legacy TTS config should load");
+        assert_eq!(internal_config["apiKey"], "legacy-tts-secret");
+
+        let public_config = get_config(&state).expect("public legacy TTS config should load");
+        assert_eq!(public_config["apiKey"], TTS_API_KEY_MASK);
+        assert!(public_config.get("apiKeyEncrypted").is_none());
     }
 }
