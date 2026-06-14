@@ -23,6 +23,7 @@ export const DEFAULT_GENERATION_PARAMS: GenerationParameters = {
   verbosity: null,
   serviceTier: null,
   assistantPrefill: "",
+  customThinkingTags: [],
   customParameters: {},
   squashSystemMessages: true,
   showThoughts: true,

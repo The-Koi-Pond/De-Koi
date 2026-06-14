@@ -1,5 +1,6 @@
+import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { GenerationParameters } from "../../../engine/contracts/types/prompt";
+import type { CustomThinkingTagPair, GenerationParameters } from "../../../engine/contracts/types/prompt";
 import { cn } from "../../lib/utils";
 import { HelpTooltip } from "./HelpTooltip";
 
@@ -15,6 +16,7 @@ export type EditableGenerationParameters = Pick<
   | "verbosity"
   | "serviceTier"
   | "assistantPrefill"
+  | "customThinkingTags"
   | "customParameters"
 >;
 
@@ -49,6 +51,7 @@ export const EDITABLE_GENERATION_PARAMETER_KEYS = [
   "verbosity",
   "serviceTier",
   "assistantPrefill",
+  "customThinkingTags",
   "customParameters",
 ] as const satisfies ReadonlyArray<keyof EditableGenerationParameters>;
 
@@ -63,6 +66,7 @@ export const CHAT_PARAMETER_DEFAULTS: EditableGenerationParameters = {
   verbosity: "high",
   serviceTier: null,
   assistantPrefill: "",
+  customThinkingTags: [],
   customParameters: {},
 };
 
@@ -77,6 +81,7 @@ export const ROLEPLAY_PARAMETER_DEFAULTS: EditableGenerationParameters = {
   verbosity: "high",
   serviceTier: null,
   assistantPrefill: "",
+  customThinkingTags: [],
   customParameters: {},
 };
 
@@ -92,6 +97,21 @@ export function parseGenerationParameterRecord(raw: unknown): Record<string, unk
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   return parsed as Record<string, unknown>;
+}
+
+function parseCustomThinkingTags(raw: unknown): CustomThinkingTagPair[] | null {
+  if (!Array.isArray(raw)) return null;
+  const tags = raw
+    .map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+      const open = typeof (entry as Record<string, unknown>).open === "string" ? (entry as { open: string }).open : "";
+      const close =
+        typeof (entry as Record<string, unknown>).close === "string" ? (entry as { close: string }).close : "";
+      return open.trim() && close.trim() ? { open: open.trim(), close: close.trim() } : null;
+    })
+    .filter((entry): entry is CustomThinkingTagPair => !!entry)
+    .slice(0, 20);
+  return tags;
 }
 
 export function parseEditableGenerationParameters(raw: unknown): EditableGenerationParameterOverrides | null {
@@ -138,6 +158,9 @@ export function parseEditableGenerationParameters(raw: unknown): EditableGenerat
   }
   if (typeof source.assistantPrefill === "string") {
     next.assistantPrefill = source.assistantPrefill;
+  }
+  if ("customThinkingTags" in source) {
+    next.customThinkingTags = parseCustomThinkingTags(source.customThinkingTags) ?? [];
   }
   if (
     source.customParameters &&
@@ -226,6 +249,9 @@ function generationParameterValuesEqual<K extends keyof EditableGenerationParame
   right: EditableGenerationParameters[K],
 ): boolean {
   if (key === "customParameters") {
+    return JSON.stringify(normalizeComparableJson(left)) === JSON.stringify(normalizeComparableJson(right));
+  }
+  if (key === "customThinkingTags") {
     return JSON.stringify(normalizeComparableJson(left)) === JSON.stringify(normalizeComparableJson(right));
   }
   return left === right;
@@ -342,6 +368,10 @@ export function GenerationParametersFields({
         <CustomParametersInput
           value={value.customParameters}
           onChange={(nextValue) => set("customParameters", nextValue)}
+        />
+        <CustomThinkingTagsInput
+          value={value.customThinkingTags}
+          onChange={(nextValue) => set("customThinkingTags", nextValue)}
         />
         {serviceTierOptions && serviceTierOptions.length > 0 && (
           <div>
@@ -528,6 +558,82 @@ function parseCustomParametersDraft(
   }
 
   return { ok: false, error: "Invalid JSON. Check quotes, commas, and boolean casing." };
+}
+
+function nextCustomThinkingTag(tags: readonly CustomThinkingTagPair[]): CustomThinkingTagPair {
+  const used = new Set(tags.map((tag) => tag.open));
+  if (!used.has("<analysis>")) return { open: "<analysis>", close: "</analysis>" };
+  for (let index = 2; index <= 20; index++) {
+    const open = `<analysis${index}>`;
+    if (!used.has(open)) return { open, close: `</analysis${index}>` };
+  }
+  return { open: "<custom-thinking>", close: "</custom-thinking>" };
+}
+
+function CustomThinkingTagsInput({
+  value,
+  onChange,
+}: {
+  value: CustomThinkingTagPair[];
+  onChange: (next: CustomThinkingTagPair[]) => void;
+}) {
+  const updateTag = (index: number, patch: Partial<CustomThinkingTagPair>) => {
+    onChange(value.map((tag, tagIndex) => (tagIndex === index ? { ...tag, ...patch } : tag)));
+  };
+
+  const addTag = () => {
+    if (value.length >= 20) return;
+    onChange([...value, nextCustomThinkingTag(value)]);
+  };
+
+  return (
+    <div>
+      <span className="inline-flex items-center gap-1 text-[0.625rem] font-medium text-[var(--muted-foreground)]">
+        Custom Thinking Tags
+        <HelpTooltip
+          text="Optional open/close wrappers that should be stripped from streamed output and saved as thinking metadata."
+          size="0.625rem"
+        />
+      </span>
+      <div className="mt-1 space-y-1.5">
+        {value.map((tag, index) => (
+          <div key={index} className="grid grid-cols-[1fr_1fr_auto] gap-1.5">
+            <input
+              type="text"
+              value={tag.open}
+              onChange={(event) => updateTag(index, { open: event.target.value })}
+              className="min-w-0 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 font-mono text-xs outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]/40"
+              placeholder="<analysis>"
+            />
+            <input
+              type="text"
+              value={tag.close}
+              onChange={(event) => updateTag(index, { close: event.target.value })}
+              className="min-w-0 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 font-mono text-xs outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]/40"
+              placeholder="</analysis>"
+            />
+            <button
+              type="button"
+              onClick={() => onChange(value.filter((_, tagIndex) => tagIndex !== index))}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--secondary)] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+              aria-label="Remove custom thinking tag"
+            >
+              <Trash2 size="0.875rem" />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addTag}
+          disabled={value.length >= 20}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 text-[0.625rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Plus size="0.75rem" />
+          Add tag
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function ParamInput({

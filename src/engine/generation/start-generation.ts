@@ -4199,7 +4199,7 @@ async function* streamMainGenerationLoop(args: {
     let turnProviderMetadata: unknown = null;
     let turnContent = "";
     inFlightTurn = "";
-    const thinkingParser = createInlineThinkingStreamParser();
+    const thinkingParser = createInlineThinkingStreamParser({ customThinkingTags: parameters.customThinkingTags });
     const emitInlineParts = function* (text: string): Generator<GenerationEvent> {
       for (const part of thinkingParser.push(text)) {
         if (!part.text) continue;

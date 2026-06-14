@@ -34,6 +34,11 @@ const markerConfigSchema = z.object({
   agentType: z.string().optional(),
 });
 
+const customThinkingTagSchema = z.object({
+  open: z.string().trim().min(1).max(200),
+  close: z.string().trim().min(1).max(200),
+});
+
 export const generationParametersSchema = z.object({
   temperature: z.number().min(0).max(2).default(1),
   topP: z.number().gt(0).max(1).default(1),
@@ -47,6 +52,7 @@ export const generationParametersSchema = z.object({
   verbosity: z.enum(["low", "medium", "high"]).nullable().default(null),
   serviceTier: z.enum(["auto", "default", "flex", "scale", "priority", "standard_only"]).nullable().default(null),
   assistantPrefill: z.string().default(""),
+  customThinkingTags: z.array(customThinkingTagSchema).max(20).default([]),
   seed: z.number().int().min(0).optional(),
   customParameters: z.record(z.unknown()).default({}),
   custom_params: z.record(z.unknown()).optional(),

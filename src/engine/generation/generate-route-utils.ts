@@ -1,5 +1,6 @@
 import { generationParametersSchema } from "../contracts/schemas/prompt.schema";
 import type { GenerationParameters } from "../contracts/types/prompt";
+import { normalizeCustomThinkingTags } from "../generation-core/llm/inline-thinking";
 import { getAttachmentFilename, type PromptAttachment } from "../shared/attachments/image-attachments";
 import { parseRecord, readNonNegativeInteger, readString } from "./runtime-records";
 
@@ -316,6 +317,9 @@ function parseStoredGenerationParameters(raw: unknown): StoredGenerationParamete
     out.serviceTier = source.serviceTier as StoredGenerationParameters["serviceTier"];
   }
   if (typeof source.assistantPrefill === "string") out.assistantPrefill = source.assistantPrefill;
+  if (Array.isArray(source.customThinkingTags)) {
+    out.customThinkingTags = normalizeCustomThinkingTags(source.customThinkingTags);
+  }
   if (isPlainRecord(source.customParameters)) {
     out.customParameters = source.customParameters;
   }
