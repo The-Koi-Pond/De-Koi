@@ -51,11 +51,15 @@ export function ImagePromptReviewModal({
   const handleConfirm = () => {
     if (hasEmptyPrompt || isSubmitting) return;
     onConfirm(
-      items.map((item) => ({
-        id: item.id,
-        prompt: (drafts[item.id] ?? item.prompt).trim(),
-        negativePrompt: (negativeDrafts[item.id] ?? item.negativePrompt ?? "").trim() || undefined,
-      })),
+      items.map((item) => {
+        const negativeDraft = (negativeDrafts[item.id] ?? item.negativePrompt ?? "").trim();
+        const hasNegativePromptField = item.negativePrompt != null || negativeDraft.length > 0;
+        return {
+          id: item.id,
+          prompt: (drafts[item.id] ?? item.prompt).trim(),
+          negativePrompt: hasNegativePromptField ? negativeDraft : undefined,
+        };
+      }),
     );
   };
 

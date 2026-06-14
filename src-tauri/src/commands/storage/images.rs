@@ -43,6 +43,274 @@ pub(crate) fn avatar_generation_prompt(body: &Value) -> String {
     )
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ImagePromptDefaults {
+    prompt_prefix: String,
+    negative_prompt_prefix: String,
+    style_profile_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct AvatarStyleProfile {
+    positive_tags: String,
+    negative_tags: String,
+    avatar_subject_tags: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AvatarPromptCompilation {
+    id: String,
+    title: String,
+    prompt: String,
+    negative_prompt: Option<String>,
+}
+
+fn default_parameters_root(connection: &Value) -> Option<Value> {
+    match connection.get("defaultParameters")? {
+        Value::String(raw) => serde_json::from_str::<Value>(raw).ok(),
+        Value::Object(_) => connection.get("defaultParameters").cloned(),
+        _ => None,
+    }
+}
+
+fn image_defaults_profile(connection: &Value, service: &str) -> Option<Value> {
+    let profile = default_parameters_root(connection)?
+        .get("imageGeneration")
+        .cloned()?;
+    profile
+        .get("service")
+        .and_then(Value::as_str)
+        .filter(|value| *value == service)?;
+    Some(profile)
+}
+
+fn defaults_service_for_connection(connection: &Value) -> Option<&'static str> {
+    match image_generation_source(connection).as_str() {
+        "automatic1111" | "drawthings" => Some("automatic1111"),
+        "comfyui" | "runpod_comfyui" => Some("comfyui"),
+        "novelai" => Some("novelai"),
+        _ => None,
+    }
+}
+
+fn image_prompt_defaults(connection: &Value) -> ImagePromptDefaults {
+    let Some(service) = defaults_service_for_connection(connection) else {
+        return ImagePromptDefaults::default();
+    };
+    let Some(profile) = image_defaults_profile(connection, service) else {
+        return ImagePromptDefaults::default();
+    };
+    let style_profile_id = profile
+        .get("styleProfileId")
+        .and_then(Value::as_str)
+        .map(slug_image_style_profile_id)
+        .filter(|value| !value.is_empty());
+    let Some(defaults) = profile.get(service).and_then(Value::as_object) else {
+        return ImagePromptDefaults {
+            style_profile_id,
+            ..ImagePromptDefaults::default()
+        };
+    };
+    ImagePromptDefaults {
+        prompt_prefix: defaults
+            .get("promptPrefix")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        negative_prompt_prefix: defaults
+            .get("negativePromptPrefix")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        style_profile_id,
+    }
+}
+
+fn selected_avatar_style_profile(
+    body: &Value,
+    connection_defaults: &ImagePromptDefaults,
+) -> AvatarStyleProfile {
+    let settings = body.get("styleProfiles");
+    let selected_id = body
+        .get("styleProfileId")
+        .and_then(Value::as_str)
+        .map(slug_image_style_profile_id)
+        .filter(|value| !value.is_empty())
+        .or_else(|| connection_defaults.style_profile_id.clone())
+        .or_else(|| {
+            settings
+                .and_then(|value| value.get("defaultProfileId"))
+                .and_then(Value::as_str)
+                .map(slug_image_style_profile_id)
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_else(|| "auto".to_string());
+
+    settings
+        .and_then(|value| value.get("profiles"))
+        .and_then(Value::as_array)
+        .and_then(|profiles| {
+            profiles.iter().find_map(|profile| {
+                let id = profile.get("id").and_then(Value::as_str)?;
+                if slug_image_style_profile_id(id) != selected_id {
+                    return None;
+                }
+                let subject_tags = profile
+                    .get("subjectTags")
+                    .and_then(|value| value.get("avatar"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                Some(AvatarStyleProfile {
+                    positive_tags: profile
+                        .get("positiveTags")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string(),
+                    negative_tags: profile
+                        .get("negativeTags")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string(),
+                    avatar_subject_tags: subject_tags,
+                })
+            })
+        })
+        .unwrap_or_else(|| built_in_avatar_style_profile(&selected_id))
+}
+
+fn built_in_avatar_style_profile(profile_id: &str) -> AvatarStyleProfile {
+    match profile_id {
+        "anime" => AvatarStyleProfile {
+            positive_tags: "anime style, illustration, best quality, detailed eyes, clean lineart".to_string(),
+            negative_tags:
+                "photorealistic, 3d render, lowres, bad anatomy, bad hands, text, watermark, logo, signature"
+                    .to_string(),
+            avatar_subject_tags: "solo, portrait, upper body, centered composition".to_string(),
+        },
+        "danbooru" => AvatarStyleProfile {
+            positive_tags: "masterpiece, best quality, absurdres, anime screencap, detailed eyes".to_string(),
+            negative_tags:
+                "worst quality, low quality, lowres, bad anatomy, bad hands, extra digits, fewer digits, text, watermark, logo, signature"
+                    .to_string(),
+            avatar_subject_tags: "solo, portrait, upper body, centered composition".to_string(),
+        },
+        "realistic" => AvatarStyleProfile {
+            positive_tags: "high quality, realistic, detailed, natural lighting".to_string(),
+            negative_tags:
+                "anime, cartoon, illustration, low quality, blurry, plastic skin, text, watermark, logo, signature"
+                    .to_string(),
+            avatar_subject_tags: "single subject, centered portrait, readable face".to_string(),
+        },
+        "photorealistic" => AvatarStyleProfile {
+            positive_tags: "photorealistic, high quality, sharp focus, natural lighting, detailed textures".to_string(),
+            negative_tags:
+                "anime, cartoon, illustration, painting, plastic skin, uncanny face, low quality, blurry, text, watermark, logo, signature"
+                    .to_string(),
+            avatar_subject_tags: "single subject, centered face-and-shoulders portrait".to_string(),
+        },
+        "cinematic" => AvatarStyleProfile {
+            positive_tags: "cinematic lighting, dramatic composition, atmospheric, high detail".to_string(),
+            negative_tags: "flat lighting, cluttered composition, text, watermark, logo, signature, low quality".to_string(),
+            avatar_subject_tags: "single subject, centered portrait".to_string(),
+        },
+        "digital-painting" | "digital_painting" => AvatarStyleProfile {
+            positive_tags: "digital painting, concept art, refined brushwork, high detail, designed lighting".to_string(),
+            negative_tags:
+                "photograph, raw photo, muddy details, flat lighting, text, watermark, logo, signature, low quality"
+                    .to_string(),
+            avatar_subject_tags: "single subject, centered character portrait".to_string(),
+        },
+        "painterly" => AvatarStyleProfile {
+            positive_tags: "painterly, fantasy illustration, soft brushwork, rich atmosphere, high detail".to_string(),
+            negative_tags: "photorealistic, flat colors, muddy details, text, watermark, logo, signature, low quality"
+                .to_string(),
+            avatar_subject_tags: "single subject, centered portrait, painterly avatar".to_string(),
+        },
+        "z-image-turbo" | "z_image_turbo" => AvatarStyleProfile {
+            positive_tags: "A clean avatar portrait with a clear silhouette and readable face.".to_string(),
+            negative_tags: "text, watermark, logo, signature, low quality, blurry, malformed hands, distorted face"
+                .to_string(),
+            avatar_subject_tags: String::new(),
+        },
+        _ => AvatarStyleProfile {
+            positive_tags: String::new(),
+            negative_tags: "text, watermark, logo, signature, low quality, blurry".to_string(),
+            avatar_subject_tags: String::new(),
+        },
+    }
+}
+
+fn slug_image_style_profile_id(value: &str) -> String {
+    value
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .chars()
+        .take(80)
+        .collect()
+}
+
+fn merge_prompt_prefix(prefix: &str, prompt: &str) -> String {
+    let prefix = prefix.trim();
+    let prompt = prompt.trim();
+    match (prefix.is_empty(), prompt.is_empty()) {
+        (true, _) => prompt.to_string(),
+        (_, true) => prefix.to_string(),
+        _ => format!("{prefix}, {prompt}"),
+    }
+}
+
+fn avatar_prompt_compilation(body: &Value, connection: &Value) -> AvatarPromptCompilation {
+    let name = body
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("Character");
+    let defaults = image_prompt_defaults(connection);
+    let style_profile = selected_avatar_style_profile(body, &defaults);
+    let prompt = [
+        style_profile.positive_tags.as_str(),
+        style_profile.avatar_subject_tags.as_str(),
+        defaults.prompt_prefix.as_str(),
+        &avatar_generation_prompt(body),
+    ]
+    .into_iter()
+    .fold(String::new(), |current, part| {
+        merge_prompt_prefix(&current, part)
+    });
+    let negative_prompt = merge_prompt_prefix(
+        style_profile.negative_tags.as_str(),
+        &merge_prompt_prefix(
+            defaults.negative_prompt_prefix.as_str(),
+            body.get("negativePrompt")
+                .or_else(|| body.get("negative_prompt"))
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+        ),
+    );
+
+    AvatarPromptCompilation {
+        id: avatar_generation_prompt_id(name),
+        title: format!("Avatar: {}", name.trim().if_empty("Character")),
+        prompt,
+        negative_prompt: (!negative_prompt.trim().is_empty()).then_some(negative_prompt),
+    }
+}
+
 pub(crate) fn image_dimension(body: &Value, key: &str, fallback: u64) -> u64 {
     body.get(key)
         .and_then(Value::as_u64)
@@ -50,18 +318,22 @@ pub(crate) fn image_dimension(body: &Value, key: &str, fallback: u64) -> u64 {
         .unwrap_or(fallback)
 }
 
-pub(crate) fn avatar_generation_preview(_state: &AppState, body: Value) -> AppResult<Value> {
-    let name = body
-        .get("name")
-        .and_then(Value::as_str)
-        .unwrap_or("Character");
-    let prompt = avatar_generation_prompt(&body);
+pub(crate) fn avatar_generation_preview(state: &AppState, body: Value) -> AppResult<Value> {
+    let connection_id = required_string(&body, "connectionId")?;
+    let connection = connection_secrets::connection_for_runtime(state, connection_id)?;
+    if connection.get("provider").and_then(Value::as_str) != Some("image_generation") {
+        return Err(AppError::invalid_input(
+            "Selected connection is not an image-generation connection",
+        ));
+    }
+    let compiled = avatar_prompt_compilation(&body, &connection);
     Ok(json!({
         "items": [{
-            "id": avatar_generation_prompt_id(name),
+            "id": compiled.id,
             "kind": "avatar",
-            "title": format!("Avatar: {}", name.trim().if_empty("Character")),
-            "prompt": prompt,
+            "title": compiled.title,
+            "prompt": compiled.prompt,
+            "negativePrompt": compiled.negative_prompt,
             "width": image_dimension(&body, "width", 768),
             "height": image_dimension(&body, "height", 1024)
         }]
@@ -94,6 +366,24 @@ pub(crate) fn prompt_override(body: &Value, id: &str) -> Option<String> {
                 } else {
                     None
                 }
+            })
+        })
+}
+
+pub(crate) fn negative_prompt_override(body: &Value, id: &str) -> Option<String> {
+    body.get("promptOverrides")
+        .and_then(Value::as_array)
+        .and_then(|items| {
+            items.iter().find_map(|item| {
+                let item_id = item.get("id").and_then(Value::as_str)?;
+                if item_id != id {
+                    return None;
+                }
+                item.get("negativePrompt")
+                    .or_else(|| item.get("negative_prompt"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .map(str::to_string)
             })
         })
 }
@@ -131,6 +421,7 @@ pub(crate) fn image_generation_options(body: &Value) -> ImageGenerationOptions {
             .or_else(|| body.get("nativeTransparentPng"))
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        apply_prompt_defaults: true,
     }
 }
 
@@ -160,23 +451,17 @@ pub(crate) async fn avatar_generation(state: &AppState, body: Value) -> AppResul
             "Selected connection is not an image-generation connection",
         ));
     }
-    let name = body
-        .get("name")
-        .and_then(Value::as_str)
-        .unwrap_or("Character");
-    let prompt_id = avatar_generation_prompt_id(name);
-    let prompt =
-        prompt_override(&body, &prompt_id).unwrap_or_else(|| avatar_generation_prompt(&body));
+    let compiled = avatar_prompt_compilation(&body, &connection);
+    let prompt = prompt_override(&body, &compiled.id).unwrap_or_else(|| compiled.prompt.clone());
+    let negative_prompt =
+        negative_prompt_override(&body, &compiled.id).or(compiled.negative_prompt);
     let width = image_dimension(&body, "width", 768);
     let height = image_dimension(&body, "height", 1024);
-    let (base64, mime_type) = generate_image_with_options(
-        &connection,
-        &prompt,
-        width,
-        height,
-        image_generation_options(&body),
-    )
-    .await?;
+    let mut options = image_generation_options(&body);
+    options.negative_prompt = negative_prompt;
+    options.apply_prompt_defaults = false;
+    let (base64, mime_type) =
+        generate_image_with_options(&connection, &prompt, width, height, options).await?;
     let ext = image_extension_from_mime_type(&mime_type);
     Ok(json!({
         "image": format!("data:{mime_type};base64,{base64}"),
@@ -249,10 +534,71 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn avatar_prompt_compilation_applies_connection_style_profile_and_prompt_defaults() {
+        let body = json!({
+            "name": "Mira",
+            "appearance": "silver hair, green eyes",
+            "negativePrompt": "bad hands",
+            "styleProfiles": {
+                "defaultProfileId": "auto",
+                "profiles": [
+                    {
+                        "id": "danbooru",
+                        "positiveTags": "masterpiece, best quality",
+                        "negativeTags": "worst quality, low quality",
+                        "subjectTags": { "avatar": "solo, portrait, upper body" }
+                    }
+                ]
+            }
+        });
+        let connection = json!({
+            "provider": "image_generation",
+            "imageGenerationSource": "novelai",
+            "defaultParameters": {
+                "imageGeneration": {
+                    "service": "novelai",
+                    "styleProfileId": "danbooru",
+                    "novelai": {
+                        "promptPrefix": "best quality",
+                        "negativePromptPrefix": "low quality"
+                    }
+                }
+            }
+        });
+
+        let compiled = avatar_prompt_compilation(&body, &connection);
+
+        assert_eq!(compiled.id, "avatar-mira");
+        assert!(compiled.prompt.contains("masterpiece"));
+        assert!(compiled.prompt.contains("solo, portrait, upper body"));
+        assert!(compiled.prompt.contains("Portrait avatar of Mira"));
+        assert!(compiled.prompt.contains("silver hair, green eyes"));
+        let negative_prompt = compiled.negative_prompt.as_deref().unwrap_or("");
+        assert!(negative_prompt.contains("worst quality"));
+        assert!(negative_prompt.ends_with("low quality, bad hands"));
+    }
+
+    #[test]
     fn image_dimension_accepts_documented_4096_cap() {
         let body = json!({ "width": 4096, "height": 4097 });
 
         assert_eq!(image_dimension(&body, "width", 1024), 4096);
         assert_eq!(image_dimension(&body, "height", 1024), 1024);
+    }
+
+    #[test]
+    fn negative_prompt_override_preserves_empty_review_value() {
+        let body = json!({
+            "promptOverrides": [{
+                "id": "avatar-mira",
+                "prompt": "reviewed positive prompt",
+                "negativePrompt": ""
+            }]
+        });
+
+        assert_eq!(
+            negative_prompt_override(&body, "avatar-mira"),
+            Some(String::new())
+        );
     }
 }

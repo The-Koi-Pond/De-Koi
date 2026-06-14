@@ -2228,6 +2228,10 @@ function ImageGenerationDefaultsPanel({
     onChange({ ...value, seed });
   };
 
+  const updateStyleProfileId = (styleProfileId: string) => {
+    onChange({ ...value, styleProfileId: styleProfileId.trim() || null });
+  };
+
   const automatic1111 = value.automatic1111 ?? createDefaultImageGenerationProfile("automatic1111").automatic1111!;
   const comfyui = value.comfyui ?? createDefaultImageGenerationProfile("comfyui").comfyui!;
   const novelai = value.novelai ?? createDefaultImageGenerationProfile("novelai").novelai!;
@@ -2304,6 +2308,12 @@ function ImageGenerationDefaultsPanel({
 
             <div className="grid gap-2 sm:grid-cols-2">
               <NumberSetting label="Seed" value={value.seed} min={-1} max={4_294_967_295} onCommit={updateSeed} />
+              <InlineTextSetting
+                label="Style Profile ID"
+                value={value.styleProfileId ?? ""}
+                onChange={updateStyleProfileId}
+                placeholder="Global default"
+              />
               {service === "automatic1111" ? (
                 <>
                   <NumberSetting
@@ -2477,6 +2487,15 @@ function ImageGenerationDefaultsPanel({
                   placeholders, plus %reference_image%, %reference_image_name%, and indexed reference filenames such as
                   %reference_image_name_02%.
                 </p>
+                <label className="flex cursor-pointer items-center gap-3 rounded-lg bg-[var(--card)] px-3 py-2 ring-1 ring-[var(--border)]">
+                  <input
+                    type="checkbox"
+                    checked={comfyui.uploadPlaceholderOnMissingReference}
+                    onChange={(event) => updateComfyUi({ uploadPlaceholderOnMissingReference: event.target.checked })}
+                    className="h-4 w-4 accent-sky-400"
+                  />
+                  <span className="text-xs text-[var(--foreground)]">Upload placeholder reference when missing</span>
+                </label>
               </>
             ) : (
               <>
@@ -2516,6 +2535,30 @@ function ImageGenerationDefaultsPanel({
         )}
       </div>
     </FieldGroup>
+  );
+}
+
+function InlineTextSetting({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="mt-1 w-full rounded-lg bg-[var(--card)] px-3 py-2 text-xs ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)]/60 focus:outline-none focus:ring-sky-400/50"
+      />
+    </label>
   );
 }
 

@@ -12,7 +12,7 @@ import { getErrorMessage } from "../../lib/error-message";
 import { useUIStore } from "../../stores/ui.store";
 import { spriteApi, type SpriteOwnerType } from "../../api/image-generation-api";
 import { ImagePromptReviewModal, type ImagePromptOverride, type ImagePromptReviewItem } from "./ImagePromptReviewModal";
-import type { ImageGenerationConnectionOption } from "../../types/image-generation";
+import { isDefaultImageGenerationConnection, type ImageGenerationConnectionOption } from "../../types/image-generation";
 import type { SpriteCapabilities } from "../../types/sprite-capabilities";
 
 // ── Types ──
@@ -545,8 +545,9 @@ export function SpriteGenerationModal({
     [defaultAvatarUrl, referenceImages, useCurrentAvatarReference],
   );
 
-  // Auto-select first image connection
-  const effectiveConnectionId = connectionId ?? imageConnections[0]?.id ?? null;
+  const defaultImageConnectionId =
+    imageConnections.find(isDefaultImageGenerationConnection)?.id ?? imageConnections[0]?.id ?? null;
+  const effectiveConnectionId = connectionId ?? defaultImageConnectionId;
   const selectedImageConnection = useMemo(
     () => imageConnections.find((connection) => connection.id === effectiveConnectionId) ?? null,
     [effectiveConnectionId, imageConnections],

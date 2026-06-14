@@ -29,11 +29,23 @@ const RUNPOD_COMFYUI_MAX_REFERENCE_IMAGES: usize = 4;
 const COMFYUI_PLACEHOLDER_REFERENCE_BASE64: &str =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(crate) struct ImageGenerationOptions {
     pub(crate) negative_prompt: Option<String>,
     pub(crate) reference_images: Vec<String>,
     pub(crate) transparent_background: bool,
+    pub(crate) apply_prompt_defaults: bool,
+}
+
+impl Default for ImageGenerationOptions {
+    fn default() -> Self {
+        Self {
+            negative_prompt: None,
+            reference_images: Vec::new(),
+            transparent_background: false,
+            apply_prompt_defaults: true,
+        }
+    }
 }
 
 pub(crate) async fn generate_image_with_connection(
@@ -340,6 +352,7 @@ struct ComfyDefaults {
     cfg_scale: f64,
     denoising_strength: f64,
     clip_skip: Option<u64>,
+    upload_placeholder_on_missing_reference: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -396,6 +409,10 @@ fn read_f64(value: Option<&Value>, fallback: f64, min: f64, max: f64) -> f64 {
         .clamp(min, max)
 }
 
+fn read_bool(value: Option<&Value>, fallback: bool) -> bool {
+    value.and_then(Value::as_bool).unwrap_or(fallback)
+}
+
 fn resolve_seed(connection: &Value) -> u64 {
     default_parameters_root(connection)
         .and_then(|root| {
@@ -424,6 +441,10 @@ fn resolve_comfy_defaults(connection: &Value) -> ComfyDefaults {
             .get("clipSkip")
             .and_then(Value::as_u64)
             .filter(|value| (1..=12).contains(value)),
+        upload_placeholder_on_missing_reference: read_bool(
+            defaults.get("uploadPlaceholderOnMissingReference"),
+            false,
+        ),
     }
 }
 
@@ -2029,11 +2050,19 @@ async fn generate_automatic1111(
     let defaults = image_defaults_profile(connection, "automatic1111")
         .and_then(|profile| profile.get("automatic1111").cloned())
         .unwrap_or(Value::Null);
-    let prompt = merge_prompt(&read_string(defaults.get("promptPrefix"), ""), prompt);
-    let negative_prompt = merge_negative_prompt(
-        &read_string(defaults.get("negativePromptPrefix"), ""),
-        options.negative_prompt.as_deref(),
-    );
+    let prompt_prefix = if options.apply_prompt_defaults {
+        read_string(defaults.get("promptPrefix"), "")
+    } else {
+        String::new()
+    };
+    let negative_prompt_prefix = if options.apply_prompt_defaults {
+        read_string(defaults.get("negativePromptPrefix"), "")
+    } else {
+        String::new()
+    };
+    let prompt = merge_prompt(&prompt_prefix, prompt);
+    let negative_prompt =
+        merge_negative_prompt(&negative_prompt_prefix, options.negative_prompt.as_deref());
     let steps = read_u64(defaults.get("steps"), 20, 1, 150);
     let cfg_scale = read_f64(defaults.get("cfgScale"), 7.0, 0.0, 30.0);
     let sampler = read_string(defaults.get("sampler"), "Euler a");
@@ -2248,11 +2277,19 @@ async fn generate_comfyui(
     options: &ImageGenerationOptions,
 ) -> AppResult<(String, String)> {
     let defaults = resolve_comfy_defaults(connection);
-    let prompt = merge_prompt(&defaults.prompt_prefix, prompt);
-    let negative_prompt = merge_negative_prompt(
-        &defaults.negative_prompt_prefix,
-        options.negative_prompt.as_deref(),
-    );
+    let prompt_prefix = if options.apply_prompt_defaults {
+        defaults.prompt_prefix.as_str()
+    } else {
+        ""
+    };
+    let negative_prompt_prefix = if options.apply_prompt_defaults {
+        defaults.negative_prompt_prefix.as_str()
+    } else {
+        ""
+    };
+    let prompt = merge_prompt(prompt_prefix, prompt);
+    let negative_prompt =
+        merge_negative_prompt(negative_prompt_prefix, options.negative_prompt.as_deref());
     let workflow = connection
         .get("comfyuiWorkflow")
         .and_then(Value::as_str)
@@ -2281,11 +2318,13 @@ async fn generate_comfyui(
             if uploaded_by_slot.contains_key(index) {
                 continue;
             }
-            let reference = options
-                .reference_images
-                .get(*index)
-                .map(String::as_str)
-                .unwrap_or(COMFYUI_PLACEHOLDER_REFERENCE_BASE64);
+            let reference = match options.reference_images.get(*index).map(String::as_str) {
+                Some(reference) => reference,
+                None if defaults.upload_placeholder_on_missing_reference => {
+                    COMFYUI_PLACEHOLDER_REFERENCE_BASE64
+                }
+                None => continue,
+            };
             uploaded_by_slot.insert(
                 *index,
                 upload_comfy_reference_image(&base, reference).await?,
@@ -2444,6 +2483,12 @@ fn comfy_replacements(
     {
         replacements.insert("%model%".to_string(), Value::String(model.to_string()));
     }
+    let reference_images =
+        if reference_images.is_empty() && defaults.upload_placeholder_on_missing_reference {
+            vec![COMFYUI_PLACEHOLDER_REFERENCE_BASE64.to_string()]
+        } else {
+            reference_images.to_vec()
+        };
     for (index, reference) in reference_images
         .iter()
         .take(RUNPOD_COMFYUI_MAX_REFERENCE_IMAGES)
@@ -2523,11 +2568,19 @@ async fn generate_runpod_comfyui(
             )
         })?;
     let defaults = resolve_comfy_defaults(connection);
-    let prompt = merge_prompt(&defaults.prompt_prefix, prompt);
-    let negative_prompt = merge_negative_prompt(
-        &defaults.negative_prompt_prefix,
-        options.negative_prompt.as_deref(),
-    );
+    let prompt_prefix = if options.apply_prompt_defaults {
+        defaults.prompt_prefix.as_str()
+    } else {
+        ""
+    };
+    let negative_prompt_prefix = if options.apply_prompt_defaults {
+        defaults.negative_prompt_prefix.as_str()
+    } else {
+        ""
+    };
+    let prompt = merge_prompt(prompt_prefix, prompt);
+    let negative_prompt =
+        merge_negative_prompt(negative_prompt_prefix, options.negative_prompt.as_deref());
     let workflow = serde_json::from_str::<Value>(workflow).map_err(|error| {
         AppError::invalid_input(format!("Invalid ComfyUI workflow JSON: {error}"))
     })?;
@@ -2680,16 +2733,19 @@ async fn generate_novelai(
     let model = connection_model(connection, "nai-diffusion-4-5-full");
     let is_v4 = is_novelai_v4_model(&model);
     let defaults = resolve_novelai_defaults(connection);
-    let prompt = prepare_novelai_prompt(
-        &merge_prompt(&defaults.prompt_prefix, prompt),
-        "prompt",
-        &model,
-    )?;
+    let prompt_prefix = if options.apply_prompt_defaults {
+        defaults.prompt_prefix.as_str()
+    } else {
+        ""
+    };
+    let negative_prompt_prefix = if options.apply_prompt_defaults {
+        defaults.negative_prompt_prefix.as_str()
+    } else {
+        ""
+    };
+    let prompt = prepare_novelai_prompt(&merge_prompt(prompt_prefix, prompt), "prompt", &model)?;
     let negative_prompt = prepare_novelai_prompt(
-        &merge_negative_prompt(
-            &defaults.negative_prompt_prefix,
-            options.negative_prompt.as_deref(),
-        ),
+        &merge_negative_prompt(negative_prompt_prefix, options.negative_prompt.as_deref()),
         "negative prompt",
         &model,
     )?;
@@ -3266,6 +3322,7 @@ mod tests {
             cfg_scale: 7.0,
             denoising_strength: 1.0,
             clip_skip: None,
+            upload_placeholder_on_missing_reference: false,
         }
     }
 
@@ -3342,6 +3399,29 @@ mod tests {
             ))
         );
         assert_eq!(resolved["ignored"], json!("%reference_image_05%"));
+    }
+
+    #[test]
+    fn comfy_replacements_respects_missing_reference_placeholder_option() {
+        let connection = json!({ "model": "checkpoint.safetensors" });
+        let defaults = test_comfy_defaults();
+
+        let without_placeholder =
+            comfy_replacements(&connection, &defaults, "prompt", "", 512, 512, &[]);
+        assert!(!without_placeholder.contains_key("%reference_image%"));
+
+        let defaults = ComfyDefaults {
+            upload_placeholder_on_missing_reference: true,
+            ..defaults
+        };
+        let with_placeholder =
+            comfy_replacements(&connection, &defaults, "prompt", "", 512, 512, &[]);
+        assert_eq!(
+            with_placeholder.get("%reference_image%"),
+            Some(&Value::String(
+                COMFYUI_PLACEHOLDER_REFERENCE_BASE64.to_string()
+            ))
+        );
     }
 
     #[tokio::test]

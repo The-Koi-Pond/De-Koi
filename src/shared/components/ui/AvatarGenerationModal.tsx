@@ -7,7 +7,7 @@ import { cn } from "../../lib/utils";
 import { urlToDataUrl } from "../../lib/url-blob";
 import { Modal } from "./Modal";
 import { ImagePromptReviewModal, type ImagePromptOverride, type ImagePromptReviewItem } from "./ImagePromptReviewModal";
-import type { ImageGenerationConnectionOption } from "../../types/image-generation";
+import { isDefaultImageGenerationConnection, type ImageGenerationConnectionOption } from "../../types/image-generation";
 
 type AvatarGenerationModalProps = {
   open: boolean;
@@ -40,6 +40,7 @@ export function AvatarGenerationModal({
   const reviewImagePromptsBeforeSend = useUIStore((s) => s.reviewImagePromptsBeforeSend);
   const imagePortraitWidth = useUIStore((s) => s.imagePortraitWidth);
   const imagePortraitHeight = useUIStore((s) => s.imagePortraitHeight);
+  const imageStyleProfiles = useUIStore((s) => s.imageStyleProfiles);
   const [appearance, setAppearance] = useState(defaultAppearance ?? "");
   const [connectionId, setConnectionId] = useState<string | null>(null);
   const [useCurrentAvatarReference, setUseCurrentAvatarReference] = useState(false);
@@ -51,7 +52,9 @@ export function AvatarGenerationModal({
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const reviewResolveRef = useRef<((overrides: ImagePromptOverride[] | null) => void) | null>(null);
 
-  const effectiveConnectionId = connectionId ?? imageConnections[0]?.id ?? null;
+  const defaultImageConnectionId =
+    imageConnections.find(isDefaultImageGenerationConnection)?.id ?? imageConnections[0]?.id ?? null;
+  const effectiveConnectionId = connectionId ?? defaultImageConnectionId;
 
   useEffect(() => {
     if (!open) return;
@@ -97,6 +100,7 @@ export function AvatarGenerationModal({
     referenceImages,
     width: imagePortraitWidth,
     height: imagePortraitHeight,
+    styleProfiles: imageStyleProfiles,
     promptOverrides,
   });
 
