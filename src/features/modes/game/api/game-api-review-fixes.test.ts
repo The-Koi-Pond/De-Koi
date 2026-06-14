@@ -442,6 +442,46 @@ describe("game API review guards", () => {
     expect(portraitPrompt).toContain("Notes: Carries a cracked lantern.");
   });
 
+  it("falls back to stored scene context when payload fields are blank", async () => {
+    mockChat(
+      gameImageChat({
+        gameSetupConfig: {
+          genre: "fantasy",
+          setting: "flooded moon city",
+          worldOverview: "The moonlit city is built inside a flooded crater.",
+          artStylePrompt: "inked fantasy art",
+        },
+        gameWorldOverview: "",
+        gameMap: {
+          type: "node",
+          name: "Flooded Archive",
+          description: "A drowned library with brass catwalks.",
+          partyPosition: "main",
+        },
+        gameWeather: "cold rain",
+        gameTimeFormatted: "midnight",
+      }),
+    );
+    storageApiMock.list.mockResolvedValue([]);
+
+    const result = await previewGeneratedAssets({
+      chatId: "chat-1",
+      backgroundTag: "flooded archive",
+      currentLocation: " ",
+      location: "",
+      weather: " ",
+      currentWeather: "",
+      timeOfDay: " ",
+      currentTimeOfDay: "",
+    });
+
+    const backgroundPrompt = result.items.find((item) => item.kind === "background")?.prompt ?? "";
+    expect(backgroundPrompt).toContain("The moonlit city is built inside a flooded crater.");
+    expect(backgroundPrompt).toContain("Current location: Flooded Archive");
+    expect(backgroundPrompt).toContain("Weather: cold rain");
+    expect(backgroundPrompt).toContain("Time of day: midnight");
+  });
+
   it("keeps stored NPC identity when avatar requests send empty optional fields", async () => {
     mockChat(
       gameImageChat({

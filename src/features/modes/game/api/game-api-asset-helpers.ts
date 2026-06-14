@@ -91,13 +91,13 @@ export function scenePromptContext(meta: Record<string, unknown>, payload: Recor
   const setup = g.asRecord(meta.gameSetupConfig);
   const map = g.asRecord(meta.gameMap);
   const lines = [
-    promptLine("World overview", meta.gameWorldOverview ?? setup.worldOverview),
+    promptLine("World overview", firstTrimmed(meta.gameWorldOverview, setup.worldOverview)),
     promptLine("Genre", setup.genre),
     promptLine("Setting", setup.setting),
-    promptLine("Current location", payload.currentLocation ?? payload.location ?? map.name),
+    promptLine("Current location", firstTrimmed(payload.currentLocation, payload.location, map.name)),
     promptLine("Location detail", map.description),
-    promptLine("Weather", payload.weather ?? payload.currentWeather ?? meta.gameWeather),
-    promptLine("Time of day", payload.timeOfDay ?? payload.currentTimeOfDay ?? meta.gameTimeFormatted),
+    promptLine("Weather", firstTrimmed(payload.weather, payload.currentWeather, meta.gameWeather)),
+    promptLine("Time of day", firstTrimmed(payload.timeOfDay, payload.currentTimeOfDay, meta.gameTimeFormatted)),
   ].filter((line): line is string => !!line);
   return lines.length > 0 ? `Scene context: ${lines.join(" ")}` : "";
 }
