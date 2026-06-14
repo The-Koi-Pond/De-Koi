@@ -9,8 +9,14 @@ import { cn } from "../../../../../shared/lib/utils";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { useChatSummaries, type ChatListItem, type ChatMode } from "../../../chats/index";
 import { useLorebooks, useUpdateLorebook } from "../../hooks/use-lorebooks";
-
-type LorebookOwnerType = "character" | "persona";
+import {
+  DEFAULT_LOREBOOK_SCOPE,
+  eligibleScopeChatIds,
+  normalizeLorebookScope,
+  ownerCreateDefaultCategory,
+  uniqueIds,
+  type LorebookOwnerType,
+} from "../../lib/lorebook-assignment-model";
 
 type AssignmentDraft = {
   lorebookId: string | null;
@@ -27,28 +33,11 @@ type LorebookAssignmentSectionProps = {
   ownerName: string;
 };
 
-const DEFAULT_LOREBOOK_SCOPE: LorebookScope = { mode: "all", chatIds: [] };
-
 const MODE_LABELS: Record<ChatMode, string> = {
   conversation: "Conversation",
   roleplay: "Roleplay",
   game: "Game",
 };
-
-function uniqueIds(values: Array<string | null | undefined>): string[] {
-  return Array.from(new Set(values.map((value) => (typeof value === "string" ? value.trim() : "")).filter(Boolean)));
-}
-
-function normalizeLorebookScope(value: unknown): LorebookScope {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return DEFAULT_LOREBOOK_SCOPE;
-  const scope = value as Partial<LorebookScope>;
-  const mode: LorebookScopeMode =
-    scope.mode === "disabled" || scope.mode === "specific" || scope.mode === "all" ? scope.mode : "all";
-  return {
-    mode,
-    chatIds: mode === "specific" ? uniqueIds(Array.isArray(scope.chatIds) ? scope.chatIds : []) : [],
-  };
-}
 
 function getOwnerIds(lorebook: Lorebook, ownerType: LorebookOwnerType): string[] {
   return ownerType === "character"
@@ -120,13 +109,17 @@ export function LorebookAssignmentSection({ ownerType, ownerId, ownerName }: Lor
   const selectedLorebook = draft?.lorebookId
     ? assignableLorebooks.find((lorebook) => lorebook.id === draft.lorebookId)
     : null;
+  const draftEligibleChatIds = useMemo(
+    () => (draft ? eligibleScopeChatIds(draft.chatIds, eligibleChats) : []),
+    [draft, eligibleChats],
+  );
 
   const openAssignment = (lorebook?: Lorebook) => {
     const scope = normalizeLorebookScope(lorebook?.scope);
     setDraft({
       lorebookId: lorebook?.id ?? null,
       mode: scope.mode,
-      chatIds: scope.chatIds,
+      chatIds: eligibleScopeChatIds(scope.chatIds, eligibleChats),
       search: "",
     });
   };
@@ -134,7 +127,7 @@ export function LorebookAssignmentSection({ ownerType, ownerId, ownerName }: Lor
   const handleCreateLorebook = () => {
     if (!ownerId) return;
     openModal("create-lorebook", {
-      defaultCategory: "character",
+      defaultCategory: ownerCreateDefaultCategory(ownerType),
       defaultScope: DEFAULT_LOREBOOK_SCOPE,
       ...(ownerType === "character" ? { characterId: ownerId } : { personaId: ownerId }),
     });
@@ -145,8 +138,9 @@ export function LorebookAssignmentSection({ ownerType, ownerId, ownerName }: Lor
 
     const nextScope: LorebookScope = {
       mode: draft.mode,
-      chatIds: draft.mode === "specific" ? uniqueIds(draft.chatIds) : [],
+      chatIds: draft.mode === "specific" ? draftEligibleChatIds : [],
     };
+    if (nextScope.mode === "specific" && nextScope.chatIds.length === 0) return;
     const nextOwnerIds = uniqueIds([...getOwnerIds(selectedLorebook, ownerType), ownerId]);
 
     try {
@@ -190,7 +184,7 @@ export function LorebookAssignmentSection({ ownerType, ownerId, ownerName }: Lor
     });
   };
 
-  const specificSelectionInvalid = draft?.mode === "specific" && draft.chatIds.length === 0;
+  const specificSelectionInvalid = draft?.mode === "specific" && draftEligibleChatIds.length === 0;
 
   return (
     <div className="space-y-3">
