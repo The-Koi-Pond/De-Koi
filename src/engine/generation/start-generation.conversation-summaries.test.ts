@@ -38,7 +38,7 @@ function depsForConversationSummaryGeneration() {
     },
   ];
   const streamedRequests: LlmRequest[] = [];
-  const complete = vi.fn(async () =>
+  const complete = vi.fn<LlmGateway["complete"]>(async () =>
     JSON.stringify({ summary: "SAME_TURN_SUMMARY_AVAILABLE", keyDetails: ["timezone bucket respected"] }),
   );
   const stream: LlmGateway["stream"] = vi.fn(async function* (request) {
@@ -96,17 +96,23 @@ function depsForConversationSummaryGeneration() {
 describe("startGeneration conversation summary preparation", () => {
   it("awaits missing conversation summaries before assembling the prompt", async () => {
     const { deps, storage, complete, streamedRequests } = depsForConversationSummaryGeneration();
+    const controller = new AbortController();
 
     await drain(
-      startGeneration(deps, {
-        chatId: "chat-1",
-        userMessage: "hello",
-        impersonateBlockAgents: true,
-        userTimeZone: "America/New_York",
-      }),
+      startGeneration(
+        deps,
+        {
+          chatId: "chat-1",
+          userMessage: "hello",
+          impersonateBlockAgents: true,
+          userTimeZone: "America/New_York",
+        },
+        controller.signal,
+      ),
     );
 
     expect(complete).toHaveBeenCalledTimes(1);
+    expect(complete.mock.calls[0]?.[1]).toBe(controller.signal);
     expect(storage.patchChatSummaries).toHaveBeenCalledWith("chat-1", {
       daySummaries: {
         "12.06.2026": {

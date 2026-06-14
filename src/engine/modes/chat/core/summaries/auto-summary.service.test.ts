@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { LlmGateway } from "../../../../capabilities/llm";
 import type { StorageGateway } from "../../../../capabilities/storage";
 import { backfillConversationSummaries } from "./auto-summary.service";
@@ -97,5 +97,28 @@ describe("backfillConversationSummaries", () => {
 
     expect(result.generatedDays).toEqual(["31.12.2019"]);
     expect(patchedSummaries[0]?.daySummaries).toHaveProperty("31.12.2019");
+  });
+
+  it("propagates aborts from summary completion instead of recording a failed summary", async () => {
+    const controller = new AbortController();
+    let completionSignal: AbortSignal | undefined;
+    const { capabilities, patchedSummaries } = createBackfillHarness("2020-01-01T15:30:00.000Z");
+    capabilities.llm.complete = vi.fn(async (_request, signal) => {
+      completionSignal = signal;
+      controller.abort();
+      throw Object.assign(new Error("The operation was aborted."), { name: "AbortError" });
+    });
+
+    await expect(
+      backfillConversationSummaries(capabilities, {
+        chatId: "chat-1",
+        connectionId: "summary-connection",
+        maxMissingDays: 14,
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(completionSignal).toBe(controller.signal);
+    expect(patchedSummaries).toEqual([]);
   });
 });

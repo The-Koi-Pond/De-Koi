@@ -1284,6 +1284,7 @@ async function prepareConversationSummariesForGeneration(
   chat: JsonRecord,
   input: StartGenerationInput,
   connection: JsonRecord,
+  signal?: AbortSignal,
 ): Promise<JsonRecord> {
   if (readString(chat.mode || chat.chatMode, "conversation") !== "conversation") return chat;
   const chatId = readString(chat.id).trim() || readString(input.chatId).trim();
@@ -1293,6 +1294,7 @@ async function prepareConversationSummariesForGeneration(
       chatId,
       connectionId: readString(connection.id).trim() || readString(input.connectionId).trim() || null,
       timeZone: resolveGenerationPromptTimeZone(chat, input),
+      signal,
     },
   );
   if (result.generatedDays.length === 0 && result.consolidatedWeeks.length === 0) return chat;
@@ -3335,7 +3337,7 @@ export async function* startGeneration(
   } else {
     storedMessages = await loadMessagesForGenerationTarget({ storage: deps.storage, chatId, chat, input });
   }
-  chat = await prepareConversationSummariesForGeneration(deps, chat, input, connection);
+  chat = await prepareConversationSummariesForGeneration(deps, chat, input, connection, signal);
   throwIfAborted(signal);
   let regenerationTarget = regenerationTargetFromMessages(storedMessages, input.regenerateMessageId);
   const userRegenerationSourceMessage = await userMessageRegenerationSourceMessage(
