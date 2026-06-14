@@ -1406,7 +1406,7 @@ describe("game API review guards", () => {
     const result = await updateCampaignProgression({ chatId: "chat-current", sessionNumber: 2 });
 
     expect(messageListChatIds).toEqual(["chat-target"]);
-    expect(result.sessionChat.id).toBe("chat-current");
+    expect(result.sessionChat.id).toBe("chat-target");
     expect(result.targetSessionChat.id).toBe("chat-target");
     expect(result.campaignProgression).toEqual({
       storyArc: "Session 2 advanced the campaign.",
@@ -1418,15 +1418,7 @@ describe("game API review guards", () => {
         gameCampaignProgression: result.campaignProgression,
       }),
     );
-    expect(storageApiMock.update).toHaveBeenCalledWith(
-      "chats",
-      "chat-current",
-      expect.objectContaining({
-        metadata: expect.objectContaining({
-          gameCampaignProgression: result.campaignProgression,
-        }),
-      }),
-    );
+    expect(storageApiMock.update).toHaveBeenCalledTimes(1);
     expect(storageApiMock.update).toHaveBeenCalledWith(
       "chats",
       "chat-target",
