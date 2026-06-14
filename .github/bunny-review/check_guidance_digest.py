@@ -109,6 +109,24 @@ def run_packet_case(module):
             module.MAX_CHUNK_PATCH_CHARS = old_threshold
         assert len(raw_chunks) > 1, "forced raw patch chunking did not split the fixture"
         assert planned_chunks == [changed], "full packet under budget should not be chunked"
+        review_obj = module.normalize_review_object(
+            {"findings": [], "nitpicks": [], "pre_merge_checks": []},
+            "HEAD~1",
+            changed,
+        )
+        assert review_obj["change_summary"], "missing model summary should get a fallback"
+        rendered = module.render_walkthrough(
+            review_obj,
+            [],
+            [],
+            [],
+            "",
+            "0" * 40,
+        )
+        assert "### 🧭 Loot Summary" in rendered
+        assert "No loot summary produced" not in rendered
+        assert "Specimen" not in rendered
+        assert "### 🔎 Bad Machinery" in rendered
         return len(packet)
 
 
@@ -171,6 +189,8 @@ def main():
         f"packet_len={packet_len} "
         "patch_overview_dedup=true "
         "packet_budget_chunking=true "
+        "summary_fallback=true "
+        "render_voice=true "
         "model_key_fallback=true "
         "ci_control_status_ignored=true"
     )

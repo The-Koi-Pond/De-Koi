@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import pathlib
+import posixpath
 import re
 import shutil
 import subprocess
@@ -1065,7 +1066,7 @@ def warn_is_blocking_proof_gap(item):
 
 def finding_summary(findings):
     if not findings:
-        return "No actionable defects isolated."
+        return "No bad machinery found."
     counts = {}
     for finding in findings:
         severity = str(finding.severity or "unknown").lower()
@@ -1140,13 +1141,13 @@ def merge_signal(review_obj, findings, nitpicks, pre_merge):
             "label": "READY WITH NOTES",
             "title": "Ready With Notes",
             "admonition": "WARNING",
-            "detail": "No actionable defects were isolated, but non-blocking notes remain.",
+            "detail": "No bad machinery found, but non-blocking notes remain on the counter.",
         }
     return {
         "label": "READY",
         "title": "Ready",
         "admonition": "TIP",
-        "detail": "No actionable findings were isolated for this head. Expected CI controls were observed passing.",
+        "detail": "Aha, no bad machinery found for this head. Expected CI controls paid out clean.",
     }
 
 
@@ -1201,7 +1202,7 @@ def review_callout(findings, pre_merge):
         return "\n".join(
             [
                 "> [!CAUTION]",
-                "> **Specimen unexamined.** Bunny Review did not complete, so no model findings are available.",
+                "> **Loot uncounted.** Bunny Review did not complete, so no model findings are available.",
                 "> Repair the failed review control or rerun Bunny before treating this PR as reviewed.",
             ]
         )
@@ -1209,7 +1210,7 @@ def review_callout(findings, pre_merge):
         return "\n".join(
             [
                 "> [!CAUTION]",
-                f"> **Specimen unstable.** {summary}",
+                f"> **Bad payout.** {summary}",
                 "> Repair blocking/high findings and failed controls before merge.",
             ]
         )
@@ -1224,7 +1225,7 @@ def review_callout(findings, pre_merge):
     return "\n".join(
         [
             "> [!TIP]",
-            "> **No actionable defects isolated.** The examined mechanism yielded no merge-blocking specimen.",
+            "> **Jackpot stays clean.** Bunny found no actionable defects in the checked mechanism.",
         ]
     )
 
@@ -1540,7 +1541,7 @@ def ci_status_to_pre_merge_checks(ci_status):
                 "name": "CI Status",
                 "status": "fail",
                 "type": "CI Timing",
-                "detail": "One or more expected CI controls failed or were cancelled; the specimen is not fit for merge.",
+                "detail": "One or more expected CI controls failed or were cancelled; this payout is not fit for merge.",
             }
         ]
     if "warning:" in lowered or "still running" in lowered:
@@ -1562,6 +1563,86 @@ def ci_status_to_pre_merge_checks(ci_status):
     ]
 
 
+def normalize_text_list(value):
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if not isinstance(value, list):
+        return []
+    items = []
+    for item in value:
+        if isinstance(item, str):
+            text = item.strip()
+        elif item is None:
+            text = ""
+        else:
+            text = str(item).strip()
+        if text:
+            items.append(text)
+    return items
+
+
+def changed_file_area(files):
+    directories = []
+    for path in files:
+        clean = str(path).replace("\\", "/").strip("/")
+        if not clean:
+            continue
+        directories.append(posixpath.dirname(clean) or clean)
+    if not directories:
+        return ""
+    try:
+        common = posixpath.commonpath(directories)
+    except ValueError:
+        return ""
+    return "" if not common or common == "." else common
+
+
+def diff_shortstat(base):
+    try:
+        return run_git(["diff", "--shortstat", f"{base}...HEAD"]).strip().rstrip(".")
+    except Exception:
+        return ""
+
+
+def fallback_change_summary(base, files):
+    if not files:
+        return [
+            "Wah, Bunny found no changed files in the selected review range; there was no diff machinery to count.",
+        ]
+    file_word = "file" if len(files) == 1 else "files"
+    area = changed_file_area(files)
+    area_note = f" under `{area}`" if area else " across the repo"
+    stat = diff_shortstat(base)
+    stat_note = f"; {stat}" if stat else ""
+    return [
+        f"Wah, this PR changes {len(files)} {file_word}{area_note}{stat_note}. "
+        "Bunny checked the changed-line machinery so the review post still carries a concrete loot summary.",
+    ]
+
+
+def normalize_review_object(review_obj, base, files):
+    if not isinstance(review_obj, dict):
+        review_obj = {}
+    summary = normalize_text_list(review_obj.get("change_summary"))
+    if not summary:
+        summary = normalize_text_list(review_obj.get("summary") or review_obj.get("overview"))
+    used_fallback = not summary
+    review_obj["change_summary"] = summary or fallback_change_summary(base, files)
+    review_obj["open_questions"] = normalize_text_list(review_obj.get("open_questions"))
+    review_obj["what_i_checked"] = normalize_text_list(review_obj.get("what_i_checked"))
+    for key in ("findings", "nitpicks", "pre_merge_checks"):
+        if not isinstance(review_obj.get(key), list):
+            review_obj[key] = []
+    if used_fallback:
+        note = (
+            "Bunny rebuilt the loot summary from git diff metadata because the final model output omitted `change_summary`."
+        )
+        if note not in review_obj["what_i_checked"]:
+            review_obj["what_i_checked"].append(note)
+    return review_obj
+
+
 def render_walkthrough(
     review_obj,
     findings,
@@ -1571,11 +1652,13 @@ def render_walkthrough(
     head_sha,
     prior_contracts=None,
 ):
-    summary = review_obj.get("change_summary") or []
-    questions = review_obj.get("open_questions") or []
-    checked = review_obj.get("what_i_checked") or []
+    summary = normalize_text_list(review_obj.get("change_summary"))
+    questions = normalize_text_list(review_obj.get("open_questions"))
+    checked = normalize_text_list(review_obj.get("what_i_checked"))
     normalized_ci_status = normalize_ci_status(ci_status)
     pre_merge = review_obj.get("pre_merge_checks") or []
+    if not isinstance(pre_merge, list):
+        pre_merge = []
     if normalized_ci_status:
         pre_merge = [item for item in pre_merge if not is_stale_ci_check(item)]
         checked = [item for item in checked if not is_stale_ci_text(str(item))]
@@ -1604,10 +1687,10 @@ def render_walkthrough(
         "",
         render_review_metadata(review_obj, head_sha),
         "",
-        "### 🧭 Specimen Summary",
+        "### 🧭 Loot Summary",
     ])
-    body.extend([f"- {line}" for line in summary[:2]] or ["- No specimen summary produced."])
-    body.extend(["", "### 🔎 Isolated Defects"])
+    body.extend([f"- {line}" for line in summary[:2]] or ["- No loot summary produced."])
+    body.extend(["", "### 🔎 Bad Machinery"])
     if findings:
         body.extend(
             [
@@ -1633,7 +1716,7 @@ def render_walkthrough(
                 ]
             )
         else:
-            body.extend(["", "> [!TIP]", "> No actionable defects isolated."])
+            body.extend(["", "> [!TIP]", "> No bad machinery found."])
     if resolved:
         body.extend(["", "### ✅ Resolved Since Last Review"])
         for item in resolved[:5]:
@@ -1657,7 +1740,7 @@ def render_walkthrough(
     else:
         body.append("- None recorded.")
     agent_prompt = render_agent_prompt_details(
-        findings, "🤖 Copy prompt for isolated Bunny findings"
+        findings, "🤖 Copy prompt for Bunny's busted-machine findings"
     )
     if agent_prompt:
         body.extend(["", agent_prompt])
@@ -1773,7 +1856,7 @@ def write_skipped_review(title, body, *, status="unknown", metadata=None):
         "nitpicks": [],
         "pre_merge_checks": [{"name": title, "status": status, "detail": body}],
         "open_questions": [],
-        "what_i_checked": ["No model pass ran; the specimen remained unexamined."],
+        "what_i_checked": ["No model pass ran; the loot stayed uncounted."],
     }
     if metadata:
         review_obj.update(metadata)
@@ -1986,6 +2069,7 @@ def is_completed_review_body(body):
     lowered = body.lower()
     failed_markers = (
         "review failed",
+        "loot uncounted",
         "specimen unexamined",
         "could not complete",
         "no model findings are available",
@@ -2233,6 +2317,7 @@ def produce_review(args):
             )
             print_telemetry(stats)
             return
+    review_obj = normalize_review_object(review_obj, base, files)
     review_obj.setdefault("head_sha", head_sha)
     review_obj.setdefault("head_commit_message", commit_subject(head_sha))
     review_obj.setdefault("review_base", base)
@@ -2338,7 +2423,7 @@ def patch_command_status_running(pr_num, head_sha, mode):
             "## 🐰 Bunny Review Running",
             "",
             "> [!NOTE]",
-            "> Reviewer workflow is running. The specimen is under observation.",
+            "> Reviewer workflow is running. Bunny is counting the loot.",
             "",
             f"- **Mode:** `{mode or 'unknown'}`",
             f"- **{commit_line(head_sha)}**",
@@ -2354,7 +2439,7 @@ def patch_command_status_complete(pr_num, head_sha):
             "## ✅ Bunny Review Completed",
             "",
             "> [!TIP]",
-            "> Review posted. The specimen has left the observation table.",
+            "> Review posted. Bunny counted the loot and left the receipt.",
             "",
             f"- **{commit_line(head_sha)}**",
         ]
