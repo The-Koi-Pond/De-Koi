@@ -177,6 +177,11 @@ fn llm_tools_from_body(body: &Value) -> AppResult<Vec<Value>> {
 }
 
 pub(crate) async fn llm_complete(state: &AppState, body: Value) -> AppResult<Value> {
+    let _sidecar_lease = if llm_body_uses_sidecar_connection(&body) {
+        Some(sidecar::begin_inference_request(state, true).await?)
+    } else {
+        None
+    };
     let completion = marinara_llm::complete_rich(llm_request_from_body(state, body).await?).await?;
     serde_json::to_value(completion)
         .map_err(|error| AppError::new("llm_response_error", error.to_string()))
@@ -204,6 +209,11 @@ pub(crate) async fn llm_embed(state: &AppState, body: Value) -> AppResult<Value>
             )
             .await?
         };
+    let _sidecar_lease = if sidecar::is_sidecar_connection_id(&connection_id) {
+        Some(sidecar::begin_inference_request(state, true).await?)
+    } else {
+        None
+    };
     let model = prompts::embedding_model(&connection, body.get("model").and_then(Value::as_str))?;
     if let Some(object) = connection.as_object_mut() {
         object.insert("model".to_string(), Value::String(model.clone()));
@@ -253,6 +263,26 @@ fn embedding_inputs(body: &Value) -> AppResult<Vec<String>> {
     }
 }
 
+fn value_uses_sidecar_connection(value: &Value) -> bool {
+    value
+        .get("id")
+        .or_else(|| value.get("connectionId"))
+        .or_else(|| value.get("connection_id"))
+        .and_then(Value::as_str)
+        .is_some_and(sidecar::is_sidecar_connection_id)
+        || value
+            .get("provider")
+            .and_then(Value::as_str)
+            .is_some_and(|provider| provider.trim() == "sidecar")
+}
+
+fn llm_body_uses_sidecar_connection(body: &Value) -> bool {
+    body.get("connection")
+        .filter(|value| value.is_object())
+        .is_some_and(value_uses_sidecar_connection)
+        || value_uses_sidecar_connection(body)
+}
+
 pub(crate) async fn llm_stream_channel(
     state: &AppState,
     stream_id: String,
@@ -278,6 +308,17 @@ pub(crate) async fn llm_stream_events(
         state.unregister_llm_stream(&stream_id);
         return Ok(());
     }
+    let _sidecar_lease = if llm_body_uses_sidecar_connection(&body) {
+        match sidecar::begin_inference_request(state, true).await {
+            Ok(lease) => Some(lease),
+            Err(error) => {
+                state.unregister_llm_stream(&stream_id);
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
     let request_result = tokio::select! {
         result = llm_request_from_body(state, body) => result.map(Some),
         _ = cancellation.changed() => Ok(None),
@@ -2894,6 +2935,30 @@ mod tests {
         assert!(!state
             .cancel_llm_stream(stream_id)
             .expect("failed stream should be unregistered"));
+        state.unregister_llm_stream(stream_id);
+    }
+
+    #[tokio::test]
+    async fn llm_stream_sidecar_start_error_unregisters_stream() {
+        let state = test_state("sidecar-stream-start-error-unregisters");
+        let stream_id = "sidecar-start-error";
+
+        let error = llm_stream_events(
+            &state,
+            stream_id.to_string(),
+            json!({
+                "connectionId": sidecar::SIDECAR_CONNECTION_ID,
+                "messages": [{ "role": "user", "content": "hello" }]
+            }),
+            |_| Ok(()),
+        )
+        .await
+        .expect_err("disabled sidecar should fail before provider call");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(!state
+            .cancel_llm_stream(stream_id)
+            .expect("failed sidecar stream should be unregistered"));
         state.unregister_llm_stream(stream_id);
     }
 

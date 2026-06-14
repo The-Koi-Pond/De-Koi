@@ -1438,6 +1438,11 @@ async fn sidecar_embeddings_inner(state: &AppState, body: Value) -> Result<Value
     if let Some(object) = connection.as_object_mut() {
         object.insert("model".to_string(), Value::String(model.clone()));
     }
+    let _sidecar_lease = if sidecar::is_sidecar_connection_id(&connection_id) {
+        Some(sidecar::begin_inference_request(state, true).await?)
+    } else {
+        None
+    };
 
     let mut prompt_tokens = 0usize;
     let mut data = Vec::with_capacity(inputs.len());
@@ -1601,6 +1606,7 @@ fn http_status_for_app_error(error: &AppError) -> StatusCode {
         "conflict" => StatusCode::CONFLICT,
         "invalid_input" => StatusCode::BAD_REQUEST,
         "request_body_too_large" => StatusCode::PAYLOAD_TOO_LARGE,
+        "sidecar_inference_busy" => StatusCode::CONFLICT,
         "admin_access_invalid" => StatusCode::UNAUTHORIZED,
         "admin_access_required" => StatusCode::FORBIDDEN,
         "custom_tool_script_unsupported" => StatusCode::UNPROCESSABLE_ENTITY,

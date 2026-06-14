@@ -10,7 +10,10 @@ use std::io;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command as StdCommand, Stdio};
-use std::sync::LazyLock;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    LazyLock,
+};
 use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
@@ -38,6 +41,7 @@ static SIDECAR_PROCESS: LazyLock<Mutex<SidecarProcessState>> =
     LazyLock::new(|| Mutex::new(SidecarProcessState::default()));
 static SIDECAR_DOWNLOAD: LazyLock<Mutex<SidecarDownloadState>> =
     LazyLock::new(|| Mutex::new(SidecarDownloadState::default()));
+static SIDECAR_ACTIVE_REQUESTS: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -156,6 +160,22 @@ struct SidecarProcessState {
     signature: Option<String>,
     status: String,
     startup_error: Option<String>,
+}
+
+pub(crate) struct SidecarInferenceLease {
+    base_url: String,
+}
+
+impl SidecarInferenceLease {
+    pub(crate) fn base_url(&self) -> &str {
+        &self.base_url
+    }
+}
+
+impl Drop for SidecarInferenceLease {
+    fn drop(&mut self) {
+        SIDECAR_ACTIVE_REQUESTS.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -289,6 +309,17 @@ fn is_runtime_preference(value: &str) -> bool {
 
 pub(crate) fn is_sidecar_connection_id(connection_id: &str) -> bool {
     connection_id.trim() == SIDECAR_CONNECTION_ID
+}
+
+fn active_inference_count() -> usize {
+    SIDECAR_ACTIVE_REQUESTS.load(Ordering::SeqCst)
+}
+
+fn sidecar_inference_busy_error() -> AppError {
+    AppError::new(
+        "sidecar_inference_busy",
+        "Local Model deletion is blocked while sidecar inference is active. Try again after the current request finishes.",
+    )
 }
 
 fn sidecar_root(state: &AppState) -> AppResult<PathBuf> {
@@ -2389,6 +2420,9 @@ pub(crate) async fn download_cancel(_state: &AppState) -> AppResult<Value> {
 
 pub(crate) async fn delete_model(state: &AppState) -> AppResult<Value> {
     let mut process = SIDECAR_PROCESS.lock().await;
+    if active_inference_count() > 0 {
+        return Err(sidecar_inference_busy_error());
+    }
     process.stop_locked().await?;
     drop(process);
     let mut config = read_config(state)?;
@@ -2456,6 +2490,27 @@ pub(crate) async fn runtime_connection_value(
             "maxTokens": config.max_tokens
         }
     }))
+}
+
+pub(crate) async fn begin_inference_request(
+    state: &AppState,
+    require_enabled: bool,
+) -> AppResult<SidecarInferenceLease> {
+    let base_url = {
+        let mut process = SIDECAR_PROCESS.lock().await;
+        let base_url = process.ensure_ready_locked(state, require_enabled).await?;
+        SIDECAR_ACTIVE_REQUESTS.fetch_add(1, Ordering::SeqCst);
+        base_url
+    };
+    Ok(SidecarInferenceLease { base_url })
+}
+
+#[cfg(test)]
+fn begin_test_inference_request() -> SidecarInferenceLease {
+    SIDECAR_ACTIVE_REQUESTS.fetch_add(1, Ordering::SeqCst);
+    SidecarInferenceLease {
+        base_url: "http://127.0.0.1:1".to_string(),
+    }
 }
 
 pub(crate) async fn models(state: &AppState) -> AppResult<Value> {
@@ -2586,17 +2641,14 @@ pub(crate) async fn test_message(state: &AppState) -> AppResult<Value> {
     let started = Instant::now();
     let config = read_config(state)?;
     let failed_runtime_variant = current_runtime_variant_for_config(state, &config);
-    let base_url = {
-        let mut process = SIDECAR_PROCESS.lock().await;
-        match process.ensure_ready_locked(state, false).await {
-            Ok(base_url) => base_url,
-            Err(error) => {
-                return Ok(smoke_test_failure_payload(
-                    started,
-                    &error,
-                    failed_runtime_variant,
-                ))
-            }
+    let lease = match begin_inference_request(state, false).await {
+        Ok(lease) => lease,
+        Err(error) => {
+            return Ok(smoke_test_failure_payload(
+                started,
+                &error,
+                failed_runtime_variant,
+            ))
         }
     };
     let nonce: String = rand::rng()
@@ -2619,7 +2671,7 @@ pub(crate) async fn test_message(state: &AppState) -> AppResult<Value> {
         }
     };
     let response = match client
-        .post(format!("{base_url}/v1/chat/completions"))
+        .post(format!("{}/v1/chat/completions", lease.base_url()))
         .json(&smoke_test_request(&config.model, &nonce))
         .send()
         .await
@@ -2892,6 +2944,50 @@ mod tests {
         assert_eq!(stored.executable_path, Some("old-runtime".to_string()));
         assert_eq!(stored.context_size, 2048);
         assert_eq!(stored.runtime_preference, "cpu");
+    }
+
+    #[tokio::test]
+    async fn delete_model_rejects_active_inference_and_preserves_model() {
+        let state = test_state("delete-active-inference");
+        let model_path = model_path_inside_models_dir(&state, "busy-model.gguf")
+            .expect("managed model path should resolve");
+        fs::write(&model_path, b"gguf").expect("managed model fixture should be writable");
+        let model_path_string = model_path.to_string_lossy().to_string();
+        write_config(
+            &state,
+            &LocalSidecarConfig {
+                enabled: true,
+                model_path: Some(model_path_string.clone()),
+                ..LocalSidecarConfig::default()
+            },
+        )
+        .expect("sidecar config should be writable");
+
+        let lease = begin_test_inference_request();
+        let error = delete_model(&state)
+            .await
+            .expect_err("active inference should block model deletion");
+
+        assert_eq!(error.code, "sidecar_inference_busy");
+        assert!(model_path.is_file());
+        assert_eq!(
+            read_config(&state)
+                .expect("config should remain readable")
+                .model_path,
+            Some(model_path_string)
+        );
+
+        drop(lease);
+        delete_model(&state)
+            .await
+            .expect("idle sidecar should allow model deletion");
+        assert!(!model_path.exists());
+        assert_eq!(
+            read_config(&state)
+                .expect("config should remain readable")
+                .model_path,
+            None
+        );
     }
 
     #[test]
