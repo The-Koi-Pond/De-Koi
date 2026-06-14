@@ -482,7 +482,7 @@ export function getCurrentStatus(
 /**
  * Check if a schedule needs regeneration (older than 7 days from current Monday).
  */
-function scheduleNeedsRefresh(schedule: WeekSchedule, now: Date = new Date()): boolean {
+export function scheduleNeedsRefresh(schedule: WeekSchedule, now: Date = new Date()): boolean {
   const weekStart = new Date(schedule.weekStart);
   const currentMonday = getMonday(now);
   return currentMonday.getTime() > weekStart.getTime();

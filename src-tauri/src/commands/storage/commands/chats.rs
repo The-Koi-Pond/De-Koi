@@ -236,17 +236,7 @@ pub fn chat_connect(
     chat_id: String,
     target_chat_id: String,
 ) -> Result<Value, AppError> {
-    state.storage.patch(
-        "chats",
-        &chat_id,
-        json!({ "connectedChatId": target_chat_id.clone() }),
-    )?;
-    state.storage.patch(
-        "chats",
-        &target_chat_id,
-        json!({ "connectedChatId": chat_id }),
-    )?;
-    Ok(json!({ "connected": true }))
+    chats::connect_chats(&state, &chat_id, &target_chat_id)
 }
 
 #[tauri::command]
