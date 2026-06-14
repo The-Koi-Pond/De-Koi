@@ -1600,12 +1600,29 @@ fn string_value(value: Option<&Value>) -> Option<String> {
         .map(str::to_string)
 }
 
-fn bool_value(value: Option<&Value>) -> bool {
-    value.and_then(Value::as_bool).unwrap_or_else(|| {
-        value
-            .and_then(Value::as_str)
-            .is_some_and(|value| value.eq_ignore_ascii_case("true"))
-    })
+fn bool_metadata_value(value: Option<&Value>) -> Option<bool> {
+    match value? {
+        Value::Bool(value) => Some(*value),
+        Value::String(value) if value.eq_ignore_ascii_case("true") => Some(true),
+        Value::String(value) if value.eq_ignore_ascii_case("false") => Some(false),
+        _ => None,
+    }
+}
+
+fn insert_string_metadata(
+    map: &mut serde_json::Map<String, Value>,
+    key: &str,
+    value: Option<String>,
+) {
+    if let Some(value) = value {
+        map.insert(key.to_string(), Value::String(value));
+    }
+}
+
+fn insert_bool_metadata(map: &mut serde_json::Map<String, Value>, key: &str, value: Option<bool>) {
+    if let Some(value) = value {
+        map.insert(key.to_string(), Value::Bool(value));
+    }
 }
 
 fn openai_chatgpt_auth_missing_message(error: &std::io::Error) -> String {
@@ -1633,14 +1650,20 @@ fn normalize_openai_chatgpt_id_token_info(value: Option<&Value>) -> Option<Value
         Value::String(token) => {
             let claims = decode_jwt_payload_json(token)?;
             let auth_claims = openai_chatgpt_nested_auth_claims(Some(&claims));
-            Some(json!({
-                "chatgpt_account_id": string_value(
-                    auth_claims.and_then(|claims| claims.get("chatgpt_account_id"))
+            let mut info = serde_json::Map::new();
+            insert_string_metadata(
+                &mut info,
+                "chatgpt_account_id",
+                string_value(auth_claims.and_then(|claims| claims.get("chatgpt_account_id"))),
+            );
+            insert_bool_metadata(
+                &mut info,
+                "chatgpt_account_is_fedramp",
+                bool_metadata_value(
+                    auth_claims.and_then(|claims| claims.get("chatgpt_account_is_fedramp")),
                 ),
-                "chatgpt_account_is_fedramp": bool_value(
-                    auth_claims.and_then(|claims| claims.get("chatgpt_account_is_fedramp"))
-                )
-            }))
+            );
+            Some(Value::Object(info))
         }
         object @ Value::Object(_) => Some(object.clone()),
         _ => None,
@@ -1649,9 +1672,8 @@ fn normalize_openai_chatgpt_id_token_info(value: Option<&Value>) -> Option<Value
 
 fn openai_chatgpt_auth_metadata(auth_json: &Value, access_token: &str) -> ChatGptAuthMetadata {
     let tokens = auth_json.get("tokens").and_then(Value::as_object);
-    let id_token_info = normalize_openai_chatgpt_id_token_info(
-        tokens.and_then(|tokens| tokens.get("id_token")),
-    );
+    let id_token_info =
+        normalize_openai_chatgpt_id_token_info(tokens.and_then(|tokens| tokens.get("id_token")));
     let access_claims = decode_jwt_payload_json(access_token);
     let access_auth_claims = openai_chatgpt_nested_auth_claims(access_claims.as_ref());
     let account_id = tokens
@@ -1663,15 +1685,19 @@ fn openai_chatgpt_auth_metadata(auth_json: &Value, access_token: &str) -> ChatGp
             }))
         })
         .or_else(|| {
-            string_value(
-                access_auth_claims.and_then(|claims| claims.get("chatgpt_account_id")),
-            )
+            string_value(access_auth_claims.and_then(|claims| claims.get("chatgpt_account_id")))
         });
-    let is_fedramp = bool_value(
+    let is_fedramp = bool_metadata_value(
         id_token_info
             .as_ref()
             .and_then(|info| info.get("chatgpt_account_is_fedramp")),
-    );
+    )
+    .or_else(|| {
+        bool_metadata_value(
+            access_auth_claims.and_then(|claims| claims.get("chatgpt_account_is_fedramp")),
+        )
+    })
+    .unwrap_or(false);
 
     ChatGptAuthMetadata {
         account_id,
@@ -2990,7 +3016,9 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
             }
         });
         let metadata = openai_chatgpt_auth_metadata(&auth_json, "access-secret");
-        let url = serve_chatgpt_models_response("200 OK", r#"{"models":[{"slug":"gpt-5-codex"}]}"#, true).await;
+        let url =
+            serve_chatgpt_models_response("200 OK", r#"{"models":[{"slug":"gpt-5-codex"}]}"#, true)
+                .await;
         let auth = ChatGptAuth {
             access_token: "access-secret".to_string(),
             account_id: metadata.account_id,
@@ -3008,7 +3036,8 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
     fn openai_chatgpt_auth_metadata_uses_access_token_account_fallback() {
         let access_token = unsigned_jwt_with_payload(json!({
             "https://api.openai.com/auth": {
-                "chatgpt_account_id": "account-from-access"
+                "chatgpt_account_id": "account-from-access",
+                "chatgpt_account_is_fedramp": true
             }
         }));
         let auth_json = json!({
@@ -3026,7 +3055,43 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
         );
 
         assert_eq!(metadata.account_id.as_deref(), Some("account-from-access"));
-        assert!(!metadata.is_fedramp);
+        assert!(metadata.is_fedramp);
+    }
+
+    #[tokio::test]
+    async fn openai_chatgpt_models_headers_include_access_token_claim_metadata() {
+        let access_token = unsigned_jwt_with_payload(json!({
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "account-1",
+                "chatgpt_account_is_fedramp": true
+            }
+        }));
+        let auth_json = json!({
+            "tokens": {
+                "access_token": access_token
+            }
+        });
+        let metadata = openai_chatgpt_auth_metadata(
+            &auth_json,
+            auth_json
+                .pointer("/tokens/access_token")
+                .and_then(Value::as_str)
+                .expect("access token should be present"),
+        );
+        let url =
+            serve_chatgpt_models_response("200 OK", r#"{"models":[{"slug":"gpt-5-codex"}]}"#, true)
+                .await;
+        let auth = ChatGptAuth {
+            access_token: "access-secret".to_string(),
+            account_id: metadata.account_id,
+            is_fedramp: metadata.is_fedramp,
+        };
+
+        let models = fetch_openai_chatgpt_models_from_url(&url, &auth)
+            .await
+            .expect("access-token claim-derived metadata should be sent as headers");
+
+        assert_eq!(models[0]["id"], "gpt-5-codex");
     }
 
     #[test]
@@ -4278,7 +4343,10 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
 
         assert_eq!(error.code, "claude_subscription_unsupported_capability");
         assert!(error.message.contains("1 image attachment(s)"));
-        assert_eq!(error.details.as_ref().unwrap()["capability"], "image_attachments");
+        assert_eq!(
+            error.details.as_ref().unwrap()["capability"],
+            "image_attachments"
+        );
         assert_eq!(error.details.as_ref().unwrap()["imageAttachmentCount"], 1);
     }
 
