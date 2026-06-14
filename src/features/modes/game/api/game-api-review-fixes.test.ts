@@ -442,6 +442,44 @@ describe("game API review guards", () => {
     expect(portraitPrompt).toContain("Notes: Carries a cracked lantern.");
   });
 
+  it("keeps stored NPC identity when avatar requests send empty optional fields", async () => {
+    mockChat(
+      gameImageChat({
+        gameNpcs: [
+          {
+            id: "npc-mira",
+            name: "Mira",
+            emoji: "",
+            description: "silver-haired scout with a cracked lantern",
+            gender: "woman",
+            pronouns: "she/they",
+            location: "Flooded Archive",
+            reputation: 0,
+            met: true,
+            notes: ["Carries a cracked lantern."],
+          },
+        ],
+      }),
+    );
+    storageApiMock.list.mockResolvedValue([]);
+
+    const result = await previewGeneratedAssets({
+      chatId: "chat-1",
+      npcsNeedingAvatars: [
+        {
+          name: "Mira",
+          description: "silver hair, green cloak",
+          location: null,
+          notes: [],
+        },
+      ],
+    });
+
+    const portraitPrompt = result.items.find((item) => item.kind === "portrait")?.prompt ?? "";
+    expect(portraitPrompt).toContain("Location: Flooded Archive");
+    expect(portraitPrompt).toContain("Notes: Carries a cracked lantern.");
+  });
+
   it("renders legacy game image prompt override variables with compatibility context", async () => {
     const promptOverrides: Record<string, string> = {
       "game.background": "LEGACY BG ${sceneDescription} :: ${styleLine}",

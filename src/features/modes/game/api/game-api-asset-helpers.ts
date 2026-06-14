@@ -113,13 +113,32 @@ export function matchingGameNpc(meta: Record<string, unknown>, name: string): Re
   return g.asRecord(meta.gameNpcs.find((npc) => normalizedNpcName(g.asRecord(npc).name) === normalized));
 }
 
+function firstTrimmed(...values: unknown[]): string {
+  for (const value of values) {
+    const text = g.readTrimmed(value);
+    if (text) return text;
+  }
+  return "";
+}
+
+function firstStringArray(...values: unknown[]): string[] {
+  for (const value of values) {
+    const items = g.stringArray(value);
+    if (items.length > 0) return items;
+  }
+  return [];
+}
+
 export function npcPortraitDetailFromContext(npc: Record<string, unknown>, meta: Record<string, unknown>): string {
   const name = g.readTrimmed(npc.name);
   const storedNpc = matchingGameNpc(meta, name);
   return npcPortraitDetail({
-    ...storedNpc,
-    ...npc,
-    description: g.readTrimmed(npc.description) || g.readTrimmed(storedNpc.description),
+    name: firstTrimmed(npc.name, storedNpc.name),
+    gender: firstTrimmed(npc.gender, storedNpc.gender),
+    pronouns: firstTrimmed(npc.pronouns, storedNpc.pronouns),
+    location: firstTrimmed(npc.location, storedNpc.location),
+    notes: firstStringArray(npc.notes, storedNpc.notes),
+    description: firstTrimmed(npc.description, storedNpc.description),
   });
 }
 
