@@ -181,6 +181,8 @@ export interface GameSetupConfig {
   enableSpriteGeneration?: boolean;
   /** Connection ID for image generation (NPC portraits + location backgrounds) */
   imageConnectionId?: string;
+  /** Image style profile chosen for this game. Missing uses the current global default profile. */
+  imageStyleProfileId?: string | null;
   /** Unified art style prompt applied to all generated images (auto-generated at setup) */
   artStylePrompt?: string;
   /** Lorebook IDs to activate for this game */

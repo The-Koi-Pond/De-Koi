@@ -5,13 +5,15 @@ type AssetManifestMap = Record<string, { path: string }> | null;
 type SceneAssetNpcAvatarCandidate = {
   name: string;
   description: string;
+  gender?: string | null;
+  pronouns?: string | null;
   avatarUrl?: string | null;
 };
 
 type MissingSceneAssetGenerationPayload = {
   chatId: string;
   backgroundTag?: string;
-  npcsNeedingAvatars?: Array<{ name: string; description: string }>;
+  npcsNeedingAvatars?: Array<{ name: string; description: string; gender?: string | null; pronouns?: string | null }>;
   forceNpcAvatarNames?: string[];
 };
 
@@ -23,7 +25,7 @@ type MissingSceneAssetGenerationInput = {
   assetMap: AssetManifestMap;
   sceneAssetNpcs: SceneAssetNpcAvatarCandidate[];
   npcAvatarLookup: Map<string, string>;
-  npcsNeedingAvatars: Array<{ name: string; description: string }>;
+  npcsNeedingAvatars: Array<{ name: string; description: string; gender?: string | null; pronouns?: string | null }>;
   failedNpcAvatarNames?: Iterable<string>;
 };
 
@@ -59,7 +61,12 @@ export function buildMissingSceneAssetGenerationPayload({
     savedSceneBackground.startsWith("backgrounds:");
   const npcAssetCandidates = sceneAssetNpcs
     .filter((npc) => npc.description && npc.name)
-    .map((npc) => ({ name: npc.name, description: npc.description }))
+    .map((npc) => ({
+      name: npc.name,
+      description: npc.description,
+      gender: npc.gender ?? null,
+      pronouns: npc.pronouns ?? null,
+    }))
     .slice(0, 10);
   const forceNpcAvatarNameSet = new Set<string>();
   if (savedGeneratedBackgroundMissing) {

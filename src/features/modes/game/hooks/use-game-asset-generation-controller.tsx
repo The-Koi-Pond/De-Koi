@@ -178,14 +178,15 @@ export function useGameAssetGenerationController({
       options?: Pick<GameAssetGenerationOptions, "allowPromptReview">,
     ): Promise<GameAssetGenerationResult | null> => {
       const uiState = useUIStore.getState();
+      const assetPromptSettings = assetPayload.imagePromptSettings;
       const payload: GameAssetGenerationPayload = {
         ...assetPayload,
         debugMode: uiState.debugMode,
         imageSizes: getConfiguredGameAssetImageSizes(),
         imagePromptSettings: {
-          includeAppearances: uiState.imagePromptIncludeAppearances,
-          format: uiState.imagePromptFormat,
-          styleProfileId: uiState.imageStyleProfiles.defaultProfileId,
+          includeAppearances: assetPromptSettings?.includeAppearances ?? uiState.imagePromptIncludeAppearances,
+          format: assetPromptSettings?.format ?? uiState.imagePromptFormat,
+          styleProfileId: assetPromptSettings?.styleProfileId ?? null,
           styleProfiles: uiState.imageStyleProfiles as ImageStyleProfileSettings,
         },
       };
