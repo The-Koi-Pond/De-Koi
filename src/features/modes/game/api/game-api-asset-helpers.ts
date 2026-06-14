@@ -70,13 +70,16 @@ function npcPortraitDetail(npc: Record<string, unknown>): string {
   if (gender) parts.push(`Gender: ${gender}.`);
   if (pronouns) parts.push(`Pronouns: ${pronouns}.`);
   if (location) parts.push(`Location: ${location}.`);
-  if (notes.length > 0) parts.push(`Notes: ${notes.join("; ")}.`);
   if (description) parts.push(description);
+  if (notes.length > 0) parts.push(`Notes: ${notes.join("; ")}.`);
   return parts.join(" ").trim() || "distinctive character portrait";
 }
 
 export function promptDetail(parts: Array<unknown>): string {
-  return parts.map((part) => g.readTrimmed(part).replace(/\s+/g, " ")).filter(Boolean).join(" ");
+  return parts
+    .map((part) => g.readTrimmed(part).replace(/\s+/g, " "))
+    .filter(Boolean)
+    .join(" ");
 }
 
 function promptLine(label: string, value: unknown): string | null {

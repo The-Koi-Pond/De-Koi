@@ -102,10 +102,10 @@ function npcPortraitSpeciesRule(label: string, detail: string): string {
 }
 
 function npcPortraitIdentityCue(detail: string): string {
-  const gender = detail.match(/\bGender:\s*([^.\n]+)/i)?.[1]?.trim();
-  const pronouns = detail.match(/\bPronouns:\s*([^.\n]+)/i)?.[1]?.trim();
-  const location = detail.match(/\bLocation:\s*([^.\n]+)/i)?.[1]?.trim();
-  const notes = detail.match(/\bNotes:\s*([^.\n]+)/i)?.[1]?.trim();
+  const gender = labeledPortraitField(detail, "Gender");
+  const pronouns = labeledPortraitField(detail, "Pronouns");
+  const location = labeledPortraitField(detail, "Location");
+  const notes = labeledPortraitField(detail, "Notes");
   return [
     gender ? `Gender: ${gender}.` : "",
     pronouns ? `Pronouns: ${pronouns}.` : "",
@@ -114,6 +114,15 @@ function npcPortraitIdentityCue(detail: string): string {
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+function labeledPortraitField(detail: string, label: "Gender" | "Pronouns" | "Location" | "Notes"): string {
+  const terminator =
+    label === "Notes"
+      ? "(?=\\s+(?:Gender|Pronouns|Location|Notes):|\\n|$)"
+      : "(?=\\s+(?:Gender|Pronouns|Location|Notes):|[.\\n]|$)";
+  const match = detail.match(new RegExp(`(?:^|\\s)${label}:\\s*([\\s\\S]*?)${terminator}`, "i"));
+  return match?.[1]?.trim().replace(/\s+/g, " ").replace(/\.+$/, "") ?? "";
 }
 
 function withPortraitIdentityCue(kind: GameImageAssetKind, detail: string, prompt: string): string {
