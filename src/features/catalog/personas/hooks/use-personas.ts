@@ -349,7 +349,7 @@ export function useTagPersonaGalleryImage(personaId: string) {
 export function usePersonaGroups(enabled = true) {
   return useQuery({
     queryKey: personaKeys.groups,
-    queryFn: () => storageApi.list<unknown>("persona-groups"),
+    queryFn: () => storageApi.list<unknown>("persona-groups", { orderBy: "updatedAt", descending: true }),
     enabled,
   });
 }

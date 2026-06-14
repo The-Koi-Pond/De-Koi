@@ -93,6 +93,32 @@ fn has_managed_persona_avatar_metadata(record: &Value) -> bool {
         .any(|field| record.get(*field).is_some_and(|value| !value.is_null()))
 }
 
+fn persona_active_flag(value: Option<&Value>) -> bool {
+    match value {
+        Some(Value::Bool(value)) => *value,
+        Some(Value::String(value)) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "true" | "1" | "yes" | "on"
+        ),
+        Some(Value::Number(value)) => value
+            .as_i64()
+            .map(|number| number != 0)
+            .or_else(|| {
+                value
+                    .as_f64()
+                    .map(|number| !number.is_nan() && number != 0.0)
+            })
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+fn has_legacy_active_flag(record: &Value) -> bool {
+    ["isActive", "active"]
+        .iter()
+        .any(|field| record.get(*field).is_some_and(|value| !value.is_boolean()))
+}
+
 pub(crate) fn activate_persona(state: &AppState, id: &str) -> AppResult<Value> {
     get_required(state, "personas", id)?;
     let personas = state.storage.list("personas")?;
@@ -101,15 +127,9 @@ pub(crate) fn activate_persona(state: &AppState, id: &str) -> AppResult<Value> {
             continue;
         };
         let active = persona_id == id;
-        let is_active = persona
-            .get("isActive")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let active_alias = persona
-            .get("active")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        if is_active == active && active_alias == active {
+        let is_active = persona_active_flag(persona.get("isActive"));
+        let active_alias = persona_active_flag(persona.get("active"));
+        if is_active == active && active_alias == active && !has_legacy_active_flag(&persona) {
             continue;
         }
         state.storage.patch(
