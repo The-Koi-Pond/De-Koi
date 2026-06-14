@@ -3665,8 +3665,18 @@ export function GameSurface({
   const { generateGameTurn, retryAgents } = useGameGeneration();
 
   const retryGeneration = useCallback(() => {
+    const msg = latestAssistantMsgRef.current;
+    if (!msg?.id) {
+      toast.error("No failed GM turn is available to retry.");
+      return;
+    }
     setGenerationFailed(false);
-    void generateGameTurn({ chatId: activeChatId, connectionId: null, kind: "turn" }).catch(() => {
+    void generateGameTurn({
+      chatId: activeChatId,
+      connectionId: null,
+      kind: "retry",
+      regenerateMessageId: msg.id,
+    }).catch(() => {
       // Generation UI already shows the recoverable error state.
     });
   }, [activeChatId, generateGameTurn]);

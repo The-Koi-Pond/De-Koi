@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameMap, GameSetupConfig, SessionSummary } from "../../../../engine/contracts/types/game";
 import { createDefaultImageStyleProfileSettings } from "../../../../engine/generation/image-style-profiles";
 import type { WeatherState } from "../../../../engine/modes/game/world/weather.service";
@@ -94,12 +94,21 @@ import { CHECKPOINT_SNAPSHOT_KIND, RESTORED_CHECKPOINT_ANCHOR_META_KEY } from ".
 import { regenerateSessionLorebook, runGameLorebookKeeperAfterConclusion } from "./game-api-lorebook-keeper";
 import { moveOnMap } from "./game-api-map";
 import { mapForMovement, moveMapPartyPosition, setupMapFromResponse } from "./game-api-map-helpers";
-import { advanceTime, skillCheck, transitionGameState, updateReputation, updateWeather } from "./game-api-mechanics";
+import {
+  advanceTime,
+  combatLoot,
+  combatRound,
+  lootGenerate,
+  skillCheck,
+  transitionGameState,
+  updateReputation,
+  updateWeather,
+} from "./game-api-mechanics";
 import { resolveWeatherUpdate } from "./game-api-mechanics-helpers";
 import { partyTurn, removePartyMember, upsertPartyCard } from "./game-api-party";
 import { normalizedName, partyCardNameMatches } from "./game-api-party-helpers";
 import { applyGameJsonRepair } from "./game-api-repair";
-import { createGame, setupGame, updateCampaignProgression } from "./game-api-session";
+import { createGame, regenerateSessionConclusion, setupGame, updateCampaignProgression } from "./game-api-session";
 import { spotifyCandidates } from "./game-api-spotify";
 import {
   gameCarryoverPatch,
@@ -306,6 +315,10 @@ describe("game API review guards", () => {
       kind: "tracker",
       ...snapshot,
     }));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("uses kind-specific image size buckets for generated asset previews", () => {
@@ -1715,6 +1728,122 @@ describe("game API review guards", () => {
     expect(createOrder < updateOrder).toBe(testCase.expectedCreateBeforeUpdate);
   });
 
+  it("queues a linked OOC influence when a game enters combat", async () => {
+    const gameChat = {
+      id: "chat-1",
+      connectedChatId: "conversation-1",
+      metadata: { gameActiveState: "exploration" },
+      gameState: { hp: 12 },
+    };
+    const conversationChat = {
+      id: "conversation-1",
+      connectedChatId: "chat-1",
+      mode: "conversation",
+      notes: [{ id: "existing-note", type: "note", content: "Existing note" }],
+      metadata: {},
+    };
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity !== "chats") return null;
+      if (id === "chat-1") return gameChat;
+      if (id === "conversation-1") return conversationChat;
+      return null;
+    });
+    storageApiMock.list.mockImplementation(async (entity: string) =>
+      entity === "messages" ? [{ id: "message-1", createdAt: "2026-01-01T00:00:00.000Z" }] : [],
+    );
+    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => ({
+      id: `${entity}-1`,
+      ...value,
+    }));
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => ({
+      id,
+      ...patch,
+      metadata: { ...(id === "chat-1" ? gameChat.metadata : conversationChat.metadata), ...gRecord(patch.metadata) },
+    }));
+
+    await transitionGameState({ chatId: "chat-1", newState: "combat" });
+
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "chats",
+      "conversation-1",
+      expect.objectContaining({
+        notes: expect.arrayContaining([
+          expect.objectContaining({
+            type: "influence",
+            sourceChatId: "chat-1",
+            targetChatId: "conversation-1",
+            consumed: false,
+            content: expect.stringContaining("entered combat"),
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it("uses setup difficulty and element preset for combat mechanics", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    storageApiMock.get.mockImplementation(async (entity: string) =>
+      entity === "chats"
+        ? {
+            id: "chat-1",
+            metadata: {
+              gameSetupConfig: { difficulty: "brutal", elementPreset: "genshin" },
+            },
+          }
+        : null,
+    );
+
+    const result = await combatRound({
+      chatId: "chat-1",
+      round: 1,
+      combatants: [
+        {
+          id: "player",
+          name: "Player",
+          side: "player",
+          hp: 100,
+          maxHp: 100,
+          attack: 10,
+          defense: 10,
+          speed: 30,
+          level: 1,
+          element: "pyro",
+        },
+        {
+          id: "enemy",
+          name: "Enemy",
+          side: "enemy",
+          hp: 100,
+          maxHp: 100,
+          attack: 1,
+          defense: 0,
+          speed: 1,
+          level: 1,
+          elementAura: { element: "hydro", gauge: 1, sourceId: "enemy" },
+        },
+      ],
+      playerAction: { type: "attack", targetId: "enemy" },
+    });
+
+    expect(result.result.reactions[0]?.reaction).toContain("Vaporize");
+    expect(result.result.actions[0]?.finalDamage).toBeGreaterThanOrEqual(60);
+  });
+
+  it("uses setup difficulty for generated loot when no request override is supplied", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.69);
+    storageApiMock.get.mockImplementation(async (entity: string) =>
+      entity === "chats" ? { id: "chat-1", metadata: { gameSetupConfig: { difficulty: "brutal" } } } : null,
+    );
+
+    const combatDrops = await combatLoot({ chatId: "chat-1", enemyCount: 1 });
+    const brutalTable = await lootGenerate({ chatId: "chat-1", count: 1 });
+    const normalTable = await lootGenerate({ chatId: "chat-1", count: 1, difficulty: "normal" });
+
+    expect(combatDrops.drops).toHaveLength(4);
+    expect(brutalTable.drops[0]?.item.rarity).toBe("rare");
+    expect(normalTable.drops[0]?.item.rarity).toBe("uncommon");
+  });
+
   it("persists time advances to the visible world state", async () => {
     let chat: Record<string, unknown> = {
       id: "chat-1",
@@ -1899,6 +2028,195 @@ describe("game API review guards", () => {
         metadata: expect.objectContaining({
           gameCampaignProgression: result.campaignProgression,
         }),
+      }),
+    );
+  });
+
+  it("regenerates only the requested historical session conclusion", async () => {
+    const summaries: SessionSummary[] = [
+      { ...fallbackSummary, sessionNumber: 1, summary: "Session one summary" },
+      { ...fallbackSummary, sessionNumber: 2, summary: "Old session two summary" },
+    ];
+    const sessions = [
+      {
+        id: "chat-current",
+        connectionId: "conn-1",
+        metadata: {
+          gameId: "game-1",
+          gameSessionNumber: 3,
+          gameSessionStatus: "active",
+          gamePreviousSessionSummaries: summaries,
+          gameCampaignProgression: { storyArc: "Old arc" },
+          gameCharacterCards: [{ name: "Mira" }],
+        },
+      },
+      {
+        id: "chat-target",
+        metadata: {
+          gameId: "game-1",
+          gameSessionNumber: 2,
+        },
+      },
+    ];
+    const messageListChatIds: string[] = [];
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) =>
+      entity === "chats" ? (sessions.find((session) => session.id === id) ?? null) : null,
+    );
+    storageApiMock.list.mockImplementation(async (entity: string, options?: Record<string, unknown>) => {
+      if (entity === "chats") return sessions;
+      if (entity === "messages") {
+        const filters = gRecord(options?.filters);
+        messageListChatIds.push(String(filters.chatId ?? ""));
+        return filters.chatId === "chat-target"
+          ? [{ role: "assistant", content: "The party sealed the moon gate." }]
+          : [{ role: "assistant", content: "Wrong current session transcript." }];
+      }
+      return [];
+    });
+    llmApiMock.complete.mockResolvedValue(
+      JSON.stringify({
+        summary: {
+          sessionNumber: 2,
+          summary: "Regenerated session two summary",
+          resumePoint: "Resume at the moon gate.",
+        },
+        campaignProgression: { storyArc: "Updated arc" },
+        characterCards: [{ name: "Ren" }],
+      }),
+    );
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => ({
+      id,
+      ...patch,
+    }));
+
+    const result = await regenerateSessionConclusion({ chatId: "chat-current", sessionNumber: 2 });
+
+    expect(messageListChatIds).toEqual(["chat-target"]);
+    expect(llmApiMock.complete.mock.calls[0]?.[0].messages[1].content).toContain("Session 2");
+    expect(result.summary).toEqual(
+      expect.objectContaining({ sessionNumber: 2, summary: "Regenerated session two summary" }),
+    );
+    expect(result.sessionChat.metadata).toEqual(
+      expect.objectContaining({
+        gameSessionStatus: "active",
+        gamePreviousSessionSummaries: [
+          expect.objectContaining({ sessionNumber: 1, summary: "Session one summary" }),
+          expect.objectContaining({ sessionNumber: 2, summary: "Regenerated session two summary" }),
+        ],
+        gameSessionCarryover: expect.stringContaining("Regenerated session two summary"),
+        gameCampaignProgression: expect.objectContaining({ storyArc: "Updated arc" }),
+        gameCharacterCards: [{ name: "Ren" }],
+      }),
+    );
+  });
+
+  it("keeps generated conclusion siblings when regenerating a historical session directly", async () => {
+    const summaries: SessionSummary[] = [
+      { ...fallbackSummary, sessionNumber: 1, summary: "Session one summary" },
+      { ...fallbackSummary, sessionNumber: 2, summary: "Old session two summary" },
+    ];
+    const sessions = [
+      {
+        id: "chat-current",
+        metadata: {
+          gameId: "game-1",
+          gameSessionNumber: 3,
+          gamePreviousSessionSummaries: summaries,
+          gameCampaignProgression: { storyArc: "Old arc" },
+          gameCharacterCards: [{ name: "Mira" }],
+        },
+      },
+      { id: "chat-target", metadata: { gameId: "game-1", gameSessionNumber: 2 } },
+    ];
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) =>
+      entity === "chats" ? (sessions.find((session) => session.id === id) ?? null) : null,
+    );
+    storageApiMock.list.mockImplementation(async (entity: string) => (entity === "chats" ? sessions : []));
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => ({
+      id,
+      ...patch,
+    }));
+
+    const result = await regenerateSessionConclusion({
+      chatId: "chat-current",
+      sessionNumber: 2,
+      generated: {
+        summary: { sessionNumber: 99, summary: "Direct generated session two summary" },
+        campaignProgression: { storyArc: "Direct generated arc" },
+        characterCards: [{ name: "Direct Generated Ren" }],
+      },
+    });
+
+    expect(result.summary).toEqual(
+      expect.objectContaining({ sessionNumber: 2, summary: "Direct generated session two summary" }),
+    );
+    expect(result.sessionChat.metadata).toEqual(
+      expect.objectContaining({
+        gamePreviousSessionSummaries: [
+          expect.objectContaining({ sessionNumber: 1, summary: "Session one summary" }),
+          expect.objectContaining({ sessionNumber: 2, summary: "Direct generated session two summary" }),
+        ],
+        gameCampaignProgression: expect.objectContaining({ storyArc: "Direct generated arc" }),
+        gameCharacterCards: [{ name: "Direct Generated Ren" }],
+      }),
+    );
+  });
+
+  it("keeps repaired conclusion siblings when applying historical regeneration JSON repair", async () => {
+    const summaries: SessionSummary[] = [
+      { ...fallbackSummary, sessionNumber: 1, summary: "Session one summary" },
+      { ...fallbackSummary, sessionNumber: 2, summary: "Old session two summary" },
+    ];
+    const sessions = [
+      {
+        id: "chat-current",
+        metadata: {
+          gameId: "game-1",
+          gameSessionNumber: 3,
+          gamePreviousSessionSummaries: summaries,
+          gameCampaignProgression: { storyArc: "Old arc" },
+          gameCharacterCards: [{ name: "Mira" }],
+        },
+      },
+      { id: "chat-target", metadata: { gameId: "game-1", gameSessionNumber: 2 } },
+    ];
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) =>
+      entity === "chats" ? (sessions.find((session) => session.id === id) ?? null) : null,
+    );
+    storageApiMock.list.mockImplementation(async (entity: string) => (entity === "chats" ? sessions : []));
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => ({
+      id,
+      ...patch,
+    }));
+
+    const result = (await applyGameJsonRepair(
+      {
+        kind: "session_conclusion",
+        title: "Repair Session 2 Conclusion JSON",
+        applyBody: {
+          chatId: "chat-current",
+          sessionNumber: 2,
+          regenerateSessionConclusion: true,
+        },
+      } as never,
+      JSON.stringify({
+        summary: { sessionNumber: 99, summary: "Repaired session two summary" },
+        campaignProgression: { storyArc: "Repaired arc" },
+        characterCards: [{ name: "Repaired Ren" }],
+      }),
+    )) as { summary: SessionSummary; sessionChat: { metadata: Record<string, unknown> } };
+
+    expect(result.summary).toEqual(
+      expect.objectContaining({ sessionNumber: 2, summary: "Repaired session two summary" }),
+    );
+    expect(result.sessionChat.metadata).toEqual(
+      expect.objectContaining({
+        gamePreviousSessionSummaries: [
+          expect.objectContaining({ sessionNumber: 1, summary: "Session one summary" }),
+          expect.objectContaining({ sessionNumber: 2, summary: "Repaired session two summary" }),
+        ],
+        gameCampaignProgression: expect.objectContaining({ storyArc: "Repaired arc" }),
+        gameCharacterCards: [{ name: "Repaired Ren" }],
       }),
     );
   });

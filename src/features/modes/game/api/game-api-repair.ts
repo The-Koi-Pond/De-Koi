@@ -2,7 +2,7 @@ import * as g from "./game-api-support";
 import { isGameSetupConfig } from "./game-api-session-helpers";
 import { generateMap } from "./game-api-map";
 import { upsertPartyCard } from "./game-api-party";
-import { concludeSession, setupGame, updateCampaignProgression } from "./game-api-session";
+import { concludeSession, regenerateSessionConclusion, setupGame, updateCampaignProgression } from "./game-api-session";
 import { regenerateSessionLorebook } from "./game-api-lorebook-keeper";
 
 export async function applyGameJsonRepair(request: g.JsonRepairRequest, rawJson: string): Promise<unknown> {
@@ -35,6 +35,14 @@ export async function applyGameJsonRepair(request: g.JsonRepairRequest, rawJson:
         generated: repaired,
       });
     case "session_conclusion":
+      if (body.regenerateSessionConclusion === true) {
+        return regenerateSessionConclusion({
+          chatId,
+          connectionId,
+          sessionNumber: Number(body.sessionNumber ?? 1),
+          generated: repaired,
+        });
+      }
       return concludeSession({
         chatId,
         connectionId,

@@ -539,6 +539,102 @@ export async function concludeSession(data: {
   return { summary, sessionChat, ...(checkpointWarning ? { checkpointWarning } : {}) };
 }
 
+export async function regenerateSessionConclusion(data: {
+  chatId: string;
+  sessionNumber: number;
+  connectionId?: string;
+  generated?: Record<string, unknown>;
+}): Promise<g.SessionSummaryResponse> {
+  const chat = await g.getChat(data.chatId);
+  const meta = g.chatMeta(chat);
+  const requestedSessionNumber = Number(data.sessionNumber);
+  if (!Number.isFinite(requestedSessionNumber) || requestedSessionNumber < 1) {
+    throw new Error("Choose a valid session to regenerate.");
+  }
+  const summaries = Array.isArray(meta.gamePreviousSessionSummaries)
+    ? [...(meta.gamePreviousSessionSummaries as g.SessionSummary[])]
+    : [];
+  const existingSummary = summaries.find((item) => item.sessionNumber === requestedSessionNumber);
+  if (!existingSummary) {
+    throw new Error(`Stored session ${requestedSessionNumber} summary was not found.`);
+  }
+  const targetChat = await resolveCampaignProgressionTarget(chat, meta, requestedSessionNumber);
+  const targetMeta = g.chatMeta(targetChat);
+  const fallback = sessionSummary(requestedSessionNumber, targetChat, targetMeta);
+  let campaignProgression = meta.gameCampaignProgression;
+  let characterCards = Array.isArray(meta.gameCharacterCards) ? meta.gameCharacterCards : [];
+  let summary = normalizeSessionSummaryPayload(existingSummary, fallback, null);
+  if (data.generated) {
+    const normalized = normalizeSessionConclusionGenerated(
+      data.generated,
+      { summary: fallback, campaignProgression, characterCards },
+      null,
+    );
+    summary = { ...normalized.summary, sessionNumber: requestedSessionNumber };
+    campaignProgression = normalized.campaignProgression;
+    characterCards = normalized.characterCards;
+  } else {
+    const connectionId = data.connectionId ?? chat.connectionId ?? undefined;
+    if (!connectionId) {
+      throw new Error("Choose a connection before regenerating a session conclusion.");
+    }
+    const transcript = await g.sessionTranscript(targetChat.id, 160);
+    const generated = await g.llmJson({
+      connectionId,
+      fallback: { summary, campaignProgression, characterCards },
+      system: g.buildSessionConclusionPrompt({
+        language:
+          typeof g.asRecord(meta.gameSetupConfig).language === "string"
+            ? (g.asRecord(meta.gameSetupConfig).language as string)
+            : null,
+        includeCharacterCards: characterCards.length > 0,
+      }),
+      user: [
+        `Regenerate only the conclusion for Session ${requestedSessionNumber}.`,
+        ``,
+        `Current campaign progression:`,
+        JSON.stringify(campaignProgression ?? {}, null, 2),
+        ``,
+        `Current character cards:`,
+        JSON.stringify(characterCards, null, 2),
+        ``,
+        `Session transcript:`,
+        transcript || existingSummary.summary,
+      ].join("\n"),
+      parameters: { temperature: 0.35, maxTokens: 5000 },
+      repair: {
+        kind: "session_conclusion",
+        title: `Repair Session ${requestedSessionNumber} Conclusion JSON`,
+        applyBody: {
+          chatId: data.chatId,
+          sessionNumber: requestedSessionNumber,
+          connectionId,
+          regenerateSessionConclusion: true,
+        },
+      },
+    });
+    const normalized = normalizeSessionConclusionGenerated(
+      generated,
+      { summary: fallback, campaignProgression, characterCards },
+      null,
+    );
+    summary = normalized.summary;
+    campaignProgression = normalized.campaignProgression;
+    characterCards = normalized.characterCards;
+  }
+  const nextSummaries = summaries
+    .filter((item) => item.sessionNumber !== requestedSessionNumber)
+    .concat({ ...summary, sessionNumber: requestedSessionNumber })
+    .sort((a, b) => a.sessionNumber - b.sessionNumber);
+  const sessionChat = await g.patchChatMetadata(data.chatId, {
+    gamePreviousSessionSummaries: nextSummaries,
+    gameSessionCarryover: g.buildSessionCarryoverContext(nextSummaries),
+    gameCampaignProgression: campaignProgression,
+    gameCharacterCards: characterCards,
+  });
+  return { summary: { ...summary, sessionNumber: requestedSessionNumber }, sessionChat };
+}
+
 async function resolveCampaignProgressionTarget(
   currentChat: g.Chat,
   currentMeta: Record<string, unknown>,

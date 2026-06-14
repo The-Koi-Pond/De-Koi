@@ -135,6 +135,36 @@ describe("prompt assembly macros", () => {
   });
 });
 
+describe("prompt assembly connected conversation context", () => {
+  it("injects linked game influences into conversation prompts", async () => {
+    const prompt = await assembleGenerationPrompt(promptAssemblyStorage({ sections: [] }), {
+      chat: {
+        id: "conversation-1",
+        mode: "conversation",
+        connectedChatId: "game-1",
+        notes: [
+          {
+            id: "note-1",
+            type: "influence",
+            targetChatId: "conversation-1",
+            content: "The linked game has entered combat.",
+            consumed: false,
+          },
+        ],
+      },
+      storedMessages: [{ role: "user", content: "What changed?" }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: { promptPresetId: "preset-1" },
+      latestUserInput: "What changed?",
+    });
+
+    expect(prompt.messages.some((message) => message.content.includes("<ooc_influences>"))).toBe(true);
+    expect(prompt.messages.some((message) => message.content.includes("The linked game has entered combat."))).toBe(
+      true,
+    );
+  });
+});
+
 describe("prompt assembly preset depth sections", () => {
   it("injects depth-positioned preset sections at the requested chat-history depth", async () => {
     const prompt = await assembleGenerationPrompt(

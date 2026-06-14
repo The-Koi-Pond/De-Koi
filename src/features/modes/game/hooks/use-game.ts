@@ -224,7 +224,7 @@ export function useRegenerateSessionConclusion() {
 
   return useMutation({
     mutationFn: (data: { chatId: string; sessionNumber: number; connectionId?: string }) =>
-      gameApi.concludeSession(data),
+      gameApi.regenerateSessionConclusion(data),
     onMutate: (variables) => {
       toast.loading(`Regenerating session ${variables.sessionNumber} conclusion...`, {
         id: `game-session-regenerate:${variables.chatId}:${variables.sessionNumber}`,
