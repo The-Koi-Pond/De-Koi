@@ -18,10 +18,25 @@ export function imageReviewId(kind: string, key: string): string {
   return `${kind}:${deterministicAssetSlug(key) || "generated"}`;
 }
 
+function promptOverrideEntries(payload: Record<string, unknown>): g.PromptOverride[] {
+  if (!Array.isArray(payload.promptOverrides)) return [];
+  return payload.promptOverrides.filter(
+    (item): item is g.PromptOverride => !!item && typeof item === "object" && !Array.isArray(item),
+  );
+}
+
 export function promptOverride(payload: Record<string, unknown>, id: string): string | null {
-  const overrides = Array.isArray(payload.promptOverrides) ? (payload.promptOverrides as g.PromptOverride[]) : [];
-  const override = overrides.find((item) => item.id === id && typeof item.prompt === "string" && item.prompt.trim());
+  const override = promptOverrideEntries(payload).find(
+    (item) => item.id === id && typeof item.prompt === "string" && item.prompt.trim(),
+  );
   return override?.prompt?.trim() ?? null;
+}
+
+export function negativePromptOverride(payload: Record<string, unknown>, id: string): string | undefined {
+  const override = promptOverrideEntries(payload).find(
+    (item) => item.id === id && typeof item.negativePrompt === "string",
+  );
+  return typeof override?.negativePrompt === "string" ? override.negativePrompt.trim() : undefined;
 }
 
 export function imageSize(
