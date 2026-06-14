@@ -1,10 +1,11 @@
-import type { LlmGateway } from "../capabilities/llm";
+import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
 import { readString as stringValue } from "../shared/value-readers";
 
 export type PromptReviewInput = {
   presetId: string;
   connectionId: string;
+  streaming?: boolean;
   focusAreas?: string[];
 };
 
@@ -42,8 +43,7 @@ Review areas:
 Be specific and actionable. Reference exact sections when possible.`;
 
 type JsonRecord = Record<string, unknown>;
-const MALFORMED_REVIEW_JSON_MESSAGE =
-  "Prompt Reviewer returned malformed JSON. Try again or use a model/provider with JSON mode support.";
+const EMPTY_REVIEW_MESSAGE = "Prompt Reviewer returned an empty review. Try again or use a different model/provider.";
 
 function normalizePromptReviewJson(raw: string): string | null {
   try {
@@ -53,6 +53,10 @@ function normalizePromptReviewJson(raw: string): string | null {
   } catch {
     return null;
   }
+}
+
+function normalizePromptReviewOutput(raw: string): string | null {
+  return normalizePromptReviewJson(raw) ?? (raw.trim() || null);
 }
 
 export async function* reviewPromptPreset(
@@ -78,25 +82,48 @@ export async function* reviewPromptPreset(
     assembledView,
   ].join("\n");
 
-  const raw = await capabilities.llm.complete(
-    {
-      connectionId: input.connectionId,
-      messages: [
-        { role: "system", content: PROMPT_REVIEWER_SYSTEM_PROMPT },
-        { role: "user", content: userPrompt },
-      ],
-      // JSON mode reduces malformed output, but the client still validates the result.
-      parameters: { temperature: 0.7, maxTokens: 8192, responseFormat: "json_object" },
-    },
-    signal,
-  );
-  const normalized = normalizePromptReviewJson(raw);
-  if (!normalized) {
-    yield { type: "error", data: MALFORMED_REVIEW_JSON_MESSAGE };
+  const request: LlmRequest = {
+    connectionId: input.connectionId,
+    messages: [
+      { role: "system", content: PROMPT_REVIEWER_SYSTEM_PROMPT },
+      { role: "user", content: userPrompt },
+    ],
+    // JSON mode reduces malformed output, but plain-text output is still a usable review.
+    parameters: { temperature: 0.7, maxTokens: 8192, responseFormat: "json_object" },
+  };
+
+  const raw = input.streaming
+    ? yield* streamPromptReview(capabilities.llm, request, signal)
+    : await capabilities.llm.complete(request, signal);
+  const output = normalizePromptReviewOutput(raw);
+  if (!output) {
+    yield { type: "error", data: EMPTY_REVIEW_MESSAGE };
     return;
   }
-  yield { type: "token", data: normalized };
-  yield { type: "done", data: normalized };
+  if (!input.streaming) yield { type: "token", data: output };
+  yield { type: "done", data: output };
+}
+
+async function* streamPromptReview(
+  llm: LlmGateway,
+  request: LlmRequest,
+  signal?: AbortSignal,
+): AsyncGenerator<PromptReviewEvent, string> {
+  let raw = "";
+  for await (const chunk of llm.stream(request, signal)) {
+    if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+    if (chunk.type === "token") {
+      const token = llmChunkText(chunk);
+      if (token) {
+        raw += token;
+        yield { type: "token", data: token };
+      }
+    } else if (chunk.type === "error") {
+      yield { type: "error", data: llmStreamErrorMessage(chunk) };
+      return raw;
+    }
+  }
+  return raw;
 }
 
 async function assemblePromptReviewView(storage: StorageGateway, presetId: string): Promise<string> {
@@ -164,6 +191,22 @@ function orderValue(section: JsonRecord): number {
 
 function isRecord(value: unknown): value is JsonRecord {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function llmChunkText(chunk: { text?: unknown; data?: unknown; error?: unknown; message?: unknown }): string {
+  if (typeof chunk.text === "string") return chunk.text;
+  if (typeof chunk.data === "string") return chunk.data;
+  const data = chunk.data && typeof chunk.data === "object" && !Array.isArray(chunk.data) ? chunk.data : {};
+  return (
+    stringValue(chunk.message).trim() ||
+    stringValue(chunk.error).trim() ||
+    stringValue((data as { message?: unknown }).message).trim() ||
+    stringValue((data as { error?: unknown }).error).trim()
+  );
+}
+
+function llmStreamErrorMessage(chunk: { text?: unknown; data?: unknown; error?: unknown; message?: unknown }): string {
+  return llmChunkText(chunk).trim() || "Prompt Reviewer stream failed.";
 }
 
 function stringArray(value: unknown): string[] {

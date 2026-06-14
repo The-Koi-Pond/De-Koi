@@ -2410,6 +2410,7 @@ function ReviewTab({ presetId }: { presetId: string }) {
         {
           presetId,
           connectionId,
+          streaming: true,
           focusAreas: ["clarity", "consistency", "coverage", "token_efficiency"],
         },
       )) {
