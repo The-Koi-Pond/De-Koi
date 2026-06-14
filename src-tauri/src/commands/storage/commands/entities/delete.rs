@@ -682,6 +682,9 @@ pub(super) fn update_lorebook_entry_with_character_book_sync(
             let Some(object) = row.as_object_mut() else {
                 return Err(AppError::invalid_input("Stored record is not an object"));
             };
+            if lorebook_entry_patch_invalidates_embedding(&previous, &patch) {
+                clear_lorebook_entry_embedding(object);
+            }
             for (key, value) in patch {
                 object.insert(key, value);
             }
@@ -695,6 +698,43 @@ pub(super) fn update_lorebook_entry_with_character_book_sync(
             Ok(updated)
         },
     )
+}
+
+pub(super) fn lorebook_entry_patch_invalidates_embedding(
+    previous: &Value,
+    patch: &Map<String, Value>,
+) -> bool {
+    [
+        "name",
+        "description",
+        "content",
+        "keys",
+        "secondaryKeys",
+        "excludeFromVectorization",
+    ]
+    .into_iter()
+    .any(|field| lorebook_entry_embedding_input_changed(previous, patch, field))
+}
+
+pub(super) fn lorebook_entry_embedding_input_changed(
+    previous: &Value,
+    patch: &Map<String, Value>,
+    field: &str,
+) -> bool {
+    let Some(next) = patch.get(field) else {
+        return false;
+    };
+    if field == "excludeFromVectorization" {
+        return value_truthy(previous.get(field)) != value_truthy(Some(next));
+    }
+    previous.get(field).unwrap_or(&Value::Null) != next
+}
+
+pub(super) fn clear_lorebook_entry_embedding(object: &mut Map<String, Value>) {
+    object.insert("embedding".to_string(), Value::Null);
+    object.insert("embeddingModel".to_string(), Value::Null);
+    object.insert("embeddingConnectionId".to_string(), Value::Null);
+    object.insert("embeddingUpdatedAt".to_string(), Value::Null);
 }
 
 pub(super) fn delete_lorebook_entry_with_character_book_sync(
