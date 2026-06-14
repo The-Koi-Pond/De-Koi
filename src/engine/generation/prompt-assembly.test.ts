@@ -215,4 +215,81 @@ describe("prompt assembly preset depth sections", () => {
     expect(depthIndex).toBeLessThan(history3Index);
     expect(orderedAfterIndex).toBeGreaterThan(history3Index);
   });
+
+  it("does not add the fallback system prompt for depth-only presets with resolved content", async () => {
+    const prompt = await assembleGenerationPrompt(
+      promptAssemblyStorage({
+        sections: [
+          {
+            id: "depth-only",
+            presetId: "preset-1",
+            identifier: "depthOnly",
+            name: "Depth Only",
+            content: "Depth-only preset instruction.",
+            role: "system",
+            enabled: true,
+            sortOrder: 10,
+            injectionPosition: "depth",
+            injectionDepth: 1,
+            injectionOrder: 5,
+          },
+        ],
+      }),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          characterIds: ["char-1"],
+        },
+        storedMessages: [
+          { role: "user", content: "history-1" },
+          { role: "assistant", content: "history-2" },
+        ],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "history-2",
+      },
+    );
+
+    expect(prompt.messages.some((message) => message.content.includes("Depth-only preset instruction."))).toBe(true);
+    expect(prompt.messages.some((message) => message.content === "history-1")).toBe(true);
+    expect(prompt.messages.some((message) => message.content === "history-2")).toBe(true);
+    expect(prompt.messages.some((message) => message.contextKind === "prompt")).toBe(false);
+  });
+
+  it("still falls back when depth-positioned preset sections resolve empty", async () => {
+    const prompt = await assembleGenerationPrompt(
+      promptAssemblyStorage({
+        sections: [
+          {
+            id: "empty-depth-only",
+            presetId: "preset-1",
+            identifier: "emptyDepthOnly",
+            name: "Empty Depth Only",
+            content: "{{banned empty depth section}}",
+            role: "system",
+            enabled: true,
+            sortOrder: 10,
+            injectionPosition: "depth",
+            injectionDepth: 1,
+            injectionOrder: 5,
+          },
+        ],
+      }),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          characterIds: ["char-1"],
+        },
+        storedMessages: [{ role: "user", content: "history-1" }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "history-1",
+      },
+    );
+
+    expect(prompt.messages.some((message) => message.content.includes("empty depth section"))).toBe(false);
+    expect(prompt.messages.some((message) => message.contextKind === "prompt")).toBe(true);
+  });
 });

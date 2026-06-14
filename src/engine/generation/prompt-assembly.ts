@@ -3593,6 +3593,7 @@ export async function assembleGenerationPrompt(
   const insertedAgentData = { all: false, types: new Set<string>() };
   let usedFallbackSystemPrompt = false;
   let presetDepthEntries: PromptDepthEntry[] = [];
+  let hasPresetPromptContent = false;
 
   if (selectedPreset) {
     const groupsById = promptGroupLookup(selectedPreset.groups);
@@ -3629,6 +3630,7 @@ export async function assembleGenerationPrompt(
         marker?.type === "character" ? rawContent : resolvePromptMacros(rawContent, macros, deferCharacterMacros);
       const resolved = cleanPromptText(resolvedContent);
       if (!resolved.trim()) continue;
+      hasPresetPromptContent = true;
       if (marker?.type === "chat_summary" && summary?.trim()) insertedSummary = true;
       if (marker?.type === "agent_data") {
         const agentType = readString(marker.agentType).trim();
@@ -3665,7 +3667,7 @@ export async function assembleGenerationPrompt(
     return a.depth - b.depth;
   });
 
-  if (messages.length === 0) {
+  if (messages.length === 0 && !hasPresetPromptContent) {
     if (
       !reusableContext &&
       (!baseLorebookIncludedPositions.worldInfoBefore || !baseLorebookIncludedPositions.worldInfoAfter)
