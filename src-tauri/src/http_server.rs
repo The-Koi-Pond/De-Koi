@@ -1019,7 +1019,7 @@ fn profile_upload_extension(
         .and_then(|value| FsPath::new(value).extension())
         .and_then(|value| value.to_str())
         .map(|value| value.to_ascii_lowercase())
-        .filter(|value| matches!(value.as_str(), "json" | "zip"))
+        .filter(|value| matches!(value.as_str(), "json" | "zip" | "db" | "sqlite" | "sqlite3"))
     {
         return Ok(extension);
     }
@@ -1028,9 +1028,11 @@ fn profile_upload_extension(
         Ok("json".to_string())
     } else if content_type.contains("zip") {
         Ok("zip".to_string())
+    } else if content_type.contains("sqlite") {
+        Ok("db".to_string())
     } else {
         Err(AppError::invalid_input(
-            "Profile upload must be a .json or .zip file",
+            "Profile upload must be a .json, .zip, or legacy SQLite .db/.sqlite/.sqlite3 file",
         ))
     }
 }
@@ -2723,6 +2725,22 @@ mod tests {
             )
             .into_bytes(),
         }
+    }
+
+    #[test]
+    fn profile_upload_extension_accepts_legacy_sqlite_filenames() {
+        assert_eq!(
+            profile_upload_extension(Some("marinara-engine.db"), None).unwrap(),
+            "db"
+        );
+        assert_eq!(
+            profile_upload_extension(Some("profile.sqlite3"), None).unwrap(),
+            "sqlite3"
+        );
+        assert_eq!(
+            profile_upload_extension(None, Some("application/vnd.sqlite3")).unwrap(),
+            "db"
+        );
     }
 
     fn admin_secret_lock() -> &'static Mutex<()> {

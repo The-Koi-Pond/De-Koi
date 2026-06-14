@@ -465,7 +465,7 @@ export function ProfileImportSection() {
   };
 
   const showProfileImportError = (err: unknown, startedAt: number) => {
-    const expectedProfileFile = "profile JSON or ZIP file";
+    const expectedProfileFile = "profile JSON, ZIP, or legacy SQLite DB file";
     const message =
       err instanceof SyntaxError
         ? `Import failed. Make sure this is a valid ${expectedProfileFile}.`
@@ -506,7 +506,7 @@ export function ProfileImportSection() {
     try {
       const selected = await openDialog({
         multiple: false,
-        filters: [{ name: "Marinara Profile", extensions: ["json", "zip"] }],
+        filters: [{ name: "Marinara Profile", extensions: ["json", "zip", "db", "sqlite", "sqlite3"] }],
       });
       if (typeof selected !== "string" || !selected.trim()) {
         setProfileImportProgress(null);
@@ -555,7 +555,7 @@ export function ProfileImportSection() {
       <input
         ref={remoteProfileInputRef}
         type="file"
-        accept=".json,.zip,application/json,application/zip,application/x-zip-compressed"
+        accept=".json,.zip,.db,.sqlite,.sqlite3,application/json,application/zip,application/x-zip-compressed,application/vnd.sqlite3,application/x-sqlite3"
         className="hidden"
         onChange={(event) => void handleRemoteProfileFileChange(event)}
       />
@@ -573,7 +573,7 @@ export function ProfileImportSection() {
           ? profileImportProgress?.status === "reading" || profileImportProgress?.status === "preview"
             ? "Scanning Profile..."
             : "Importing Profile..."
-          : "Import Profile (JSON/ZIP)"}
+          : "Import Profile (JSON/ZIP/DB)"}
       </button>
 
       {profileImportProgress && (

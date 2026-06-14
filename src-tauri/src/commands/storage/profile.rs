@@ -26,6 +26,8 @@ use std::path::{Path, PathBuf};
 
 const PROFILE_EXPORT_JSON_LIMIT_BYTES: usize = 256 * 1024 * 1024;
 const PROFILE_EXPORT_JSON_TOO_LARGE_CODE: &str = "PROFILE_EXPORT_JSON_TOO_LARGE";
+const LEGACY_SQLITE_PROFILE_UNSUPPORTED_CODE: &str = "legacy_sqlite_profile_unsupported";
+const LEGACY_SQLITE_PROFILE_UNSUPPORTED_MESSAGE: &str = "Legacy SQLite profile database import is not supported yet. First copy marinara-engine.db and any companion files to a separate backup folder. Then open the old app with the legacy database, export a profile JSON or ZIP, and import that export into De-Koi.";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum ProfileImportMode {
@@ -325,7 +327,8 @@ fn import_profile_file_with_preview_fingerprint_inner(
                 progress,
             ),
             "zip" => import_profile_zip_with_progress(state, snapshot_path, progress),
-            _ => unreachable!("profile_file_extension only returns json or zip"),
+            "db" | "sqlite" | "sqlite3" => Err(legacy_sqlite_profile_unsupported_error()),
+            _ => unreachable!("profile_file_extension returned an unsupported extension"),
         }
     })
 }
@@ -339,7 +342,8 @@ pub(crate) fn preview_profile_file(state: &AppState, path: &Path) -> AppResult<V
                     .map_err(invalid_profile_json_error)?,
             ),
             "zip" => preview_profile_zip(state, snapshot_path),
-            _ => unreachable!("profile_file_extension only returns json or zip"),
+            "db" | "sqlite" | "sqlite3" => Err(legacy_sqlite_profile_unsupported_error()),
+            _ => unreachable!("profile_file_extension returned an unsupported extension"),
         }?;
         Ok(with_profile_import_file_fingerprint(
             result,
@@ -367,8 +371,9 @@ pub(crate) fn import_profile_upload(
             let _ = fs::remove_file(path);
             result
         }
+        "db" | "sqlite" | "sqlite3" => Err(legacy_sqlite_profile_unsupported_error()),
         _ => Err(AppError::invalid_input(
-            "Profile upload must be a .json or .zip file",
+            profile_import_supported_file_message(),
         )),
     }
 }
@@ -392,8 +397,9 @@ pub(crate) fn preview_profile_upload(
             let _ = fs::remove_file(path);
             result
         }
+        "db" | "sqlite" | "sqlite3" => Err(legacy_sqlite_profile_unsupported_error()),
         _ => Err(AppError::invalid_input(
-            "Profile upload must be a .json or .zip file",
+            profile_import_supported_file_message(),
         )),
     }
 }
@@ -403,7 +409,7 @@ fn profile_upload_bytes(filename: &str, base64: &str) -> AppResult<(String, Vec<
         .extension()
         .and_then(|extension| extension.to_str())
         .map(|extension| extension.to_ascii_lowercase())
-        .ok_or_else(|| AppError::invalid_input("Profile upload must be a .json or .zip file"))?;
+        .ok_or_else(|| AppError::invalid_input(profile_import_supported_file_message()))?;
     let bytes =
         base64::Engine::decode(&general_purpose::STANDARD, base64.trim()).map_err(|error| {
             AppError::invalid_input(format!("Invalid profile upload data: {error}"))
@@ -445,10 +451,30 @@ fn profile_file_extension(path: &Path) -> AppResult<String> {
     {
         Some("json") => Ok("json".to_string()),
         Some("zip") => Ok("zip".to_string()),
+        Some("db") => Ok("db".to_string()),
+        Some("sqlite") => Ok("sqlite".to_string()),
+        Some("sqlite3") => Ok("sqlite3".to_string()),
         _ => Err(AppError::invalid_input(
-            "Profile import must be a .json or .zip file",
+            profile_import_supported_file_message(),
         )),
     }
+}
+
+fn profile_import_supported_file_message() -> &'static str {
+    "Profile import must be a .json, .zip, or legacy SQLite .db/.sqlite/.sqlite3 file"
+}
+
+fn legacy_sqlite_profile_unsupported_error() -> AppError {
+    AppError::with_details(
+        LEGACY_SQLITE_PROFILE_UNSUPPORTED_CODE,
+        LEGACY_SQLITE_PROFILE_UNSUPPORTED_MESSAGE,
+        json!({
+            "sourceFormat": "legacy-sqlite",
+            "supportedImportFormats": ["json", "zip"],
+            "legacyFilename": "marinara-engine.db",
+            "guidance": "Back up marinara-engine.db and any companion files first. Then use the old app to export a profile JSON or ZIP from the legacy database, and import that export into De-Koi.",
+        }),
+    )
 }
 
 fn copy_profile_file_snapshot(
@@ -3025,6 +3051,27 @@ mod tests {
     }
 
     #[test]
+    fn profile_upload_preview_rejects_legacy_sqlite_with_guidance() {
+        let state = test_state("profile-upload-legacy-sqlite");
+        let base64 = base64::Engine::encode(&general_purpose::STANDARD, b"SQLite format 3\0");
+
+        let error = preview_profile_upload(&state, "marinara-engine.db", &base64)
+            .expect_err("legacy SQLite database upload should explain the migration path");
+
+        assert_eq!(error.code, LEGACY_SQLITE_PROFILE_UNSUPPORTED_CODE);
+        assert!(error
+            .message
+            .contains("Legacy SQLite profile database import"));
+        assert!(error.message.contains("export a profile JSON or ZIP"));
+        let details = error
+            .details
+            .as_ref()
+            .expect("error should include details");
+        assert_eq!(details["sourceFormat"], "legacy-sqlite");
+        assert_eq!(details["legacyFilename"], "marinara-engine.db");
+    }
+
+    #[test]
     fn profile_file_import_rejects_invalid_json_as_invalid_input() {
         let state = test_state("profile-file-invalid-json");
         let path = state.data_dir.join("profile.json");
@@ -3035,6 +3082,28 @@ mod tests {
 
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("Invalid profile JSON"));
+    }
+
+    #[test]
+    fn profile_file_preview_rejects_legacy_sqlite_with_guidance() {
+        let state = test_state("profile-file-legacy-sqlite");
+        let path = state.data_dir.join("marinara-engine.db");
+        std::fs::write(&path, b"SQLite format 3\0").expect("legacy sqlite fixture should write");
+
+        let error = preview_profile_file(&state, &path)
+            .expect_err("legacy SQLite database file should explain the migration path");
+
+        assert_eq!(error.code, LEGACY_SQLITE_PROFILE_UNSUPPORTED_CODE);
+        assert!(error
+            .message
+            .contains("Legacy SQLite profile database import"));
+        assert!(error.message.contains("export a profile JSON or ZIP"));
+        let details = error
+            .details
+            .as_ref()
+            .expect("error should include details");
+        assert_eq!(details["sourceFormat"], "legacy-sqlite");
+        assert_eq!(details["supportedImportFormats"], json!(["json", "zip"]));
     }
 
     #[test]
