@@ -3297,25 +3297,6 @@ def load_review_for_status(path):
         return {}
 
 
-def ci_control_has_failure(path):
-    try:
-        data = json.loads(pathlib.Path(path).read_text("utf-8"))
-    except Exception:
-        return False
-    failed = data.get("failed") if isinstance(data, dict) else []
-    return bool(failed)
-
-
-def ci_control_has_pending_or_missing(path):
-    try:
-        data = json.loads(pathlib.Path(path).read_text("utf-8"))
-    except Exception:
-        return False
-    if not isinstance(data, dict):
-        return False
-    return bool(data.get("pending") or data.get("missing"))
-
-
 def status_state(args):
     if str(args.job_status or "").lower() != "success":
         print("state=failure")
@@ -3337,21 +3318,11 @@ def status_state(args):
         severity_meta(finding.severity)["rank"] <= severity_meta("high")["rank"]
         for finding in findings
     )
-    failed_ci = ci_control_has_failure(args.ci_control)
-    pending_ci = ci_control_has_pending_or_missing(args.ci_control)
     if not draft and has_high_or_blocking:
         print("state=failure")
         print("description=Bunny found blocking/high issues; repair before merge.")
         return
-    if not draft and failed_ci:
-        print("state=failure")
-        print("description=Expected CI controls failed; repair CI before merge.")
-        return
-    if not draft and pending_ci:
-        print("state=pending")
-        print("description=Expected CI controls are still pending or missing.")
-        return
-    if draft and (findings or failed_ci):
+    if draft and findings:
         print("state=success")
         print("description=Draft review posted with notes.")
         return

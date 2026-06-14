@@ -177,7 +177,6 @@ jobs:
                       )
           PY
           . bunny-ci-config.env
-          MISSING_CHECK_ATTEMPTS=18
           MAX_CHECK_ATTEMPTS=90
           for attempt in $(seq 1 "$MAX_CHECK_ATTEMPTS"); do
             gh api "repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs" > check-runs.json
@@ -203,9 +202,6 @@ jobs:
           print(f"PENDING={pending}")
           PY
             . bunny-ci-loop.env
-            if [ "${FOUND:-0}" -eq 0 ] && [ "$attempt" -ge "$MISSING_CHECK_ATTEMPTS" ]; then
-              break
-            fi
             if [ "${FOUND:-0}" -ge "${EXPECTED_COUNT:-0}" ] && [ "${PENDING:-0}" -eq 0 ]; then
               break
             fi
