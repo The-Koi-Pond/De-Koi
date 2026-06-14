@@ -33,6 +33,7 @@ pub(crate) fn render_claude_subscription_transcript(
     )
 }
 
+#[derive(Debug)]
 pub(crate) struct ClaudeSubscriptionPrompt {
     pub(crate) system_prompt: Option<String>,
     pub(crate) prompt: String,
@@ -117,7 +118,30 @@ pub(crate) fn claude_subscription_visible_message_text(message: &LlmMessage) -> 
     if !content.is_empty() {
         return Some(content.to_string());
     }
-    (!message.images.is_empty()).then(|| format!("[{} image attachment(s)]", message.images.len()))
+    None
+}
+
+pub(crate) fn claude_subscription_image_attachment_count(messages: &[LlmMessage]) -> usize {
+    messages.iter().map(|message| message.images.len()).sum()
+}
+
+pub(crate) fn ensure_claude_subscription_supports_messages(
+    messages: &[LlmMessage],
+) -> AppResult<()> {
+    let count = claude_subscription_image_attachment_count(messages);
+    if count == 0 {
+        return Ok(());
+    }
+    Err(AppError::with_details(
+        "claude_subscription_unsupported_capability",
+        format!(
+            "Claude subscription cannot send {count} image attachment(s) through the current Claude Code CLI prompt path. Remove the attachment(s) or use an image-capable provider such as Anthropic API."
+        ),
+        json!({
+            "capability": "image_attachments",
+            "imageAttachmentCount": count
+        }),
+    ))
 }
 
 pub(crate) fn render_claude_subscription_history_turn(message: &LlmMessage) -> Option<String> {
@@ -212,27 +236,28 @@ pub(crate) fn render_claude_subscription_current_prompt(
     )
 }
 
-pub(crate) fn claude_subscription_prompt(request: &LlmRequest) -> ClaudeSubscriptionPrompt {
+pub(crate) fn claude_subscription_prompt(request: &LlmRequest) -> AppResult<ClaudeSubscriptionPrompt> {
     let messages = request_messages(request);
+    ensure_claude_subscription_supports_messages(&messages)?;
     if claude_subscription_should_use_session(&request.parameters) {
         if let Some(chat_id) = claude_subscription_chat_id(&request.parameters) {
             let (system_prompt, prompt, prompt_shape) =
                 render_claude_subscription_current_prompt(&messages);
-            return ClaudeSubscriptionPrompt {
+            return Ok(ClaudeSubscriptionPrompt {
                 system_prompt,
                 prompt,
                 session_id: Some(claude_subscription_session_id(&chat_id)),
                 prompt_shape,
-            };
+            });
         }
     }
     let (system_prompt, prompt) = render_claude_subscription_transcript(&messages);
-    ClaudeSubscriptionPrompt {
+    Ok(ClaudeSubscriptionPrompt {
         system_prompt,
         prompt,
         session_id: None,
         prompt_shape: "transcript-fold",
-    }
+    })
 }
 
 pub(crate) fn claude_subscription_command() -> String {
@@ -655,7 +680,7 @@ pub fn diagnose_claude_subscription_model(model: &str, fast_mode: bool) -> AppRe
 pub(crate) async fn complete_claude_subscription_rich(
     request: LlmRequest,
 ) -> AppResult<LlmCompletion> {
-    let prompt_selection = claude_subscription_prompt(&request);
+    let prompt_selection = claude_subscription_prompt(&request)?;
     let model_selection = claude_subscription_model_selection(&request.connection.model);
     let mut command = Command::new(claude_subscription_command());
     command
