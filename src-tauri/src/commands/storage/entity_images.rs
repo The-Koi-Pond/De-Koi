@@ -1,7 +1,18 @@
 use super::media_uploads::{
-    persist_image_upload, remove_copied_file_path, remove_managed_record_file, safe_filename,
+    managed_record_file_path, persist_image_file_copy, persist_image_upload,
+    remove_copied_file_path, remove_managed_record_file, safe_filename,
 };
 use super::*;
+
+pub(crate) enum DuplicateEntityImage {
+    Copied {
+        asset_url: String,
+        absolute_path: String,
+        filename: String,
+    },
+    MissingManagedMetadata,
+    None,
+}
 
 pub(crate) fn update_entity_image(
     state: &AppState,
@@ -40,6 +51,74 @@ pub(crate) fn remove_entity_image_file(state: &AppState, collection: &str, recor
         return;
     };
     remove_managed_record_file(state, folder, record, "imageFilePath", "imageFilename");
+}
+
+pub(crate) fn duplicate_managed_entity_image(
+    state: &AppState,
+    collection: &str,
+    filename_hint: &str,
+    record: &Value,
+) -> AppResult<DuplicateEntityImage> {
+    let folder = entity_image_folder(collection)?;
+    let image_path =
+        managed_record_file_path(state, folder, record, "imageFilePath", "imageFilename")?;
+    let Some(image_path) = image_path else {
+        return Ok(if has_managed_entity_image_metadata(record) {
+            DuplicateEntityImage::MissingManagedMetadata
+        } else {
+            DuplicateEntityImage::None
+        });
+    };
+
+    let filename_hint = record
+        .get("imageFilename")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(filename_hint);
+    let stored = persist_image_file_copy(state, folder, filename_hint, &image_path)?;
+    Ok(DuplicateEntityImage::Copied {
+        asset_url: stored.asset_url,
+        absolute_path: stored.absolute_path,
+        filename: stored.filename,
+    })
+}
+
+pub(crate) fn apply_duplicate_entity_image(
+    object: &mut Map<String, Value>,
+    image: &DuplicateEntityImage,
+) {
+    match image {
+        DuplicateEntityImage::Copied {
+            asset_url,
+            absolute_path,
+            filename,
+        } => {
+            object.insert("imagePath".to_string(), Value::String(asset_url.clone()));
+            object.insert(
+                "imageFilePath".to_string(),
+                Value::String(absolute_path.clone()),
+            );
+            object.insert("imageFilename".to_string(), Value::String(filename.clone()));
+        }
+        DuplicateEntityImage::MissingManagedMetadata => {
+            object.insert("imagePath".to_string(), Value::Null);
+            object.insert("imageFilePath".to_string(), Value::Null);
+            object.insert("imageFilename".to_string(), Value::Null);
+        }
+        DuplicateEntityImage::None => {}
+    }
+}
+
+pub(crate) fn remove_duplicate_entity_image_copy(image: &DuplicateEntityImage, context: &str) {
+    if let DuplicateEntityImage::Copied { absolute_path, .. } = image {
+        remove_copied_file_path(Some(absolute_path), context);
+    }
+}
+
+fn has_managed_entity_image_metadata(record: &Value) -> bool {
+    ["imageFilePath", "imageFilename"]
+        .iter()
+        .any(|field| record.get(*field).is_some_and(|value| !value.is_null()))
 }
 
 fn entity_image_folder(collection: &str) -> AppResult<&'static str> {

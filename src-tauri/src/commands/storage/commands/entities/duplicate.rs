@@ -19,6 +19,9 @@ pub(crate) fn duplicate_entity(
     if entity == "chat-presets" {
         return duplicate_chat_preset(state, id);
     }
+    if entity == "agents" {
+        return duplicate_agent(state, id);
+    }
     if entity == "connections" {
         return duplicate_connection(state, id);
     }
@@ -40,8 +43,38 @@ pub(super) fn duplicate_message(state: &AppState, id: &str) -> Result<Value, App
     Ok(shared::project_timeline_message(duplicated))
 }
 
+pub(super) fn duplicate_agent(state: &AppState, id: &str) -> Result<Value, AppError> {
+    let mut record = shared::get_required(state, "agents", id)?;
+    let duplicate_image =
+        entity_images::duplicate_managed_entity_image(state, "agents", id, &record)?;
+    let object = record
+        .as_object_mut()
+        .ok_or_else(|| AppError::invalid_input("Agent is not an object"))?;
+    object.remove("id");
+    if let Some(name) = object
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    {
+        object.insert("name".to_string(), Value::String(format!("{name} Copy")));
+    }
+    entity_images::apply_duplicate_entity_image(object, &duplicate_image);
+    match state.storage.create("agents", record) {
+        Ok(duplicated) => Ok(duplicated),
+        Err(error) => {
+            entity_images::remove_duplicate_entity_image_copy(
+                &duplicate_image,
+                "rolled-back duplicated agent image",
+            );
+            Err(error)
+        }
+    }
+}
+
 pub(super) fn duplicate_connection(state: &AppState, id: &str) -> Result<Value, AppError> {
     let mut record = shared::get_required(state, "connections", id)?;
+    let duplicate_image =
+        entity_images::duplicate_managed_entity_image(state, "connections", id, &record)?;
     let object = record
         .as_object_mut()
         .ok_or_else(|| AppError::invalid_input("Connection is not an object"))?;
@@ -56,9 +89,28 @@ pub(super) fn duplicate_connection(state: &AppState, id: &str) -> Result<Value, 
     object.insert("isDefault".to_string(), Value::Bool(false));
     object.insert("default".to_string(), Value::Bool(false));
     object.insert("defaultForAgents".to_string(), Value::Bool(false));
+    entity_images::apply_duplicate_entity_image(object, &duplicate_image);
 
-    let prepared = connection_secrets::prepare_connection_for_create(state, record)?;
-    let mut duplicated = state.storage.create("connections", prepared)?;
+    let prepared = match connection_secrets::prepare_connection_for_create(state, record) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            entity_images::remove_duplicate_entity_image_copy(
+                &duplicate_image,
+                "rolled-back duplicated connection image",
+            );
+            return Err(error);
+        }
+    };
+    let mut duplicated = match state.storage.create("connections", prepared) {
+        Ok(duplicated) => duplicated,
+        Err(error) => {
+            entity_images::remove_duplicate_entity_image_copy(
+                &duplicate_image,
+                "rolled-back duplicated connection image",
+            );
+            return Err(error);
+        }
+    };
     connection_secrets::mask_connection_for_read(&mut duplicated);
     Ok(duplicated)
 }

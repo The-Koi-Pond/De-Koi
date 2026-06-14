@@ -633,6 +633,30 @@ mod tests {
         AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
     }
 
+    fn small_png_bytes() -> Vec<u8> {
+        vec![
+            137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1,
+            8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 218, 99, 252, 207,
+            192, 80, 15, 0, 5, 131, 2, 127, 149, 57, 153, 178, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66,
+            96, 130,
+        ]
+    }
+
+    fn filenames_in_dir(path: &std::path::Path) -> Vec<String> {
+        let mut names = std::fs::read_dir(path)
+            .expect("directory should be readable")
+            .map(|entry| {
+                entry
+                    .expect("directory entry should read")
+                    .file_name()
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        names.sort();
+        names
+    }
+
     fn ids_for_lorebook(state: &AppState, collection: &str, lorebook_id: &str) -> Vec<String> {
         let mut filters = Map::new();
         filters.insert(
@@ -5037,6 +5061,179 @@ mod tests {
             .expect("duplicate should exist");
         assert!(raw.get("apiKey").is_none());
         assert!(raw.get("apiKeyEncrypted").is_some());
+    }
+
+    #[test]
+    fn duplicating_connection_copies_managed_entity_image_file() {
+        let state = test_state("connection-duplicate-image");
+        let image_dir = state.data_dir.join("entity-images").join("connections");
+        std::fs::create_dir_all(&image_dir).expect("image dir should be created");
+        let image_path = image_dir.join("connection.png");
+        std::fs::write(&image_path, small_png_bytes()).expect("managed image should be written");
+        storage_create_inner(
+            &state,
+            "connections".to_string(),
+            json!({
+                "id": "connection-a",
+                "name": "Connection A",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "imagePath": "http://asset.localhost/original",
+                "imageFilePath": image_path.to_string_lossy(),
+                "imageFilename": "connection.png"
+            }),
+        )
+        .expect("connection should be created");
+
+        let duplicated = duplicate_entity(&state, "connections", "connection-a")
+            .expect("connection duplicate should succeed");
+        let duplicate_path = std::path::PathBuf::from(
+            duplicated
+                .get("imageFilePath")
+                .and_then(Value::as_str)
+                .expect("duplicate should have cloned image path"),
+        );
+
+        assert_ne!(duplicate_path, image_path);
+        assert!(duplicate_path.is_file());
+        assert_eq!(
+            std::fs::read(&duplicate_path).expect("duplicate image should read"),
+            std::fs::read(&image_path).expect("source image should read")
+        );
+
+        delete_entity(
+            &state,
+            "connections",
+            duplicated["id"].as_str().unwrap(),
+            false,
+        )
+        .expect("duplicate delete should succeed");
+
+        assert!(
+            image_path.exists(),
+            "deleting duplicate must keep original image"
+        );
+        assert!(
+            !duplicate_path.exists(),
+            "deleting duplicate should remove only the copied image"
+        );
+    }
+
+    #[test]
+    fn duplicating_agent_copies_managed_entity_image_file() {
+        let state = test_state("agent-duplicate-image");
+        let image_dir = state.data_dir.join("entity-images").join("agents");
+        std::fs::create_dir_all(&image_dir).expect("image dir should be created");
+        let image_path = image_dir.join("agent.png");
+        std::fs::write(&image_path, small_png_bytes()).expect("managed image should be written");
+        storage_create_inner(
+            &state,
+            "agents".to_string(),
+            json!({
+                "id": "agent-a",
+                "type": "custom-agent",
+                "name": "Custom Agent",
+                "phase": "parallel",
+                "imagePath": "http://asset.localhost/original",
+                "imageFilePath": image_path.to_string_lossy(),
+                "imageFilename": "agent.png"
+            }),
+        )
+        .expect("agent should be created");
+
+        let duplicated =
+            duplicate_entity(&state, "agents", "agent-a").expect("agent duplicate should succeed");
+        let duplicate_path = std::path::PathBuf::from(
+            duplicated
+                .get("imageFilePath")
+                .and_then(Value::as_str)
+                .expect("duplicate should have cloned image path"),
+        );
+
+        assert_ne!(duplicated["id"], "agent-a");
+        assert_eq!(duplicated["name"], "Custom Agent Copy");
+        assert_ne!(duplicate_path, image_path);
+        assert!(duplicate_path.is_file());
+
+        delete_entity(&state, "agents", duplicated["id"].as_str().unwrap(), false)
+            .expect("duplicate delete should succeed");
+
+        assert!(
+            image_path.exists(),
+            "deleting duplicate must keep original image"
+        );
+        assert!(
+            !duplicate_path.exists(),
+            "deleting duplicate should remove only the copied image"
+        );
+    }
+
+    #[test]
+    fn duplicating_connection_removes_copied_entity_image_when_prepare_fails() {
+        let state = test_state("connection-duplicate-image-prepare-failure");
+        let image_dir = state.data_dir.join("entity-images").join("connections");
+        std::fs::create_dir_all(&image_dir).expect("image dir should be created");
+        let image_path = image_dir.join("connection.png");
+        std::fs::write(&image_path, small_png_bytes()).expect("managed image should be written");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "connection-a",
+                    "name": "Connection A",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "apiKey": "sk-secret",
+                    "imagePath": "http://asset.localhost/original",
+                    "imageFilePath": image_path.to_string_lossy(),
+                    "imageFilename": "connection.png"
+                }),
+            )
+            .expect("connection should be seeded");
+        std::fs::create_dir_all(state.data_dir.join("secrets").join("connection-master.key"))
+            .expect("master key path should be made unreadable as a file");
+
+        duplicate_entity(&state, "connections", "connection-a")
+            .expect_err("connection duplicate should fail during secret preparation");
+
+        assert_eq!(filenames_in_dir(&image_dir), vec!["connection.png"]);
+    }
+
+    #[test]
+    fn duplicating_agent_removes_copied_entity_image_when_create_fails() {
+        let state = test_state("agent-duplicate-image-create-failure");
+        let image_dir = state.data_dir.join("entity-images").join("agents");
+        std::fs::create_dir_all(&image_dir).expect("image dir should be created");
+        let image_path = image_dir.join("agent.png");
+        std::fs::write(&image_path, small_png_bytes()).expect("managed image should be written");
+        state
+            .storage
+            .create(
+                "agents",
+                json!({
+                    "id": "agent-a",
+                    "type": "custom-agent",
+                    "name": "Custom Agent",
+                    "phase": "parallel",
+                    "imagePath": "http://asset.localhost/original",
+                    "imageFilePath": image_path.to_string_lossy(),
+                    "imageFilename": "agent.png"
+                }),
+            )
+            .expect("agent should be seeded");
+
+        state
+            .storage
+            .update_collections_atomically(vec!["agents"], |_| {
+                let error = duplicate_entity(&state, "agents", "agent-a")
+                    .expect_err("agent duplicate should fail while writes are blocked");
+                assert_eq!(error.code, "storage_transaction_active");
+                Ok(())
+            })
+            .expect("atomic proof should complete");
+
+        assert_eq!(filenames_in_dir(&image_dir), vec!["agent.png"]);
     }
 
     #[test]
