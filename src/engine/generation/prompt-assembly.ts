@@ -226,6 +226,13 @@ type PromptAssemblyEntry = ChatMLMessage & {
   promptGroupName?: string | null;
 };
 
+type PromptDepthEntry = {
+  content: string;
+  role: "system" | "user" | "assistant";
+  depth: number;
+  order: number;
+};
+
 type GroupScenarioOverride = {
   enabled: boolean;
   text: string;
@@ -1147,6 +1154,22 @@ function groupedPromptMessages(entries: PromptAssemblyEntry[], wrapFormat: WrapF
   flushGroup();
 
   return messages;
+}
+
+function isDepthPromptSection(section: PromptSectionRecord): boolean {
+  return (
+    readString(section.injectionPosition ?? section.injection_position)
+      .trim()
+      .toLowerCase() === "depth"
+  );
+}
+
+function promptSectionInjectionDepth(section: PromptSectionRecord): number {
+  return Math.max(0, Math.floor(readNumber(section.injectionDepth ?? section.injection_depth, 0)));
+}
+
+function promptSectionInjectionOrder(section: PromptSectionRecord): number {
+  return Math.floor(readNumber(section.injectionOrder ?? section.injection_order, 100));
 }
 
 function resolveLiveHostTimeZone(): string | undefined {
@@ -3569,6 +3592,7 @@ export async function assembleGenerationPrompt(
   let insertedSummary = false;
   const insertedAgentData = { all: false, types: new Set<string>() };
   let usedFallbackSystemPrompt = false;
+  let presetDepthEntries: PromptDepthEntry[] = [];
 
   if (selectedPreset) {
     const groupsById = promptGroupLookup(selectedPreset.groups);
@@ -3615,6 +3639,15 @@ export async function assembleGenerationPrompt(
         }
       }
       const name = readString(section.name) || readString(section.identifier) || marker?.type || "Prompt";
+      if (isDepthPromptSection(section)) {
+        presetDepthEntries.push({
+          role: normalizeRole(section.role),
+          content: wrapContent(resolved, name, wrapFormat, 0),
+          depth: promptSectionInjectionDepth(section),
+          order: promptSectionInjectionOrder(section),
+        });
+        continue;
+      }
       const group = promptGroupForSection(section, groupsById);
       promptEntries.push({
         role: normalizeRole(section.role),
@@ -3627,6 +3660,10 @@ export async function assembleGenerationPrompt(
     }
     flushPromptEntries();
   }
+  presetDepthEntries = presetDepthEntries.sort((a, b) => {
+    if (a.depth === b.depth) return a.order - b.order;
+    return a.depth - b.depth;
+  });
 
   if (messages.length === 0) {
     if (
@@ -3736,8 +3773,8 @@ export async function assembleGenerationPrompt(
   messages = injectAtDepth(
     messages,
     authorNotesEntry
-      ? [...processedLore.depthEntries, ...characterDepthEntries, authorNotesEntry]
-      : [...processedLore.depthEntries, ...characterDepthEntries],
+      ? [...processedLore.depthEntries, ...characterDepthEntries, ...presetDepthEntries, authorNotesEntry]
+      : [...processedLore.depthEntries, ...characterDepthEntries, ...presetDepthEntries],
     chatHistoryDepthInjectionBounds(messages),
   );
   const regexScripts = await loadPromptRegexScripts();
