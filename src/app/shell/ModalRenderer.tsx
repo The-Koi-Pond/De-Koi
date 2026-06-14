@@ -4,6 +4,7 @@
 import { lazy, Suspense } from "react";
 import { useUIStore } from "../../shared/stores/ui.store";
 import type { AgentData } from "../../features/catalog/agents/shell";
+import type { CreateLorebookModalDefaults } from "../../features/catalog/lorebooks/shell";
 
 const CreateCharacterModal = lazy(() =>
   import("../../features/catalog/characters/shell").then((module) => ({ default: module.CreateCharacterModal })),
@@ -73,7 +74,9 @@ export function ModalRenderer() {
       content = <CharacterMakerModal open onClose={closeModal} />;
       break;
     case "create-lorebook":
-      content = <CreateLorebookModal open onClose={closeModal} />;
+      content = (
+        <CreateLorebookModal open onClose={closeModal} {...((modal?.props ?? {}) as CreateLorebookModalDefaults)} />
+      );
       break;
     case "import-lorebook":
       content = <ImportLorebookModal open onClose={closeModal} />;

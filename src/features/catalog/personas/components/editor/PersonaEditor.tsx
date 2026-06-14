@@ -16,6 +16,7 @@ import {
   FileText,
   Heart,
   BookOpen,
+  Library,
   Eye,
   MapPin,
   Camera,
@@ -50,6 +51,7 @@ import { PersonaDescriptionTab } from "./PersonaDescriptionTab";
 import { PersonaGalleryTab } from "./PersonaGalleryTab";
 import { PersonaSpritesTab } from "../sprites/PersonaSpritesTab";
 import { PersonaStatsTab } from "./PersonaStatsTab";
+import { LorebookAssignmentSection } from "../../../lorebooks/assignment";
 
 // ── Tabs ──
 const TABS = [
@@ -58,6 +60,7 @@ const TABS = [
   { id: "backstory", label: "Backstory", icon: BookOpen },
   { id: "appearance", label: "Appearance", icon: Eye },
   { id: "scenario", label: "Scenario", icon: MapPin },
+  { id: "lorebook", label: "Lorebook", icon: Library },
   { id: "sprites", label: "Sprites", icon: Image },
   { id: "gallery", label: "Gallery", icon: Camera },
   { id: "colors", label: "Colors", icon: Palette },
@@ -475,6 +478,13 @@ export function PersonaEditor() {
                 onChange={(v) => updateField("scenario", v)}
                 placeholder="A wandering adventurer seeking answers about a mysterious artifact…"
                 rows={8}
+              />
+            )}
+            {activeTab === "lorebook" && (
+              <LorebookAssignmentSection
+                ownerType="persona"
+                ownerId={personaId}
+                ownerName={formData.name || "this persona"}
               />
             )}
             {activeTab === "colors" && (
