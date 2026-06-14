@@ -133,6 +133,8 @@ const PERSONA_FIELDS: &[TypedJsonField] = &[
     array("tags"),
     array("altDescriptions"),
     array("savedStatusOptions"),
+    boolish("isActive"),
+    boolish("active"),
     nullable_object("avatarCrop"),
     nullable_object("personaStats"),
 ];
@@ -638,5 +640,15 @@ mod tests {
         assert!(lorebooks
             .delete_cleanup
             .contains(&DeleteCleanup::ClearLorebookReferences));
+
+        let personas = collection_contract("personas").expect("personas contract");
+        assert!(personas
+            .typed_json_fields
+            .iter()
+            .any(|field| field.name == "isActive" && field.kind == TypedJsonKind::Boolish));
+        assert!(personas
+            .typed_json_fields
+            .iter()
+            .any(|field| field.name == "active" && field.kind == TypedJsonKind::Boolish));
     }
 }

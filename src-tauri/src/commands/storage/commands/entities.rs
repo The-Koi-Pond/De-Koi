@@ -2551,6 +2551,41 @@ mod tests {
     }
 
     #[test]
+    fn activating_persona_normalizes_legacy_active_flags() {
+        let state = test_state("persona-activate-legacy-active-flags");
+        state
+            .storage
+            .replace_all(
+                "personas",
+                vec![
+                    json!({
+                        "id": "legacy-active-persona",
+                        "name": "Legacy Active Persona",
+                        "isActive": "true",
+                        "active": 1
+                    }),
+                    json!({
+                        "id": "next-persona",
+                        "name": "Next Persona",
+                        "isActive": "false",
+                        "active": "false"
+                    }),
+                ],
+            )
+            .expect("legacy persona rows should be seeded");
+
+        personas::activate_persona(&state, "next-persona")
+            .expect("persona activation should succeed");
+
+        let previous = read_record(&state, "personas", "legacy-active-persona");
+        assert_eq!(previous["isActive"], false);
+        assert_eq!(previous["active"], false);
+        let next = read_record(&state, "personas", "next-persona");
+        assert_eq!(next["isActive"], true);
+        assert_eq!(next["active"], true);
+    }
+
+    #[test]
     fn deleting_character_removes_character_gallery_records_and_managed_files() {
         let state = test_state("character-gallery-delete");
         state
