@@ -124,14 +124,23 @@ export interface GenerationAgentRuntime {
   runPost(mainResponse: string): Promise<AgentResult[]>;
 }
 
-export interface AgentConnectionWarning {
-  code: "default_agent_connection_active";
+interface AgentConnectionWarningBase {
   severity: "warning";
   message: string;
   agentNames: string[];
+}
+
+interface DefaultAgentConnectionWarning extends AgentConnectionWarningBase {
+  code: "default_agent_connection_active";
   connectionName: string;
   model: string;
 }
+
+interface LocalSidecarUnavailableWarning extends AgentConnectionWarningBase {
+  code: "local_sidecar_unavailable";
+}
+
+export type AgentConnectionWarning = DefaultAgentConnectionWarning | LocalSidecarUnavailableWarning;
 
 interface AgentDeps {
   storage: StorageGateway;
@@ -1047,6 +1056,40 @@ function skippedDanglingConnectionResult(agent: JsonRecord, connectionId: string
   };
 }
 
+function localSidecarUnavailableMessage(agentName: string): string {
+  return `${agentName} is assigned to the legacy Local Model sidecar, but that runtime is not available. De-Koi skipped this agent for this turn. Configure a local model API connection and choose it in Agent settings.`;
+}
+
+function skippedLocalSidecarUnavailableResult(agent: JsonRecord, connectionId: string): AgentResult {
+  const type = readString(agent.type || agent.agentType) || "agent";
+  const name = readString(agent.name) || type;
+  return {
+    agentId: readString(agent.id) || type,
+    agentType: type,
+    type: "context_injection",
+    data: {
+      code: "local_sidecar_unavailable",
+      connectionId,
+      agentName: name,
+    },
+    tokensUsed: 0,
+    durationMs: 0,
+    success: false,
+    error: localSidecarUnavailableMessage(name),
+  };
+}
+
+function localSidecarUnavailableWarning(agent: JsonRecord): AgentConnectionWarning {
+  const type = readString(agent.type || agent.agentType) || "agent";
+  const name = readString(agent.name) || type;
+  return {
+    code: "local_sidecar_unavailable",
+    severity: "warning",
+    agentNames: [name],
+    message: localSidecarUnavailableMessage(name),
+  };
+}
+
 function skippedLorebookKeeperTargetResult(agent: JsonRecord): AgentResult {
   const name = readString(agent.name) || "Lorebook Keeper";
   return {
@@ -1125,6 +1168,7 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
   const resolved: ResolvedAgent[] = [];
   const skippedResults: AgentResult[] = [];
   const staticInjections: AgentInjection[] = [];
+  const localConnectionWarnings: AgentConnectionWarning[] = [];
   const defaultConnectionWarnings = new Map<string, AgentConnectionWarning>();
   let defaultAgentConnection: JsonRecord | null | undefined;
   for (const agent of rows) {
@@ -1175,6 +1219,11 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     } else {
       connection = fallbackConnection;
     }
+    if (connectionId === LOCAL_SIDECAR_CONNECTION_ID) {
+      skippedResults.push(skippedLocalSidecarUnavailableResult(agent, connectionId));
+      localConnectionWarnings.push(localSidecarUnavailableWarning(agent));
+      continue;
+    }
     const model = readString(agent.model).trim() || readString(connection.model).trim();
     if (!model) continue;
     const name = readString(agent.name) || readString(agent.type) || "Agent";
@@ -1197,7 +1246,12 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
       toolContext: buildAgentToolContext(deps, input, agent, settings, customTools),
     });
   }
-  return { agents: resolved, skippedResults, staticInjections, agentWarnings: [...defaultConnectionWarnings.values()] };
+  return {
+    agents: resolved,
+    skippedResults,
+    staticInjections,
+    agentWarnings: [...defaultConnectionWarnings.values(), ...localConnectionWarnings],
+  };
 }
 
 type SpotifyDjSourceType = "liked" | "playlist" | "artist" | "any";

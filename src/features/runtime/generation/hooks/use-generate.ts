@@ -2,7 +2,6 @@ import { useCallback, useMemo } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { retryGenerationAgents, startGeneration } from "../../../../engine/generation/start-generation";
-import { backfillConversationSummaries } from "../../../../engine/modes/chat/core/summaries/auto-summary.service";
 import {
   EDITABLE_CHARACTER_CARD_FIELDS,
   type AgentResult,
@@ -1761,21 +1760,6 @@ export function useGenerate() {
             },
             signal,
           ) as AsyncGenerator<StreamEvent>,
-        {
-          beforeStart: async (beforeArgs, signal) => {
-            if (signal.aborted) return;
-            void backfillConversationSummaries(
-              { storage: storageApi, llm: llmApi },
-              {
-                chatId: beforeArgs.chatId,
-                connectionId: typeof beforeArgs.connectionId === "string" ? beforeArgs.connectionId : null,
-                maxMissingDays: 2,
-              },
-            ).catch(() => {
-              // Summary refresh should never block an otherwise valid generation.
-            });
-          },
-        },
       );
     },
     [queryClient, reviewedIntegrationGateway],

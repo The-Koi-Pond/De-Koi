@@ -3,6 +3,7 @@ import type { LlmGateway, LlmMessage } from "../../../../capabilities/llm";
 import type { StorageGateway } from "../../../../capabilities/storage";
 import type { BaseLLMProvider } from "../../../../generation-core/llm/base-provider.js";
 import { boolish } from "../../../../generation/runtime-records";
+import { formatZonedDate, normalizeUserTimeZone } from "../../../../shared/time/timezone";
 import { readString as stringValue } from "../../../../shared/value-readers";
 import { stripConversationPromptTimestamps } from "./transcript-sanitize.js";
 
@@ -29,6 +30,8 @@ interface ConversationSummaryRunResult {
 export interface ConversationSummaryBackfillResult {
   generatedDays: string[];
   consolidatedWeeks: string[];
+  generatedDaySummaries: Record<string, DaySummaryEntry>;
+  consolidatedWeekSummaries: Record<string, WeekSummaryEntry>;
   failedDays: Array<{ date: string; error: string }>;
   failedWeeks: Array<{ weekKey: string; error: string }>;
   missingDayCount: number;
@@ -50,14 +53,18 @@ interface GenerateMissingConversationSummariesOptions {
   charIdToName: Map<string, string>;
   now?: Date;
   rolloverHour?: number;
+  timeZone?: string;
   timeoutMs?: number;
   maxMissingDays?: number;
+  signal?: AbortSignal;
 }
 
 interface RunConversationSummaryBackfillInput {
   chatId: string;
   maxMissingDays?: number;
   connectionId?: string | null;
+  timeZone?: string | null;
+  signal?: AbortSignal;
 }
 
 const DEFAULT_SUMMARY_TIMEOUT_MS = 300_000;
@@ -245,6 +252,12 @@ function formatConversationDateKey(date: Date): string {
   return `${String(date.getDate()).padStart(2, "0")}.${String(date.getMonth() + 1).padStart(2, "0")}.${date.getFullYear()}`;
 }
 
+function formatZonedConversationDateKey(date: Date, timeZone?: string): string {
+  if (!timeZone) return formatConversationDateKey(date);
+  const [year, month, day] = formatZonedDate(date, timeZone).split("-");
+  return `${day}.${month}.${year}`;
+}
+
 function getConversationWeekMonday(date: Date): Date {
   const day = date.getDay();
   const diff = day === 0 ? -6 : 1 - day;
@@ -255,8 +268,8 @@ function logicalDate(date: Date, rolloverHour: number): Date {
   return new Date(date.getTime() - rolloverHour * 3_600_000);
 }
 
-function logicalDateKey(date: Date, rolloverHour: number): string {
-  return formatConversationDateKey(logicalDate(date, rolloverHour));
+function logicalDateKey(date: Date, rolloverHour: number, timeZone?: string): string {
+  return formatZonedConversationDateKey(logicalDate(date, rolloverHour), timeZone);
 }
 
 function getMessageAuthor(
@@ -276,6 +289,7 @@ function buildDayBuckets(
   personaName: string,
   charIdToName: Map<string, string>,
   rolloverHour: number,
+  timeZone?: string,
 ): ConversationSummaryDayBucket[] {
   const buckets = new Map<string, ConversationSummaryDayBucket>();
   for (const message of messages) {
@@ -285,7 +299,7 @@ function buildDayBuckets(
     const content = stripConversationPromptTimestamps((message.content ?? "").trim());
     if (!content) continue;
 
-    const date = logicalDateKey(createdAt, rolloverHour);
+    const date = logicalDateKey(createdAt, rolloverHour, timeZone);
     const bucket = buckets.get(date) ?? { date, msgs: [] };
     bucket.msgs.push({
       role: message.role,
@@ -301,11 +315,53 @@ function buildDayBuckets(
   );
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Summary timeout")), ms)),
-  ]);
+function abortSummaryError(): Error {
+  return Object.assign(new Error("The operation was aborted."), { name: "AbortError" });
+}
+
+function throwIfSummaryAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw abortSummaryError();
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, signal?: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const settle = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
+    };
+    const onAbort = () => {
+      settle(() => reject(abortSummaryError()));
+    };
+    const timeoutId = setTimeout(() => {
+      settle(() => reject(new Error("Summary timeout")));
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        settle(() => resolve(value));
+      },
+      (error) => {
+        settle(() => reject(error));
+      },
+    );
+    if (signal?.aborted) onAbort();
+  });
 }
 
 function cleanJsonishResponse(raw: string): string {
@@ -385,16 +441,19 @@ async function summarizeTranscript(
   userContent: string,
   timeoutMs: number,
   maxTokens = 4096,
+  signal?: AbortSignal,
 ): Promise<DaySummaryEntry> {
+  throwIfSummaryAborted(signal);
   const result = await withTimeout(
     provider.chatComplete(
       [
         { role: "system", content: systemPrompt },
         { role: "user", content: userContent },
       ],
-      { model, temperature: 0.3, maxTokens },
+      { model, temperature: 0.3, maxTokens, signal },
     ),
     timeoutMs,
+    signal,
   );
   return parseSummaryResponse(result.content ?? "");
 }
@@ -404,6 +463,7 @@ async function summarizeDayBucket(
   model: string,
   bucket: ConversationSummaryDayBucket,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<DaySummaryEntry> {
   const transcriptLines = bucket.msgs.map((message) => `${message.author}: ${message.content}`);
   const chunks = chunkTranscriptLines(transcriptLines, DAILY_TRANSCRIPT_CHUNK_CHARS);
@@ -415,11 +475,14 @@ async function summarizeDayBucket(
       dailySummarySystemPrompt(bucket.date, "a full day's"),
       chunks[0] ?? "",
       timeoutMs,
+      4096,
+      signal,
     );
   }
 
   const partials: DaySummaryEntry[] = [];
   for (let i = 0; i < chunks.length; i++) {
+    throwIfSummaryAborted(signal);
     const partial = await summarizeTranscript(
       provider,
       model,
@@ -427,6 +490,7 @@ async function summarizeDayBucket(
       chunks[i]!,
       timeoutMs,
       2048,
+      signal,
     );
     if (partial.summary || partial.keyDetails.length > 0) partials.push(partial);
   }
@@ -449,6 +513,8 @@ async function summarizeDayBucket(
     ].join("\n"),
     combinedInput,
     timeoutMs,
+    4096,
+    signal,
   );
 }
 
@@ -485,13 +551,14 @@ async function generateMissingConversationSummaries(
   options: GenerateMissingConversationSummariesOptions,
 ): Promise<ConversationSummaryRunResult> {
   const rolloverHour = Math.max(0, Math.min(11, Math.floor(options.rolloverHour ?? 4)));
+  const timeZone = normalizeUserTimeZone(options.timeZone);
   const timeoutMs = options.timeoutMs ?? DEFAULT_SUMMARY_TIMEOUT_MS;
   const now = options.now ?? new Date();
-  const todayDateKey = logicalDateKey(now, rolloverHour);
+  const todayDateKey = logicalDateKey(now, rolloverHour, timeZone);
   const daySummaries = normalizeDaySummaries(options.metadata.daySummaries);
   const weekSummaries = normalizeWeekSummaries(options.metadata.weekSummaries);
 
-  const buckets = buildDayBuckets(options.messages, options.personaName, options.charIdToName, rolloverHour);
+  const buckets = buildDayBuckets(options.messages, options.personaName, options.charIdToName, rolloverHour, timeZone);
   const pastBuckets = buckets.filter((bucket) => bucket.date !== todayDateKey);
   const missingBuckets = pastBuckets.filter((bucket) => !daySummaries[bucket.date]);
   const maxMissingDays =
@@ -507,12 +574,14 @@ async function generateMissingConversationSummaries(
 
   for (const bucket of bucketsToProcess) {
     try {
-      const entry = await summarizeDayBucket(options.provider, options.model, bucket, timeoutMs);
+      throwIfSummaryAborted(options.signal);
+      const entry = await summarizeDayBucket(options.provider, options.model, bucket, timeoutMs, options.signal);
       if (entry.summary || entry.keyDetails.length > 0) {
         daySummaries[bucket.date] = entry;
         newlyGeneratedDays[bucket.date] = entry;
       }
     } catch (error) {
+      if (options.signal?.aborted || isAbortError(error)) throw error;
       failedDays.push({ date: bucket.date, error: errorMessage(error) });
     }
   }
@@ -537,12 +606,13 @@ async function generateMissingConversationSummaries(
     if (weekSummaries[weekKey]) continue;
     const monday = parseConversationDateKey(weekKey);
     const nextMonday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 7);
-    if (logicalDate(now, rolloverHour).getTime() < nextMonday.getTime()) continue;
+    if (parseConversationDateKey(todayDateKey).getTime() < nextMonday.getTime()) continue;
 
     const messageDays = messageDaysByWeek.get(weekKey);
     if (messageDays && [...messageDays].some((dateKey) => !daySummaries[dateKey])) continue;
 
     try {
+      throwIfSummaryAborted(options.signal);
       days.sort(
         (a, b) => parseConversationDateKey(a.dateKey).getTime() - parseConversationDateKey(b.dateKey).getTime(),
       );
@@ -558,12 +628,15 @@ async function generateMissingConversationSummaries(
         weekSummarySystemPrompt(rangeLabel),
         dayBlocks.join("\n\n"),
         timeoutMs,
+        4096,
+        options.signal,
       );
       if (entry.summary || entry.keyDetails.length > 0) {
         weekSummaries[weekKey] = entry;
         newlyConsolidatedWeeks[weekKey] = entry;
       }
     } catch (error) {
+      if (options.signal?.aborted || isAbortError(error)) throw error;
       failedWeeks.push({ weekKey, error: errorMessage(error) });
     }
   }
@@ -585,7 +658,9 @@ export async function backfillConversationSummaries(
   capabilities: { storage: StorageGateway; llm: LlmGateway },
   input: RunConversationSummaryBackfillInput,
 ): Promise<ConversationSummaryBackfillResult> {
+  throwIfSummaryAborted(input.signal);
   const chat = await capabilities.storage.get<JsonRecord>("chats", input.chatId);
+  throwIfSummaryAborted(input.signal);
   if (!chat) throw new Error("Chat not found");
   if (chat.mode !== "conversation") {
     return {
@@ -596,12 +671,15 @@ export async function backfillConversationSummaries(
       missingDayCount: 0,
       processedDayCount: 0,
       remainingMissingDayCount: 0,
+      generatedDaySummaries: {},
+      consolidatedWeekSummaries: {},
     };
   }
 
   const metadata = parseRecord(chat.metadata);
   const maxMissingDays = Math.max(1, Math.min(60, Math.floor(numberValue(input.maxMissingDays, 14))));
   const connection = await resolveSummaryConnection(capabilities.storage, chat, input.connectionId);
+  throwIfSummaryAborted(input.signal);
   const characterIds = stringArray(chat.characterIds);
   const result = await generateMissingConversationSummaries({
     messages: await loadScopedMessages(capabilities.storage, input.chatId),
@@ -611,9 +689,12 @@ export async function backfillConversationSummaries(
     personaName: await loadPersonaName(capabilities.storage, chat),
     charIdToName: await loadCharacterNames(capabilities.storage, characterIds),
     rolloverHour: Math.max(0, Math.min(11, Math.floor(numberValue(metadata.dayRolloverHour, 4)))),
+    timeZone: normalizeUserTimeZone(metadata.promptTimeZone) ?? normalizeUserTimeZone(input.timeZone),
     maxMissingDays,
+    signal: input.signal,
   });
 
+  throwIfSummaryAborted(input.signal);
   if (Object.keys(result.newlyGeneratedDays).length > 0 || Object.keys(result.newlyConsolidatedWeeks).length > 0) {
     await capabilities.storage.patchChatSummaries(input.chatId, {
       daySummaries: result.newlyGeneratedDays,
@@ -624,6 +705,8 @@ export async function backfillConversationSummaries(
   return {
     generatedDays: Object.keys(result.newlyGeneratedDays),
     consolidatedWeeks: Object.keys(result.newlyConsolidatedWeeks),
+    generatedDaySummaries: result.newlyGeneratedDays,
+    consolidatedWeekSummaries: result.newlyConsolidatedWeeks,
     failedDays: result.failedDays,
     failedWeeks: result.failedWeeks,
     missingDayCount: result.missingDayCount,
