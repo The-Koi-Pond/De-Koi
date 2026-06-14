@@ -978,11 +978,6 @@ pub(crate) fn clear_autonomous_unread(state: &AppState, chat_id: &str) -> AppRes
     merge_chat_metadata(state, chat_id, patch)
 }
 
-pub(crate) fn chat_array_field(state: &AppState, chat_id: &str, field: &str) -> AppResult<Value> {
-    let chat = get_required(state, "chats", chat_id)?;
-    Ok(chat.get(field).cloned().unwrap_or_else(|| json!([])))
-}
-
 pub(crate) fn set_chat_array_field(
     state: &AppState,
     chat_id: &str,
@@ -994,7 +989,7 @@ pub(crate) fn set_chat_array_field(
         .patch("chats", chat_id, json!({ field: values }))
 }
 
-fn chat_connected_note_values(chat: &Value) -> Vec<Value> {
+fn chat_note_values(chat: &Value) -> Vec<Value> {
     match chat.get("notes") {
         Some(Value::Array(values)) => values.clone(),
         Some(Value::String(raw)) => serde_json::from_str::<Value>(raw)
@@ -1003,6 +998,41 @@ fn chat_connected_note_values(chat: &Value) -> Vec<Value> {
             .unwrap_or_default(),
         _ => Vec::new(),
     }
+}
+
+fn is_durable_conversation_note(note: &Value) -> bool {
+    note.get("type").and_then(Value::as_str) == Some("note")
+}
+
+pub(crate) fn list_chat_notes(state: &AppState, chat_id: &str) -> AppResult<Value> {
+    let chat = get_required(state, "chats", chat_id)?;
+    Ok(Value::Array(
+        chat_note_values(&chat)
+            .into_iter()
+            .filter(is_durable_conversation_note)
+            .collect(),
+    ))
+}
+
+pub(crate) fn delete_chat_note(state: &AppState, chat_id: &str, note_id: &str) -> AppResult<Value> {
+    let chat = get_required(state, "chats", chat_id)?;
+    let values = chat_note_values(&chat)
+        .into_iter()
+        .filter(|item| {
+            !is_durable_conversation_note(item)
+                || item.get("id").and_then(Value::as_str) != Some(note_id)
+        })
+        .collect::<Vec<_>>();
+    set_chat_array_field(state, chat_id, "notes", values)
+}
+
+pub(crate) fn clear_chat_notes(state: &AppState, chat_id: &str) -> AppResult<Value> {
+    let chat = get_required(state, "chats", chat_id)?;
+    let values = chat_note_values(&chat)
+        .into_iter()
+        .filter(|item| !is_durable_conversation_note(item))
+        .collect::<Vec<_>>();
+    set_chat_array_field(state, chat_id, "notes", values)
 }
 
 fn string_field(value: &Value, field: &str) -> Option<String> {
@@ -1085,7 +1115,7 @@ pub(crate) fn disconnect_connected_chat(state: &AppState, chat_id: &str) -> AppR
                 let Some(id) = string_field(chat, "id") else {
                     continue;
                 };
-                let notes = chat_connected_note_values(chat);
+                let notes = chat_note_values(chat);
                 if notes.is_empty() {
                     continue;
                 }
@@ -1182,24 +1212,6 @@ fn set_connected_chat(chat: &mut Value, connected_chat_id: &str, now: &str) -> A
     );
     object.insert("updatedAt".to_string(), Value::String(now.to_string()));
     Ok(())
-}
-
-pub(crate) fn delete_chat_array_item(
-    state: &AppState,
-    chat_id: &str,
-    field: &str,
-    item_id: &str,
-) -> AppResult<Value> {
-    let chat = get_required(state, "chats", chat_id)?;
-    let values = chat
-        .get(field)
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|item| item.get("id").and_then(Value::as_str) != Some(item_id))
-        .collect::<Vec<_>>();
-    set_chat_array_field(state, chat_id, field, values)
 }
 
 pub(crate) fn delete_chat_group(state: &AppState, group_id: &str) -> AppResult<Value> {
@@ -1373,8 +1385,11 @@ pub(crate) fn delete_chat_with_messages(state: &AppState, chat_id: &str) -> AppR
     delete_ids.sort_unstable();
     delete_ids.dedup();
 
-    game_state_snapshots::delete_tracker_snapshots_for_chats(state, &delete_ids)?;
     let delete_id_set = delete_ids.iter().cloned().collect::<HashSet<_>>();
+    for delete_id in &delete_ids {
+        disconnect_connected_chat(state, delete_id)?;
+    }
+    game_state_snapshots::delete_tracker_snapshots_for_chats(state, &delete_ids)?;
     delete_gallery_for_chats(state, &delete_id_set)?;
     // NPC avatars live inline in chat metadata (gameNpcs / presentCharacters), not as
     // tracked records, so they have no managed-file cleanup hook. Best-effort prefix scan
@@ -1665,6 +1680,19 @@ mod tests {
             .filter_map(|memory| {
                 memory
                     .get("id")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned)
+            })
+            .collect()
+    }
+
+    fn note_ids(value: &Value) -> Vec<String> {
+        value
+            .as_array()
+            .expect("notes should be an array")
+            .iter()
+            .filter_map(|note| {
+                note.get("id")
                     .and_then(Value::as_str)
                     .map(ToOwned::to_owned)
             })
@@ -2412,6 +2440,94 @@ mod tests {
     }
 
     #[test]
+    fn chat_note_commands_only_target_durable_notes() {
+        let state = test_state("chat-note-command-filter");
+        let mixed_notes = json!([
+            {
+                "id": "durable-note",
+                "type": "note",
+                "content": "Keep this as a settings note",
+                "sourceChatId": "conversation-1",
+                "targetChatId": "roleplay-1"
+            },
+            {
+                "id": "queued-influence",
+                "type": "influence",
+                "content": "Use once in prompt assembly",
+                "sourceChatId": "conversation-1",
+                "targetChatId": "roleplay-1",
+                "consumed": false
+            },
+            {
+                "id": "runtime-memory",
+                "type": "memory",
+                "content": "Non-note runtime entry"
+            },
+            {
+                "id": "untyped-entry",
+                "content": "Non-note entry without durable note semantics"
+            }
+        ]);
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "roleplay-1",
+                    "name": "Roleplay",
+                    "notes": mixed_notes
+                }),
+            )
+            .unwrap();
+
+        let listed = list_chat_notes(&state, "roleplay-1").unwrap();
+        assert_eq!(note_ids(&listed), vec!["durable-note"]);
+
+        delete_chat_note(&state, "roleplay-1", "queued-influence").unwrap();
+        let chat = state.storage.get("chats", "roleplay-1").unwrap().unwrap();
+        assert_eq!(
+            note_ids(chat.get("notes").unwrap()),
+            vec![
+                "durable-note",
+                "queued-influence",
+                "runtime-memory",
+                "untyped-entry"
+            ],
+            "delete by note id should not remove influence or other non-note entries"
+        );
+
+        delete_chat_note(&state, "roleplay-1", "durable-note").unwrap();
+        let chat = state.storage.get("chats", "roleplay-1").unwrap().unwrap();
+        assert_eq!(
+            note_ids(chat.get("notes").unwrap()),
+            vec!["queued-influence", "runtime-memory", "untyped-entry"]
+        );
+
+        state
+            .storage
+            .patch(
+                "chats",
+                "roleplay-1",
+                json!({
+                    "notes": [
+                        { "id": "note-a", "type": "note", "content": "Clear me" },
+                        { "id": "note-b", "type": "note", "content": "Clear me too" },
+                        { "id": "influence-a", "type": "influence", "content": "Keep me" },
+                        { "id": "memory-a", "type": "memory", "content": "Keep me too" }
+                    ]
+                }),
+            )
+            .unwrap();
+        clear_chat_notes(&state, "roleplay-1").unwrap();
+        let chat = state.storage.get("chats", "roleplay-1").unwrap().unwrap();
+        assert_eq!(
+            note_ids(chat.get("notes").unwrap()),
+            vec!["influence-a", "memory-a"],
+            "clear should remove durable notes without clearing influences"
+        );
+    }
+
+    #[test]
     fn delete_chat_removes_gallery_records_and_managed_files() {
         let state = test_state("gallery-delete");
         state
@@ -2457,6 +2573,77 @@ mod tests {
         assert!(
             !image_path.exists(),
             "managed gallery file should be removed"
+        );
+    }
+
+    #[test]
+    fn delete_connected_chat_clears_partner_link_and_pair_notes() {
+        let state = test_state("delete-connected-chat-notes");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "conversation-1",
+                    "name": "Conversation",
+                    "connectedChatId": "roleplay-1"
+                }),
+            )
+            .unwrap();
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "roleplay-1",
+                    "name": "Roleplay",
+                    "connectedChatId": "conversation-1",
+                    "notes": [
+                        {
+                            "id": "connected-note",
+                            "type": "note",
+                            "content": "Remove durable note from deleted chat",
+                            "sourceChatId": "conversation-1",
+                            "targetChatId": "roleplay-1"
+                        },
+                        {
+                            "id": "connected-influence",
+                            "type": "influence",
+                            "content": "Remove queued influence from deleted chat",
+                            "sourceChatId": "conversation-1",
+                            "targetChatId": "roleplay-1",
+                            "consumed": false
+                        },
+                        {
+                            "id": "unrelated-note",
+                            "type": "note",
+                            "content": "Keep unrelated note",
+                            "sourceChatId": "other-chat",
+                            "targetChatId": "roleplay-1"
+                        },
+                        {
+                            "id": "runtime-memory",
+                            "type": "memory",
+                            "content": "Keep runtime memory"
+                        }
+                    ]
+                }),
+            )
+            .unwrap();
+
+        let deleted = delete_chat_with_messages(&state, "conversation-1").unwrap();
+
+        assert_eq!(deleted, vec!["conversation-1"]);
+        assert!(state
+            .storage
+            .get("chats", "conversation-1")
+            .unwrap()
+            .is_none());
+        let roleplay = state.storage.get("chats", "roleplay-1").unwrap().unwrap();
+        assert!(roleplay.get("connectedChatId").is_some_and(Value::is_null));
+        assert_eq!(
+            note_ids(roleplay.get("notes").unwrap()),
+            vec!["unrelated-note", "runtime-memory"]
         );
     }
 

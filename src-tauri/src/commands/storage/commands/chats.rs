@@ -66,7 +66,7 @@ pub async fn chat_memories_import(
 
 #[tauri::command]
 pub fn chat_notes_list(state: State<'_, AppState>, chat_id: String) -> Result<Value, AppError> {
-    chats::chat_array_field(&state, &chat_id, "notes")
+    chats::list_chat_notes(&state, &chat_id)
 }
 
 #[tauri::command]
@@ -75,12 +75,12 @@ pub fn chat_note_delete(
     chat_id: String,
     note_id: String,
 ) -> Result<Value, AppError> {
-    chats::delete_chat_array_item(&state, &chat_id, "notes", &note_id)
+    chats::delete_chat_note(&state, &chat_id, &note_id)
 }
 
 #[tauri::command]
 pub fn chat_notes_clear(state: State<'_, AppState>, chat_id: String) -> Result<Value, AppError> {
-    chats::set_chat_array_field(&state, &chat_id, "notes", Vec::new())
+    chats::clear_chat_notes(&state, &chat_id)
 }
 
 #[tauri::command]

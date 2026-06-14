@@ -618,21 +618,13 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             )
             .await
         }
-        "chat_notes_list" => {
-            chats::chat_array_field(state, required_string(&args, "chatId")?, "notes")
-        }
-        "chat_note_delete" => chats::delete_chat_array_item(
+        "chat_notes_list" => chats::list_chat_notes(state, required_string(&args, "chatId")?),
+        "chat_note_delete" => chats::delete_chat_note(
             state,
             required_string(&args, "chatId")?,
-            "notes",
             required_string(&args, "noteId")?,
         ),
-        "chat_notes_clear" => chats::set_chat_array_field(
-            state,
-            required_string(&args, "chatId")?,
-            "notes",
-            Vec::new(),
-        ),
+        "chat_notes_clear" => chats::clear_chat_notes(state, required_string(&args, "chatId")?),
         "chat_group_delete" => {
             let state = state.clone();
             let group_id = required_string(&args, "groupId")?.to_string();
