@@ -305,6 +305,11 @@ impl AssetService {
         if is_text_upload && bytes.len() > MAX_TEXT_ASSET_BYTES {
             return Err(AppError::invalid_input("Text asset is too large to upload"));
         }
+        if is_text_upload && std::str::from_utf8(&bytes).is_err() {
+            return Err(AppError::invalid_input(
+                "Text asset upload must be valid UTF-8",
+            ));
+        }
         if !is_text_upload && bytes.len() > MAX_MEDIA_ASSET_BYTES {
             return Err(AppError::invalid_input("Uploaded file is too large"));
         }
@@ -830,11 +835,7 @@ fn should_resize_generated_background_upload(
     category == "backgrounds"
         && !is_text_asset_path(Path::new(filename))
         && subcategory
-            .map(|value| {
-                value
-                    .split(['/', '\\'])
-                    .any(|part| part == "generated")
-            })
+            .map(|value| value.split(['/', '\\']).any(|part| part == "generated"))
             .unwrap_or(false)
 }
 
@@ -1243,6 +1244,28 @@ mod tests {
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("Text asset is too large to upload"));
         assert!(!root.join("music/notes/too-large.txt").exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_text_uploads_that_are_not_utf8() {
+        let root = temp_root("text-upload-invalid-utf8");
+        let service = AssetService::new(&root).expect("create asset service");
+
+        let error = service
+            .write_upload(
+                "sprites",
+                Some("notes"),
+                &text_upload_file("broken.md", &[0xff, 0xfe, 0xfd]),
+            )
+            .expect_err("invalid UTF-8 text upload should reject");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error
+            .message
+            .contains("Text asset upload must be valid UTF-8"));
+        assert!(!root.join("sprites/notes/broken.md").exists());
 
         let _ = fs::remove_dir_all(root);
     }
