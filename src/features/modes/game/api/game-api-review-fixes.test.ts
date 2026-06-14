@@ -2240,6 +2240,7 @@ describe("game API review guards", () => {
       kind: "tracker",
       chatId: "chat-1",
       messageId: "anchor-1",
+      gameState: { stale: true },
       location: "Old Keep",
       recentEvents: ["legacy save"],
     });
@@ -2307,7 +2308,10 @@ describe("game API review guards", () => {
         chatId: "chat-1",
         messageId: "anchor-1",
         swipeIndex: 0,
+        gameState: { stale: true },
         location: "Old Keep",
+        weather: "rain",
+        time: "Day 4, 21:00",
         recentEvents: ["legacy save"],
         playerStats: { status: "hurt" },
       },
@@ -2315,7 +2319,13 @@ describe("game API review guards", () => {
     );
     chatCommandApiMock.branch.mockResolvedValue({
       id: "branch-1",
-      metadata: { gameId: "game-1", gameActiveState: "exploration" },
+      metadata: {
+        gameId: "game-1",
+        gameActiveState: "exploration",
+        gameWeather: { type: "clear" },
+        gameTime: { day: 1, hour: 8, minute: 0 },
+        gameTimeFormatted: "Day 1, 08:00",
+      },
     });
     storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => ({
       id,
@@ -2328,6 +2338,8 @@ describe("game API review guards", () => {
         kind: "tracker",
         messageId: "anchor-1",
         location: "Old Keep",
+        weather: "rain",
+        time: "Day 4, 21:00",
         recentEvents: ["legacy save"],
         playerStats: { status: "hurt" },
       }),
@@ -2335,8 +2347,19 @@ describe("game API review guards", () => {
         branchedFromCheckpointId: "checkpoint-1",
         gameActiveState: "combat",
         gameId: "game-1",
+        gameWeather: { type: "rain" },
+        gameTimeFormatted: "Day 4, 21:00",
       }),
     });
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "chats",
+      "branch-1",
+      expect.objectContaining({
+        metadata: expect.not.objectContaining({
+          gameTime: { day: 1, hour: 8, minute: 0 },
+        }),
+      }),
+    );
   });
 
   it("reports snapshot cleanup failure when checkpoint creation rolls back", async () => {
@@ -2472,13 +2495,23 @@ describe("game API review guards", () => {
 
   it("restores imported legacy tracker-shaped checkpoint snapshots", async () => {
     mockCheckpointSnapshotGet(
-      { id: "chat-1", metadata: { gameId: "game-1", gameWeather: "old" }, gameState: { location: "wrong" } },
+      {
+        id: "chat-1",
+        metadata: {
+          gameId: "game-1",
+          gameWeather: { type: "clear" },
+          gameTime: { day: 1, hour: 8, minute: 0 },
+          gameTimeFormatted: "Day 1, 08:00",
+        },
+        gameState: { location: "wrong" },
+      },
       {
         id: "snapshot-1",
         kind: "tracker",
         chatId: "chat-1",
         messageId: "anchor-1",
         swipeIndex: 0,
+        gameState: { stale: true },
         date: "Day 4",
         time: "21:00",
         location: "Old Keep",
@@ -2495,7 +2528,9 @@ describe("game API review guards", () => {
     storageApiMock.update.mockResolvedValue({ id: "chat-1" });
     storageApiMock.create.mockResolvedValue({ id: "restore-message-1" });
 
-    await expect(loadCheckpoint({ chatId: "chat-1", checkpointId: "checkpoint-1" })).resolves.toMatchObject({
+    const result = await loadCheckpoint({ chatId: "chat-1", checkpointId: "checkpoint-1" });
+
+    expect(result).toMatchObject({
       ok: true,
       gameState: expect.objectContaining({
         kind: "tracker",
@@ -2512,15 +2547,32 @@ describe("game API review guards", () => {
         [RESTORED_CHECKPOINT_ANCHOR_META_KEY]: "anchor-1",
         gameActiveState: "combat",
         gameId: "game-1",
+        gameWeather: { type: "rain" },
+        gameTimeFormatted: "21:00",
       }),
     });
+    expect(result.gameState as Record<string, unknown>).not.toHaveProperty("gameState");
 
     expect(storageApiMock.update).toHaveBeenCalledWith(
       "chats",
       "chat-1",
       expect.objectContaining({
         gameState: expect.objectContaining({ location: "Old Keep", recentEvents: ["legacy save"] }),
-        metadata: expect.objectContaining({ gameActiveState: "combat", gameId: "game-1" }),
+        metadata: expect.objectContaining({
+          gameActiveState: "combat",
+          gameId: "game-1",
+          gameWeather: { type: "rain" },
+          gameTimeFormatted: "21:00",
+        }),
+      }),
+    );
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "chats",
+      "chat-1",
+      expect.objectContaining({
+        metadata: expect.not.objectContaining({
+          gameTime: { day: 1, hour: 8, minute: 0 },
+        }),
       }),
     );
   });

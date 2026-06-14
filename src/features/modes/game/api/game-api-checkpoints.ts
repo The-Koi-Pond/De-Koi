@@ -32,8 +32,31 @@ const TRACKER_SNAPSHOT_STATE_KEYS = [
   "createdAt",
 ] as const;
 
+const TRACKER_SNAPSHOT_SHAPE_KEYS = [
+  "swipeIndex",
+  "date",
+  "time",
+  "location",
+  "weather",
+  "temperature",
+  "presentCharacters",
+  "recentEvents",
+  "playerStats",
+  "personaStats",
+  "manualOverrides",
+  "committed",
+] as const;
+
+const MIRRORED_GAME_METADATA_KEYS = ["gameWeather", "gameTime", "gameTimeFormatted"] as const;
+
 function hasOwnField(record: Record<string, unknown>, field: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, field);
+}
+
+function isTrackerSnapshot(snapshot: CheckpointSnapshot | null): boolean {
+  if (!snapshot) return false;
+  if (snapshot.kind === "tracker") return true;
+  return TRACKER_SNAPSHOT_SHAPE_KEYS.some((key) => hasOwnField(snapshot, key));
 }
 
 function trackerSnapshotState(snapshot: CheckpointSnapshot): Record<string, unknown> {
@@ -44,10 +67,34 @@ function trackerSnapshotState(snapshot: CheckpointSnapshot): Record<string, unkn
   return state;
 }
 
+function trackerSnapshotMetadata(
+  snapshot: CheckpointSnapshot,
+  fallbackMetadata: Record<string, unknown>,
+): Record<string, unknown> {
+  const metadata = {
+    ...fallbackMetadata,
+    ...g.asRecord(snapshot.metadata),
+  };
+  for (const key of MIRRORED_GAME_METADATA_KEYS) {
+    delete metadata[key];
+  }
+  const weather = g.readTrimmed(snapshot.weather);
+  const time = g.readTrimmed(snapshot.time);
+  if (weather) metadata.gameWeather = { type: weather };
+  if (time) metadata.gameTimeFormatted = time;
+  return metadata;
+}
+
 function checkpointSnapshotRestorePayload(
   snapshot: CheckpointSnapshot,
   fallbackMetadata: Record<string, unknown> = {},
 ) {
+  if (isTrackerSnapshot(snapshot)) {
+    return {
+      gameState: trackerSnapshotState(snapshot),
+      metadata: trackerSnapshotMetadata(snapshot, fallbackMetadata),
+    };
+  }
   if (hasOwnField(snapshot, "gameState")) {
     return {
       gameState: snapshot.gameState ?? {},
@@ -56,12 +103,12 @@ function checkpointSnapshotRestorePayload(
   }
   return {
     gameState: trackerSnapshotState(snapshot),
-    metadata: g.asRecord(snapshot.metadata ?? fallbackMetadata),
+    metadata: trackerSnapshotMetadata(snapshot, fallbackMetadata),
   };
 }
 
 function isOwnedCheckpointSnapshot(snapshot: CheckpointSnapshot | null): boolean {
-  return !!snapshot && hasOwnField(snapshot, "gameState");
+  return !!snapshot && !isTrackerSnapshot(snapshot) && hasOwnField(snapshot, "gameState");
 }
 
 export async function listCheckpoints(chatId: string) {
