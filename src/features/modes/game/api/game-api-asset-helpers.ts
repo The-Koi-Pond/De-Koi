@@ -75,7 +75,7 @@ function npcPortraitDetail(npc: Record<string, unknown>): string {
   return parts.join(" ").trim() || "distinctive character portrait";
 }
 
-export function promptDetail(parts: Array<string | null | undefined>): string {
+export function promptDetail(parts: Array<unknown>): string {
   return parts.map((part) => g.readTrimmed(part).replace(/\s+/g, " ")).filter(Boolean).join(" ");
 }
 
