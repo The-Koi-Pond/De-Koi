@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StorageEntity, StorageGateway, StorageListOptions } from "../capabilities/storage";
-import { persistConnectedCommandTags } from "./connected-commands";
+import { persistConnectedCommandTags, pruneConnectedConversationNotes } from "./connected-commands";
 import { loadCharacters } from "./prompt-assembly";
 import type { JsonRecord } from "./runtime-records";
 
@@ -135,6 +135,56 @@ function commandStorage(args: {
     },
   };
 }
+
+describe("connected conversation notes", () => {
+  it("prunes older durable notes to the per-chat budget while preserving newest notes", () => {
+    const notes = [
+      {
+        id: "old-connected",
+        type: "note",
+        content: "older connected durable note",
+        sourceChatId: "conversation-1",
+        targetChatId: "roleplay-1",
+      },
+      {
+        id: "other-target",
+        type: "note",
+        content: "different target should not count",
+        sourceChatId: "conversation-1",
+        targetChatId: "roleplay-2",
+      },
+      {
+        id: "influence",
+        type: "influence",
+        content: "queued influence is not a durable note",
+        sourceChatId: "conversation-1",
+        targetChatId: "roleplay-1",
+      },
+      {
+        id: "new-connected",
+        type: "note",
+        content: "newest connected durable note",
+        sourceChatId: "conversation-1",
+        targetChatId: "roleplay-1",
+      },
+    ];
+
+    expect(pruneConnectedConversationNotes(notes, "roleplay-1", 32).map((note) => note.id)).toEqual([
+      "other-target",
+      "influence",
+      "new-connected",
+    ]);
+  });
+
+  it("keeps the newest durable note even when it exceeds the budget by itself", () => {
+    const notes = [
+      { id: "old", type: "note", content: "old note", targetChatId: "roleplay-1" },
+      { id: "new", type: "note", content: "new note longer than budget", targetChatId: "roleplay-1" },
+    ];
+
+    expect(pruneConnectedConversationNotes(notes, "roleplay-1", 4).map((note) => note.id)).toEqual(["new"]);
+  });
+});
 
 describe("character connected commands", () => {
   it("patches the current schedule block without replacing the weekly schedule shape", async () => {

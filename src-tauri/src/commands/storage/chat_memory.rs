@@ -28,6 +28,70 @@ fn message_content(message: &Value) -> String {
         .to_string()
 }
 
+fn record_display_name(record: &Value) -> Option<String> {
+    let data = object_or_parse(record.get("data"));
+    data.get("name")
+        .and_then(Value::as_str)
+        .or_else(|| record.get("name").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn chat_persona_name(state: &AppState, chat: &Value) -> AppResult<Option<String>> {
+    let Some(persona_id) = string_field_trimmed(chat, "personaId") else {
+        return Ok(None);
+    };
+    Ok(state
+        .storage
+        .get("personas", &persona_id)?
+        .and_then(|persona| record_display_name(&persona)))
+}
+
+fn chat_character_names(state: &AppState, chat: &Value) -> AppResult<HashMap<String, String>> {
+    let mut names = HashMap::new();
+    for character_id in string_array_from_value(chat.get("characterIds")) {
+        if names.contains_key(&character_id) {
+            continue;
+        }
+        if let Some(character) = state.storage.get("characters", &character_id)? {
+            if let Some(name) = record_display_name(&character) {
+                names.insert(character_id, name);
+            }
+        }
+    }
+    Ok(names)
+}
+
+fn message_speaker_label(
+    message: &Value,
+    persona_name: Option<&str>,
+    character_names: &HashMap<String, String>,
+    fallback_character_name: Option<&str>,
+) -> String {
+    if let Some(character_name) = message
+        .get("characterId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|character_id| !character_id.is_empty())
+        .and_then(|character_id| character_names.get(character_id))
+    {
+        return character_name.clone();
+    }
+
+    let role = message
+        .get("role")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|role| !role.is_empty())
+        .unwrap_or("message");
+    match role {
+        "user" => persona_name.unwrap_or("User").to_string(),
+        "assistant" => fallback_character_name.unwrap_or(role).to_string(),
+        _ => role.to_string(),
+    }
+}
+
 fn memory_recall_is_stopword(token: &str) -> bool {
     matches!(
         token,
@@ -762,6 +826,13 @@ pub(crate) async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> Ap
         .into_iter()
         .filter(|message| !is_hidden_from_ai(message) && !message_content(message).is_empty())
         .collect::<Vec<_>>();
+    let persona_name = chat_persona_name(state, &chat)?;
+    let character_names = chat_character_names(state, &chat)?;
+    let fallback_character_name = if character_names.len() == 1 {
+        character_names.values().next().map(String::as_str)
+    } else {
+        None
+    };
     let now = now_iso();
     let mut chunks: Vec<Value> = Vec::new();
     let mut pending = Vec::new();
@@ -773,11 +844,13 @@ pub(crate) async fn refresh_chat_memories(state: &AppState, chat_id: &str) -> Ap
         let content = chunk
             .iter()
             .map(|message| {
-                let role = message
-                    .get("role")
-                    .and_then(Value::as_str)
-                    .unwrap_or("message");
-                format!("{role}: {}", message_content(message))
+                let speaker = message_speaker_label(
+                    message,
+                    persona_name.as_deref(),
+                    &character_names,
+                    fallback_character_name,
+                );
+                format!("{speaker}: {}", message_content(message))
             })
             .collect::<Vec<_>>()
             .join("\n");
@@ -1191,7 +1264,8 @@ mod tests {
                 )
                 .expect("message should seed");
             message_ids.push(format!("message-{index}"));
-            content_lines.push(format!("{role}: visible memory {index}"));
+            let speaker = if role == "user" { "User" } else { role };
+            content_lines.push(format!("{speaker}: visible memory {index}"));
         }
         (message_ids, content_lines.join("\n"))
     }
@@ -2167,9 +2241,89 @@ mod tests {
         let content = memories[0]["content"]
             .as_str()
             .expect("memory content should be a string");
-        assert!(content.contains("user: visible memory"));
+        assert!(content.contains("User: visible memory"));
         assert!(content.contains("assistant: visible reply"));
         assert!(!content.contains("hidden memory"));
+    }
+
+    #[tokio::test]
+    async fn refresh_chat_memories_uses_persona_and_character_names_for_chunk_speakers() {
+        let state = test_state("memory-speaker-names");
+        state
+            .storage
+            .create(
+                "personas",
+                json!({
+                    "id": "persona-1",
+                    "name": "Chai"
+                }),
+            )
+            .expect("persona should be created");
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "char-1",
+                    "name": "Mira",
+                    "data": { "name": "Mira Card" }
+                }),
+            )
+            .expect("character should be created");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "personaId": "persona-1",
+                    "characterIds": ["char-1"]
+                }),
+            )
+            .expect("chat should be created");
+
+        for (id, role, content, character_id) in [
+            ("message-1", "user", "first memory", None),
+            ("message-2", "assistant", "named reply", Some("char-1")),
+            ("message-3", "narrator", "scene beat", None),
+            ("message-4", "assistant", "fallback reply", None),
+            ("message-5", "user", "closing memory", None),
+        ] {
+            let mut message = json!({
+                "id": id,
+                "chatId": "chat-1",
+                "role": role,
+                "content": content,
+                "createdAt": "2026-06-01T10:00:00.000Z"
+            });
+            if let Some(character_id) = character_id {
+                message["characterId"] = json!(character_id);
+            }
+            state
+                .storage
+                .create("messages", message)
+                .expect("message should be created");
+        }
+
+        refresh_chat_memories(&state, "chat-1")
+            .await
+            .expect("memory refresh should succeed");
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat lookup should succeed")
+            .expect("chat should exist");
+        let content = chat["memories"][0]["content"]
+            .as_str()
+            .expect("memory content should be a string");
+
+        assert!(content.contains("Chai: first memory"));
+        assert!(content.contains("Mira Card: named reply"));
+        assert!(content.contains("narrator: scene beat"));
+        assert!(content.contains("Mira Card: fallback reply"));
+        assert!(!content.contains("user: first memory"));
+        assert!(!content.contains("assistant: named reply"));
     }
 
     #[tokio::test]
@@ -2226,10 +2380,12 @@ mod tests {
                 "message-4"
             ])
         );
-        assert!(!memories[0]["content"]
-            .as_str()
-            .expect("content should be a string")
-            .contains("visible memory 5"));
+        assert!(
+            !memories[0]["content"]
+                .as_str()
+                .expect("content should be a string")
+                .contains("visible memory 5")
+        );
     }
 
     #[tokio::test]

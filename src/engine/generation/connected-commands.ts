@@ -60,6 +60,8 @@ type ImagePromptSettings = {
   styleProfiles?: ImageStyleProfileSettings;
 };
 
+const CONVERSATION_NOTES_BUDGET_CHARS = 4000;
+
 function parseData(row: JsonRecord | null | undefined): JsonRecord {
   const raw = row?.data;
   if (typeof raw === "string") {
@@ -294,6 +296,36 @@ async function connectedNoteStorageChatId(storage: StorageGateway, chat: JsonRec
     : sourceChatId;
 }
 
+function durableConnectedNoteTargetsChat(note: JsonRecord, chatId: string): boolean {
+  if (readString(note.type) !== "note") return false;
+  const targetChatId = readString(note.targetChatId).trim();
+  return !targetChatId || targetChatId === chatId;
+}
+
+export function pruneConnectedConversationNotes(
+  notes: JsonRecord[],
+  chatId: string,
+  budgetChars = CONVERSATION_NOTES_BUDGET_CHARS,
+): JsonRecord[] {
+  const budget = Math.max(0, Math.floor(budgetChars));
+  const retainedIndexes = new Set<number>();
+  let retainedDurableNotes = 0;
+  let usedChars = 0;
+
+  for (let index = notes.length - 1; index >= 0; index -= 1) {
+    const note = notes[index];
+    if (!durableConnectedNoteTargetsChat(note, chatId)) continue;
+    const contentLength = readString(note.content).length;
+    if (retainedDurableNotes === 0 || usedChars + contentLength <= budget) {
+      retainedIndexes.add(index);
+      retainedDurableNotes += 1;
+      usedChars += contentLength;
+    }
+  }
+
+  return notes.filter((note, index) => !durableConnectedNoteTargetsChat(note, chatId) || retainedIndexes.has(index));
+}
+
 async function persistNoteWrites(
   storage: StorageGateway,
   sourceChat: JsonRecord,
@@ -313,7 +345,9 @@ async function persistNoteWrites(
     const existingNotes = parseArray(baseChat.notes).filter(
       (entry): entry is JsonRecord => !!entry && typeof entry === "object" && !Array.isArray(entry),
     );
-    await storage.update("chats", chatId, { notes: [...existingNotes, ...notes] });
+    await storage.update("chats", chatId, {
+      notes: pruneConnectedConversationNotes([...existingNotes, ...notes], chatId),
+    });
   }
 }
 
