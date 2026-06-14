@@ -34,6 +34,10 @@ import { ExpandedTextarea } from "../../../../../shared/components/ui/ExpandedTe
 import { exportApi } from "../../../../../shared/api/export-api";
 import { AvatarGenerationModal } from "../../../../../shared/components/ui/AvatarGenerationModal";
 import { ExportFormatDialog, type ExportFormatChoice } from "../../../../../shared/components/ui/ExportFormatDialog";
+import {
+  isDefaultImageGenerationConnection,
+  type ImageGenerationConnectionOption,
+} from "../../../../../shared/types/image-generation";
 import { toastExportError, triggerDownloadWithToast } from "../../../../shared/lib/export-feedback";
 import {
   buildPersonaFormData,
@@ -74,9 +78,12 @@ export function PersonaEditor() {
   const imageConnections = useMemo(
     () =>
       Array.isArray(connectionsList)
-        ? (
-            connectionsList as Array<{ id: string; name: string; model?: string | null; provider?: string | null }>
-          ).filter((connection) => connection.provider === "image_generation")
+        ? (connectionsList as ImageGenerationConnectionOption[])
+            .filter((connection) => connection.provider === "image_generation")
+            .sort(
+              (left, right) =>
+                Number(isDefaultImageGenerationConnection(right)) - Number(isDefaultImageGenerationConnection(left)),
+            )
         : [],
     [connectionsList],
   );

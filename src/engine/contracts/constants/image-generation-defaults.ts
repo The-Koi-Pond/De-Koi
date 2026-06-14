@@ -32,6 +32,7 @@ const DEFAULT_COMFYUI_DEFAULTS: ComfyUiDefaults = {
   cfgScale: 7,
   denoisingStrength: 1,
   clipSkip: null,
+  uploadPlaceholderOnMissingReference: false,
 };
 
 const DEFAULT_NOVELAI_DEFAULTS: NovelAiDefaults = {
@@ -132,6 +133,7 @@ export function createDefaultImageGenerationProfile(service: ImageDefaultsServic
     version: IMAGE_GENERATION_DEFAULTS_VERSION,
     service,
     seed: -1,
+    styleProfileId: null,
   };
   if (service === "automatic1111") profile.automatic1111 = { ...DEFAULT_AUTOMATIC1111_DEFAULTS };
   if (service === "comfyui") profile.comfyui = { ...DEFAULT_COMFYUI_DEFAULTS };
@@ -149,6 +151,7 @@ export function normalizeImageGenerationProfile(
 
   const profile = createDefaultImageGenerationProfile(service);
   profile.seed = readInteger(rawProfile.seed, -1, -1, 4_294_967_295);
+  profile.styleProfileId = readNullableString(rawProfile.styleProfileId);
 
   if (service === "automatic1111") {
     profile.automatic1111 = normalizeAutomatic1111Defaults(rawProfile.automatic1111);
@@ -195,6 +198,10 @@ function normalizeComfyUiDefaults(rawDefaults: unknown): ComfyUiDefaults {
     cfgScale: readNumber(raw.cfgScale, DEFAULT_COMFYUI_DEFAULTS.cfgScale, 0, 30),
     denoisingStrength: readNumber(raw.denoisingStrength, DEFAULT_COMFYUI_DEFAULTS.denoisingStrength, 0, 1),
     clipSkip: readNullableInteger(raw.clipSkip, DEFAULT_COMFYUI_DEFAULTS.clipSkip, 1, 12),
+    uploadPlaceholderOnMissingReference: readBoolean(
+      raw.uploadPlaceholderOnMissingReference,
+      DEFAULT_COMFYUI_DEFAULTS.uploadPlaceholderOnMissingReference,
+    ),
   };
 }
 
@@ -223,6 +230,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readString(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
+}
+
+function readNullableString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }
 
 function readBoolean(value: unknown, fallback: boolean): boolean {

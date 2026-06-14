@@ -13,7 +13,10 @@ import { useConnections } from "../../connections/index";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { getErrorMessage } from "../../../../shared/lib/error-message";
 import type { CharacterData } from "../../../../engine/contracts/types/character";
-import type { ImageGenerationConnectionOption } from "../../../../shared/types/image-generation";
+import {
+  isDefaultImageGenerationConnection,
+  type ImageGenerationConnectionOption,
+} from "../../../../shared/types/image-generation";
 import { useCharacterEditorAvatar } from "../hooks/use-character-editor-avatar";
 import { useCharacterEditorImportPersona } from "../hooks/use-character-editor-import-persona";
 import {
@@ -48,9 +51,12 @@ export function CharacterEditor() {
   const imageConnections = useMemo<ImageGenerationConnectionOption[]>(
     () =>
       Array.isArray(connectionsList)
-        ? (connectionsList as ImageGenerationConnectionOption[]).filter(
-            (connection) => connection.provider === "image_generation",
-          )
+        ? (connectionsList as ImageGenerationConnectionOption[])
+            .filter((connection) => connection.provider === "image_generation")
+            .sort(
+              (left, right) =>
+                Number(isDefaultImageGenerationConnection(right)) - Number(isDefaultImageGenerationConnection(left)),
+            )
         : [],
     [connectionsList],
   );
