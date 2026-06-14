@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Panel: API Connections (polished, with folders)
 // ──────────────────────────────────────────────
-import { useCallback, useState, useEffect, useMemo, useRef, type ChangeEvent } from "react";
+import { useCallback, useState, useEffect, useMemo, useRef, type ChangeEvent, type DragEvent } from "react";
 import { toast } from "sonner";
 import { Reorder, useDragControls } from "framer-motion";
 import {
@@ -77,19 +77,37 @@ type ConnectionRowData = {
   folderId?: string | null;
 };
 
+type ConnectionDropTarget = { folderId: string | null } | null;
+
+const CONNECTION_DRAG_MIME = "application/x-de-koi-connection-id";
+
+function getNextUnnamedConnectionFolderName(folders: ConnectionFolder[]): string {
+  const names = new Set(folders.map((folder) => folder.name.trim().toLowerCase()).filter(Boolean));
+  if (!names.has("new folder")) return "New Folder";
+  let index = 2;
+  while (names.has(`new folder ${index}`)) index += 1;
+  return `New Folder ${index}`;
+}
+
 function ConnectionRow({
   conn,
   isSelected,
+  isDragging,
   onClickRow,
   onMove,
   onImagePick,
+  onConnectionDragStart,
+  onConnectionDragEnd,
   showMoveButton,
 }: {
   conn: ConnectionRowData;
   isSelected: boolean;
+  isDragging: boolean;
   onClickRow: () => void;
   onMove: () => void;
   onImagePick: () => void;
+  onConnectionDragStart: (event: DragEvent<HTMLDivElement>, connectionId: string) => void;
+  onConnectionDragEnd: () => void;
   showMoveButton: boolean;
 }) {
   const duplicateConnection = useDuplicateConnection();
@@ -119,10 +137,14 @@ function ConnectionRow({
 
   return (
     <div
+      draggable={showMoveButton}
+      onDragStart={(event) => onConnectionDragStart(event, conn.id)}
+      onDragEnd={onConnectionDragEnd}
       onClick={onClickRow}
       className={cn(
         "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-colors hover:bg-[var(--sidebar-accent)]",
         isSelected && `ring-1 ${colors.ring} bg-[var(--sidebar-accent)]/50`,
+        isDragging && "opacity-55 ring-1 ring-[var(--primary)]/30",
       )}
     >
       <button
@@ -238,16 +260,26 @@ function ConnectionFolderRow({
   folder,
   entries,
   renderConnectionRow,
+  isDropTarget,
+  draggedConnectionId,
   onToggleCollapse,
   onRename,
   onDelete,
+  onConnectionDragOver,
+  onConnectionDragLeave,
+  onConnectionDrop,
 }: {
   folder: ConnectionFolder;
   entries: ConnectionRowData[];
   renderConnectionRow: (conn: ConnectionRowData) => React.ReactNode;
+  isDropTarget: boolean;
+  draggedConnectionId: string | null;
   onToggleCollapse: (folder: ConnectionFolder) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (folder: ConnectionFolder) => void;
+  onConnectionDragOver: (event: DragEvent<HTMLDivElement>, folderId: string | null) => void;
+  onConnectionDragLeave: (event: DragEvent<HTMLDivElement>) => void;
+  onConnectionDrop: (event: DragEvent<HTMLDivElement>, folderId: string | null) => void;
 }) {
   const dragControls = useDragControls();
   const isResizing = useUIStore((s) => s.rightPanelResizing);
@@ -268,7 +300,14 @@ function ConnectionFolderRow({
       dragListener={false}
       dragControls={dragControls}
       as="div"
-      className="flex flex-col"
+      onDragOver={(event) => onConnectionDragOver(event, folder.id)}
+      onDragLeave={onConnectionDragLeave}
+      onDrop={(event) => onConnectionDrop(event, folder.id)}
+      className={cn(
+        "flex flex-col rounded-lg transition-colors",
+        draggedConnectionId && "ring-inset",
+        isDropTarget && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+      )}
       {...reorderLayoutProps}
     >
       {/* Folder header */}
@@ -377,9 +416,9 @@ export function ConnectionsPanel() {
   const connectionImageTargetIdRef = useRef<string | null>(null);
 
   // Folder UI state
-  const [creatingFolder, setCreatingFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
   const [movingConnectionId, setMovingConnectionId] = useState<string | null>(null);
+  const [draggedConnectionId, setDraggedConnectionId] = useState<string | null>(null);
+  const [connectionDropTarget, setConnectionDropTarget] = useState<ConnectionDropTarget>(null);
 
   const connectionsList = useMemo(
     () => ((connections as ConnectionRowData[] | undefined) ?? []).filter((c) => !isSyntheticConnection(c)),
@@ -415,21 +454,7 @@ export function ConnectionsPanel() {
   }, [connectionsList, sortedFolders]);
 
   const handleCreateFolder = () => {
-    const name = newFolderName.trim();
-    if (!name) {
-      setCreatingFolder(false);
-      setNewFolderName("");
-      return;
-    }
-    createFolderMut.mutate(
-      { name },
-      {
-        onSuccess: () => {
-          setNewFolderName("");
-          setCreatingFolder(false);
-        },
-      },
-    );
+    createFolderMut.mutate({ name: getNextUnnamedConnectionFolderName(sortedFolders) });
   };
 
   const handleFolderReorder = (newOrder: string[]) => {
@@ -462,6 +487,60 @@ export function ConnectionsPanel() {
     moveConnectionMut.mutate({ connectionId, folderId });
     setMovingConnectionId(null);
   };
+
+  const clearConnectionDragState = useCallback(() => {
+    setDraggedConnectionId(null);
+    setConnectionDropTarget(null);
+  }, []);
+
+  const handleConnectionDragStart = useCallback(
+    (event: DragEvent<HTMLDivElement>, connectionId: string) => {
+      if (sortedFolders.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      setDraggedConnectionId(connectionId);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(CONNECTION_DRAG_MIME, connectionId);
+      event.dataTransfer.setData("text/plain", connectionId);
+    },
+    [sortedFolders.length],
+  );
+
+  const handleConnectionDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>, folderId: string | null) => {
+      if (!draggedConnectionId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "move";
+      setConnectionDropTarget((current) => (current?.folderId === folderId ? current : { folderId }));
+    },
+    [draggedConnectionId],
+  );
+
+  const handleConnectionDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+    setConnectionDropTarget(null);
+  }, []);
+
+  const handleConnectionDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>, folderId: string | null) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const connectionId = draggedConnectionId || event.dataTransfer.getData(CONNECTION_DRAG_MIME);
+      if (!connectionId) {
+        clearConnectionDragState();
+        return;
+      }
+      const currentFolderId = connectionsList.find((connection) => connection.id === connectionId)?.folderId ?? null;
+      if (currentFolderId !== folderId) {
+        moveConnectionMut.mutate({ connectionId, folderId });
+      }
+      clearConnectionDragState();
+    },
+    [clearConnectionDragState, connectionsList, draggedConnectionId, moveConnectionMut],
+  );
 
   const handlePickConnectionImage = useCallback((connectionId: string) => {
     connectionImageTargetIdRef.current = connectionId;
@@ -514,9 +593,12 @@ export function ConnectionsPanel() {
         key={conn.id}
         conn={conn}
         isSelected={isSelected}
+        isDragging={draggedConnectionId === conn.id}
         onClickRow={() => openConnectionDetail(conn.id)}
         onMove={() => setMovingConnectionId(conn.id)}
         onImagePick={() => handlePickConnectionImage(conn.id)}
+        onConnectionDragStart={handleConnectionDragStart}
+        onConnectionDragEnd={clearConnectionDragState}
         showMoveButton={sortedFolders.length > 0}
       />
     );
@@ -550,41 +632,15 @@ export function ConnectionsPanel() {
       {/* ── Text to Speech ── */}
       <TTSConfigCard />
 
-      {/* ── New folder button / inline input ── */}
-      {creatingFolder ? (
-        <div className="flex items-center gap-1.5 rounded-lg border border-[var(--border)]/40 bg-[var(--secondary)]/30 px-2.5 py-1.5">
-          <FolderPlus size="0.75rem" className="text-[var(--muted-foreground)]" />
-          <input
-            autoFocus
-            value={newFolderName}
-            onChange={(e) => setNewFolderName(e.target.value)}
-            placeholder="Folder name"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleCreateFolder();
-              if (e.key === "Escape") {
-                setCreatingFolder(false);
-                setNewFolderName("");
-              }
-            }}
-            onBlur={() => {
-              if (newFolderName.trim()) handleCreateFolder();
-              else {
-                setCreatingFolder(false);
-                setNewFolderName("");
-              }
-            }}
-            className="flex-1 bg-transparent text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
-          />
-        </div>
-      ) : (
-        <button
-          onClick={() => setCreatingFolder(true)}
-          className="flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]"
-        >
-          <FolderPlus size="0.75rem" />
-          New Folder
-        </button>
-      )}
+      {/* ── New folder button ── */}
+      <button
+        onClick={handleCreateFolder}
+        disabled={createFolderMut.isPending}
+        className="flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)] disabled:cursor-wait disabled:opacity-60"
+      >
+        <FolderPlus size="0.75rem" />
+        New Folder
+      </button>
 
       {isLoading && (
         <div className="flex flex-col gap-2 py-2">
@@ -658,9 +714,14 @@ export function ConnectionsPanel() {
                 folder={folder}
                 entries={folderEntries}
                 renderConnectionRow={renderConnectionRow}
+                isDropTarget={connectionDropTarget?.folderId === folder.id}
+                draggedConnectionId={draggedConnectionId}
                 onToggleCollapse={handleToggleCollapse}
                 onRename={handleRenameFolder}
                 onDelete={handleDeleteFolder}
+                onConnectionDragOver={handleConnectionDragOver}
+                onConnectionDragLeave={handleConnectionDragLeave}
+                onConnectionDrop={handleConnectionDrop}
               />
             );
           })}
@@ -668,7 +729,21 @@ export function ConnectionsPanel() {
       )}
 
       {/* Unfiled connections */}
-      <div className="stagger-children flex flex-col gap-1">{unfiledConnections.map(renderConnectionRow)}</div>
+      <div
+        data-connection-folder-root
+        onDragOver={(event) => handleConnectionDragOver(event, null)}
+        onDragLeave={handleConnectionDragLeave}
+        onDrop={(event) => handleConnectionDrop(event, null)}
+        className={cn(
+          "stagger-children flex flex-col gap-1 rounded-xl transition-colors",
+          draggedConnectionId && "min-h-8",
+          connectionDropTarget &&
+            connectionDropTarget.folderId === null &&
+            "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+        )}
+      >
+        {unfiledConnections.map(renderConnectionRow)}
+      </div>
 
       {activeChat && (
         <p className="px-1 text-[0.625rem] text-[var(--muted-foreground)]/60">
