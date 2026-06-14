@@ -68,6 +68,74 @@ pub(super) fn normalize_chat_folder_id_object(
     Ok(())
 }
 
+pub(super) fn normalize_lorebook_entry_for_create(value: Value) -> Result<Value, AppError> {
+    let mut object = ensure_object(value)?;
+    normalize_lorebook_id_object(&mut object)?;
+    normalize_lorebook_entry_folder_id_object(&mut object)?;
+    Ok(Value::Object(object))
+}
+
+pub(super) fn normalize_lorebook_entry_for_update(
+    entity: &str,
+    patch: Value,
+) -> Result<Value, AppError> {
+    if entity != "lorebook-entries" {
+        return Ok(patch);
+    }
+    let mut object = ensure_object(patch)?;
+    normalize_lorebook_id_object(&mut object)?;
+    normalize_lorebook_entry_folder_id_object(&mut object)?;
+    Ok(Value::Object(object))
+}
+
+pub(super) fn normalize_lorebook_id_object(
+    object: &mut Map<String, Value>,
+) -> Result<(), AppError> {
+    if !object.contains_key("lorebookId") {
+        return Ok(());
+    }
+    let Some(lorebook_id) = object
+        .get("lorebookId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Err(AppError::invalid_input("lorebookId must be a lorebook id"));
+    };
+    object.insert(
+        "lorebookId".to_string(),
+        Value::String(lorebook_id.to_string()),
+    );
+    Ok(())
+}
+
+pub(super) fn normalize_lorebook_entry_folder_id_object(
+    object: &mut Map<String, Value>,
+) -> Result<(), AppError> {
+    if !object.contains_key("folderId") {
+        return Ok(());
+    }
+    let normalized = match object.get("folderId") {
+        Some(Value::Null) => Value::Null,
+        Some(Value::String(folder_id)) => {
+            let folder_id = folder_id.trim();
+            if folder_id.is_empty() {
+                return Err(AppError::invalid_input(
+                    "folderId must be a folder id or null",
+                ));
+            }
+            Value::String(folder_id.to_string())
+        }
+        _ => {
+            return Err(AppError::invalid_input(
+                "folderId must be a folder id or null",
+            ));
+        }
+    };
+    object.insert("folderId".to_string(), normalized);
+    Ok(())
+}
+
 pub(super) fn validated_chat_folder_name(value: &Value) -> Result<String, AppError> {
     value
         .as_str()
@@ -374,6 +442,104 @@ pub(super) fn create_connection_folder_in_rows(
     Ok(record)
 }
 
+pub(super) fn create_lorebook_folder_with_append_order(
+    state: &AppState,
+    value: Value,
+) -> Result<Value, AppError> {
+    let explicit_order = explicit_positive_lorebook_folder_order(&value);
+    let mut prepared = prepare_entity_for_create(state, "lorebook-folders", value)?;
+    let Some(object) = prepared.as_object_mut() else {
+        return Err(AppError::invalid_input("Lorebook folder must be an object"));
+    };
+    normalize_lorebook_id_object(object)?;
+
+    state
+        .storage
+        .update_collections_atomically(vec!["lorebook-folders"], move |collections| {
+            let [folders] = collections else {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Lorebook folder create expected lorebook-folder collection",
+                ));
+            };
+            if folders.collection() != "lorebook-folders" {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Lorebook folder create received unexpected collection",
+                ));
+            }
+            create_lorebook_folder_in_rows(folders.rows_mut(), prepared, explicit_order)
+        })
+}
+
+pub(super) fn explicit_positive_lorebook_folder_order(value: &Value) -> Option<i64> {
+    ["order", "sortOrder"].into_iter().find_map(|field| {
+        value
+            .get(field)
+            .and_then(Value::as_i64)
+            .filter(|order| *order > 0)
+    })
+}
+
+pub(super) fn create_lorebook_folder_in_rows(
+    rows: &mut Vec<Value>,
+    value: Value,
+    explicit_order: Option<i64>,
+) -> Result<Value, AppError> {
+    let mut object = ensure_object(value)?;
+    let id = object
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(new_id);
+    if rows
+        .iter()
+        .any(|row| row.get("id").and_then(Value::as_str) == Some(id.as_str()))
+    {
+        return Err(AppError::invalid_input(format!(
+            "lorebook-folders/{id} already exists"
+        )));
+    }
+    let lorebook_id = object
+        .get("lorebookId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|candidate| !candidate.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| AppError::invalid_input("lorebookId is required"))?;
+
+    let now = now_iso();
+    let order = explicit_order.unwrap_or_else(|| next_lorebook_folder_order(rows, &lorebook_id));
+    object.insert("id".to_string(), Value::String(id));
+    object
+        .entry("createdAt".to_string())
+        .or_insert_with(|| Value::String(now.clone()));
+    object
+        .entry("updatedAt".to_string())
+        .or_insert_with(|| Value::String(now.clone()));
+    object.insert("order".to_string(), json!(order));
+    object.insert("sortOrder".to_string(), json!(order));
+
+    let record = Value::Object(object);
+    rows.push(record.clone());
+    Ok(record)
+}
+
+pub(super) fn next_lorebook_folder_order(rows: &[Value], lorebook_id: &str) -> i64 {
+    rows.iter()
+        .filter(|row| lorebook_folder_lorebook_id(row).as_deref() == Some(lorebook_id))
+        .filter_map(|row| {
+            row.get("order")
+                .or_else(|| row.get("sortOrder"))
+                .and_then(Value::as_i64)
+        })
+        .max()
+        .filter(|order| *order > 0)
+        .map(|order| order + 10)
+        .unwrap_or(10)
+}
+
 pub(crate) fn validate_connection_folder_for_create(
     state: &AppState,
     entity: &str,
@@ -505,6 +671,88 @@ pub(super) fn validate_chat_folder_assignment(
         )));
     }
     Ok(())
+}
+
+pub(crate) fn validate_lorebook_entry_folder_for_create(
+    state: &AppState,
+    entity: &str,
+    value: &Value,
+) -> Result<(), AppError> {
+    if entity != "lorebook-entries" {
+        return Ok(());
+    }
+    let Some(folder_id) = parse_chat_folder_id(value.get("folderId"))? else {
+        return Ok(());
+    };
+    let lorebook_id = lorebook_entry_lorebook_id_for_validation(value)
+        .ok_or_else(|| AppError::invalid_input("lorebookId is required when folderId is set"))?;
+    validate_lorebook_entry_folder_assignment(state, &lorebook_id, &folder_id)
+}
+
+pub(crate) fn validate_lorebook_entry_folder_for_patch(
+    state: &AppState,
+    entity: &str,
+    id: &str,
+    patch: &Value,
+) -> Result<(), AppError> {
+    if entity != "lorebook-entries" {
+        return Ok(());
+    }
+    let Some(object) = patch.as_object() else {
+        return Err(AppError::invalid_input("Patch must be an object"));
+    };
+    if !object.contains_key("folderId") && !object.contains_key("lorebookId") {
+        return Ok(());
+    }
+    let existing = state
+        .storage
+        .get("lorebook-entries", id)?
+        .ok_or_else(|| AppError::not_found(format!("lorebook-entries/{id} was not found")))?;
+    let folder_id = if object.contains_key("folderId") {
+        parse_chat_folder_id(patch.get("folderId"))?
+    } else {
+        parse_chat_folder_id(existing.get("folderId"))?
+    };
+    let Some(folder_id) = folder_id else {
+        return Ok(());
+    };
+    let lorebook_source = if object.contains_key("lorebookId") {
+        patch
+    } else {
+        &existing
+    };
+    let lorebook_id = lorebook_entry_lorebook_id_for_validation(lorebook_source)
+        .ok_or_else(|| AppError::invalid_input("lorebookId is required when folderId is set"))?;
+    validate_lorebook_entry_folder_assignment(state, &lorebook_id, &folder_id)
+}
+
+pub(super) fn validate_lorebook_entry_folder_assignment(
+    state: &AppState,
+    lorebook_id: &str,
+    folder_id: &str,
+) -> Result<(), AppError> {
+    let folder = state
+        .storage
+        .get("lorebook-folders", folder_id)?
+        .ok_or_else(|| {
+            AppError::invalid_input(format!("lorebook-folders/{folder_id} was not found"))
+        })?;
+    let folder_lorebook_id = lorebook_folder_lorebook_id(&folder);
+    if folder_lorebook_id.as_deref() != Some(lorebook_id) {
+        return Err(AppError::invalid_input(
+            "Lorebook entry folderId must belong to the same lorebook.",
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn lorebook_entry_lorebook_id_for_validation(value: &Value) -> Option<String> {
+    value
+        .get("lorebookId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|candidate| !candidate.is_empty())
+        .map(str::to_string)
 }
 
 /// Storage-level guard for malformed lorebook folder ancestry.

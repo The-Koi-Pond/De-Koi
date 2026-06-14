@@ -428,6 +428,7 @@ pub(crate) fn storage_create_inner(
     reject_message_swipe_mutation(&entity)?;
     validate_chat_folder_for_create(state, &entity, &value)?;
     validate_connection_folder_for_create(state, &entity, &value)?;
+    validate_lorebook_entry_folder_for_create(state, &entity, &value)?;
     validate_lorebook_folder_for_create(state, &entity, &value)?;
     validate_gallery_folder_for_create(state, &entity, &value)?;
     if entity == "messages" {
@@ -443,6 +444,9 @@ pub(crate) fn storage_create_inner(
     }
     if entity == "connection-folders" {
         return create_connection_folder(state, value);
+    }
+    if entity == "lorebook-folders" {
+        return create_lorebook_folder_with_append_order(state, value);
     }
     let should_remove_prepared_gallery_file = gallery_create_persists_inline_image(&entity, &value);
     let prepared = prepare_entity_for_create(state, &entity, value)?;
@@ -509,10 +513,12 @@ pub(crate) fn storage_update_inner(
     }
     validate_chat_folder_for_patch(state, &entity, &id, &patch)?;
     validate_connection_folder_for_patch(state, &entity, &patch)?;
+    validate_lorebook_entry_folder_for_patch(state, &entity, &id, &patch)?;
     validate_lorebook_folder_for_patch(state, &entity, &id, &patch)?;
     validate_gallery_folder_for_patch(state, &entity, &patch)?;
-    let mut normalized_patch =
-        normalize_chat_for_update(&entity, shared::normalize_update_patch(&entity, patch)?)?;
+    let normalized_patch = shared::normalize_update_patch(&entity, patch)?;
+    let normalized_patch = normalize_chat_for_update(&entity, normalized_patch)?;
+    let mut normalized_patch = normalize_lorebook_entry_for_update(&entity, normalized_patch)?;
     if entity == "chats" {
         validate_chat_metadata_patch(state, &id, &mut normalized_patch)?;
     }
@@ -546,6 +552,7 @@ pub(crate) fn prepare_entity_for_create(
     match entity {
         "connections" => connection_secrets::prepare_connection_for_create(state, value),
         "chats" => normalize_chat_for_create(value),
+        "lorebook-entries" => normalize_lorebook_entry_for_create(value),
         "chat-folders" => chat_folder_defaults_for_create(value),
         "connection-folders" => connection_folder_defaults_for_create(state, value),
         "gallery" | "character-gallery" | "persona-gallery" | "global-gallery" => {
@@ -1718,6 +1725,182 @@ mod tests {
     }
 
     #[test]
+    fn lorebook_entry_create_and_update_validate_folder_ownership() {
+        let state = test_state("lorebook-entry-folder-ownership");
+        create_lorebook(&state, "book");
+        create_lorebook(&state, "other");
+        create_lorebook_folder(&state, "folder-book", "book", None, None);
+        create_lorebook_folder(&state, "folder-other", "other", None, None);
+
+        let created = storage_create_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            json!({
+                "id": "entry-valid",
+                "lorebookId": " book ",
+                "folderId": " folder-book ",
+                "name": "Valid",
+                "content": "valid"
+            }),
+        )
+        .expect("entry should accept folder in same lorebook");
+        assert_eq!(created["lorebookId"], "book");
+        assert_eq!(created["folderId"], "folder-book");
+
+        let missing_folder = storage_create_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            json!({
+                "id": "entry-missing",
+                "lorebookId": "book",
+                "folderId": "missing-folder",
+                "name": "Missing",
+                "content": "missing"
+            }),
+        )
+        .expect_err("missing lorebook entry folder should reject create");
+        assert_eq!(missing_folder.code, "invalid_input");
+
+        let cross_lorebook = storage_create_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            json!({
+                "id": "entry-cross",
+                "lorebookId": "book",
+                "folderId": "folder-other",
+                "name": "Cross",
+                "content": "cross"
+            }),
+        )
+        .expect_err("cross-lorebook entry folder should reject create");
+        assert_eq!(cross_lorebook.code, "invalid_input");
+
+        let update_cross_lorebook = storage_update_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            "entry-valid".to_string(),
+            json!({ "folderId": "folder-other" }),
+        )
+        .expect_err("cross-lorebook entry folder should reject update");
+        assert_eq!(update_cross_lorebook.code, "invalid_input");
+
+        let move_with_stale_folder = storage_update_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            "entry-valid".to_string(),
+            json!({ "lorebookId": "other" }),
+        )
+        .expect_err("moving entry across lorebooks should not keep stale folderId");
+        assert_eq!(move_with_stale_folder.code, "invalid_input");
+
+        let trimmed_owner = storage_update_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            "entry-valid".to_string(),
+            json!({ "lorebookId": " book " }),
+        )
+        .expect("padded lorebookId should normalize before storage");
+        assert_eq!(trimmed_owner["lorebookId"], "book");
+
+        let cleared = storage_update_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            "entry-valid".to_string(),
+            json!({ "folderId": null }),
+        )
+        .expect("clearing folderId should stay valid");
+        assert!(cleared.get("folderId").is_none_or(Value::is_null));
+    }
+
+    #[test]
+    fn lorebook_entry_searchable_patch_clears_stored_embedding() {
+        for (label, patch) in [
+            ("name", json!({ "name": "Fresh name" })),
+            ("description", json!({ "description": "Fresh description" })),
+            ("content", json!({ "content": "Fresh content" })),
+            ("keys", json!({ "keys": ["fresh"] })),
+            (
+                "secondary-keys",
+                json!({ "secondaryKeys": ["fresh-secondary"] }),
+            ),
+            (
+                "exclude-vectorization",
+                json!({ "excludeFromVectorization": true }),
+            ),
+        ] {
+            let state = test_state(&format!("lorebook-entry-embedding-{label}"));
+            create_lorebook(&state, "book");
+            storage_create_inner(
+                &state,
+                "lorebook-entries".to_string(),
+                json!({
+                    "id": "entry-vector",
+                    "lorebookId": "book",
+                    "name": "Old name",
+                    "content": "Old content",
+                    "keys": ["old"],
+                    "secondaryKeys": ["old-secondary"],
+                    "excludeFromVectorization": false,
+                    "embedding": [0.1, 0.2],
+                    "embeddingModel": "old-model",
+                    "embeddingConnectionId": "old-connection",
+                    "embeddingUpdatedAt": "2026-01-01T00:00:00Z"
+                }),
+            )
+            .expect("entry should seed");
+
+            let updated = storage_update_inner(
+                &state,
+                "lorebook-entries".to_string(),
+                "entry-vector".to_string(),
+                patch,
+            )
+            .expect("searchable patch should update entry");
+
+            assert!(updated.get("embedding").is_none_or(Value::is_null));
+            assert!(updated.get("embeddingModel").is_none_or(Value::is_null));
+            assert!(updated
+                .get("embeddingConnectionId")
+                .is_none_or(Value::is_null));
+            assert!(updated.get("embeddingUpdatedAt").is_none_or(Value::is_null));
+        }
+    }
+
+    #[test]
+    fn lorebook_entry_non_searchable_patch_preserves_stored_embedding() {
+        let state = test_state("lorebook-entry-embedding-preserve");
+        create_lorebook(&state, "book");
+        storage_create_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            json!({
+                "id": "entry-vector",
+                "lorebookId": "book",
+                "name": "Vector name",
+                "content": "Vector content",
+                "embedding": [0.1, 0.2],
+                "embeddingModel": "old-model",
+                "embeddingConnectionId": "old-connection",
+                "embeddingUpdatedAt": "2026-01-01T00:00:00Z"
+            }),
+        )
+        .expect("entry should seed");
+
+        let updated = storage_update_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            "entry-vector".to_string(),
+            json!({ "enabled": false }),
+        )
+        .expect("non-searchable patch should update entry");
+
+        assert_eq!(updated["embedding"], json!([0.1, 0.2]));
+        assert_eq!(updated["embeddingModel"], "old-model");
+        assert_eq!(updated["embeddingConnectionId"], "old-connection");
+        assert_eq!(updated["embeddingUpdatedAt"], "2026-01-01T00:00:00Z");
+    }
+
+    #[test]
     fn generic_storage_commands_reject_unsupported_entities() {
         let state = test_state("unsupported-entity");
 
@@ -2849,6 +3032,58 @@ mod tests {
         )
         .expect("matching folder ownership should allow parent patch");
         assert_eq!(moved["parentFolderId"], "parent");
+    }
+
+    #[test]
+    fn lorebook_folder_create_appends_when_order_is_omitted_or_zero() {
+        let state = test_state("lorebook-folder-create-append-order");
+        create_lorebook(&state, "book");
+        create_lorebook(&state, "other");
+        create_lorebook_folder(&state, "first", "book", None, Some(10));
+        create_lorebook_folder(&state, "second", "book", None, Some(30));
+        create_lorebook_folder(&state, "foreign", "other", None, Some(900));
+
+        let omitted = storage_create_inner(
+            &state,
+            "lorebook-folders".to_string(),
+            json!({
+                "id": "omitted",
+                "name": "Omitted",
+                "lorebookId": " book "
+            }),
+        )
+        .expect("omitted folder order should append");
+        assert_eq!(omitted["lorebookId"], "book");
+        assert_eq!(omitted["order"], json!(40));
+        assert_eq!(omitted["sortOrder"], json!(40));
+
+        let zero = storage_create_inner(
+            &state,
+            "lorebook-folders".to_string(),
+            json!({
+                "id": "zero",
+                "name": "Zero",
+                "lorebookId": "book",
+                "order": 0
+            }),
+        )
+        .expect("zero folder order should append for legacy compatibility");
+        assert_eq!(zero["order"], json!(50));
+        assert_eq!(zero["sortOrder"], json!(50));
+
+        let explicit = storage_create_inner(
+            &state,
+            "lorebook-folders".to_string(),
+            json!({
+                "id": "explicit",
+                "name": "Explicit",
+                "lorebookId": "book",
+                "order": 7
+            }),
+        )
+        .expect("positive explicit folder order should be preserved");
+        assert_eq!(explicit["order"], json!(7));
+        assert_eq!(explicit["sortOrder"], json!(7));
     }
 
     #[test]
