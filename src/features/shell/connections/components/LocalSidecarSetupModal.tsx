@@ -98,6 +98,18 @@ function formatSpeed(value: number | null | undefined): string {
   return formatted ? `${formatted}/s` : "";
 }
 
+function formatDiagnosticValue(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") return value.trim() || null;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    const formatted = JSON.stringify(value, null, 2);
+    return formatted === "null" || formatted === "{}" ? null : formatted;
+  } catch {
+    return null;
+  }
+}
+
 function progressPercent(downloaded: number, total: number): number {
   if (!total || total <= 0) return 0;
   return Math.min(100, Math.max(0, Math.round((downloaded / total) * 100)));
@@ -475,7 +487,11 @@ export function LocalSidecarSetupModal({
     try {
       const result = await localSidecarApi.testMessage();
       setTestResult(result);
-      toast.success("Local AI test message finished");
+      if (result.success) {
+        toast.success("Local AI test message finished");
+      } else {
+        toast.error(result.error ?? "Local AI test failed");
+      }
       await refreshStatus();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Local AI test failed");
@@ -962,16 +978,72 @@ export function LocalSidecarSetupModal({
         )}
 
         {testResult && (
-          <section className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4">
-            <div className="text-sm font-medium text-emerald-300">Local test message succeeded</div>
+          <section
+            className={cn(
+              "rounded-xl border p-4",
+              testResult.success ? "border-emerald-500/25 bg-emerald-500/5" : "border-red-500/25 bg-red-500/5",
+            )}
+          >
+            <div className={cn("text-sm font-medium", testResult.success ? "text-emerald-300" : "text-red-200")}>
+              {testResult.success ? "Local test message succeeded" : "Local test message failed"}
+            </div>
             <div className="mt-1 text-xs text-[var(--muted-foreground)]/75">
               {testResult.latencyMs}ms
               {testResult.nonce ? ` - token ${testResult.nonce}` : ""}
               {testResult.nonceVerified ? " - echoed by model" : ""}
+              {testResult.failedRuntimeVariant ? ` - ${testResult.failedRuntimeVariant}` : ""}
             </div>
-            <div className="mt-3 rounded-lg bg-[var(--secondary)] p-3 text-sm leading-relaxed text-[var(--foreground)]">
-              {testResult.response}
-            </div>
+            {testResult.error && <div className="mt-3 text-sm text-red-100">{testResult.error}</div>}
+            {testResult.response && (
+              <div className="mt-3 rounded-lg bg-[var(--secondary)] p-3 text-sm leading-relaxed text-[var(--foreground)]">
+                {testResult.response}
+              </div>
+            )}
+            {(testResult.messageContent || testResult.reasoningContent) && (
+              <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                {testResult.messageContent && (
+                  <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-2">
+                    <div className="mb-1 font-medium text-[var(--muted-foreground)]">Message</div>
+                    <div className="whitespace-pre-wrap break-words text-[var(--foreground)]">
+                      {testResult.messageContent}
+                    </div>
+                  </div>
+                )}
+                {testResult.reasoningContent && (
+                  <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-2">
+                    <div className="mb-1 font-medium text-[var(--muted-foreground)]">Reasoning</div>
+                    <div className="whitespace-pre-wrap break-words text-[var(--foreground)]">
+                      {testResult.reasoningContent}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {(() => {
+              const timings = formatDiagnosticValue(testResult.timings);
+              const usage = formatDiagnosticValue(testResult.usage);
+              const details = formatDiagnosticValue(testResult.details);
+              if (!timings && !usage && !details) return null;
+              return (
+                <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+                  {timings && (
+                    <pre className="min-w-0 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-2 text-[var(--muted-foreground)]">
+                      {timings}
+                    </pre>
+                  )}
+                  {usage && (
+                    <pre className="min-w-0 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-2 text-[var(--muted-foreground)]">
+                      {usage}
+                    </pre>
+                  )}
+                  {details && (
+                    <pre className="min-w-0 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-2 text-[var(--muted-foreground)]">
+                      {details}
+                    </pre>
+                  )}
+                </div>
+              );
+            })()}
           </section>
         )}
 

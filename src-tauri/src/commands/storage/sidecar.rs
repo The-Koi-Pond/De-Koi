@@ -2492,76 +2492,198 @@ fn smoke_test_request(model: &str, nonce: &str) -> Value {
 }
 
 fn smoke_test_output_text(payload: &Value) -> String {
+    smoke_test_output(payload).response
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct SmokeTestOutput {
+    response: String,
+    message_content: String,
+    reasoning_content: String,
+}
+
+fn smoke_test_output(payload: &Value) -> SmokeTestOutput {
     let message = payload
         .pointer("/choices/0/message")
         .unwrap_or(&Value::Null);
-    for key in ["content", "reasoning_content", "reasoning"] {
-        if let Some(value) = message.get(key).and_then(Value::as_str) {
-            let trimmed = value.trim();
-            if !trimmed.is_empty() {
-                return trimmed.to_string();
-            }
-        }
+    let message_content = message
+        .get("content")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default()
+        .to_string();
+    let reasoning_content = message
+        .get("reasoning_content")
+        .or_else(|| message.get("reasoning"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default()
+        .to_string();
+    let response = if !message_content.is_empty() {
+        message_content.clone()
+    } else {
+        reasoning_content.clone()
+    };
+
+    SmokeTestOutput {
+        response,
+        message_content,
+        reasoning_content,
     }
-    String::new()
+}
+
+fn current_runtime_variant_for_config(
+    state: &AppState,
+    config: &LocalSidecarConfig,
+) -> Option<String> {
+    current_runtime_install_for_config(state, config)
+        .ok()
+        .flatten()
+        .map(|install| install.record.variant)
+}
+
+fn smoke_test_failure_payload(
+    started: Instant,
+    error: &AppError,
+    failed_runtime_variant: Option<String>,
+) -> Value {
+    json!({
+        "success": false,
+        "response": "",
+        "messageContent": "",
+        "reasoningContent": "",
+        "nonce": null,
+        "nonceVerified": false,
+        "latencyMs": started.elapsed().as_millis(),
+        "usage": Value::Null,
+        "timings": Value::Null,
+        "error": error.message,
+        "errorCode": error.code,
+        "details": error.details.clone().unwrap_or(Value::Null),
+        "failedRuntimeVariant": failed_runtime_variant
+    })
+}
+
+fn smoke_test_success_payload(started: Instant, nonce: String, payload: &Value) -> Value {
+    let output = smoke_test_output(payload);
+    json!({
+        "success": true,
+        "response": output.response,
+        "messageContent": output.message_content,
+        "reasoningContent": output.reasoning_content,
+        "nonce": nonce,
+        "nonceVerified": true,
+        "latencyMs": started.elapsed().as_millis(),
+        "usage": payload.get("usage").cloned().unwrap_or(Value::Null),
+        "timings": payload.get("timings").cloned().unwrap_or(Value::Null),
+        "failedRuntimeVariant": Value::Null
+    })
 }
 
 pub(crate) async fn test_message(state: &AppState) -> AppResult<Value> {
     let started = Instant::now();
     let config = read_config(state)?;
+    let failed_runtime_variant = current_runtime_variant_for_config(state, &config);
     let base_url = {
         let mut process = SIDECAR_PROCESS.lock().await;
-        process.ensure_ready_locked(state, false).await?
+        match process.ensure_ready_locked(state, false).await {
+            Ok(base_url) => base_url,
+            Err(error) => {
+                return Ok(smoke_test_failure_payload(
+                    started,
+                    &error,
+                    failed_runtime_variant,
+                ))
+            }
+        }
     };
     let nonce: String = rand::rng()
         .sample_iter(Alphanumeric)
         .take(8)
         .map(char::from)
         .collect();
-    let response = reqwest::Client::builder()
+    let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
         .build()
-        .map_err(|error| AppError::new("sidecar_client_error", error.to_string()))?
+    {
+        Ok(client) => client,
+        Err(error) => {
+            let error = AppError::new("sidecar_client_error", error.to_string());
+            return Ok(smoke_test_failure_payload(
+                started,
+                &error,
+                failed_runtime_variant,
+            ));
+        }
+    };
+    let response = match client
         .post(format!("{base_url}/v1/chat/completions"))
         .json(&smoke_test_request(&config.model, &nonce))
         .send()
         .await
-        .map_err(|error| AppError::new("sidecar_test_failed", error.to_string()))?;
+    {
+        Ok(response) => response,
+        Err(error) => {
+            let error = AppError::new("sidecar_test_failed", error.to_string());
+            return Ok(smoke_test_failure_payload(
+                started,
+                &error,
+                failed_runtime_variant,
+            ));
+        }
+    };
     let status = response.status();
-    let payload: Value = response
-        .json()
-        .await
-        .map_err(|error| AppError::new("sidecar_test_failed", error.to_string()))?;
+    let payload: Value = match response.json().await {
+        Ok(payload) => payload,
+        Err(error) => {
+            let error = AppError::new("sidecar_test_failed", error.to_string());
+            return Ok(smoke_test_failure_payload(
+                started,
+                &error,
+                failed_runtime_variant,
+            ));
+        }
+    };
     if !status.is_success() {
-        return Err(AppError::with_details(
+        let error = AppError::with_details(
             "sidecar_test_failed",
             format!("Local sidecar returned HTTP {status}"),
             payload,
+        );
+        return Ok(smoke_test_failure_payload(
+            started,
+            &error,
+            failed_runtime_variant,
         ));
     }
     let content = smoke_test_output_text(&payload);
     if content.is_empty() {
-        return Err(AppError::with_details(
+        let error = AppError::with_details(
             "sidecar_test_failed",
             "The local sidecar test returned an empty response",
             payload,
+        );
+        return Ok(smoke_test_failure_payload(
+            started,
+            &error,
+            failed_runtime_variant,
         ));
     }
     if !content.contains(&nonce) {
-        return Err(AppError::with_details(
+        let error = AppError::with_details(
             "sidecar_test_failed",
             "The local sidecar test response did not include the verification token",
             payload,
+        );
+        return Ok(smoke_test_failure_payload(
+            started,
+            &error,
+            failed_runtime_variant,
         ));
     }
-    Ok(json!({
-        "success": true,
-        "response": content,
-        "nonce": nonce,
-        "nonceVerified": true,
-        "latencyMs": started.elapsed().as_millis(),
-        "usage": payload.get("usage").cloned().unwrap_or(Value::Null)
-    }))
+    Ok(smoke_test_success_payload(started, nonce, &payload))
 }
 
 #[cfg(test)]
@@ -3216,6 +3338,56 @@ mod tests {
             smoke_test_output_text(&legacy_reasoning_payload),
             "TOKEN legacy reasoning"
         );
+    }
+
+    #[test]
+    fn smoke_test_success_payload_preserves_diagnostics() {
+        let payload = json!({
+            "choices": [{
+                "message": {
+                    "content": "TOKEN abc123\nLocal model ready.",
+                    "reasoning_content": "Hidden reasoning"
+                }
+            }],
+            "usage": { "prompt_tokens": 3, "completion_tokens": 4 },
+            "timings": { "prompt_ms": 12, "generation_ms": 34 }
+        });
+
+        let result = smoke_test_success_payload(Instant::now(), "abc123".to_string(), &payload);
+
+        assert_eq!(result["success"], json!(true));
+        assert_eq!(
+            result["response"],
+            json!("TOKEN abc123\nLocal model ready.")
+        );
+        assert_eq!(
+            result["messageContent"],
+            json!("TOKEN abc123\nLocal model ready.")
+        );
+        assert_eq!(result["reasoningContent"], json!("Hidden reasoning"));
+        assert_eq!(result["usage"], payload["usage"]);
+        assert_eq!(result["timings"], payload["timings"]);
+        assert_eq!(result["failedRuntimeVariant"], Value::Null);
+    }
+
+    #[test]
+    fn smoke_test_failure_payload_keeps_durable_error_details() {
+        let error = AppError::with_details(
+            "sidecar_test_failed",
+            "Local sidecar returned HTTP 500",
+            json!({ "error": "boom" }),
+        );
+
+        let result =
+            smoke_test_failure_payload(Instant::now(), &error, Some("win-x64-vulkan".to_string()));
+
+        assert_eq!(result["success"], json!(false));
+        assert_eq!(result["response"], json!(""));
+        assert_eq!(result["nonceVerified"], json!(false));
+        assert_eq!(result["error"], json!("Local sidecar returned HTTP 500"));
+        assert_eq!(result["errorCode"], json!("sidecar_test_failed"));
+        assert_eq!(result["details"], json!({ "error": "boom" }));
+        assert_eq!(result["failedRuntimeVariant"], json!("win-x64-vulkan"));
     }
 
     #[test]

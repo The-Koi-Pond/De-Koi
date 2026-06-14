@@ -1429,11 +1429,8 @@ async fn sidecar_embeddings_inner(state: &AppState, body: Value) -> Result<Value
         {
             prompts::resolve_embedding_connection_for_id_async(state, connection_id).await?
         } else {
-            prompts::resolve_default_embedding_connection_for_request_model_async(
-                state,
-                body.get("model").and_then(Value::as_str),
-            )
-            .await?
+            prompts::resolve_embedding_connection_for_id_async(state, sidecar::SIDECAR_CONNECTION_ID)
+                .await?
         };
     let model = prompts::embedding_model(&connection, body.get("model").and_then(Value::as_str))?;
     if let Some(object) = connection.as_object_mut() {
@@ -4319,6 +4316,42 @@ mod tests {
         assert!(
             require_admin_access_for_command("backup_list", &HeaderMap::new(), loopback_ip).is_ok(),
             "explicit false should keep the legacy loopback bypass"
+        );
+    }
+
+    #[tokio::test]
+    async fn sidecar_embeddings_without_connection_defaults_to_managed_local_sidecar() {
+        let state = test_state("sidecar-embeddings-defaults-local");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "stored-embedding",
+                    "name": "Stored embedding",
+                    "provider": "custom",
+                    "baseUrl": "http://127.0.0.1:9/v1",
+                    "model": "stored-chat",
+                    "embeddingModel": "stored-embedding-model",
+                    "isDefault": true
+                }),
+            )
+            .expect("stored embedding connection should be created");
+
+        let error = sidecar_embeddings_inner(
+            &state,
+            json!({
+                "input": "hello",
+                "model": "legacy-sidecar-request"
+            }),
+        )
+        .await
+        .expect_err("missing connectionId should attempt managed sidecar setup first");
+
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(
+            error.message,
+            "Enable Local Model before using the sidecar connection"
         );
     }
 
