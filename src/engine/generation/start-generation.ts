@@ -40,7 +40,7 @@ import {
   persistConnectedCommandTags,
   type ConnectedCommandResult,
 } from "./connected-commands";
-import { fitMessagesToContextWindow } from "./context-window";
+import { fitLlmRequestToContextWindow } from "./context-window";
 import type { LLMToolCall } from "../generation-core/llm/base-provider";
 import { createInlineThinkingStreamParser } from "../generation-core/llm/inline-thinking";
 import {
@@ -4219,12 +4219,18 @@ async function* streamMainGenerationLoop(args: {
       }
     };
 
-    const requestMessages = fitMessagesToContextWindow(conversation, parameters, connection);
-    const requestPreviewMessages = previewMessages?.length
-      ? fitMessagesToContextWindow(previewMessages, parameters, connection)
-      : null;
-    const requestParameters = runtimeLlmParameters(connection, input, chat, parameters);
     const requestTools = mainTools?.toolDefs;
+    const requestFit = fitLlmRequestToContextWindow(
+      conversation,
+      runtimeLlmParameters(connection, input, chat, parameters),
+      connection,
+      { tools: requestTools },
+    );
+    const requestMessages = requestFit.messages;
+    const requestParameters = requestFit.parameters;
+    const requestPreviewMessages = previewMessages?.length
+      ? fitLlmRequestToContextWindow(previewMessages, requestParameters, connection, { tools: requestTools }).messages
+      : null;
     const visibleRequestParameters = providerVisibleLlmParameters(connection, requestParameters, {
       stream: true,
       hasTools: Boolean(requestTools?.length),
