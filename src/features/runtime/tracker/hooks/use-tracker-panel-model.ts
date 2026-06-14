@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import type { PresentCharacter } from "../../../../engine/contracts/types/game-state";
 import type { Persona } from "../../../../engine/contracts/types/persona";
@@ -112,12 +113,14 @@ export function useTrackerPanelModel(): TrackerPanelModel {
 
   const enabledAgentTypes = useMemo(() => {
     const set = new Set<string>();
-    const activeAgentIds = Array.isArray(chatMeta.activeAgentIds) ? chatMeta.activeAgentIds : [];
+    const chatRow = chat as unknown as { mode?: unknown; chatMode?: unknown } | undefined;
+    const chatMode = chatRow?.mode ?? chatRow?.chatMode ?? "roleplay";
+    const activeAgentIds = enabledChatAgentIds(chatMeta, chatMode);
     for (const id of activeAgentIds) {
       if (typeof id === "string") set.add(id);
     }
     return set;
-  }, [chatMeta]);
+  }, [chat, chatMeta]);
 
   const isSectionEnabled = useCallback(
     (section: TrackerPanelSection) => {

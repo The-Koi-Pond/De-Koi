@@ -6,6 +6,7 @@
 // ──────────────────────────────────────────────
 import { useRef, useEffect, useMemo, useState } from "react";
 import { X, Trash2 } from "lucide-react";
+import { enabledChatAgentIds } from "../../../../../engine/contracts/types/agent";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import type { EchoChamberSide } from "../../../../../shared/stores/ui.store";
@@ -81,9 +82,10 @@ export function EchoChamberPanel({ hiddenOnMobile = false }: EchoChamberPanelPro
 
   const echoEnabled = useMemo(() => {
     if (!chat) return false;
-    const raw = (chat as unknown as { metadata?: string | Record<string, unknown> }).metadata;
+    const row = chat as unknown as { metadata?: string | Record<string, unknown>; mode?: unknown; chatMode?: unknown };
+    const raw = row.metadata;
     const meta = readEchoRecord(raw);
-    const activeAgentIds: string[] = Array.isArray(meta.activeAgentIds) ? meta.activeAgentIds : [];
+    const activeAgentIds = enabledChatAgentIds(meta, row.mode ?? row.chatMode ?? "roleplay");
     return activeAgentIds.includes("echo-chamber");
   }, [chat]);
 

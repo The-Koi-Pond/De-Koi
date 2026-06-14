@@ -155,6 +155,8 @@ export interface ChatMetadata {
   pinned?: boolean;
   /** Per-agent enable overrides (agentId → boolean) */
   agentOverrides: Record<string, boolean>;
+  /** Legacy/global agent gate. False preserves disabled imported agent selections without running them. */
+  enableAgents?: boolean;
   /** Agent IDs scoped to this chat. Only these agents run automatically; empty = no automatic agents. */
   activeAgentIds: string[];
   /** Explicit target lorebook for the Lorebook Keeper in this chat. Null/omitted = use a scoped active lorebook when available. */

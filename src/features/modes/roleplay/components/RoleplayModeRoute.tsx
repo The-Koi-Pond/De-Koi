@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useQueries } from "@tanstack/react-query";
+import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useEncounterStore } from "../../../../shared/stores/encounter.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -93,12 +94,12 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
 
   const enabledAgentTypes = useMemo(() => {
     const set = new Set<string>();
-    const activeAgentIds: string[] = Array.isArray(data.chatMeta.activeAgentIds) ? data.chatMeta.activeAgentIds : [];
+    const activeAgentIds = enabledChatAgentIds(data.chatMeta, fallbackChatMode);
     for (const id of activeAgentIds) {
       if (typeof id === "string" && id.trim()) set.add(id.trim());
     }
     return set;
-  }, [data.chatMeta.activeAgentIds]);
+  }, [data.chatMeta, fallbackChatMode]);
   const agentsUiEnabled = enabledAgentTypes.size > 0;
   const expressionAgentEnabled = enabledAgentTypes.has("expression");
   const combatAgentEnabled = enabledAgentTypes.has("combat");

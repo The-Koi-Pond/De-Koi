@@ -156,6 +156,30 @@ function runtimeInput(connection: JsonRecord): GenerationAgentRuntimeInput {
   };
 }
 
+function activeAgentRuntimeInput(
+  connection: JsonRecord,
+  options: {
+    mode?: string;
+    activeAgentIds?: string[];
+    enableAgents?: boolean;
+    agentTypes?: Set<string>;
+  },
+): GenerationAgentRuntimeInput {
+  return {
+    ...runtimeInput(connection),
+    chat: {
+      id: "chat-1",
+      mode: options.mode ?? "roleplay",
+      characterIds: ["char-1"],
+      metadata: {
+        activeAgentIds: options.activeAgentIds ?? [],
+        ...(options.enableAgents === undefined ? {} : { enableAgents: options.enableAgents }),
+      },
+    },
+    agentTypes: options.agentTypes,
+  };
+}
+
 describe("generation agent runner", () => {
   it("models default connection warning details as required", () => {
     acceptAgentConnectionWarning({
@@ -224,6 +248,74 @@ describe("generation agent runner", () => {
     expect(prompt).toContain("combat");
     expect(prompt).not.toContain("full_idle");
     expect(prompt).not.toContain("full_combat");
+  });
+
+  it("does not run remembered active agents when legacy metadata disables agents", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "expression-agent",
+              type: "expression",
+              name: "Expression Agent",
+              enabled: true,
+              phase: "parallel",
+              connectionId: connection.id,
+              model: "qa-model",
+            },
+          ],
+          [connection],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      activeAgentRuntimeInput(connection, {
+        activeAgentIds: ["expression"],
+        enableAgents: false,
+      }),
+    );
+
+    expect(runtime.preResults).toEqual([]);
+    await runtime.runParallel();
+    await runtime.runPost("main response");
+    expect(requests).toEqual([]);
+  });
+
+  it("filters built-in agents that are unavailable for the chat mode", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
+
+    const staleScopedRuntime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage([], [connection]),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      activeAgentRuntimeInput(connection, {
+        mode: "game",
+        activeAgentIds: ["cyoa"],
+      }),
+    );
+    await staleScopedRuntime.runPost("main response");
+
+    const explicitRetryRuntime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage([], [connection]),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      activeAgentRuntimeInput(connection, {
+        mode: "game",
+        agentTypes: new Set(["cyoa"]),
+      }),
+    );
+    await explicitRetryRuntime.runPost("main response");
+
+    expect(requests).toEqual([]);
   });
 
   it("skips unavailable legacy Local Model agent overrides with a dedicated warning", async () => {

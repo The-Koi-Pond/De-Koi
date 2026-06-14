@@ -45,6 +45,7 @@ import {
   type PreparedManagedImageAttachments,
   type PromptAttachment,
 } from "../../../../shared/api/message-attachment-api";
+import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
 import { makeManualTrackerRowId } from "../../../../engine/shared/game-state/tracker-row-ids";
 import {
   useSyncGameState,
@@ -2032,7 +2033,7 @@ export function GameSurface({
   void _journalEntry;
   const transitionGameState = useTransitionGameState();
   const sceneAnalysis = useGameSceneAnalysis();
-  const sceneAnalysisEnabled = Array.isArray(chatMeta.activeAgentIds) && chatMeta.activeAgentIds.length > 0;
+  const sceneAnalysisEnabled = enabledChatAgentIds(chatMeta, "game").length > 0;
 
   // Process GM tags from the latest assistant message
   const latestAssistantMsg = useMemo(() => {

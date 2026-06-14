@@ -249,14 +249,18 @@ export function useApplyChatPreset() {
       const preservedMetadata = Object.fromEntries(
         Object.entries(currentMetadata).filter(([key]) => isPresetExcludedMetadataKey(key)),
       );
+      const nextMetadata: Record<string, unknown> = {
+        ...CHAT_PRESET_METADATA_DEFAULTS,
+        ...(settings.metadata ?? {}),
+        ...preservedMetadata,
+        appliedChatPresetId: presetId,
+      };
+      if (!Object.prototype.hasOwnProperty.call(nextMetadata, "enableAgents")) {
+        nextMetadata.enableAgents = Array.isArray(nextMetadata.activeAgentIds) && nextMetadata.activeAgentIds.length > 0;
+      }
       const patch: Record<string, unknown> = {
         chatPresetId: presetId,
-        metadata: {
-          ...CHAT_PRESET_METADATA_DEFAULTS,
-          ...(settings.metadata ?? {}),
-          ...preservedMetadata,
-          appliedChatPresetId: presetId,
-        },
+        metadata: nextMetadata,
       };
       patch.connectionId = "connectionId" in settings ? (settings.connectionId ?? null) : null;
       if (chat.mode === "conversation") {
