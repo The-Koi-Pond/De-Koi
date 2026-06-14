@@ -145,7 +145,9 @@
       { "name": "label", "description": "Requested background tag or label.", "example": "misty forest shrine" },
       { "name": "detail", "description": "Prompt detail used by the builder.", "example": "misty forest shrine" },
       { "name": "artStyle", "description": "Resolved Game Mode art style prompt.", "example": "painterly fantasy visual novel art" },
-      { "name": "format", "description": "Prompt format setting.", "example": "descriptive" }
+      { "name": "format", "description": "Prompt format setting.", "example": "descriptive" },
+      { "name": "sceneDescription", "description": "Legacy-compatible background scene description." },
+      { "name": "styleLine", "description": "Legacy-compatible style prompt line." }
     ],
     "template": "${defaultPrompt}",
     "exampleContext": {
@@ -164,7 +166,11 @@
       { "name": "label", "description": "Illustration label or reason.", "example": "party enters the sealed library" },
       { "name": "detail", "description": "Illustration prompt detail.", "example": "lantern light catches floating dust as the party opens a rune-locked door" },
       { "name": "artStyle", "description": "Resolved Game Mode art style prompt.", "example": "painterly fantasy visual novel art" },
-      { "name": "format", "description": "Prompt format setting.", "example": "descriptive" }
+      { "name": "format", "description": "Prompt format setting.", "example": "descriptive" },
+      { "name": "scenePrompt", "description": "Legacy-compatible raw scene illustration prompt." },
+      { "name": "characterDescriptions", "description": "Legacy-compatible visible character description block." },
+      { "name": "imagePromptInstructions", "description": "Legacy-compatible user image instructions." },
+      { "name": "styleLine", "description": "Legacy-compatible style prompt line." }
     ],
     "template": "${defaultPrompt}",
     "exampleContext": {
@@ -184,7 +190,9 @@
       { "name": "detail", "description": "NPC appearance or description detail.", "example": "silver hair, green cloak, wary smile" },
       { "name": "artStyle", "description": "Resolved Game Mode art style prompt.", "example": "painterly fantasy visual novel art" },
       { "name": "format", "description": "Prompt format setting.", "example": "descriptive" },
-      { "name": "includeAppearances", "description": "Whether appearance detail is included in the built-in prompt.", "example": "true" }
+      { "name": "includeAppearances", "description": "Whether appearance detail is included in the built-in prompt.", "example": "true" },
+      { "name": "appearanceLine", "description": "Legacy-compatible NPC appearance prompt line." },
+      { "name": "styleLine", "description": "Legacy-compatible style prompt line." }
     ],
     "template": "${defaultPrompt}",
     "exampleContext": {

@@ -30,10 +30,10 @@ const GAME_BACKGROUND_NEGATIVE_PROMPT =
 const GAME_ILLUSTRATION_NEGATIVE_PROMPT =
   "text, letters, captions, subtitles, UI, watermark, logo, signature, speech bubble, split screen, panel, collage, contact sheet, character sheet, grid, four images, duplicated face, extra head, unrelated character, bad anatomy, low quality";
 
-function joinedImageTags(parts: string[]): string {
+function joinedImageTags(parts: string[], options: { preserveSceneText?: boolean } = {}): string {
   const seen = new Set<string>();
-  return parts
-    .flatMap((part) => part.split(/[,.]/))
+  const fragments = options.preserveSceneText ? parts : parts.flatMap((part) => part.split(/[,.]/));
+  return fragments
     .map((part) => part.trim())
     .filter((part) => {
       const key = part.toLowerCase();
@@ -104,7 +104,16 @@ function npcPortraitSpeciesRule(label: string, detail: string): string {
 function npcPortraitIdentityCue(detail: string): string {
   const gender = detail.match(/\bGender:\s*([^.\n]+)/i)?.[1]?.trim();
   const pronouns = detail.match(/\bPronouns:\s*([^.\n]+)/i)?.[1]?.trim();
-  return [gender ? `Gender: ${gender}.` : "", pronouns ? `Pronouns: ${pronouns}.` : ""].filter(Boolean).join(" ");
+  const location = detail.match(/\bLocation:\s*([^.\n]+)/i)?.[1]?.trim();
+  const notes = detail.match(/\bNotes:\s*([^.\n]+)/i)?.[1]?.trim();
+  return [
+    gender ? `Gender: ${gender}.` : "",
+    pronouns ? `Pronouns: ${pronouns}.` : "",
+    location ? `Location: ${location}.` : "",
+    notes ? `Notes: ${notes}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function withPortraitIdentityCue(kind: GameImageAssetKind, detail: string, prompt: string): string {
@@ -214,7 +223,9 @@ function compileSceneAssetPrompt(
   generatedStyle: string,
   prompt: string | string[],
 ): string {
-  const seedPrompt = Array.isArray(prompt) ? joinedImageTags(prompt) : prompt;
+  const seedPrompt = Array.isArray(prompt)
+    ? joinedImageTags(prompt, { preserveSceneText: kind === "background" || kind === "illustration" })
+    : prompt;
   return compileImagePrompt({
     kind,
     prompt: seedPrompt,

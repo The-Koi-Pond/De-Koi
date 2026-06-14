@@ -60,15 +60,83 @@ export function imagePromptSettings(
   };
 }
 
-export function npcPortraitDetail(npc: Record<string, unknown>): string {
+function npcPortraitDetail(npc: Record<string, unknown>): string {
   const parts: string[] = [];
   const gender = g.readTrimmed(npc.gender);
   const pronouns = g.readTrimmed(npc.pronouns);
+  const location = g.readTrimmed(npc.location);
   const description = g.readTrimmed(npc.description);
+  const notes = g.stringArray(npc.notes).slice(0, 6);
   if (gender) parts.push(`Gender: ${gender}.`);
   if (pronouns) parts.push(`Pronouns: ${pronouns}.`);
+  if (location) parts.push(`Location: ${location}.`);
+  if (notes.length > 0) parts.push(`Notes: ${notes.join("; ")}.`);
   if (description) parts.push(description);
   return parts.join(" ").trim() || "distinctive character portrait";
+}
+
+export function promptDetail(parts: Array<string | null | undefined>): string {
+  return parts.map((part) => g.readTrimmed(part).replace(/\s+/g, " ")).filter(Boolean).join(" ");
+}
+
+function promptLine(label: string, value: unknown): string | null {
+  const text = g.readTrimmed(value).replace(/\s+/g, " ");
+  return text ? `${label}: ${text}.` : null;
+}
+
+export function scenePromptContext(meta: Record<string, unknown>, payload: Record<string, unknown>): string {
+  const setup = g.asRecord(meta.gameSetupConfig);
+  const map = g.asRecord(meta.gameMap);
+  const lines = [
+    promptLine("World overview", meta.gameWorldOverview ?? setup.worldOverview),
+    promptLine("Genre", setup.genre),
+    promptLine("Setting", setup.setting),
+    promptLine("Current location", payload.currentLocation ?? payload.location ?? map.name),
+    promptLine("Location detail", map.description),
+    promptLine("Weather", payload.weather ?? payload.currentWeather ?? meta.gameWeather),
+    promptLine("Time of day", payload.timeOfDay ?? payload.currentTimeOfDay ?? meta.gameTimeFormatted),
+  ].filter((line): line is string => !!line);
+  return lines.length > 0 ? `Scene context: ${lines.join(" ")}` : "";
+}
+
+export function imagePromptInstructions(meta: Record<string, unknown>, payload: Record<string, unknown>): string {
+  return g.readTrimmed(payload.imagePromptInstructions ?? meta.gameImagePromptInstructions).replace(/\s+/g, " ");
+}
+
+function normalizedNpcName(value: unknown): string {
+  return g.readTrimmed(value).toLowerCase();
+}
+
+export function matchingGameNpc(meta: Record<string, unknown>, name: string): Record<string, unknown> {
+  const normalized = normalizedNpcName(name);
+  if (!normalized || !Array.isArray(meta.gameNpcs)) return {};
+  return g.asRecord(meta.gameNpcs.find((npc) => normalizedNpcName(g.asRecord(npc).name) === normalized));
+}
+
+export function npcPortraitDetailFromContext(npc: Record<string, unknown>, meta: Record<string, unknown>): string {
+  const name = g.readTrimmed(npc.name);
+  const storedNpc = matchingGameNpc(meta, name);
+  return npcPortraitDetail({
+    ...storedNpc,
+    ...npc,
+    description: g.readTrimmed(npc.description) || g.readTrimmed(storedNpc.description),
+  });
+}
+
+export function illustrationCharacterDescriptions(
+  illustration: Record<string, unknown>,
+  meta: Record<string, unknown>,
+): string {
+  const lines: string[] = [];
+  for (const description of g.stringArray(illustration.characterDescriptions)) {
+    lines.push(description);
+  }
+  for (const name of g.stringArray(illustration.characters)) {
+    const npc = matchingGameNpc(meta, name);
+    const detail = npcPortraitDetail(npc);
+    if (detail && detail !== "distinctive character portrait") lines.push(`${name}: ${detail}`);
+  }
+  return lines.length > 0 ? `Visible characters: ${lines.join(" ")}` : "";
 }
 
 export async function registeredGameImagePrompt(
@@ -79,6 +147,7 @@ export async function registeredGameImagePrompt(
     detail: string;
     artStyle: string;
     promptSettings: g.ImagePromptSettings;
+    context?: Record<string, string | number | undefined>;
   },
 ): Promise<string> {
   return g.loadRegisteredPrompt(g.storageApi, definition, {
@@ -88,6 +157,7 @@ export async function registeredGameImagePrompt(
     artStyle: input.artStyle,
     format: input.promptSettings.format ?? "descriptive",
     includeAppearances: String(input.promptSettings.includeAppearances !== false),
+    ...input.context,
   });
 }
 

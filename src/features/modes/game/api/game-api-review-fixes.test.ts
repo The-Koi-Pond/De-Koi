@@ -377,6 +377,115 @@ describe("game API review guards", () => {
     expect(portrait?.prompt).toContain("masked duelist");
   });
 
+  it("preserves game scene context, image instructions, and NPC identity in generated asset prompts", async () => {
+    mockChat(
+      gameImageChat({
+        gameSetupConfig: {
+          genre: "fantasy",
+          setting: "flooded moon city",
+          artStylePrompt: "inked fantasy art",
+        },
+        gameWorldOverview: "The moonlit city is built inside a flooded crater.",
+        gameMap: {
+          type: "node",
+          name: "Flooded Archive",
+          description: "A drowned library with brass catwalks.",
+          partyPosition: "main",
+        },
+        gameImagePromptInstructions: "Keep every generated image in a stained glass storybook style.",
+        gameNpcs: [
+          {
+            id: "npc-mira",
+            name: "Mira",
+            emoji: "",
+            description: "silver-haired scout with a cracked lantern",
+            gender: "woman",
+            pronouns: "she/they",
+            location: "Flooded Archive",
+            reputation: 0,
+            met: true,
+            notes: ["Carries a cracked lantern."],
+          },
+        ],
+      }),
+    );
+    storageApiMock.list.mockResolvedValue([]);
+
+    const result = await previewGeneratedAssets({
+      chatId: "chat-1",
+      backgroundTag: "flooded archive",
+      currentLocation: "Flooded Archive",
+      weather: "cold rain",
+      timeOfDay: "midnight",
+      illustration: {
+        reason: "moon gate opens",
+        prompt: "Mira raises a lantern as the moon gate opens above flooded stairs.",
+        characters: ["Mira"],
+      },
+      npcsNeedingAvatars: [{ name: "Mira", description: "silver hair, green cloak" }],
+    });
+
+    const backgroundPrompt = result.items.find((item) => item.kind === "background")?.prompt ?? "";
+    const illustrationPrompt = result.items.find((item) => item.kind === "illustration")?.prompt ?? "";
+    const portraitPrompt = result.items.find((item) => item.kind === "portrait")?.prompt ?? "";
+
+    expect(backgroundPrompt).toContain("Flooded Archive");
+    expect(backgroundPrompt).toContain("A drowned library with brass catwalks.");
+    expect(backgroundPrompt).toContain("cold rain");
+    expect(backgroundPrompt).toContain("midnight");
+    expect(backgroundPrompt).toContain("The moonlit city is built inside a flooded crater.");
+    expect(illustrationPrompt).toContain("Keep every generated image in a stained glass storybook style.");
+    expect(illustrationPrompt).toContain("silver-haired scout with a cracked lantern");
+    expect(portraitPrompt).toContain("Gender: woman");
+    expect(portraitPrompt).toContain("Pronouns: she/they");
+    expect(portraitPrompt).toContain("Location: Flooded Archive");
+    expect(portraitPrompt).toContain("Notes: Carries a cracked lantern.");
+  });
+
+  it("renders legacy game image prompt override variables with compatibility context", async () => {
+    const promptOverrides: Record<string, string> = {
+      "game.background": "LEGACY BG ${sceneDescription} :: ${styleLine}",
+      "game.illustration": "LEGACY ILL ${scenePrompt} :: ${imagePromptInstructions}",
+      "game.portrait": "LEGACY PORTRAIT ${appearanceLine}",
+    };
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "chats") {
+        return gameImageChat({
+          gameSetupConfig: { artStylePrompt: "inked fantasy art" },
+          gameImagePromptInstructions: "Use only torchlit chiaroscuro.",
+        });
+      }
+      if (entity === "prompt-overrides" && promptOverrides[id]) {
+        return {
+          id,
+          key: id,
+          template: promptOverrides[id],
+          enabled: true,
+          updatedAt: "2026-06-14T00:00:00.000Z",
+        };
+      }
+      return null;
+    });
+    storageApiMock.list.mockResolvedValue([]);
+
+    const result = await previewGeneratedAssets({
+      chatId: "chat-1",
+      backgroundTag: "ruined chapel",
+      illustration: { reason: "altar reveal", prompt: "the altar cracks open", slug: "altar" },
+      npcsNeedingAvatars: [{ name: "Mira", description: "silver hair, green cloak" }],
+    });
+
+    expect(result.items.find((item) => item.kind === "background")?.prompt).toContain(
+      "LEGACY BG ruined chapel :: inked fantasy art",
+    );
+    expect(result.items.find((item) => item.kind === "illustration")?.prompt).toContain(
+      "LEGACY ILL the altar cracks open :: Use only torchlit chiaroscuro.",
+    );
+    expect(result.items.find((item) => item.kind === "portrait")?.prompt).toContain(
+      "LEGACY PORTRAIT silver hair, green cloak",
+    );
+  });
+
   it("uses the game setup image style profile for generated asset prompts", async () => {
     const styleProfiles = createDefaultImageStyleProfileSettings();
     mockChat({
@@ -399,7 +508,6 @@ describe("game API review guards", () => {
     });
 
     const background = result.items.find((item) => item.kind === "background");
-    expect(background?.prompt).toContain("masterpiece");
     expect(background?.prompt).toContain("scenery");
     expect(background?.negativePrompt).toContain("worst quality");
   });

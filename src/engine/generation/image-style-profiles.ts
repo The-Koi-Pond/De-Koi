@@ -354,6 +354,7 @@ export function compileImagePrompt(input: CompileImagePromptInput): CompiledImag
   const generatedStyle = input.generatedStyle?.trim() ?? "";
   const profileSubjectTags = profile.subjectTags[input.kind] ?? "";
   const compactTags = promptMode === "tagged" || promptMode === "danbooru";
+  const preserveScenePrompt = input.kind === "background" || input.kind === "illustration";
   const compactVisualPrompt =
     profile.baseStyle !== "z_image_turbo" && ["avatar", "portrait", "selfie", "sprite"].includes(input.kind);
   const compactPrompt = compactTags || compactVisualPrompt;
@@ -388,13 +389,21 @@ export function compileImagePrompt(input: CompileImagePromptInput): CompiledImag
   const negativeFragments: string[] = [];
 
   for (const part of positiveParts) {
-    for (const fragment of splitPromptFragments(part.value, fragmentMode, part.sourcePrompt)) {
+    const distillSourcePrompt = part.sourcePrompt && !preserveScenePrompt;
+    const fragmentPromptMode = part.sourcePrompt && preserveScenePrompt ? "natural" : fragmentMode;
+    for (const fragment of splitPromptFragments(part.value, fragmentPromptMode, distillSourcePrompt)) {
       const negative = extractNegativeFragment(fragment);
       if (negative) {
         negativeFragments.push(negative);
         movedNegativeFragments.push(fragment);
       } else {
-        positiveFragments.push({ value: cleanPromptFragment(fragment, promptMode), required: part.required });
+        positiveFragments.push({
+          value:
+            part.sourcePrompt && preserveScenePrompt
+              ? fragment.trim().replace(/\s+/g, " ")
+              : cleanPromptFragment(fragment, promptMode),
+          required: part.required,
+        });
       }
     }
   }

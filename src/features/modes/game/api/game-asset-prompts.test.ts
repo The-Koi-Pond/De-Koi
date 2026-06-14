@@ -21,4 +21,25 @@ describe("game image asset prompts", () => {
     expect(negativePrompt).toContain("worst quality");
     expect(negativePrompt).toContain("bad anatomy");
   });
+
+  it("preserves full background and illustration scene text in tagged style profiles", () => {
+    const styleProfiles = createDefaultImageStyleProfileSettings();
+    const settings = {
+      includeAppearances: true,
+      format: "tags" as const,
+      styleProfileId: "danbooru",
+      styleProfiles,
+    };
+
+    const backgroundScene = "The cracked moon gate opens, lanterns guttering across flooded stairs.";
+    const illustrationScene =
+      "Mira shields a child, rain catching on her armor. The cracked moon gate opens above flooded stairs.";
+
+    expect(sceneAssetPrompt("background", backgroundScene, backgroundScene, "inked fantasy art", settings)).toContain(
+      backgroundScene,
+    );
+    expect(
+      sceneAssetPrompt("illustration", "moon gate opens", illustrationScene, "inked fantasy art", settings),
+    ).toContain(illustrationScene);
+  });
 });
