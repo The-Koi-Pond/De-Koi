@@ -289,7 +289,12 @@ impl AssetService {
             .filter(|name| !name.trim().is_empty())
             .ok_or_else(|| AppError::invalid_input("Uploaded file is missing a name"))?;
         let name = sanitize_filename(original_name)?;
+        let is_text_upload = is_text_asset_path(Path::new(&name));
         ensure_upload_extension(category, &name)?;
+        let safe_subcategory = subcategory
+            .filter(|value| !value.trim().is_empty())
+            .map(assert_relative_safe_path)
+            .transpose()?;
         let base64 = file
             .get("base64")
             .and_then(Value::as_str)
@@ -297,16 +302,19 @@ impl AssetService {
         let mut bytes = general_purpose::STANDARD.decode(base64).map_err(|error| {
             AppError::invalid_input(format!("Invalid upload encoding: {error}"))
         })?;
-        if bytes.len() > MAX_MEDIA_ASSET_BYTES {
+        if is_text_upload && bytes.len() > MAX_TEXT_ASSET_BYTES {
+            return Err(AppError::invalid_input("Text asset is too large to upload"));
+        }
+        if !is_text_upload && bytes.len() > MAX_MEDIA_ASSET_BYTES {
             return Err(AppError::invalid_input("Uploaded file is too large"));
         }
-        if should_resize_generated_background_upload(category, subcategory) {
+        if should_resize_generated_background_upload(category, subcategory, &name) {
             bytes = cover_resize_generated_background(&name, &bytes)?;
         }
 
         let mut rel = PathBuf::from(category);
-        if let Some(subcategory) = subcategory.filter(|value| !value.trim().is_empty()) {
-            rel.push(assert_relative_safe_path(subcategory)?);
+        if let Some(subcategory) = safe_subcategory {
+            rel.push(subcategory);
         }
         let dir = assert_inside_dir(&self.root, &rel)?;
         fs::create_dir_all(&dir)?;
@@ -729,9 +737,13 @@ fn path_extension(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-fn ensure_text_asset_path(path: &Path) -> AppResult<()> {
+fn is_text_asset_path(path: &Path) -> bool {
     let extension = path_extension(path);
-    if TEXT_EXTENSIONS.contains(&extension.as_str()) {
+    TEXT_EXTENSIONS.contains(&extension.as_str())
+}
+
+fn ensure_text_asset_path(path: &Path) -> AppResult<()> {
+    if is_text_asset_path(path) {
         Ok(())
     } else {
         Err(AppError::invalid_input(
@@ -780,17 +792,18 @@ fn default_music_intensity_for_state(state: &str) -> Option<&'static str> {
 }
 
 fn ensure_upload_extension(category: &str, filename: &str) -> AppResult<()> {
-    let extension = Path::new(filename)
-        .extension()
-        .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
+    let extension = path_extension(Path::new(filename));
     let allowed = match category {
         "music" | "sfx" | "ambient" => AUDIO_EXTENSIONS,
         "sprites" => SPRITE_IMAGE_EXTENSIONS,
         "backgrounds" => RASTER_IMAGE_EXTENSIONS,
-        _ => &[],
+        _ => {
+            return Err(AppError::invalid_input(format!(
+                "Can't upload .{extension} files to {category}"
+            )))
+        }
     };
-    if allowed.contains(&extension.as_str()) {
+    if allowed.contains(&extension.as_str()) || TEXT_EXTENSIONS.contains(&extension.as_str()) {
         Ok(())
     } else {
         Err(AppError::invalid_input(format!(
@@ -809,8 +822,20 @@ fn is_supported_manifest_asset(category: &str, path: &Path) -> bool {
     }
 }
 
-fn should_resize_generated_background_upload(category: &str, subcategory: Option<&str>) -> bool {
-    category == "backgrounds" && subcategory == Some("generated")
+fn should_resize_generated_background_upload(
+    category: &str,
+    subcategory: Option<&str>,
+    filename: &str,
+) -> bool {
+    category == "backgrounds"
+        && !is_text_asset_path(Path::new(filename))
+        && subcategory
+            .map(|value| {
+                value
+                    .split(|ch| ch == '/' || ch == '\\')
+                    .any(|part| part == "generated")
+            })
+            .unwrap_or(false)
 }
 
 fn cover_resize_generated_background(filename: &str, bytes: &[u8]) -> AppResult<Vec<u8>> {
@@ -1006,7 +1031,8 @@ fn sort_asset_rows(rows: &mut [Value]) {
 mod tests {
     use super::{
         ensure_upload_extension, AssetService, AUDIO_EXTENSIONS,
-        MAX_GENERATED_BACKGROUND_DIMENSION, RASTER_IMAGE_EXTENSIONS, SPRITE_IMAGE_EXTENSIONS,
+        MAX_GENERATED_BACKGROUND_DIMENSION, MAX_TEXT_ASSET_BYTES, RASTER_IMAGE_EXTENSIONS,
+        SPRITE_IMAGE_EXTENSIONS, TEXT_EXTENSIONS,
     };
     use base64::{engine::general_purpose, Engine as _};
     use image::{ImageFormat, Rgba, RgbaImage};
@@ -1063,6 +1089,13 @@ mod tests {
         json!({
             "name": name,
             "base64": general_purpose::STANDARD.encode(bytes),
+        })
+    }
+
+    fn text_upload_file(name: &str, content: &[u8]) -> Value {
+        json!({
+            "name": name,
+            "base64": general_purpose::STANDARD.encode(content),
         })
     }
 
@@ -1136,6 +1169,19 @@ mod tests {
     }
 
     #[test]
+    fn accepts_text_asset_extensions_for_managed_category_uploads() {
+        for category in ["music", "sfx", "ambient", "sprites", "backgrounds"] {
+            for extension in TEXT_EXTENSIONS {
+                let filename = format!("asset.{extension}");
+                assert!(
+                    ensure_upload_extension(category, &filename).is_ok(),
+                    "{category} should accept text upload {filename}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn rejects_svg_background_uploads() {
         let error = ensure_upload_extension("backgrounds", "wall.svg")
             .expect_err("background SVG uploads should stay sprite-only");
@@ -1144,6 +1190,61 @@ mod tests {
         assert!(error
             .message
             .contains("Can't upload .svg files to backgrounds"));
+    }
+
+    #[test]
+    fn uploads_text_assets_through_managed_category_uploads() {
+        let root = temp_root("text-upload-parity");
+        let service = AssetService::new(&root).expect("create asset service");
+
+        for category in ["music", "sfx", "ambient", "sprites", "backgrounds"] {
+            let subcategory = if category == "backgrounds" {
+                "generated/notes"
+            } else {
+                "notes"
+            };
+            let uploaded = service
+                .write_upload(
+                    category,
+                    Some(subcategory),
+                    &text_upload_file("readme.md", b"legacy notes"),
+                )
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "{category} text upload should be accepted: {}",
+                        error.message
+                    )
+                });
+            let path = uploaded_asset_path(&root, &uploaded);
+
+            assert_eq!(
+                fs::read_to_string(path).expect("text upload should write readable content"),
+                "legacy notes"
+            );
+        }
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_text_uploads_above_text_asset_limit() {
+        let root = temp_root("text-upload-size-limit");
+        let service = AssetService::new(&root).expect("create asset service");
+        let content = vec![b'a'; MAX_TEXT_ASSET_BYTES + 1];
+
+        let error = service
+            .write_upload(
+                "music",
+                Some("notes"),
+                &text_upload_file("too-large.txt", &content),
+            )
+            .expect_err("oversized text upload should reject");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("Text asset is too large to upload"));
+        assert!(!root.join("music/notes/too-large.txt").exists());
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1164,6 +1265,55 @@ mod tests {
             image::image_dimensions(path).expect("background should decode"),
             (1280, 720)
         );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cover_resizes_nested_generated_background_uploads_to_vn_canvas() {
+        let root = temp_root("nested-generated-background-cover");
+        let service = AssetService::new(&root).expect("create asset service");
+
+        for (subcategory, filename) in [
+            ("foo/generated", "nested-after.png"),
+            ("generated/foo", "nested-before.png"),
+        ] {
+            let uploaded = service
+                .write_upload(
+                    "backgrounds",
+                    Some(subcategory),
+                    &png_upload_file(filename, 512, 512),
+                )
+                .unwrap_or_else(|error| {
+                    panic!("{subcategory}/{filename} should resize: {}", error.message)
+                });
+            let path = uploaded_asset_path(&root, &uploaded);
+
+            assert_eq!(
+                image::image_dimensions(path).expect("background should decode"),
+                (1280, 720)
+            );
+        }
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_unsafe_generated_background_subcategories_before_decode() {
+        let root = temp_root("unsafe-generated-subcategory");
+        let service = AssetService::new(&root).expect("create asset service");
+
+        let error = service
+            .write_upload(
+                "backgrounds",
+                Some("generated/../escape"),
+                &text_upload_file("bad-scene.png", b"not an image"),
+            )
+            .expect_err("unsafe generated subcategory should reject before image decode");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("Path escapes are not allowed here"));
+        assert!(!root.join("backgrounds/generated").exists());
 
         let _ = fs::remove_dir_all(root);
     }
