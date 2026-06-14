@@ -267,6 +267,7 @@ export type IllustrationReferenceSubject = {
 export type PromptOverride = {
   id?: string;
   prompt?: string;
+  negativePrompt?: string;
 };
 
 type GameJsonRepairKind =

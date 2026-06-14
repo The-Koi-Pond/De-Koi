@@ -14,6 +14,7 @@ import {
   imageSize,
   imageUrlFromGeneration,
   matchingGameNpc,
+  negativePromptOverride,
   npcPortraitDetailFromContext,
   promptDetail,
   promptOverride,
@@ -64,7 +65,8 @@ export async function previewGeneratedAssets(
             styleLine: artStyle,
           },
         })),
-      negativePrompt: g.compiledSceneAssetNegativePrompt("background", promptSettings),
+      negativePrompt:
+        negativePromptOverride(record, id) ?? g.compiledSceneAssetNegativePrompt("background", promptSettings),
       width: imageSize(record, "background", "width", 1280),
       height: imageSize(record, "background", "height", 720),
     });
@@ -110,7 +112,8 @@ export async function previewGeneratedAssets(
             styleLine: artStyle,
           },
         })),
-      negativePrompt: g.compiledSceneAssetNegativePrompt("illustration", promptSettings),
+      negativePrompt:
+        negativePromptOverride(record, id) ?? g.compiledSceneAssetNegativePrompt("illustration", promptSettings),
       width: imageSize(record, ["illustration", "background"], "width", 1280),
       height: imageSize(record, ["illustration", "background"], "height", 720),
       referenceImages: referenceData.referenceImages,
@@ -143,7 +146,8 @@ export async function previewGeneratedAssets(
             styleLine: artStyle,
           },
         })),
-      negativePrompt: g.compiledSceneAssetNegativePrompt("portrait", promptSettings),
+      negativePrompt:
+        negativePromptOverride(record, id) ?? g.compiledSceneAssetNegativePrompt("portrait", promptSettings),
       width: imageSize(record, "portrait", "width", 768),
       height: imageSize(record, "portrait", "height", 1024),
     });
