@@ -1600,10 +1600,109 @@ fn string_value(value: Option<&Value>) -> Option<String> {
         .map(str::to_string)
 }
 
+fn bool_metadata_value(value: Option<&Value>) -> Option<bool> {
+    match value? {
+        Value::Bool(value) => Some(*value),
+        Value::String(value) if value.eq_ignore_ascii_case("true") => Some(true),
+        Value::String(value) if value.eq_ignore_ascii_case("false") => Some(false),
+        _ => None,
+    }
+}
+
+fn insert_string_metadata(
+    map: &mut serde_json::Map<String, Value>,
+    key: &str,
+    value: Option<String>,
+) {
+    if let Some(value) = value {
+        map.insert(key.to_string(), Value::String(value));
+    }
+}
+
+fn insert_bool_metadata(map: &mut serde_json::Map<String, Value>, key: &str, value: Option<bool>) {
+    if let Some(value) = value {
+        map.insert(key.to_string(), Value::Bool(value));
+    }
+}
+
 fn openai_chatgpt_auth_missing_message(error: &std::io::Error) -> String {
     format!(
         "No Codex ChatGPT login found in the local Codex auth.json credential file ({error}). Run `codex login` on this host."
     )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ChatGptAuthMetadata {
+    account_id: Option<String>,
+    is_fedramp: bool,
+}
+
+fn openai_chatgpt_nested_auth_claims(
+    claims: Option<&Value>,
+) -> Option<&serde_json::Map<String, Value>> {
+    claims?
+        .get("https://api.openai.com/auth")
+        .and_then(Value::as_object)
+}
+
+fn normalize_openai_chatgpt_id_token_info(value: Option<&Value>) -> Option<Value> {
+    match value? {
+        Value::String(token) => {
+            let claims = decode_jwt_payload_json(token)?;
+            let auth_claims = openai_chatgpt_nested_auth_claims(Some(&claims));
+            let mut info = serde_json::Map::new();
+            insert_string_metadata(
+                &mut info,
+                "chatgpt_account_id",
+                string_value(auth_claims.and_then(|claims| claims.get("chatgpt_account_id"))),
+            );
+            insert_bool_metadata(
+                &mut info,
+                "chatgpt_account_is_fedramp",
+                bool_metadata_value(
+                    auth_claims.and_then(|claims| claims.get("chatgpt_account_is_fedramp")),
+                ),
+            );
+            Some(Value::Object(info))
+        }
+        object @ Value::Object(_) => Some(object.clone()),
+        _ => None,
+    }
+}
+
+fn openai_chatgpt_auth_metadata(auth_json: &Value, access_token: &str) -> ChatGptAuthMetadata {
+    let tokens = auth_json.get("tokens").and_then(Value::as_object);
+    let id_token_info =
+        normalize_openai_chatgpt_id_token_info(tokens.and_then(|tokens| tokens.get("id_token")));
+    let access_claims = decode_jwt_payload_json(access_token);
+    let access_auth_claims = openai_chatgpt_nested_auth_claims(access_claims.as_ref());
+    let account_id = tokens
+        .and_then(|tokens| string_value(tokens.get("account_id")))
+        .or_else(|| {
+            string_value(id_token_info.as_ref().and_then(|info| {
+                info.get("chatgpt_account_id")
+                    .or_else(|| info.get("account_id"))
+            }))
+        })
+        .or_else(|| {
+            string_value(access_auth_claims.and_then(|claims| claims.get("chatgpt_account_id")))
+        });
+    let is_fedramp = bool_metadata_value(
+        id_token_info
+            .as_ref()
+            .and_then(|info| info.get("chatgpt_account_is_fedramp")),
+    )
+    .or_else(|| {
+        bool_metadata_value(
+            access_auth_claims.and_then(|claims| claims.get("chatgpt_account_is_fedramp")),
+        )
+    })
+    .unwrap_or(false);
+
+    ChatGptAuthMetadata {
+        account_id,
+        is_fedramp,
+    }
 }
 
 async fn load_openai_chatgpt_auth() -> AppResult<ChatGptAuth> {
@@ -1631,7 +1730,6 @@ async fn load_openai_chatgpt_auth() -> AppResult<ChatGptAuth> {
             "Codex ChatGPT auth does not contain an access token. Run `codex login`.",
         )
     })?;
-    let account_id = string_value(tokens.get("account_id"));
     let should_refresh = openai_chatgpt_auth_should_refresh(&auth_json, &access_token);
     if should_refresh {
         let tokens = auth_json
@@ -1652,13 +1750,11 @@ async fn load_openai_chatgpt_auth() -> AppResult<ChatGptAuth> {
         auth_json["last_refresh"] = Value::String(chrono_like_now_iso());
         persist_openai_chatgpt_auth(&path, &auth_json)?;
     }
+    let metadata = openai_chatgpt_auth_metadata(&auth_json, &access_token);
     Ok(ChatGptAuth {
         access_token,
-        account_id,
-        is_fedramp: auth_json
-            .pointer("/tokens/id_token/chatgpt_account_is_fedramp")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        account_id: metadata.account_id,
+        is_fedramp: metadata.is_fedramp,
     })
 }
 
@@ -2255,10 +2351,14 @@ mod tests {
         }
     }
 
-    fn unsigned_jwt_with_exp(exp: i64) -> String {
+    fn unsigned_jwt_with_payload(payload: Value) -> String {
         let header = general_purpose::URL_SAFE_NO_PAD.encode(r#"{"alg":"none","typ":"JWT"}"#);
-        let payload = general_purpose::URL_SAFE_NO_PAD.encode(format!(r#"{{"exp":{exp}}}"#));
+        let payload = general_purpose::URL_SAFE_NO_PAD.encode(payload.to_string());
         format!("{header}.{payload}.signature")
+    }
+
+    fn unsigned_jwt_with_exp(exp: i64) -> String {
+        unsigned_jwt_with_payload(json!({ "exp": exp }))
     }
 
     async fn serve_response(
@@ -2899,6 +2999,121 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
         assert_eq!(models[0]["provider"], "openai_chatgpt");
         assert_eq!(models[1]["id"], "o3");
         assert_eq!(models[1]["name"], "o3");
+    }
+
+    #[tokio::test]
+    async fn openai_chatgpt_models_headers_include_id_token_claim_metadata() {
+        let id_token = unsigned_jwt_with_payload(json!({
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "account-1",
+                "chatgpt_account_is_fedramp": true
+            }
+        }));
+        let auth_json = json!({
+            "tokens": {
+                "access_token": "access-secret",
+                "id_token": id_token
+            }
+        });
+        let metadata = openai_chatgpt_auth_metadata(&auth_json, "access-secret");
+        let url =
+            serve_chatgpt_models_response("200 OK", r#"{"models":[{"slug":"gpt-5-codex"}]}"#, true)
+                .await;
+        let auth = ChatGptAuth {
+            access_token: "access-secret".to_string(),
+            account_id: metadata.account_id,
+            is_fedramp: metadata.is_fedramp,
+        };
+
+        let models = fetch_openai_chatgpt_models_from_url(&url, &auth)
+            .await
+            .expect("claim-derived ChatGPT metadata should be sent as headers");
+
+        assert_eq!(models[0]["id"], "gpt-5-codex");
+    }
+
+    #[test]
+    fn openai_chatgpt_auth_metadata_uses_access_token_account_fallback() {
+        let access_token = unsigned_jwt_with_payload(json!({
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "account-from-access",
+                "chatgpt_account_is_fedramp": true
+            }
+        }));
+        let auth_json = json!({
+            "tokens": {
+                "access_token": access_token
+            }
+        });
+
+        let metadata = openai_chatgpt_auth_metadata(
+            &auth_json,
+            auth_json
+                .pointer("/tokens/access_token")
+                .and_then(Value::as_str)
+                .expect("access token should be present"),
+        );
+
+        assert_eq!(metadata.account_id.as_deref(), Some("account-from-access"));
+        assert!(metadata.is_fedramp);
+    }
+
+    #[tokio::test]
+    async fn openai_chatgpt_models_headers_include_access_token_claim_metadata() {
+        let access_token = unsigned_jwt_with_payload(json!({
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "account-1",
+                "chatgpt_account_is_fedramp": true
+            }
+        }));
+        let auth_json = json!({
+            "tokens": {
+                "access_token": access_token
+            }
+        });
+        let metadata = openai_chatgpt_auth_metadata(
+            &auth_json,
+            auth_json
+                .pointer("/tokens/access_token")
+                .and_then(Value::as_str)
+                .expect("access token should be present"),
+        );
+        let url =
+            serve_chatgpt_models_response("200 OK", r#"{"models":[{"slug":"gpt-5-codex"}]}"#, true)
+                .await;
+        let auth = ChatGptAuth {
+            access_token: "access-secret".to_string(),
+            account_id: metadata.account_id,
+            is_fedramp: metadata.is_fedramp,
+        };
+
+        let models = fetch_openai_chatgpt_models_from_url(&url, &auth)
+            .await
+            .expect("access-token claim-derived metadata should be sent as headers");
+
+        assert_eq!(models[0]["id"], "gpt-5-codex");
+    }
+
+    #[test]
+    fn openai_chatgpt_auth_metadata_prefers_direct_account_id() {
+        let id_token = unsigned_jwt_with_payload(json!({
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "account-from-id-token",
+                "chatgpt_account_is_fedramp": "true"
+            }
+        }));
+        let auth_json = json!({
+            "tokens": {
+                "access_token": "access-secret",
+                "account_id": "direct-account",
+                "id_token": id_token
+            }
+        });
+
+        let metadata = openai_chatgpt_auth_metadata(&auth_json, "access-secret");
+
+        assert_eq!(metadata.account_id.as_deref(), Some("direct-account"));
+        assert!(metadata.is_fedramp);
     }
 
     #[tokio::test]
@@ -4022,7 +4237,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             parameters: json!({}),
             tools: Vec::new(),
         };
-        let prompt = claude_subscription_prompt(&request);
+        let prompt = claude_subscription_prompt(&request).expect("prompt should be supported");
         assert_eq!(prompt.system_prompt.as_deref(), Some("Rules."));
         assert_eq!(prompt.prompt, "User: Hello.");
         assert_eq!(prompt.session_id, None);
@@ -4065,7 +4280,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             parameters: json!({ "_marinara": { "chatId": "chat-1", "mode": "roleplay" } }),
             tools: Vec::new(),
         };
-        let prompt = claude_subscription_prompt(&request);
+        let prompt = claude_subscription_prompt(&request).expect("prompt should be supported");
         assert_eq!(prompt.system_prompt.as_deref(), Some("Rules."));
         assert!(prompt
             .prompt
@@ -4101,14 +4316,14 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             }),
             tools: Vec::new(),
         };
-        let prompt = claude_subscription_prompt(&request);
+        let prompt = claude_subscription_prompt(&request).expect("prompt should be supported");
         assert_eq!(prompt.prompt, "User: Regenerate from here.");
         assert_eq!(prompt.session_id, None);
         assert_eq!(prompt.prompt_shape, "transcript-fold");
     }
 
     #[test]
-    fn claude_subscription_transcript_preserves_image_only_turns() {
+    fn claude_subscription_transcript_rejects_image_turns() {
         let mut image_only = test_message("user", "");
         image_only.images = vec!["data:image/png;base64,abc".to_string()];
         let request = LlmRequest {
@@ -4123,15 +4338,20 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             tools: Vec::new(),
         };
 
-        let prompt = claude_subscription_prompt(&request);
+        let error = claude_subscription_prompt(&request)
+            .expect_err("Claude subscription should reject unsupported image attachments");
 
-        assert_eq!(prompt.prompt, "User: [1 image attachment(s)]");
-        assert_eq!(prompt.session_id, None);
-        assert_eq!(prompt.prompt_shape, "transcript-fold");
+        assert_eq!(error.code, "claude_subscription_unsupported_capability");
+        assert!(error.message.contains("1 image attachment(s)"));
+        assert_eq!(
+            error.details.as_ref().unwrap()["capability"],
+            "image_attachments"
+        );
+        assert_eq!(error.details.as_ref().unwrap()["imageAttachmentCount"], 1);
     }
 
     #[test]
-    fn claude_subscription_runtime_chat_preserves_image_only_current_turn() {
+    fn claude_subscription_runtime_chat_rejects_image_current_turn() {
         let mut image_only = test_message("user", "");
         image_only.images = vec!["data:image/png;base64,abc".to_string()];
         let request = LlmRequest {
@@ -4141,14 +4361,11 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             tools: Vec::new(),
         };
 
-        let prompt = claude_subscription_prompt(&request);
+        let error = claude_subscription_prompt(&request)
+            .expect_err("Claude subscription should reject unsupported current-turn images");
 
-        assert!(prompt.prompt.contains("Assistant: Earlier reply."));
-        assert!(prompt
-            .prompt
-            .contains("Current turn:\nUser: [1 image attachment(s)]"));
-        assert!(prompt.session_id.is_some());
-        assert_eq!(prompt.prompt_shape, "trailing-user");
+        assert_eq!(error.code, "claude_subscription_unsupported_capability");
+        assert!(error.message.contains("1 image attachment(s)"));
     }
 
     #[test]
@@ -4201,7 +4418,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             }),
             tools: Vec::new(),
         };
-        let prompt = claude_subscription_prompt(&request);
+        let prompt = claude_subscription_prompt(&request).expect("prompt should be supported");
         assert!(prompt.prompt.contains("Assistant: Existing reply."));
         assert!(prompt.prompt.contains("User: Impersonated turn."));
         assert_eq!(prompt.session_id, None);
