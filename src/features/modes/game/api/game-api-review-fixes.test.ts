@@ -302,11 +302,17 @@ describe("game API review guards", () => {
     expect(imageSize(payload, "illustration", "width", 1280)).toBe(640);
     expect(imageSize(payload, "illustration", "height", 720)).toBe(960);
     expect(imageSize(payload, "background", "width", 1280)).toBe(512);
+    expect(imageSize(payload, ["illustration", "background"], "width", 1280)).toBe(640);
+    expect(
+      imageSize({ imageSizes: { background: { width: 512 } } }, ["illustration", "background"], "width", 1280),
+    ).toBe(512);
   });
 
-  it("honors configured image dimensions through the documented 4096 cap", async () => {
+  it("honors configured image dimensions through the documented 64-4096 range", async () => {
     mockPromptPreviewChat();
 
+    expect(imageSize({ imageSizes: { background: { width: 63 } } }, "background", "width", 1280)).toBe(1280);
+    expect(imageSize({ imageSizes: { background: { width: 64 } } }, "background", "width", 1280)).toBe(64);
     expect(imageSize({ imageSizes: { background: { width: 4096 } } }, "background", "width", 1280)).toBe(4096);
     expect(imageSize({ imageSizes: { background: { width: 4097 } } }, "background", "width", 1280)).toBe(1280);
 
@@ -314,11 +320,11 @@ describe("game API review guards", () => {
       chatId: "chat-1",
       backgroundTag: "crystal harbor",
       imageSizes: {
-        background: { width: 4096, height: 3072 },
+        background: { width: 64, height: 127 },
       },
     });
 
-    expect(result.items.find((item) => item.kind === "background")).toMatchObject({ width: 4096, height: 3072 });
+    expect(result.items.find((item) => item.kind === "background")).toMatchObject({ width: 64, height: 127 });
   });
 
   it("uses stable prompt review ids for empty or punctuation-only keys", () => {
@@ -342,6 +348,22 @@ describe("game API review guards", () => {
 
     expect(result.items.find((item) => item.kind === "background")).toMatchObject({ width: 512, height: 288 });
     expect(result.items.find((item) => item.kind === "illustration")).toMatchObject({ width: 640, height: 960 });
+  });
+
+  it("previews scene illustration dimensions from the legacy background bucket", async () => {
+    mockPromptPreviewChat();
+
+    const result = await previewGeneratedAssets({
+      chatId: "chat-1",
+      illustration: { prompt: "a tense bridge duel", slug: "bridge-duel" },
+      imageSizes: {
+        background: { width: 512, height: 288 },
+        portrait: { width: 768, height: 1024 },
+        selfie: { width: 512, height: 768 },
+      },
+    });
+
+    expect(result.items.find((item) => item.kind === "illustration")).toMatchObject({ width: 512, height: 288 });
   });
 
   it("applies prompt overrides with stable generated review ids", async () => {
