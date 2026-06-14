@@ -26,13 +26,15 @@ export function promptOverride(payload: Record<string, unknown>, id: string): st
 
 export function imageSize(
   payload: Record<string, unknown>,
-  bucket: string,
+  bucket: string | readonly string[],
   axis: "width" | "height",
   fallback: number,
 ): number {
-  const bucketSize = g.asRecord(g.asRecord(payload.imageSizes)[bucket]);
+  const imageSizes = g.asRecord(payload.imageSizes);
+  const bucketKeys = Array.isArray(bucket) ? bucket : [bucket];
+  const bucketSize = g.asRecord(bucketKeys.map((key) => imageSizes[key]).find((value) => value !== undefined));
   const value = Number(bucketSize[axis]);
-  return Number.isFinite(value) && value >= 128 && value <= 4096 ? value : fallback;
+  return Number.isFinite(value) && value >= 64 && value <= 4096 ? value : fallback;
 }
 
 function imageStyleProfileIdFrom(value: unknown): string | null {

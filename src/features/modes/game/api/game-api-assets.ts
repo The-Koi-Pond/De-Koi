@@ -111,8 +111,8 @@ export async function previewGeneratedAssets(
           },
         })),
       negativePrompt: g.compiledSceneAssetNegativePrompt("illustration", promptSettings),
-      width: imageSize(record, "illustration", "width", 1280),
-      height: imageSize(record, "illustration", "height", 720),
+      width: imageSize(record, ["illustration", "background"], "width", 1280),
+      height: imageSize(record, ["illustration", "background"], "height", 720),
       referenceImages: referenceData.referenceImages,
       referenceSubjectNames: referenceData.referenceSubjectNames,
     });
