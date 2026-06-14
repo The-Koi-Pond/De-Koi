@@ -1,19 +1,33 @@
-import { BookOpen, Globe, Plus, Tag, ToggleLeft, ToggleRight, Users, UserRound, Wand2, X } from "lucide-react";
+import {
+  BookOpen,
+  Gamepad2,
+  Globe,
+  Plus,
+  Tag,
+  ToggleLeft,
+  ToggleRight,
+  Users,
+  UserRound,
+  Wand2,
+  X,
+} from "lucide-react";
 import type { LorebookCategory, LorebookEntry } from "../../../../../engine/contracts/types/lorebook";
 import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
 import { cn } from "../../../../../shared/lib/utils";
+import { LOREBOOK_CATEGORY_OPTIONS } from "../../lib/lorebook-category-options";
 import { ExpandableTextarea } from "../shared/LorebookFormFields";
 import { LinkedResourcePicker } from "./LinkedResourcePicker";
 import { LorebookVectorizeSection } from "./LorebookVectorizeSection";
 import { readBoolFlag } from "./lorebook-editor-utils";
 
-const CATEGORY_OPTIONS: Array<{ value: LorebookCategory; label: string; icon: typeof Globe }> = [
-  { value: "world", label: "World", icon: Globe },
-  { value: "character", label: "Character", icon: Users },
-  { value: "npc", label: "NPC", icon: UserRound },
-  { value: "spellbook", label: "Spellbook", icon: Wand2 },
-  { value: "uncategorized", label: "Uncategorized", icon: BookOpen },
-];
+const CATEGORY_ICONS: Record<LorebookCategory, typeof Globe> = {
+  world: Globe,
+  character: Users,
+  npc: UserRound,
+  spellbook: Wand2,
+  game: Gamepad2,
+  uncategorized: BookOpen,
+};
 
 type ScopeSummaryLine = { label: string; names: string };
 
@@ -220,9 +234,9 @@ export function LorebookOverviewTab({
 
       <div>
         <label className="mb-1.5 block text-xs font-medium">Category</label>
-        <div className="flex gap-2">
-          {CATEGORY_OPTIONS.map((option) => {
-            const Icon = option.icon;
+        <div className="flex flex-wrap gap-2">
+          {LOREBOOK_CATEGORY_OPTIONS.map((option) => {
+            const Icon = CATEGORY_ICONS[option.value];
             return (
               <button
                 key={option.value}

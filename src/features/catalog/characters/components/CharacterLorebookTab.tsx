@@ -7,6 +7,7 @@ import type { CharacterData } from "../../../../engine/contracts/types/character
 import { characterApi } from "../../../../shared/api/character-api";
 import { cn } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { LorebookAssignmentSection } from "../../lorebooks/assignment";
 import { lorebookKeys, useLorebook } from "../../lorebooks/index";
 import { characterKeys } from "../hooks/use-characters";
 import { CharacterEditorSectionHeader as SectionHeader } from "./CharacterEditorSectionHeader";
@@ -65,6 +66,12 @@ export function CharacterLorebookTab({
       <SectionHeader
         title="Character Lorebook"
         subtitle="World-building entries embedded in this character. Triggered by keywords in conversation."
+      />
+
+      <LorebookAssignmentSection
+        ownerType="character"
+        ownerId={characterId}
+        ownerName={formData.name || "this character"}
       />
 
       {hasEmbeddedLorebook && (

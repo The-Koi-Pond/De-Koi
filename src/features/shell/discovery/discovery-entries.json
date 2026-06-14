@@ -69,10 +69,10 @@
     "id": "lorebooks",
     "title": "Lorebooks",
     "category": "Library",
-    "summary": "Store world info, setting details, rules, backstory, and keyword-triggered context that the model can recall when relevant.",
-    "keywords": ["lore", "world info", "memory", "remember", "background", "keywords", "rag", "knowledge"],
+    "summary": "Store world info, setting details, rules, backstory, and keyword-triggered context that can be assigned to chats, characters, or personas.",
+    "keywords": ["lore", "world info", "memory", "remember", "background", "keywords", "rag", "knowledge", "assign", "character lorebook", "persona lorebook"],
     "audience": "Users with worlds, settings, factions, or recurring facts too large for a character card.",
-    "where": "Title bar > Lorebooks, then attach lorebooks in chat settings.",
+    "where": "Title bar > Lorebooks, chat settings, or character/persona editor Lorebook tabs.",
     "actions": [{ "type": "open-panel", "panel": "lorebooks", "label": "Open Lorebooks" }],
     "coverage": "core"
   },
