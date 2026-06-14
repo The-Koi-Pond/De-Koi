@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ttsConfigSchema } from "../../engine/contracts/types/tts";
 import type { TTSConfig } from "../../engine/contracts/types/tts";
-import { withTTSVoiceRequestCacheKeys, type TTSVoiceRequest } from "./tts-dialogue";
+import { resolveTTSNarratorVoice, withTTSVoiceRequestCacheKeys, type TTSVoiceRequest } from "./tts-dialogue";
 
 function ttsConfig(overrides: Partial<TTSConfig> = {}): TTSConfig {
   return ttsConfigSchema.parse({ enabled: true, ...overrides });
@@ -32,5 +32,16 @@ describe("withTTSVoiceRequestCacheKeys", () => {
     const changedModel = withTTSVoiceRequestCacheKeys([request], ttsConfig({ model: "tts-1-hd" }), "msg-a");
 
     expect(base[0].cacheAliases).not.toEqual(changedModel[0].cacheAliases);
+  });
+});
+
+describe("resolveTTSNarratorVoice", () => {
+  it("uses dedicated narrator voice when enabled", () => {
+    expect(
+      resolveTTSNarratorVoice(ttsConfig({ voice: "alloy", narratorVoiceEnabled: true, narratorVoice: "nova" })),
+    ).toBe("nova");
+    expect(resolveTTSNarratorVoice(ttsConfig({ voice: "alloy", narratorVoiceEnabled: true, narratorVoice: "" }))).toBe(
+      "alloy",
+    );
   });
 });

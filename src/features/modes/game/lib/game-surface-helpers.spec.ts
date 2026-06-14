@@ -13,6 +13,7 @@ import {
   normalizeGameHour,
   parseHourMinuteFromTimeLabel,
   parseStoredNarrationProgress,
+  resolveRestoredNarrationState,
   stripGameDirectAddressPrefix,
   stripPartyTurnMarker,
 } from "./game-surface-helpers";
@@ -54,8 +55,40 @@ describe("game surface helpers", () => {
 
   it("parses stored narration progress defensively", () => {
     expect(parseStoredNarrationProgress('{"index":2,"messageId":"m2"}')).toEqual({ index: 2, messageId: "m2" });
+    expect(parseStoredNarrationProgress("2")).toEqual({ index: 2, messageId: null });
+    expect(parseStoredNarrationProgress("02")).toEqual({ index: 2, messageId: null });
     expect(parseStoredNarrationProgress('{"index":-1,"messageId":"m2"}')).toBeNull();
+    expect(parseStoredNarrationProgress("-1")).toBeNull();
     expect(parseStoredNarrationProgress("not-json")).toBeNull();
+  });
+
+  it("restores narration progress from current-message and legacy local values", () => {
+    expect(
+      resolveRestoredNarrationState({
+        currentMessageId: "m2",
+        storedProgress: { index: 2, messageId: "m2" },
+        serverIndex: 1,
+        serverMessageId: "m2",
+      }),
+    ).toEqual({ index: 2, hasStoredPosition: true });
+
+    expect(
+      resolveRestoredNarrationState({
+        currentMessageId: "m2",
+        storedProgress: { index: 3, messageId: null },
+        serverIndex: undefined,
+        serverMessageId: undefined,
+      }),
+    ).toEqual({ index: 3, hasStoredPosition: true });
+
+    expect(
+      resolveRestoredNarrationState({
+        currentMessageId: "m2",
+        storedProgress: { index: 3, messageId: null },
+        serverIndex: 1,
+        serverMessageId: "m2",
+      }),
+    ).toEqual({ index: 1, hasStoredPosition: true });
   });
 
   it("filters generated NPC and combat enemy names", () => {

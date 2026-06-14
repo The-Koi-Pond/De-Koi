@@ -157,6 +157,7 @@ import {
   parseGameDayFromTimeLabel,
   parseHourMinuteFromTimeLabel,
   parseStoredNarrationProgress,
+  resolveRestoredNarrationState,
   slugifyCombatantId,
   stripGameDirectAddressPrefix,
   stripPartyTurnMarker,
@@ -2834,28 +2835,18 @@ export function GameSurface({
   // browser restarts) for instant restore, fall back to server metadata.
   const restoredNarrationState = useMemo(() => {
     const currentMessageId = latestAssistantMsg?.id ?? null;
+    let saved: StoredNarrationProgress | null = null;
     try {
-      const saved = parseStoredNarrationProgress(localStorage.getItem(segmentStorageKey));
-      if (saved && saved.messageId && currentMessageId && saved.messageId === currentMessageId) {
-        return { index: saved.index, hasStoredPosition: true };
-      }
+      saved = parseStoredNarrationProgress(localStorage.getItem(segmentStorageKey));
     } catch {
       /* storage unavailable */
     }
-    // Fall back to server-persisted metadata (survives browser restarts)
-    const serverIdx = chatMeta.gameNarrationIndex;
-    const serverMessageId =
-      typeof chatMeta.gameNarrationMessageId === "string" ? chatMeta.gameNarrationMessageId : null;
-    if (
-      currentMessageId &&
-      serverMessageId === currentMessageId &&
-      typeof serverIdx === "number" &&
-      Number.isFinite(serverIdx) &&
-      serverIdx >= 0
-    ) {
-      return { index: serverIdx, hasStoredPosition: true };
-    }
-    return { index: 0, hasStoredPosition: false };
+    return resolveRestoredNarrationState({
+      currentMessageId,
+      storedProgress: saved,
+      serverIndex: chatMeta.gameNarrationIndex,
+      serverMessageId: chatMeta.gameNarrationMessageId,
+    });
   }, [segmentStorageKey, latestAssistantMsg?.id, chatMeta.gameNarrationIndex, chatMeta.gameNarrationMessageId]);
 
   const restoredSegmentIndex = restoredNarrationState.index;

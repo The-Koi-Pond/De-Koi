@@ -15,6 +15,11 @@ export type StoredNarrationProgress = {
   messageId: string | null;
 };
 
+export type RestoredNarrationState = {
+  index: number;
+  hasStoredPosition: boolean;
+};
+
 const PARTY_TURN_MESSAGE_RE = /^\[(?:party-turn|party-chat)]\s*/i;
 const GAME_DIRECT_ADDRESS_RE = /^\[(?:To the party|To the GM)]\s*/i;
 const GAME_SCENE_ILLUSTRATION_COOLDOWN_TURNS = 8;
@@ -183,22 +188,64 @@ export function parseHourMinuteFromTimeLabel(value?: string | null): { hour: num
 export function parseStoredNarrationProgress(raw: string | null): StoredNarrationProgress | null {
   if (!raw) return null;
 
+  const legacyIndex = Number(raw.trim());
+  const legacyProgress =
+    Number.isFinite(legacyIndex) && legacyIndex >= 0
+      ? {
+          index: legacyIndex,
+          messageId: null,
+        }
+      : null;
+
   try {
-    const parsed = JSON.parse(raw) as {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed === "number") return legacyProgress;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const record = parsed as {
       index?: unknown;
       messageId?: unknown;
     };
-    if (typeof parsed.index === "number" && Number.isFinite(parsed.index) && parsed.index >= 0) {
+    if (typeof record.index === "number" && Number.isFinite(record.index) && record.index >= 0) {
       return {
-        index: parsed.index,
-        messageId: typeof parsed.messageId === "string" ? parsed.messageId : null,
+        index: record.index,
+        messageId: typeof record.messageId === "string" ? record.messageId : null,
       };
     }
   } catch {
-    return null;
+    return legacyProgress;
   }
 
   return null;
+}
+
+export function resolveRestoredNarrationState(options: {
+  currentMessageId: string | null;
+  storedProgress: StoredNarrationProgress | null;
+  serverIndex: unknown;
+  serverMessageId: unknown;
+}): RestoredNarrationState {
+  const { currentMessageId, storedProgress, serverIndex, serverMessageId } = options;
+  if (!currentMessageId) return { index: 0, hasStoredPosition: false };
+
+  if (storedProgress?.messageId && storedProgress.messageId === currentMessageId) {
+    return { index: storedProgress.index, hasStoredPosition: true };
+  }
+
+  const normalizedServerMessageId = typeof serverMessageId === "string" ? serverMessageId : null;
+  if (
+    normalizedServerMessageId === currentMessageId &&
+    typeof serverIndex === "number" &&
+    Number.isFinite(serverIndex) &&
+    serverIndex >= 0
+  ) {
+    return { index: serverIndex, hasStoredPosition: true };
+  }
+
+  if (storedProgress && storedProgress.messageId === null) {
+    return { index: storedProgress.index, hasStoredPosition: true };
+  }
+
+  return { index: 0, hasStoredPosition: false };
 }
 
 export function normalizeSceneAssetName(value: string): string {
