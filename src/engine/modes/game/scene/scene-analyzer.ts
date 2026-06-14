@@ -33,6 +33,14 @@ export interface SceneAnalyzerContext {
   recentSpotifyTracks?: string[];
   /** Current ambient tag. */
   currentAmbient?: string | null;
+  /** Current location name or description from game state. */
+  currentLocation?: string | null;
+  /** Game setup genre, when available. */
+  genre?: string | null;
+  /** Game setup setting, when available. */
+  setting?: string | null;
+  /** Game world overview generated during setup. */
+  worldOverview?: string | null;
   /** Current weather. */
   currentWeather: string | null;
   /** Current time of day. */
@@ -95,6 +103,10 @@ function compactPromptLabel(value: string | null | undefined): string {
     .slice(0, 180);
 }
 
+function compactWorldContext(value: string | null | undefined): string {
+  return (value ?? "").replace(/[<>]/g, " ").replace(/\s+/g, " ").trim().slice(0, 800);
+}
+
 /** Build the user prompt with all choices inline in a JSON template. */
 export function buildSceneAnalyzerUserPrompt(
   narration: string,
@@ -134,6 +146,15 @@ export function buildSceneAnalyzerUserPrompt(
       ``,
       `Current: state=${ctx.currentState}, bg=${ctx.currentBackground ?? "none"}, weather=${ctx.currentWeather ?? "unset"}, time=${ctx.currentTimeOfDay ?? "unset"}`,
     );
+    const worldContext = [
+      ctx.currentLocation ? `location=${compactPromptLabel(ctx.currentLocation)}` : null,
+      ctx.genre ? `genre=${compactPromptLabel(ctx.genre)}` : null,
+      ctx.setting ? `setting=${compactPromptLabel(ctx.setting)}` : null,
+      ctx.worldOverview ? `worldOverview=${compactWorldContext(ctx.worldOverview)}` : null,
+    ].filter(Boolean);
+    if (worldContext.length > 0) {
+      parts.push(`World context: ${worldContext.join("; ")}`);
+    }
   }
 
   if (spotifyOptions.length > 0) {

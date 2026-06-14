@@ -105,8 +105,15 @@ export interface LocalSidecarConfigPatch {
 export interface LocalSidecarTestMessageResult {
   success: boolean;
   response: string;
-  nonce: string;
+  messageContent?: string;
+  reasoningContent?: string;
+  nonce?: string | null;
   nonceVerified: boolean;
   latencyMs: number;
+  timings?: unknown;
   usage?: unknown;
+  error?: string;
+  errorCode?: string;
+  details?: unknown;
+  failedRuntimeVariant?: string | null;
 }

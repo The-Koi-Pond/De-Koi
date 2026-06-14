@@ -21,6 +21,171 @@ import {
   setupNpcsFromResponse,
 } from "./game-api-session-helpers";
 import { gameLorebookKeeperEnabled, runGameLorebookKeeperAfterConclusion } from "./game-api-lorebook-keeper";
+import type { SetupPromptContext } from "../../../../engine/modes/game/prompts/gm-prompts";
+
+type SetupCharacterPromptContext = {
+  card: string;
+  name: string | null;
+};
+
+function withoutEmptyValues(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => {
+      if (value === null || value === undefined) return false;
+      if (typeof value === "string") return value.trim().length > 0;
+      if (Array.isArray(value)) return value.length > 0;
+      if (typeof value === "object") return Object.keys(g.asRecord(value)).length > 0;
+      return true;
+    }),
+  );
+}
+
+function compactCharacterSetupContext(
+  record: Record<string, unknown>,
+  fallbackName?: string,
+): SetupCharacterPromptContext {
+  const data = g.asRecord(record.data);
+  const extensions = g.asRecord(data.extensions);
+  const name = g.recordName(record) || fallbackName || null;
+  const promptRecord = withoutEmptyValues({
+    name,
+    description: g.readTrimmed(data.description),
+    personality: g.readTrimmed(data.personality),
+    scenario: g.readTrimmed(data.scenario),
+    firstMessage: g.readTrimmed(data.first_mes),
+    exampleMessages: g.readTrimmed(data.mes_example),
+    systemPrompt: g.readTrimmed(data.system_prompt),
+    backstory: g.readTrimmed(extensions.backstory),
+    appearance: g.readTrimmed(extensions.appearance),
+    tags: g.stringArray(data.tags),
+    rpgStats: g.asRecord(extensions.rpgStats),
+  });
+  return { card: JSON.stringify(promptRecord, null, 2), name };
+}
+
+function compactPersonaSetupContext(record: Record<string, unknown>): SetupCharacterPromptContext {
+  const name = g.readTrimmed(record.name) || null;
+  const promptRecord = withoutEmptyValues({
+    name,
+    description: g.readTrimmed(record.description),
+    personality: g.readTrimmed(record.personality),
+    scenario: g.readTrimmed(record.scenario),
+    backstory: g.readTrimmed(record.backstory),
+    appearance: g.readTrimmed(record.appearance),
+    tags: g.stringArray(record.tags),
+    personaStats: g.asRecord(record.personaStats),
+  });
+  return { card: JSON.stringify(promptRecord, null, 2), name };
+}
+
+function compactNpcSetupContext(record: Record<string, unknown>, fallbackName?: string): SetupCharacterPromptContext {
+  const name = g.readTrimmed(record.name) || fallbackName || null;
+  const reputation = Number(record.reputation);
+  const promptRecord = withoutEmptyValues({
+    name,
+    description: g.readTrimmed(record.description),
+    gender: g.readTrimmed(record.gender),
+    pronouns: g.readTrimmed(record.pronouns),
+    location: g.readTrimmed(record.location),
+    reputation: Number.isFinite(reputation) ? reputation : null,
+    met: typeof record.met === "boolean" ? record.met : null,
+    notes: g.stringArray(record.notes),
+  });
+  return { card: JSON.stringify(promptRecord, null, 2), name };
+}
+
+function setupNpcContext(characterId: string, meta: Record<string, unknown>): SetupCharacterPromptContext {
+  const npcId = characterId.slice("npc:".length);
+  const npc = (Array.isArray(meta.gameNpcs) ? meta.gameNpcs.map(g.asRecord) : []).find((row) => {
+    const rowId = g.readTrimmed(row.id);
+    return characterId === rowId || characterId === `npc:${rowId}`;
+  });
+  if (!npc) {
+    throw new Error(`Selected game party NPC "${characterId}" was not found. Update game setup and try again.`);
+  }
+  return compactNpcSetupContext(npc, npcId || characterId);
+}
+
+async function setupCharacterContext(
+  characterId: string,
+  meta: Record<string, unknown>,
+): Promise<SetupCharacterPromptContext | null> {
+  const id = g.readTrimmed(characterId);
+  if (!id) return null;
+  if (id.startsWith("npc:")) return setupNpcContext(id, meta);
+  const character = await g.storageApi.get<Record<string, unknown>>("characters", id);
+  if (!character) {
+    throw new Error(`Selected game character "${id}" was not found. Update game setup and try again.`);
+  }
+  return compactCharacterSetupContext(character, id);
+}
+
+async function setupPersonaContext(personaId: string | undefined): Promise<SetupCharacterPromptContext | null> {
+  const id = g.readTrimmed(personaId);
+  if (!id) return null;
+  const persona = await g.storageApi.get<Record<string, unknown>>("personas", id);
+  if (!persona) {
+    throw new Error(`Selected game persona "${id}" was not found. Update game setup and try again.`);
+  }
+  return compactPersonaSetupContext(persona);
+}
+
+async function setupLorebookContext(lorebookIds: string[]): Promise<string | null> {
+  const ids = Array.from(new Set(lorebookIds.map((id) => id.trim()).filter(Boolean)));
+  if (ids.length === 0) return null;
+  const lorebooks = await g.storageApi.list<g.Lorebook>("lorebooks", {
+    whereIn: { field: "id", values: ids },
+  });
+  const foundIds = new Set(lorebooks.map((lorebook) => g.readTrimmed(lorebook.id)));
+  const missingIds = ids.filter((id) => !foundIds.has(id));
+  if (missingIds.length > 0) {
+    throw new Error(`Selected game lorebook "${missingIds[0]}" was not found. Update game setup and try again.`);
+  }
+  const entries = await g.storageApi.list<g.LorebookEntry>("lorebook-entries", {
+    whereIn: { field: "lorebookId", values: ids },
+  });
+  const contextEntries = entries
+    .filter((entry) => entry.enabled !== false && entry.constant === true)
+    .map((entry) => ({ ...entry, content: g.readTrimmed(entry.content) }))
+    .filter((entry) => entry.content);
+  const contextLorebookIds = new Set(contextEntries.map((entry) => g.readTrimmed(entry.lorebookId)).filter(Boolean));
+  const emptyIds = ids.filter((id) => !contextLorebookIds.has(id));
+  if (emptyIds.length > 0) {
+    throw new Error(
+      `Selected game lorebook "${emptyIds[0]}" has no enabled constant setup context. Update game setup and try again.`,
+    );
+  }
+  const context = contextEntries
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map((entry) => {
+      const name = g.readTrimmed(entry.name);
+      return `${name ? `${name}:\n` : ""}${entry.content}`;
+    })
+    .join("\n\n");
+  return context;
+}
+
+async function setupPromptContext(
+  config: g.GameSetupConfig | undefined,
+  meta: Record<string, unknown>,
+): Promise<SetupPromptContext> {
+  if (!config) return {};
+  const [persona, gmCharacter, ...partyCharacters] = await Promise.all([
+    setupPersonaContext(config.personaId),
+    config.gmMode === "character" ? setupCharacterContext(config.gmCharacterId ?? "", meta) : Promise.resolve(null),
+    ...g.stringArray(config.partyCharacterIds).map((id) => setupCharacterContext(id, meta)),
+  ]);
+  return {
+    personaCard: persona?.card ?? null,
+    playerName: persona?.name ?? null,
+    partyCards: partyCharacters
+      .filter((item): item is SetupCharacterPromptContext => item !== null)
+      .map((item) => item.card),
+    partyNames: partyCharacters.map((item) => item?.name ?? null).filter((name): name is string => !!name),
+    gmCharacterCard: gmCharacter?.card ?? null,
+    lorebookContext: await setupLorebookContext(g.stringArray(config.activeLorebookIds)),
+  };
+}
 
 export async function createGame(data: {
   name: string;
@@ -83,12 +248,14 @@ export async function setupGame(data: {
   const baseSetupConfig =
     data.setupConfig ?? (isGameSetupConfig(existingMeta.gameSetupConfig) ? existingMeta.gameSetupConfig : undefined);
   const setupConfig = effectiveSetupConfigFromMeta(baseSetupConfig, existingMeta);
+  const promptContext = await setupPromptContext(setupConfig, existingMeta);
   const setup =
     data.setup ??
     (await g.llmJson({
       connectionId: data.connectionId,
       fallback,
       system: g.buildSetupPrompt({
+        ...promptContext,
         rating: setupConfig?.rating ?? "sfw",
         enableCustomWidgets: setupConfig?.enableCustomWidgets !== false,
         language: setupConfig?.language,

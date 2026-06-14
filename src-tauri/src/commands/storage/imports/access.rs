@@ -129,6 +129,18 @@ fn issue_folder_token(path: &Path) -> AppResult<String> {
     Ok(token)
 }
 
+fn readable_child_folders(path: &Path) -> AppResult<Vec<String>> {
+    let mut folders: Vec<String> = fs::read_dir(path)
+        .map_err(AppError::from)?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().to_str().map(ToOwned::to_owned))
+        .filter(|name| !name.starts_with('.'))
+        .collect();
+    folders.sort_by_key(|name| name.to_ascii_lowercase());
+    Ok(folders)
+}
+
 pub(super) fn resolve_import_folder(body: &Value) -> AppResult<PathBuf> {
     let raw_path = body
         .get("folderPath")
@@ -184,28 +196,24 @@ pub(super) fn resolve_import_folder(body: &Value) -> AppResult<PathBuf> {
     Ok(resolved)
 }
 
-pub(super) fn directory_listing(path: PathBuf, _picker_selected: bool) -> AppResult<Value> {
+pub(super) fn directory_listing(path: PathBuf, picker_selected: bool) -> AppResult<Value> {
     let path = canonical_directory(&path)?;
-    if !is_home_contained(&path) && !is_allowed_import_root(&path) {
+    let has_import_roots = has_configured_import_roots();
+    let allowed = is_allowed_import_root(&path);
+    if has_import_roots && !allowed {
+        return Ok(json!({
+            "success": false,
+            "error": "Access denied: path outside allowed import roots"
+        }));
+    }
+    if !picker_selected && !is_home_contained(&path) && !allowed {
         return Ok(json!({
             "success": false,
             "error": "Access denied: path outside home directory"
         }));
     }
-    if !path.is_dir() {
-        return Ok(json!({ "success": false, "error": "Not a directory" }));
-    }
+    let folders = readable_child_folders(&path)?;
     let folder_token = issue_folder_token(&path)?;
-    let mut folders: Vec<String> = fs::read_dir(&path)
-        .map(|rows| {
-            rows.filter_map(Result::ok)
-                .filter(|entry| entry.path().is_dir())
-                .filter_map(|entry| entry.file_name().to_str().map(ToOwned::to_owned))
-                .filter(|name| !name.starts_with('.'))
-                .collect()
-        })
-        .unwrap_or_default();
-    folders.sort_by_key(|name| name.to_ascii_lowercase());
     Ok(json!({
         "success": true,
         "path": path.to_string_lossy(),
@@ -219,13 +227,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn directory_listing_does_not_treat_picker_selected_as_unrestricted_access() {
+    fn directory_listing_denies_unpicked_paths_outside_home_or_allowed_roots() {
         let path = std::env::current_dir().expect("current dir should be available");
         if is_home_contained(&path) || is_allowed_import_root(&path) {
             return;
         }
 
-        let result = directory_listing(path, true).expect("directory listing should return JSON");
+        let result = directory_listing(path, false).expect("directory listing should return JSON");
 
         assert_eq!(result["success"], false);
         assert_eq!(
@@ -233,5 +241,30 @@ mod tests {
             "Access denied: path outside home directory"
         );
         assert!(result.get("folderToken").is_none());
+    }
+
+    #[test]
+    fn directory_listing_authorizes_picker_selected_path_with_token() {
+        let path = std::env::current_dir().expect("current dir should be available");
+        if is_home_contained(&path) || is_allowed_import_root(&path) {
+            return;
+        }
+
+        let result = directory_listing(path, true).expect("directory listing should return JSON");
+
+        assert_eq!(result["success"], true);
+        assert!(result.get("folderToken").and_then(Value::as_str).is_some());
+    }
+
+    #[test]
+    fn readable_child_folders_surfaces_read_errors() {
+        let missing = home_dir()
+            .join(".marinara-test-temp")
+            .join("missing-directory-for-read-error");
+
+        let error = readable_child_folders(&missing)
+            .expect_err("directory read errors must not become empty folder lists");
+
+        assert_ne!(error.message, "");
     }
 }

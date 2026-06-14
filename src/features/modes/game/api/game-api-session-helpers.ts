@@ -92,6 +92,7 @@ export function gameSetupMetadataPatch(config: g.GameSetupConfig): Record<string
     activeLorebookIds: config.activeLorebookIds ?? [],
     gameSceneConnectionId: config.sceneConnectionId ?? null,
     gameImageConnectionId: config.imageConnectionId ?? null,
+    imageStyleProfileId: config.imageStyleProfileId ?? null,
     enableSpriteGeneration: Boolean(config.enableSpriteGeneration),
     gameUseSpotifyMusic: Boolean(config.enableSpotifyDj),
     gameSpotifySourceType: config.spotifySourceType ?? null,

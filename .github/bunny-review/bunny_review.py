@@ -907,6 +907,21 @@ def model_base_label() -> str:
     return "custom" if os.environ.get("LLM_BASE_URL", "").strip() else "default"
 
 
+def model_api_key() -> str:
+    return os.environ.get("LLM_API_KEY", "").strip() or os.environ.get(
+        "OPENAI_API_KEY", ""
+    ).strip()
+
+
+def missing_model_api_key_message() -> str:
+    return (
+        "The reviewer could not run because no model API key is configured. "
+        "Set `DE_KOI_BUNNY_LLM_API_KEY` for provider-specific Bunny credentials "
+        "or keep `OPENAI_API_KEY` for the default provider. No key, no coin slot, "
+        "no Bunny review."
+    )
+
+
 def approx_tokens_from_chars(chars: int) -> int:
     return max(1, round(chars / 4))
 
@@ -1309,6 +1324,50 @@ def three_pass_review(client, skill, triage_content, stats):
     )
 
 
+def emergency_single_pass_review(client, skill, triage_content, stats):
+    emergency_prompt = (
+        "Emergency fallback: the standard multi-pass Bunny review timed out before "
+        "a review object was emitted. Run one compact final pass using only the packet "
+        "already provided. Do not request extra context. Do not run a second specialist "
+        "pass. Report only concrete changed-line defects you can verify from the packet. "
+        "If no concrete defect is visible, return an empty findings array and describe "
+        "the timeout fallback in what_i_checked. Reply only with FINAL_REVIEW followed "
+        "by one JSON object matching the Bunny Review schema."
+    )
+    messages = [
+        {"role": "system", "content": skill},
+        {"role": "user", "content": triage_content},
+        {"role": "user", "content": emergency_prompt},
+    ]
+    response = model_call(client, messages, stats)
+    return extract_json_or_repair(client, messages, response, stats)
+
+
+def incomplete_timeout_fallback_review(exc):
+    detail = model_failure_detail(exc)
+    return {
+        "change_summary": [
+            "Bunny Review could not complete model inspection after the compact timeout fallback.",
+        ],
+        "findings": [],
+        "nitpicks": [],
+        "pre_merge_checks": [
+            {
+                "name": "Review Failed",
+                "status": "fail",
+                "type": "Review Control",
+                "detail": detail,
+            }
+        ],
+        "open_questions": [],
+        "what_i_checked": [
+            "The standard review pass timed out.",
+            "The compact fallback pass timed out or returned no usable review object.",
+            "The emergency single-pass fallback also failed before emitting a review object.",
+        ],
+    }
+
+
 def compact_retry_reason(exc):
     if isinstance(exc, EmptyModelResponse):
         return "model endpoint returned empty content"
@@ -1352,12 +1411,36 @@ def review_with_compact_failure_fallback(
             f"{focus_note} This is a compact fallback packet after the model "
             f"{reason} for the standard packet."
         )
-        return three_pass_review(
-            client,
-            skill,
-            triage_for_packet(compact_packet, compact_note),
-            stats,
-        )
+        compact_triage = triage_for_packet(compact_packet, compact_note)
+        try:
+            return three_pass_review(
+                client,
+                skill,
+                compact_triage,
+                stats,
+            )
+        except Exception as compact_exc:
+            compact_reason = compact_retry_reason(compact_exc)
+            if compact_reason is None:
+                raise
+            print(
+                "Bunny emergency single-pass fallback: "
+                f"{compact_reason}: {safe_model_error(compact_exc)}",
+                flush=True,
+            )
+            stats["fallback_reviews"] += 1
+            try:
+                return emergency_single_pass_review(client, skill, compact_triage, stats)
+            except Exception as emergency_exc:
+                emergency_reason = compact_retry_reason(emergency_exc)
+                if emergency_reason is None:
+                    raise
+                print(
+                    "Bunny incomplete timeout fallback: "
+                    f"{emergency_reason}: {safe_model_error(emergency_exc)}",
+                    flush=True,
+                )
+                return incomplete_timeout_fallback_review(emergency_exc)
 
 
 def parse_context_request(content):
@@ -2761,12 +2844,13 @@ def parse_command_mode():
 
 def produce_review(args):
     pr_num = os.environ.get("PR_NUM", "")
-    if not pr_num and not os.environ.get("OPENAI_API_KEY"):
+    api_key = model_api_key()
+    if not pr_num and not api_key:
         write_skipped_review(
             "Review Skipped",
-            "The reviewer could not run because `OPENAI_API_KEY` is absent from this workflow run. No key, no coin slot, no Bunny review.",
+            missing_model_api_key_message(),
         )
-        print("Bunny telemetry: skipped=missing_openai_api_key", flush=True)
+        print("Bunny telemetry: skipped=missing_model_api_key", flush=True)
         return
 
     requested_mode = args.mode or parse_command_mode()
@@ -2792,10 +2876,10 @@ def produce_review(args):
         print("Bunny telemetry: skipped=no_new_diff_reviewed", flush=True)
         return
 
-    if not os.environ.get("OPENAI_API_KEY"):
+    if not api_key:
         write_skipped_review(
             "Review Skipped",
-            "The reviewer could not run because `OPENAI_API_KEY` is absent from this workflow run. No key, no coin slot, no Bunny review.",
+            missing_model_api_key_message(),
             metadata={
                 "head_sha": head_sha,
                 "head_commit_message": commit_subject(head_sha),
@@ -2804,7 +2888,7 @@ def produce_review(args):
                 "mode": effective_mode,
             },
         )
-        print("Bunny telemetry: skipped=missing_openai_api_key", flush=True)
+        print("Bunny telemetry: skipped=missing_model_api_key", flush=True)
         return
 
     chunk_plan = plan_review_chunks(base, ci_status, effective_mode, files)
@@ -2830,7 +2914,7 @@ def produce_review(args):
     from openai import OpenAI
 
     client = OpenAI(
-        api_key=os.environ["OPENAI_API_KEY"],
+        api_key=api_key,
         base_url=os.environ.get("LLM_BASE_URL"),
         max_retries=MODEL_MAX_RETRIES,
     )

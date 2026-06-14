@@ -138,6 +138,31 @@ import {
   removeInventoryUnit,
   renameInventoryItem,
 } from "../lib/game-inventory-items";
+import {
+  GAME_COMBAT_GENERATION_SETTINGS,
+  canRequestGameSceneIllustration,
+  combatLevelFromHp,
+  combatSkillsFromGeneratedAttacks,
+  combatStatusEffectsFromGenerated,
+  formatGameTimeForHud,
+  gameSceneTurnNumber,
+  getGameDirectAddressMode,
+  isLikelyNamedCombatEnemy,
+  isLikelyNarrationNpcName,
+  isPartyTurnMessage,
+  normalizeGameDay,
+  normalizeGameHour,
+  normalizeGameMinute,
+  normalizeSceneAssetName,
+  parseGameDayFromTimeLabel,
+  parseHourMinuteFromTimeLabel,
+  parseStoredNarrationProgress,
+  slugifyCombatantId,
+  stripGameDirectAddressPrefix,
+  stripPartyTurnMarker,
+  type GameTimeMeta,
+  type StoredNarrationProgress,
+} from "../lib/game-surface-helpers";
 import { ActiveWorldInfoButton, ActiveWorldInfoModal } from "../../../runtime/visuals/index";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import type { Chat, Message } from "../../../../engine/contracts/types/chat";
@@ -148,7 +173,6 @@ import type {
   CombatDialogueCue,
   CombatItemEffect,
   CombatMechanic,
-  EncounterSettings,
 } from "../../../../engine/contracts/types/combat-encounter";
 import type {
   PartyDialogueLine,
@@ -204,110 +228,9 @@ import type { CharacterMap, PersonaInfo } from "../../shared/chat-ui/types";
 
 type GameAssetManifestMap = Record<string, { path: string; absolutePath?: string }> | null;
 
-type GameDirectAddressMode = "party" | "gm";
-
-const PARTY_TURN_MESSAGE_RE = /^\[(?:party-turn|party-chat)]\s*/i;
-const GAME_DIRECT_ADDRESS_RE = /^\[(?:To the party|To the GM)]\s*/i;
-
-function getGameDirectAddressMode(content: string | null | undefined): GameDirectAddressMode | null {
-  const normalized = content?.trimStart().toLowerCase() ?? "";
-  if (normalized.startsWith("[to the party]")) return "party";
-  if (normalized.startsWith("[to the gm]")) return "gm";
-  return null;
-}
-
-function isPartyTurnMessage(message: Message): boolean {
-  return (
-    (message.role === "assistant" || message.role === "narrator") &&
-    PARTY_TURN_MESSAGE_RE.test(message.content.trimStart())
-  );
-}
-
-function gameSceneTurnNumber(messages: Message[]): number {
-  return messages.filter((message) => message.role === "assistant" || message.role === "narrator").length;
-}
-
-function canRequestGameSceneIllustration(
-  chatMeta: Record<string, unknown>,
-  sessionNumber: number,
-  turnNumber: number,
-): boolean {
-  const lastSessionNumber = Number(chatMeta.gameLastIllustrationSessionNumber ?? Number.NaN);
-  const lastTurnNumber = Number(chatMeta.gameLastIllustrationTurn ?? Number.NaN);
-  if (!Number.isFinite(lastSessionNumber) || !Number.isFinite(lastTurnNumber)) return true;
-  if (lastSessionNumber !== sessionNumber) return true;
-  return turnNumber - lastTurnNumber >= GAME_SCENE_ILLUSTRATION_COOLDOWN_TURNS;
-}
-
-function stripPartyTurnMarker(content: string): string {
-  return content.trimStart().replace(PARTY_TURN_MESSAGE_RE, "").trim();
-}
-
-function stripGameDirectAddressPrefix(content: string): string {
-  return content.replace(GAME_DIRECT_ADDRESS_RE, "").trim();
-}
-
-const GAME_SCENE_ILLUSTRATION_COOLDOWN_TURNS = 8;
-
 function getGameSetupFailureMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
   return message.trim() || "Game setup failed. Check the selected model connection and try again.";
-}
-
-type GameTimeMeta = {
-  day?: number;
-  hour?: number;
-  minute?: number;
-};
-
-function normalizeGameDay(value: unknown): number {
-  const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
-  if (!Number.isFinite(parsed)) return 1;
-  return Math.max(1, Math.min(9999, Math.floor(parsed)));
-}
-
-function normalizeGameHour(value: unknown, fallback = 8): number {
-  const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(0, Math.min(23, Math.floor(parsed)));
-}
-
-function normalizeGameMinute(value: unknown, fallback = 0): number {
-  const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(0, Math.min(59, Math.floor(parsed)));
-}
-
-function getGameTimeOfDayLabel(hour: number): string {
-  if (hour >= 5 && hour < 7) return "dawn";
-  if (hour >= 7 && hour < 12) return "morning";
-  if (hour >= 12 && hour < 17) return "afternoon";
-  if (hour >= 17 && hour < 20) return "evening";
-  if (hour >= 20) return "night";
-  return "midnight";
-}
-
-function formatGameTimeForHud(time: Required<GameTimeMeta>): string {
-  const h = String(time.hour).padStart(2, "0");
-  const m = String(time.minute).padStart(2, "0");
-  return `Day ${time.day}, ${h}:${m} (${getGameTimeOfDayLabel(time.hour)})`;
-}
-
-function parseGameDayFromTimeLabel(value?: string | null): number | null {
-  if (!value) return null;
-  const match = value.match(/\bday\s+(\d{1,4})\b/i);
-  if (!match) return null;
-  return normalizeGameDay(match[1]);
-}
-
-function parseHourMinuteFromTimeLabel(value?: string | null): { hour: number; minute: number } | null {
-  if (!value) return null;
-  const match = value.match(/\b(\d{1,2})[:.](\d{2})\b/);
-  if (!match) return null;
-  return {
-    hour: normalizeGameHour(match[1]),
-    minute: normalizeGameMinute(match[2]),
-  };
 }
 
 type SceneAssetPresentCharacter = {
@@ -369,160 +292,6 @@ const GENERIC_NPC_NAME_LABELS = new Set([
   "boy",
   "girl",
 ]);
-
-const NARRATION_NPC_REJECT_TOKENS = new Set([
-  "accidentally",
-  "word",
-  "words",
-  "line",
-  "lines",
-  "met",
-  "not",
-  "neutral",
-  "acquired",
-  "used",
-  "lost",
-  "removed",
-]);
-
-const GENERIC_COMBAT_ENEMY_PATTERNS = [
-  /^(?:enemy|foe|monster|creature|beast|minion|summon|shadow|construct|automaton|drone|specter|slime)(?:\s+\d+|\s+[ivx]+)?$/i,
-  /^(?:guard|soldier|bandit|thug|raider|cultist|mercenary|assassin|archer|mage|warrior)(?:\s+\d+|\s+[ivx]+)?$/i,
-  /^(?:hilichurl|mitachurl|samachurl|treasure hoarder|fatui agent|ruin guard|ruin hunter|ruin sentinel)(?:\s+\d+|\s+[ivx]+)?$/i,
-];
-
-const GAME_COMBAT_GENERATION_SETTINGS = {
-  combatNarrative: {
-    tense: "present",
-    person: "third",
-    narration: "omniscient",
-    pov: "narrator",
-  },
-  summaryNarrative: {
-    tense: "past",
-    person: "third",
-    narration: "omniscient",
-    pov: "narrator",
-  },
-  historyDepth: 10,
-} satisfies EncounterSettings;
-
-type StoredNarrationProgress = {
-  index: number;
-  messageId: string | null;
-};
-
-function parseStoredNarrationProgress(raw: string | null): StoredNarrationProgress | null {
-  if (!raw) return null;
-
-  try {
-    const parsed = JSON.parse(raw) as {
-      index?: unknown;
-      messageId?: unknown;
-    };
-    if (typeof parsed.index === "number" && Number.isFinite(parsed.index) && parsed.index >= 0) {
-      return {
-        index: parsed.index,
-        messageId: typeof parsed.messageId === "string" ? parsed.messageId : null,
-      };
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-}
-
-function normalizeSceneAssetName(value: string): string {
-  return value.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
-}
-
-function isLikelyNarrationNpcName(rawName: string): boolean {
-  const name = rawName.trim();
-  if (!name || name.length > 48) return false;
-  if (!/^\p{Lu}/u.test(name)) return false;
-  if (/[<>{}"“”]/u.test(name) || name.includes("[") || name.includes("]")) return false;
-
-  const normalized = normalizeSceneAssetName(name);
-  if (!normalized || GENERIC_NPC_NAME_LABELS.has(normalized)) return false;
-
-  const tokens = normalized.split(/\s+/);
-  if (tokens.some((token) => NARRATION_NPC_REJECT_TOKENS.has(token))) return false;
-  return true;
-}
-
-function isLikelyNamedCombatEnemy(name: string): boolean {
-  const trimmed = name.trim();
-  if (!trimmed) return false;
-  const normalized = normalizeSceneAssetName(trimmed)
-    .replace(/\b(?:\d+|[ivx]+)\b/gi, "")
-    .trim();
-  if (!normalized || GENERIC_NPC_NAME_LABELS.has(normalized)) return false;
-  return !GENERIC_COMBAT_ENEMY_PATTERNS.some((pattern) => pattern.test(trimmed));
-}
-
-function slugifyCombatantId(value: string): string {
-  return (
-    value
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "") || "unknown"
-  );
-}
-
-function combatLevelFromHp(maxHp: number, fallbackLevel: number): number {
-  if (!Number.isFinite(maxHp) || maxHp <= 0) return fallbackLevel;
-  return Math.max(1, Math.round(maxHp / 20));
-}
-
-function combatStatusEffectsFromGenerated(
-  statuses: CombatPartyMember["statuses"] | CombatEnemy["statuses"] | undefined,
-): Combatant["statusEffects"] {
-  if (!Array.isArray(statuses)) return undefined;
-  const mapped = statuses
-    .filter((status) => status?.name)
-    .map((status) => ({
-      name: typeof status.name === "string" ? status.name : String(status.name),
-      modifier: typeof status.modifier === "number" ? status.modifier : 0,
-      stat: status.stat ?? ("hp" as const),
-      turnsLeft: Math.max(1, Number(status.duration) || 1),
-    }));
-  return mapped.length > 0 ? mapped : undefined;
-}
-
-function combatSkillsFromGeneratedAttacks(
-  attacks: CombatPartyMember["attacks"] | CombatEnemy["attacks"] | undefined,
-  level: number,
-): Combatant["skills"] {
-  if (!Array.isArray(attacks)) return undefined;
-  const seen = new Set<string>();
-  const skills: NonNullable<Combatant["skills"]> = [];
-  for (const [index, attack] of attacks.entries()) {
-    const name = typeof attack?.name === "string" ? attack.name.trim() : "";
-    if (!name || /^(attack|basic attack|strike)$/i.test(name)) continue;
-    const id = slugifyCombatantId(`${name}-${index}`);
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    skills.push({
-      id,
-      name,
-      type: "attack",
-      mpCost: Math.max(4, Math.min(18, 5 + level)),
-      power:
-        typeof attack.power === "number" && Number.isFinite(attack.power)
-          ? Math.max(0.5, Math.min(3, attack.power))
-          : attack.type === "AoE"
-            ? 1.15
-            : 1.35,
-      description: attack.description || (attack.type === "AoE" ? "Area combat ability" : "Combat ability"),
-      cooldown: typeof attack.cooldown === "number" ? attack.cooldown : undefined,
-      element: typeof attack.element === "string" ? attack.element : undefined,
-      statusEffect: typeof attack.statusEffect === "string" ? attack.statusEffect : undefined,
-    });
-  }
-  return skills.length > 0 ? skills : undefined;
-}
 
 /**
  * Runtime guard for a deserialized `Combatant`. Used when restoring combat state
@@ -2366,6 +2135,20 @@ export function GameSurface({
     return null;
   }, [latestAssistantMsg, messages]);
 
+  const latestPlayerAction = useMemo(() => {
+    if (!latestAssistantMsg) return null;
+    const assistantIndex = messages.findIndex((message) => message.id === latestAssistantMsg.id);
+    if (assistantIndex < 0) return null;
+    for (let i = assistantIndex - 1; i >= 0; i--) {
+      const message = messages[i]!;
+      if (message.role === "user" && message.content.trim()) {
+        return stripGameDirectAddressPrefix(message.content);
+      }
+      if (message.role === "assistant" || message.role === "narrator") return null;
+    }
+    return null;
+  }, [latestAssistantMsg, messages]);
+
   // Keep latest assistant message in a ref so the Zustand subscription can read it
   const latestAssistantMsgRef = useRef(latestAssistantMsg);
   latestAssistantMsgRef.current = latestAssistantMsg;
@@ -2437,7 +2220,12 @@ export function GameSurface({
         (npc) =>
           !npc.avatarUrl && !npcAvatarLookup.has(normalizeSceneAssetName(npc.name)) && npc.description && npc.name,
       )
-      .map((npc) => ({ name: npc.name, description: npc.description }))
+      .map((npc) => ({
+        name: npc.name,
+        description: npc.description,
+        gender: npc.gender ?? null,
+        pronouns: npc.pronouns ?? null,
+      }))
       .slice(0, 10);
 
     return npcsNeedingAvatars;
@@ -2582,6 +2370,10 @@ export function GameSurface({
         currentSpotifyTrack: recentSpotifyTrackHistoryRef.current[0] ?? null,
         recentSpotifyTracks: recentSpotifyTrackHistoryRef.current,
         currentAmbient: useGameAssetStore.getState().currentAmbient,
+        currentLocation: gameSnapshot?.location ?? null,
+        genre: typeof setupConfig?.genre === "string" ? setupConfig.genre : null,
+        setting: typeof setupConfig?.setting === "string" ? setupConfig.setting : null,
+        worldOverview: typeof chatMeta.gameWorldOverview === "string" ? chatMeta.gameWorldOverview : null,
         currentWeather: gameSnapshot?.weather ?? null,
         currentTimeOfDay: gameSnapshot?.time ?? null,
         turnNumber: sceneTurnNumber,
@@ -2593,6 +2385,7 @@ export function GameSurface({
         imagePromptInstructions:
           typeof chatMeta.gameImagePromptInstructions === "string" ? chatMeta.gameImagePromptInstructions : null,
       },
+      playerAction: latestPlayerAction ?? undefined,
     };
   }, [
     chatMeta.enableSpriteGeneration,
@@ -2600,13 +2393,16 @@ export function GameSurface({
     chatMeta.gameImagePromptInstructions,
     chatMeta.gameSceneConnectionId,
     chatMeta.gameSetupConfig,
+    chatMeta.gameWorldOverview,
     currentBackground,
     gameSceneIllustrationAllowed,
+    gameSnapshot?.location,
     gameSnapshot?.time,
     gameSnapshot?.weather,
     gameState,
     getScopedAssetMap,
     hudWidgets,
+    latestPlayerAction,
     npcs,
     sceneTurnNumber,
     sceneWrapCharacterNames,
@@ -3337,6 +3133,10 @@ export function GameSurface({
       currentSpotifyTrack: recentSpotifyTrackHistoryRef.current[0] ?? null,
       recentSpotifyTracks: recentSpotifyTrackHistoryRef.current,
       currentAmbient: useGameAssetStore.getState().currentAmbient,
+      currentLocation: gameSnapshot?.location ?? null,
+      genre: typeof setupConfig?.genre === "string" ? setupConfig.genre : null,
+      setting: typeof setupConfig?.setting === "string" ? setupConfig.setting : null,
+      worldOverview: typeof chatMeta.gameWorldOverview === "string" ? chatMeta.gameWorldOverview : null,
       currentWeather: gameSnapshot?.weather ?? null,
       currentTimeOfDay: gameSnapshot?.time ?? null,
       turnNumber: sceneTurnNumber,
@@ -3369,6 +3169,7 @@ export function GameSurface({
             chatId: activeChatId,
             connectionId: sceneConnId || undefined,
             narration: tags.cleanContent,
+            playerAction: latestPlayerAction ?? undefined,
             context: analysisContext,
           },
           {
@@ -3390,16 +3191,18 @@ export function GameSurface({
       } else {
         // No scene model at all: parse inline tags from the main model
         if (useSpotifyGameMusic) {
-          void fetchSpotifySceneCandidates(tags.cleanContent, analysisContext).then((availableSpotifyTracks) => {
-            const fallback = availableSpotifyTracks[0];
-            if (!fallback) return;
-            void playSpotifySceneTrack({
-              uri: fallback.uri,
-              name: fallback.name,
-              artist: fallback.artist,
-              album: fallback.album ?? null,
-            });
-          });
+          void fetchSpotifySceneCandidates(tags.cleanContent, analysisContext, latestPlayerAction).then(
+            (availableSpotifyTracks) => {
+              const fallback = availableSpotifyTracks[0];
+              if (!fallback) return;
+              void playSpotifySceneTrack({
+                uri: fallback.uri,
+                name: fallback.name,
+                artist: fallback.artist,
+                album: fallback.album ?? null,
+              });
+            },
+          );
         }
         applyInlineTags(tags, assets, msg);
         return;
@@ -4308,7 +4111,14 @@ export function GameSurface({
         const result = await runGameAssetGeneration(
           {
             chatId: activeChatId,
-            npcsNeedingAvatars: [{ name: targetNpc.name, description: targetNpc.description ?? "" }],
+            npcsNeedingAvatars: [
+              {
+                name: targetNpc.name,
+                description: targetNpc.description ?? "",
+                gender: targetNpc.gender ?? null,
+                pronouns: targetNpc.pronouns ?? null,
+              },
+            ],
             forceNpcAvatarNames: [targetNpc.name],
             debugMode: useUIStore.getState().debugMode,
           },
@@ -6899,6 +6709,10 @@ export function GameSurface({
       currentMusic: useGameAssetStore.getState().currentMusic,
       recentMusic: recentMusicHistoryRef.current,
       currentAmbient: useGameAssetStore.getState().currentAmbient,
+      currentLocation: gameSnapshot?.location ?? null,
+      genre: typeof setupConfig?.genre === "string" ? setupConfig.genre : null,
+      setting: typeof setupConfig?.setting === "string" ? setupConfig.setting : null,
+      worldOverview: typeof chatMeta.gameWorldOverview === "string" ? chatMeta.gameWorldOverview : null,
       currentWeather: gameSnapshot?.weather ?? null,
       currentTimeOfDay: gameSnapshot?.time ?? null,
       turnNumber: sceneTurnNumber,
@@ -6911,7 +6725,13 @@ export function GameSurface({
 
     if (sceneConnId) {
       sceneAnalysis.mutate(
-        { chatId: activeChatId, connectionId: sceneConnId, narration: tags.cleanContent, context },
+        {
+          chatId: activeChatId,
+          connectionId: sceneConnId,
+          narration: tags.cleanContent,
+          playerAction: latestPlayerAction ?? undefined,
+          context,
+        },
         {
           onSuccess: (result) => {
             onSuccess(result);
@@ -6922,7 +6742,7 @@ export function GameSurface({
       );
     } else {
       sceneAnalysis.mutate(
-        { narration: tags.cleanContent, context },
+        { narration: tags.cleanContent, playerAction: latestPlayerAction ?? undefined, context },
         {
           onSuccess: (result) => {
             onSuccess(result);
@@ -6947,6 +6767,7 @@ export function GameSurface({
     sceneAnalysisEnabled,
     sceneTurnNumber,
     gameSceneIllustrationAllowed,
+    latestPlayerAction,
   ]);
 
   const normalizedWidgets = useMemo(() => normalizeHudWidgets(hudWidgets), [hudWidgets]);

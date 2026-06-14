@@ -228,7 +228,7 @@ export type ImagePromptSettings = {
 export type GameAssetGenerationPayload = {
   chatId: string;
   backgroundTag?: string;
-  npcsNeedingAvatars?: Array<{ name: string; description: string }>;
+  npcsNeedingAvatars?: Array<{ name: string; description: string; gender?: string | null; pronouns?: string | null }>;
   forceNpcAvatarNames?: string[];
   illustration?: unknown;
   imageConnectionId?: string | null;

@@ -32,20 +32,43 @@ export function imageSize(
 ): number {
   const bucketSize = g.asRecord(g.asRecord(payload.imageSizes)[bucket]);
   const value = Number(bucketSize[axis]);
-  return Number.isFinite(value) && value >= 128 && value <= 2048 ? value : fallback;
+  return Number.isFinite(value) && value >= 128 && value <= 4096 ? value : fallback;
 }
 
-export function imagePromptSettings(payload: Record<string, unknown>): g.ImagePromptSettings {
+function imageStyleProfileIdFrom(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function imagePromptSettings(
+  payload: Record<string, unknown>,
+  meta: Record<string, unknown> = {},
+): g.ImagePromptSettings {
   const raw = g.asRecord(payload.imagePromptSettings);
+  const setup = g.asRecord(meta.gameSetupConfig);
   return {
     includeAppearances: raw.includeAppearances !== false,
     format: raw.format === "tags" ? "tags" : "descriptive",
-    styleProfileId: typeof raw.styleProfileId === "string" ? raw.styleProfileId : null,
+    styleProfileId:
+      imageStyleProfileIdFrom(raw.styleProfileId) ??
+      imageStyleProfileIdFrom(setup.imageStyleProfileId) ??
+      imageStyleProfileIdFrom(meta.imageStyleProfileId) ??
+      imageStyleProfileIdFrom(meta.gameImageStyleProfileId),
     styleProfiles:
       raw.styleProfiles && typeof raw.styleProfiles === "object" && !Array.isArray(raw.styleProfiles)
         ? (raw.styleProfiles as g.ImageStyleProfileSettings)
         : undefined,
   };
+}
+
+export function npcPortraitDetail(npc: Record<string, unknown>): string {
+  const parts: string[] = [];
+  const gender = g.readTrimmed(npc.gender);
+  const pronouns = g.readTrimmed(npc.pronouns);
+  const description = g.readTrimmed(npc.description);
+  if (gender) parts.push(`Gender: ${gender}.`);
+  if (pronouns) parts.push(`Pronouns: ${pronouns}.`);
+  if (description) parts.push(description);
+  return parts.join(" ").trim() || "distinctive character portrait";
 }
 
 export async function registeredGameImagePrompt(

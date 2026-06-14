@@ -33,6 +33,20 @@ pub(crate) fn is_supported_prompt_override_key(key: &str) -> bool {
     definitions().iter().any(|definition| definition.key == key)
 }
 
+pub(crate) fn resolve_import_prompt_override_key(key: &str) -> Option<String> {
+    let key = match key {
+        "sprites.singlePortrait" => "sprite.portraitSingle",
+        "sprites.expressionSheet" => "sprite.expressionSheet",
+        "sprites.singleFullBody" => "sprite.fullBodySingle",
+        "sprites.fullBodySheet" => "sprite.fullBodySheet",
+        "game.npcPortrait" => "game.portrait",
+        "game.sceneIllustration" => "game.illustration",
+        _ if is_supported_prompt_override_key(key) => key,
+        _ => return None,
+    };
+    Some(key.to_string())
+}
+
 fn definition_for_key(key: &str) -> Option<&'static PromptOverrideDefinition> {
     definitions()
         .iter()
