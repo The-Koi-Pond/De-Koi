@@ -242,6 +242,13 @@ export function resolveTTSVoiceForSpeaker(
   return fallbackVoice;
 }
 
+export function resolveTTSNarratorVoice(
+  config: Pick<TTSConfig, "voice"> & Partial<Pick<TTSConfig, "narratorVoiceEnabled" | "narratorVoice">>,
+): string {
+  const fallbackVoice = config.voice ?? "";
+  return config.narratorVoiceEnabled ? config.narratorVoice || fallbackVoice : fallbackVoice;
+}
+
 function cleanTTSInputText(value: string): string {
   return value
     .replace(/\{(shake|shout|whisper|glow|pulse|wave|flicker|drip|bounce|tremble|glitch|expand):([^}]+)\}/gi, "$2")

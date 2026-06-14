@@ -83,6 +83,25 @@ describe("game narration voice planning", () => {
     });
   });
 
+  it("uses narrator voice settings for narration segments", () => {
+    const config = {
+      ...baseTtsConfig,
+      narratorVoiceEnabled: true,
+      narratorVoice: "nova",
+      voiceMode: "per-character" as const,
+    };
+
+    expect(
+      getGameSegmentVoiceRequest(
+        segment({ type: "narration", speaker: undefined, content: "The storm rises." }),
+        config,
+      ),
+    ).toEqual({
+      chunks: ["The storm rises."],
+      voice: "nova",
+    });
+  });
+
   it("skips user/system/thought/player-owned narration for game voice", () => {
     const playerNames = getGameVoicePlayerSpeakerNames("Traveler");
 
@@ -123,6 +142,17 @@ describe("game narration voice planning", () => {
     expect(getGameSideLineVoiceKeyForRequests(segment(), sideLine, 0, signature, [firstRequest!])).not.toBe(
       getGameSideLineVoiceKeyForRequests(segment(), changedSideLine, 0, signature, [changedRequest!]),
     );
+  });
+
+  it("keys voice cache entries by narrator voice settings", () => {
+    const base = buildVoiceConfigSignature(baseTtsConfig);
+    const narratorChanged = buildVoiceConfigSignature({
+      ...baseTtsConfig,
+      narratorVoiceEnabled: true,
+      narratorVoice: "nova",
+    });
+
+    expect(base).not.toBe(narratorChanged);
   });
 
   it("queues voice plans with explicit cache and abort-controller state", () => {

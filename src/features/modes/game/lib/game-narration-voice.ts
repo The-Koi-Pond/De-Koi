@@ -2,6 +2,7 @@ import type { GameNpc } from "../../../../engine/contracts/types/game";
 import type { TTSConfig } from "../../../../engine/contracts/types/tts";
 import { getOrCreateCachedTTSAudioBlob } from "../../../../shared/lib/tts-audio-cache";
 import {
+  resolveTTSNarratorVoice,
   resolveTTSVoiceForSpeaker,
   splitTTSChunks,
   ttsConfigMatchesSpeaker,
@@ -148,6 +149,8 @@ export function buildVoiceConfigSignature(config?: TTSConfig | null): string {
     config.baseUrl,
     config.model,
     config.voice,
+    config.narratorVoiceEnabled ? "narrator-voice" : "narrator-global",
+    config.narratorVoice,
     config.voiceMode,
     JSON.stringify(config.voiceAssignments ?? []),
     config.npcDefaultVoicesEnabled ? "npc-defaults" : "npc-global",
@@ -361,7 +364,7 @@ export function getGameSegmentVoiceRequest(
   if (config.dialogueOnly) return null;
   const chunks = splitTTSChunks(segment.content);
   if (chunks.length === 0) return null;
-  const voice = config.voice;
+  const voice = resolveTTSNarratorVoice(config);
   if (config.source === "elevenlabs" && !voice) return null;
   return { chunks, voice };
 }
