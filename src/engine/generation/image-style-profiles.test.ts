@@ -143,4 +143,26 @@ describe("image style profiles", () => {
     expect(compiled.prompt).not.toContain("academy debt");
     expect(compiled.prompt).not.toContain("business district agency");
   });
+
+  it("preserves full background and illustration source scene text in tagged profiles", () => {
+    const settings = createDefaultImageStyleProfileSettings();
+    const prompt =
+      "Mira shields a child, lantern light catching on rain-slick armor. The cracked moon gate opens above flooded stairs.";
+
+    const background = compileImagePrompt({
+      kind: "background",
+      prompt,
+      styleProfileId: "danbooru",
+      styleProfiles: settings,
+    });
+    const illustration = compileImagePrompt({
+      kind: "illustration",
+      prompt,
+      styleProfileId: "danbooru",
+      styleProfiles: settings,
+    });
+
+    expect(background.prompt).toContain(prompt);
+    expect(illustration.prompt).toContain(prompt);
+  });
 });

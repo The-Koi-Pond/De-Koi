@@ -30,10 +30,10 @@ const GAME_BACKGROUND_NEGATIVE_PROMPT =
 const GAME_ILLUSTRATION_NEGATIVE_PROMPT =
   "text, letters, captions, subtitles, UI, watermark, logo, signature, speech bubble, split screen, panel, collage, contact sheet, character sheet, grid, four images, duplicated face, extra head, unrelated character, bad anatomy, low quality";
 
-function joinedImageTags(parts: string[]): string {
+function joinedImageTags(parts: string[], options: { preserveSceneText?: boolean } = {}): string {
   const seen = new Set<string>();
-  return parts
-    .flatMap((part) => part.split(/[,.]/))
+  const fragments = options.preserveSceneText ? parts : parts.flatMap((part) => part.split(/[,.]/));
+  return fragments
     .map((part) => part.trim())
     .filter((part) => {
       const key = part.toLowerCase();
@@ -102,9 +102,27 @@ function npcPortraitSpeciesRule(label: string, detail: string): string {
 }
 
 function npcPortraitIdentityCue(detail: string): string {
-  const gender = detail.match(/\bGender:\s*([^.\n]+)/i)?.[1]?.trim();
-  const pronouns = detail.match(/\bPronouns:\s*([^.\n]+)/i)?.[1]?.trim();
-  return [gender ? `Gender: ${gender}.` : "", pronouns ? `Pronouns: ${pronouns}.` : ""].filter(Boolean).join(" ");
+  const gender = labeledPortraitField(detail, "Gender");
+  const pronouns = labeledPortraitField(detail, "Pronouns");
+  const location = labeledPortraitField(detail, "Location");
+  const notes = labeledPortraitField(detail, "Notes");
+  return [
+    gender ? `Gender: ${gender}.` : "",
+    pronouns ? `Pronouns: ${pronouns}.` : "",
+    location ? `Location: ${location}.` : "",
+    notes ? `Notes: ${notes}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function labeledPortraitField(detail: string, label: "Gender" | "Pronouns" | "Location" | "Notes"): string {
+  const terminator =
+    label === "Notes"
+      ? "(?=\\s+(?:Gender|Pronouns|Location|Notes):|\\n|$)"
+      : "(?=\\s+(?:Gender|Pronouns|Location|Notes):|[.\\n]|$)";
+  const match = detail.match(new RegExp(`(?:^|\\s)${label}:\\s*([\\s\\S]*?)${terminator}`, "i"));
+  return match?.[1]?.trim().replace(/\s+/g, " ").replace(/\.+$/, "") ?? "";
 }
 
 function withPortraitIdentityCue(kind: GameImageAssetKind, detail: string, prompt: string): string {
@@ -214,7 +232,9 @@ function compileSceneAssetPrompt(
   generatedStyle: string,
   prompt: string | string[],
 ): string {
-  const seedPrompt = Array.isArray(prompt) ? joinedImageTags(prompt) : prompt;
+  const seedPrompt = Array.isArray(prompt)
+    ? joinedImageTags(prompt, { preserveSceneText: kind === "background" || kind === "illustration" })
+    : prompt;
   return compileImagePrompt({
     kind,
     prompt: seedPrompt,

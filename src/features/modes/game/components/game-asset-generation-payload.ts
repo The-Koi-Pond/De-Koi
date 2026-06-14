@@ -7,14 +7,21 @@ type SceneAssetNpcAvatarCandidate = {
   description: string;
   gender?: string | null;
   pronouns?: string | null;
+  location?: string | null;
+  notes?: string[] | null;
   avatarUrl?: string | null;
 };
+
+type SceneAssetNpcAvatarRequest = Omit<SceneAssetNpcAvatarCandidate, "avatarUrl">;
 
 type MissingSceneAssetGenerationPayload = {
   chatId: string;
   backgroundTag?: string;
-  npcsNeedingAvatars?: Array<{ name: string; description: string; gender?: string | null; pronouns?: string | null }>;
+  npcsNeedingAvatars?: SceneAssetNpcAvatarRequest[];
   forceNpcAvatarNames?: string[];
+  currentLocation?: string | null;
+  weather?: string | null;
+  timeOfDay?: string | null;
 };
 
 type MissingSceneAssetGenerationInput = {
@@ -25,8 +32,11 @@ type MissingSceneAssetGenerationInput = {
   assetMap: AssetManifestMap;
   sceneAssetNpcs: SceneAssetNpcAvatarCandidate[];
   npcAvatarLookup: Map<string, string>;
-  npcsNeedingAvatars: Array<{ name: string; description: string; gender?: string | null; pronouns?: string | null }>;
+  npcsNeedingAvatars: SceneAssetNpcAvatarRequest[];
   failedNpcAvatarNames?: Iterable<string>;
+  currentLocation?: string | null;
+  weather?: string | null;
+  timeOfDay?: string | null;
 };
 
 export function normalizeSceneAssetNameForGeneration(value: string): string {
@@ -50,6 +60,9 @@ export function buildMissingSceneAssetGenerationPayload({
   npcAvatarLookup,
   npcsNeedingAvatars,
   failedNpcAvatarNames,
+  currentLocation,
+  weather,
+  timeOfDay,
 }: MissingSceneAssetGenerationInput): MissingSceneAssetGenerationPayload | null {
   if (!gameImageGenerationEnabled) return null;
   if (!activeChatId) return null;
@@ -61,12 +74,7 @@ export function buildMissingSceneAssetGenerationPayload({
     savedSceneBackground.startsWith("backgrounds:");
   const npcAssetCandidates = sceneAssetNpcs
     .filter((npc) => npc.description && npc.name)
-    .map((npc) => ({
-      name: npc.name,
-      description: npc.description,
-      gender: npc.gender ?? null,
-      pronouns: npc.pronouns ?? null,
-    }))
+    .map(({ avatarUrl: _avatarUrl, ...npc }) => npc)
     .slice(0, 10);
   const forceNpcAvatarNameSet = new Set<string>();
   if (savedGeneratedBackgroundMissing) {
@@ -108,5 +116,8 @@ export function buildMissingSceneAssetGenerationPayload({
     backgroundTag: unresolvedBackground ?? undefined,
     npcsNeedingAvatars: npcPayload.length > 0 ? npcPayload : undefined,
     forceNpcAvatarNames: forceNpcAvatarNames.length > 0 ? forceNpcAvatarNames : undefined,
+    currentLocation: currentLocation ?? null,
+    weather: weather ?? null,
+    timeOfDay: timeOfDay ?? null,
   };
 }

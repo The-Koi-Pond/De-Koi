@@ -6,14 +6,19 @@ import {
   generatedAssetSlug,
   generatedUploadBase64,
   generatedImageExt,
+  illustrationCharacterDescriptions,
+  imagePromptInstructions,
   illustrationReferenceData,
   imagePromptSettings,
   imageReviewId,
   imageSize,
   imageUrlFromGeneration,
-  npcPortraitDetail,
+  matchingGameNpc,
+  npcPortraitDetailFromContext,
+  promptDetail,
   promptOverride,
   registeredGameImagePrompt,
+  scenePromptContext,
   uploadGeneratedAsset,
 } from "./game-api-asset-helpers";
 
@@ -29,13 +34,16 @@ export async function previewGeneratedAssets(
     (typeof setup.artStylePrompt === "string" && setup.artStylePrompt) ||
     "";
   const promptSettings = imagePromptSettings(record, meta);
+  const sceneContext = scenePromptContext(meta, record);
+  const userImageInstructions = imagePromptInstructions(meta, record);
   const items: g.GameImagePromptReviewItem[] = [];
   if (typeof record.backgroundTag === "string" && record.backgroundTag.trim()) {
     const id = imageReviewId("background", record.backgroundTag);
+    const detail = promptDetail([record.backgroundTag, sceneContext]);
     const defaultPrompt = g.sceneAssetPrompt(
       "background",
       record.backgroundTag,
-      record.backgroundTag,
+      detail,
       artStyle,
       promptSettings,
     );
@@ -48,9 +56,13 @@ export async function previewGeneratedAssets(
         (await registeredGameImagePrompt(g.GAME_BACKGROUND_PROMPT_OVERRIDE, {
           defaultPrompt,
           label: record.backgroundTag,
-          detail: record.backgroundTag,
+          detail,
           artStyle,
           promptSettings,
+          context: {
+            sceneDescription: detail,
+            styleLine: artStyle,
+          },
         })),
       negativePrompt: g.compiledSceneAssetNegativePrompt("background", promptSettings),
       width: imageSize(record, "background", "width", 1280),
@@ -69,7 +81,14 @@ export async function previewGeneratedAssets(
       (typeof illustration.prompt === "string" && illustration.prompt) ||
       "Scene illustration";
     const id = imageReviewId("illustration", label);
-    const detail = String(illustration.prompt ?? label);
+    const scenePrompt = g.readTrimmed(illustration.prompt) || label;
+    const characterDescriptions = illustrationCharacterDescriptions(illustration, meta);
+    const detail = promptDetail([
+      scenePrompt,
+      sceneContext,
+      characterDescriptions,
+      userImageInstructions ? `Image instructions: ${userImageInstructions}.` : null,
+    ]);
     const defaultPrompt = g.sceneAssetPrompt("illustration", label, detail, artStyle, promptSettings);
     const referenceData = await illustrationReferenceData({ chat, meta, illustration });
     items.push({
@@ -84,6 +103,12 @@ export async function previewGeneratedAssets(
           detail,
           artStyle,
           promptSettings,
+          context: {
+            scenePrompt,
+            characterDescriptions,
+            imagePromptInstructions: userImageInstructions,
+            styleLine: artStyle,
+          },
         })),
       negativePrompt: g.compiledSceneAssetNegativePrompt("illustration", promptSettings),
       width: imageSize(record, "illustration", "width", 1280),
@@ -96,7 +121,9 @@ export async function previewGeneratedAssets(
   for (const npc of npcs.slice(0, 10)) {
     const npcRecord = g.asRecord(npc);
     const name = g.readTrimmed(npcRecord.name) || "NPC";
-    const detail = npcPortraitDetail(npcRecord);
+    const detail = npcPortraitDetailFromContext(npcRecord, meta);
+    const appearanceLine =
+      g.readTrimmed(npcRecord.description) || g.readTrimmed(matchingGameNpc(meta, name).description) || detail;
     const id = imageReviewId("portrait", name);
     const defaultPrompt = g.sceneAssetPrompt("portrait", name, detail, artStyle, promptSettings);
     items.push({
@@ -111,6 +138,10 @@ export async function previewGeneratedAssets(
           detail,
           artStyle,
           promptSettings,
+          context: {
+            appearanceLine,
+            styleLine: artStyle,
+          },
         })),
       negativePrompt: g.compiledSceneAssetNegativePrompt("portrait", promptSettings),
       width: imageSize(record, "portrait", "width", 768),

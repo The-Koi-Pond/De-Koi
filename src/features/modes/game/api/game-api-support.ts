@@ -228,7 +228,14 @@ export type ImagePromptSettings = {
 export type GameAssetGenerationPayload = {
   chatId: string;
   backgroundTag?: string;
-  npcsNeedingAvatars?: Array<{ name: string; description: string; gender?: string | null; pronouns?: string | null }>;
+  npcsNeedingAvatars?: Array<{
+    name: string;
+    description: string;
+    gender?: string | null;
+    pronouns?: string | null;
+    location?: string | null;
+    notes?: string[] | null;
+  }>;
   forceNpcAvatarNames?: string[];
   illustration?: unknown;
   imageConnectionId?: string | null;
@@ -236,6 +243,9 @@ export type GameAssetGenerationPayload = {
   imageSizes?: Record<string, { width?: number; height?: number }>;
   imagePromptSettings?: ImagePromptSettings;
   promptOverrides?: PromptOverride[];
+  currentLocation?: string | null;
+  weather?: string | null;
+  timeOfDay?: string | null;
   [key: string]: unknown;
 };
 

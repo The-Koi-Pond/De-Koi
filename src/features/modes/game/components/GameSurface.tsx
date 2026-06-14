@@ -2145,6 +2145,8 @@ export function GameSurface({
         description: npc.description,
         gender: npc.gender ?? null,
         pronouns: npc.pronouns ?? null,
+        location: npc.location ?? null,
+        notes: npc.notes ?? null,
       }))
       .slice(0, 10);
 
@@ -2233,6 +2235,9 @@ export function GameSurface({
       npcAvatarLookup,
       npcsNeedingAvatars,
       failedNpcAvatarNames,
+      currentLocation: gameSnapshot?.location ?? null,
+      weather: gameSnapshot?.weather ?? null,
+      timeOfDay: gameSnapshot?.time ?? null,
     });
   }, [
     activeChatId,
@@ -2241,6 +2246,9 @@ export function GameSurface({
     currentBackground,
     gameImageGenerationEnabled,
     failedNpcAvatarNames,
+    gameSnapshot?.location,
+    gameSnapshot?.time,
+    gameSnapshot?.weather,
     npcAvatarLookup,
     npcsNeedingAvatars,
     sceneAssetNpcs,
@@ -3471,6 +3479,9 @@ export function GameSurface({
           backgroundTag: unresolvedBg || undefined,
           illustration: pendingIllustration ?? undefined,
           npcsNeedingAvatars: npcsNeedingAvatars.length > 0 ? npcsNeedingAvatars : undefined,
+          currentLocation: gameSnapshot?.location ?? null,
+          weather: sceneWeather,
+          timeOfDay: sceneTimeOfDay,
           debugMode: useUIStore.getState().debugMode,
         };
         const blocksScene = introPresented;
@@ -4131,6 +4142,8 @@ export function GameSurface({
                 description: targetNpc.description ?? "",
                 gender: targetNpc.gender ?? null,
                 pronouns: targetNpc.pronouns ?? null,
+                location: targetNpc.location ?? null,
+                notes: targetNpc.notes ?? null,
               },
             ],
             forceNpcAvatarNames: [targetNpc.name],
