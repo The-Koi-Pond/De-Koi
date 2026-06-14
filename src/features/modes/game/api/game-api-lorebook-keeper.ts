@@ -1,5 +1,4 @@
 import * as g from "./game-api-support";
-import { sessionSummary } from "./game-api-session-helpers";
 
 const GAME_LOREBOOK_KEEPER_SOURCE_ID = "game-lorebook-keeper";
 
@@ -11,6 +10,27 @@ function keeperEntrySessionNumber(entry: g.LorebookEntry): number | null {
 
 export function gameLorebookKeeperEnabled(meta: Record<string, unknown>): boolean {
   return meta.gameLorebookKeeperEnabled === true || meta.gameEnableLorebookKeeper === true;
+}
+
+function requireStoredSessionSummary(
+  chat: g.Chat,
+  meta: Record<string, unknown>,
+  sessionNumber: number,
+): g.SessionSummary {
+  if (g.readTrimmed(chat.mode) !== "game") {
+    throw new Error("Game Lorebook Keeper can only regenerate game chats.");
+  }
+  if (!gameLorebookKeeperEnabled(meta)) {
+    throw new Error("Game Lorebook Keeper is disabled for this chat.");
+  }
+  const summaries = Array.isArray(meta.gamePreviousSessionSummaries)
+    ? (meta.gamePreviousSessionSummaries as g.SessionSummary[])
+    : [];
+  const summary = summaries.find((item) => item.sessionNumber === sessionNumber);
+  if (!summary) {
+    throw new Error(`Stored session ${sessionNumber} summary was not found.`);
+  }
+  return summary;
 }
 
 function normalizeGameLorebookKeeperEntry(
@@ -307,15 +327,10 @@ export async function regenerateSessionLorebook(data: {
 }): Promise<g.RegenerateSessionLorebookResponse> {
   const chat = await g.getChat(data.chatId);
   const meta = g.chatMeta(chat);
-  const summaries = Array.isArray(meta.gamePreviousSessionSummaries)
-    ? (meta.gamePreviousSessionSummaries as g.SessionSummary[])
-    : [];
-  const summary =
-    summaries.find((item) => item.sessionNumber === data.sessionNumber) ??
-    sessionSummary(data.sessionNumber, chat, meta);
+  const summary = requireStoredSessionSummary(chat, meta, data.sessionNumber);
   const keeperRun = await runGameLorebookKeeperAfterConclusion({
     chat,
-    meta: { ...meta, gameLorebookKeeperEnabled: true },
+    meta,
     sessionNumber: data.sessionNumber,
     summary,
     connectionId: data.connectionId,

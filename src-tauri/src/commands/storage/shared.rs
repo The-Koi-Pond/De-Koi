@@ -1085,6 +1085,9 @@ fn apply_create_default_field(
         | ("personas", "avatarPath")
         | ("personas", "avatarCrop") => insert_default(object, field, Value::Null),
         ("lorebooks", "scanDepth") => insert_default(object, field, json!(2)),
+        ("lorebooks", "scope") => {
+            insert_default(object, field, json!({ "mode": "all", "chatIds": [] }));
+        }
         ("lorebooks", "tokenBudget") => insert_default(object, field, json!(2048)),
         ("lorebooks", "maxRecursionDepth") => insert_default(object, field, json!(3)),
         ("lorebooks", "recursiveScanning")
@@ -1939,6 +1942,7 @@ mod tests {
             .expect("lorebook defaults should apply");
 
         assert_eq!(row["excludeFromVectorization"], json!(false));
+        assert_eq!(row["scope"], json!({ "mode": "all", "chatIds": [] }));
     }
 
     #[test]

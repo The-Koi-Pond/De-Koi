@@ -62,8 +62,12 @@ const MESSAGE_DEFAULTS: &[&str] = &["extra"];
 const MESSAGE_SWIPE_FIELDS: &[TypedJsonField] = &[nullable_object("extra")];
 const CHARACTER_GROUP_FIELDS: &[TypedJsonField] = &[array("characterIds")];
 const PERSONA_GROUP_FIELDS: &[TypedJsonField] = &[array("personaIds")];
-const LOREBOOK_FIELDS: &[TypedJsonField] =
-    &[array("tags"), array("characterIds"), array("personaIds")];
+const LOREBOOK_FIELDS: &[TypedJsonField] = &[
+    array("tags"),
+    array("characterIds"),
+    array("personaIds"),
+    object("scope"),
+];
 const LOREBOOK_ENTRY_FIELDS: &[TypedJsonField] = &[
     array("keys"),
     array("secondaryKeys"),
@@ -154,6 +158,7 @@ const LOREBOOK_DEFAULTS: &[&str] = &[
     "personaId",
     "personaIds",
     "chatId",
+    "scope",
     "isGlobal",
     "enabled",
     "excludeFromVectorization",
