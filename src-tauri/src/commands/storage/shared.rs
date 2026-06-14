@@ -670,6 +670,183 @@ pub(crate) fn normalize_character_data_for_storage(data: &Value) -> AppResult<Va
     }
 }
 
+const MAX_EXTENSION_NAME_CHARS: usize = 200;
+const MAX_EXTENSION_DESCRIPTION_CHARS: usize = 2000;
+const MAX_EXTENSION_CSS_BYTES: usize = 256 * 1024;
+const MAX_EXTENSION_JS_BYTES: usize = 1024 * 1024;
+
+fn required_extension_string(
+    object: &Map<String, Value>,
+    field: &str,
+    max_chars: usize,
+) -> AppResult<String> {
+    let value = object
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::invalid_input(format!("Extension {field} is required")))?;
+    if value.is_empty() {
+        return Err(AppError::invalid_input(format!(
+            "Extension {field} is required"
+        )));
+    }
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(AppError::invalid_input(format!(
+            "Extension {field} is required"
+        )));
+    }
+    if value.chars().count() > max_chars {
+        return Err(AppError::invalid_input(format!(
+            "Extension {field} is too long"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+fn optional_extension_string(
+    object: &Map<String, Value>,
+    field: &str,
+    max_chars: usize,
+) -> AppResult<Option<String>> {
+    let Some(value) = object.get(field) else {
+        return Ok(None);
+    };
+    let Some(value) = value.as_str() else {
+        return Err(AppError::invalid_input(format!(
+            "Extension {field} must be a string"
+        )));
+    };
+    if value.chars().count() > max_chars {
+        return Err(AppError::invalid_input(format!(
+            "Extension {field} is too long"
+        )));
+    }
+    Ok(Some(value.to_string()))
+}
+
+fn optional_extension_source(
+    object: &Map<String, Value>,
+    field: &str,
+    max_bytes: usize,
+) -> AppResult<Option<Value>> {
+    let Some(value) = object.get(field) else {
+        return Ok(None);
+    };
+    match value {
+        Value::Null => Ok(Some(Value::Null)),
+        Value::String(source) => {
+            if source.len() > max_bytes {
+                return Err(AppError::invalid_input(format!(
+                    "Extension {field} is too large"
+                )));
+            }
+            Ok(Some(Value::String(source.clone())))
+        }
+        _ => Err(AppError::invalid_input(format!(
+            "Extension {field} must be a string or null"
+        ))),
+    }
+}
+
+fn optional_extension_enabled(object: &Map<String, Value>) -> AppResult<Option<bool>> {
+    let Some(value) = object.get("enabled") else {
+        return Ok(None);
+    };
+    value
+        .as_bool()
+        .map(Some)
+        .ok_or_else(|| AppError::invalid_input("Extension enabled must be a boolean"))
+}
+
+fn optional_extension_installed_at(object: &Map<String, Value>) -> AppResult<Option<String>> {
+    let Some(value) = object.get("installedAt") else {
+        return Ok(None);
+    };
+    let Some(value) = value.as_str() else {
+        return Err(AppError::invalid_input(
+            "Extension installedAt must be an RFC3339 timestamp",
+        ));
+    };
+    chrono::DateTime::parse_from_rfc3339(value).map_err(|_| {
+        AppError::invalid_input("Extension installedAt must be an RFC3339 timestamp")
+    })?;
+    Ok(Some(value.to_string()))
+}
+
+pub(crate) fn normalize_extension_for_create(value: Value) -> AppResult<Value> {
+    let object = ensure_object(value)?;
+    let mut normalized = Map::new();
+
+    if let Some(id) = optional_extension_string(&object, "id", 512)? {
+        normalized.insert("id".to_string(), Value::String(id));
+    }
+    normalized.insert(
+        "name".to_string(),
+        Value::String(required_extension_string(
+            &object,
+            "name",
+            MAX_EXTENSION_NAME_CHARS,
+        )?),
+    );
+    normalized.insert(
+        "description".to_string(),
+        Value::String(
+            optional_extension_string(&object, "description", MAX_EXTENSION_DESCRIPTION_CHARS)?
+                .unwrap_or_default(),
+        ),
+    );
+    if let Some(css) = optional_extension_source(&object, "css", MAX_EXTENSION_CSS_BYTES)? {
+        normalized.insert("css".to_string(), css);
+    }
+    if let Some(js) = optional_extension_source(&object, "js", MAX_EXTENSION_JS_BYTES)? {
+        normalized.insert("js".to_string(), js);
+    }
+    normalized.insert(
+        "enabled".to_string(),
+        Value::Bool(optional_extension_enabled(&object)?.unwrap_or(false)),
+    );
+    normalized.insert(
+        "installedAt".to_string(),
+        Value::String(optional_extension_installed_at(&object)?.unwrap_or_else(now_iso)),
+    );
+
+    Ok(Value::Object(normalized))
+}
+
+pub(crate) fn normalize_extension_for_update(patch: Value) -> AppResult<Value> {
+    let object = ensure_object(patch)?;
+    let mut normalized = Map::new();
+
+    if let Some(name) = optional_extension_string(&object, "name", MAX_EXTENSION_NAME_CHARS)? {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(AppError::invalid_input("Extension name is required"));
+        }
+        normalized.insert("name".to_string(), Value::String(name.to_string()));
+    }
+    if let Some(description) =
+        optional_extension_string(&object, "description", MAX_EXTENSION_DESCRIPTION_CHARS)?
+    {
+        normalized.insert("description".to_string(), Value::String(description));
+    }
+    if let Some(css) = optional_extension_source(&object, "css", MAX_EXTENSION_CSS_BYTES)? {
+        normalized.insert("css".to_string(), css);
+    }
+    if let Some(js) = optional_extension_source(&object, "js", MAX_EXTENSION_JS_BYTES)? {
+        normalized.insert("js".to_string(), js);
+    }
+    if let Some(enabled) = optional_extension_enabled(&object)? {
+        normalized.insert("enabled".to_string(), Value::Bool(enabled));
+    }
+    if normalized.is_empty() {
+        return Err(AppError::invalid_input(
+            "Extension update must include at least one supported field",
+        ));
+    }
+
+    Ok(Value::Object(normalized))
+}
+
 pub(crate) fn normalize_update_patch(collection: &str, patch: Value) -> AppResult<Value> {
     let mut object = ensure_object(patch)?;
     normalize_typed_json_fields(collection, &mut object)?;

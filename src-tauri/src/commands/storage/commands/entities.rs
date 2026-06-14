@@ -431,6 +431,11 @@ pub(crate) fn storage_create_inner(
     validate_lorebook_entry_folder_for_create(state, &entity, &value)?;
     validate_lorebook_folder_for_create(state, &entity, &value)?;
     validate_gallery_folder_for_create(state, &entity, &value)?;
+    if entity == "extensions" {
+        return state
+            .storage
+            .create(&entity, prepare_entity_for_create(state, &entity, value)?);
+    }
     if entity == "messages" {
         return Ok(shared::project_timeline_message(
             message_swipes::create_message(
@@ -516,6 +521,11 @@ pub(crate) fn storage_update_inner(
     validate_lorebook_entry_folder_for_patch(state, &entity, &id, &patch)?;
     validate_lorebook_folder_for_patch(state, &entity, &id, &patch)?;
     validate_gallery_folder_for_patch(state, &entity, &patch)?;
+    if entity == "extensions" {
+        return state
+            .storage
+            .patch(&entity, &id, shared::normalize_extension_for_update(patch)?);
+    }
     let normalized_patch = shared::normalize_update_patch(&entity, patch)?;
     let normalized_patch = normalize_chat_for_update(&entity, normalized_patch)?;
     let mut normalized_patch = normalize_lorebook_entry_for_update(&entity, normalized_patch)?;
@@ -547,6 +557,10 @@ pub(crate) fn prepare_entity_for_create(
 ) -> Result<Value, AppError> {
     if entity == "messages" {
         return shared::with_message_create_defaults(value);
+    }
+    if entity == "extensions" {
+        let value = shared::normalize_extension_for_create(value)?;
+        return shared::with_entity_defaults(entity, value);
     }
     let value = shared::with_entity_defaults(entity, value)?;
     match entity {
@@ -729,6 +743,142 @@ mod tests {
         let folder = lorebook_folder(state, id);
         assert_eq!(folder["order"], json!(order));
         assert_eq!(folder["sortOrder"], json!(order));
+    }
+
+    #[test]
+    fn extension_create_validates_and_defaults_at_storage_boundary() {
+        let state = test_state("extension-create-contract");
+
+        let blank_name = storage_create_inner(
+            &state,
+            "extensions".to_string(),
+            json!({ "name": "", "css": "body {}", "enabled": true }),
+        )
+        .expect_err("blank extension name should reject");
+        assert_eq!(blank_name.code, "invalid_input");
+
+        let whitespace_name = storage_create_inner(
+            &state,
+            "extensions".to_string(),
+            json!({ "name": "   ", "css": "body {}", "enabled": true }),
+        )
+        .expect_err("whitespace extension name should reject");
+        assert_eq!(whitespace_name.code, "invalid_input");
+
+        let oversized_css = storage_create_inner(
+            &state,
+            "extensions".to_string(),
+            json!({ "name": "Huge CSS", "css": "x".repeat(256 * 1024 + 1) }),
+        )
+        .expect_err("oversized extension CSS should reject");
+        assert_eq!(oversized_css.code, "invalid_input");
+
+        let created = storage_create_inner(
+            &state,
+            "extensions".to_string(),
+            json!({
+                "name": "Theme Tweaks",
+                "css": "body { color: red; }",
+                "extra": "strip me"
+            }),
+        )
+        .expect("valid extension should create");
+
+        assert_eq!(created["name"], "Theme Tweaks");
+        assert_eq!(created["description"], "");
+        assert_eq!(created["enabled"], false);
+        assert_eq!(created["css"], "body { color: red; }");
+        assert!(created.get("id").is_some());
+        assert!(created.get("createdAt").is_some());
+        assert!(created.get("updatedAt").is_some());
+        assert!(created.get("installedAt").and_then(Value::as_str).is_some());
+        assert!(created.get("extra").is_none());
+    }
+
+    #[test]
+    fn extension_update_validates_supported_patch_fields_only() {
+        let state = test_state("extension-update-contract");
+        storage_create_inner(
+            &state,
+            "extensions".to_string(),
+            json!({
+                "id": "ext-1",
+                "name": "Theme Tweaks",
+                "description": "Original",
+                "css": "body {}",
+                "js": "console.info('ok')",
+                "enabled": false,
+                "installedAt": "2026-06-14T12:00:00Z"
+            }),
+        )
+        .expect("valid extension should seed");
+
+        let unsupported_only = storage_update_inner(
+            &state,
+            "extensions".to_string(),
+            "ext-1".to_string(),
+            json!({ "installedAt": "2026-06-15T12:00:00Z" }),
+        )
+        .expect_err("unsupported-only extension patch should reject");
+        assert_eq!(unsupported_only.code, "invalid_input");
+
+        let invalid_enabled = storage_update_inner(
+            &state,
+            "extensions".to_string(),
+            "ext-1".to_string(),
+            json!({ "enabled": "yes" }),
+        )
+        .expect_err("non-boolean enabled should reject");
+        assert_eq!(invalid_enabled.code, "invalid_input");
+
+        let whitespace_name = storage_update_inner(
+            &state,
+            "extensions".to_string(),
+            "ext-1".to_string(),
+            json!({ "name": "   " }),
+        )
+        .expect_err("whitespace extension name update should reject");
+        assert_eq!(whitespace_name.code, "invalid_input");
+
+        let updated = storage_update_inner(
+            &state,
+            "extensions".to_string(),
+            "ext-1".to_string(),
+            json!({
+                "description": "Updated",
+                "css": null,
+                "enabled": true,
+                "unknown": "strip me"
+            }),
+        )
+        .expect("valid extension patch should update");
+
+        assert_eq!(updated["description"], "Updated");
+        assert_eq!(updated["css"], Value::Null);
+        assert_eq!(updated["enabled"], true);
+        assert_eq!(updated["name"], "Theme Tweaks");
+        assert_eq!(updated["installedAt"], "2026-06-14T12:00:00Z");
+        assert!(updated.get("unknown").is_none());
+    }
+
+    #[test]
+    fn extension_contract_does_not_apply_to_plugin_memory_rows() {
+        let state = test_state("extension-contract-plugin-memory-negative");
+
+        let created = storage_create_inner(
+            &state,
+            "plugin-memory".to_string(),
+            json!({
+                "id": "plugin-1:key",
+                "pluginId": "plugin-1",
+                "key": "scratch",
+                "css": "x".repeat(256 * 1024 + 1)
+            }),
+        )
+        .expect("plugin memory is not an installed extension row");
+
+        assert_eq!(created["pluginId"], "plugin-1");
+        assert!(created["css"].as_str().is_some());
     }
 
     #[test]

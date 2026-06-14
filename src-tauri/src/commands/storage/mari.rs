@@ -1117,16 +1117,17 @@ fn create_marinara_extension(
     if js.as_ref().map(|value| value.len()).unwrap_or(0) > 1024 * 1024 {
         return Err(AppError::invalid_input("Extension JavaScript is too large"));
     }
-    state.storage.create(
-        "extensions",
-        json!({
+    let extension = super::shared::normalize_extension_for_create(json!({
             "name": name,
             "description": args.description,
             "css": css,
             "js": js,
             "enabled": false,
             "installedAt": now_iso(),
-        }),
+    }))?;
+    state.storage.create(
+        "extensions",
+        super::shared::with_entity_defaults("extensions", extension)?,
     )
 }
 

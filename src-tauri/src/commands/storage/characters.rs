@@ -667,10 +667,23 @@ fn merge_partial_character_data(existing: &Value, patch: &mut Map<String, Value>
         unreachable!("character data normalizer only returns objects");
     };
     for (key, value) in next_data {
-        merged.insert(key, value);
+        merge_character_data_value(&mut merged, key, value);
     }
     patch.insert("data".to_string(), Value::Object(merged));
     Ok(())
+}
+
+fn merge_character_data_value(target: &mut Map<String, Value>, key: String, value: Value) {
+    match (target.get_mut(&key), value) {
+        (Some(Value::Object(existing)), Value::Object(patch)) => {
+            for (nested_key, nested_value) in patch {
+                merge_character_data_value(existing, nested_key, nested_value);
+            }
+        }
+        (_, value) => {
+            target.insert(key, value);
+        }
+    }
 }
 
 fn should_create_version_snapshot(
@@ -902,6 +915,116 @@ mod tests {
         assert_eq!(versions[0]["version"], "1.0");
         assert_eq!(versions[0]["source"], "agent");
         assert_eq!(versions[0]["reason"], "Professor Mari card update");
+    }
+
+    #[test]
+    fn update_character_deep_merges_nested_data_objects() {
+        let state = test_state("nested-data-merge");
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "char-1",
+                    "data": {
+                        "name": "Rina",
+                        "description": "Original description",
+                        "extensions": {
+                            "fav": false,
+                            "avatarCrop": { "x": 0.25, "y": 0.5, "zoom": 1.1 },
+                            "importMetadata": { "source": "legacy", "providerId": "abc" }
+                        },
+                        "character_book": {
+                            "name": "Rina Book",
+                            "entries": [
+                                { "keys": ["old"], "content": "Old lore" }
+                            ]
+                        }
+                    },
+                    "comment": "Original title"
+                }),
+            )
+            .expect("character should seed");
+
+        let updated = update_character(
+            &state,
+            "char-1",
+            json!({
+                "data": {
+                    "extensions": {
+                        "fav": true,
+                        "avatarCrop": { "zoom": 1.5 },
+                        "importMetadata": { "providerId": "xyz" }
+                    },
+                    "character_book": {
+                        "entries": [
+                            { "keys": ["new"], "content": "New lore" }
+                        ]
+                    }
+                },
+                "skipVersionSnapshot": true
+            }),
+        )
+        .expect("nested character data patch should update");
+
+        assert_eq!(updated["data"]["name"], "Rina");
+        assert_eq!(updated["data"]["extensions"]["fav"], true);
+        assert_eq!(updated["data"]["extensions"]["avatarCrop"]["x"], 0.25);
+        assert_eq!(updated["data"]["extensions"]["avatarCrop"]["y"], 0.5);
+        assert_eq!(updated["data"]["extensions"]["avatarCrop"]["zoom"], 1.5);
+        assert_eq!(
+            updated["data"]["extensions"]["importMetadata"]["source"],
+            "legacy"
+        );
+        assert_eq!(
+            updated["data"]["extensions"]["importMetadata"]["providerId"],
+            "xyz"
+        );
+        assert_eq!(updated["data"]["character_book"]["name"], "Rina Book");
+        assert_eq!(
+            updated["data"]["character_book"]["entries"],
+            json!([{ "keys": ["new"], "content": "New lore" }])
+        );
+    }
+
+    #[test]
+    fn update_character_still_replaces_non_object_nested_values() {
+        let state = test_state("nested-data-replace-non-objects");
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "char-1",
+                    "data": {
+                        "name": "Rina",
+                        "tags": ["ice", "archive"],
+                        "extensions": {
+                            "fav": true,
+                            "avatarCrop": { "x": 0.25, "y": 0.5, "zoom": 1.1 }
+                        }
+                    },
+                    "comment": "Original title"
+                }),
+            )
+            .expect("character should seed");
+
+        let updated = update_character(
+            &state,
+            "char-1",
+            json!({
+                "data": {
+                    "tags": ["fire"],
+                    "extensions": { "avatarCrop": null }
+                },
+                "skipVersionSnapshot": true
+            }),
+        )
+        .expect("non-object nested values should replace");
+
+        assert_eq!(updated["data"]["tags"], json!(["fire"]));
+        assert_eq!(updated["data"]["extensions"]["avatarCrop"], Value::Null);
+        assert_eq!(updated["data"]["extensions"]["fav"], true);
     }
 
     #[test]
