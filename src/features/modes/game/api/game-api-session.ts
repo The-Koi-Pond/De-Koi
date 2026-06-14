@@ -597,7 +597,7 @@ export async function updateCampaignProgression(data: {
     gameCampaignProgressionUpdatedAt: g.nowIso(),
   };
   const targetSessionChat = await g.patchChatMetadata(targetChat.id, metadataPatch);
-  return { sessionChat: targetSessionChat, targetSessionChat, gameId: String(meta.gameId ?? ""), campaignProgression };
+  return { sessionChat: chat, targetSessionChat, gameId: String(meta.gameId ?? ""), campaignProgression };
 }
 
 export async function gameSessions(gameId: string): Promise<g.Chat[]> {

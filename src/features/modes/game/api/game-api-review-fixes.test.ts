@@ -1357,6 +1357,8 @@ describe("game API review guards", () => {
       generated: { storyArc: "Fixed arc" },
     });
 
+    expect(result.sessionChat.id).toBe("chat-1");
+    expect(result.targetSessionChat.id).toBe("chat-1");
     expect(result.campaignProgression).toEqual({
       storyArc: "Fixed arc",
       plotTwists: [],
@@ -1406,7 +1408,7 @@ describe("game API review guards", () => {
     const result = await updateCampaignProgression({ chatId: "chat-current", sessionNumber: 2 });
 
     expect(messageListChatIds).toEqual(["chat-target"]);
-    expect(result.sessionChat.id).toBe("chat-target");
+    expect(result.sessionChat.id).toBe("chat-current");
     expect(result.targetSessionChat.id).toBe("chat-target");
     expect(result.campaignProgression).toEqual({
       storyArc: "Session 2 advanced the campaign.",
@@ -1718,6 +1720,42 @@ describe("game API review guards", () => {
     }));
 
     await createCheckpoint({ chatId: "chat-1", label: "Before storm", triggerType: "manual" });
+
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "game-checkpoints",
+      expect.objectContaining({
+        location: "Moonlit Harbor",
+        weather: "rain",
+        timeOfDay: "Day 2, 21:00 (night)",
+      }),
+    );
+  });
+
+  it("uses fresher metadata summaries when checkpoint mirrored state is stale", async () => {
+    storageApiMock.get.mockImplementation(async (entity: string) => {
+      if (entity === "chats") {
+        return {
+          id: "chat-1",
+          metadata: {
+            gameWeather: { type: "rain" },
+            gameTimeFormatted: "Day 2, 21:00 (night)",
+          },
+          gameState: {
+            location: "Moonlit Harbor",
+            weather: "clear",
+            time: "Day 1, 08:00 (morning)",
+          },
+        };
+      }
+      return null;
+    });
+    storageApiMock.list.mockResolvedValue([{ id: "message-1", createdAt: "2026-01-01T00:00:00.000Z" }]);
+    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => ({
+      id: entity === "game-state-snapshots" ? "snapshot-1" : "checkpoint-1",
+      ...value,
+    }));
+
+    await createCheckpoint({ chatId: "chat-1", label: "After storm", triggerType: "manual" });
 
     expect(storageApiMock.create).toHaveBeenCalledWith(
       "game-checkpoints",

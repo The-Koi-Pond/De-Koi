@@ -49,14 +49,13 @@ function checkpointSummaryValue(value: unknown): string | null {
 }
 
 function checkpointWeatherSummary(gameState: Record<string, unknown>, meta: Record<string, unknown>): string | null {
-  const stateWeather = checkpointSummaryValue(gameState.weather);
-  if (stateWeather) return stateWeather;
   const metaWeather = g.asRecord(meta.gameWeather);
-  return checkpointSummaryValue(metaWeather.type) ?? checkpointSummaryValue(meta.gameWeather);
+  const metadataWeather = checkpointSummaryValue(metaWeather.type) ?? checkpointSummaryValue(meta.gameWeather);
+  return metadataWeather ?? checkpointSummaryValue(gameState.weather);
 }
 
 function checkpointTimeSummary(gameState: Record<string, unknown>, meta: Record<string, unknown>): string | null {
-  return checkpointSummaryValue(gameState.time) ?? checkpointSummaryValue(meta.gameTimeFormatted);
+  return checkpointSummaryValue(meta.gameTimeFormatted) ?? checkpointSummaryValue(gameState.time);
 }
 
 export async function createGameCheckpoint(data: {
