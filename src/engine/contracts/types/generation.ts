@@ -1,11 +1,22 @@
-interface GenerationAgentConnectionWarning {
-  code: "default_agent_connection_active" | "local_sidecar_unavailable";
+interface GenerationAgentConnectionWarningBase {
   severity: "warning";
   message: string;
   agentNames: string[];
-  connectionName?: string;
-  model?: string;
 }
+
+interface GenerationDefaultAgentConnectionWarning extends GenerationAgentConnectionWarningBase {
+  code: "default_agent_connection_active";
+  connectionName: string;
+  model: string;
+}
+
+interface GenerationLocalSidecarUnavailableWarning extends GenerationAgentConnectionWarningBase {
+  code: "local_sidecar_unavailable";
+}
+
+type GenerationAgentConnectionWarning =
+  | GenerationDefaultAgentConnectionWarning
+  | GenerationLocalSidecarUnavailableWarning;
 
 export type LegacyStreamProtocolEvent =
   | { type: "agent_update"; data: string; agentId?: string; messageId?: string }

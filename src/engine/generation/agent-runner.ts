@@ -124,14 +124,23 @@ export interface GenerationAgentRuntime {
   runPost(mainResponse: string): Promise<AgentResult[]>;
 }
 
-export interface AgentConnectionWarning {
-  code: "default_agent_connection_active" | "local_sidecar_unavailable";
+interface AgentConnectionWarningBase {
   severity: "warning";
   message: string;
   agentNames: string[];
-  connectionName?: string;
-  model?: string;
 }
+
+interface DefaultAgentConnectionWarning extends AgentConnectionWarningBase {
+  code: "default_agent_connection_active";
+  connectionName: string;
+  model: string;
+}
+
+interface LocalSidecarUnavailableWarning extends AgentConnectionWarningBase {
+  code: "local_sidecar_unavailable";
+}
+
+export type AgentConnectionWarning = DefaultAgentConnectionWarning | LocalSidecarUnavailableWarning;
 
 interface AgentDeps {
   storage: StorageGateway;

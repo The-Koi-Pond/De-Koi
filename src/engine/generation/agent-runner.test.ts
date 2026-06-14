@@ -4,7 +4,11 @@ import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { VisualAssetGateway } from "../capabilities/visual-assets";
 import { LOCAL_SIDECAR_CONNECTION_ID, LOCAL_SIDECAR_MODEL } from "../contracts/types/sidecar";
-import { createGenerationAgentRuntime, type GenerationAgentRuntimeInput } from "./agent-runner";
+import {
+  createGenerationAgentRuntime,
+  type AgentConnectionWarning,
+  type GenerationAgentRuntimeInput,
+} from "./agent-runner";
 import type { JsonRecord } from "./runtime-records";
 
 function asStorageValue<T>(value: unknown): T {
@@ -132,6 +136,8 @@ function llmCapturing(requests: LlmRequest[]): LlmGateway {
   };
 }
 
+function acceptAgentConnectionWarning(_warning: AgentConnectionWarning): void {}
+
 function runtimeInput(connection: JsonRecord): GenerationAgentRuntimeInput {
   return {
     chat: {
@@ -151,6 +157,30 @@ function runtimeInput(connection: JsonRecord): GenerationAgentRuntimeInput {
 }
 
 describe("generation agent runner", () => {
+  it("models default connection warning details as required", () => {
+    acceptAgentConnectionWarning({
+      code: "default_agent_connection_active",
+      severity: "warning",
+      agentNames: ["Expression Agent"],
+      connectionName: "API",
+      model: "qa-model",
+      message: "Expression Agent is using the default agent connection.",
+    });
+    acceptAgentConnectionWarning({
+      code: "local_sidecar_unavailable",
+      severity: "warning",
+      agentNames: ["Expression Agent"],
+      message: "Expression Agent is assigned to the legacy Local Model sidecar.",
+    });
+    // @ts-expect-error Default agent connection warnings require connectionName and model.
+    acceptAgentConnectionWarning({
+      code: "default_agent_connection_active",
+      severity: "warning",
+      agentNames: ["Expression Agent"],
+      message: "Expression Agent is using the default agent connection.",
+    });
+  });
+
   it("prints stripped full-body sprite aliases in expression agent prompts", async () => {
     const requests: LlmRequest[] = [];
     const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
