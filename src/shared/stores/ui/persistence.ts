@@ -15,6 +15,7 @@ import {
   SIDEBAR_WIDTH_MIN,
   normalizeTrackerPanelSectionOrder,
   normalizeTrackerPanelSizeProfile,
+  normalizeConversationMessageStyle,
   normalizeSummaryPopoverSettings,
   normalizeTextBlipMode,
   normalizeTrackerPanelCollapsedSections,
@@ -24,7 +25,7 @@ import {
 import type { UIState } from "./model";
 
 export const UI_STORE_NAME = "marinara-engine-ui-tauri";
-export const UI_STORE_VERSION = 7;
+export const UI_STORE_VERSION = 8;
 
 const LEGACY_SIDEBAR_WIDTH_DEFAULT = 280;
 
@@ -128,6 +129,7 @@ export function partializeUiState(state: UIState) {
     imageSelfieWidth: state.imageSelfieWidth,
     imageSelfieHeight: state.imageSelfieHeight,
     messageGrouping: state.messageGrouping,
+    conversationMessageStyle: state.conversationMessageStyle,
     showTimestamps: state.showTimestamps,
     showModelName: state.showModelName,
     showTokenUsage: state.showTokenUsage,
@@ -225,6 +227,7 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
     persisted.trackerPanelCollapsedSections,
   );
   persisted.trackerPanelSectionOrder = normalizeTrackerPanelSectionOrder(persisted.trackerPanelSectionOrder);
+  persisted.conversationMessageStyle = normalizeConversationMessageStyle(persisted.conversationMessageStyle);
   persisted.summaryPopoverSettings = normalizeSummaryPopoverSettings(persisted.summaryPopoverSettings);
   persisted.quoteFormat = normalizeQuoteFormat(persisted.quoteFormat);
   persisted.editMessagesOnDoubleClick = persisted.editMessagesOnDoubleClick !== false;

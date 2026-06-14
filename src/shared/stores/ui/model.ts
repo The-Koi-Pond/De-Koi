@@ -34,6 +34,7 @@ export type EchoChamberSide = "top-left" | "top-right" | "bottom-left" | "bottom
 export type UserStatus = "active" | "idle" | "dnd";
 export type RoleplayAvatarStyle = "none" | "circles" | "rectangles" | "panel";
 export type GameDialogueDisplayMode = "classic" | "stacked";
+export type ConversationMessageStyle = "classic" | "bubble";
 export type SummaryPopoverSourceMode = "last" | "range";
 interface FloatingWidgetPosition {
   x: number;
@@ -49,6 +50,14 @@ interface SummaryPopoverSettings {
 }
 export const APP_LANGUAGE_OPTIONS = [{ id: "en", label: "English" }] as const;
 export type AppLanguage = (typeof APP_LANGUAGE_OPTIONS)[number]["id"];
+export const CONVERSATION_MESSAGE_STYLE_OPTIONS: Array<{
+  id: ConversationMessageStyle;
+  label: string;
+  description: string;
+}> = [
+  { id: "classic", label: "Linear", description: "Rows with avatars, names, and inline message text." },
+  { id: "bubble", label: "Bubbles", description: "Messenger-style left and right message bubbles." },
+];
 
 interface GameSetupLearnedOptions {
   genres: string[];
@@ -152,6 +161,10 @@ export function normalizeTrackerTemperatureUnit(value: unknown): TrackerTemperat
 
 export function normalizeTextBlipMode(value: unknown): TextBlipMode {
   return value === "default" || value === "custom" ? value : "off";
+}
+
+export function normalizeConversationMessageStyle(value: unknown): ConversationMessageStyle {
+  return value === "bubble" ? "bubble" : "classic";
 }
 
 export function normalizeTrackerPanelCollapsedSections(value: unknown): TrackerPanelCollapsedSections {
@@ -387,6 +400,7 @@ export interface UIState {
   imageSelfieHeight: number;
 
   messageGrouping: boolean;
+  conversationMessageStyle: ConversationMessageStyle;
   showTimestamps: boolean;
   showModelName: boolean;
   showTokenUsage: boolean;
@@ -623,6 +637,7 @@ export interface UIState {
   setImageSelfieDimensions: (width: number, height: number) => void;
 
   setMessageGrouping: (v: boolean) => void;
+  setConversationMessageStyle: (v: ConversationMessageStyle) => void;
   setShowTimestamps: (v: boolean) => void;
   setShowModelName: (v: boolean) => void;
   setShowTokenUsage: (v: boolean) => void;

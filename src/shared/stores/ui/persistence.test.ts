@@ -3,8 +3,8 @@ import { createDefaultImageStyleProfileSettings } from "../../../engine/generati
 import { migrateUiState, UI_STORE_VERSION } from "./persistence";
 
 describe("ui persistence migration", () => {
-  it("bumps the store version for image style profile migration", () => {
-    expect(UI_STORE_VERSION).toBe(7);
+  it("bumps the store version for conversation message style migration", () => {
+    expect(UI_STORE_VERSION).toBe(8);
   });
 
   it("hydrates legacy tag prompt settings to the Danbooru image style profile", () => {
@@ -34,5 +34,21 @@ describe("ui persistence migration", () => {
     });
 
     expect(migrated.imageStyleProfiles?.defaultProfileId).toBe("danbooru");
+  });
+
+  it("hydrates the legacy conversation bubble message layout", () => {
+    const migrated = migrateUiState({
+      conversationMessageStyle: "bubble",
+    });
+
+    expect(migrated.conversationMessageStyle).toBe("bubble");
+  });
+
+  it("repairs unknown conversation message layouts to classic", () => {
+    const migrated = migrateUiState({
+      conversationMessageStyle: "compact",
+    });
+
+    expect(migrated.conversationMessageStyle).toBe("classic");
   });
 });

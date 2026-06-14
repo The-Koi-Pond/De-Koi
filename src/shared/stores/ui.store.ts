@@ -31,6 +31,7 @@ import {
   mergeLearnedGameSetupOptions,
   mobilePanelClosePatch,
   normalizeLearnedGameSetupOption,
+  normalizeConversationMessageStyle,
   normalizeRememberedGameSetupText,
   normalizeSummaryPopoverSettings,
   normalizeTextBlipMode,
@@ -42,6 +43,7 @@ import {
 } from "./ui/model";
 import type {
   AppLanguage,
+  ConversationMessageStyle,
   EchoChamberSide,
   FontSize,
   GameDialogueDisplayMode,
@@ -69,6 +71,7 @@ import {
 
 export {
   APP_LANGUAGE_OPTIONS,
+  CONVERSATION_MESSAGE_STYLE_OPTIONS,
   IMAGE_DIMENSION_MAX,
   IMAGE_DIMENSION_MIN,
   RIGHT_PANEL_WIDTH_MAX,
@@ -81,6 +84,7 @@ export {
 } from "./ui/model";
 export type {
   AppLanguage,
+  ConversationMessageStyle,
   EchoChamberSide,
   FontSize,
   GameDialogueDisplayMode,
@@ -162,6 +166,7 @@ export const useUIStore = create<UIState>()(
       imageSelfieHeight: 1152,
 
       messageGrouping: true,
+      conversationMessageStyle: "classic" as ConversationMessageStyle,
       showTimestamps: false,
       showModelName: false,
       showTokenUsage: false,
@@ -432,6 +437,7 @@ export const useUIStore = create<UIState>()(
         }),
 
       setMessageGrouping: (v) => set({ messageGrouping: v }),
+      setConversationMessageStyle: (v) => set({ conversationMessageStyle: normalizeConversationMessageStyle(v) }),
       setShowTimestamps: (v) => set({ showTimestamps: v }),
       setShowModelName: (v) => set({ showModelName: v }),
       setShowTokenUsage: (v) => set({ showTokenUsage: v }),

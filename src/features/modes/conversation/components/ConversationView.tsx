@@ -41,7 +41,7 @@ import {
 } from "../../shared/chat-ui/index";
 
 import { useChatStore } from "../../../../shared/stores/chat.store";
-import { useUIStore } from "../../../../shared/stores/ui.store";
+import { useUIStore, type ConversationMessageStyle } from "../../../../shared/stores/ui.store";
 import { showConversationLocalNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../../../shared/lib/utils";
@@ -522,6 +522,7 @@ export function ConversationView({
   // a CSS variable so custom themes can override the conversation background.
   const convoGradient = useUIStore((s) => s.convoGradient);
   const theme = useUIStore((s) => s.theme);
+  const conversationMessageStyle = useUIStore((s) => s.conversationMessageStyle);
 
   const gradientStyle = useMemo(() => {
     const g = convoGradient[theme];
@@ -1391,6 +1392,7 @@ export function ConversationView({
                   onPeekPrompt={onPeekPrompt}
                   onToggleHiddenFromAI={onToggleHiddenFromAI}
                   onBranch={onBranch}
+                  messageStyle={conversationMessageStyle}
                   typingLabel={typingLabelInMessage && item.msg.id === typingTargetId ? liveTypingLabel : undefined}
                 />,
               );
@@ -1439,6 +1441,7 @@ export function ConversationView({
                 multiSelectMode={multiSelectMode}
                 isSelected={selectedMessageIds?.has(msg.id)}
                 onToggleSelect={onToggleSelectMessage}
+                messageStyle={conversationMessageStyle}
                 typingLabel={typingLabelInMessage && msg.id === typingTargetId ? liveTypingLabel : undefined}
               />,
             );
@@ -1738,6 +1741,7 @@ function SplitMessageGroup({
   onPeekPrompt,
   onToggleHiddenFromAI,
   onBranch,
+  messageStyle,
   typingLabel,
 }: {
   items: Array<{ key: string; msg: Message; isGrouped: boolean; index: number }>;
@@ -1756,6 +1760,7 @@ function SplitMessageGroup({
   onPeekPrompt: (options?: PeekPromptOptions) => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
   onBranch: (messageId: string) => void;
+  messageStyle: ConversationMessageStyle;
   typingLabel?: string;
 }) {
   const [showActions, setShowActions] = useState(false);
@@ -1821,6 +1826,7 @@ function SplitMessageGroup({
           onPeekPrompt={onPeekPrompt}
           onToggleHiddenFromAI={onToggleHiddenFromAI}
           onBranch={onBranch}
+          messageStyle={messageStyle}
           isLastAssistantMessage={false}
           characterMap={characterMap}
           chatCharacterIds={chatCharacterIds}
@@ -1901,6 +1907,7 @@ function SplitMessageGroup({
                 onPeekPrompt={onPeekPrompt}
                 onToggleHiddenFromAI={onToggleHiddenFromAI}
                 onBranch={onBranch}
+                messageStyle={messageStyle}
                 isLastAssistantMessage={false}
                 characterMap={characterMap}
                 chatCharacterIds={chatCharacterIds}
@@ -1930,6 +1937,7 @@ function SplitMessageGroup({
               onPeekPrompt={onPeekPrompt}
               onToggleHiddenFromAI={onToggleHiddenFromAI}
               onBranch={onBranch}
+              messageStyle={messageStyle}
               onEditClick={handleStartEdit}
               isLastAssistantMessage={firstItem.msg.id === lastAssistantMessageId}
               characterMap={characterMap}
@@ -1961,6 +1969,7 @@ function SplitMessageGroup({
             onPeekPrompt={onPeekPrompt}
             onToggleHiddenFromAI={onToggleHiddenFromAI}
             onBranch={onBranch}
+            messageStyle={messageStyle}
             onEditClick={handleStartEdit}
             isLastAssistantMessage={firstItem.msg.id === lastAssistantMessageId}
             characterMap={characterMap}

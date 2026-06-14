@@ -3,12 +3,14 @@
 // ──────────────────────────────────────────────
 import {
   APP_LANGUAGE_OPTIONS,
+  CONVERSATION_MESSAGE_STYLE_OPTIONS,
   IMAGE_DIMENSION_MAX,
   IMAGE_DIMENSION_MIN,
   TRACKER_DATA_PANEL_SECTIONS,
   TRACKER_PANEL_SIZE_PROFILES,
   getTrackerPanelWidthForProfile,
   useUIStore,
+  type ConversationMessageStyle,
   type GameDialogueDisplayMode,
   type QuoteFormat,
   type RoleplayAvatarStyle,
@@ -3483,6 +3485,8 @@ function ImportButton({
 function AdvancedSettings() {
   const messageGrouping = useUIStore((s) => s.messageGrouping);
   const setMessageGrouping = useUIStore((s) => s.setMessageGrouping);
+  const conversationMessageStyle = useUIStore((s) => s.conversationMessageStyle);
+  const setConversationMessageStyle = useUIStore((s) => s.setConversationMessageStyle);
   const showTimestamps = useUIStore((s) => s.showTimestamps);
   const setShowTimestamps = useUIStore((s) => s.setShowTimestamps);
   const showModelName = useUIStore((s) => s.showModelName);
@@ -4082,6 +4086,34 @@ function AdvancedSettings() {
         onChange={setMessageGrouping}
         help="Combines multiple messages from the same sender into a visual group, reducing clutter in the chat."
       />
+      <div className="flex flex-col gap-1.5 rounded-lg p-1 transition-colors hover:bg-[var(--secondary)]/50">
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs">Conversation message layout</span>
+          <HelpTooltip text="Choose whether Conversation mode renders messages as linear rows or Messenger-style bubbles." />
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {CONVERSATION_MESSAGE_STYLE_OPTIONS.map((option) => {
+            const selected = conversationMessageStyle === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setConversationMessageStyle(option.id as ConversationMessageStyle)}
+                className={cn(
+                  "flex min-h-14 flex-col items-start justify-center rounded-md border px-2.5 py-2 text-left transition-colors",
+                  selected
+                    ? "border-[var(--primary)] bg-[var(--primary)]/12 text-[var(--foreground)]"
+                    : "border-[var(--border)] bg-[var(--background)]/35 text-[var(--muted-foreground)] hover:border-[var(--primary)]/45 hover:text-[var(--foreground)]",
+                )}
+              >
+                <span className="text-[0.6875rem] font-semibold">{option.label}</span>
+                <span className="text-[0.5625rem] leading-snug">{option.description}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <ToggleSetting
         label="Show message timestamps"
         checked={showTimestamps}
