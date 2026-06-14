@@ -3379,7 +3379,7 @@ export async function* dryRunGeneration(
   const chatId = readString(input.chatId).trim();
   if (!chatId) throw new Error("chatId is required");
   throwIfAborted(signal);
-  let chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
+  const chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
   throwIfAborted(signal);
   input = (await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input)) as GenerationDryRunInput;
   throwIfAborted(signal);
