@@ -12,7 +12,7 @@ static DOWNLOADING_GOOGLE_FONTS: LazyLock<Mutex<HashSet<String>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 static GOOGLE_FONT_METADATA_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 #[cfg(test)]
-static FAIL_NEXT_FONT_METADATA_WRITE: Mutex<bool> = Mutex::new(false);
+static FAIL_NEXT_FONT_METADATA_WRITE_ROOT: Mutex<Option<std::path::PathBuf>> = Mutex::new(None);
 
 pub(crate) async fn fonts_call(
     state: &AppState,
@@ -55,6 +55,9 @@ fn list_fonts(state: &AppState) -> AppResult<Value> {
             .unwrap_or("")
             .to_ascii_lowercase();
         if !FONT_EXTS.contains(&ext.as_str()) {
+            continue;
+        }
+        if is_shadowed_legacy_google_single_file(&filename, &metadata) {
             continue;
         }
         let meta = metadata
@@ -454,6 +457,8 @@ fn replace_managed_google_font_files(
         .lock()
         .map_err(|_| AppError::new("font_download_failed", "Font metadata lock was poisoned"))?;
     let metadata = read_font_metadata(root);
+    let has_managed_google_shards =
+        managed_google_family_has_shards(safe_name, &metadata, downloaded);
     for target in downloaded {
         if root.join(&target.filename).exists()
             && metadata
@@ -484,7 +489,12 @@ fn replace_managed_google_font_files(
                 continue;
             }
             let filename = entry.file_name().to_string_lossy().to_string();
-            if !is_managed_google_family_file(&filename, safe_name, &metadata) {
+            if !is_managed_google_family_file(
+                &filename,
+                safe_name,
+                &metadata,
+                has_managed_google_shards,
+            ) {
                 continue;
             }
             let backup_filename = format!("{filename}.{operation_id}.bak");
@@ -537,6 +547,7 @@ fn is_managed_google_family_file(
     filename: &str,
     safe_name: &str,
     metadata: &Map<String, Value>,
+    has_managed_google_shards: bool,
 ) -> bool {
     let extension = Path::new(filename)
         .extension()
@@ -548,19 +559,81 @@ fn is_managed_google_family_file(
     {
         return false;
     }
+    if font_metadata_source(metadata, filename) == Some("google") {
+        return true;
+    }
+    is_unmetadata_legacy_google_single_file_shadowed_by_shards(
+        filename,
+        safe_name,
+        metadata,
+        has_managed_google_shards,
+    )
+}
+
+fn is_shadowed_legacy_google_single_file(filename: &str, metadata: &Map<String, Value>) -> bool {
+    let Some(safe_name) = legacy_google_single_safe_name(filename) else {
+        return false;
+    };
+    is_unmetadata_legacy_google_single_file_shadowed_by_shards(
+        filename,
+        &safe_name,
+        metadata,
+        managed_google_family_has_shards(&safe_name, metadata, &[]),
+    )
+}
+
+fn is_unmetadata_legacy_google_single_file_shadowed_by_shards(
+    filename: &str,
+    safe_name: &str,
+    metadata: &Map<String, Value>,
+    has_managed_google_shards: bool,
+) -> bool {
+    has_managed_google_shards
+        && is_legacy_google_single_filename(filename, safe_name)
+        && font_metadata_source(metadata, filename).is_none()
+}
+
+fn managed_google_family_has_shards(
+    safe_name: &str,
+    metadata: &Map<String, Value>,
+    downloaded: &[DownloadedFontFile],
+) -> bool {
+    metadata.iter().any(|(filename, meta)| {
+        meta.get("source").and_then(Value::as_str) == Some("google")
+            && is_legacy_google_shard_filename(filename, safe_name)
+    }) || downloaded
+        .iter()
+        .any(|target| is_legacy_google_shard_filename(&target.filename, safe_name))
+}
+
+fn font_metadata_source<'a>(metadata: &'a Map<String, Value>, filename: &str) -> Option<&'a str> {
     metadata
         .get(filename)
         .and_then(|meta| meta.get("source"))
         .and_then(Value::as_str)
-        == Some("google")
 }
 
 fn is_legacy_managed_google_filename(filename: &str, safe_name: &str) -> bool {
+    legacy_google_regular_suffix(filename, safe_name).is_some()
+}
+
+fn is_legacy_google_single_filename(filename: &str, safe_name: &str) -> bool {
+    legacy_google_regular_suffix(filename, safe_name).as_deref() == Some("")
+}
+
+fn is_legacy_google_shard_filename(filename: &str, safe_name: &str) -> bool {
+    match legacy_google_regular_suffix(filename, safe_name) {
+        Some(suffix) => !suffix.is_empty(),
+        None => false,
+    }
+}
+
+fn legacy_google_regular_suffix(filename: &str, safe_name: &str) -> Option<String> {
     let Some(stem) = Path::new(filename)
         .file_stem()
         .and_then(|stem| stem.to_str())
     else {
-        return false;
+        return None;
     };
     let extension = Path::new(filename)
         .extension()
@@ -568,17 +641,42 @@ fn is_legacy_managed_google_filename(filename: &str, safe_name: &str) -> bool {
         .unwrap_or("")
         .to_ascii_lowercase();
     if extension != "woff2" {
-        return false;
+        return None;
     }
     let stem = stem.to_ascii_lowercase();
     let legacy_stem = format!("{safe_name}-Regular").to_ascii_lowercase();
     if stem == legacy_stem {
-        return true;
+        return Some(String::new());
     }
     let Some(suffix) = stem.strip_prefix(&format!("{legacy_stem}-")) else {
-        return false;
+        return None;
     };
-    suffix.len() == 3 && suffix.chars().all(|ch| ch.is_ascii_digit())
+    if suffix.len() == 3 && suffix.chars().all(|ch| ch.is_ascii_digit()) {
+        return Some(suffix.to_string());
+    }
+    None
+}
+
+fn legacy_google_single_safe_name(filename: &str) -> Option<String> {
+    let path = Path::new(filename);
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if extension != "woff2" {
+        return None;
+    }
+    let stem = path.file_stem().and_then(|stem| stem.to_str())?;
+    let suffix = "-regular";
+    if !stem.to_ascii_lowercase().ends_with(suffix) {
+        return None;
+    }
+    let safe_name = &stem[..stem.len() - suffix.len()];
+    if safe_name.is_empty() {
+        return None;
+    }
+    Some(safe_name.to_string())
 }
 
 fn css_descriptor(body: &str, key: &str) -> Option<String> {
@@ -607,9 +705,9 @@ fn read_font_metadata(root: &Path) -> Map<String, Value> {
 
 fn write_font_metadata(root: &Path, metadata: &Map<String, Value>) -> AppResult<()> {
     #[cfg(test)]
-    if let Ok(mut fail_next) = FAIL_NEXT_FONT_METADATA_WRITE.lock() {
-        if *fail_next {
-            *fail_next = false;
+    if let Ok(mut fail_next_root) = FAIL_NEXT_FONT_METADATA_WRITE_ROOT.lock() {
+        if fail_next_root.as_deref() == Some(root) {
+            *fail_next_root = None;
             return Err(AppError::new(
                 "font_metadata_write_failed",
                 "Injected font metadata write failure",
@@ -716,6 +814,10 @@ mod tests {
         path: PathBuf,
     }
 
+    struct TempDataRoot {
+        path: PathBuf,
+    }
+
     impl TempFontRoot {
         fn new(label: &str) -> Self {
             let path = std::env::temp_dir().join(format!(
@@ -728,10 +830,35 @@ mod tests {
         }
     }
 
+    impl TempDataRoot {
+        fn new(label: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "de-koi-fonts-data-{label}-{}-{}",
+                now_millis(),
+                new_id()
+            ));
+            fs::create_dir_all(&path).expect("temp data root should be created");
+            Self { path }
+        }
+    }
+
     impl Drop for TempFontRoot {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    impl Drop for TempDataRoot {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn test_state(label: &str) -> (TempDataRoot, AppState) {
+        let root = TempDataRoot::new(label);
+        let state = AppState::from_data_dir(&root.path, Vec::new())
+            .expect("test app state should initialize");
+        (root, state)
     }
 
     fn regular_face() -> FontFace {
@@ -749,6 +876,16 @@ mod tests {
             face: regular_face(),
             bytes: bytes.to_vec(),
         }
+    }
+
+    fn listed_font_filenames(fonts: &Value) -> Vec<String> {
+        fonts
+            .as_array()
+            .expect("font list should be an array")
+            .iter()
+            .filter_map(|font| font.get("filename").and_then(Value::as_str))
+            .map(ToOwned::to_owned)
+            .collect()
     }
 
     fn google_css_result(
@@ -826,6 +963,84 @@ mod tests {
     }
 
     #[test]
+    fn list_fonts_hides_stale_google_single_file_shadowed_by_managed_shards() {
+        let (_root, state) = test_state("list-google-shards");
+        let root = fonts_root(&state).expect("font root should exist");
+        fs::write(root.join("NotoSansJP-Regular.woff2"), b"stale single font")
+            .expect("stale font should be written");
+        fs::write(root.join("NotoSansJP-Regular-001.woff2"), b"managed shard")
+            .expect("managed shard should be written");
+        fs::write(root.join("NotoSansJP-Regular-002.woff2"), b"managed shard")
+            .expect("managed shard should be written");
+        fs::write(root.join("Roboto-Regular.woff2"), b"user font")
+            .expect("user font should be written");
+        fs::write(root.join("Roboto-Regular-001.woff2"), b"managed shard")
+            .expect("managed shard should be written");
+
+        let mut metadata = Map::new();
+        metadata.insert(
+            "NotoSansJP-Regular-001.woff2".to_string(),
+            json!({
+                "family": "Noto Sans JP",
+                "weight": "400",
+                "style": "normal",
+                "unicodeRange": "U+0000-00FF",
+                "source": "google"
+            }),
+        );
+        metadata.insert(
+            "NotoSansJP-Regular-002.woff2".to_string(),
+            json!({
+                "family": "Noto Sans JP",
+                "weight": "400",
+                "style": "normal",
+                "unicodeRange": "U+0100-017F",
+                "source": "google"
+            }),
+        );
+        metadata.insert(
+            "Roboto-Regular.woff2".to_string(),
+            json!({
+                "family": "Roboto Custom",
+                "weight": "400",
+                "style": "normal",
+                "source": "user"
+            }),
+        );
+        metadata.insert(
+            "Roboto-Regular-001.woff2".to_string(),
+            json!({
+                "family": "Roboto",
+                "weight": "400",
+                "style": "normal",
+                "source": "google"
+            }),
+        );
+        write_font_metadata(&root, &metadata).expect("metadata should be written");
+
+        let filenames = listed_font_filenames(&list_fonts(&state).expect("fonts should list"));
+
+        assert!(
+            !filenames
+                .iter()
+                .any(|filename| filename == "NotoSansJP-Regular.woff2"),
+            "stale unmetadata single file should be hidden: {filenames:?}"
+        );
+        assert!(
+            filenames
+                .iter()
+                .any(|filename| filename == "NotoSansJP-Regular-001.woff2"),
+            "managed shard should remain visible: {filenames:?}"
+        );
+        assert!(
+            filenames
+                .iter()
+                .any(|filename| filename == "Roboto-Regular.woff2"),
+            "explicit user font should remain visible: {filenames:?}"
+        );
+    }
+
+    #[test]
     fn replace_managed_google_font_files_rejects_non_google_filename_conflict() {
         let root = TempFontRoot::new("non-google-conflict");
         let filename = "OpenSans-Regular.woff2";
@@ -851,6 +1066,139 @@ mod tests {
     }
 
     #[test]
+    fn replace_managed_google_font_files_removes_stale_single_file_shadowed_by_shards() {
+        let root = TempFontRoot::new("remove-stale-single");
+        let stale = "NotoSansJP-Regular.woff2";
+        let first_shard = "NotoSansJP-Regular-001.woff2";
+        let second_shard = "NotoSansJP-Regular-002.woff2";
+        fs::write(root.path.join(stale), b"stale single font")
+            .expect("stale font should be written");
+        fs::write(root.path.join(first_shard), b"old managed shard")
+            .expect("old shard should be written");
+        let mut metadata = Map::new();
+        metadata.insert(
+            first_shard.to_string(),
+            json!({
+                "family": "Noto Sans JP",
+                "weight": "400",
+                "style": "normal",
+                "unicodeRange": "U+0000-00FF",
+                "source": "google"
+            }),
+        );
+        write_font_metadata(&root.path, &metadata).expect("metadata should be written");
+
+        replace_managed_google_font_files(
+            &root.path,
+            "NotoSansJP",
+            "Noto Sans JP",
+            &[
+                downloaded_font(first_shard, b"new managed shard one"),
+                downloaded_font(second_shard, b"new managed shard two"),
+            ],
+        )
+        .expect("managed replacement should remove stale single file");
+
+        assert!(
+            !root.path.join(stale).exists(),
+            "stale unmetadata single file should be removed"
+        );
+        assert_eq!(
+            fs::read(root.path.join(first_shard)).expect("first shard should exist"),
+            b"new managed shard one"
+        );
+        assert_eq!(
+            fs::read(root.path.join(second_shard)).expect("second shard should exist"),
+            b"new managed shard two"
+        );
+        assert!(
+            !read_font_metadata(&root.path).contains_key(stale),
+            "stale file should not gain metadata"
+        );
+    }
+
+    #[test]
+    fn replace_managed_google_font_files_removes_stale_single_file_on_first_sharded_download() {
+        let root = TempFontRoot::new("first-sharded-download");
+        let stale = "NotoSansJP-Regular.woff2";
+        let first_shard = "NotoSansJP-Regular-001.woff2";
+        let second_shard = "NotoSansJP-Regular-002.woff2";
+        fs::write(root.path.join(stale), b"stale single font")
+            .expect("stale font should be written");
+
+        replace_managed_google_font_files(
+            &root.path,
+            "NotoSansJP",
+            "Noto Sans JP",
+            &[
+                downloaded_font(first_shard, b"new managed shard one"),
+                downloaded_font(second_shard, b"new managed shard two"),
+            ],
+        )
+        .expect("first sharded download should remove stale single file");
+
+        assert!(
+            !root.path.join(stale).exists(),
+            "stale unmetadata single file should be removed"
+        );
+        assert_eq!(
+            fs::read(root.path.join(first_shard)).expect("first shard should exist"),
+            b"new managed shard one"
+        );
+        assert_eq!(
+            fs::read(root.path.join(second_shard)).expect("second shard should exist"),
+            b"new managed shard two"
+        );
+    }
+
+    #[test]
+    fn replace_managed_google_font_files_keeps_explicit_user_single_file() {
+        let root = TempFontRoot::new("keep-user-single");
+        let user_single = "NotoSansJP-Regular.woff2";
+        let first_shard = "NotoSansJP-Regular-001.woff2";
+        fs::write(root.path.join(user_single), b"user font").expect("user font should be written");
+        fs::write(root.path.join(first_shard), b"old managed shard")
+            .expect("old shard should be written");
+        let mut metadata = Map::new();
+        metadata.insert(
+            user_single.to_string(),
+            json!({
+                "family": "Noto Sans JP Custom",
+                "weight": "400",
+                "style": "normal",
+                "source": "user"
+            }),
+        );
+        metadata.insert(
+            first_shard.to_string(),
+            json!({
+                "family": "Noto Sans JP",
+                "weight": "400",
+                "style": "normal",
+                "source": "google"
+            }),
+        );
+        write_font_metadata(&root.path, &metadata).expect("metadata should be written");
+
+        replace_managed_google_font_files(
+            &root.path,
+            "NotoSansJP",
+            "Noto Sans JP",
+            &[downloaded_font(first_shard, b"new managed shard")],
+        )
+        .expect("managed replacement should keep user single file");
+
+        assert_eq!(
+            fs::read(root.path.join(user_single)).expect("user font should remain"),
+            b"user font"
+        );
+        assert_eq!(
+            font_metadata_source(&read_font_metadata(&root.path), user_single),
+            Some("user")
+        );
+    }
+
+    #[test]
     fn replace_managed_google_font_files_restores_prior_file_after_metadata_failure() {
         let root = TempFontRoot::new("metadata-rollback");
         let filename = "Roboto-Regular.woff2";
@@ -870,9 +1218,9 @@ mod tests {
         )
         .expect("old metadata should be written");
 
-        *FAIL_NEXT_FONT_METADATA_WRITE
+        *FAIL_NEXT_FONT_METADATA_WRITE_ROOT
             .lock()
-            .expect("failure hook lock") = true;
+            .expect("failure hook lock") = Some(root.path.clone());
         let error = replace_managed_google_font_files(
             &root.path,
             "Roboto",
