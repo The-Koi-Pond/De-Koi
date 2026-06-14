@@ -5,9 +5,71 @@ import {
   createGameCheckpoint,
 } from "./game-api-checkpoint-helpers";
 
+type CheckpointSnapshot = Record<string, unknown> & {
+  id: string;
+  chatId?: string;
+  gameState?: unknown;
+  metadata?: Record<string, unknown> | null;
+};
+
+const TRACKER_SNAPSHOT_STATE_KEYS = [
+  "id",
+  "kind",
+  "chatId",
+  "messageId",
+  "swipeIndex",
+  "date",
+  "time",
+  "location",
+  "weather",
+  "temperature",
+  "presentCharacters",
+  "recentEvents",
+  "playerStats",
+  "personaStats",
+  "manualOverrides",
+  "committed",
+  "createdAt",
+] as const;
+
+function hasOwnField(record: Record<string, unknown>, field: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, field);
+}
+
+function trackerSnapshotState(snapshot: CheckpointSnapshot): Record<string, unknown> {
+  const state: Record<string, unknown> = {};
+  for (const key of TRACKER_SNAPSHOT_STATE_KEYS) {
+    if (hasOwnField(snapshot, key)) state[key] = snapshot[key];
+  }
+  return state;
+}
+
+function checkpointSnapshotRestorePayload(
+  snapshot: CheckpointSnapshot,
+  fallbackMetadata: Record<string, unknown> = {},
+) {
+  if (hasOwnField(snapshot, "gameState")) {
+    return {
+      gameState: snapshot.gameState ?? {},
+      metadata: g.asRecord(snapshot.metadata ?? fallbackMetadata),
+    };
+  }
+  return {
+    gameState: trackerSnapshotState(snapshot),
+    metadata: g.asRecord(snapshot.metadata ?? fallbackMetadata),
+  };
+}
+
+function isOwnedCheckpointSnapshot(snapshot: CheckpointSnapshot | null): boolean {
+  return !!snapshot && hasOwnField(snapshot, "gameState");
+}
+
 export async function listCheckpoints(chatId: string) {
-  const all = await g.storageApi.list<g.GameCheckpoint>("game-checkpoints");
-  return all.filter((checkpoint) => (checkpoint as { chatId?: string }).chatId === chatId);
+  return g.storageApi.list<g.GameCheckpoint>("game-checkpoints", {
+    filters: { chatId },
+    orderBy: "createdAt",
+    descending: true,
+  });
 }
 
 export async function createCheckpoint(data: { chatId: string; label: string; triggerType: string }) {
@@ -21,25 +83,24 @@ export async function loadCheckpoint(data: { chatId: string; checkpointId: strin
     label?: string;
     snapshotId?: string;
     messageId?: string | null;
+    gameState?: string | null;
   }>("game-checkpoints", data.checkpointId);
   if (!checkpoint) throw new Error("Checkpoint was not found.");
   if (checkpoint.chatId !== data.chatId) throw new Error("Checkpoint does not belong to this chat.");
   if (!checkpoint.snapshotId) throw new Error("Checkpoint is missing its state snapshot.");
-  const snapshot = await g.storageApi.get<{
-    id: string;
-    chatId?: string;
-    gameState?: unknown;
-    metadata?: Record<string, unknown>;
-  }>("game-state-snapshots", checkpoint.snapshotId);
+  const snapshot = await g.storageApi.get<CheckpointSnapshot>("game-state-snapshots", checkpoint.snapshotId);
   if (!snapshot) throw new Error("Checkpoint snapshot was not found.");
   if (snapshot.chatId !== data.chatId) throw new Error("Checkpoint snapshot does not belong to this chat.");
   const previousChat = await g.getChat(data.chatId);
   const previousGameState = (previousChat as { gameState?: unknown }).gameState ?? null;
   const previousMetadata = g.chatMeta(previousChat);
   const checkpointAnchor = typeof checkpoint.messageId === "string" ? checkpoint.messageId.trim() : "";
-  const restoredGameState = snapshot.gameState ?? {};
+  const snapshotPayload = checkpointSnapshotRestorePayload(snapshot, previousMetadata);
+  const restoredGameState = snapshotPayload.gameState;
+  const restoredActiveState = g.readTrimmed(checkpoint.gameState);
   const restoredMetadata = {
-    ...(snapshot.metadata ?? {}),
+    ...snapshotPayload.metadata,
+    ...(restoredActiveState ? { gameActiveState: restoredActiveState } : {}),
     [RESTORED_CHECKPOINT_ANCHOR_META_KEY]: checkpointAnchor || null,
     [RESTORED_CHECKPOINT_LEGACY_META_KEY]: !checkpointAnchor,
   };
@@ -76,6 +137,7 @@ export async function branchFromCheckpoint(data: { chatId: string; checkpointId:
     label?: string;
     snapshotId?: string;
     messageId?: string | null;
+    gameState?: string | null;
   }>("game-checkpoints", data.checkpointId);
   if (!checkpoint) throw new Error("Checkpoint was not found.");
   if (checkpoint.chatId !== data.chatId) throw new Error("Checkpoint does not belong to this chat.");
@@ -86,20 +148,18 @@ export async function branchFromCheckpoint(data: { chatId: string; checkpointId:
       "This checkpoint was saved before branch anchors were recorded. Load it, save a new checkpoint, then branch from that checkpoint.",
     );
   }
-  const snapshot = await g.storageApi.get<{
-    id: string;
-    chatId?: string;
-    gameState?: unknown;
-    metadata?: Record<string, unknown>;
-  }>("game-state-snapshots", checkpoint.snapshotId);
+  const snapshot = await g.storageApi.get<CheckpointSnapshot>("game-state-snapshots", checkpoint.snapshotId);
   if (!snapshot) throw new Error("Checkpoint snapshot was not found.");
   if (snapshot.chatId !== data.chatId) throw new Error("Checkpoint snapshot does not belong to this chat.");
   const branch = await g.chatCommandApi.branch<g.Chat>(data.chatId, messageId);
   try {
+    const snapshotPayload = checkpointSnapshotRestorePayload(snapshot, g.chatMeta(branch));
+    const restoredActiveState = g.readTrimmed(checkpoint.gameState);
     return await g.patchChat(branch.id, {
-      gameState: snapshot.gameState ?? {},
+      gameState: snapshotPayload.gameState,
       metadata: {
-        ...(snapshot.metadata ?? {}),
+        ...snapshotPayload.metadata,
+        ...(restoredActiveState ? { gameActiveState: restoredActiveState } : {}),
         branchedFromCheckpointId: checkpoint.id,
         branchedFromCheckpointLabel: checkpoint.label ?? "Checkpoint",
         [RESTORED_CHECKPOINT_ANCHOR_META_KEY]: null,
@@ -124,6 +184,19 @@ export async function deleteCheckpoint(id: string) {
   if (!result.deleted) return { ok: false };
   const snapshotId = g.readTrimmed(checkpoint?.snapshotId);
   if (!snapshotId) return { ok: true };
+  let snapshot: CheckpointSnapshot | null = null;
+  try {
+    snapshot = await g.storageApi.get<CheckpointSnapshot>("game-state-snapshots", snapshotId);
+  } catch (error) {
+    return {
+      ok: true,
+      snapshotCleanupWarning: {
+        snapshotId,
+        message: error instanceof Error ? error.message : "Checkpoint snapshot cleanup failed.",
+      },
+    };
+  }
+  if (!isOwnedCheckpointSnapshot(snapshot)) return { ok: true };
   try {
     await g.storageApi.delete("game-state-snapshots", snapshotId);
   } catch (error) {
