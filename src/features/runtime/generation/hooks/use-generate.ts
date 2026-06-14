@@ -21,9 +21,11 @@ import { chatBackgroundMetadataToUrl } from "../../../../shared/lib/backgrounds"
 import { chatCommandApi } from "../../../../shared/api/chat-command-api";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { backgroundsApi } from "../../../../shared/api/settings-assets-api";
 import { integrationGateway } from "../../../../shared/api/integration-gateway";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { visualAssetsApi } from "../../../../shared/api/visual-assets-api";
+import { urlBinaryApi } from "../../../../shared/api/url-binary-api";
 import { requestImagePromptReview } from "../../../../shared/components/ui/ImagePromptReviewHost";
 import { showConversationLocalNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
@@ -142,6 +144,32 @@ function readString(value: unknown, fallback = ""): string {
 
 function readPositiveNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function imageDataUrlFromGeneratedImage(image: { base64?: unknown; mimeType?: unknown; image?: unknown }): string {
+  const direct = readString(image.image).trim();
+  if (direct) return direct;
+  const base64 = readString(image.base64).trim();
+  if (!base64) return "";
+  const mimeType = readString(image.mimeType).trim() || "image/png";
+  return `data:${mimeType};base64,${base64}`;
+}
+
+function generatedImageExtension(ext: unknown, mimeType: unknown): string {
+  const cleanExt = readString(ext).trim().replace(/^\./, "").toLowerCase();
+  if (/^[a-z0-9]{2,5}$/.test(cleanExt)) return cleanExt;
+  const cleanMime = readString(mimeType).trim().toLowerCase().split(";")[0];
+  if (cleanMime === "image/jpeg" || cleanMime === "image/jpg") return "jpg";
+  if (cleanMime === "image/webp") return "webp";
+  if (cleanMime === "image/gif") return "gif";
+  return "png";
+}
+
+async function dataUrlToFile(dataUrl: string, filename: string, fallbackMimeType = "image/png"): Promise<File> {
+  const blob = dataUrl.startsWith("data:")
+    ? await fetch(dataUrl).then((response) => response.blob())
+    : await urlBinaryApi.load(dataUrl, fallbackMimeType);
+  return new File([blob], filename, { type: blob.type || fallbackMimeType });
 }
 
 function toolEventName(data: unknown): string {
@@ -786,6 +814,128 @@ async function applyBackgroundChoice(chatId: string, chosen: unknown) {
   }
 }
 
+type BackgroundGenerationRequest = {
+  location: string;
+  prompt: string;
+  reason: string;
+};
+
+type BackgroundGenerationDeps = {
+  storage: Pick<typeof storageApi, "get" | "list">;
+  backgrounds: Pick<typeof backgroundsApi, "upload">;
+  image: NonNullable<IntegrationGateway["image"]>;
+  applyChoice: (chatId: string, chosen: unknown) => Promise<void>;
+};
+
+function normalizeBackgroundGenerationRequest(value: unknown): BackgroundGenerationRequest | null {
+  const record = parseMaybeRecord(value);
+  const prompt = readString(record.prompt).trim();
+  if (!prompt) return null;
+  return {
+    location: readString(record.location).trim(),
+    prompt,
+    reason: readString(record.reason).trim(),
+  };
+}
+
+function backgroundSlug(value: string): string {
+  return (
+    value
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "generated-background"
+  );
+}
+
+async function defaultAgentImageConnectionId(storage: BackgroundGenerationDeps["storage"]): Promise<string> {
+  const connections = await storage.list<Record<string, unknown>>("connections").catch(() => []);
+  const defaultConnection = connections.find(
+    (item) => readString(item.provider).trim() === "image_generation" && item.defaultForAgents === true,
+  );
+  return readString(defaultConnection?.id).trim();
+}
+
+async function backgroundAgentImageConnectionId(
+  chatId: string,
+  result: AgentResult,
+  deps: BackgroundGenerationDeps,
+): Promise<string> {
+  const agentId = readString(result.agentId).trim();
+  const direct = agentId ? await deps.storage.get<Record<string, unknown>>("agents", agentId).catch(() => null) : null;
+  const fallback = await deps.storage.get<Record<string, unknown>>("agents", "background").catch(() => null);
+  const directSettings = parseMaybeRecord(direct?.settings);
+  const fallbackSettings = parseMaybeRecord(fallback?.settings);
+  const settingsConnectionId =
+    readString(directSettings.imageConnectionId).trim() || readString(fallbackSettings.imageConnectionId).trim();
+  if (settingsConnectionId) return settingsConnectionId;
+
+  const chat = await deps.storage.get<Record<string, unknown>>("chats", chatId).catch(() => null);
+  const meta = parseMaybeRecord(chat?.metadata);
+  const chatConnectionId = readString(meta.imageGenConnectionId).trim() || readString(meta.imageConnectionId).trim();
+  if (chatConnectionId) return chatConnectionId;
+
+  return defaultAgentImageConnectionId(deps.storage);
+}
+
+function uploadedBackgroundChoice(upload: unknown): string {
+  const record = parseMaybeRecord(upload);
+  return (
+    readString(record.filename).trim() ||
+    readString(record.name).trim() ||
+    readString(record.path).trim() ||
+    readString(record.url).trim()
+  );
+}
+
+export async function generateAndApplyBackgroundRequest(
+  chatId: string,
+  result: AgentResult,
+  deps: BackgroundGenerationDeps = {
+    storage: storageApi,
+    backgrounds: backgroundsApi,
+    image: integrationGateway.image!,
+    applyChoice: applyBackgroundChoice,
+  },
+): Promise<string | null> {
+  const data = parseMaybeRecord(result.data);
+  const request = normalizeBackgroundGenerationRequest(data.generate);
+  if (!request) return null;
+  if (!deps.image) throw new Error("Image generation is not available.");
+
+  const connectionId = await backgroundAgentImageConnectionId(chatId, result, deps);
+  if (!connectionId) throw new Error("No image generation connection configured for the Background agent.");
+
+  const image = await deps.image.generate<{
+    base64?: string;
+    mimeType?: string;
+    image?: string;
+    ext?: string;
+  }>({
+    connectionId,
+    kind: "background",
+    reviewId: `background:${chatId}:${backgroundSlug(request.location || request.prompt)}`,
+    reviewTitle: request.location ? `Background: ${request.location}` : "Generated background",
+    prompt: request.prompt,
+    negativePrompt: "people, characters, text, captions, UI, panels, collage",
+    width: 1280,
+    height: 720,
+  });
+  const imageUrl = imageDataUrlFromGeneratedImage(image);
+  if (!imageUrl) throw new Error("Image provider returned no background image data.");
+
+  const mimeType = readString(image.mimeType).trim() || "image/png";
+  const filename = `${backgroundSlug(request.location || request.prompt)}.${generatedImageExtension(image.ext, mimeType)}`;
+  const file = await dataUrlToFile(imageUrl, filename, mimeType);
+  const upload = await deps.backgrounds.upload<Record<string, unknown>>(file);
+  const chosen = uploadedBackgroundChoice(upload);
+  if (!chosen) throw new Error("Generated background upload did not return a filename.");
+  await deps.applyChoice(chatId, chosen);
+  return chosen;
+}
+
 function applyQuestUpdates(rawData: unknown, autoRemoveFullyCompleted: boolean) {
   const current = useGameStateStore.getState().current;
   const { playerStats, changed } = applyQuestUpdatesToPlayerStats(
@@ -1109,7 +1259,15 @@ async function applyAgentResultEffects(
   }
 
   if (result.type === "background_change" || result.agentType === "background") {
-    await applyBackgroundChoice(chatId, data.chosen);
+    const chosen = readString(data.chosen).trim();
+    if (chosen) {
+      await applyBackgroundChoice(chatId, chosen);
+    } else {
+      await generateAndApplyBackgroundRequest(chatId, result).catch((error) => {
+        console.warn("Failed to generate background agent image", error);
+        toast.error(errorMessage(error));
+      });
+    }
   }
   if (result.agentType === "quest") applyQuestUpdates(result.data, options.autoRemoveFullyCompletedQuests === true);
   if (!options.skipTrackerSync) await applyTrackerResultToGameState(queryClient, chatId, result);
