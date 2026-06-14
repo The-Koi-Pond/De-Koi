@@ -688,21 +688,61 @@ def diff_for_path(base, path, *, unified=80):
     )
 
 
-def build_file_context(base, files, *, compact=False):
+def packet_body_budget_for_section(sections_before, section_title, sections_after):
+    skeleton = format_packet_sections(
+        [*sections_before, (section_title, ""), *sections_after]
+    )
+    return max(0, MAX_REVIEW_PACKET_CHARS - len(skeleton))
+
+
+def remaining_context_budget(sections, limit):
+    if limit is None:
+        return None
+    current = "\n\n".join(sections)
+    separator = 2 if current else 0
+    return limit - len(current) - separator
+
+
+def append_context_section(sections, section, limit):
+    remaining = remaining_context_budget(sections, limit)
+    if remaining is None:
+        sections.append(section)
+        return True
+    if remaining <= 0:
+        return False
+    sections.append(truncate_to_budget(section, remaining))
+    return True
+
+
+def build_file_context(base, files, *, compact=False, max_context_chars=None):
     sections = []
     patch_limit = MAX_COMPACT_FILE_PATCH_CHARS if compact else MAX_FILE_PATCH_CHARS
     summary_limit = (
         MAX_COMPACT_FILE_SUMMARY_CHARS if compact else MAX_FILE_SUMMARY_CHARS
     )
+    context_limit = max_context_chars
+    if compact:
+        context_limit = min(
+            MAX_COMPACT_FILE_CONTEXT_CHARS,
+            max_context_chars
+            if max_context_chars is not None
+            else MAX_COMPACT_FILE_CONTEXT_CHARS,
+        )
     unified = COMPACT_DIFF_UNIFIED_LINES if compact else 80
     for path in files:
         patch = diff_for_path(base, path, unified=unified)
         if not patch:
             continue
-        if len(patch) <= patch_limit:
-            sections.append(f"### {path}\n```diff\n{patch}\n```")
+        full_section = f"### {path}\n```diff\n{patch}\n```"
+        remaining = remaining_context_budget(sections, context_limit)
+        if (
+            (len(patch) <= patch_limit or (not compact and context_limit is not None))
+            and (remaining is None or len(full_section) <= remaining)
+        ):
+            if not append_context_section(sections, full_section, context_limit):
+                break
             continue
-        sections.append(
+        summary_section = (
             "### "
             + path
             + "\n```text\n"
@@ -710,9 +750,11 @@ def build_file_context(base, files, *, compact=False):
             + truncate(patch, summary_limit)
             + "\n```"
         )
+        if not append_context_section(sections, summary_section, context_limit):
+            break
     body = "\n\n".join(sections) or "No per-file patch context found."
-    if compact:
-        return truncate(body, MAX_COMPACT_FILE_CONTEXT_CHARS)
+    if context_limit is not None:
+        return truncate_to_budget(body, context_limit)
     return body
 
 
@@ -849,7 +891,7 @@ def build_review_packet(
         patch = "\n".join(
             diff_for_path(base, path, unified=unified) for path in focus_files
         )
-    sections = [
+    sections_before_file_context = [
         ("review mode", mode),
         ("git status", run_git(["status", "--short", "--branch"], 12_000)),
         ("repo root", run_git(["rev-parse", "--show-toplevel"], 4_000)),
@@ -878,7 +920,8 @@ def build_review_packet(
                 focus_files=context_files if focus_files else None,
             ),
         ),
-        ("per-file patch context", build_file_context(base, context_files, compact=compact)),
+    ]
+    sections_after_file_context = [
         (
             "changed identifier usage",
             build_identifier_context(
@@ -893,7 +936,26 @@ def build_review_packet(
         ("repo guidance digest", build_repo_guidance_digest(files, compact=compact)),
     ]
     if ci_status:
-        sections.append(("CI status", ci_status))
+        sections_after_file_context.append(("CI status", ci_status))
+
+    file_context_budget = packet_body_budget_for_section(
+        sections_before_file_context,
+        "per-file patch context",
+        sections_after_file_context,
+    )
+    sections = [
+        *sections_before_file_context,
+        (
+            "per-file patch context",
+            build_file_context(
+                base,
+                context_files,
+                compact=compact,
+                max_context_chars=file_context_budget,
+            ),
+        ),
+        *sections_after_file_context,
+    ]
 
     append_optional_global_context(sections, global_context)
     if emit_telemetry:
