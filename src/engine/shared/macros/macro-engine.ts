@@ -895,7 +895,7 @@ function pickWeightedRandomChoice(choices: string[]): string {
  *  - {{trimStart}} / {{trimEnd}} — directional trim markers
  *  - {{newline}} / {{\n}} — literal newline
  *  - {{noop}} — no operation, removed
- *  - {{banned "text"}} — content filter (removed for now)
+ *  - {{banned "text"}} / {{banned text}} — content filter (removed for now)
  *  - {{uppercase}}...{{/uppercase}} — convert to uppercase
  *  - {{lowercase}}...{{/lowercase}} — convert to lowercase
  *  - {{#if char == "Name"}}...{{else}}...{{/if}} - conditional block
@@ -933,7 +933,7 @@ function resolveMacrosWithState(
 
   // ── No-op & banned ──
   result = result.replace(/\{\{noop\}\}/gi, "");
-  result = result.replace(/\{\{banned\s+"[^"]*"\}\}/gi, "");
+  result = replaceBalancedMacros(result, (body) => (/^banned(?:\s+[\s\S]*)?$/i.test(body.trim()) ? "" : undefined));
 
   // ── Character field substitutions ──
   result = result.replace(/\{\{description\}\}/gi, () =>
