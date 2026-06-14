@@ -98,6 +98,7 @@ function extractEmbeddedRegexScripts(
     results.push({
       name: scriptName,
       characterId,
+      targetCharacterIds: [characterId],
       enabled: !entry.disabled,
       findRegex: pattern,
       replaceString: entry.replaceString ?? "",

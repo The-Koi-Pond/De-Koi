@@ -312,7 +312,11 @@ function imageAttachmentNotes(attachments: PromptAttachment[]): string {
   return names.map((name) => `[Attached image: ${name}]`).join("\n");
 }
 
-async function prepareUserInput(storage: StorageGateway, input: StartGenerationInput): Promise<PreparedUserInput> {
+async function prepareUserInput(
+  storage: StorageGateway,
+  input: StartGenerationInput,
+  chat: JsonRecord,
+): Promise<PreparedUserInput> {
   const raw = inputUserMessage(input).trim();
   const attachments = inputAttachments(input);
   const images = await resolveImageAttachmentDataUrls(storage, attachments);
@@ -320,7 +324,9 @@ async function prepareUserInput(storage: StorageGateway, input: StartGenerationI
   try {
     const managedAttachments = preparedAttachments.attachments;
     const mentionedCharacterNames = stringArray(input.mentionedCharacterNames).filter((name) => name.trim().length > 0);
-    const regexed = raw ? await applyRuntimeRegexScripts(storage, "user_input", raw) : "";
+    const regexed = raw
+      ? await applyRuntimeRegexScripts(storage, "user_input", raw, { chatCharacterIds: activeCharacterIds(chat) })
+      : "";
     const withReadableAttachments = appendReadableAttachmentsToContent(regexed, managedAttachments);
     const imageNotes = imageAttachmentNotes(managedAttachments);
     return {
@@ -3326,7 +3332,7 @@ export async function* startGeneration(
   assertChatCanGenerate(chat, input);
 
   yield { type: "phase", data: "Saving message..." };
-  const preparedUserInput = await prepareUserInput(deps.storage, input);
+  const preparedUserInput = await prepareUserInput(deps.storage, input, chat);
   let savesUserMessage = false;
   let savedUserMessage: unknown | null = null;
   let storedMessages: JsonRecord[] | null = null;
@@ -3673,7 +3679,10 @@ export async function* startGeneration(
           runtime?.availableSprites ?? [],
           requiredSpriteExpressionTargetIds(chat, input),
         );
-    content = await applyRuntimeRegexScripts(deps.storage, "ai_output", content);
+    content = await applyRuntimeRegexScripts(deps.storage, "ai_output", content, {
+      chatCharacterIds: activeCharacterIds(chat),
+      targetCharacterId: assistantMessageCharacterId(chat, input),
+    });
     throwIfAborted(signal);
     const connected = isUserMessageRegeneration
       ? connectedCommandPassthrough(content)
@@ -3938,7 +3947,10 @@ export async function* startGeneration(
   }
   throwIfAborted(signal);
   let content = streamedContentDirect;
-  content = await applyRuntimeRegexScripts(deps.storage, "ai_output", content);
+  content = await applyRuntimeRegexScripts(deps.storage, "ai_output", content, {
+    chatCharacterIds: activeCharacterIds(chat),
+    targetCharacterId: assistantMessageCharacterId(chat, input),
+  });
   throwIfAborted(signal);
   const connected = isUserMessageRegeneration
     ? connectedCommandPassthrough(content)

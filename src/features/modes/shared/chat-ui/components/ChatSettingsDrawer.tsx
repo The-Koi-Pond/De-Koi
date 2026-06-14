@@ -146,6 +146,7 @@ import {
   useRegexScripts,
   useUpdateAgent,
   useUpdateRegexScript,
+  isRegexScriptScoped,
   type AgentConfigRow,
 } from "../../../../catalog/agents/index";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
@@ -652,7 +653,7 @@ function ChatSettingsDrawerInner({
   const presetChoices = metadataChoiceSelections(metadata.presetChoices);
   const { data: allRegexScripts } = useRegexScripts(chatCharIds);
   const updateRegexScript = useUpdateRegexScript();
-  const scopedRegexScripts = useMemo(() => (allRegexScripts ?? []).filter((s) => !!s.characterId), [allRegexScripts]);
+  const scopedRegexScripts = useMemo(() => (allRegexScripts ?? []).filter(isRegexScriptScoped), [allRegexScripts]);
   const scopedRegexCount = scopedRegexScripts.length;
   const spotifyActive = activeAgentIds.includes("spotify");
   const gameLorebookKeeperLorebook = gameLorebookKeeperLorebookId

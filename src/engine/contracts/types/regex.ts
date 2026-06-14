@@ -9,6 +9,7 @@ export type RegexPlacement = "ai_output" | "user_input";
 export interface RegexScript {
   id: string;
   characterId: string | null;
+  targetCharacterIds: string[];
   /** Display name */
   name: string;
   /** Whether this script is active */

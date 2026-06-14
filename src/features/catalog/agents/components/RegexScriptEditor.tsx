@@ -25,12 +25,15 @@ import {
   ToggleRight,
   Plus,
   Minus,
+  Users,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 import type { RegexPlacement } from "../../../../engine/contracts/types/regex";
 import { resolveMacros, type MacroContext } from "../../../../engine/shared/macros/macro-engine";
 import { applyRegexScriptReplacement } from "../../../../engine/shared/regex/regex-script-application";
+import { useCharacterSummaries } from "../../characters/index";
+import { regexScriptTargetCharacterIds } from "../lib/regex-script-filter";
 
 // ═══════════════════════════════════════════════
 //  Placement metadata
@@ -77,6 +80,10 @@ function resolveLiveTestMacros(value: string, context: MacroContext): string {
   return resolveMacros(value, context, { trimResult: false });
 }
 
+function characterDisplayName(character: { id: string; data?: { name?: string } }): string {
+  return character.data?.name?.trim() || character.id;
+}
+
 // ═══════════════════════════════════════════════
 //  Main Editor
 // ═══════════════════════════════════════════════
@@ -89,6 +96,7 @@ export function RegexScriptEditor() {
   const updateScript = useUpdateRegexScript();
   const createScript = useCreateRegexScript();
   const deleteScript = useDeleteRegexScript();
+  const { data: characters } = useCharacterSummaries();
 
   const isNew = regexDetailId === "__new__";
 
@@ -105,6 +113,7 @@ export function RegexScriptEditor() {
   const [localReplaceString, setLocalReplaceString] = useState("");
   const [localTrimStrings, setLocalTrimStrings] = useState<string[]>([]);
   const [localPlacement, setLocalPlacement] = useState<RegexPlacement[]>(["ai_output"]);
+  const [localTargetCharacterIds, setLocalTargetCharacterIds] = useState<string[]>([]);
   const [localFlags, setLocalFlags] = useState("gi");
   const [localPromptOnly, setLocalPromptOnly] = useState(false);
   const [localOrder, setLocalOrder] = useState(0);
@@ -148,6 +157,7 @@ export function RegexScriptEditor() {
       } catch {
         setLocalPlacement(["ai_output"]);
       }
+      setLocalTargetCharacterIds(regexScriptTargetCharacterIds(dbRow));
       setLocalFlags(dbRow.flags);
       setLocalPromptOnly(dbRow.promptOnly === true || dbRow.promptOnly === "true" || dbRow.promptOnly === "1");
       setLocalOrder(dbRow.order);
@@ -161,6 +171,7 @@ export function RegexScriptEditor() {
       setLocalReplaceString("");
       setLocalTrimStrings([]);
       setLocalPlacement(["ai_output"]);
+      setLocalTargetCharacterIds([]);
       setLocalFlags("gi");
       setLocalPromptOnly(false);
       setLocalOrder(0);
@@ -200,6 +211,12 @@ export function RegexScriptEditor() {
     }
   }, [testInput, localFindRegex, localReplaceString, localFlags, localTrimStrings, regexError]);
 
+  const sortedCharacters = useMemo(
+    () => [...(characters ?? [])].sort((a, b) => characterDisplayName(a).localeCompare(characterDisplayName(b))),
+    [characters],
+  );
+  const selectedTargetIds = useMemo(() => new Set(localTargetCharacterIds), [localTargetCharacterIds]);
+
   const handleClose = useCallback(() => {
     if (dirty) {
       setShowUnsavedWarning(true);
@@ -224,6 +241,8 @@ export function RegexScriptEditor() {
       order: localOrder,
       minDepth: localMinDepth,
       maxDepth: localMaxDepth,
+      characterId: localTargetCharacterIds[0] ?? null,
+      targetCharacterIds: localTargetCharacterIds,
     };
 
     try {
@@ -249,6 +268,7 @@ export function RegexScriptEditor() {
     localReplaceString,
     localTrimStrings,
     localPlacement,
+    localTargetCharacterIds,
     localFlags,
     localPromptOnly,
     localOrder,
@@ -284,6 +304,13 @@ export function RegexScriptEditor() {
       if (has && prev.length <= 1) return prev; // Must have at least one
       return has ? prev.filter((x) => x !== p) : [...prev, p];
     });
+    markDirty();
+  };
+
+  const toggleTargetCharacter = (characterId: string) => {
+    setLocalTargetCharacterIds((prev) =>
+      prev.includes(characterId) ? prev.filter((id) => id !== characterId) : [...prev, characterId],
+    );
     markDirty();
   };
 
@@ -509,6 +536,62 @@ export function RegexScriptEditor() {
                     </button>
                   );
                 },
+              )}
+            </div>
+          </FieldGroup>
+
+          {/* ── Character Scope ── */}
+          <FieldGroup
+            label="Character Scope"
+            icon={<Users size="0.875rem" className="text-orange-400" />}
+            help="Leave global to run this regex in every chat, or choose one or more characters to match legacy scoped scripts."
+          >
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setLocalTargetCharacterIds([]);
+                  markDirty();
+                }}
+                className={cn(
+                  "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs ring-1 transition-all",
+                  localTargetCharacterIds.length === 0
+                    ? "bg-orange-400/10 text-orange-400 ring-orange-400/50"
+                    : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-[var(--border)] hover:bg-[var(--accent)]",
+                )}
+              >
+                <span className="font-medium">Global</span>
+                {localTargetCharacterIds.length === 0 && <Check size="0.8125rem" />}
+              </button>
+              {sortedCharacters.length > 0 && (
+                <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl bg-[var(--secondary)] p-1 ring-1 ring-[var(--border)]">
+                  {sortedCharacters.map((character) => {
+                    const selected = selectedTargetIds.has(character.id);
+                    return (
+                      <button
+                        key={character.id}
+                        type="button"
+                        onClick={() => toggleTargetCharacter(character.id)}
+                        className={cn(
+                          "flex w-full min-w-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors",
+                          selected
+                            ? "bg-orange-400/10 text-orange-400"
+                            : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                            selected ? "border-orange-400 bg-orange-400 text-white" : "border-[var(--border)]",
+                          )}
+                        >
+                          {selected && <Check size="0.625rem" />}
+                        </span>
+                        <span className="truncate">{characterDisplayName(character)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </FieldGroup>

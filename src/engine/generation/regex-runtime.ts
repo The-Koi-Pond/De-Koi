@@ -3,6 +3,10 @@ import type { StorageGateway } from "../capabilities/storage";
 import { bySortOrder, boolish, readString, stringArray, type JsonRecord } from "./runtime-records";
 
 type RegexPlacement = "user_input" | "ai_output";
+type RuntimeRegexScopeOptions = {
+  targetCharacterId?: string | null;
+  chatCharacterIds?: string[];
+};
 
 function placements(value: unknown): RegexPlacement[] {
   const raw = stringArray(value);
@@ -17,10 +21,27 @@ function flagsForScript(script: JsonRecord): string {
   return Array.from(new Set(flags.split("").filter((flag) => "dgimsuvy".includes(flag)))).join("");
 }
 
+function scriptTargetCharacterIds(script: JsonRecord): string[] {
+  const targetCharacterIds = stringArray(script.targetCharacterIds);
+  if (targetCharacterIds.length > 0) return Array.from(new Set(targetCharacterIds));
+  const characterId = readString(script.characterId).trim();
+  return characterId ? [characterId] : [];
+}
+
+function scriptAppliesToScope(script: JsonRecord, options?: RuntimeRegexScopeOptions): boolean {
+  const targetIds = scriptTargetCharacterIds(script);
+  if (targetIds.length === 0) return true;
+  const targetCharacterId = readString(options?.targetCharacterId).trim();
+  if (targetCharacterId) return targetIds.includes(targetCharacterId);
+  const chatCharacterIds = new Set((options?.chatCharacterIds ?? []).map((id) => id.trim()).filter(Boolean));
+  return chatCharacterIds.size > 0 && targetIds.some((id) => chatCharacterIds.has(id));
+}
+
 export async function applyRuntimeRegexScripts(
   storage: StorageGateway,
   placement: RegexPlacement,
   input: string,
+  options?: RuntimeRegexScopeOptions,
 ): Promise<string> {
   if (!input) return input;
 
@@ -30,6 +51,7 @@ export async function applyRuntimeRegexScripts(
   for (const script of scripts) {
     if (!boolish(script.enabled, true)) continue;
     if (boolish(script.promptOnly, false)) continue;
+    if (!scriptAppliesToScope(script, options)) continue;
     if (!placements(script.placement).includes(placement)) continue;
 
     const findRegex = readString(script.findRegex);
