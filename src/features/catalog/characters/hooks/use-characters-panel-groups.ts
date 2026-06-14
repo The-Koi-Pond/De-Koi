@@ -1,6 +1,11 @@
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  applyGroupMembershipChangesWithRollback,
+  buildGroupMembershipMoveChanges,
+  GroupMembershipRollbackError,
+} from "../../lib/group-membership-move";
 import { useCreateGroup, useUpdateGroup } from "./use-characters";
 import type { ParsedGroupRow } from "../lib/characters-panel-model";
 
@@ -77,27 +82,29 @@ export function useCharactersPanelGroups() {
   );
 
   const moveCharacterToGroup = useCallback(
-    (targetGroupId: string | null, charId: string, groups: ParsedGroupRow[]) => {
+    (targetGroupId: string | null, charId: string, sourceGroupId: string | null, groups: ParsedGroupRow[]) => {
       if (updateGroup.isPending || membershipMoveInFlightRef.current) return;
-      const changes = groups
-        .filter((group) => group.isSynthetic !== true)
-        .flatMap((group) => {
-          const isMember = group.memberIds.includes(charId);
-          if (targetGroupId === null) {
-            return isMember
-              ? [{ id: group.id, characterIds: group.memberIds.filter((memberId) => memberId !== charId) }]
-              : [];
-          }
-          if (group.id !== targetGroupId || isMember) return [];
-          return [{ id: group.id, characterIds: [...group.memberIds, charId] }];
-        });
+      const changes = buildGroupMembershipMoveChanges({
+        groups,
+        itemId: charId,
+        sourceGroupId,
+        targetGroupId,
+      });
 
       if (changes.length === 0) return;
       membershipMoveInFlightRef.current = true;
       setMembershipMovePending(true);
-      void Promise.all(changes.map((change) => updateGroup.mutateAsync(change)))
+      void applyGroupMembershipChangesWithRollback(changes, (change) =>
+        updateGroup.mutateAsync({ id: change.id, characterIds: change.memberIds }),
+      )
         .catch((error) => {
-          toast.error(error instanceof Error ? error.message : "Failed to update group membership.");
+          toast.error(
+            error instanceof GroupMembershipRollbackError
+              ? "Failed to update group membership. Rollback also failed; refresh before retrying."
+              : error instanceof Error
+                ? error.message
+                : "Failed to update group membership.",
+          );
         })
         .finally(() => {
           membershipMoveInFlightRef.current = false;

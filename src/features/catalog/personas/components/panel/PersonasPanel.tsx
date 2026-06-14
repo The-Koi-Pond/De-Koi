@@ -11,6 +11,11 @@ import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../../shared/lib/utils";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import {
+  applyGroupMembershipChangesWithRollback,
+  buildGroupMembershipMoveChanges,
+  GroupMembershipRollbackError,
+} from "../../../lib/group-membership-move";
+import {
   buildPersonaMap,
   filterPersonas,
   getPersonaTags,
@@ -203,25 +208,29 @@ export function PersonasPanel() {
   );
 
   const movePersonaToGroup = useCallback(
-    (targetGroupId: string | null, personaId: string) => {
+    (targetGroupId: string | null, personaId: string, sourceGroupId: string | null) => {
       if (updatePGroup.isPending || personaGroupMoveInFlightRef.current) return;
-      const changes = parsedGroups
-        .filter((group) => group.isSynthetic !== true)
-        .flatMap((group) => {
-          const isMember = group.memberIds.includes(personaId);
-          if (targetGroupId === null) {
-            return isMember ? [{ id: group.id, personaIds: group.memberIds.filter((id) => id !== personaId) }] : [];
-          }
-          if (group.id !== targetGroupId || isMember) return [];
-          return [{ id: group.id, personaIds: [...group.memberIds, personaId] }];
-        });
+      const changes = buildGroupMembershipMoveChanges({
+        groups: parsedGroups,
+        itemId: personaId,
+        sourceGroupId,
+        targetGroupId,
+      });
 
       if (changes.length === 0) return;
       personaGroupMoveInFlightRef.current = true;
       setPersonaGroupMovePending(true);
-      void Promise.all(changes.map((change) => updatePGroup.mutateAsync(change)))
+      void applyGroupMembershipChangesWithRollback(changes, (change) =>
+        updatePGroup.mutateAsync({ id: change.id, personaIds: change.memberIds }),
+      )
         .catch((error) => {
-          toast.error(error instanceof Error ? error.message : "Failed to update persona group membership.");
+          toast.error(
+            error instanceof GroupMembershipRollbackError
+              ? "Failed to update persona group membership. Rollback also failed; refresh before retrying."
+              : error instanceof Error
+                ? error.message
+                : "Failed to update persona group membership.",
+          );
         })
         .finally(() => {
           personaGroupMoveInFlightRef.current = false;
@@ -303,10 +312,14 @@ export function PersonasPanel() {
         clearPersonaDragState();
         return;
       }
-      movePersonaToGroup(groupId, personaId);
+      movePersonaToGroup(
+        groupId,
+        personaId,
+        draggedPersonaSource?.kind === "group" ? draggedPersonaSource.groupId : null,
+      );
       clearPersonaDragState();
     },
-    [canDropPersonaOnTarget, clearPersonaDragState, draggedPersonaId, movePersonaToGroup],
+    [canDropPersonaOnTarget, clearPersonaDragState, draggedPersonaId, draggedPersonaSource, movePersonaToGroup],
   );
 
   const handlePersonaRootDragOver = useCallback(

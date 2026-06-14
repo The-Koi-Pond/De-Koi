@@ -240,10 +240,22 @@ export function CharactersPanel() {
         clearCharacterDragState();
         return;
       }
-      moveCharacterToGroup(groupId, characterId, parsedGroups);
+      moveCharacterToGroup(
+        groupId,
+        characterId,
+        draggedCharacterSource?.kind === "group" ? draggedCharacterSource.groupId : null,
+        parsedGroups,
+      );
       clearCharacterDragState();
     },
-    [canDropCharacterOnTarget, clearCharacterDragState, draggedCharacterId, moveCharacterToGroup, parsedGroups],
+    [
+      canDropCharacterOnTarget,
+      clearCharacterDragState,
+      draggedCharacterId,
+      draggedCharacterSource,
+      moveCharacterToGroup,
+      parsedGroups,
+    ],
   );
 
   const handleCharacterRootDragOver = useCallback(
