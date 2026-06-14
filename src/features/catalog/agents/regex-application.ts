@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { applyRegexScriptReplacement } from "../../../engine/shared/regex/regex-script-application";
 import { useRegexScripts, type RegexScriptRow } from "./hooks/use-regex-scripts";
+import { regexScriptTargetCharacterIds } from "./lib/regex-script-filter";
 
 type RegexPlacement = "ai_output" | "user_input";
 
@@ -88,11 +89,11 @@ function filterForMode(
 ): ParsedRegexScript[] {
   const normalizedMode = mode ?? "chat";
   if (normalizedMode === "disabled") {
-    return scripts.filter((s) => !s.characterId);
+    return scripts.filter((s) => regexScriptTargetCharacterIds(s).length === 0);
   }
   if (normalizedMode === "exclusive") {
     if (!characterId) return [];
-    return scripts.filter((s) => !!s.characterId && s.characterId === characterId);
+    return scripts.filter((s) => regexScriptTargetCharacterIds(s).includes(characterId));
   }
   return scripts;
 }

@@ -17,6 +17,7 @@ const regexKeys = {
 export interface RegexScriptRow {
   id: string;
   characterId: string | null;
+  targetCharacterIds?: string[];
   name: string;
   // Stored verbatim as a JSON boolean (matches the engine contract and seed_defaults);
   // legacy rows may still carry the string form, so reads must tolerate both.

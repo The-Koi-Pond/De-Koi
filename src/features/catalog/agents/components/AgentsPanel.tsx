@@ -44,6 +44,20 @@ import {
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { resolveEntityImageUrl } from "../../../../shared/api/local-file-api";
 import { cn } from "../../../../shared/lib/utils";
+import { regexScriptTargetCharacterIds } from "../lib/regex-script-filter";
+
+function uniqueStringArray(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : typeof value === "string" && value.trim() ? [value] : [];
+  return Array.from(
+    new Set(raw.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)),
+  );
+}
+
+function importedRegexTargetCharacterIds(obj: Record<string, unknown>): string[] {
+  const multiTargetIds = uniqueStringArray(obj.targetCharacterIds);
+  if (multiTargetIds.length > 0) return multiTargetIds;
+  return uniqueStringArray(obj.characterId);
+}
 
 export function AgentsPanel() {
   const { data: agentConfigs, isLoading } = useAgentConfigs();
@@ -86,44 +100,49 @@ export function AgentsPanel() {
       if (arr.length === 0) throw new Error("No regex scripts found in file");
       let imported = 0;
       for (const obj of arr) {
+        if (!obj || typeof obj !== "object" || Array.isArray(obj)) continue;
+        const row = obj as Record<string, unknown>;
         // Resolve name: ST uses scriptName, native uses name
-        const name = obj.name || obj.scriptName;
+        const name = row.name || row.scriptName;
         // ST wraps regex in /delimiters/flags — extract pattern and flags
-        let findRegex = obj.findRegex ?? "";
-        let flags = obj.flags ?? "gi";
+        let findRegex = typeof row.findRegex === "string" ? row.findRegex : "";
+        let flags = typeof row.flags === "string" ? row.flags : "gi";
         const delimited = findRegex.match(/^\/(.+)\/([gimsuy]*)$/s);
         if (delimited) {
-          findRegex = delimited[1];
+          findRegex = delimited[1] ?? "";
           flags = delimited[2] || "g";
         }
         if (!name || !findRegex) continue;
         // ST placement uses numbers: 1 = user_input, 2 = ai_output
         const stPlacementMap: Record<number, string> = { 1: "user_input", 2: "ai_output" };
         let placement: string[] = ["ai_output"];
-        if (Array.isArray(obj.placement)) {
-          const mapped = obj.placement
+        if (Array.isArray(row.placement)) {
+          const mapped = row.placement
             .map((p: unknown) => (typeof p === "number" ? stPlacementMap[p] : p))
             .filter((p: unknown): p is string => p === "ai_output" || p === "user_input");
           if (mapped.length > 0) placement = mapped;
         }
         // ST uses disabled (inverted), native uses enabled
         let enabled = true;
-        if (typeof obj.enabled === "boolean") enabled = obj.enabled;
-        else if (typeof obj.enabled === "string") enabled = obj.enabled !== "false";
-        else if (typeof obj.disabled === "boolean") enabled = !obj.disabled;
+        if (typeof row.enabled === "boolean") enabled = row.enabled;
+        else if (typeof row.enabled === "string") enabled = row.enabled !== "false";
+        else if (typeof row.disabled === "boolean") enabled = !row.disabled;
+        const targetCharacterIds = importedRegexTargetCharacterIds(row);
 
         await createRegexScript.mutateAsync({
           name,
           enabled,
           findRegex,
-          replaceString: obj.replaceString ?? "",
-          trimStrings: obj.trimStrings ?? [],
+          characterId: targetCharacterIds[0] ?? null,
+          targetCharacterIds,
+          replaceString: row.replaceString ?? "",
+          trimStrings: row.trimStrings ?? [],
           placement,
           flags,
-          promptOnly: obj.promptOnly ?? false,
-          order: obj.order ?? 0,
-          minDepth: obj.minDepth ?? null,
-          maxDepth: obj.maxDepth ?? null,
+          promptOnly: row.promptOnly ?? false,
+          order: row.order ?? 0,
+          minDepth: row.minDepth ?? null,
+          maxDepth: row.maxDepth ?? null,
         });
         imported++;
       }
@@ -278,6 +297,7 @@ export function AgentsPanel() {
         ) : (
           sortedRegexScripts.map((script) => {
             const placements = Array.isArray(script.placement) ? script.placement : [];
+            const targetCharacterIds = regexScriptTargetCharacterIds(script);
             // Stored as a boolean; tolerate the legacy string form too.
             const enabled = script.enabled === true || script.enabled === "true" || script.enabled === "1";
             return (
@@ -336,6 +356,13 @@ export function AgentsPanel() {
                         {p === "ai_output" ? "AI" : "User"}
                       </span>
                     ))}
+                    <span className="rounded bg-[var(--secondary)] px-1 py-0.5 text-[0.5rem] text-[var(--muted-foreground)]">
+                      {targetCharacterIds.length === 0
+                        ? "Global"
+                        : targetCharacterIds.length === 1
+                          ? "1 char"
+                          : `${targetCharacterIds.length} chars`}
+                    </span>
                     <span className="text-[0.5625rem] text-[var(--muted-foreground)] font-mono truncate max-w-[6.25rem]">
                       /{script.findRegex}/{script.flags}
                     </span>

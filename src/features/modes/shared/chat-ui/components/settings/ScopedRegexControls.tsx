@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { cn } from "../../../../../../shared/lib/utils";
-import type { RegexScriptRow } from "../../../../../catalog/agents/index";
+import { regexScriptTargetCharacterIds, type RegexScriptRow } from "../../../../../catalog/agents/index";
 
 export function ScopedRegexModeSelector({
   mode,
@@ -49,10 +49,11 @@ export function ScopedRegexCharacterGroups({
   const grouped = useMemo(() => {
     const map = new Map<string, RegexScriptRow[]>();
     for (const s of scripts) {
-      if (!s.characterId) continue;
-      const arr = map.get(s.characterId) ?? [];
-      arr.push(s);
-      map.set(s.characterId, arr);
+      for (const characterId of regexScriptTargetCharacterIds(s)) {
+        const arr = map.get(characterId) ?? [];
+        arr.push(s);
+        map.set(characterId, arr);
+      }
     }
     return map;
   }, [scripts]);

@@ -139,7 +139,11 @@ const PERSONA_FIELDS: &[TypedJsonField] = &[
     nullable_object("personaStats"),
 ];
 const AGENT_FIELDS: &[TypedJsonField] = &[object("settings")];
-const REGEX_SCRIPT_FIELDS: &[TypedJsonField] = &[array("placement"), array("trimStrings")];
+const REGEX_SCRIPT_FIELDS: &[TypedJsonField] = &[
+    array("placement"),
+    array("trimStrings"),
+    array("targetCharacterIds"),
+];
 
 const CHAT_DEFAULTS: &[&str] = &["metadata", "gameState", "characterIds"];
 const CHAT_FOLDER_DEFAULTS: &[&str] = &["color", "collapsed", "sortOrder", "order"];
