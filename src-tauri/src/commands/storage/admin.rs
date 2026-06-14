@@ -39,7 +39,9 @@ pub(crate) fn admin_expunge(state: &AppState, body: Value) -> AppResult<Value> {
                     "message-swipes",
                     "gallery",
                     "agent-runs",
-                    "knowledge-sources",
+                    "agent-memory",
+                    "game-checkpoints",
+                    "game-state-snapshots",
                 ],
                 &mut cleared_collections,
             )?,
@@ -127,8 +129,12 @@ pub(crate) fn admin_expunge(state: &AppState, body: Value) -> AppResult<Value> {
 /// or expunge/clear-all leaves orphaned files behind. Per-row removal (rather
 /// than nuking the whole folder) is what lets a per-scope expunge — e.g.
 /// "personas" — drop only its own gallery's files without touching the others.
-const GALLERY_FILE_COLLECTIONS: &[&str] =
-    &["gallery", "character-gallery", "persona-gallery", "global-gallery"];
+const GALLERY_FILE_COLLECTIONS: &[&str] = &[
+    "gallery",
+    "character-gallery",
+    "persona-gallery",
+    "global-gallery",
+];
 
 /// Snapshot a gallery collection's rows so their files can be deleted AFTER the
 /// rows are cleared. Returns empty for non-gallery collections.
@@ -311,5 +317,77 @@ mod tests {
             .list("connections")
             .expect("connections should be readable")
             .is_empty());
+    }
+
+    #[test]
+    fn admin_expunge_chats_clears_chat_runtime_collections_without_knowledge_sources() {
+        let state = test_state("chat-runtime-scope");
+        for (collection, id) in [
+            ("chats", "chat-1"),
+            ("chat-folders", "folder-1"),
+            ("messages", "message-1"),
+            ("message-swipes", "swipe-1"),
+            ("gallery", "gallery-1"),
+            ("agent-runs", "run-1"),
+            ("agent-memory", "memory-1"),
+            ("game-checkpoints", "checkpoint-1"),
+            ("game-state-snapshots", "snapshot-1"),
+            ("knowledge-sources", "knowledge-1"),
+        ] {
+            state
+                .storage
+                .upsert_with_id(
+                    collection,
+                    id,
+                    json!({ "id": id, "chatId": "chat-1", "name": collection }),
+                )
+                .expect("seed row should write");
+        }
+
+        let result = admin_expunge(&state, json!({ "confirm": true, "scopes": ["chats"] }))
+            .expect("chat expunge should succeed");
+
+        assert_eq!(
+            result["clearedCollections"],
+            json!([
+                "agent-memory",
+                "agent-runs",
+                "chat-folders",
+                "chats",
+                "gallery",
+                "game-checkpoints",
+                "game-state-snapshots",
+                "message-swipes",
+                "messages"
+            ])
+        );
+        for collection in [
+            "chats",
+            "chat-folders",
+            "messages",
+            "message-swipes",
+            "gallery",
+            "agent-runs",
+            "agent-memory",
+            "game-checkpoints",
+            "game-state-snapshots",
+        ] {
+            assert!(
+                state
+                    .storage
+                    .list(collection)
+                    .expect("cleared collection should be readable")
+                    .is_empty(),
+                "{collection} should be cleared"
+            );
+        }
+        assert_eq!(
+            state
+                .storage
+                .list("knowledge-sources")
+                .expect("knowledge sources should be readable")
+                .len(),
+            1
+        );
     }
 }

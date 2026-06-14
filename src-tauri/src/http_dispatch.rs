@@ -1060,17 +1060,7 @@ async fn tracker_snapshot_save(state: &AppState, args: &Map<String, Value>) -> A
 fn chat_connect(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     let chat_id = required_string(args, "chatId")?;
     let target_chat_id = required_string(args, "targetChatId")?;
-    state.storage.patch(
-        "chats",
-        chat_id,
-        json!({ "connectedChatId": target_chat_id.to_string() }),
-    )?;
-    state.storage.patch(
-        "chats",
-        target_chat_id,
-        json!({ "connectedChatId": chat_id.to_string() }),
-    )?;
-    Ok(json!({ "connected": true }))
+    chats::connect_chats(state, chat_id, target_chat_id)
 }
 
 fn chat_disconnect(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
@@ -2775,6 +2765,94 @@ mod tests {
 
             assert_eq!(error.code, "unsupported_command");
         }
+    }
+
+    #[tokio::test]
+    async fn dispatch_chat_connect_rejects_self_links() {
+        let state = test_state("chat-connect-self");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({ "id": "chat-1", "name": "Chat", "mode": "conversation" }),
+            )
+            .unwrap();
+
+        let error = dispatch(
+            &state,
+            InvokeRequest {
+                command: "chat_connect".to_string(),
+                args: Some(json!({ "chatId": "chat-1", "targetChatId": "chat-1" })),
+            },
+        )
+        .await
+        .expect_err("self connections should be rejected");
+
+        assert_eq!(error.code, "invalid_input");
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        assert!(chat.get("connectedChatId").is_none());
+    }
+
+    #[tokio::test]
+    async fn dispatch_chat_connect_rejects_missing_targets_without_partial_link() {
+        let state = test_state("chat-connect-missing-target");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({ "id": "chat-1", "name": "Chat", "mode": "conversation" }),
+            )
+            .unwrap();
+
+        let error = dispatch(
+            &state,
+            InvokeRequest {
+                command: "chat_connect".to_string(),
+                args: Some(json!({ "chatId": "chat-1", "targetChatId": "missing-chat" })),
+            },
+        )
+        .await
+        .expect_err("missing target should be rejected before writing");
+
+        assert_eq!(error.code, "not_found");
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        assert!(chat.get("connectedChatId").is_none());
+    }
+
+    #[tokio::test]
+    async fn dispatch_chat_connect_links_existing_chats_reciprocally() {
+        let state = test_state("chat-connect-valid");
+        for chat_id in ["chat-1", "chat-2"] {
+            state
+                .storage
+                .create(
+                    "chats",
+                    json!({ "id": chat_id, "name": chat_id, "mode": "conversation" }),
+                )
+                .unwrap();
+        }
+
+        let result = dispatch(
+            &state,
+            InvokeRequest {
+                command: "chat_connect".to_string(),
+                args: Some(json!({ "chatId": "chat-1", "targetChatId": "chat-2" })),
+            },
+        )
+        .await
+        .expect("valid connection should be written");
+
+        assert_eq!(result["connected"], true);
+        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
+        let target = state.storage.get("chats", "chat-2").unwrap().unwrap();
+        assert_eq!(
+            chat.get("connectedChatId").and_then(Value::as_str),
+            Some("chat-2")
+        );
+        assert_eq!(
+            target.get("connectedChatId").and_then(Value::as_str),
+            Some("chat-1")
+        );
     }
 
     #[tokio::test]

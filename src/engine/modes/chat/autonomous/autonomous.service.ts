@@ -4,6 +4,7 @@ import {
   getCurrentStatus,
   getEnabledConversationSchedules,
   getMonday,
+  scheduleNeedsRefresh,
   type WeekSchedule,
 } from "../schedules/schedule.service.js";
 
@@ -33,6 +34,7 @@ export interface BusyDelayResult {
 
 type StoredChat = {
   id?: unknown;
+  mode?: unknown;
   characterIds?: unknown;
   metadata?: unknown;
 };
@@ -161,10 +163,27 @@ export async function getConversationStatus(
   chatId: string,
 ): Promise<ConversationStatusResult> {
   const chat = await requireChat(storage, chatId);
-  const schedules = characterSchedules(metadataRecord(chat.metadata));
+  const meta = metadataRecord(chat.metadata);
+  const schedules = characterSchedules(meta);
+  const statusSchedules: Record<string, WeekSchedule> = { ...schedules };
   const statuses: ConversationStatusResult["statuses"] = {};
+  let needsRefresh = false;
+  let inheritedFreshSchedule = false;
+  let otherConversationSchedules: Promise<Map<string, WeekSchedule>> | null = null;
+
   for (const characterId of chatCharacterIds(chat)) {
-    const schedule = schedules[characterId];
+    let schedule = statusSchedules[characterId];
+    if (schedule && scheduleNeedsRefresh(schedule)) {
+      otherConversationSchedules ??= loadFreshConversationSchedules(storage, chatId);
+      const inherited = (await otherConversationSchedules).get(characterId);
+      if (inherited) {
+        schedule = inherited;
+        statusSchedules[characterId] = inherited;
+        inheritedFreshSchedule = true;
+      } else {
+        needsRefresh = true;
+      }
+    }
     const status = schedule ? getCurrentStatus(schedule) : null;
     statuses[characterId] = {
       status: status?.status ?? "online",
@@ -173,7 +192,35 @@ export async function getConversationStatus(
     };
     await syncStoredConversationStatus(storage, characterId, status);
   }
-  return { statuses, needsRefresh: false };
+
+  if (inheritedFreshSchedule) {
+    await storage.patchChatMetadata(chatId, {
+      ...meta,
+      conversationSchedulesEnabled: true,
+      characterSchedules: statusSchedules,
+      scheduleWeekStart: getMonday().toISOString(),
+    });
+  }
+
+  return { statuses, needsRefresh };
+}
+
+async function loadFreshConversationSchedules(
+  storage: StorageGateway,
+  currentChatId: string,
+): Promise<Map<string, WeekSchedule>> {
+  const schedules = new Map<string, WeekSchedule>();
+  const chats = await storage.list<StoredChat>("chats");
+  for (const chat of chats) {
+    if (chat.id === currentChatId || chat.mode !== "conversation") continue;
+    const meta = metadataRecord(chat.metadata);
+    for (const [characterId, schedule] of Object.entries(characterSchedules(meta))) {
+      if (!schedules.has(characterId) && schedule && !scheduleNeedsRefresh(schedule)) {
+        schedules.set(characterId, schedule);
+      }
+    }
+  }
+  return schedules;
 }
 
 export async function checkConversationAutonomous(

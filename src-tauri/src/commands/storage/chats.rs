@@ -1783,6 +1783,68 @@ pub(crate) fn disconnect_connected_chat(state: &AppState, chat_id: &str) -> AppR
         })
 }
 
+pub(crate) fn connect_chats(
+    state: &AppState,
+    chat_id: &str,
+    target_chat_id: &str,
+) -> AppResult<Value> {
+    let chat_id = chat_id.trim();
+    let target_chat_id = target_chat_id.trim();
+    if chat_id.is_empty() || target_chat_id.is_empty() {
+        return Err(AppError::invalid_input(
+            "chatId and targetChatId are required",
+        ));
+    }
+    if chat_id == target_chat_id {
+        return Err(AppError::invalid_input(
+            "A chat cannot be connected to itself",
+        ));
+    }
+
+    state
+        .storage
+        .update_collections_atomically(vec!["chats"], move |collections| {
+            let chats = collections[0].rows_mut();
+            let Some(chat_index) = chats
+                .iter()
+                .position(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id))
+            else {
+                return Err(AppError::not_found(format!(
+                    "chats/{chat_id} was not found"
+                )));
+            };
+            let Some(target_index) = chats
+                .iter()
+                .position(|chat| chat.get("id").and_then(Value::as_str) == Some(target_chat_id))
+            else {
+                return Err(AppError::not_found(format!(
+                    "chats/{target_chat_id} was not found"
+                )));
+            };
+
+            let now = now_iso();
+            set_connected_chat(&mut chats[chat_index], target_chat_id, &now)?;
+            set_connected_chat(&mut chats[target_index], chat_id, &now)?;
+            Ok(())
+        })?;
+
+    Ok(json!({ "connected": true }))
+}
+
+fn set_connected_chat(chat: &mut Value, connected_chat_id: &str, now: &str) -> AppResult<()> {
+    let Some(object) = chat.as_object_mut() else {
+        return Err(AppError::invalid_input(
+            "Stored chat record is not an object",
+        ));
+    };
+    object.insert(
+        "connectedChatId".to_string(),
+        Value::String(connected_chat_id.to_string()),
+    );
+    object.insert("updatedAt".to_string(), Value::String(now.to_string()));
+    Ok(())
+}
+
 pub(crate) fn delete_chat_array_item(
     state: &AppState,
     chat_id: &str,
