@@ -4,38 +4,218 @@ use super::*;
 use std::collections::HashSet;
 
 const MAX_ASSISTANT_RUN_INTERVAL: i64 = 100;
-const BUILT_IN_AGENT_TYPES: &[&str] = &[
-    "world-state",
-    "prose-guardian",
-    "continuity",
-    "expression",
-    "echo-chamber",
-    "director",
-    "quest",
-    "illustrator",
-    "lorebook-keeper",
-    "card-evolution-auditor",
-    "prompt-reviewer",
-    "combat",
-    "background",
-    "character-tracker",
-    "persona-stats",
-    "html",
-    "chat-summary",
-    "spotify",
-    "editor",
-    "knowledge-retrieval",
-    "knowledge-router",
-    "schedule-planner",
-    "response-orchestrator",
-    "autonomous-messenger",
-    "custom-tracker",
-    "cyoa",
-    "secret-plot-driver",
+const DEFAULT_AGENT_CREDIT: &str = "Marinara Dev Team";
+const DEFAULT_AGENT_MAX_TOKENS: i64 = 4096;
+
+#[derive(Clone, Copy)]
+struct BuiltInAgentDefinition {
+    agent_type: &'static str,
+    name: &'static str,
+    description: &'static str,
+    phase: &'static str,
+    enabled_by_default: bool,
+}
+
+const BUILT_IN_AGENT_DEFINITIONS: &[BuiltInAgentDefinition] = &[
+    BuiltInAgentDefinition {
+        agent_type: "prose-guardian",
+        name: "Prose Guardian",
+        description: "Analyzes recent messages for repetition, rhetorical patterns, and sentence structure - then generates strict writing directives to force variety and freshness.",
+        phase: "pre_generation",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "continuity",
+        name: "Continuity Checker",
+        description: "Detects contradictions with established lore and facts.",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "director",
+        name: "Narrative Director",
+        description: "Introduces events, NPCs, and plot beats to keep the story moving.",
+        phase: "pre_generation",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "echo-chamber",
+        name: "Echo Chamber",
+        description: "Simulates a live streaming-style chat reacting to your roleplay in real time.",
+        phase: "parallel",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "prompt-reviewer",
+        name: "Prompt Reviewer",
+        description: "Analyses your prompt preset for clarity, redundancy, and formatting issues, and suggests improvements.",
+        phase: "pre_generation",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "world-state",
+        name: "World State",
+        description: "Tracks date/time, weather, location, and present characters automatically.",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "expression",
+        name: "Expression Engine",
+        description: "Detects character emotions and selects VN sprites/expressions.",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "quest",
+        name: "Quest Tracker",
+        description: "Manages quest objectives, completion states, and rewards.",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "background",
+        name: "Background",
+        description: "Selects the most fitting background image for the current scene from your uploaded backgrounds, with optional image generation for missing locations.",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "character-tracker",
+        name: "Character Tracker",
+        description: "Tracks which characters are present in the scene, their mood, actions, appearance, outfit, thoughts, and per-character stats (HP, etc.).",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "persona-stats",
+        name: "Persona Stats",
+        description: "Tracks the player persona's status bars - Satiety, Energy, Hygiene, and other custom stats - with realistic changes based on narrative events.",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "custom-tracker",
+        name: "Custom Tracker",
+        description: "Tracks user-defined fields (currencies, counters, flags, or any custom data). Add any fields you want the model to keep track of during the roleplay.",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "illustrator",
+        name: "Illustrator",
+        description: "Generates image prompts for key scenes (requires image generation API).",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "lorebook-keeper",
+        name: "Lorebook Keeper",
+        description: "Automatically creates and updates lorebook entries based on story events, new characters, and world changes.",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "card-evolution-auditor",
+        name: "Card Evolution Auditor",
+        description: "Detects when character card fields (description, personality, scenario, etc.) have become outdated based on roleplay events and proposes edits for user approval.",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "combat",
+        name: "Combat",
+        description: "Manages combat encounters, initiative, HP tracking, and turn-based actions.",
+        phase: "parallel",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "html",
+        name: "Immersive HTML",
+        description: "Injects a prompt directive that encourages the model to include inline HTML, CSS, and JS for immersive in-world visual elements.",
+        phase: "pre_generation",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "chat-summary",
+        name: "Automated Chat Summary",
+        description: "Automatically generates a rolling summary of the conversation every X user messages. Add to a chat for hands-free summary updates.",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "spotify",
+        name: "Spotify DJ",
+        description: "Analyzes the narrative mood and controls Spotify playback - searching tracks, adjusting volume, and cueing music to match the scene. Requires a Spotify Premium account and API credentials.",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "editor",
+        name: "Consistency Editor",
+        description: "Reads all agent data (tracker states, prose rules, continuity notes) and edits the model's response to fix factual errors, outfit/stat contradictions, repetition, and other inconsistencies.",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "knowledge-retrieval",
+        name: "Knowledge Retrieval",
+        description: "Scans specified lorebooks for information relevant to the current conversation, summarizes the key data, and injects it into the prompt - a lightweight RAG pipeline without vector databases.",
+        phase: "pre_generation",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "knowledge-router",
+        name: "Knowledge Router",
+        description: "Lower-cost alternative to Knowledge Retrieval. Reads a short catalog of lorebook entries (descriptions or content snippets), picks which ones are relevant to the current scene, and injects them verbatim - no per-entry summarization passes. Best for large lorebooks where you've written entry descriptions.",
+        phase: "pre_generation",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "schedule-planner",
+        name: "Schedule Planner",
+        description: "Generates a realistic weekly schedule for each character in Conversation mode based on their personality and description. Updates automatically each week.",
+        phase: "pre_generation",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "response-orchestrator",
+        name: "Response Orchestrator",
+        description: "For group Conversation chats - decides which character(s) should respond to a message based on context, personality, and relevance.",
+        phase: "pre_generation",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "autonomous-messenger",
+        name: "Autonomous Messenger",
+        description: "Allows characters to send messages unprompted when the user has been inactive, based on personality traits like talkativeness and the character's current schedule.",
+        phase: "parallel",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "cyoa",
+        name: "CYOA Choices",
+        description: "Generates interactive Choose Your Own Adventure choices after each assistant message. Click a choice to send it as your response. Roleplay mode only.",
+        phase: "post_processing",
+        enabled_by_default: false,
+    },
+    BuiltInAgentDefinition {
+        agent_type: "secret-plot-driver",
+        name: "Secret Plot Driver",
+        description: "Secretly develops an overarching story arc and scene directions behind the scenes. The user never sees the actual plot - only a hint that something is unfolding. Creates long-term narrative structure with protagonist growth, mysteries, and pacing control.",
+        phase: "pre_generation",
+        enabled_by_default: false,
+    },
 ];
 
+fn built_in_agent_definition(agent_type: &str) -> Option<&'static BuiltInAgentDefinition> {
+    BUILT_IN_AGENT_DEFINITIONS
+        .iter()
+        .find(|definition| definition.agent_type == agent_type)
+}
+
 fn is_built_in_agent_type(agent_type: &str) -> bool {
-    BUILT_IN_AGENT_TYPES.contains(&agent_type)
+    built_in_agent_definition(agent_type).is_some()
 }
 
 fn unknown_built_in_agent_type(agent_type: &str) -> AppError {
@@ -53,13 +233,201 @@ fn parse_settings(value: Option<&Value>) -> Map<String, Value> {
     }
 }
 
-fn default_run_interval(agent_type: &str) -> i64 {
+fn default_run_interval_setting(agent_type: &str) -> Option<i64> {
     match agent_type {
-        "director" | "illustrator" => 5,
-        "lorebook-keeper" | "card-evolution-auditor" => 8,
-        "chat-summary" => 5,
-        _ => 1,
+        "director" | "illustrator" | "chat-summary" => Some(5),
+        "lorebook-keeper" | "card-evolution-auditor" => Some(8),
+        _ => None,
     }
+}
+
+fn default_run_interval(agent_type: &str) -> i64 {
+    default_run_interval_setting(agent_type).unwrap_or(1)
+}
+
+fn default_inject_as_section(agent_type: &str) -> bool {
+    matches!(
+        agent_type,
+        "director"
+            | "world-state"
+            | "quest"
+            | "character-tracker"
+            | "persona-stats"
+            | "custom-tracker"
+            | "secret-plot-driver"
+    )
+}
+
+fn default_enabled_tools(agent_type: &str) -> &'static [&'static str] {
+    match agent_type {
+        "world-state" | "quest" | "character-tracker" | "persona-stats" | "custom-tracker" => {
+            &["update_game_state"]
+        }
+        "combat" => &["roll_dice", "update_game_state"],
+        "continuity" | "lorebook-keeper" | "knowledge-retrieval" => &["search_lorebook"],
+        "expression" => &["set_expression"],
+        "director" => &["trigger_event"],
+        "spotify" => &[
+            "spotify_get_current_playback",
+            "spotify_get_playlists",
+            "spotify_get_playlist_tracks",
+            "spotify_search",
+            "spotify_play",
+            "spotify_set_volume",
+        ],
+        _ => &[],
+    }
+}
+
+fn default_built_in_agent_settings(agent_type: &str) -> Map<String, Value> {
+    let mut settings = Map::new();
+    settings.insert("maxTokens".to_string(), json!(DEFAULT_AGENT_MAX_TOKENS));
+    if default_inject_as_section(agent_type) {
+        settings.insert("injectAsSection".to_string(), Value::Bool(true));
+    }
+    if let Some(run_interval) = default_run_interval_setting(agent_type) {
+        settings.insert("runInterval".to_string(), json!(run_interval));
+    }
+    if matches!(agent_type, "knowledge-retrieval" | "knowledge-router") {
+        settings.insert("useChatActiveLorebooks".to_string(), Value::Bool(true));
+    }
+    settings.insert(
+        "enabledTools".to_string(),
+        Value::Array(
+            default_enabled_tools(agent_type)
+                .iter()
+                .map(|tool| Value::String((*tool).to_string()))
+                .collect(),
+        ),
+    );
+    settings
+}
+
+fn default_built_in_agent_object(
+    definition: &BuiltInAgentDefinition,
+    enabled: bool,
+) -> Map<String, Value> {
+    let mut object = Map::new();
+    object.insert(
+        "type".to_string(),
+        Value::String(definition.agent_type.to_string()),
+    );
+    object.insert(
+        "name".to_string(),
+        Value::String(definition.name.to_string()),
+    );
+    object.insert(
+        "description".to_string(),
+        Value::String(definition.description.to_string()),
+    );
+    object.insert(
+        "credit".to_string(),
+        Value::String(DEFAULT_AGENT_CREDIT.to_string()),
+    );
+    object.insert("imagePath".to_string(), Value::Null);
+    object.insert(
+        "phase".to_string(),
+        Value::String(definition.phase.to_string()),
+    );
+    object.insert("enabled".to_string(), Value::Bool(enabled));
+    object.insert("connectionId".to_string(), Value::Null);
+    object.insert("promptTemplate".to_string(), Value::String(String::new()));
+    object.insert(
+        "settings".to_string(),
+        Value::Object(default_built_in_agent_settings(definition.agent_type)),
+    );
+    object
+}
+
+fn merge_agent_settings(default_object: &mut Map<String, Value>, patch_value: Value) {
+    let Some(Value::Object(default_settings)) = default_object.get_mut("settings") else {
+        default_object.insert("settings".to_string(), patch_value);
+        return;
+    };
+    match patch_value {
+        Value::Object(patch_settings) => {
+            for (key, value) in patch_settings {
+                default_settings.insert(key, value);
+            }
+        }
+        Value::String(raw) => match serde_json::from_str::<Value>(&raw) {
+            Ok(Value::Object(patch_settings)) => {
+                for (key, value) in patch_settings {
+                    default_settings.insert(key, value);
+                }
+            }
+            _ => {
+                default_object.insert("settings".to_string(), Value::String(raw));
+            }
+        },
+        other => {
+            default_object.insert("settings".to_string(), other);
+        }
+    }
+}
+
+fn merge_agent_config_object(default_object: &mut Map<String, Value>, patch: Map<String, Value>) {
+    for (key, value) in patch {
+        if key == "settings" {
+            merge_agent_settings(default_object, value);
+        } else {
+            default_object.insert(key, value);
+        }
+    }
+}
+
+fn built_in_agent_config_object(
+    definition: &BuiltInAgentDefinition,
+    enabled: bool,
+    existing: Option<&Value>,
+    patch: Option<Map<String, Value>>,
+) -> AppResult<Map<String, Value>> {
+    let mut object = default_built_in_agent_object(definition, enabled);
+    if let Some(existing) = existing {
+        let existing_object = existing
+            .as_object()
+            .cloned()
+            .ok_or_else(|| AppError::invalid_input("Stored agent config is not an object"))?;
+        merge_agent_config_object(&mut object, existing_object);
+    }
+    if let Some(patch) = patch {
+        merge_agent_config_object(&mut object, patch);
+    }
+    object.insert(
+        "type".to_string(),
+        Value::String(definition.agent_type.to_string()),
+    );
+    Ok(object)
+}
+
+fn create_built_in_agent_config(
+    state: &AppState,
+    definition: &BuiltInAgentDefinition,
+    enabled: bool,
+    patch: Option<Map<String, Value>>,
+) -> AppResult<Value> {
+    let object = built_in_agent_config_object(definition, enabled, None, patch)?;
+    state.storage.create("agents", Value::Object(object))
+}
+
+fn patch_existing_built_in_agent_config(
+    state: &AppState,
+    definition: &BuiltInAgentDefinition,
+    agent: Value,
+    patch: Option<Map<String, Value>>,
+) -> AppResult<Value> {
+    let id = agent
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or(definition.agent_type)
+        .to_string();
+    let object = built_in_agent_config_object(
+        definition,
+        definition.enabled_by_default,
+        Some(&agent),
+        patch,
+    )?;
+    state.storage.patch("agents", &id, Value::Object(object))
 }
 
 fn positive_run_interval(value: Option<&Value>, fallback: i64, max: i64) -> i64 {
@@ -96,7 +464,18 @@ fn find_agent_config(state: &AppState, agent_type: &str) -> AppResult<Option<Val
 
 fn get_or_create_agent_config(state: &AppState, agent_type: &str) -> AppResult<Value> {
     if let Some(agent) = find_agent_config(state, agent_type)? {
+        if let Some(definition) = built_in_agent_definition(agent_type) {
+            return patch_existing_built_in_agent_config(state, definition, agent, None);
+        }
         return Ok(agent);
+    }
+    if let Some(definition) = built_in_agent_definition(agent_type) {
+        return create_built_in_agent_config(
+            state,
+            definition,
+            definition.enabled_by_default,
+            None,
+        );
     }
     state.storage.create(
         "agents",
@@ -225,24 +604,28 @@ fn run_created_at(run: &Value) -> Option<&str> {
 
 pub(crate) fn toggle_agent_type(state: &AppState, agent_type: &str) -> AppResult<Value> {
     if let Some(agent) = find_agent_config(state, agent_type)? {
-        let id = agent
+        let definition = built_in_agent_definition(agent_type);
+        let hydrated = if let Some(definition) = definition {
+            patch_existing_built_in_agent_config(state, definition, agent, None)?
+        } else {
+            agent
+        };
+        let id = hydrated
             .get("id")
             .and_then(Value::as_str)
-            .unwrap_or(agent_type);
-        let enabled = !agent
+            .unwrap_or(agent_type)
+            .to_string();
+        let enabled = !hydrated
             .get("enabled")
             .and_then(Value::as_bool)
             .unwrap_or(true);
         state
             .storage
-            .patch("agents", id, json!({ "enabled": enabled }))
+            .patch("agents", &id, json!({ "enabled": enabled }))
     } else {
-        if !is_built_in_agent_type(agent_type) {
-            return Err(unknown_built_in_agent_type(agent_type));
-        }
-        state
-            .storage
-            .create("agents", json!({ "type": agent_type, "enabled": true }))
+        let definition = built_in_agent_definition(agent_type)
+            .ok_or_else(|| unknown_built_in_agent_type(agent_type))?;
+        create_built_in_agent_config(state, definition, !definition.enabled_by_default, None)
     }
 }
 
@@ -252,18 +635,25 @@ pub(crate) fn patch_agent_type(
     body: Value,
 ) -> AppResult<Value> {
     if let Some(agent) = find_agent_config(state, agent_type)? {
+        if let Some(definition) = built_in_agent_definition(agent_type) {
+            let object = ensure_object(body)?;
+            return patch_existing_built_in_agent_config(state, definition, agent, Some(object));
+        }
         let id = agent
             .get("id")
             .and_then(Value::as_str)
             .unwrap_or(agent_type);
         state.storage.patch("agents", id, body)
     } else {
-        if !is_built_in_agent_type(agent_type) {
-            return Err(unknown_built_in_agent_type(agent_type));
-        }
-        let mut object = ensure_object(body)?;
-        object.insert("type".to_string(), Value::String(agent_type.to_string()));
-        state.storage.create("agents", Value::Object(object))
+        let definition = built_in_agent_definition(agent_type)
+            .ok_or_else(|| unknown_built_in_agent_type(agent_type))?;
+        let object = ensure_object(body)?;
+        create_built_in_agent_config(
+            state,
+            definition,
+            definition.enabled_by_default,
+            Some(object),
+        )
     }
 }
 
@@ -648,24 +1038,223 @@ mod tests {
     }
 
     #[test]
-    fn by_type_mutations_still_create_known_builtin_agent_rows() {
+    fn by_type_mutations_create_full_known_builtin_agent_rows() {
         let state = test_state("known-builtin-agent-mutations");
 
         let patched = patch_agent_type(&state, "director", json!({ "enabled": false }))
             .expect("known built-in patch should create a config row");
         let toggled = toggle_agent_type(&state, "illustrator")
             .expect("known built-in toggle should create a config row");
+        let combat = patch_agent_type(&state, "combat", json!({}))
+            .expect("combat patch should create a config row with default tools");
 
         assert_eq!(
             patched.get("type").and_then(Value::as_str),
             Some("director")
         );
+        assert_eq!(
+            patched.get("name").and_then(Value::as_str),
+            Some("Narrative Director")
+        );
+        assert_eq!(
+            patched.get("phase").and_then(Value::as_str),
+            Some("pre_generation")
+        );
         assert_eq!(patched.get("enabled").and_then(Value::as_bool), Some(false));
+        assert_eq!(patched["connectionId"], Value::Null);
+        assert_eq!(
+            patched.get("promptTemplate").and_then(Value::as_str),
+            Some("")
+        );
+        assert_eq!(patched["settings"]["maxTokens"], json!(4096));
+        assert_eq!(patched["settings"]["injectAsSection"], json!(true));
+        assert_eq!(patched["settings"]["runInterval"], json!(5));
+        assert_eq!(
+            patched["settings"]["enabledTools"],
+            json!(["trigger_event"])
+        );
         assert_eq!(
             toggled.get("type").and_then(Value::as_str),
             Some("illustrator")
         );
+        assert_eq!(
+            toggled.get("name").and_then(Value::as_str),
+            Some("Illustrator")
+        );
+        assert_eq!(
+            toggled.get("phase").and_then(Value::as_str),
+            Some("post_processing")
+        );
         assert_eq!(toggled.get("enabled").and_then(Value::as_bool), Some(true));
+        assert_eq!(toggled["settings"]["maxTokens"], json!(4096));
+        assert_eq!(toggled["settings"]["runInterval"], json!(5));
+        assert_eq!(toggled["settings"]["enabledTools"], json!([]));
+        assert_eq!(
+            combat["settings"]["enabledTools"],
+            json!(["roll_dice", "update_game_state"])
+        );
+    }
+
+    #[test]
+    fn by_type_patch_hydrates_existing_sparse_builtin_rows() {
+        let state = test_state("sparse-builtin-patch");
+        state
+            .storage
+            .upsert_with_id(
+                "agents",
+                "sparse-director",
+                json!({
+                    "id": "sparse-director",
+                    "type": "director",
+                    "enabled": true,
+                    "settings": {
+                        "runInterval": 2
+                    }
+                }),
+            )
+            .expect("sparse built-in config should write");
+
+        let patched = patch_agent_type(
+            &state,
+            "director",
+            json!({
+                "settings": {
+                    "sourceLorebookIds": ["lorebook-1"]
+                }
+            }),
+        )
+        .expect("known built-in patch should hydrate sparse config row");
+
+        assert_eq!(
+            patched.get("name").and_then(Value::as_str),
+            Some("Narrative Director")
+        );
+        assert_eq!(
+            patched.get("phase").and_then(Value::as_str),
+            Some("pre_generation")
+        );
+        assert_eq!(patched.get("enabled").and_then(Value::as_bool), Some(true));
+        assert_eq!(patched["settings"]["maxTokens"], json!(4096));
+        assert_eq!(patched["settings"]["injectAsSection"], json!(true));
+        assert_eq!(patched["settings"]["runInterval"], json!(2));
+        assert_eq!(
+            patched["settings"]["enabledTools"],
+            json!(["trigger_event"])
+        );
+        assert_eq!(
+            patched["settings"]["sourceLorebookIds"],
+            json!(["lorebook-1"])
+        );
+
+        let stored = state
+            .storage
+            .get("agents", "sparse-director")
+            .expect("agent lookup should succeed")
+            .expect("hydrated agent should still exist");
+        assert_eq!(stored["settings"]["runInterval"], json!(2));
+        assert_eq!(
+            stored.get("promptTemplate").and_then(Value::as_str),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn by_type_toggle_hydrates_existing_sparse_builtin_rows_before_flipping() {
+        let state = test_state("sparse-builtin-toggle");
+        state
+            .storage
+            .upsert_with_id(
+                "agents",
+                "sparse-illustrator",
+                json!({
+                    "id": "sparse-illustrator",
+                    "type": "illustrator",
+                    "enabled": true
+                }),
+            )
+            .expect("sparse built-in config should write");
+
+        let toggled = toggle_agent_type(&state, "illustrator")
+            .expect("known built-in toggle should hydrate sparse config row");
+
+        assert_eq!(toggled.get("enabled").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            toggled.get("name").and_then(Value::as_str),
+            Some("Illustrator")
+        );
+        assert_eq!(
+            toggled.get("phase").and_then(Value::as_str),
+            Some("post_processing")
+        );
+        assert_eq!(toggled["settings"]["maxTokens"], json!(4096));
+        assert_eq!(toggled["settings"]["runInterval"], json!(5));
+        assert_eq!(toggled["settings"]["enabledTools"], json!([]));
+    }
+
+    #[test]
+    fn get_or_create_agent_config_hydrates_existing_sparse_builtin_rows() {
+        let state = test_state("sparse-builtin-get-or-create");
+        state
+            .storage
+            .upsert_with_id(
+                "agents",
+                "sparse-background",
+                json!({
+                    "id": "sparse-background",
+                    "type": "background",
+                    "enabled": false
+                }),
+            )
+            .expect("sparse built-in config should write");
+
+        let hydrated = get_or_create_agent_config(&state, "background")
+            .expect("get-or-create should hydrate sparse built-in row");
+
+        assert_eq!(
+            hydrated.get("enabled").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            hydrated.get("name").and_then(Value::as_str),
+            Some("Background")
+        );
+        assert_eq!(
+            hydrated.get("phase").and_then(Value::as_str),
+            Some("post_processing")
+        );
+        assert_eq!(hydrated["settings"]["maxTokens"], json!(4096));
+        assert_eq!(hydrated["settings"]["enabledTools"], json!([]));
+    }
+
+    #[test]
+    fn by_type_patch_merges_settings_with_builtin_defaults() {
+        let state = test_state("known-builtin-settings-merge");
+
+        let patched = patch_agent_type(
+            &state,
+            "knowledge-retrieval",
+            json!({
+                "settings": {
+                    "sourceLorebookIds": ["lorebook-1"]
+                }
+            }),
+        )
+        .expect("known built-in patch should merge default settings");
+
+        assert_eq!(
+            patched.get("name").and_then(Value::as_str),
+            Some("Knowledge Retrieval")
+        );
+        assert_eq!(patched["settings"]["maxTokens"], json!(4096));
+        assert_eq!(patched["settings"]["useChatActiveLorebooks"], json!(true));
+        assert_eq!(
+            patched["settings"]["enabledTools"],
+            json!(["search_lorebook"])
+        );
+        assert_eq!(
+            patched["settings"]["sourceLorebookIds"],
+            json!(["lorebook-1"])
+        );
     }
 
     #[test]
