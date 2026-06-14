@@ -21,6 +21,8 @@ import {
   VolumeX,
 } from "lucide-react";
 import type { GameSetupConfig, GameGmMode } from "../../../../engine/contracts/types/game";
+import type { Lorebook } from "../../../../engine/contracts/types/lorebook";
+import { lorebookCanBeSelectedForContext } from "../../../../engine/generation-core/lorebooks/active-lorebook-scope";
 import { getCharacterTitle, parseCharacterDisplayData } from "../../../../shared/lib/character-display";
 import { spotifyApi } from "../../../../shared/api/integration-utility-api";
 import { cn, parseAvatarCropJson, type AvatarCropValue } from "../../../../shared/lib/utils";
@@ -512,17 +514,26 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
         ? "Characters could not be loaded."
         : "No characters found.";
 
-  const lorebooks = useMemo(
-    () => (lorebooksList as Array<{ id: string; name: string; enabled?: boolean }>) ?? [],
-    [lorebooksList],
+  const lorebooks = useMemo(() => (lorebooksList as Lorebook[] | undefined) ?? [], [lorebooksList]);
+  const activeLorebookScopeContext = useMemo(
+    () => ({
+      chat: { id: "", mode: "game", metadata: { gameLorebookKeeperEnabled: enableLorebookKeeper } },
+      characters: selectedCharacterIds.map((id) => ({ id })),
+      persona: personaId ? { id: personaId } : null,
+    }),
+    [enableLorebookKeeper, personaId, selectedCharacterIds],
+  );
+  const selectableLorebooks = useMemo(
+    () => lorebooks.filter((lorebook) => lorebookCanBeSelectedForContext(lorebook, activeLorebookScopeContext)),
+    [activeLorebookScopeContext, lorebooks],
   );
 
   const availableLorebooks = useMemo(
     () =>
-      lorebooks
+      selectableLorebooks
         .filter((lb) => !activeLorebookIds.includes(lb.id))
         .filter((lb) => lb.name.toLowerCase().includes(lbSearch.toLowerCase())),
-    [lorebooks, activeLorebookIds, lbSearch],
+    [selectableLorebooks, activeLorebookIds, lbSearch],
   );
 
   const toggleLorebook = useCallback((lbId: string) => {
@@ -1762,7 +1773,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                   ))}
                   {availableLorebooks.length === 0 && (
                     <p className="px-3 py-2 text-[0.625rem] text-[var(--muted-foreground)]">
-                      {lorebooks.filter((lb) => !activeLorebookIds.includes(lb.id)).length === 0
+                      {selectableLorebooks.filter((lb) => !activeLorebookIds.includes(lb.id)).length === 0
                         ? "All lorebooks already added."
                         : "No matches."}
                     </p>

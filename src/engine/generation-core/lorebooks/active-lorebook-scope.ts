@@ -102,7 +102,7 @@ function boolish(value: unknown, fallback = false): boolean {
   return fallback;
 }
 
-function lorebookScopeAllowsChat(scope: unknown, chatId: string): boolean {
+function isLorebookScopeActiveForChat(scope: unknown, chatId: string): boolean {
   const record = parseRecord(scope);
   const mode = readString(record.mode, "all").toLowerCase();
   if (mode === "disabled") return false;
@@ -135,6 +135,7 @@ export function activeLorebookScopeReasonLabels(
   return labels;
 }
 
+// Marinara equivalent: filterRelevantLorebooks. De-Koi returns activation reasons for engine/UI labels.
 export function resolveActiveLorebookScopeReasons(
   lorebook: ActiveLorebookScopeLorebook,
   context: ActiveLorebookScopeContext,
@@ -148,7 +149,7 @@ export function resolveActiveLorebookScopeReasons(
   const scopeExclusions =
     context.scopeExclusions ?? resolveGameLorebookScopeExclusions(readString(chat.mode ?? chat.chatMode), metadata);
 
-  if (!lorebookScopeAllowsChat(lorebook.scope, chatId)) return [];
+  if (!isLorebookScopeActiveForChat(lorebook.scope, chatId)) return [];
   if (scopeExclusions.excludedLorebookIds.includes(lorebookId)) return [];
   if (scopeExclusions.excludedSourceAgentIds.includes(readString(lorebook.sourceAgentId))) return [];
 
@@ -209,4 +210,31 @@ export function lorebookAppliesToContext(
   context: ActiveLorebookScopeContext,
 ): boolean {
   return resolveActiveLorebookScopeReasons(lorebook, context).length > 0;
+}
+
+// Marinara equivalent: picker scope checks. De-Koi simulates selection through the engine resolver.
+export function lorebookCanBeSelectedForContext(
+  lorebook: ActiveLorebookScopeLorebook,
+  context: ActiveLorebookScopeContext,
+): boolean {
+  const lorebookId = readString(lorebook.id);
+  if (!lorebookId) return false;
+  const chat = context.chat ?? {};
+  const metadata = parseRecord(chat.metadata);
+  const activeLorebookIds = Array.from(
+    new Set([...stringArray(metadata.activeLorebookIds ?? chat.activeLorebookIds), lorebookId]),
+  );
+
+  return (
+    resolveActiveLorebookScopeReasons(lorebook, {
+      ...context,
+      chat: {
+        ...chat,
+        metadata: {
+          ...metadata,
+          activeLorebookIds,
+        },
+      },
+    }).length > 0
+  );
 }
