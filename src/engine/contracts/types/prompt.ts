@@ -144,6 +144,11 @@ export interface ChoiceOption {
   value: string;
 }
 
+export interface CustomThinkingTagPair {
+  open: string;
+  close: string;
+}
+
 /** A group of mutually exclusive variable options (radio toggle). */
 export interface PromptVariableGroup {
   /** Variable name (used in {{getvar::name}}) */
@@ -178,6 +183,8 @@ export interface GenerationParameters {
   serviceTier: "auto" | "default" | "flex" | "scale" | "priority" | "standard_only" | null;
   /** Optional assistant-role prefill appended after the final user message. */
   assistantPrefill: string;
+  /** Additional open/close wrappers that should be extracted as thinking metadata. */
+  customThinkingTags: CustomThinkingTagPair[];
   /** Optional deterministic seed for providers that expose seeded generation. */
   seed?: number;
   /** Raw provider request parameters merged into the outgoing request body. */
