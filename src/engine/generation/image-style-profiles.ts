@@ -61,6 +61,11 @@ export interface CompileImagePromptInput {
   hardNegative?: string | null;
 }
 
+export interface SpriteImageNegativePromptInput {
+  spriteType?: string | null;
+  fullBodyExpressionMode?: boolean | null;
+}
+
 interface PositivePromptPart {
   value: string | null | undefined;
   sourcePrompt: boolean;
@@ -430,6 +435,34 @@ export function compileImagePrompt(input: CompileImagePromptInput): CompiledImag
       movedNegativeFragments,
     },
   };
+}
+
+export function spriteImageNegativePrompt(input: SpriteImageNegativePromptInput = {}): string {
+  const fullBody = input.spriteType === "full-body";
+  const parts = [
+    "text",
+    "labels",
+    "numbers",
+    "captions",
+    "watermark",
+    "blank cells",
+    "missing cells",
+    "extra cells",
+    "extra rows",
+    "extra columns",
+    "merged cells",
+    "uneven grid",
+    "diagonal layout",
+    "duplicate expressions",
+    "cropped face",
+  ];
+  if (fullBody) {
+    parts.push("cropped body", "cut off feet", "missing feet", "single poster composition");
+  }
+  if (input.fullBodyExpressionMode) {
+    parts.push("action pose", "walking pose", "running pose", "combat pose", "different body poses");
+  }
+  return parts.join(", ");
 }
 
 function normalizeSubjectTags(

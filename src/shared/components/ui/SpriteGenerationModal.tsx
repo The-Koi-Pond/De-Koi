@@ -12,6 +12,7 @@ import { getErrorMessage } from "../../lib/error-message";
 import { useUIStore } from "../../stores/ui.store";
 import { spriteApi, type SpriteOwnerType } from "../../api/image-generation-api";
 import { ImagePromptReviewModal, type ImagePromptOverride, type ImagePromptReviewItem } from "./ImagePromptReviewModal";
+import { compileImagePrompt, spriteImageNegativePrompt } from "../../../engine/generation/image-style-profiles";
 import { isDefaultImageGenerationConnection, type ImageGenerationConnectionOption } from "../../types/image-generation";
 import type { SpriteCapabilities } from "../../types/sprite-capabilities";
 
@@ -488,6 +489,7 @@ export function SpriteGenerationModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const promptReviewResolveRef = useRef<((overrides: ImagePromptOverride[] | null) => void) | null>(null);
   const reviewImagePromptsBeforeSend = useUIStore((s) => s.reviewImagePromptsBeforeSend);
+  const imageStyleProfiles = useUIStore((s) => s.imageStyleProfiles);
 
   // Connections and capabilities are injected by feature-owned containers.
   const spriteGenerationUnavailable = spriteCapabilities?.spriteGenerationAvailable === false;
@@ -554,6 +556,20 @@ export function SpriteGenerationModal({
   );
   const selectedImageModel = selectedImageConnection?.model?.trim().toLowerCase() ?? "";
   const selectedModelIsGptImage2 = /^gpt-image-2(?:$|-)/.test(selectedImageModel);
+  const buildSpriteNegativePrompt = useCallback(
+    (matchedFullBodyMode: boolean) =>
+      compileImagePrompt({
+        kind: "sprite",
+        prompt: "",
+        negativePrompt: spriteImageNegativePrompt({
+          spriteType,
+          fullBodyExpressionMode: matchedFullBodyMode,
+        }),
+        styleProfileId: imageStyleProfiles.defaultProfileId,
+        styleProfiles: imageStyleProfiles,
+      }).negativePrompt.trim(),
+    [imageStyleProfiles, spriteType],
+  );
 
   const openPromptReview = useCallback((items: ImagePromptReviewItem[]) => {
     return new Promise<ImagePromptOverride[] | null>((resolve) => {
@@ -690,6 +706,7 @@ export function SpriteGenerationModal({
   const requestGeneratedSheet = useCallback(
     async (expressions: string[], grid: SpriteGrid, matchedFullBodyMode: boolean): Promise<GenerateSheetResult> => {
       if (!effectiveConnectionId) throw new Error("Image generation connection is required");
+      const negativePrompt = buildSpriteNegativePrompt(matchedFullBodyMode);
 
       const payload = {
         connectionId: effectiveConnectionId,
@@ -701,6 +718,7 @@ export function SpriteGenerationModal({
         spriteType,
         fullBodyExpressionMode: matchedFullBodyMode,
         nativeTransparentPng,
+        negativePrompt: negativePrompt || undefined,
         // Keep server generation raw; client preview cleanup preserves originals.
         noBackground: false,
       };
@@ -726,6 +744,7 @@ export function SpriteGenerationModal({
     },
     [
       appearance,
+      buildSpriteNegativePrompt,
       effectiveConnectionId,
       effectiveReferenceImages,
       nativeTransparentPng,
