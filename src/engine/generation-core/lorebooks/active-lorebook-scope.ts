@@ -1,7 +1,4 @@
-import {
-  resolveGameLorebookScopeExclusions,
-  type LorebookScopeExclusions,
-} from "./game-lorebook-scope";
+import { resolveGameLorebookScopeExclusions, type LorebookScopeExclusions } from "./game-lorebook-scope";
 
 type ActiveLorebookScopeReasonType = "global" | "character" | "persona" | "chat" | "selected";
 export type ActiveLorebookScopeReasonLabel = "Global" | "Character" | "Persona" | "Chat";
@@ -24,6 +21,7 @@ export interface ActiveLorebookScopeLorebook {
   personaId?: unknown;
   personaIds?: unknown;
   chatId?: unknown;
+  scope?: unknown;
   sourceAgentId?: unknown;
 }
 
@@ -104,6 +102,14 @@ function boolish(value: unknown, fallback = false): boolean {
   return fallback;
 }
 
+function lorebookScopeAllowsChat(scope: unknown, chatId: string): boolean {
+  const record = parseRecord(scope);
+  const mode = readString(record.mode, "all").toLowerCase();
+  if (mode === "disabled") return false;
+  if (mode !== "specific") return true;
+  return chatId ? stringArray(record.chatIds).includes(chatId) : false;
+}
+
 function activeLorebookScopeReasonLabel(reason: ActiveLorebookScopeReasonType): ActiveLorebookScopeReasonLabel {
   switch (reason) {
     case "global":
@@ -138,10 +144,11 @@ export function resolveActiveLorebookScopeReasons(
   const metadata = parseRecord(chat.metadata);
   const lorebookId = readString(lorebook.id);
   const lorebookName = readString(lorebook.name, lorebookId || "Lorebook");
+  const chatId = readString(chat.id);
   const scopeExclusions =
-    context.scopeExclusions ??
-    resolveGameLorebookScopeExclusions(readString(chat.mode ?? chat.chatMode), metadata);
+    context.scopeExclusions ?? resolveGameLorebookScopeExclusions(readString(chat.mode ?? chat.chatMode), metadata);
 
+  if (!lorebookScopeAllowsChat(lorebook.scope, chatId)) return [];
   if (scopeExclusions.excludedLorebookIds.includes(lorebookId)) return [];
   if (scopeExclusions.excludedSourceAgentIds.includes(readString(lorebook.sourceAgentId))) return [];
 
@@ -150,9 +157,7 @@ export function resolveActiveLorebookScopeReasons(
     reasons.push({ lorebookId, lorebookName, reason: "global", matchedIds: [] });
   }
 
-  const activeCharacterIds = new Set(
-    context.characters.map((character) => character.id.trim()).filter(Boolean),
-  );
+  const activeCharacterIds = new Set(context.characters.map((character) => character.id.trim()).filter(Boolean));
   const lorebookCharacterIds = stringArray(lorebook.characterIds);
   const matchedCharacterIds = [
     ...lorebookCharacterIds.filter((id) => activeCharacterIds.has(id)),
@@ -179,7 +184,6 @@ export function resolveActiveLorebookScopeReasons(
     }
   }
 
-  const chatId = readString(chat.id);
   const chatScopedId = readString(lorebook.chatId);
   if (chatScopedId && chatScopedId === chatId) {
     reasons.push({ lorebookId, lorebookName, reason: "chat", matchedIds: [chatId] });

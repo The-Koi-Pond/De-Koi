@@ -85,7 +85,7 @@ import { illustrationReferenceData, imageReviewId, imageSize } from "./game-api-
 import { generateAssets, previewGeneratedAssets } from "./game-api-assets";
 import { branchFromCheckpoint, createCheckpoint, deleteCheckpoint, loadCheckpoint } from "./game-api-checkpoints";
 import { RESTORED_CHECKPOINT_ANCHOR_META_KEY } from "./game-api-checkpoint-helpers";
-import { runGameLorebookKeeperAfterConclusion } from "./game-api-lorebook-keeper";
+import { regenerateSessionLorebook, runGameLorebookKeeperAfterConclusion } from "./game-api-lorebook-keeper";
 import { moveOnMap } from "./game-api-map";
 import { mapForMovement, moveMapPartyPosition, setupMapFromResponse } from "./game-api-map-helpers";
 import { advanceTime, skillCheck, transitionGameState, updateReputation, updateWeather } from "./game-api-mechanics";
@@ -1724,6 +1724,122 @@ describe("game API review guards", () => {
             status: "success",
             lorebookId: "new-lorebook",
             entryCount: 1,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("rejects session lorebook regeneration outside game chats", async () => {
+    storageApiMock.get.mockResolvedValue({
+      id: "chat-1",
+      mode: "conversation",
+      metadata: {
+        gameLorebookKeeperEnabled: true,
+        gamePreviousSessionSummaries: [fallbackSummary],
+      },
+    });
+
+    await expect(
+      regenerateSessionLorebook({
+        chatId: "chat-1",
+        sessionNumber: 1,
+        generated: { entries: [{ name: "Lore", content: "Lore.", keys: ["lore"] }] },
+      }),
+    ).rejects.toThrow("Game Lorebook Keeper can only regenerate game chats.");
+    expect(storageApiMock.create).not.toHaveBeenCalled();
+    expect(storageApiMock.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects session lorebook regeneration when keeper is disabled", async () => {
+    storageApiMock.get.mockResolvedValue({
+      id: "chat-1",
+      mode: "game",
+      metadata: {
+        gameLorebookKeeperEnabled: false,
+        gamePreviousSessionSummaries: [fallbackSummary],
+      },
+    });
+
+    await expect(
+      regenerateSessionLorebook({
+        chatId: "chat-1",
+        sessionNumber: 1,
+        generated: { entries: [{ name: "Lore", content: "Lore.", keys: ["lore"] }] },
+      }),
+    ).rejects.toThrow("Game Lorebook Keeper is disabled for this chat.");
+    expect(storageApiMock.create).not.toHaveBeenCalled();
+    expect(storageApiMock.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects session lorebook regeneration without a stored session summary", async () => {
+    storageApiMock.get.mockResolvedValue({
+      id: "chat-1",
+      mode: "game",
+      metadata: {
+        gameLorebookKeeperEnabled: true,
+        gamePreviousSessionSummaries: [{ ...fallbackSummary, sessionNumber: 2 }],
+      },
+    });
+
+    await expect(
+      regenerateSessionLorebook({
+        chatId: "chat-1",
+        sessionNumber: 1,
+        generated: { entries: [{ name: "Lore", content: "Lore.", keys: ["lore"] }] },
+      }),
+    ).rejects.toThrow("Stored session 1 summary was not found.");
+    expect(storageApiMock.create).not.toHaveBeenCalled();
+    expect(storageApiMock.update).not.toHaveBeenCalled();
+  });
+
+  it("regenerates session lorebook after game, enabled, and stored-summary guards pass", async () => {
+    const chat = {
+      id: "chat-1",
+      name: "Game",
+      mode: "game",
+      metadata: {
+        gameLorebookKeeperEnabled: true,
+        gamePreviousSessionSummaries: [fallbackSummary],
+        activeLorebookIds: ["existing-lorebook"],
+      },
+    };
+    const createdEntries: Array<Record<string, unknown>> = [];
+    storageApiMock.get.mockImplementation(async (entity: string) => (entity === "chats" ? chat : null));
+    storageApiMock.list.mockImplementation(async (entity: string) => {
+      if (entity === "messages") return [];
+      if (entity === "lorebook-entries") return createdEntries;
+      return [];
+    });
+    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => {
+      if (entity === "lorebooks") return { id: "new-lorebook", ...value };
+      if (entity === "lorebook-entries") {
+        const entry = { id: `entry-${createdEntries.length + 1}`, ...value };
+        createdEntries.push(entry);
+        return entry;
+      }
+      return { id: `${entity}-1`, ...value };
+    });
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => ({
+      id,
+      ...patch,
+    }));
+
+    const result = await regenerateSessionLorebook({
+      chatId: "chat-1",
+      sessionNumber: 1,
+      generated: { entries: [{ name: "Session clue", content: "A clue.", keys: ["clue"] }] },
+    });
+
+    expect(result).toMatchObject({ sessionNumber: 1, lorebookId: "new-lorebook", entryCount: 1 });
+    const finalChatUpdate = storageApiMock.update.mock.calls.filter(([entity]) => entity === "chats").at(-1);
+    expect(finalChatUpdate?.[2]).toEqual(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          activeLorebookIds: ["existing-lorebook", "new-lorebook"],
+          gameLorebookKeeperLastRun: expect.objectContaining({
+            sessionNumber: 1,
+            status: "success",
           }),
         }),
       }),

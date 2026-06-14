@@ -489,12 +489,14 @@ export async function scanForActivatedEntries(
 
     // Per-entry scan depth override
     const baseEntryScanText =
-      entry.scanDepth !== null && entry.scanDepth > 0
-        ? messages
-            .slice(-entry.scanDepth)
-            .map((m) => m.content)
-            .join("\n")
-        : combinedText;
+      entry.scanDepth === 0
+        ? messages.map((m) => m.content).join("\n")
+        : entry.scanDepth !== null && entry.scanDepth > 0
+          ? messages
+              .slice(-entry.scanDepth)
+              .map((m) => m.content)
+              .join("\n")
+          : combinedText;
     const extraMatchingText = getAdditionalMatchingText(entry, additionalMatchingSourceText);
     const entryScanText = extraMatchingText ? `${baseEntryScanText}\n${extraMatchingText}` : baseEntryScanText;
 

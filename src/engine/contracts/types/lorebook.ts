@@ -14,6 +14,14 @@ export type LorebookRole = "system" | "user" | "assistant";
 /** Include/exclude behavior for contextual lorebook filters. */
 export type LorebookFilterMode = "any" | "include" | "exclude";
 
+/** Legacy top-level lorebook scope gate. */
+export type LorebookScopeMode = "all" | "disabled" | "specific";
+
+export interface LorebookScope {
+  mode: LorebookScopeMode;
+  chatIds: string[];
+}
+
 /** Extra places an entry can scan for keyword matches beyond recent chat text. */
 export type LorebookMatchingSource =
   | "character_name"
@@ -55,6 +63,8 @@ export interface Lorebook {
   personaIds: string[];
   /** ID of the chat this lorebook is scoped to (if any) */
   chatId: string | null;
+  /** Legacy-compatible top-level lorebook scope gate */
+  scope: LorebookScope;
   /** Whether this lorebook bypasses character/persona/chat scope filters */
   isGlobal: boolean;
   /** Master on/off switch for this lorebook */

@@ -11,6 +11,17 @@ const selectiveLogicSchema = z.enum(["and", "or", "not"]);
 
 const lorebookFilterModeSchema = z.enum(["any", "include", "exclude"]);
 
+const lorebookScopeModeSchema = z.enum(["all", "disabled", "specific"]);
+
+const lorebookScopeSchema = z.object({
+  mode: lorebookScopeModeSchema.default("all"),
+  chatIds: z.array(z.string()).default([]),
+});
+
+function defaultLorebookScope() {
+  return { mode: "all" as const, chatIds: [] };
+}
+
 const lorebookMatchingSourceSchema = z.enum([
   "character_name",
   "character_description",
@@ -81,6 +92,7 @@ export const createLorebookSchema = z.object({
   personaId: z.string().nullable().default(null),
   personaIds: z.array(z.string()).default([]),
   chatId: z.string().nullable().default(null),
+  scope: lorebookScopeSchema.default(defaultLorebookScope),
   isGlobal: z.boolean().default(false),
   enabled: z.boolean().default(true),
   excludeFromVectorization: z.boolean().default(false),
@@ -106,6 +118,7 @@ export const updateLorebookSchema = z
     personaId: z.string().nullable().optional(),
     personaIds: z.array(z.string()).optional(),
     chatId: z.string().nullable().optional(),
+    scope: lorebookScopeSchema.optional(),
     isGlobal: z.boolean().optional(),
     enabled: z.boolean().optional(),
     excludeFromVectorization: z.boolean().optional(),
