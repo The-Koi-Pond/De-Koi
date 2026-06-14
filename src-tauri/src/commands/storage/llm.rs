@@ -1,5 +1,5 @@
-use super::{prompts, sidecar};
 use super::*;
+use super::{prompts, sidecar};
 use marinara_security::{
     is_allowed_provider_url, is_forbidden_provider_resolved_ip, is_loopback_provider_host,
     redact_sensitive_text,
@@ -1078,6 +1078,43 @@ fn provider_model_catalog(provider: &str) -> Vec<Value> {
             "grok-build-0.1",
             "grok-4-1-fast",
             "grok-4.20-multi-agent",
+        ],
+        "image_generation" => &[
+            "gpt-image-2",
+            "gpt-image-1.5",
+            "dall-e-3",
+            "dall-e-2",
+            "gpt-image-1",
+            "stable-image-core",
+            "stable-image-ultra",
+            "sd3-large",
+            "sd3-large-turbo",
+            "sd3-medium",
+            "sd3.5-large",
+            "sd3.5-large-turbo",
+            "sd3.5-medium",
+            "sd3.5-flash",
+            "black-forest-labs/FLUX.1-schnell-Free",
+            "black-forest-labs/FLUX.1-schnell",
+            "black-forest-labs/FLUX.1.1-pro",
+            "stabilityai/stable-diffusion-xl-base-1.0",
+            "gemini-3-pro-image",
+            "gemini-3.1-flash-image",
+            "gemini-2.5-flash-image",
+            "imagen-4.0-generate-001",
+            "imagen-4.0-ultra-generate-001",
+            "imagen-4.0-fast-generate-001",
+            "google/gemini-2.5-flash-image",
+            "google/gemini-3.1-flash-image-preview",
+            "black-forest-labs/flux.2-pro",
+            "black-forest-labs/flux.2-flex",
+            "sourceful/riverflow-v2-standard-preview",
+            "grok-imagine-image",
+            "grok-2-image",
+            "nai-diffusion-4-curated-preview",
+            "nai-diffusion-4-5-full",
+            "nai-diffusion-3",
+            "pollinations",
         ],
         _ => &[
             "gpt-4o",
@@ -2475,6 +2512,30 @@ mod tests {
         assert!(!error.message.contains("sk-test-secret"));
         assert!(!error.message.contains("exceeds"));
         assert!(error.message.len() < 600);
+    }
+
+    #[tokio::test]
+    async fn image_generation_model_fallbacks_are_image_only() {
+        let models = fetch_provider_models(&json!({
+            "provider": "image_generation",
+            "baseUrl": "",
+            "imageGenerationSource": "pollinations"
+        }))
+        .await
+        .expect("image generation fallbacks should load");
+        let ids = models
+            .iter()
+            .filter_map(|model| model.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+
+        assert!(!ids.is_empty());
+        assert!(!ids.contains(&"gpt-4o"));
+        assert!(!ids.contains(&"gpt-4o-mini"));
+        assert!(!ids.contains(&"text-embedding-3-small"));
+        assert!(!ids.contains(&"text-embedding-3-large"));
+        assert!(models.iter().all(|model| {
+            model.get("provider").and_then(Value::as_str) == Some("image_generation")
+        }));
     }
 
     #[tokio::test]
