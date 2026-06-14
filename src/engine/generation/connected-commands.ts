@@ -9,6 +9,7 @@ import {
   type CreateCharacterCommand,
   type CreateLorebookCommand,
   type CreatePersonaCommand,
+  type CreatePresetCommand,
   type DirectMessageCommand,
   type UpdateCharacterCommand,
   type UpdateLorebookCommand,
@@ -1197,6 +1198,162 @@ async function upsertLorebookEntries(storage: StorageGateway, lorebookId: string
   }
 }
 
+function promptIdentifierFromName(name: string, index: number): string {
+  const identifier = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return identifier || `section_${index + 1}`;
+}
+
+type CreatePresetGroup = NonNullable<CreatePresetCommand["groups"]>[number];
+type CreatePresetSection = NonNullable<CreatePresetCommand["sections"]>[number];
+type CreatePresetChoiceBlock = NonNullable<CreatePresetCommand["choiceBlocks"]>[number];
+
+function presetGroupKey(group: CreatePresetGroup, index: number): string {
+  return readString(group.id).trim() || readString(group.name).trim() || `group-${index}`;
+}
+
+function sectionGroupId(groupIdByCommandKey: Map<string, string>, section: CreatePresetSection): string | null {
+  const groupId = readString(section.groupId).trim();
+  if (!groupId) return null;
+  return groupIdByCommandKey.get(groupId) ?? null;
+}
+
+async function createPresetGroups(
+  storage: StorageGateway,
+  presetId: string,
+  groups: CreatePresetGroup[],
+): Promise<{ groupIds: string[]; groupIdByCommandKey: Map<string, string> }> {
+  const groupIds: string[] = [];
+  const groupIdByCommandKey = new Map<string, string>();
+
+  for (const [index, group] of groups.entries()) {
+    const created = await storage.create<JsonRecord>("prompt-groups", {
+      presetId,
+      name: group.name,
+      parentGroupId: null,
+      order: group.order ?? index * 100,
+      enabled: group.enabled ?? true,
+    });
+    const groupId = readString(created.id).trim();
+    if (!groupId) continue;
+    const key = presetGroupKey(group, index);
+    groupIds.push(groupId);
+    groupIdByCommandKey.set(key, groupId);
+    groupIdByCommandKey.set(group.name, groupId);
+  }
+
+  for (const [index, group] of groups.entries()) {
+    const parentKey = readString(group.parentGroupId).trim();
+    if (!parentKey) continue;
+    const groupId = groupIdByCommandKey.get(presetGroupKey(group, index));
+    const parentGroupId = groupIdByCommandKey.get(parentKey);
+    if (groupId && parentGroupId) await storage.update("prompt-groups", groupId, { parentGroupId });
+  }
+
+  return { groupIds, groupIdByCommandKey };
+}
+
+async function createPresetSections(
+  storage: StorageGateway,
+  presetId: string,
+  sections: CreatePresetSection[],
+  groupIdByCommandKey: Map<string, string>,
+): Promise<string[]> {
+  const sectionIds: string[] = [];
+  for (const [index, section] of sections.entries()) {
+    const created = await storage.create<JsonRecord>("prompt-sections", {
+      presetId,
+      identifier: readString(section.identifier).trim() || promptIdentifierFromName(section.name, index),
+      name: section.name,
+      content: section.content ?? "",
+      role: section.role ?? "system",
+      enabled: section.enabled ?? true,
+      isMarker: section.isMarker ?? false,
+      groupId: sectionGroupId(groupIdByCommandKey, section),
+      markerConfig: section.markerConfig ?? null,
+      injectionPosition: section.injectionPosition ?? "ordered",
+      injectionDepth: section.injectionDepth ?? 0,
+      injectionOrder: section.injectionOrder ?? section.order ?? index * 100,
+      forbidOverrides: section.forbidOverrides ?? false,
+    });
+    const sectionId = readString(created.id).trim();
+    if (sectionId) sectionIds.push(sectionId);
+  }
+  return sectionIds;
+}
+
+async function createPresetChoiceBlocks(
+  storage: StorageGateway,
+  presetId: string,
+  choiceBlocks: CreatePresetChoiceBlock[],
+): Promise<string[]> {
+  const choiceBlockIds: string[] = [];
+  for (const [index, block] of choiceBlocks.entries()) {
+    const created = await storage.create<JsonRecord>("prompt-variables", {
+      presetId,
+      variableName: block.variableName,
+      question: block.question,
+      options: block.options.map((option, optionIndex) => ({
+        id: readString(option.id).trim() || newId("opt"),
+        label: option.label,
+        value: option.value,
+        sortOrder: optionIndex * 100,
+      })),
+      multiSelect: block.multiSelect ?? false,
+      separator: block.separator ?? ", ",
+      randomPick: block.randomPick ?? false,
+      sortOrder: block.sortOrder ?? index * 100,
+    });
+    const choiceBlockId = readString(created.id).trim();
+    if (choiceBlockId) choiceBlockIds.push(choiceBlockId);
+  }
+  return choiceBlockIds;
+}
+
+async function createPromptPresetFromCommand(
+  storage: StorageGateway,
+  command: CreatePresetCommand,
+  events: ConnectedCommandEvent[],
+): Promise<JsonRecord | null> {
+  const preset = await storage.create<JsonRecord>("prompts", {
+    name: command.name,
+    description: command.description ?? "",
+    variableGroups: command.variableGroups ?? [],
+    variableValues: command.variableValues ?? {},
+    parameters: command.parameters ?? {},
+    wrapFormat: command.wrapFormat ?? "xml",
+    isDefault: false,
+    author: command.author ?? "",
+  });
+  const presetId = readString(preset.id).trim();
+  if (!presetId) return null;
+
+  const { groupIds, groupIdByCommandKey } = await createPresetGroups(storage, presetId, command.groups ?? []);
+  const sectionIds = await createPresetSections(storage, presetId, command.sections ?? [], groupIdByCommandKey);
+  const choiceBlockIds = await createPresetChoiceBlocks(storage, presetId, command.choiceBlocks ?? []);
+  await storage.update("prompts", presetId, {
+    sectionOrder: sectionIds,
+    groupOrder: groupIds,
+    defaultChoices: command.defaultChoices ?? {},
+  });
+
+  events.push({
+    type: "assistant_action",
+    data: {
+      action: "preset_created",
+      presetId,
+      presetName: command.name,
+      groupCount: groupIds.length,
+      sectionCount: sectionIds.length,
+      choiceBlockCount: choiceBlockIds.length,
+    },
+  });
+  return { ...preset, id: presetId };
+}
+
 async function executeCommand(
   storage: StorageGateway,
   integrations: IntegrationGateway | undefined,
@@ -1303,6 +1460,8 @@ async function executeCommand(
       await upsertLorebookEntries(storage, lorebookId, command);
       return { name: "update_lorebook" };
     }
+    case "create_preset":
+      return (await createPromptPresetFromCommand(storage, command, events)) ? { name: "create_preset" } : null;
     case "create_chat": {
       const character = await findByName(storage, "characters", command.character);
       await storage.create("chats", {
