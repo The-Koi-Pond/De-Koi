@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 
@@ -89,6 +90,109 @@ def run_case(module, root, tool_dir, paths, *, compact):
     return digest, limit
 
 
+def run_git(root, *args):
+    result = subprocess.run(
+        ["git", *args],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise AssertionError(f"git {' '.join(args)} failed:\n{result.stdout}{result.stderr}")
+    return result.stdout
+
+
+def write_contract_trace_repo(root):
+    (root / "AGENTS.md").write_text("# Repo Instructions\n", encoding="utf-8")
+    tool_dir = root / ".github" / "bunny-review"
+    tool_dir.mkdir(parents=True)
+    (tool_dir / "reviewer-prompt.md").write_text("prompt", encoding="utf-8")
+    (tool_dir / "rules.json").write_text(json.dumps({"path_instructions": []}), encoding="utf-8")
+
+    impl = root / "src" / "engine" / "generation" / "agent-runner.ts"
+    test = root / "src" / "engine" / "generation" / "agent-runner.test.ts"
+    impl.parent.mkdir(parents=True, exist_ok=True)
+    impl.write_text(
+        "export function resolveSidecar(value: string): string {\n"
+        "  return value;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    test.write_text(
+        "import { resolveSidecar } from './agent-runner';\n"
+        "export const proof = resolveSidecar('old');\n",
+        encoding="utf-8",
+    )
+    run_git(root, "init", "-q")
+    run_git(root, "config", "user.email", "bunny@example.invalid")
+    run_git(root, "config", "user.name", "Bunny Proof")
+    run_git(root, "add", ".")
+    run_git(root, "commit", "-q", "-m", "base")
+    impl.write_text(
+        "export function resolveSidecar(value: string): string {\n"
+        "  return value === 'sidecar' ? 'skipped' : value;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    test.write_text(
+        "import { resolveSidecar } from './agent-runner';\n"
+        "export const proof = resolveSidecar('sidecar');\n",
+        encoding="utf-8",
+    )
+    run_git(root, "add", ".")
+    run_git(root, "commit", "-q", "-m", "head")
+    return tool_dir
+
+
+def run_contract_trace_case(module):
+    with tempfile.TemporaryDirectory(prefix="bunny-contract-proof-") as tmp:
+        root = pathlib.Path(tmp)
+        tool_dir = write_contract_trace_repo(root)
+        module.REPO_ROOT = root
+        os.environ["BUNNY_REVIEW_PROMPT_PATH"] = str(tool_dir / "reviewer-prompt.md")
+        entry = {
+            "id": "contract-1",
+            "status": "prior",
+            "severity": "medium",
+            "path": "src/engine/generation/agent-runner.ts",
+            "line": 2,
+            "title": "Fallback sidecar still reaches execution",
+            "fix_hint": "Move the sidecar guard in `src/engine/generation/agent-runner.ts`.",
+            "repair_contract": {
+                "related_failure_paths": ["`src/engine/generation/agent-runner.ts`"],
+                "expected_proof": ["Focused proof in `src/engine/generation/agent-runner.test.ts`."],
+            },
+        }
+        files = [
+            "src/engine/generation/agent-runner.ts",
+            "src/engine/generation/agent-runner.test.ts",
+        ]
+        normalized = module.normalize_contract_state_entries([entry])
+        assert normalized[0]["owner_paths"] == ["src/engine/generation/agent-runner.ts"]
+        assert "src/engine/generation/agent-runner.test.ts" in normalized[0]["proof_paths"]
+
+        groups = module.contract_changed_path_groups(files, normalized)
+        chunks = module.merge_contract_related_chunks([[files[0]], [files[1]]], groups)
+        assert chunks == [files], f"contract-related files were not co-located: {chunks}"
+        left, right = module.split_chunk(["a.ts", files[0], files[1], "z.ts"], groups)
+        assert {files[0], files[1]}.issubset(left) or {files[0], files[1]}.issubset(right), (
+            "packet splitter separated contract-related files"
+        )
+
+        trace = module.build_prior_contract_trace_context(
+            "HEAD~1",
+            normalized,
+            files,
+            focus_files=[files[0]],
+        )
+        assert "Prior contract trace context" in trace
+        assert "src/engine/generation/agent-runner.test.ts" in trace
+        assert "Changed hunk sketch" in trace
+        assert "sidecar" in trace
+        return len(trace), len(chunks[0])
+
+
 def main():
     module = load_bunny_review()
     with tempfile.TemporaryDirectory(prefix="bunny-guidance-proof-") as tmp:
@@ -120,6 +224,7 @@ def main():
             many_paths[:3],
             compact=True,
         )
+        contract_trace_len, contract_chunk_size = run_contract_trace_case(module)
 
         print(
             "standard_many_guidance "
@@ -133,6 +238,11 @@ def main():
             "compact_selected_guidance "
             f"len={len(compact_selected)} limit={selected_limit} "
             "agents_and_selected_paths_accounted=true"
+        )
+        print(
+            "contract_trace_context "
+            f"len={contract_trace_len} co_located_files={contract_chunk_size} "
+            "prior_contract_paths_accounted=true"
         )
 
 

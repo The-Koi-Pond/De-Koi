@@ -44,6 +44,12 @@ MAX_GLOBAL_FILE_MAP_CHARS = 1_800
 MAX_COMPACT_GLOBAL_FILE_MAP_CHARS = 900
 MAX_GLOBAL_HUNK_CHARS = 900
 MAX_COMPACT_GLOBAL_HUNK_CHARS = 450
+MAX_CONTRACT_TRACE_CONTEXT_CHARS = 24_000
+MAX_COMPACT_CONTRACT_TRACE_CONTEXT_CHARS = 10_000
+MAX_CONTRACT_TRACE_ENTRY_CHARS = 4_000
+MAX_COMPACT_CONTRACT_TRACE_ENTRY_CHARS = 1_800
+MAX_CONTRACT_TRACE_PATHS = 6
+MAX_CONTRACT_TRACE_SYMBOLS = 12
 COMPACT_DIFF_UNIFIED_LINES = 20
 MAX_REVIEW_CHUNKS = 10
 MAX_CHUNK_PATCH_CHARS = 90_000
@@ -61,6 +67,12 @@ SECRET_VALUE_RE = re.compile(
 )
 SECRET_FILE_PART_RE = re.compile(
     r"(?i)(^|[/\\])(\.env[^/\\]*|.*secret.*|.*credential.*|id_rsa|id_ed25519|\.npmrc|\.netrc)([/\\]|$)"
+)
+REPO_PATH_RE = re.compile(
+    r"(?:(?<=`)|(?<=\s)|(?<=\()|^)"
+    r"((?:\.github|src-tauri|src|scripts|skills|docs|public|custom_components)"
+    r"[A-Za-z0-9_./-]*(?:\.[A-Za-z0-9_/-]+)?)"
+    r"(?::\d+)?"
 )
 
 
@@ -821,6 +833,7 @@ def build_review_packet(
     *,
     compact=False,
     global_context=None,
+    prior_contracts=None,
     emit_telemetry=True,
 ):
     files = changed_files(base)
@@ -853,6 +866,16 @@ def build_review_packet(
                 context_files,
                 compact=compact,
                 include_full_patch=include_full_patch,
+            ),
+        ),
+        (
+            "prior contract trace context",
+            build_prior_contract_trace_context(
+                base,
+                prior_contracts or [],
+                files,
+                compact=compact,
+                focus_files=context_files if focus_files else None,
             ),
         ),
         ("per-file patch context", build_file_context(base, context_files, compact=compact)),
@@ -901,6 +924,43 @@ def chunk_changed_files(base, files, *, max_patch_chars=MAX_CHUNK_PATCH_CHARS):
     overflow = [path for chunk in chunks[MAX_REVIEW_CHUNKS - 1 :] for path in chunk]
     merged.append(overflow)
     return merged
+
+
+def contract_changed_path_groups(files, prior_contracts):
+    changed = set(files)
+    groups = []
+    for entry in normalize_contract_state_entries(prior_contracts):
+        paths = [path for path in contract_trace_paths(entry) if path in changed]
+        paths = ordered_unique(paths)
+        if len(paths) > 1:
+            groups.append(paths)
+    return groups
+
+
+def merge_contract_related_chunks(chunks, groups):
+    result = [list(chunk) for chunk in chunks]
+    for group in groups:
+        group_set = set(group)
+        indices = [
+            index
+            for index, chunk in enumerate(result)
+            if group_set.intersection(chunk)
+        ]
+        if len(indices) <= 1:
+            continue
+        merged_paths = []
+        for index in indices:
+            merged_paths.extend(result[index])
+        first = indices[0]
+        remove = set(indices[1:])
+        next_result = []
+        for index, chunk in enumerate(result):
+            if index == first:
+                next_result.append(ordered_unique(merged_paths))
+            elif index not in remove:
+                next_result.append(chunk)
+        result = next_result
+    return result
 
 
 def model_base_label() -> str:
@@ -954,7 +1014,7 @@ def safe_model_error(exc: Exception) -> str:
     return ": ".join([parts[0], " ".join(parts[1:])]) if len(parts) > 1 else parts[0]
 
 
-def packet_chars_for_chunk(base, ci_status, mode, chunk, global_context):
+def packet_chars_for_chunk(base, ci_status, mode, chunk, global_context, prior_contracts):
     return len(
         build_review_packet(
             base,
@@ -963,17 +1023,33 @@ def packet_chars_for_chunk(base, ci_status, mode, chunk, global_context):
             focus_files=chunk,
             include_full_patch=False,
             global_context=global_context,
+            prior_contracts=prior_contracts,
             emit_telemetry=False,
         )
     )
 
 
-def split_chunk(chunk):
+def split_chunk(chunk, protected_groups=None):
     midpoint = max(1, len(chunk) // 2)
+    protected = [
+        set(group).intersection(chunk)
+        for group in (protected_groups or [])
+        if len(set(group).intersection(chunk)) > 1
+    ]
+    if protected:
+        candidates = sorted(
+            range(1, len(chunk)),
+            key=lambda index: (abs(index - midpoint), index),
+        )
+        for index in candidates:
+            left = set(chunk[:index])
+            right = set(chunk[index:])
+            if all(not (group.intersection(left) and group.intersection(right)) for group in protected):
+                return chunk[:index], chunk[index:]
     return chunk[:midpoint], chunk[midpoint:]
 
 
-def enforce_packet_chunk_size(base, ci_status, mode, chunks, global_context):
+def enforce_packet_chunk_size(base, ci_status, mode, chunks, global_context, prior_contracts, protected_groups=None):
     result = []
     queue = [list(chunk) for chunk in chunks]
     forced = False
@@ -987,10 +1063,11 @@ def enforce_packet_chunk_size(base, ci_status, mode, chunks, global_context):
             mode,
             chunk,
             global_context,
+            prior_contracts,
         )
         can_split = len(chunk) > 1 and len(result) + len(queue) + 2 <= MAX_REVIEW_CHUNKS
         if packet_chars > MAX_SINGLE_PACKET_CHARS and can_split:
-            left, right = split_chunk(chunk)
+            left, right = split_chunk(chunk, protected_groups)
             queue = [left, right, *queue]
             forced = True
             continue
@@ -1001,13 +1078,18 @@ def enforce_packet_chunk_size(base, ci_status, mode, chunks, global_context):
     return result, forced, max_final_packet_chars, oversized_unsplit
 
 
-def plan_review_chunks(base, ci_status, mode, files):
-    patch_chunks = chunk_changed_files(base, files)
+def plan_review_chunks(base, ci_status, mode, files, prior_contracts=None):
+    contract_groups = contract_changed_path_groups(files, prior_contracts or [])
+    patch_chunks = merge_contract_related_chunks(
+        chunk_changed_files(base, files),
+        contract_groups,
+    )
     all_packet_chars = len(
         build_review_packet(
             base,
             ci_status,
             mode,
+            prior_contracts=prior_contracts,
             emit_telemetry=False,
         )
     )
@@ -1029,17 +1111,23 @@ def plan_review_chunks(base, ci_status, mode, files):
     forced_by_packet_size = False
     if len(chunks) <= 1:
         chunk_patch_threshold = MAX_FORCED_CHUNK_PATCH_CHARS
-        chunks = chunk_changed_files(
-            base,
-            files,
-            max_patch_chars=chunk_patch_threshold,
-        )
-        if len(chunks) <= 1:
-            chunk_patch_threshold = max(1, MAX_FORCED_CHUNK_PATCH_CHARS // 2)
-            chunks = chunk_changed_files(
+        chunks = merge_contract_related_chunks(
+            chunk_changed_files(
                 base,
                 files,
                 max_patch_chars=chunk_patch_threshold,
+            ),
+            contract_groups,
+        )
+        if len(chunks) <= 1:
+            chunk_patch_threshold = max(1, MAX_FORCED_CHUNK_PATCH_CHARS // 2)
+            chunks = merge_contract_related_chunks(
+                chunk_changed_files(
+                    base,
+                    files,
+                    max_patch_chars=chunk_patch_threshold,
+                ),
+                contract_groups,
             )
         forced_by_packet_size = len(chunks) > len(patch_chunks)
 
@@ -1056,6 +1144,8 @@ def plan_review_chunks(base, ci_status, mode, files):
             mode,
             chunks,
             global_review_context,
+            prior_contracts or [],
+            contract_groups,
         )
     )
     forced_by_packet_size = forced_by_packet_size or packet_split
@@ -1284,9 +1374,40 @@ def skeptical_review_pass(client, skill, triage_content, stats):
     return extract_json_or_repair(client, messages, response, stats)
 
 
-def judge_review_pass(client, skill, triage_content, broad_review, skeptical_review, stats):
+def contract_verification_pass(client, skill, triage_content, stats):
+    contract_prompt = (
+        "Run a focused prior-contract verification pass over the packet. First inspect "
+        "the Prior Bunny Repair Contracts and prior contract trace context. For each "
+        "prior contract, classify it mentally as resolved, still_open_with_evidence, "
+        "needs_context, or stale_or_unverifiable. Report a finding only for "
+        "still_open_with_evidence when the packet includes the changed implementation "
+        "or proof evidence needed to validate the problem and the finding can cite an "
+        "added or changed diff line. If context is missing, do not turn that contract "
+        "into a finding; instead add a Review Limitation pre_merge_check or "
+        "what_i_checked note. Return the normal Bunny JSON schema."
+    )
+    messages = [
+        {"role": "system", "content": skill},
+        {"role": "user", "content": triage_content},
+        {"role": "user", "content": contract_prompt},
+    ]
+    response = model_call(client, messages, stats)
+    return extract_json_or_repair(client, messages, response, stats)
+
+
+def judge_review_pass(
+    client,
+    skill,
+    triage_content,
+    broad_review,
+    skeptical_review,
+    contract_review,
+    stats,
+):
     judge_prompt = (
-        "Merge these two independent review passes into the final Bunny Review JSON. "
+        "Merge these independent review passes into the final Bunny Review JSON. "
+        "If a prior-contract verification pass is present, treat it as the authority "
+        "on whether older contracts are resolved, still open, or context-limited. "
         "Deduplicate overlapping findings, keep the clearest title/body/fix_hint, normalize "
         "severity, and reject weak or speculative findings. Preserve concrete findings even "
         "if only one pass found them, and include a repair_contract for every defect finding. "
@@ -1301,6 +1422,7 @@ def judge_review_pass(client, skill, triage_content, broad_review, skeptical_rev
         "with FINAL_REVIEW followed by the final JSON object."
         f"\n\n# Broad Review JSON\n{json.dumps(broad_review, indent=2, sort_keys=True)}"
         f"\n\n# Skeptical Review JSON\n{json.dumps(skeptical_review, indent=2, sort_keys=True)}"
+        f"\n\n# Prior Contract Verification JSON\n{json.dumps(contract_review or {}, indent=2, sort_keys=True)}"
     )
     messages = [
         {"role": "system", "content": skill},
@@ -1311,15 +1433,21 @@ def judge_review_pass(client, skill, triage_content, broad_review, skeptical_rev
     return extract_json_or_repair(client, messages, response, stats)
 
 
-def three_pass_review(client, skill, triage_content, stats):
+def three_pass_review(client, skill, triage_content, stats, *, include_contract_pass=False):
     broad_review = review_packet_with_model(client, skill, triage_content, stats)
     skeptical_review = skeptical_review_pass(client, skill, triage_content, stats)
+    contract_review = (
+        contract_verification_pass(client, skill, triage_content, stats)
+        if include_contract_pass
+        else None
+    )
     return judge_review_pass(
         client,
         skill,
         triage_content,
         broad_review,
         skeptical_review,
+        contract_review,
         stats,
     )
 
@@ -1383,6 +1511,8 @@ def review_with_compact_failure_fallback(
     build_packet,
     triage_for_packet,
     focus_note,
+    *,
+    include_contract_pass=False,
 ):
     review_packet = build_packet(compact=False)
     stats["review_packet_chars"] += len(review_packet)
@@ -1392,6 +1522,7 @@ def review_with_compact_failure_fallback(
             skill,
             triage_for_packet(review_packet, focus_note),
             stats,
+            include_contract_pass=include_contract_pass,
         )
     except Exception as exc:
         reason = compact_retry_reason(exc)
@@ -1418,6 +1549,7 @@ def review_with_compact_failure_fallback(
                 skill,
                 compact_triage,
                 stats,
+                include_contract_pass=include_contract_pass,
             )
         except Exception as compact_exc:
             compact_reason = compact_retry_reason(compact_exc)
@@ -2077,11 +2209,183 @@ def compact_contract_for_state(contract):
     return compact or None
 
 
+def ordered_unique(values):
+    seen = set()
+    result = []
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
+
+
+def normalize_repo_path_candidate(value):
+    text = str(value or "").strip().strip("`'\"[](){}<>,.;")
+    if not text:
+        return ""
+    text = re.sub(r"^(?:a|b)/", "", text.replace("\\", "/"))
+    text = re.sub(r":\d+(?::\d+)?$", "", text)
+    if not text or text.startswith("/") or re.match(r"^[A-Za-z]:", text):
+        return ""
+    if ".." in pathlib.PurePosixPath(text).parts:
+        return ""
+    try:
+        _safe_path(text)
+    except Exception:
+        return ""
+    if "/" not in text and text not in {"AGENTS.md", "README.md", "package.json", "pnpm-lock.yaml"}:
+        return ""
+    if not pathlib.PurePosixPath(text).suffix and text not in {"AGENTS.md", "README.md", "package.json", "pnpm-lock.yaml"}:
+        return ""
+    return text
+
+
+def extract_repo_paths_from_text(text):
+    paths = []
+    for fenced in re.findall(r"`([^`]+)`", str(text or "")):
+        path = normalize_repo_path_candidate(fenced)
+        if path:
+            paths.append(path)
+    for match in REPO_PATH_RE.findall(str(text or "")):
+        path = normalize_repo_path_candidate(match)
+        if path:
+            paths.append(path)
+    return ordered_unique(paths)
+
+
+def contract_value_texts(entry):
+    texts = [
+        entry.get("title"),
+        entry.get("fix_hint"),
+        entry.get("path"),
+    ]
+    contract = entry.get("repair_contract") if isinstance(entry, dict) else None
+    if isinstance(contract, dict):
+        for key, _ in CONTRACT_LABELS:
+            texts.extend(compact_list(contract.get(key)))
+    return [str(text) for text in texts if str(text or "").strip()]
+
+
+def symbol_hints_from_texts(texts):
+    path_tokens = set()
+    for text in texts:
+        for path in extract_repo_paths_from_text(text):
+            path_tokens.update(part for part in path.replace(".", "/").split("/") if part)
+    symbols = []
+    stop = {
+        "accepted",
+        "acceptable",
+        "contract",
+        "current",
+        "default",
+        "expected",
+        "finding",
+        "generation",
+        "missing",
+        "request",
+        "result",
+        "should",
+        "warning",
+        "without",
+    }
+    for text in texts:
+        for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", text):
+            if token in path_tokens or token.lower() in stop:
+                continue
+            if any(char.isupper() for char in token) or "_" in token or token.endswith(("Id", "IDs")):
+                symbols.append(token)
+    return ordered_unique(symbols)[:MAX_CONTRACT_TRACE_SYMBOLS]
+
+
+def contract_trace_hints(entry):
+    if not isinstance(entry, dict):
+        return {
+            "owner_paths": [],
+            "proof_paths": [],
+            "symbol_hints": [],
+            "changed_lever_hint": "",
+        }
+    contract = entry.get("repair_contract") if isinstance(entry.get("repair_contract"), dict) else {}
+    owner_paths = []
+    proof_paths = []
+    direct_path = normalize_repo_path_candidate(entry.get("path"))
+    if direct_path:
+        owner_paths.append(direct_path)
+
+    for key in ("invariant", "related_failure_paths", "adjacent_traps", "acceptable_fix_shapes"):
+        for value in compact_list(contract.get(key)):
+            owner_paths.extend(extract_repo_paths_from_text(value))
+    for value in compact_list(contract.get("expected_proof")):
+        paths = extract_repo_paths_from_text(value)
+        proof_paths.extend(paths)
+        owner_paths.extend(path for path in paths if not re.search(r"\.(test|spec)\.", path))
+    for value in [entry.get("fix_hint"), entry.get("title")]:
+        owner_paths.extend(extract_repo_paths_from_text(value))
+
+    for path in list(owner_paths):
+        if re.search(r"\.(test|spec)\.", path):
+            proof_paths.append(path)
+
+    texts = contract_value_texts(entry)
+    lever = compact_state_text(
+        entry.get("fix_hint")
+        or (compact_list(contract.get("acceptable_fix_shapes")) or [""])[0]
+        or (compact_list(contract.get("invariant")) or [""])[0],
+        240,
+    )
+    return {
+        "owner_paths": ordered_unique(owner_paths)[:MAX_CONTRACT_TRACE_PATHS],
+        "proof_paths": ordered_unique(proof_paths)[:MAX_CONTRACT_TRACE_PATHS],
+        "symbol_hints": symbol_hints_from_texts(texts),
+        "changed_lever_hint": lever,
+    }
+
+
+def normalize_contract_hint_paths(value):
+    return [
+        path
+        for path in (
+            normalize_repo_path_candidate(item)
+            for item in compact_list(value)[:MAX_CONTRACT_TRACE_PATHS]
+        )
+        if path
+    ]
+
+
+def normalize_contract_hints(raw, entry):
+    derived = contract_trace_hints(entry)
+    owner_paths = normalize_contract_hint_paths(raw.get("owner_paths")) if isinstance(raw, dict) else []
+    proof_paths = normalize_contract_hint_paths(raw.get("proof_paths")) if isinstance(raw, dict) else []
+    symbol_hints = compact_state_values(raw.get("symbol_hints")) if isinstance(raw, dict) else []
+    changed_lever_hint = compact_state_text(raw.get("changed_lever_hint"), 240) if isinstance(raw, dict) else ""
+    return {
+        "owner_paths": ordered_unique(owner_paths + derived["owner_paths"])[:MAX_CONTRACT_TRACE_PATHS],
+        "proof_paths": ordered_unique(proof_paths + derived["proof_paths"])[:MAX_CONTRACT_TRACE_PATHS],
+        "symbol_hints": ordered_unique(symbol_hints + derived["symbol_hints"])[:MAX_CONTRACT_TRACE_SYMBOLS],
+        "changed_lever_hint": changed_lever_hint or derived["changed_lever_hint"],
+    }
+
+
+def contract_trace_paths(entry):
+    if not isinstance(entry, dict):
+        return []
+    path = normalize_repo_path_candidate(entry.get("path"))
+    return ordered_unique(
+        ([path] if path else [])
+        + normalize_contract_hint_paths(entry.get("owner_paths"))
+        + normalize_contract_hint_paths(entry.get("proof_paths"))
+        + contract_trace_hints(entry)["owner_paths"]
+        + contract_trace_hints(entry)["proof_paths"]
+    )[:MAX_CONTRACT_TRACE_PATHS]
+
+
 def contract_state_entry_from_finding(finding, *, status="open"):
     contract = compact_contract_for_state(finding.repair_contract)
     if not contract or finding.severity == "nitpick":
         return None
-    return {
+    entry = {
         "id": finding_id(finding),
         "status": status,
         "severity": str(finding.severity or "medium"),
@@ -2091,6 +2395,8 @@ def contract_state_entry_from_finding(finding, *, status="open"):
         "fix_hint": compact_state_text(finding.fix_hint, 260),
         "repair_contract": contract,
     }
+    entry.update(contract_trace_hints(entry))
+    return entry
 
 
 def contract_identity(entry):
@@ -2145,18 +2451,18 @@ def normalize_contract_state_entries(entries):
         contract = compact_contract_for_state(raw.get("repair_contract"))
         if not contract:
             continue
-        normalized.append(
-            {
-                "id": compact_state_text(raw.get("id"), 40),
-                "status": compact_state_text(raw.get("status") or "prior", 40),
-                "severity": compact_state_text(raw.get("severity") or "medium", 24),
-                "path": compact_state_text(raw.get("path"), 260),
-                "line": raw.get("line") if isinstance(raw.get("line"), int) else None,
-                "title": compact_state_text(raw.get("title"), 180),
-                "fix_hint": compact_state_text(raw.get("fix_hint"), 260),
-                "repair_contract": contract,
-            }
-        )
+        entry = {
+            "id": compact_state_text(raw.get("id"), 40),
+            "status": compact_state_text(raw.get("status") or "prior", 40),
+            "severity": compact_state_text(raw.get("severity") or "medium", 24),
+            "path": compact_state_text(raw.get("path"), 260),
+            "line": raw.get("line") if isinstance(raw.get("line"), int) else None,
+            "title": compact_state_text(raw.get("title"), 180),
+            "fix_hint": compact_state_text(raw.get("fix_hint"), 260),
+            "repair_contract": contract,
+        }
+        entry.update(normalize_contract_hints(raw, entry))
+        normalized.append(entry)
         if len(normalized) >= MAX_CONTRACT_STATE_ENTRIES:
             break
     return normalized
@@ -2236,12 +2542,100 @@ def format_contract_entries_for_prompt(entries, limit=12_000):
         )
         if entry.get("fix_hint"):
             lines.append(f"- Suggested repair: {entry['fix_hint']}")
+        if entry.get("changed_lever_hint"):
+            lines.append(f"- Changed lever hint: {entry['changed_lever_hint']}")
+        if entry.get("owner_paths"):
+            lines.append("- Owner paths: " + "; ".join(entry["owner_paths"]))
+        if entry.get("proof_paths"):
+            lines.append("- Proof paths: " + "; ".join(entry["proof_paths"]))
+        if entry.get("symbol_hints"):
+            lines.append("- Symbol hints: " + "; ".join(entry["symbol_hints"]))
         contract = entry.get("repair_contract") or {}
         for key, label in CONTRACT_LABELS:
             values = compact_state_values(contract.get(key))
             if values:
                 lines.append(f"- {label}: " + "; ".join(values))
     return truncate("\n".join(lines).strip(), limit)
+
+
+def contract_entries_for_focus(entries, focus_files=None):
+    normalized = normalize_contract_state_entries(entries)
+    if not focus_files:
+        return normalized
+    focus = set(focus_files)
+    selected = []
+    for entry in normalized:
+        paths = set(contract_trace_paths(entry))
+        if paths & focus:
+            selected.append(entry)
+    return selected
+
+
+def contract_path_trace(base, path, changed, *, compact):
+    hunk_limit = MAX_COMPACT_GLOBAL_HUNK_CHARS if compact else MAX_GLOBAL_HUNK_CHARS
+    interface_limit = MAX_COMPACT_GLOBAL_FILE_MAP_CHARS if compact else MAX_GLOBAL_FILE_MAP_CHARS
+    lines = [f"### {path}", f"- Changed in current PR: {'yes' if path in changed else 'no'}"]
+    lines.append("Current interface lines:")
+    lines.append(truncate(file_interface_context(path), interface_limit))
+    if path in changed:
+        lines.append("Changed hunk sketch:")
+        lines.append(truncate(diff_for_path(base, path, unified=0 if compact else 3), hunk_limit))
+    else:
+        lines.append("Changed hunk sketch: not changed in the current PR.")
+    return "\n".join(lines)
+
+
+def build_prior_contract_trace_context(base, entries, files, *, compact=False, focus_files=None):
+    selected = contract_entries_for_focus(entries, focus_files)
+    if not selected:
+        if normalize_contract_state_entries(entries):
+            return "No open prior Bunny contracts route to this packet's focus files."
+        return "No prior Bunny repair contracts found."
+
+    changed = set(files)
+    entry_limit = MAX_COMPACT_CONTRACT_TRACE_ENTRY_CHARS if compact else MAX_CONTRACT_TRACE_ENTRY_CHARS
+    context_limit = (
+        MAX_COMPACT_CONTRACT_TRACE_CONTEXT_CHARS
+        if compact
+        else MAX_CONTRACT_TRACE_CONTEXT_CHARS
+    )
+    sections = [
+        "Prior contract trace context. Use this to verify whether older Bunny repair contracts are satisfied by the current diff. Findings must still cite changed lines; if the relevant implementation or proof is not visible here, report a Review Limitation instead of treating the contract as proven open.",
+    ]
+    for index, entry in enumerate(selected, 1):
+        location = f"{entry.get('path') or 'unknown'}:{entry.get('line') or '?'}"
+        paths = contract_trace_paths(entry)
+        changed_paths = [path for path in paths if path in changed]
+        ordered_paths = ordered_unique(changed_paths + paths)[:MAX_CONTRACT_TRACE_PATHS]
+        body = [
+            f"## Contract {index}: {entry.get('title') or '<untitled>'}",
+            f"- ID: {entry.get('id') or 'unknown'}",
+            f"- Status: {entry.get('status') or 'prior'}",
+            f"- Severity: {entry.get('severity') or 'medium'}",
+            f"- Original location: {location}",
+        ]
+        if entry.get("changed_lever_hint"):
+            body.append(f"- Changed lever hint: {entry['changed_lever_hint']}")
+        if entry.get("owner_paths"):
+            body.append("- Owner paths: " + "; ".join(entry["owner_paths"]))
+        if entry.get("proof_paths"):
+            body.append("- Proof paths: " + "; ".join(entry["proof_paths"]))
+        if entry.get("symbol_hints"):
+            body.append("- Symbol hints: " + "; ".join(entry["symbol_hints"]))
+        contract = entry.get("repair_contract") or {}
+        for key, label in CONTRACT_LABELS:
+            values = compact_state_values(contract.get(key))
+            if values:
+                body.append(f"- {label}: " + "; ".join(values))
+        if ordered_paths:
+            body.append("")
+            body.append("### Routed file evidence")
+            for path in ordered_paths:
+                body.append(contract_path_trace(base, path, changed, compact=compact))
+        else:
+            body.append("- Routed file evidence: no concrete repo paths were extracted from this contract.")
+        sections.append(truncate("\n".join(body), entry_limit))
+    return truncate("\n\n".join(sections), context_limit)
 
 
 def is_ci_check(item):
@@ -2891,7 +3285,20 @@ def produce_review(args):
         print("Bunny telemetry: skipped=missing_model_api_key", flush=True)
         return
 
-    chunk_plan = plan_review_chunks(base, ci_status, effective_mode, files)
+    prior_contract_state = prior_review_contract_state(pr_num)
+    prior_contract_context = (
+        format_contract_entries_for_prompt(prior_contract_state)
+        if prior_contract_state
+        else prior_review_contracts_context(pr_num)
+    )
+
+    chunk_plan = plan_review_chunks(
+        base,
+        ci_status,
+        effective_mode,
+        files,
+        prior_contracts=prior_contract_state,
+    )
     patch_chunks = chunk_plan["patch_chunks"]
     chunks = chunk_plan["chunks"]
     global_review_context = chunk_plan["global_review_context"]
@@ -2919,12 +3326,6 @@ def produce_review(args):
         max_retries=MODEL_MAX_RETRIES,
     )
     skill = bunny_prompt_path().read_text("utf-8")
-    prior_contract_state = prior_review_contract_state(pr_num)
-    prior_contract_context = (
-        format_contract_entries_for_prompt(prior_contract_state)
-        if prior_contract_state
-        else prior_review_contracts_context(pr_num)
-    )
 
     def triage_for_packet(review_packet, focus_note):
         triage = (
@@ -2933,6 +3334,9 @@ def produce_review(args):
             "Use the provided review packet as the complete inspection context. "
             "If prior Bunny contracts are included, first judge whether the current diff satisfies "
             "or leaves those contracts incomplete before issuing adjacent related findings. "
+            "Do not report an open prior contract as a blocker unless the packet includes "
+            "the changed implementation or proof evidence needed to verify it; if that "
+            "context is missing, record a Review Limitation instead. "
             "You have one chance to request focused extra context before the final review. "
             "If the packet is enough, reply with FINAL_REVIEW followed by a JSON object in the skill's schema. "
             "If more context is necessary to validate a concrete potential finding, reply only with "
@@ -2981,9 +3385,11 @@ def produce_review(args):
                                 if compact
                                 else global_review_context
                             ),
+                            prior_contracts=prior_contract_state,
                         ),
                         triage_for_packet,
                         focus_note,
+                        include_contract_pass=bool(prior_contract_state),
                     )
                 )
             except Exception as exc:
@@ -3017,9 +3423,11 @@ def produce_review(args):
                     ci_status,
                     effective_mode,
                     compact=compact,
+                    prior_contracts=prior_contract_state,
                 ),
                 triage_for_packet,
                 "Review the full current diff.",
+                include_contract_pass=bool(prior_contract_state),
             )
         except Exception as exc:
             write_skipped_review(
