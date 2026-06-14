@@ -563,10 +563,30 @@ export function truncateMessageContentAtSegment(rawContent: string, segmentIndex
   }
 
   if (lastIncludedEnd == null) {
-    if (pendingFallbackEnd != null) return rawContent.slice(0, pendingFallbackEnd);
+    if (pendingFallbackEnd != null) {
+      return normalizePartialQuotedDialogueTruncation(rawContent.slice(0, pendingFallbackEnd));
+    }
     return rawContent;
   }
-  return rawContent.slice(0, lastIncludedEnd);
+  return normalizePartialQuotedDialogueTruncation(rawContent.slice(0, lastIncludedEnd));
+}
+
+function normalizePartialQuotedDialogueTruncation(content: string): string {
+  const lastNewlineIndex = Math.max(content.lastIndexOf("\n"), content.lastIndexOf("\r"));
+  const lineStart = lastNewlineIndex + 1;
+  const prefix = content.slice(0, lineStart);
+  const line = content.slice(lineStart);
+  const quotedDialoguePrefixRe =
+    /^(\s*(?:Dialogue\s*)?\[[^\]]+\](?:\s*\[[^\]]+\]){0,2}\s*:\s*)(["“«])(.*)$/i;
+  const match = line.match(quotedDialoguePrefixRe);
+  if (!match) return content;
+
+  const openingQuote = match[2]!;
+  const closingQuote = openingQuote === "“" ? "”" : openingQuote === "«" ? "»" : openingQuote;
+  const body = match[3]!;
+  if (body.includes(closingQuote)) return content;
+
+  return `${prefix}${match[1]}${openingQuote}${body.trimEnd()}${closingQuote}`;
 }
 
 function trimTrailingWhitespaceOffset(line: TruncationLine, relativeEnd: number): number {

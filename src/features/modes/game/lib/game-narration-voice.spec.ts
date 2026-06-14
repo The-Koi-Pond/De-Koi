@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TTSConfig } from "../../../../engine/contracts/types/tts";
+import { ttsService } from "../../../../shared/lib/tts-service";
 import {
   buildVoiceConfigSignature,
   getGameSideLineVoiceKeyForRequests,
@@ -40,6 +41,10 @@ const baseTtsConfig: TTSConfig = {
   dialogueScope: "all",
   dialogueCharacterName: "",
 };
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function segment(overrides: Partial<NarrationSegment> = {}): NarrationSegment {
   return {
@@ -164,5 +169,40 @@ describe("game narration voice planning", () => {
     expect(pending.has(key!)).toBe(false);
     expect(cache.has(key!)).toBe(false);
     expect(queueGameVoiceEntryPlan({ key, requests: [request!], config: baseTtsConfig, cache, pending })).not.toBeNull();
+  });
+
+  it("aborts stale config plans before caching generated audio", async () => {
+    const changedConfig = { ...baseTtsConfig, voice: "nova" };
+    const initialSignature = buildVoiceConfigSignature(baseTtsConfig);
+    const changedSignature = buildVoiceConfigSignature(changedConfig);
+    let activeSignature = initialSignature;
+    const cache = new Map<string, GameSegmentVoiceEntry>();
+    const pending = new Map<string, AbortController>();
+    const request = getGameSegmentVoiceRequest(segment(), baseTtsConfig);
+    const key = getGameSegmentVoiceKeyForRequests(segment(), initialSignature, [request!]);
+    const plan = queueGameVoiceEntryPlan({
+      key,
+      requests: [request!],
+      config: baseTtsConfig,
+      cache,
+      pending,
+    });
+    expect(plan).not.toBeNull();
+
+    vi.spyOn(ttsService, "generateAudio").mockImplementation(async () => {
+      activeSignature = changedSignature;
+      return new Blob(["stale-audio"], { type: "audio/mpeg" });
+    });
+
+    await expect(
+      resolveGameVoiceEntryPlan({
+        plan: plan!,
+        cache,
+        pending,
+        isCurrentConfigSignature: (signature) => signature === activeSignature,
+      }),
+    ).resolves.toBe(false);
+    expect(cache.has(key!)).toBe(false);
+    expect(pending.has(key!)).toBe(false);
   });
 });

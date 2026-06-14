@@ -138,19 +138,23 @@ describe("game narration segment parsing", () => {
         sourceSegmentIndex: 2,
       }),
     ]);
-    expect(truncateMessageContentAtSegment(raw, 0)).toBe('[Amber][main]: "See ');
-    expect(truncateMessageContentAtSegment(raw, 1)).toBe('[Amber][main]: "See [Note: clue]');
+    expect(truncateMessageContentAtSegment(raw, 0)).toBe('[Amber][main]: "See"');
+    expect(truncateMessageContentAtSegment(raw, 1)).toBe('[Amber][main]: "See [Note: clue]"');
     expect(truncateMessageContentAtSegment(raw, 2)).toBe(raw);
   });
 
   it("preserves dialogue metadata while splitting readable blocks inside legacy dialogue lines", () => {
-    const segments = parseNarrationSegments(message('Dialogue [Amber]: "See [Book: field notes] later."'), new Map());
+    const raw = 'Dialogue [Amber]: "See [Book: field notes] later."';
+    const segments = parseNarrationSegments(message(raw), new Map());
 
     expect(segments).toEqual([
       expect.objectContaining({ type: "dialogue", speaker: "Amber", content: "See", sourceSegmentIndex: 0 }),
       expect.objectContaining({ type: "readable", readableType: "book", readableContent: "field notes", sourceSegmentIndex: 1 }),
       expect.objectContaining({ type: "dialogue", speaker: "Amber", content: "later.", sourceSegmentIndex: 2 }),
     ]);
+    expect(truncateMessageContentAtSegment(raw, 0)).toBe('Dialogue [Amber]: "See"');
+    expect(truncateMessageContentAtSegment(raw, 1)).toBe('Dialogue [Amber]: "See [Book: field notes]"');
+    expect(truncateMessageContentAtSegment(raw, 2)).toBe(raw);
   });
 
   it("preserves inline dialogue attribution and aligns truncation to rendered segments", () => {

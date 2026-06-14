@@ -32,6 +32,7 @@ interface GameVoiceAudioJob {
 
 export interface GameVoiceEntryPlan {
   key: string;
+  configSignature: string;
   audioJobs: GameVoiceAudioJob[];
   controller: AbortController;
 }
@@ -238,21 +239,37 @@ function waitForGameTTSRetry(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-async function generateGameVoiceJobBlob(job: GameVoiceAudioJob, controller: AbortController): Promise<Blob> {
+function throwIfGameVoicePlanStale(controller: AbortController, isCurrentPlan?: () => boolean): void {
+  if (controller.signal.aborted) throw new DOMException("TTS request aborted", "AbortError");
+  if (isCurrentPlan && !isCurrentPlan()) {
+    controller.abort();
+    throw new DOMException("TTS config changed before generation completed", "AbortError");
+  }
+}
+
+async function generateGameVoiceJobBlob(
+  job: GameVoiceAudioJob,
+  controller: AbortController,
+  isCurrentPlan?: () => boolean,
+): Promise<Blob> {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= GAME_TTS_CHUNK_ATTEMPTS; attempt += 1) {
-    if (controller.signal.aborted) throw new DOMException("TTS request aborted", "AbortError");
+    throwIfGameVoicePlanStale(controller, isCurrentPlan);
     try {
       return await getOrCreateCachedTTSAudioBlob(
         job.cacheKey,
-        () =>
-          ttsService.generateAudio(job.chunk, {
+        async () => {
+          throwIfGameVoicePlanStale(controller, isCurrentPlan);
+          const blob = await ttsService.generateAudio(job.chunk, {
             speaker: job.speaker,
             tone: job.tone,
             voice: job.voice,
             signal: controller.signal,
-          }),
+          });
+          throwIfGameVoicePlanStale(controller, isCurrentPlan);
+          return blob;
+        },
         [job.textCacheKey],
       );
     } catch (err) {
@@ -389,6 +406,7 @@ export function queueGameVoiceEntryPlan(args: {
   if (!key || cache.has(key) || pending.has(key)) return null;
   const audioJobs = buildGameVoiceAudioJobs(key, requests, config);
   if (audioJobs.length === 0) return null;
+  const configSignature = buildVoiceConfigSignature(config);
 
   const controller = new AbortController();
   pending.set(key, controller);
@@ -399,7 +417,7 @@ export function queueGameVoiceEntryPlan(args: {
     tone: audioJobs[0]?.tone,
     voice: audioJobs[0]?.voice,
   });
-  return { key, audioJobs, controller };
+  return { key, configSignature, audioJobs, controller };
 }
 
 export async function resolveGameVoiceEntryPlan(args: {
@@ -408,26 +426,37 @@ export async function resolveGameVoiceEntryPlan(args: {
   pending: Map<string, AbortController>;
   createObjectUrl?: (blob: Blob) => string;
   revokeObjectUrl?: (url: string) => void;
+  isCurrentConfigSignature?: (configSignature: string) => boolean;
   onChunkError?: (jobIndex: number, audioJobCount: number, error: unknown) => void;
 }): Promise<boolean> {
   const {
-    plan: { key, audioJobs, controller },
+    plan: { key, configSignature, audioJobs, controller },
     cache,
     pending,
     createObjectUrl = (blob) => URL.createObjectURL(blob),
     revokeObjectUrl = (url) => URL.revokeObjectURL(url),
+    isCurrentConfigSignature,
     onChunkError,
   } = args;
+  const isCurrentPlan = isCurrentConfigSignature
+    ? () => isCurrentConfigSignature(configSignature)
+    : undefined;
 
   try {
-    if (controller.signal.aborted) return false;
+    try {
+      throwIfGameVoicePlanStale(controller, isCurrentPlan);
+    } catch (err) {
+      if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) return false;
+      throw err;
+    }
 
     const blobs: Blob[] = [];
     let failed = false;
     for (const [jobIndex, job] of audioJobs.entries()) {
       if (controller.signal.aborted) break;
       try {
-        const blob = await generateGameVoiceJobBlob(job, controller);
+        const blob = await generateGameVoiceJobBlob(job, controller, isCurrentPlan);
+        throwIfGameVoicePlanStale(controller, isCurrentPlan);
         blobs.push(blob);
       } catch (err) {
         if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) break;
@@ -438,6 +467,12 @@ export async function resolveGameVoiceEntryPlan(args: {
     }
 
     if (controller.signal.aborted) return false;
+    try {
+      throwIfGameVoicePlanStale(controller, isCurrentPlan);
+    } catch (err) {
+      if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) return false;
+      throw err;
+    }
     const urls = blobs.map((blob) => createObjectUrl(blob));
     if (!failed && urls.length === audioJobs.length) {
       cache.set(key, {

@@ -1259,6 +1259,10 @@ export function GameNarration({
   const activeCopyText = active ? (active.readableContent ?? stripGmTagsKeepReadables(active.content)) : "";
   const gameVoiceEnabled = Boolean(ttsConfig?.enabled && ttsConfig.autoplayGame);
   const gameVoiceConfigSignature = useMemo(() => buildVoiceConfigSignature(ttsConfig), [ttsConfig]);
+  const gameVoiceConfigSignatureRef = useRef(gameVoiceConfigSignature);
+  useEffect(() => {
+    gameVoiceConfigSignatureRef.current = gameVoiceConfigSignature;
+  }, [gameVoiceConfigSignature]);
   const normalizedGameVoiceVolume = Math.max(0, Math.min(1, gameVoiceVolume));
   const gameVoicePlaybackBlocked = voicePlaybackBlocked ?? autoPlayBlocked;
 
@@ -2224,6 +2228,7 @@ export function GameNarration({
           plan,
           cache: gameVoiceCacheRef.current,
           pending: gameVoicePendingRef.current,
+          isCurrentConfigSignature: (configSignature) => configSignature === gameVoiceConfigSignatureRef.current,
           onChunkError: (jobIndex, audioJobCount, err) => {
             console.warn(`[game-tts] Failed to generate voice line chunk ${jobIndex + 1}/${audioJobCount}`, err);
           },
@@ -2236,6 +2241,12 @@ export function GameNarration({
 
     gameVoiceGenerationTailRef.current = gameVoiceGenerationTailRef.current.catch(() => undefined).then(runPlans);
     void gameVoiceGenerationTailRef.current;
+
+    return () => {
+      for (const plan of plans) {
+        plan.controller.abort();
+      }
+    };
   }, [
     gameNpcs,
     gameVoiceConfigSignature,
