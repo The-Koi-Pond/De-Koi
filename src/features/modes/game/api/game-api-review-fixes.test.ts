@@ -160,6 +160,7 @@ const CHECKPOINT_ROW = {
 const SNAPSHOT_ROW = {
   id: "snapshot-1",
   chatId: "chat-1",
+  messageId: "anchor-1",
   gameState: { hp: 2 },
   metadata: { gameWeather: "rain" },
 };
@@ -2252,6 +2253,21 @@ describe("game API review guards", () => {
     expect(storageApiMock.delete).toHaveBeenCalledWith("game-checkpoints", "checkpoint-1");
   });
 
+  it("does not delete sparse imported tracker snapshots with a legacy gameState column", async () => {
+    mockDeleteCheckpointGet({
+      id: "snapshot-1",
+      chatId: "chat-1",
+      messageId: "anchor-1",
+      gameState: { stale: true },
+    });
+    storageApiMock.delete.mockResolvedValue({ deleted: true });
+
+    await expect(deleteCheckpoint("checkpoint-1")).resolves.toEqual({ ok: true });
+
+    expect(storageApiMock.delete).toHaveBeenCalledTimes(1);
+    expect(storageApiMock.delete).toHaveBeenCalledWith("game-checkpoints", "checkpoint-1");
+  });
+
   it("surfaces checkpoint snapshot cleanup failure without hiding checkpoint deletion", async () => {
     mockDeleteCheckpointGet(SNAPSHOT_ROW);
     storageApiMock.delete.mockImplementation(async (entity: string) => {
@@ -2491,6 +2507,52 @@ describe("game API review guards", () => {
       },
     });
     expect(storageApiMock.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats sparse message-targeted legacy snapshots as tracker rows despite a gameState column", async () => {
+    mockCheckpointSnapshotGet(
+      {
+        id: "chat-1",
+        metadata: {
+          gameId: "game-1",
+          gameWeather: { type: "clear" },
+          gameTime: { day: 1, hour: 8, minute: 0 },
+          gameTimeFormatted: "Day 1, 08:00",
+        },
+        gameState: { location: "wrong" },
+      },
+      {
+        id: "snapshot-1",
+        chatId: "chat-1",
+        messageId: "anchor-1",
+        gameState: { stale: true },
+      },
+      { ...CHECKPOINT_ROW, gameState: "combat" },
+    );
+    storageApiMock.update.mockResolvedValue({ id: "chat-1" });
+    storageApiMock.create.mockResolvedValue({ id: "restore-message-1" });
+
+    const result = await loadCheckpoint({ chatId: "chat-1", checkpointId: "checkpoint-1" });
+
+    expect(result.gameState).toEqual({
+      id: "snapshot-1",
+      chatId: "chat-1",
+      messageId: "anchor-1",
+    });
+    expect(result.metadata).toEqual(
+      expect.objectContaining({
+        gameId: "game-1",
+        gameActiveState: "combat",
+        [RESTORED_CHECKPOINT_ANCHOR_META_KEY]: "anchor-1",
+      }),
+    );
+    expect(result.metadata).toEqual(
+      expect.not.objectContaining({
+        gameWeather: { type: "clear" },
+        gameTime: { day: 1, hour: 8, minute: 0 },
+        gameTimeFormatted: "Day 1, 08:00",
+      }),
+    );
   });
 
   it("restores imported legacy tracker-shaped checkpoint snapshots", async () => {

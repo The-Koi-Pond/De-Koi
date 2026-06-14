@@ -33,6 +33,7 @@ const TRACKER_SNAPSHOT_STATE_KEYS = [
 ] as const;
 
 const TRACKER_SNAPSHOT_SHAPE_KEYS = [
+  "messageId",
   "swipeIndex",
   "date",
   "time",
@@ -53,9 +54,14 @@ function hasOwnField(record: Record<string, unknown>, field: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, field);
 }
 
+function hasCheckpointPayload(snapshot: CheckpointSnapshot | null): boolean {
+  return !!snapshot && hasOwnField(snapshot, "gameState") && hasOwnField(snapshot, "metadata");
+}
+
 function isTrackerSnapshot(snapshot: CheckpointSnapshot | null): boolean {
   if (!snapshot) return false;
   if (snapshot.kind === "tracker") return true;
+  if (hasCheckpointPayload(snapshot)) return false;
   return TRACKER_SNAPSHOT_SHAPE_KEYS.some((key) => hasOwnField(snapshot, key));
 }
 
@@ -108,7 +114,7 @@ function checkpointSnapshotRestorePayload(
 }
 
 function isOwnedCheckpointSnapshot(snapshot: CheckpointSnapshot | null): boolean {
-  return !!snapshot && !isTrackerSnapshot(snapshot) && hasOwnField(snapshot, "gameState");
+  return hasCheckpointPayload(snapshot);
 }
 
 export async function listCheckpoints(chatId: string) {
