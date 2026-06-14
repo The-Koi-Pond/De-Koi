@@ -334,10 +334,9 @@ function isAbortError(error: unknown): boolean {
 
 function withTimeout<T>(promise: Promise<T>, ms: number, signal?: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let settled = false;
     const cleanup = () => {
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
       signal?.removeEventListener("abort", onAbort);
     };
     const settle = (callback: () => void) => {
@@ -349,7 +348,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, signal?: AbortSignal): 
     const onAbort = () => {
       settle(() => reject(abortSummaryError()));
     };
-    timeoutId = setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       settle(() => reject(new Error("Summary timeout")));
     }, ms);
     signal?.addEventListener("abort", onAbort, { once: true });
