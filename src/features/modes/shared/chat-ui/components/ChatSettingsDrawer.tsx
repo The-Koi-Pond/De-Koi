@@ -65,7 +65,11 @@ import { ConversationPromptSection } from "./settings/ConversationPromptSection"
 import { ImpersonateSettingsContent } from "./settings/ImpersonateSettingsContent";
 import { MemoryRecallMemoriesModal } from "./settings/MemoryRecallMemoriesModal";
 import { ScheduleEditor, SelfiePromptControls } from "./settings/ScheduleEditor";
-import { ScopedRegexCharacterGroups, ScopedRegexModeSelector, CardCssModeSelector } from "./settings/ScopedRegexControls";
+import {
+  ScopedRegexCharacterGroups,
+  ScopedRegexModeSelector,
+  CardCssModeSelector,
+} from "./settings/ScopedRegexControls";
 import { SpriteDisplayModeToggle, SpriteToggleButton } from "./settings/SpriteDisplayControls";
 import {
   metadataCharacterSchedules,
@@ -166,6 +170,7 @@ import type { CharacterGroup } from "../../../../../engine/contracts/types/chara
 import type { Lorebook } from "../../../../../engine/contracts/types/lorebook";
 import {
   activeLorebookScopeReasonLabels,
+  lorebookCanBeSelectedForContext,
   resolveActiveLorebookScopeReasons,
   type ActiveLorebookScopeReasonLabel,
 } from "../../../../../engine/generation-core/lorebooks/active-lorebook-scope";
@@ -452,8 +457,7 @@ function getChatActiveAgentIds(chat: Chat): string[] {
   return Array.isArray(activeIds) ? activeIds.filter((id): id is string => typeof id === "string") : [];
 }
 
-const isLiteBuild =
-  import.meta.env.VITE_DE_KOI_LITE === "true" || import.meta.env.VITE_MARINARA_LITE === "true";
+const isLiteBuild = import.meta.env.VITE_DE_KOI_LITE === "true" || import.meta.env.VITE_MARINARA_LITE === "true";
 
 export function ChatSettingsDrawer(props: ChatSettingsDrawerProps) {
   const contentReady = useDeferredDrawerContent(props.open, props.chat.id);
@@ -602,6 +606,13 @@ function ChatSettingsDrawerInner({
     });
   }, [activeLorebookIds, activeLorebookScopeContext, lorebooks]);
   const activeLorebookIdSet = useMemo(() => new Set(activeLorebooks.map((lorebook) => lorebook.id)), [activeLorebooks]);
+  const selectableLorebooks = useMemo(
+    () =>
+      ((lorebooks ?? []) as Lorebook[]).filter((lorebook) =>
+        lorebookCanBeSelectedForContext(lorebook, activeLorebookScopeContext),
+      ),
+    [activeLorebookScopeContext, lorebooks],
+  );
   const lorebookTokenBudget =
     typeof metadata.lorebookTokenBudget === "number" && Number.isFinite(metadata.lorebookTokenBudget)
       ? Math.max(0, Math.floor(metadata.lorebookTokenBudget))
@@ -4010,7 +4021,7 @@ function ChatSettingsDrawerInner({
                 onClose={() => setShowLbPicker(false)}
                 placeholder="Search lorebooks…"
               >
-                {((lorebooks ?? []) as Array<{ id: string; name: string }>)
+                {selectableLorebooks
                   .filter((lb) => !activeLorebookIdSet.has(lb.id))
                   .filter((lb) => lb.name.toLowerCase().includes(lbSearch.toLowerCase()))
                   .map((lb) => (
@@ -4027,12 +4038,11 @@ function ChatSettingsDrawerInner({
                       <Plus size="0.75rem" className="text-[var(--muted-foreground)]" />
                     </button>
                   ))}
-                {((lorebooks ?? []) as Array<{ id: string; name: string }>)
+                {selectableLorebooks
                   .filter((lb) => !activeLorebookIdSet.has(lb.id))
                   .filter((lb) => lb.name.toLowerCase().includes(lbSearch.toLowerCase())).length === 0 && (
                   <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
-                    {((lorebooks ?? []) as Array<{ id: string }>).filter((lb) => !activeLorebookIdSet.has(lb.id))
-                      .length === 0
+                    {selectableLorebooks.filter((lb) => !activeLorebookIdSet.has(lb.id)).length === 0
                       ? "All available lorebooks are already active here."
                       : "No matches."}
                   </p>

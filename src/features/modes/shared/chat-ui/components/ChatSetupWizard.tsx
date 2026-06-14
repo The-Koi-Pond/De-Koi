@@ -46,6 +46,8 @@ import { normalizeChatCharacterIds } from "../../../../../shared/lib/chat-displa
 import { ChoiceSelectionModal } from "../../../../catalog/presets/index";
 import type { Chat, ChatMode } from "../../../../../engine/contracts/types/chat";
 import type { ChatPreset } from "../../../../../engine/contracts/types/chat-preset";
+import type { Lorebook } from "../../../../../engine/contracts/types/lorebook";
+import { lorebookCanBeSelectedForContext } from "../../../../../engine/generation-core/lorebooks/active-lorebook-scope";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   CHAT_PARAMETER_DEFAULTS,
@@ -1134,6 +1136,21 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   });
 
   const activeLorebookIds: string[] = useMemo(() => metadata.activeLorebookIds ?? [], [metadata.activeLorebookIds]);
+  const activeLorebookScopeContext = useMemo(
+    () => ({
+      chat,
+      characters: chatCharIds.map((id) => ({ id })),
+      persona: chat.personaId ? { id: chat.personaId } : null,
+    }),
+    [chat, chatCharIds],
+  );
+  const selectableLorebooks = useMemo(
+    () =>
+      ((lorebooks ?? []) as Lorebook[]).filter((lorebook) =>
+        lorebookCanBeSelectedForContext(lorebook, activeLorebookScopeContext),
+      ),
+    [activeLorebookScopeContext, lorebooks],
+  );
 
   // Character name helper
   const charInfoMap = useMemo(() => {
@@ -1510,7 +1527,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   }
 
   function renderLorebooks() {
-    const available = ((lorebooks ?? []) as Array<{ id: string; name: string }>).filter(
+    const available = selectableLorebooks.filter(
       (lb) => !activeLorebookIds.includes(lb.id) && lb.name.toLowerCase().includes(lbSearch.toLowerCase()),
     );
 
@@ -1520,7 +1537,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
         {activeLorebookIds.length > 0 && (
           <div className="flex flex-col gap-1">
             {activeLorebookIds.map((lbId) => {
-              const lb = ((lorebooks ?? []) as Array<{ id: string; name: string }>).find((l) => l.id === lbId);
+              const lb = ((lorebooks ?? []) as Lorebook[]).find((l) => l.id === lbId);
               if (!lb) return null;
               return (
                 <div
@@ -1567,8 +1584,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
             ))}
             {available.length === 0 && (
               <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
-                {((lorebooks ?? []) as Array<{ id: string }>).filter((lb) => !activeLorebookIds.includes(lb.id))
-                  .length === 0
+                {selectableLorebooks.filter((lb) => !activeLorebookIds.includes(lb.id)).length === 0
                   ? "All lorebooks already added."
                   : "No matches."}
               </p>

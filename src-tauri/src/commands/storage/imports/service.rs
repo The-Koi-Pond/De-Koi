@@ -8,6 +8,8 @@ use super::super::*;
 mod access;
 #[path = "bulk_imports.rs"]
 mod bulk_imports;
+#[path = "lorebook_normalization.rs"]
+mod lorebook_normalization;
 #[path = "lorebook_signals.rs"]
 mod lorebook_signals;
 #[path = "marinara.rs"]
@@ -23,6 +25,7 @@ mod st_preset;
 #[path = "timestamps.rs"]
 mod timestamps;
 use access::*;
+use lorebook_normalization::*;
 use marinara::*;
 use normalization::*;
 use payloads::*;
@@ -32,7 +35,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use timestamps::{apply_timestamp_overrides, timestamp_overrides_from_value};
 
-pub(crate) use normalization::{lorebook_entries, normalize_lorebook_entry};
+pub(crate) use lorebook_normalization::{lorebook_entries, normalize_lorebook_entry};
 
 fn create_lorebook_from_payload(
     state: &AppState,

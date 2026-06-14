@@ -173,6 +173,30 @@ fn defaults_lorebook_category_to_world_without_signals() {
 }
 
 #[test]
+fn normalizes_imported_lorebook_scope() {
+    let (lorebook, _entries) = normalize_lorebook(
+        &json!({
+            "name": "Scoped Notes",
+            "scope": {
+                "mode": "specific",
+                "chatIds": ["chat-1", "chat-1", "  ", "chat-2"]
+            },
+            "entries": [{ "content": "Hello there, friend." }]
+        }),
+        "Imported",
+        None,
+    );
+
+    assert_eq!(
+        lorebook["scope"],
+        json!({
+            "mode": "specific",
+            "chatIds": ["chat-1", "chat-2"]
+        })
+    );
+}
+
+#[test]
 fn normalizes_imported_lorebook_entry_after_raw_field_merge() {
     let entry = normalize_imported_lorebook_entry(
         "book-1",
