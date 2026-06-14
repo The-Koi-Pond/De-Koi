@@ -21,6 +21,7 @@ import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../shared
 import { collapseExcessBlankLines } from "../shared/text/newlines";
 import { normalizeUserTimeZone } from "../shared/time/timezone";
 import { buildImpersonateInstruction } from "../modes/chat/commands/impersonate-prompt";
+import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
 import { getConversationStatus } from "../modes/chat/autonomous/autonomous.service";
 import {
   backfillConversationSummaries,
@@ -229,12 +230,6 @@ function shouldPauseForAgentInjectionReview(
   if (!AGENT_INJECTION_REVIEW_CHAT_MODES.has(readString(chat.mode || chat.chatMode).trim())) return false;
   if (injections.length === 0) return false;
   return parseRecord(chat.metadata).reviewWriterAgentOutputs === true;
-}
-
-function conversationCommandPromptEnabled(chat: JsonRecord): boolean {
-  const mode = readString(chat.mode || chat.chatMode).trim();
-  const meta = parseRecord(chat.metadata);
-  return mode === "conversation" && boolish(meta.characterCommands, true);
 }
 
 async function spotifyPlaybackAvailableForConversationCommand(integrations: IntegrationGateway): Promise<boolean> {

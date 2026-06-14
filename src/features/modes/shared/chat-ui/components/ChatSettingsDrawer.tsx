@@ -108,6 +108,7 @@ import {
   chatKeys,
 } from "../../../../catalog/chats/index";
 import { generateConversationSchedules as runGenerateConversationSchedules } from "../../../../../engine/modes/chat/schedules/schedule.service";
+import { conversationCommandPromptEnabled } from "../../../../../engine/modes/chat/commands/activation";
 import { agentApi } from "../../../../../shared/api/agent-api";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
@@ -716,7 +717,7 @@ function ChatSettingsDrawerInner({
     }
     return map;
   }, [agentConfigs]);
-  const conversationCommandsEnabled = metadata.characterCommands !== false;
+  const conversationCommandsEnabled = conversationCommandPromptEnabled(chat);
 
   // Build the available agent list: built-in + custom agents from DB
   // In roleplay mode, hide agents that are either automatic or handled internally.

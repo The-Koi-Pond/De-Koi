@@ -19,6 +19,7 @@ import {
 } from "../generation-core/prompt/merger";
 import { applyRegexScriptsToPromptMessages } from "../generation-core/regex/regex-application";
 import { stripConversationPromptTimestamps } from "../modes/chat/core/summaries/transcript-sanitize";
+import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
 import {
   hasDeferredCharacterMacros,
   resolveDeferredCharacterMacros,
@@ -2677,9 +2678,8 @@ function buildConversationCommandBlock(
   connectedMode: string | null,
   wrapFormat: WrapFormat,
 ): ChatMLMessage | null {
-  if (modeOf(chat) !== "conversation") return null;
   const meta = parseRecord(chat.metadata);
-  if (!boolish(meta.characterCommands, true)) return null;
+  if (!conversationCommandPromptEnabled(chat)) return null;
   const capabilities = conversationCommandCapabilities(chat, meta);
   const schedules = parseRecord(meta.characterSchedules);
   const hasSchedules =
