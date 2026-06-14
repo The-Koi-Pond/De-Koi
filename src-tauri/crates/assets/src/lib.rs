@@ -832,7 +832,7 @@ fn should_resize_generated_background_upload(
         && subcategory
             .map(|value| {
                 value
-                    .split(|ch| ch == '/' || ch == '\\')
+                    .split(['/', '\\'])
                     .any(|part| part == "generated")
             })
             .unwrap_or(false)
