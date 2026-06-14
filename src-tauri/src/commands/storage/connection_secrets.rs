@@ -1,4 +1,4 @@
-use super::shared::get_required;
+use super::shared::{get_required, normalize_update_patch};
 use crate::state::AppState;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -63,6 +63,25 @@ pub(crate) fn patch_connection(state: &AppState, id: &str, patch: Value) -> AppR
     let mut masked = updated;
     mask_connection_for_read(&mut masked);
     Ok(masked)
+}
+
+pub(crate) fn save_default_parameters(
+    state: &AppState,
+    id: &str,
+    params: Value,
+) -> AppResult<Value> {
+    if !params.is_object() && !params.is_null() {
+        return Err(AppError::invalid_input(
+            "defaultParameters must be a JSON object or null",
+        ));
+    }
+    let patch = normalize_update_patch(
+        "connections",
+        json!({
+            "defaultParameters": params,
+        }),
+    )?;
+    patch_connection(state, id, patch)
 }
 
 pub(crate) fn connection_for_runtime(state: &AppState, id: &str) -> AppResult<Value> {
