@@ -1,4 +1,4 @@
-import type { KeyboardEvent, MouseEvent } from "react";
+import type { DragEvent, KeyboardEvent, MouseEvent } from "react";
 import { Camera, Check, Copy, Star, Trash2, User } from "lucide-react";
 
 import { cn } from "../../../../../shared/lib/utils";
@@ -12,6 +12,8 @@ interface PersonaListItemProps {
   isSelected: boolean;
   assigningToGroup: boolean;
   targetGroup: PersonaPanelGroup | null;
+  draggable: boolean;
+  isDragging: boolean;
   onOpen: (personaId: string) => void;
   onAvatarClick: (event: MouseEvent, personaId: string) => void;
   onToggleSelection: (personaId: string) => void;
@@ -19,6 +21,8 @@ interface PersonaListItemProps {
   onActivate: (personaId: string) => void;
   onDuplicate: (persona: PersonaPanelRow) => void;
   onDelete: (persona: PersonaPanelRow) => void;
+  onPersonaDragStart: (event: DragEvent<HTMLDivElement>, personaId: string) => void;
+  onPersonaDragEnd: () => void;
 }
 
 export function PersonaListItem({
@@ -28,6 +32,8 @@ export function PersonaListItem({
   isSelected,
   assigningToGroup,
   targetGroup,
+  draggable,
+  isDragging,
   onOpen,
   onAvatarClick,
   onToggleSelection,
@@ -35,6 +41,8 @@ export function PersonaListItem({
   onActivate,
   onDuplicate,
   onDelete,
+  onPersonaDragStart,
+  onPersonaDragEnd,
 }: PersonaListItemProps) {
   const isInTargetGroup = targetGroup ? targetGroup.memberIds.includes(persona.id) : false;
   const handleRowAction = () => {
@@ -57,6 +65,7 @@ export function PersonaListItem({
     <div
       role="button"
       tabIndex={0}
+      draggable={draggable}
       aria-label={`Open ${persona.name}`}
       aria-current={active ? "true" : undefined}
       aria-pressed={selectionMode ? isSelected : targetGroup ? isInTargetGroup : undefined}
@@ -66,8 +75,11 @@ export function PersonaListItem({
         active && "bg-emerald-400/5 ring-1 ring-emerald-400/40",
         assigningToGroup && isInTargetGroup && "bg-violet-500/10 ring-1 ring-violet-500/50",
         assigningToGroup && !isInTargetGroup && "opacity-60 hover:opacity-100",
+        isDragging && "opacity-55 ring-1 ring-[var(--primary)]/30",
       )}
       onClick={handleRowAction}
+      onDragStart={(event) => onPersonaDragStart(event, persona.id)}
+      onDragEnd={onPersonaDragEnd}
       onKeyDown={handleRowKeyDown}
     >
       {selectionMode && (

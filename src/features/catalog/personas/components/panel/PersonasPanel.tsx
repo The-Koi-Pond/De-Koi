@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Panel: User Personas
 // ──────────────────────────────────────────────
-import { useCallback, useMemo, useRef, useState, type ChangeEvent, type MouseEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent } from "react";
 import { Check, Download, Plus, Sparkles, User } from "lucide-react";
 import { toast } from "sonner";
 
@@ -35,10 +35,21 @@ import {
   useUpdatePersonaGroup,
   useUploadPersonaAvatar,
 } from "../../hooks/use-personas";
-import { PersonaGroupsSection } from "./PersonaGroupsSection";
+import { PersonaGroupsSection, type PersonaGroupDropTarget } from "./PersonaGroupsSection";
 import { PersonaListItem } from "./PersonaListItem";
 import { PersonasFilterBar } from "./PersonasFilterBar";
 import { PersonasSelectionToolbar } from "./PersonasSelectionToolbar";
+
+const PERSONA_GROUP_DRAG_MIME = "application/x-de-koi-persona-id";
+
+type PersonaDragSource = { kind: "list" } | { kind: "group"; groupId: string | null };
+
+function samePersonaGroupDropTarget(left: PersonaGroupDropTarget | null, right: PersonaGroupDropTarget): boolean {
+  if (!left) return false;
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "root") return true;
+  return right.kind === "group" && left.groupId === right.groupId;
+}
 
 export function PersonasPanel() {
   const { data: personas, isLoading } = usePersonaSummaries();
@@ -55,6 +66,7 @@ export function PersonasPanel() {
   const openModal = useUIStore((state) => state.openModal);
 
   const fileRef = useRef<HTMLInputElement>(null);
+  const personaGroupMoveInFlightRef = useRef(false);
   const [avatarTargetId, setAvatarTargetId] = useState<string | null>(null);
   const [sort, setSort] = useState<SortOption>("name-asc");
   const [search, setSearch] = useState("");
@@ -73,6 +85,10 @@ export function PersonasPanel() {
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
   const [assigningToGroup, setAssigningToGroup] = useState<string | null>(null);
+  const [draggedPersonaId, setDraggedPersonaId] = useState<string | null>(null);
+  const [draggedPersonaSource, setDraggedPersonaSource] = useState<PersonaDragSource | null>(null);
+  const [personaDropTarget, setPersonaDropTarget] = useState<PersonaGroupDropTarget | null>(null);
+  const [personaGroupMovePending, setPersonaGroupMovePending] = useState(false);
 
   const handleCreate = () => {
     openModal("create-persona");
@@ -140,6 +156,17 @@ export function PersonasPanel() {
     [personaGroupsRaw, rawList],
   );
 
+  const personaGroupMembershipPending = updatePGroup.isPending || personaGroupMovePending;
+
+  const canDragPersonas = useMemo(
+    () =>
+      parsedGroups.some((group) => group.isSynthetic !== true) &&
+      !selectionMode &&
+      assigningToGroup === null &&
+      !personaGroupMembershipPending,
+    [assigningToGroup, parsedGroups, personaGroupMembershipPending, selectionMode],
+  );
+
   const handleCreateGroup = useCallback(() => {
     const name = newGroupName.trim();
     if (!name) return;
@@ -173,6 +200,123 @@ export function PersonasPanel() {
       updatePGroup.mutate({ id: groupId, personaIds: newMembers });
     },
     [updatePGroup],
+  );
+
+  const movePersonaToGroup = useCallback(
+    (targetGroupId: string | null, personaId: string) => {
+      if (updatePGroup.isPending || personaGroupMoveInFlightRef.current) return;
+      const changes = parsedGroups
+        .filter((group) => group.isSynthetic !== true)
+        .flatMap((group) => {
+          const isMember = group.memberIds.includes(personaId);
+          if (targetGroupId === null) {
+            return isMember ? [{ id: group.id, personaIds: group.memberIds.filter((id) => id !== personaId) }] : [];
+          }
+          if (group.id !== targetGroupId || isMember) return [];
+          return [{ id: group.id, personaIds: [...group.memberIds, personaId] }];
+        });
+
+      if (changes.length === 0) return;
+      personaGroupMoveInFlightRef.current = true;
+      setPersonaGroupMovePending(true);
+      void Promise.all(changes.map((change) => updatePGroup.mutateAsync(change)))
+        .catch((error) => {
+          toast.error(error instanceof Error ? error.message : "Failed to update persona group membership.");
+        })
+        .finally(() => {
+          personaGroupMoveInFlightRef.current = false;
+          setPersonaGroupMovePending(false);
+        });
+    },
+    [parsedGroups, updatePGroup],
+  );
+
+  const clearPersonaDragState = useCallback(() => {
+    setDraggedPersonaId(null);
+    setDraggedPersonaSource(null);
+    setPersonaDropTarget(null);
+  }, []);
+
+  const canDropPersonaOnTarget = useCallback(
+    (target: PersonaGroupDropTarget) => {
+      if (!draggedPersonaId) return false;
+      if (target.kind !== "root") return true;
+      return draggedPersonaSource?.kind === "group" && draggedPersonaSource.groupId !== null;
+    },
+    [draggedPersonaId, draggedPersonaSource],
+  );
+
+  const handlePersonaDragStart = useCallback(
+    (event: DragEvent<HTMLDivElement>, personaId: string, source: PersonaDragSource) => {
+      if (!canDragPersonas) {
+        event.preventDefault();
+        return;
+      }
+      setDraggedPersonaId(personaId);
+      setDraggedPersonaSource(source);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(PERSONA_GROUP_DRAG_MIME, personaId);
+      event.dataTransfer.setData("text/plain", personaId);
+    },
+    [canDragPersonas],
+  );
+
+  const handlePersonaListDragStart = useCallback(
+    (event: DragEvent<HTMLDivElement>, personaId: string) =>
+      handlePersonaDragStart(event, personaId, { kind: "list" }),
+    [handlePersonaDragStart],
+  );
+
+  const handlePersonaGroupMemberDragStart = useCallback(
+    (event: DragEvent<HTMLDivElement>, personaId: string, sourceGroupId: string | null) =>
+      handlePersonaDragStart(event, personaId, { kind: "group", groupId: sourceGroupId }),
+    [handlePersonaDragStart],
+  );
+
+  const handlePersonaDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>, target: PersonaGroupDropTarget) => {
+      if (!canDropPersonaOnTarget(target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "move";
+      setPersonaDropTarget((current) => (samePersonaGroupDropTarget(current, target) ? current : target));
+    },
+    [canDropPersonaOnTarget],
+  );
+
+  const handlePersonaDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+    setPersonaDropTarget(null);
+  }, []);
+
+  const handlePersonaDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>, groupId: string | null) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const personaId = draggedPersonaId || event.dataTransfer.getData(PERSONA_GROUP_DRAG_MIME);
+      if (!personaId) {
+        clearPersonaDragState();
+        return;
+      }
+      if (groupId === null && !canDropPersonaOnTarget({ kind: "root" })) {
+        clearPersonaDragState();
+        return;
+      }
+      movePersonaToGroup(groupId, personaId);
+      clearPersonaDragState();
+    },
+    [canDropPersonaOnTarget, clearPersonaDragState, draggedPersonaId, movePersonaToGroup],
+  );
+
+  const handlePersonaRootDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>) => handlePersonaDragOver(event, { kind: "root" }),
+    [handlePersonaDragOver],
+  );
+
+  const handlePersonaRootDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => handlePersonaDrop(event, null),
+    [handlePersonaDrop],
   );
 
   const filteredList = useMemo(
@@ -350,6 +494,9 @@ export function PersonasPanel() {
         editingGroupId={editingGroupId}
         editGroupName={editGroupName}
         assigningToGroup={assigningToGroup}
+        draggedPersonaId={draggedPersonaId}
+        personaDropTarget={personaDropTarget}
+        canDragPersonas={canDragPersonas}
         onGroupsExpandedChange={setGroupsExpanded}
         onExpandedGroupIdChange={setExpandedGroupId}
         onCreatingGroupChange={setCreatingGroup}
@@ -361,6 +508,11 @@ export function PersonasPanel() {
         onRenameGroup={handleRenameGroup}
         onDeleteGroup={handleDeleteGroup}
         onToggleGroupMember={toggleGroupMember}
+        onPersonaDragStart={handlePersonaGroupMemberDragStart}
+        onPersonaDragEnd={clearPersonaDragState}
+        onPersonaDragOver={handlePersonaDragOver}
+        onPersonaDragLeave={handlePersonaDragLeave}
+        onPersonaDrop={handlePersonaDrop}
         onExitSelectionMode={exitSelectionMode}
       />
 
@@ -383,7 +535,17 @@ export function PersonasPanel() {
         </div>
       )}
 
-      <div className="stagger-children flex flex-col gap-1">
+      <div
+        data-persona-group-root
+        onDragOver={handlePersonaRootDragOver}
+        onDragLeave={handlePersonaDragLeave}
+        onDrop={handlePersonaRootDrop}
+        className={cn(
+          "stagger-children flex flex-col gap-1 rounded-xl transition-colors",
+          draggedPersonaId && "min-h-8",
+          personaDropTarget?.kind === "root" && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+        )}
+      >
         {list.map((persona) => {
           const active = isPersonaActive(persona);
           const targetGroup = assigningToGroup
@@ -399,6 +561,8 @@ export function PersonasPanel() {
               isSelected={selectedPersonaIds.has(persona.id)}
               assigningToGroup={Boolean(assigningToGroup)}
               targetGroup={targetGroup}
+              draggable={canDragPersonas}
+              isDragging={draggedPersonaId === persona.id}
               onOpen={openPersonaDetail}
               onAvatarClick={handleAvatarClick}
               onToggleSelection={toggleSelection}
@@ -406,6 +570,8 @@ export function PersonasPanel() {
               onActivate={handleActivate}
               onDuplicate={handleDuplicate}
               onDelete={handleDeletePersona}
+              onPersonaDragStart={handlePersonaListDragStart}
+              onPersonaDragEnd={clearPersonaDragState}
             />
           );
         })}

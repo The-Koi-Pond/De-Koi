@@ -13,6 +13,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import type { DragEvent } from "react";
 
 import { getCharacterTitle } from "../../../../shared/lib/character-display";
 import { cn } from "../../../../shared/lib/utils";
@@ -35,6 +36,18 @@ export type CharacterGroupContextMenuRequest = {
   charName: string;
 };
 
+export type CharacterGroupDropTarget = { kind: "group"; groupId: string } | { kind: "root" };
+
+function isCharacterGroupDropTarget(
+  current: CharacterGroupDropTarget | null,
+  target: CharacterGroupDropTarget,
+): boolean {
+  if (!current) return false;
+  if (current.kind !== target.kind) return false;
+  if (current.kind === "root") return true;
+  return target.kind === "group" && current.groupId === target.groupId;
+}
+
 export function CharacterGroupsSection({
   groups,
   groupsExpanded,
@@ -44,6 +57,9 @@ export function CharacterGroupsSection({
   editingGroupId,
   editGroupName,
   assigningToGroup,
+  draggedCharacterId,
+  characterDropTarget,
+  canDragCharacters,
   hasActiveChat,
   selectionMode,
   charMap,
@@ -62,6 +78,11 @@ export function CharacterGroupsSection({
   onAddGroupToChat,
   onToggleAssigningToGroup,
   onToggleGroupMember,
+  onCharacterDragStart,
+  onCharacterDragEnd,
+  onCharacterDragOver,
+  onCharacterDragLeave,
+  onCharacterDrop,
   onOpenCharacterDetail,
   onOpenContextMenu,
   onStartNewChat,
@@ -74,6 +95,9 @@ export function CharacterGroupsSection({
   editingGroupId: string | null;
   editGroupName: string;
   assigningToGroup: string | null;
+  draggedCharacterId: string | null;
+  characterDropTarget: CharacterGroupDropTarget | null;
+  canDragCharacters: boolean;
   hasActiveChat: boolean;
   selectionMode: boolean;
   charMap: Map<string, CharacterGroupMemberPreview>;
@@ -92,6 +116,11 @@ export function CharacterGroupsSection({
   onAddGroupToChat: (memberIds: string[]) => void;
   onToggleAssigningToGroup: (groupId: string) => void;
   onToggleGroupMember: (groupId: string, memberId: string, memberIds: string[]) => void;
+  onCharacterDragStart: (event: DragEvent<HTMLDivElement>, characterId: string, sourceGroupId: string | null) => void;
+  onCharacterDragEnd: () => void;
+  onCharacterDragOver: (event: DragEvent<HTMLDivElement>, target: CharacterGroupDropTarget) => void;
+  onCharacterDragLeave: (event: DragEvent<HTMLDivElement>) => void;
+  onCharacterDrop: (event: DragEvent<HTMLDivElement>, groupId: string | null) => void;
   onOpenCharacterDetail: (memberId: string) => void;
   onOpenContextMenu: (request: CharacterGroupContextMenuRequest) => void;
   onStartNewChat: (memberId: string, memberName: string) => void;
@@ -154,11 +183,22 @@ export function CharacterGroupsSection({
               const isEditing = editingGroupId === group.id;
               const isAssigning = assigningToGroup === group.id;
               const isSynthetic = group.isSynthetic === true;
+              const groupDropTarget: CharacterGroupDropTarget = isSynthetic
+                ? { kind: "root" }
+                : { kind: "group", groupId: group.id };
+              const isDropTarget = isCharacterGroupDropTarget(characterDropTarget, groupDropTarget);
 
               return (
                 <div
                   key={group.id}
-                  className="rounded-xl border border-transparent transition-all hover:border-[var(--border)]/50"
+                  onDragOver={(event) => onCharacterDragOver(event, groupDropTarget)}
+                  onDragLeave={onCharacterDragLeave}
+                  onDrop={(event) => onCharacterDrop(event, isSynthetic ? null : group.id)}
+                  className={cn(
+                    "rounded-xl border border-transparent transition-all hover:border-[var(--border)]/50",
+                    draggedCharacterId && "ring-inset",
+                    isDropTarget && "border-[var(--primary)]/30 bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+                  )}
                 >
                   <div
                     className="group relative flex items-center gap-2.5 rounded-xl p-2 transition-all hover:bg-[var(--sidebar-accent)] cursor-pointer"
@@ -256,6 +296,9 @@ export function CharacterGroupsSection({
                         return (
                           <div
                             key={memberId}
+                            draggable={canDragCharacters}
+                            onDragStart={(event) => onCharacterDragStart(event, memberId, isSynthetic ? null : group.id)}
+                            onDragEnd={onCharacterDragEnd}
                             onClick={() => onOpenCharacterDetail(memberId)}
                             onContextMenu={(event) => {
                               if (selectionMode || assigningToGroup) return;
@@ -267,7 +310,10 @@ export function CharacterGroupsSection({
                                 charName: member.name,
                               });
                             }}
-                            className="group/member flex cursor-pointer items-center gap-2 rounded-lg p-1.5 transition-all hover:bg-[var(--sidebar-accent)]"
+                            className={cn(
+                              "group/member flex cursor-pointer items-center gap-2 rounded-lg p-1.5 transition-all hover:bg-[var(--sidebar-accent)]",
+                              draggedCharacterId === memberId && "opacity-55 ring-1 ring-[var(--primary)]/30",
+                            )}
                           >
                             <div className="relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-pink-400 to-rose-500 text-white">
                               {member.avatarPath ? (

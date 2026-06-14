@@ -1,11 +1,14 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useCreateGroup, useUpdateGroup } from "./use-characters";
+import type { ParsedGroupRow } from "../lib/characters-panel-model";
 
 export function useCharactersPanelGroups() {
   const createGroup = useCreateGroup();
   const updateGroup = useUpdateGroup();
+  const membershipMoveInFlightRef = useRef(false);
+  const [membershipMovePending, setMembershipMovePending] = useState(false);
   const [groupsExpanded, setGroupsExpanded] = useState(true);
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const [creatingGroup, setCreatingGroup] = useState(false);
@@ -73,6 +76,37 @@ export function useCharactersPanelGroups() {
     [updateGroup],
   );
 
+  const moveCharacterToGroup = useCallback(
+    (targetGroupId: string | null, charId: string, groups: ParsedGroupRow[]) => {
+      if (updateGroup.isPending || membershipMoveInFlightRef.current) return;
+      const changes = groups
+        .filter((group) => group.isSynthetic !== true)
+        .flatMap((group) => {
+          const isMember = group.memberIds.includes(charId);
+          if (targetGroupId === null) {
+            return isMember
+              ? [{ id: group.id, characterIds: group.memberIds.filter((memberId) => memberId !== charId) }]
+              : [];
+          }
+          if (group.id !== targetGroupId || isMember) return [];
+          return [{ id: group.id, characterIds: [...group.memberIds, charId] }];
+        });
+
+      if (changes.length === 0) return;
+      membershipMoveInFlightRef.current = true;
+      setMembershipMovePending(true);
+      void Promise.all(changes.map((change) => updateGroup.mutateAsync(change)))
+        .catch((error) => {
+          toast.error(error instanceof Error ? error.message : "Failed to update group membership.");
+        })
+        .finally(() => {
+          membershipMoveInFlightRef.current = false;
+          setMembershipMovePending(false);
+        });
+    },
+    [updateGroup],
+  );
+
   const toggleAssigningToGroup = useCallback(
     (groupId: string, onOpenNewGroup?: () => void) => {
       if (assigningToGroup !== groupId) {
@@ -91,8 +125,10 @@ export function useCharactersPanelGroups() {
     editingGroupId,
     expandedGroupId,
     groupsExpanded,
+    groupMembershipPending: updateGroup.isPending || membershipMovePending,
     handleCreateGroup,
     handleRenameGroup,
+    moveCharacterToGroup,
     newGroupName,
     setAssigningToGroup,
     setEditGroupName,

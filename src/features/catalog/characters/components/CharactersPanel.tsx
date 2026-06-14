@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, type DragEvent } from "react";
 import { toast } from "sonner";
 import {
   useCharacterPanelSummaries,
@@ -19,7 +19,7 @@ import { Users } from "lucide-react";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { ExportFormatDialog } from "../../../../shared/components/ui/ExportFormatDialog";
 import { CharacterFirstMessageDialog } from "./CharacterFirstMessageDialog";
-import { CharacterGroupsSection } from "./CharacterGroupsSection";
+import { CharacterGroupsSection, type CharacterGroupDropTarget } from "./CharacterGroupsSection";
 import {
   CharacterQuickStartContextMenu,
   type CharacterQuickStartContextMenuState,
@@ -42,6 +42,20 @@ function useDebouncedValue(value: string, delayMs: number): string {
   return debounced;
 }
 
+const CHARACTER_GROUP_DRAG_MIME = "application/x-de-koi-character-id";
+
+type CharacterDragSource = { kind: "list" } | { kind: "group"; groupId: string | null };
+
+function sameCharacterGroupDropTarget(
+  left: CharacterGroupDropTarget | null,
+  right: CharacterGroupDropTarget,
+): boolean {
+  if (!left) return false;
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "root") return true;
+  return right.kind === "group" && left.groupId === right.groupId;
+}
+
 export function CharactersPanel() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 180);
@@ -60,6 +74,9 @@ export function CharactersPanel() {
   const [contextMenu, setContextMenu] = useState<CharacterQuickStartContextMenuState | null>(null);
 
   const [sort, setSort] = useState<SortOption>("name-asc");
+  const [draggedCharacterId, setDraggedCharacterId] = useState<string | null>(null);
+  const [draggedCharacterSource, setDraggedCharacterSource] = useState<CharacterDragSource | null>(null);
+  const [characterDropTarget, setCharacterDropTarget] = useState<CharacterGroupDropTarget | null>(null);
   const {
     addGroupToChat,
     chatCharacterIds,
@@ -98,9 +115,11 @@ export function CharactersPanel() {
     editGroupName,
     editingGroupId,
     expandedGroupId,
+    groupMembershipPending,
     groupsExpanded,
     handleCreateGroup,
     handleRenameGroup,
+    moveCharacterToGroup,
     newGroupName,
     setAssigningToGroup,
     setEditGroupName,
@@ -139,6 +158,103 @@ export function CharactersPanel() {
     setExportDialogOpen,
     toggleSelection,
   } = useCharactersPanelSelection({ sortedCharacters, deleteCharacter });
+
+  const canDragCharacters = useMemo(
+    () =>
+      parsedGroups.some((group) => group.isSynthetic !== true) &&
+      !selectionMode &&
+      assigningToGroup === null &&
+      !groupMembershipPending,
+    [assigningToGroup, groupMembershipPending, parsedGroups, selectionMode],
+  );
+
+  const clearCharacterDragState = useCallback(() => {
+    setDraggedCharacterId(null);
+    setDraggedCharacterSource(null);
+    setCharacterDropTarget(null);
+  }, []);
+
+  const canDropCharacterOnTarget = useCallback(
+    (target: CharacterGroupDropTarget) => {
+      if (!draggedCharacterId) return false;
+      if (target.kind !== "root") return true;
+      return draggedCharacterSource?.kind === "group" && draggedCharacterSource.groupId !== null;
+    },
+    [draggedCharacterId, draggedCharacterSource],
+  );
+
+  const handleCharacterDragStart = useCallback(
+    (event: DragEvent<HTMLDivElement>, characterId: string, source: CharacterDragSource) => {
+      if (!canDragCharacters) {
+        event.preventDefault();
+        return;
+      }
+      setDraggedCharacterId(characterId);
+      setDraggedCharacterSource(source);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(CHARACTER_GROUP_DRAG_MIME, characterId);
+      event.dataTransfer.setData("text/plain", characterId);
+    },
+    [canDragCharacters],
+  );
+
+  const handleCharacterListDragStart = useCallback(
+    (event: DragEvent<HTMLDivElement>, characterId: string) =>
+      handleCharacterDragStart(event, characterId, { kind: "list" }),
+    [handleCharacterDragStart],
+  );
+
+  const handleCharacterGroupMemberDragStart = useCallback(
+    (event: DragEvent<HTMLDivElement>, characterId: string, sourceGroupId: string | null) =>
+      handleCharacterDragStart(event, characterId, { kind: "group", groupId: sourceGroupId }),
+    [handleCharacterDragStart],
+  );
+
+  const handleCharacterDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>, target: CharacterGroupDropTarget) => {
+      if (!canDropCharacterOnTarget(target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "move";
+      setCharacterDropTarget((current) => (sameCharacterGroupDropTarget(current, target) ? current : target));
+    },
+    [canDropCharacterOnTarget],
+  );
+
+  const handleCharacterDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+    setCharacterDropTarget(null);
+  }, []);
+
+  const handleCharacterDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>, groupId: string | null) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const characterId = draggedCharacterId || event.dataTransfer.getData(CHARACTER_GROUP_DRAG_MIME);
+      if (!characterId) {
+        clearCharacterDragState();
+        return;
+      }
+      if (groupId === null && !canDropCharacterOnTarget({ kind: "root" })) {
+        clearCharacterDragState();
+        return;
+      }
+      moveCharacterToGroup(groupId, characterId, parsedGroups);
+      clearCharacterDragState();
+    },
+    [canDropCharacterOnTarget, clearCharacterDragState, draggedCharacterId, moveCharacterToGroup, parsedGroups],
+  );
+
+  const handleCharacterRootDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>) => handleCharacterDragOver(event, { kind: "root" }),
+    [handleCharacterDragOver],
+  );
+
+  const handleCharacterRootDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => handleCharacterDrop(event, null),
+    [handleCharacterDrop],
+  );
 
   const handleDuplicateCharacter = useCallback(
     (character: ParsedCharacterRow) => {
@@ -243,6 +359,9 @@ export function CharactersPanel() {
         editingGroupId={editingGroupId}
         editGroupName={editGroupName}
         assigningToGroup={assigningToGroup}
+        draggedCharacterId={draggedCharacterId}
+        characterDropTarget={characterDropTarget}
+        canDragCharacters={canDragCharacters}
         hasActiveChat={hasActiveChat}
         selectionMode={selectionMode}
         charMap={charMap}
@@ -261,6 +380,11 @@ export function CharactersPanel() {
         onAddGroupToChat={addGroupToChat}
         onToggleAssigningToGroup={(groupId) => toggleAssigningToGroup(groupId, exitSelectionMode)}
         onToggleGroupMember={toggleGroupMember}
+        onCharacterDragStart={handleCharacterGroupMemberDragStart}
+        onCharacterDragEnd={clearCharacterDragState}
+        onCharacterDragOver={handleCharacterDragOver}
+        onCharacterDragLeave={handleCharacterDragLeave}
+        onCharacterDrop={handleCharacterDrop}
         onOpenCharacterDetail={openCharacterDetail}
         onOpenContextMenu={setContextMenu}
         onStartNewChat={(memberId, memberName) => void handleStartNewChat(memberId, memberName)}
@@ -280,6 +404,9 @@ export function CharactersPanel() {
         hasActiveChat={hasActiveChat}
         isAssigning={assigningToGroup !== null}
         assigningGroup={assigningGroup}
+        canDragCharacters={canDragCharacters}
+        draggedCharacterId={draggedCharacterId}
+        isRootDropTarget={characterDropTarget?.kind === "root"}
         onRetry={() => void refetch()}
         onToggleSelection={toggleSelection}
         onToggleGroupMember={toggleGroupMember}
@@ -289,6 +416,11 @@ export function CharactersPanel() {
         onDuplicateCharacter={handleDuplicateCharacter}
         onDeleteCharacter={(character) => void handleDeleteCharacter(character)}
         onToggleIncludedTag={toggleIncludedTag}
+        onCharacterDragStart={handleCharacterListDragStart}
+        onCharacterDragEnd={clearCharacterDragState}
+        onCharacterRootDragOver={handleCharacterRootDragOver}
+        onCharacterDragLeave={handleCharacterDragLeave}
+        onCharacterRootDrop={handleCharacterRootDrop}
       />
 
       {contextMenu && (
