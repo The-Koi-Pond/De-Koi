@@ -10,7 +10,7 @@ use std::time::SystemTime;
 
 const MANAGED_GAME_ASSET_CATEGORIES: &[&str] =
     &["music", "sfx", "ambient", "sprites", "backgrounds"];
-const MAX_TEXT_ASSET_BYTES: usize = 1_000_000;
+const MAX_TEXT_ASSET_BYTES: usize = 10 * 1024 * 1024;
 const MAX_MEDIA_ASSET_BYTES: usize = 75 * 1024 * 1024;
 const GENERATED_BACKGROUND_WIDTH: u32 = 1280;
 const GENERATED_BACKGROUND_HEIGHT: u32 = 720;
@@ -121,26 +121,26 @@ impl AssetService {
     pub fn set_folder_description(&self, path: &str, description: &str) -> AppResult<Value> {
         let folder = self.absolute_path(path)?;
         if !folder.exists() {
-            fs::create_dir_all(&folder)?;
+            return Err(AppError::not_found("Asset folder was not found"));
         }
         if !folder.is_dir() {
             return Err(AppError::invalid_input("Asset path is not a folder"));
         }
-        let meta_path = folder.join("meta.json");
-        let mut meta = if meta_path.exists() {
-            fs::read_to_string(&meta_path)
-                .ok()
-                .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-                .and_then(|value| value.as_object().cloned())
-                .unwrap_or_default()
+        let rel = self.relative_string(&folder);
+        let description = description.trim();
+        let meta_path = self.root.join("meta.json");
+        let mut meta = read_root_folder_metadata(&meta_path);
+        if description.is_empty() {
+            meta.remove(&rel);
         } else {
-            Map::new()
-        };
-        meta.insert(
-            "description".to_string(),
-            Value::String(description.to_string()),
-        );
-        fs::write(&meta_path, serde_json::to_vec_pretty(&Value::Object(meta))?)?;
+            meta.insert(rel.clone(), Value::String(description.to_string()));
+        }
+        if meta.is_empty() {
+            remove_metadata_file_if_present(&meta_path)?;
+        } else {
+            fs::write(&meta_path, serde_json::to_vec_pretty(&Value::Object(meta))?)?;
+        }
+        remove_folder_metadata_description(&folder)?;
         Ok(json!({ "path": path, "description": description }))
     }
 
@@ -168,22 +168,43 @@ impl AssetService {
     }
 
     pub fn create_folder(&self, path: &str) -> AppResult<()> {
-        fs::create_dir_all(self.absolute_path(path)?)?;
+        let folder = self.absolute_path(path)?;
+        if folder.exists() {
+            return Err(AppError::conflict("Asset folder already exists"));
+        }
+        fs::create_dir_all(folder)?;
         Ok(())
     }
 
-    pub fn remove(&self, path: &str, recursive: bool) -> AppResult<()> {
+    pub fn remove_folder(&self, path: &str, recursive: bool) -> AppResult<()> {
         ensure_removable_asset_path(path)?;
         let path = self.absolute_path(path)?;
-        if path.is_dir() {
-            if recursive {
-                fs::remove_dir_all(path)?;
-            } else {
-                fs::remove_dir(path)?;
-            }
-        } else if path.exists() {
-            fs::remove_file(path)?;
+        if !path.exists() {
+            return Err(AppError::not_found("Asset folder was not found"));
         }
+        if !path.is_dir() {
+            return Err(AppError::invalid_input("Asset path is not a folder"));
+        }
+        let rel = self.relative_string(&path);
+        if recursive {
+            fs::remove_dir_all(&path)?;
+        } else {
+            fs::remove_dir(&path)?;
+        }
+        remove_root_folder_metadata_subtree(&self.root, &rel)?;
+        Ok(())
+    }
+
+    pub fn remove_file(&self, path: &str) -> AppResult<()> {
+        ensure_removable_asset_path(path)?;
+        let path = self.absolute_path(path)?;
+        if !path.exists() {
+            return Err(AppError::not_found("Asset file was not found"));
+        }
+        if !path.is_file() {
+            return Err(AppError::invalid_input("Asset path is not a file"));
+        }
+        fs::remove_file(path)?;
         Ok(())
     }
 
@@ -200,7 +221,19 @@ impl AssetService {
                 .ok_or_else(|| AppError::invalid_input("Asset has no parent folder"))?
                 .join(sanitized_name),
         )?;
+        if target.exists() {
+            return Err(AppError::conflict("Asset already exists"));
+        }
+        let source_is_dir = source.is_dir();
+        let source_rel = self.relative_string(&source);
         fs::rename(&source, &target)?;
+        if source_is_dir {
+            move_root_folder_metadata_subtree(
+                &self.root,
+                &source_rel,
+                &self.relative_string(&target),
+            )?;
+        }
         Ok(json!({ "path": self.relative_string(&target) }))
     }
 
@@ -228,7 +261,16 @@ impl AssetService {
             .file_name()
             .ok_or_else(|| AppError::invalid_input("Asset has no filename"))?;
         let target = unique_target_path(&target_dir.join(file_name))?;
+        let source_is_dir = source.is_dir();
+        let source_rel = self.relative_string(&source);
         fs::rename(&source, &target)?;
+        if source_is_dir {
+            move_root_folder_metadata_subtree(
+                &self.root,
+                &source_rel,
+                &self.relative_string(&target),
+            )?;
+        }
         Ok(json!({ "path": self.relative_string(&target) }))
     }
 
@@ -278,7 +320,7 @@ impl AssetService {
         let mut succeeded = Vec::new();
         let mut failed = Vec::new();
         for path in paths {
-            match self.remove(path, false) {
+            match self.remove_file(path) {
                 Ok(()) => succeeded.push(Value::String(path.clone())),
                 Err(error) => failed.push(json!({ "path": path, "error": error.message })),
             }
@@ -330,7 +372,7 @@ impl AssetService {
                 self.copy_to_folder(path, target_folder)
             };
             match result {
-                Ok(value) => succeeded.push(value),
+                Ok(_) => succeeded.push(Value::String(path.clone())),
                 Err(error) => failed.push(json!({ "path": path, "error": error.message })),
             }
         }
@@ -348,7 +390,7 @@ impl AssetService {
                 .unwrap_or_else(|| root_name.to_string())
         };
         if metadata.is_dir() {
-            let description = folder_description(path);
+            let description = self.folder_description(path);
             let mut children = Vec::new();
             for entry in fs::read_dir(path)? {
                 let child_path = entry?.path();
@@ -428,6 +470,9 @@ impl AssetService {
                 continue;
             };
             if !MANAGED_GAME_ASSET_CATEGORIES.contains(&category) || segments.len() < 2 {
+                continue;
+            }
+            if !is_supported_manifest_asset(category, &path) {
                 continue;
             }
             let stem_path = rel
@@ -545,15 +590,137 @@ impl AssetService {
             .trim_start_matches('/')
             .to_string()
     }
+
+    fn folder_description(&self, path: &Path) -> Option<String> {
+        let rel = self.relative_string(path);
+        root_folder_description(&self.root.join("meta.json"), &rel)
+            .or_else(|| folder_metadata_description(path))
+    }
 }
 
-fn folder_description(path: &Path) -> Option<String> {
+fn root_folder_description(meta_path: &Path, rel: &str) -> Option<String> {
+    read_root_folder_metadata(meta_path)
+        .get(rel)
+        .and_then(folder_metadata_entry_description)
+}
+
+fn folder_metadata_description(path: &Path) -> Option<String> {
     let meta = fs::read_to_string(path.join("meta.json")).ok()?;
     let value: Value = serde_json::from_str(&meta).ok()?;
+    folder_metadata_entry_description(&value)
+}
+
+fn folder_metadata_entry_description(value: &Value) -> Option<String> {
     value
-        .get("description")
-        .and_then(Value::as_str)
+        .as_str()
+        .or_else(|| value.get("description").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
+}
+
+fn read_root_folder_metadata(meta_path: &Path) -> Map<String, Value> {
+    fs::read_to_string(meta_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default()
+}
+
+fn remove_metadata_file_if_present(meta_path: &Path) -> AppResult<()> {
+    match fs::remove_file(meta_path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn remove_folder_metadata_description(folder: &Path) -> AppResult<()> {
+    let meta_path = folder.join("meta.json");
+    let Ok(raw) = fs::read_to_string(&meta_path) else {
+        return Ok(());
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&raw) else {
+        return Ok(());
+    };
+    let Some(mut meta) = value.as_object().cloned() else {
+        return remove_metadata_file_if_present(&meta_path);
+    };
+    meta.remove("description");
+    if meta.is_empty() {
+        remove_metadata_file_if_present(&meta_path)
+    } else {
+        fs::write(&meta_path, serde_json::to_vec_pretty(&Value::Object(meta))?)?;
+        Ok(())
+    }
+}
+
+fn remove_root_folder_metadata_subtree(root: &Path, rel: &str) -> AppResult<()> {
+    if rel.is_empty() {
+        return Ok(());
+    }
+    let meta_path = root.join("meta.json");
+    let mut meta = read_root_folder_metadata(&meta_path);
+    if meta.is_empty() {
+        return Ok(());
+    }
+    let prefix = format!("{rel}/");
+    let keys: Vec<String> = meta
+        .keys()
+        .filter(|key| *key == rel || key.starts_with(&prefix))
+        .cloned()
+        .collect();
+    if keys.is_empty() {
+        return Ok(());
+    }
+    for key in keys {
+        meta.remove(&key);
+    }
+    write_root_folder_metadata(&meta_path, meta)
+}
+
+fn move_root_folder_metadata_subtree(root: &Path, old_rel: &str, new_rel: &str) -> AppResult<()> {
+    if old_rel.is_empty() || old_rel == new_rel {
+        return Ok(());
+    }
+    let meta_path = root.join("meta.json");
+    let mut meta = read_root_folder_metadata(&meta_path);
+    if meta.is_empty() {
+        return Ok(());
+    }
+    let prefix = format!("{old_rel}/");
+    let keys: Vec<String> = meta
+        .keys()
+        .filter(|key| *key == old_rel || key.starts_with(&prefix))
+        .cloned()
+        .collect();
+    if keys.is_empty() {
+        return Ok(());
+    }
+    let mut moved = Vec::new();
+    for key in keys {
+        if let Some(value) = meta.remove(&key) {
+            let next_key = if key == old_rel {
+                new_rel.to_string()
+            } else {
+                format!("{new_rel}/{}", key.trim_start_matches(&prefix))
+            };
+            moved.push((next_key, value));
+        }
+    }
+    for (key, value) in moved {
+        meta.insert(key, value);
+    }
+    write_root_folder_metadata(&meta_path, meta)
+}
+
+fn write_root_folder_metadata(meta_path: &Path, meta: Map<String, Value>) -> AppResult<()> {
+    if meta.is_empty() {
+        remove_metadata_file_if_present(meta_path)
+    } else {
+        fs::write(meta_path, serde_json::to_vec_pretty(&Value::Object(meta))?)?;
+        Ok(())
+    }
 }
 
 fn path_extension(path: &Path) -> String {
@@ -632,6 +799,16 @@ fn ensure_upload_extension(category: &str, filename: &str) -> AppResult<()> {
     }
 }
 
+fn is_supported_manifest_asset(category: &str, path: &Path) -> bool {
+    let extension = path_extension(path);
+    match category {
+        "music" | "sfx" | "ambient" => AUDIO_EXTENSIONS.contains(&extension.as_str()),
+        "sprites" => SPRITE_IMAGE_EXTENSIONS.contains(&extension.as_str()),
+        "backgrounds" => RASTER_IMAGE_EXTENSIONS.contains(&extension.as_str()),
+        _ => false,
+    }
+}
+
 fn should_resize_generated_background_upload(category: &str, subcategory: Option<&str>) -> bool {
     category == "backgrounds" && subcategory == Some("generated")
 }
@@ -657,7 +834,9 @@ fn cover_resize_generated_background(filename: &str, bytes: &[u8]) -> AppResult<
     let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
     reader.limits(generated_background_decode_limits());
     let image = reader.decode().map_err(|error| {
-        AppError::invalid_input(format!("Generated background could not be decoded: {error}"))
+        AppError::invalid_input(format!(
+            "Generated background could not be decoded: {error}"
+        ))
     })?;
     let resized = image.resize_to_fill(
         GENERATED_BACKGROUND_WIDTH,
@@ -728,7 +907,7 @@ fn should_skip_asset_entry(path: &Path) -> bool {
 
     path.file_name()
         .and_then(|name| name.to_str())
-        .map(|name| name.starts_with('.') || name == "manifest.json")
+        .map(|name| name.starts_with('.') || name == "manifest.json" || name == "meta.json")
         .unwrap_or(false)
 }
 
@@ -826,16 +1005,16 @@ fn sort_asset_rows(rows: &mut [Value]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_upload_extension, AssetService, AUDIO_EXTENSIONS, RASTER_IMAGE_EXTENSIONS,
-        MAX_GENERATED_BACKGROUND_DIMENSION, SPRITE_IMAGE_EXTENSIONS,
+        ensure_upload_extension, AssetService, AUDIO_EXTENSIONS,
+        MAX_GENERATED_BACKGROUND_DIMENSION, RASTER_IMAGE_EXTENSIONS, SPRITE_IMAGE_EXTENSIONS,
     };
     use base64::{engine::general_purpose, Engine as _};
     use image::{ImageFormat, Rgba, RgbaImage};
     use serde_json::{json, Value};
     use std::fs;
-    use std::io::Cursor;
     #[cfg(windows)]
     use std::io;
+    use std::io::Cursor;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1054,7 +1233,9 @@ mod tests {
         assert!(error
             .message
             .contains("Generated background dimensions are too large"));
-        assert!(!root.join("backgrounds/generated/oversized-scene.png").exists());
+        assert!(!root
+            .join("backgrounds/generated/oversized-scene.png")
+            .exists());
 
         let _ = fs::remove_dir_all(root);
     }
@@ -1126,6 +1307,370 @@ mod tests {
                 "editable"
             );
         }
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn text_assets_allow_legacy_ten_mb_contract_floor() {
+        let root = temp_root("text-size-contract");
+        let service = AssetService::new(&root).expect("create asset service");
+        let content = "a".repeat(1_000_001);
+
+        service
+            .write_text("notes/large.txt", &content)
+            .expect("text assets above old 1 MB cap should write");
+        assert_eq!(
+            service
+                .read_text("notes/large.txt")
+                .expect("text assets above old 1 MB cap should read")
+                .len(),
+            content.len()
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn create_folder_rejects_existing_asset_paths() {
+        let root = temp_root("create-folder-conflict");
+        fs::create_dir_all(root.join("music/existing")).expect("create existing folder");
+        fs::write(root.join("music/file.mp3"), b"").expect("write existing file");
+        let service = AssetService::new(&root).expect("create asset service");
+
+        let folder_error = service
+            .create_folder("music/existing")
+            .expect_err("existing folder should conflict");
+        assert_eq!(folder_error.code, "conflict");
+        let file_error = service
+            .create_folder("music/file.mp3")
+            .expect_err("existing file should conflict");
+        assert_eq!(file_error.code, "conflict");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn deletes_require_existing_matching_asset_path_types() {
+        let root = temp_root("delete-type-contract");
+        fs::create_dir_all(root.join("music/folder")).expect("create folder");
+        fs::write(root.join("music/theme.mp3"), b"").expect("write file");
+        let service = AssetService::new(&root).expect("create asset service");
+
+        let missing_file = service
+            .remove_file("music/missing.mp3")
+            .expect_err("missing file should reject");
+        assert_eq!(missing_file.code, "not_found");
+        let folder_as_file = service
+            .remove_file("music/folder")
+            .expect_err("folder should not delete through file command");
+        assert_eq!(folder_as_file.code, "invalid_input");
+        let file_as_folder = service
+            .remove_folder("music/theme.mp3", false)
+            .expect_err("file should not delete through folder command");
+        assert_eq!(file_as_folder.code, "invalid_input");
+        let missing_folder = service
+            .remove_folder("music/missing", false)
+            .expect_err("missing folder should reject");
+        assert_eq!(missing_folder.code, "not_found");
+
+        service
+            .remove_file("music/theme.mp3")
+            .expect("matching file delete should succeed");
+        service
+            .remove_folder("music/folder", false)
+            .expect("matching folder delete should succeed");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn bulk_delete_reports_missing_and_wrong_type_paths_as_failed() {
+        let root = temp_root("bulk-delete-contract");
+        fs::create_dir_all(root.join("music/folder")).expect("create folder");
+        fs::write(root.join("music/theme.mp3"), b"").expect("write file");
+        let service = AssetService::new(&root).expect("create asset service");
+
+        let result = service.delete_many(&[
+            "music/theme.mp3".to_string(),
+            "music/folder".to_string(),
+            "music/missing.mp3".to_string(),
+        ]);
+        let succeeded = result
+            .get("succeeded")
+            .and_then(Value::as_array)
+            .expect("bulk delete succeeded list");
+        let failed = result
+            .get("failed")
+            .and_then(Value::as_array)
+            .expect("bulk delete failed list");
+
+        assert_eq!(succeeded, &[json!("music/theme.mp3")]);
+        assert_eq!(failed.len(), 2);
+        assert!(root.join("music/folder").exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rename_rejects_existing_target_name() {
+        let root = temp_root("rename-conflict");
+        fs::create_dir_all(root.join("music")).expect("create music folder");
+        fs::write(root.join("music/source.mp3"), b"source").expect("write source");
+        fs::write(root.join("music/target.mp3"), b"target").expect("write target");
+        let service = AssetService::new(&root).expect("create asset service");
+
+        let error = service
+            .rename("music/source.mp3", "target.mp3")
+            .expect_err("rename target conflict should reject");
+
+        assert_eq!(error.code, "conflict");
+        assert_eq!(
+            fs::read(root.join("music/source.mp3")).expect("source should remain"),
+            b"source"
+        );
+        assert_eq!(
+            fs::read(root.join("music/target.mp3")).expect("target should remain"),
+            b"target"
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn bulk_transfer_successes_are_original_path_strings() {
+        let root = temp_root("bulk-transfer-contract");
+        fs::create_dir_all(root.join("music")).expect("create music folder");
+        fs::create_dir_all(root.join("sfx")).expect("create sfx folder");
+        fs::create_dir_all(root.join("ambient")).expect("create ambient folder");
+        fs::write(root.join("music/move.mp3"), b"move").expect("write move source");
+        fs::write(root.join("music/copy.mp3"), b"copy").expect("write copy source");
+        let service = AssetService::new(&root).expect("create asset service");
+
+        let move_result = service.move_many(&["music/move.mp3".to_string()], "ambient");
+        let copy_result = service.copy_many(&["music/copy.mp3".to_string()], "sfx");
+
+        assert_eq!(
+            move_result
+                .get("succeeded")
+                .and_then(Value::as_array)
+                .expect("move succeeded list"),
+            &[json!("music/move.mp3")]
+        );
+        assert_eq!(
+            copy_result
+                .get("succeeded")
+                .and_then(Value::as_array)
+                .expect("copy succeeded list"),
+            &[json!("music/copy.mp3")]
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn manifest_only_includes_supported_category_asset_files() {
+        let root = temp_root("manifest-extension-filter");
+        fs::create_dir_all(root.join("music/combat")).expect("create music folder");
+        fs::create_dir_all(root.join("sprites")).expect("create sprites folder");
+        fs::create_dir_all(root.join("backgrounds")).expect("create backgrounds folder");
+        fs::write(root.join("music/combat/theme.mp3"), b"").expect("write music asset");
+        fs::write(root.join("music/combat/notes.txt"), b"not an audio asset")
+            .expect("write unsupported music file");
+        fs::write(root.join("music/combat/meta.json"), b"{}").expect("write folder metadata");
+        fs::write(root.join("sprites/hero.svg"), b"<svg />").expect("write sprite asset");
+        fs::write(root.join("backgrounds/vector.svg"), b"<svg />")
+            .expect("write unsupported background file");
+        let service = AssetService::new(&root).expect("create asset service");
+
+        let manifest = service.manifest().expect("read manifest");
+        let assets = manifest
+            .get("assets")
+            .and_then(Value::as_object)
+            .expect("manifest assets");
+
+        assert!(assets.contains_key("music:combat:custom:intense:theme"));
+        assert!(assets.contains_key("sprites:hero"));
+        assert!(!assets.values().any(|entry| {
+            entry.get("path").and_then(Value::as_str) == Some("music/combat/notes.txt")
+        }));
+        assert!(!assets.values().any(|entry| {
+            entry.get("path").and_then(Value::as_str) == Some("music/combat/meta.json")
+        }));
+        assert!(!assets.values().any(|entry| {
+            entry.get("path").and_then(Value::as_str) == Some("backgrounds/vector.svg")
+        }));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn tree_reads_legacy_root_folder_metadata_descriptions() {
+        let root = temp_root("legacy-root-folder-meta");
+        fs::create_dir_all(root.join("music")).expect("create music folder");
+        fs::write(
+            root.join("meta.json"),
+            serde_json::to_vec(&json!({ "music": "Legacy music folder" }))
+                .expect("encode legacy metadata"),
+        )
+        .expect("write legacy root metadata");
+        let service = AssetService::new(&root).expect("create asset service");
+
+        let tree = service.tree().expect("read tree");
+        let music = tree
+            .get("children")
+            .and_then(Value::as_array)
+            .expect("root children")
+            .iter()
+            .find(|child| child.get("path").and_then(Value::as_str) == Some("music"))
+            .expect("music folder node");
+
+        assert_eq!(
+            music.get("description").and_then(Value::as_str),
+            Some("Legacy music folder")
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn folder_description_updates_root_metadata_without_creating_missing_folders() {
+        let root = temp_root("folder-description-root-meta");
+        fs::create_dir_all(root.join("music")).expect("create music folder");
+        fs::write(
+            root.join("music/meta.json"),
+            serde_json::to_vec(&json!({ "description": "Stale per-folder description" }))
+                .expect("encode folder metadata"),
+        )
+        .expect("write old folder metadata");
+        let service = AssetService::new(&root).expect("create asset service");
+
+        service
+            .set_folder_description("music", "  Score cues  ")
+            .expect("set folder description");
+        let meta: Value =
+            serde_json::from_slice(&fs::read(root.join("meta.json")).expect("read root metadata"))
+                .expect("decode root metadata");
+        assert_eq!(
+            meta.get("music").and_then(Value::as_str),
+            Some("Score cues")
+        );
+
+        service
+            .set_folder_description("music", " ")
+            .expect("clear folder description");
+        assert!(
+            !root.join("meta.json").exists(),
+            "empty root metadata file should be removed"
+        );
+        let tree = service
+            .tree()
+            .expect("read tree after clearing description");
+        let music = tree
+            .get("children")
+            .and_then(Value::as_array)
+            .expect("root children")
+            .iter()
+            .find(|child| child.get("path").and_then(Value::as_str) == Some("music"))
+            .expect("music folder node");
+        assert!(
+            music.get("description").is_none(),
+            "cleared description should not fall back to stale per-folder metadata"
+        );
+
+        let missing = service
+            .set_folder_description("music/missing", "Nope")
+            .expect_err("missing folder description should reject");
+        assert_eq!(missing.code, "not_found");
+        assert!(!root.join("music/missing").exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn folder_lifecycle_keeps_root_metadata_on_current_folder_paths() {
+        let root = temp_root("folder-metadata-lifecycle");
+        fs::create_dir_all(root.join("music/zone/boss")).expect("create removable subtree");
+        fs::create_dir_all(root.join("music/scene/deep")).expect("create movable subtree");
+        fs::create_dir_all(root.join("ambient")).expect("create target folder");
+        fs::write(
+            root.join("meta.json"),
+            serde_json::to_vec(&json!({
+                "music": "Music root",
+                "music/zone": "Deleted folder",
+                "music/zone/boss": "Deleted child",
+                "music/scene": "Scene folder",
+                "music/scene/deep": "Scene child"
+            }))
+            .expect("encode root metadata"),
+        )
+        .expect("write root metadata");
+        let service = AssetService::new(&root).expect("create asset service");
+
+        service
+            .remove_folder("music/zone", true)
+            .expect("delete described folder subtree");
+        fs::create_dir_all(root.join("music/zone")).expect("recreate deleted folder");
+        let tree = service.tree().expect("read tree after recreate");
+        let music = tree
+            .get("children")
+            .and_then(Value::as_array)
+            .expect("root children")
+            .iter()
+            .find(|child| child.get("path").and_then(Value::as_str) == Some("music"))
+            .expect("music folder node");
+        let recreated = music
+            .get("children")
+            .and_then(Value::as_array)
+            .expect("music children")
+            .iter()
+            .find(|child| child.get("path").and_then(Value::as_str) == Some("music/zone"))
+            .expect("recreated folder node");
+        assert!(recreated.get("description").is_none());
+
+        service
+            .rename("music/scene", "renamed")
+            .expect("rename described folder subtree");
+        let renamed_meta: Value =
+            serde_json::from_slice(&fs::read(root.join("meta.json")).expect("read root metadata"))
+                .expect("decode root metadata");
+        assert_eq!(
+            renamed_meta.get("music/renamed").and_then(Value::as_str),
+            Some("Scene folder")
+        );
+        assert_eq!(
+            renamed_meta
+                .get("music/renamed/deep")
+                .and_then(Value::as_str),
+            Some("Scene child")
+        );
+        assert!(renamed_meta.get("music/zone").is_none());
+        assert!(renamed_meta.get("music/zone/boss").is_none());
+        assert!(renamed_meta.get("music/scene").is_none());
+        assert!(renamed_meta.get("music/scene/deep").is_none());
+
+        service
+            .move_to_folder("music/renamed", "ambient")
+            .expect("move described folder subtree");
+        let moved_meta: Value =
+            serde_json::from_slice(&fs::read(root.join("meta.json")).expect("read root metadata"))
+                .expect("decode root metadata");
+        assert_eq!(
+            moved_meta.get("ambient/renamed").and_then(Value::as_str),
+            Some("Scene folder")
+        );
+        assert_eq!(
+            moved_meta
+                .get("ambient/renamed/deep")
+                .and_then(Value::as_str),
+            Some("Scene child")
+        );
+        assert_eq!(
+            moved_meta.get("music").and_then(Value::as_str),
+            Some("Music root")
+        );
+        assert!(moved_meta.get("music/renamed").is_none());
+        assert!(moved_meta.get("music/renamed/deep").is_none());
 
         let _ = fs::remove_dir_all(root);
     }
@@ -1232,19 +1777,19 @@ mod tests {
         let service = AssetService::new(&root).expect("create asset service");
 
         let root_error = service
-            .remove("", true)
+            .remove_folder("", true)
             .expect_err("root folder deletion should be rejected");
         assert_eq!(root_error.code, "invalid_input");
         assert!(root.exists());
 
         let category_error = service
-            .remove("music", true)
+            .remove_folder("music", true)
             .expect_err("native category deletion should be rejected");
         assert_eq!(category_error.code, "invalid_input");
         assert!(root.join("music/theme.mp3").exists());
 
         service
-            .remove("music/theme.mp3", false)
+            .remove_file("music/theme.mp3")
             .expect("files inside managed categories remain deletable");
         assert!(!root.join("music/theme.mp3").exists());
 

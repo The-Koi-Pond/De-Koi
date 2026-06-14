@@ -13,6 +13,11 @@ interface GameAssetFileInfo {
   created: string;
 }
 
+type GameAssetListResponse<T = unknown> = {
+  items: T[];
+  root: string;
+};
+
 type BulkOperationResult = {
   succeeded: string[];
   failed: { path: string; error: string }[];
@@ -45,7 +50,8 @@ async function uploadGameAsset({
 const gameAssetCommands = {
   manifest: <T = unknown>() => invokeTauri<T>("game_assets_manifest"),
   tree: <T = unknown>() => invokeTauri<T>("game_assets_tree"),
-  list: (path?: string) => invokeTauri<unknown[]>("game_assets_list", { path: path ?? null }),
+  list: <T = unknown>(path?: string) =>
+    invokeTauri<GameAssetListResponse<T>>("game_assets_list", { path: path ?? null }),
   createFolder: (path: string) => invokeTauri("game_assets_create_folder", { path }),
   deleteFolder: (path: string, recursive?: boolean) =>
     invalidateRemoteManagedAssetObjectUrlsAfter(

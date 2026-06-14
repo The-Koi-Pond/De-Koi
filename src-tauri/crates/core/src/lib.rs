@@ -44,6 +44,10 @@ impl AppError {
         Self::new("not_found", message)
     }
 
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self::new("conflict", message)
+    }
+
     pub fn io(error: std::io::Error) -> Self {
         Self::with_details("io_error", error.to_string(), error.kind().to_string())
     }
