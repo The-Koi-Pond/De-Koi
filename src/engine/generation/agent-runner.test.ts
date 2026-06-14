@@ -255,6 +255,122 @@ describe("generation agent runner", () => {
     expect(requests).toEqual([]);
   });
 
+  it("skips agents that inherit a default legacy Local Model connection", async () => {
+    const requests: LlmRequest[] = [];
+    const apiConnection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
+    const sidecarConnection = {
+      id: LOCAL_SIDECAR_CONNECTION_ID,
+      name: "Local Model",
+      provider: "sidecar",
+      model: LOCAL_SIDECAR_MODEL,
+      defaultForAgents: true,
+      enabled: true,
+    };
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "expression-agent",
+              type: "expression",
+              name: "Expression Agent",
+              enabled: true,
+              phase: "parallel",
+            },
+          ],
+          [apiConnection, sidecarConnection],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+        visuals: {
+          async listSprites() {
+            return [{ expression: "happy" }];
+          },
+          async listBackgrounds() {
+            return [];
+          },
+        },
+      },
+      runtimeInput(apiConnection),
+    );
+
+    expect(runtime.preResults).toEqual([
+      expect.objectContaining({
+        success: false,
+        data: expect.objectContaining({
+          code: "local_sidecar_unavailable",
+          connectionId: LOCAL_SIDECAR_CONNECTION_ID,
+        }),
+      }),
+    ]);
+    expect(runtime.agentWarnings).toEqual([
+      expect.objectContaining({
+        code: "local_sidecar_unavailable",
+        agentNames: ["Expression Agent"],
+      }),
+    ]);
+    await runtime.runParallel();
+    expect(requests).toEqual([]);
+  });
+
+  it("skips agents that inherit the generation legacy Local Model connection", async () => {
+    const requests: LlmRequest[] = [];
+    const sidecarConnection = {
+      id: LOCAL_SIDECAR_CONNECTION_ID,
+      name: "Local Model",
+      provider: "sidecar",
+      model: LOCAL_SIDECAR_MODEL,
+      enabled: true,
+    };
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "expression-agent",
+              type: "expression",
+              name: "Expression Agent",
+              enabled: true,
+              phase: "parallel",
+            },
+          ],
+          [],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+        visuals: {
+          async listSprites() {
+            return [{ expression: "happy" }];
+          },
+          async listBackgrounds() {
+            return [];
+          },
+        },
+      },
+      runtimeInput(sidecarConnection),
+    );
+
+    expect(runtime.preResults).toEqual([
+      expect.objectContaining({
+        success: false,
+        data: expect.objectContaining({
+          code: "local_sidecar_unavailable",
+          connectionId: LOCAL_SIDECAR_CONNECTION_ID,
+        }),
+      }),
+    ]);
+    expect(runtime.agentWarnings).toEqual([
+      expect.objectContaining({
+        code: "local_sidecar_unavailable",
+        agentNames: ["Expression Agent"],
+      }),
+    ]);
+    await runtime.runParallel();
+    expect(requests).toEqual([]);
+  });
+
   it("still skips agents assigned to missing generic API connections", async () => {
     const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
 

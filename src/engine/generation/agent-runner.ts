@@ -1201,11 +1201,6 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     const usesDefaultAgentConnection = !requestedConnectionId && !!defaultAgentConnection;
     let connection: JsonRecord;
     if (requestedConnectionId) {
-      if (requestedConnectionId === LOCAL_SIDECAR_CONNECTION_ID) {
-        skippedResults.push(skippedLocalSidecarUnavailableResult(agent, requestedConnectionId));
-        localConnectionWarnings.push(localSidecarUnavailableWarning(agent));
-        continue;
-      }
       const loadedConnection = await loadRequestedAgentConnection(deps.storage, requestedConnectionId);
       if (!loadedConnection) {
         skippedResults.push(skippedDanglingConnectionResult(agent, requestedConnectionId));
@@ -1214,6 +1209,11 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
       connection = loadedConnection;
     } else {
       connection = fallbackConnection;
+    }
+    if (connectionId === LOCAL_SIDECAR_CONNECTION_ID) {
+      skippedResults.push(skippedLocalSidecarUnavailableResult(agent, connectionId));
+      localConnectionWarnings.push(localSidecarUnavailableWarning(agent));
+      continue;
     }
     const model = readString(agent.model).trim() || readString(connection.model).trim();
     if (!model) continue;

@@ -52,8 +52,8 @@ export function buildGenerationPromptPresetCandidates(args: {
   if (args.impersonate) {
     pushUnique(candidates, seen, asNonEmptyString(args.impersonatePromptPresetId), "impersonate");
   }
-  pushUnique(candidates, seen, asNonEmptyString(args.chatPromptPresetId), "chat");
   pushUnique(candidates, seen, asNonEmptyString(args.requestPromptPresetId), "request");
+  pushUnique(candidates, seen, asNonEmptyString(args.chatPromptPresetId), "chat");
 
   if (supportsConnectionPromptPresetOverride(args.chatMode)) {
     pushUnique(candidates, seen, asNonEmptyString(args.connectionPromptPresetId), "connection");
