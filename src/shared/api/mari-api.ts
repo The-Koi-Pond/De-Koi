@@ -93,15 +93,21 @@ async function readSettingsValue(): Promise<Record<string, unknown>> {
 }
 
 async function saveSettingsPatch(patch: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const existing = await storageApi.get<ProfessorMariSettingsRecord>("app-settings", PROFESSOR_MARI_SETTINGS_ID);
+  const parsed = appSettingsResponseSchema.safeParse(existing ?? { value: null });
   const value = {
-    ...(await readSettingsValue()),
+    ...asRecord(parsed.success ? parsed.data.value : null),
     ...patch,
   };
   const payload = appSettingsUpdateSchema.parse({ value });
-  await storageApi.create("app-settings", {
-    id: PROFESSOR_MARI_SETTINGS_ID,
-    ...payload,
-  });
+  if (existing) {
+    await storageApi.update("app-settings", PROFESSOR_MARI_SETTINGS_ID, payload);
+  } else {
+    await storageApi.create("app-settings", {
+      id: PROFESSOR_MARI_SETTINGS_ID,
+      ...payload,
+    });
+  }
   return value;
 }
 
