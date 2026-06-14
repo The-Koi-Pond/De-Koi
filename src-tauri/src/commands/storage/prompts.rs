@@ -406,6 +406,30 @@ pub(crate) async fn resolve_embedding_connection_for_id_async(
     Ok((connection_id.to_string(), connection))
 }
 
+pub(crate) async fn resolve_explicit_embedding_connection_async(
+    state: &AppState,
+    connection_id: &str,
+) -> AppResult<(String, Value)> {
+    if sidecar::is_sidecar_connection_id(connection_id) {
+        return Ok((
+            sidecar::SIDECAR_CONNECTION_ID.to_string(),
+            sidecar::runtime_connection_value(state, true).await?,
+        ));
+    }
+    if is_legacy_local_sidecar_connection_id(connection_id) {
+        return Err(legacy_local_sidecar_embedding_error());
+    }
+    let connection = connection_secrets::connection_for_runtime(state, connection_id)?;
+    if is_openai_chatgpt_connection(&connection) {
+        return Err(openai_chatgpt_embedding_error());
+    }
+    if is_claude_subscription_connection(&connection) {
+        return Err(claude_subscription_embedding_error());
+    }
+    Ok((connection_id.to_string(), connection))
+}
+
+#[cfg(test)]
 pub(crate) fn resolve_default_embedding_connection(state: &AppState) -> AppResult<(String, Value)> {
     let connections = connection_secrets::connections_for_runtime(state)?;
     let embedding_candidates = connections

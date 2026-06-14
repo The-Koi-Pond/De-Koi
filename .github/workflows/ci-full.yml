@@ -165,13 +165,23 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Reset self-hosted pnpm tool home
+        if: runner.environment != 'github-hosted'
+        run: rm -rf "$HOME/setup-pnpm"
       - uses: pnpm/action-setup@v6
         with:
           version: 10.33.2
-      - uses: actions/setup-node@v6
+      - name: Set up Node with pnpm cache
+        if: runner.environment == 'github-hosted'
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
+      - name: Set up Node without pnpm cache
+        if: runner.environment != 'github-hosted'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
       - run: pnpm install --frozen-lockfile
       - name: Workflow metadata name check
         if: github.event_name == 'pull_request'
@@ -260,13 +270,23 @@ jobs:
     runs-on: ${{ fromJSON(vars.DE_KOI_CI_RUNS_ON || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@v6
+      - name: Reset self-hosted pnpm tool home
+        if: runner.environment != 'github-hosted'
+        run: rm -rf "$HOME/setup-pnpm"
       - uses: pnpm/action-setup@v6
         with:
           version: 10.33.2
-      - uses: actions/setup-node@v6
+      - name: Set up Node with pnpm cache
+        if: runner.environment == 'github-hosted'
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
+      - name: Set up Node without pnpm cache
+        if: runner.environment != 'github-hosted'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm exec playwright install --with-deps chromium

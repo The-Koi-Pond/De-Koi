@@ -20,6 +20,8 @@ pub(crate) mod backup;
 pub(crate) mod bot_browser;
 #[path = "storage/characters.rs"]
 pub(crate) mod characters;
+#[path = "storage/chat_memory.rs"]
+pub(crate) mod chat_memory;
 #[path = "storage/chats.rs"]
 pub(crate) mod chats;
 #[path = "storage/connection_secrets.rs"]
