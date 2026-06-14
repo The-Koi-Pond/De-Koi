@@ -410,7 +410,7 @@ mod tests {
             })
             .and_then(|value| value.parse::<usize>().ok())
             .unwrap_or(0);
-        body.as_bytes().len() >= content_length
+        body.len() >= content_length
     }
 
     fn request_body(request: &str) -> &str {
