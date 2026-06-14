@@ -7,7 +7,7 @@ import {
   buildUserMessageRegenerationSourceMessage,
 } from "./generate-route-utils";
 import { assembleGenerationPrompt } from "./prompt-assembly";
-import { startGeneration } from "./start-generation";
+import { dryRunGeneration, startGeneration } from "./start-generation";
 import type { JsonRecord } from "./runtime-records";
 
 async function drain(generator: AsyncGenerator<unknown>): Promise<void> {
@@ -54,6 +54,10 @@ function llmThatStreams(onStream: () => void, text = "rewrite"): LlmGateway {
       yield { type: "token", text };
     },
   };
+}
+
+function eventRecord(event: unknown): Record<string, unknown> {
+  return event && typeof event === "object" && !Array.isArray(event) ? (event as Record<string, unknown>) : {};
 }
 
 const noopIntegrations: IntegrationGateway = {
@@ -142,6 +146,7 @@ function generationStorage(args: {
   agentRows?: JsonRecord[];
   onSwipe?: (content: string, options: unknown) => void;
   onPatchExtra?: (messageId: string, patch: Record<string, unknown>) => void;
+  onPatchChatMetadata?: (patch: Record<string, unknown>) => void;
 }): StorageGateway {
   const records = baseGenerationRecords();
   const chatMetadata =
@@ -208,6 +213,7 @@ function generationStorage(args: {
       return asStorageValue<T>(records.target);
     },
     async patchChatMetadata<T = unknown>() {
+      args.onPatchChatMetadata?.({});
       return asStorageValue<T>(records.chat);
     },
     async patchChatSummaries<T = unknown>() {
@@ -492,6 +498,74 @@ describe("user-message regeneration review guards", () => {
     expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "user_message" })]));
     expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "command_error" })]));
     expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "assistant_action" })]));
+  });
+
+  it("dry-runs generation with prompt output and no chat-state writes", async () => {
+    let modelCalls = 0;
+    const writeCalls: string[] = [];
+    const llmRequests: Array<{ messages: Array<{ content: string }> }> = [];
+    const storage = generationStorage({
+      getTarget: (_call, target) => target,
+      onSwipe: () => {
+        writeCalls.push("addChatMessageSwipe");
+      },
+      onPatchExtra: () => {
+        writeCalls.push("patchChatMessageExtra");
+      },
+      onPatchChatMetadata: () => {
+        writeCalls.push("patchChatMetadata");
+      },
+    });
+    const llm: LlmGateway = {
+      async complete() {
+        return "";
+      },
+      async listModels() {
+        return [];
+      },
+      async *stream(request) {
+        modelCalls += 1;
+        llmRequests.push({ messages: request.messages.map((message) => ({ content: message.content })) });
+        yield { type: "token", text: "dry response" };
+        yield { type: "usage", data: { promptTokens: 12, completionTokens: 2 } };
+      },
+    };
+
+    const events = await collect(
+      dryRunGeneration(
+        {
+          storage,
+          llm,
+          integrations: noopIntegrations,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          message: "Fresh dry-run user input.",
+          runId: "dry-run-1",
+        },
+      ),
+    );
+    const dryRunResult = events.map(eventRecord).find((event) => event.type === "dry_run_result");
+    const data = eventRecord(dryRunResult?.data);
+    const promptSnapshot = eventRecord(data.promptSnapshot);
+    const promptMessages = Array.isArray(promptSnapshot.messages)
+      ? (promptSnapshot.messages as Array<{ content?: unknown }>)
+      : [];
+
+    expect(modelCalls).toBe(1);
+    expect(writeCalls).toEqual([]);
+    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "dry_run_start" })]));
+    expect(data).toMatchObject({ runId: "dry-run-1", content: "dry response" });
+    expect(promptMessages.some((message) => String(message.content ?? "").includes("Fresh dry-run user input."))).toBe(
+      true,
+    );
+    expect(llmRequests[0]?.messages.some((message) => message.content.includes("Fresh dry-run user input."))).toBe(
+      true,
+    );
+    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "token", data: "dry response" })]));
+    expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "user_message" })]));
+    expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "assistant_message" })]));
   });
 
   it("saves assembled user-message regeneration without assistant agent metadata", async () => {

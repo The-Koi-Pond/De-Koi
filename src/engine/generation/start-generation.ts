@@ -183,6 +183,34 @@ type MainGenerationPromptSnapshot = Pick<
   "messages" | "previewMessages" | "parameters" | "tools" | "promptPresetId"
 >;
 
+type GenerationDryRunPromptSnapshot = MainGenerationPromptSnapshot;
+
+export interface GenerationDryRunInput extends StartGenerationInput {
+  runId?: string | null;
+}
+
+interface GenerationDryRunResult {
+  runId: string | null;
+  content: string;
+  thinking: string;
+  usage: unknown;
+  providerMetadata: unknown;
+  promptSnapshot: GenerationDryRunPromptSnapshot | null;
+  promptPresetId: string | null;
+  messageCount: number;
+}
+
+export type GenerationDryRunEvent =
+  | GenerationEvent
+  | {
+      type: "dry_run_start";
+      data: { runId: string | null };
+    }
+  | {
+      type: "dry_run_result";
+      data: GenerationDryRunResult;
+    };
+
 const REVIEWABLE_WRITER_AGENT_TYPES = new Set(
   BUILT_IN_AGENTS.filter(
     (agent) =>
@@ -343,6 +371,28 @@ async function prepareUserInput(storage: StorageGateway, input: StartGenerationI
     }
     throw error;
   }
+}
+
+async function prepareDryRunUserInput(
+  storage: StorageGateway,
+  input: StartGenerationInput,
+): Promise<PreparedUserInput> {
+  const raw = inputUserMessage(input).trim();
+  const attachments = inputAttachments(input);
+  const images = await resolveImageAttachmentDataUrls(storage, attachments);
+  const mentionedCharacterNames = stringArray(input.mentionedCharacterNames).filter((name) => name.trim().length > 0);
+  const regexed = raw ? await applyRuntimeRegexScripts(storage, "user_input", raw) : "";
+  const withReadableAttachments = appendReadableAttachmentsToContent(regexed, attachments);
+  const imageNotes = imageAttachmentNotes(attachments);
+  return {
+    content: collapseExcessBlankLines(
+      [withReadableAttachments, imageNotes].filter((part) => part.trim().length > 0).join("\n\n"),
+    ),
+    attachments,
+    preparedAttachments: { attachments, createdGalleryIds: [] },
+    images,
+    mentionedCharacterNames,
+  };
 }
 
 async function deletePreparedUserInputAttachmentsSafely(
@@ -949,11 +999,7 @@ function isCharacterTrackerResult(result: AgentResult): boolean {
   return result.agentType === "character-tracker" || result.type === "character_tracker_update";
 }
 
-async function agentSettingsByType(
-  storage: StorageGateway,
-  agentId: string,
-  agentType: string,
-): Promise<JsonRecord> {
+async function agentSettingsByType(storage: StorageGateway, agentId: string, agentType: string): Promise<JsonRecord> {
   const direct = agentId ? await storage.get<JsonRecord>("agents", agentId).catch(() => null) : null;
   if (isRecord(direct)) return parseRecord(direct.settings);
   const fallback = await storage.get<JsonRecord>("agents", agentType).catch(() => null);
@@ -993,11 +1039,7 @@ function trackerAvatarLookupKey(kind: "id" | "name", value: unknown): string {
   return text ? `${kind}:${text}` : "";
 }
 
-function addTrackerAvatarLookupEntry(
-  lookup: Map<string, string>,
-  character: JsonRecord,
-  avatarPath: string,
-): void {
+function addTrackerAvatarLookupEntry(lookup: Map<string, string>, character: JsonRecord, avatarPath: string): void {
   const avatar = avatarPath.trim();
   if (!avatar) return;
   const idKey = trackerAvatarLookupKey("id", character.characterId ?? character.id);
@@ -1020,7 +1062,7 @@ function existingTrackerAvatarPath(lookup: Map<string, string>, character: JsonR
   const idKey = trackerAvatarLookupKey("id", character.characterId ?? character.id);
   if (idKey && lookup.has(idKey)) return lookup.get(idKey) ?? "";
   const nameKey = trackerAvatarLookupKey("name", character.name);
-  return nameKey ? lookup.get(nameKey) ?? "" : "";
+  return nameKey ? (lookup.get(nameKey) ?? "") : "";
 }
 
 function trackerAvatarPrompt(character: JsonRecord, positivePrompt: string): string {
@@ -2244,10 +2286,7 @@ function providerMetadataRecord(value: unknown): Record<string, unknown> | null 
 function mergeMetadataArray(existing: unknown, next: unknown): unknown[] {
   const merged: unknown[] = [];
   const seen = new Set<string>();
-  for (const item of [
-    ...(Array.isArray(existing) ? existing : []),
-    ...(Array.isArray(next) ? next : []),
-  ]) {
+  for (const item of [...(Array.isArray(existing) ? existing : []), ...(Array.isArray(next) ? next : [])]) {
     const key = JSON.stringify(item) ?? String(item);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -3309,6 +3348,175 @@ export async function retryGenerationAgents(
   return runGenerationAgentsForTarget({ deps, input, chat, connection, storedMessages, target, agentTypes, signal });
 }
 
+function appendDryRunUserMessage(
+  storedMessages: JsonRecord[],
+  chatId: string,
+  prepared: PreparedUserInput,
+  input: StartGenerationInput,
+): JsonRecord[] {
+  if (!shouldSaveUserMessage(input, prepared)) return storedMessages;
+  return [
+    ...storedMessages,
+    {
+      id: `dry-run-user-${Date.now()}`,
+      chatId,
+      role: "user",
+      content: prepared.content,
+      extra: prepared.attachments.length ? { attachments: prepared.attachments } : {},
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+  ];
+}
+
+export async function* dryRunGeneration(
+  deps: GenerationEngineDeps,
+  input: GenerationDryRunInput,
+  signal?: AbortSignal,
+): AsyncGenerator<GenerationDryRunEvent> {
+  input = normalizeStartGenerationInput(input) as GenerationDryRunInput;
+  const runId = readString(input.runId).trim() || null;
+  const chatId = readString(input.chatId).trim();
+  if (!chatId) throw new Error("chatId is required");
+  throwIfAborted(signal);
+  let chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
+  throwIfAborted(signal);
+  input = (await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input)) as GenerationDryRunInput;
+  throwIfAborted(signal);
+  assertChatCanGenerate(chat, input);
+
+  yield { type: "dry_run_start", data: { runId } };
+  yield { type: "phase", data: "Preparing dry run..." };
+  const preparedUserInput = await prepareDryRunUserInput(deps.storage, input);
+  throwIfAborted(signal);
+  const connection = await resolveGenerationConnection(deps.storage, chat, input);
+  throwIfAborted(signal);
+  let storedMessages = await loadMessagesForGenerationTarget({ storage: deps.storage, chatId, chat, input });
+  storedMessages = appendDryRunUserMessage(storedMessages, chatId, preparedUserInput, input);
+  const regenerationTarget = regenerationTargetFromMessages(storedMessages, input.regenerateMessageId);
+  const userRegenerationSourceMessage = await userMessageRegenerationSourceMessage(
+    deps.storage,
+    chatId,
+    regenerationTarget,
+  );
+  const generationMessages = messagesBeforeRegenerationTarget(storedMessages, input.regenerateMessageId);
+  const latestUserInput =
+    userRegenerationSourceMessage?.content || preparedUserInput.content || inputUserMessage(input);
+  const generationTrackerBaseline = await selectGenerationTrackerBaseline(
+    deps.storage,
+    chatId,
+    input,
+    preparedUserInput,
+    storedMessages,
+  );
+  let chatForGeneration = generationTrackerBaseline ? { ...chat, gameState: generationTrackerBaseline } : chat;
+  const directMessages = requestMessages(input);
+  if (!directMessages) {
+    chatForGeneration = await withRuntimeConversationCommandCapabilities(chatForGeneration, deps.integrations);
+    throwIfAborted(signal);
+  }
+
+  yield { type: "phase", data: "Assembling dry-run prompt..." };
+  const assembly = await assembleGenerationPrompt(deps.storage, {
+    chat: chatForGeneration,
+    storedMessages: generationMessages,
+    connection,
+    request: input,
+    latestUserInput,
+    userRegenerationSourceMessage,
+    embeddingSource: generationEmbeddingSource(deps.llm, connection),
+    visuals: deps.visuals,
+    persistPromptVariables: false,
+  });
+  throwIfAborted(signal);
+
+  const continueAssistantResponse = shouldContinueAssistantResponse(input, preparedUserInput, generationMessages);
+  const directivePromptMessages = directiveMessages(
+    input,
+    chat,
+    assembly.characters,
+    assembly.persona,
+    preparedUserInput,
+    { continueAssistantResponse },
+  );
+  const prompt = withImageAttachments(
+    [...(directMessages ?? assembly.messages), ...directivePromptMessages],
+    preparedUserInput.images,
+  );
+  const promptPreviewMessages = withImageAttachments(
+    [...assembly.previewMessages, ...directivePromptMessages],
+    preparedUserInput.images,
+  );
+  const baseMessages: LlmMessage[] = withUserMessageRegenerationRewritePrompt(
+    [...prompt, generationGuide(input)].filter((message): message is LlmMessage => !!message),
+    assembly.userRegenerationSourceMessage,
+  );
+  const dryRunPartial: StreamPartialSink = {
+    content: "",
+    thinking: "",
+    usage: null,
+    providerMetadata: null,
+    promptSnapshot: null,
+  };
+  let streamedContent = "";
+  let streamedThinking = "";
+  let usage: unknown = null;
+  let providerMetadata: unknown = null;
+  let promptSnapshot: MainGenerationPromptSnapshot | null = null;
+
+  yield { type: "phase", data: "Calling model for dry run..." };
+  ({
+    content: streamedContent,
+    thinking: streamedThinking,
+    usage,
+    providerMetadata,
+    promptSnapshot,
+  } = yield* streamMainGenerationLoop({
+    deps,
+    connection,
+    input,
+    chat: chatForGeneration,
+    parameters: llmParameters(connection, input, chatForGeneration, assembly.parameters),
+    baseMessages,
+    previewMessages: withUserMessageRegenerationRewritePrompt(
+      [...promptPreviewMessages, generationGuide(input)].filter((message): message is LlmMessage => !!message),
+      assembly.userRegenerationSourceMessage,
+    ),
+    promptPresetId: assembly.promptPresetId,
+    mainTools: null,
+    toolRuntimeInput: {
+      chat: chatForGeneration,
+      storedMessages: generationMessages,
+      activatedLorebookEntries: assembly.activatedLorebookEntries,
+      characters: assembly.characters,
+      persona: assembly.persona,
+      chatSummary: assembly.chatSummary,
+      hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
+    },
+    signal,
+    partial: dryRunPartial,
+  }));
+  throwIfAborted(signal);
+
+  let content = await applyRuntimeRegexScripts(deps.storage, "ai_output", streamedContent);
+  content = finalAssistantContent(input, content);
+  if (content !== streamedContent) {
+    yield { type: "content_replace", data: content };
+  }
+  const result: GenerationDryRunResult = {
+    runId,
+    content,
+    thinking: streamedThinking,
+    usage,
+    providerMetadata,
+    promptSnapshot,
+    promptPresetId: assembly.promptPresetId,
+    messageCount: promptSnapshot?.messages.length ?? baseMessages.length,
+  };
+  yield { type: "dry_run_result", data: result };
+  yield { type: "done", data: { dryRun: result } };
+}
+
 export async function* startGeneration(
   deps: GenerationEngineDeps,
   input: StartGenerationInput,
@@ -3710,7 +3918,7 @@ export async function* startGeneration(
           providerMetadata,
           promptSnapshot,
           spriteExpressions: preSaveSpriteExpressions,
-          contextInjections: isUserMessageRegeneration ? null : runtime?.preInjections ?? null,
+          contextInjections: isUserMessageRegeneration ? null : (runtime?.preInjections ?? null),
           existingExtra: await regenerationTargetExtra(deps.storage, chatId, storedMessages, input.regenerateMessageId),
           regenerationTarget,
         });
@@ -4064,7 +4272,10 @@ function nextRandomLlmSeed(): number {
   return Math.floor(Math.random() * MAX_RANDOM_LLM_SEED_EXCLUSIVE);
 }
 
-function rerollSeedParameters(input: StartGenerationInput, parameters: Record<string, unknown>): Record<string, unknown> {
+function rerollSeedParameters(
+  input: StartGenerationInput,
+  parameters: Record<string, unknown>,
+): Record<string, unknown> {
   if (!readString(input.regenerateMessageId).trim()) return parameters;
 
   let nextParameters = parameters;
@@ -4192,16 +4403,92 @@ async function* streamMainGenerationLoop(args: {
 
   try {
     while (true) {
-    throwIfAborted(signal);
-    iteration++;
-    const pendingToolCalls: LLMToolCall[] = [];
-    const streamUsages: unknown[] = [];
-    let turnProviderMetadata: unknown = null;
-    let turnContent = "";
-    inFlightTurn = "";
-    const thinkingParser = createInlineThinkingStreamParser({ customThinkingTags: parameters.customThinkingTags });
-    const emitInlineParts = function* (text: string): Generator<GenerationEvent> {
-      for (const part of thinkingParser.push(text)) {
+      throwIfAborted(signal);
+      iteration++;
+      const pendingToolCalls: LLMToolCall[] = [];
+      const streamUsages: unknown[] = [];
+      let turnProviderMetadata: unknown = null;
+      let turnContent = "";
+      inFlightTurn = "";
+      const thinkingParser = createInlineThinkingStreamParser({ customThinkingTags: parameters.customThinkingTags });
+      const emitInlineParts = function* (text: string): Generator<GenerationEvent> {
+        for (const part of thinkingParser.push(text)) {
+          if (!part.text) continue;
+          if (part.type === "thinking") {
+            thinking += part.text;
+            yield { type: "thinking", data: part.text };
+          } else {
+            turnContent += part.text;
+            inFlightTurn = turnContent;
+            yield { type: "token", data: part.text };
+          }
+        }
+      };
+
+      const requestTools = mainTools?.toolDefs;
+      const requestFit = fitLlmRequestToContextWindow(
+        conversation,
+        runtimeLlmParameters(connection, input, chat, parameters),
+        connection,
+        { tools: requestTools },
+      );
+      const requestMessages = requestFit.messages;
+      const requestParameters = requestFit.parameters;
+      const requestPreviewMessages = previewMessages?.length
+        ? fitLlmRequestToContextWindow(previewMessages, requestParameters, connection, { tools: requestTools }).messages
+        : null;
+      const visibleRequestParameters = providerVisibleLlmParameters(connection, requestParameters, {
+        stream: true,
+        hasTools: Boolean(requestTools?.length),
+      });
+      promptSnapshot = {
+        messages: requestMessages.map(clonePromptMessage),
+        ...(requestPreviewMessages?.length ? { previewMessages: requestPreviewMessages.map(clonePromptMessage) } : {}),
+        parameters: cloneSerializableValue(visibleRequestParameters),
+        promptPresetId: promptPresetId ?? null,
+        ...(requestTools?.length ? { tools: cloneSerializableValue(requestTools) } : {}),
+      };
+
+      for await (const chunk of deps.llm.stream(
+        {
+          connectionId: readString(connection.id) || input.connectionId,
+          model: readString(connection.model) || undefined,
+          messages: requestMessages,
+          parameters: requestParameters,
+          tools: requestTools,
+        },
+        signal,
+      )) {
+        throwIfAborted(signal);
+        const chunkProviderMetadata =
+          chunk.type === "provider_metadata" ? (chunk.data ?? chunk.providerMetadata) : chunk.providerMetadata;
+        if (chunkProviderMetadata != null) {
+          turnProviderMetadata = mergeProviderMetadata(turnProviderMetadata, chunkProviderMetadata);
+          providerMetadata = mergeProviderMetadata(providerMetadata, chunkProviderMetadata);
+        }
+        if (chunk.type === "token") {
+          const text = llmChunkText(chunk);
+          if (text) yield* emitInlineParts(text);
+        } else if (chunk.type === "thinking") {
+          const text = llmChunkText(chunk);
+          if (text) {
+            thinking += text;
+            yield { type: "thinking", data: text };
+          }
+        } else if (chunk.type === "tool_call") {
+          const normalized = normalizeToolCall(chunk.data);
+          if (normalized) pendingToolCalls.push(normalized);
+        } else if (chunk.type === "usage" && chunk.data != null) {
+          streamUsages.push(chunk.data);
+        } else if (chunk.type === "provider_metadata") {
+          continue;
+        } else if (chunk.type === "error") {
+          throw new Error(llmStreamErrorMessage(chunk));
+        }
+      }
+      const streamUsage = mergeStreamUsageChunks(streamUsages);
+      if (streamUsage != null) turnUsages.push(streamUsage);
+      for (const part of thinkingParser.flush()) {
         if (!part.text) continue;
         if (part.type === "thinking") {
           thinking += part.text;
@@ -4212,135 +4499,59 @@ async function* streamMainGenerationLoop(args: {
           yield { type: "token", data: part.text };
         }
       }
-    };
 
-    const requestTools = mainTools?.toolDefs;
-    const requestFit = fitLlmRequestToContextWindow(
-      conversation,
-      runtimeLlmParameters(connection, input, chat, parameters),
-      connection,
-      { tools: requestTools },
-    );
-    const requestMessages = requestFit.messages;
-    const requestParameters = requestFit.parameters;
-    const requestPreviewMessages = previewMessages?.length
-      ? fitLlmRequestToContextWindow(previewMessages, requestParameters, connection, { tools: requestTools }).messages
-      : null;
-    const visibleRequestParameters = providerVisibleLlmParameters(connection, requestParameters, {
-      stream: true,
-      hasTools: Boolean(requestTools?.length),
-    });
-    promptSnapshot = {
-      messages: requestMessages.map(clonePromptMessage),
-      ...(requestPreviewMessages?.length ? { previewMessages: requestPreviewMessages.map(clonePromptMessage) } : {}),
-      parameters: cloneSerializableValue(visibleRequestParameters),
-      promptPresetId: promptPresetId ?? null,
-      ...(requestTools?.length ? { tools: cloneSerializableValue(requestTools) } : {}),
-    };
-
-    for await (const chunk of deps.llm.stream(
-      {
-        connectionId: readString(connection.id) || input.connectionId,
-        model: readString(connection.model) || undefined,
-        messages: requestMessages,
-        parameters: requestParameters,
-        tools: requestTools,
-      },
-      signal,
-    )) {
       throwIfAborted(signal);
-      const chunkProviderMetadata =
-        chunk.type === "provider_metadata" ? (chunk.data ?? chunk.providerMetadata) : chunk.providerMetadata;
-      if (chunkProviderMetadata != null) {
-        turnProviderMetadata = mergeProviderMetadata(turnProviderMetadata, chunkProviderMetadata);
-        providerMetadata = mergeProviderMetadata(providerMetadata, chunkProviderMetadata);
-      }
-      if (chunk.type === "token") {
-        const text = llmChunkText(chunk);
-        if (text) yield* emitInlineParts(text);
-      } else if (chunk.type === "thinking") {
-        const text = llmChunkText(chunk);
-        if (text) {
-          thinking += text;
-          yield { type: "thinking", data: text };
-        }
-      } else if (chunk.type === "tool_call") {
-        const normalized = normalizeToolCall(chunk.data);
-        if (normalized) pendingToolCalls.push(normalized);
-      } else if (chunk.type === "usage" && chunk.data != null) {
-        streamUsages.push(chunk.data);
-      } else if (chunk.type === "provider_metadata") {
-        continue;
-      } else if (chunk.type === "error") {
-        throw new Error(llmStreamErrorMessage(chunk));
-      }
-    }
-    const streamUsage = mergeStreamUsageChunks(streamUsages);
-    if (streamUsage != null) turnUsages.push(streamUsage);
-    for (const part of thinkingParser.flush()) {
-      if (!part.text) continue;
-      if (part.type === "thinking") {
-        thinking += part.text;
-        yield { type: "thinking", data: part.text };
-      } else {
-        turnContent += part.text;
-        inFlightTurn = turnContent;
-        yield { type: "token", data: part.text };
-      }
-    }
+      content += turnContent;
+      inFlightTurn = "";
 
-    throwIfAborted(signal);
-    content += turnContent;
-    inFlightTurn = "";
-
-    if (!mainTools || pendingToolCalls.length === 0) break;
-    if (iteration >= MAX_MAIN_TOOL_ITERATIONS) {
-      yield {
-        type: "phase",
-        data: `Tool-call iteration limit (${MAX_MAIN_TOOL_ITERATIONS}) reached; finishing without further tool calls.`,
-      };
-      break;
-    }
-
-    const turnMetadataRecord = providerMetadataRecord(turnProviderMetadata);
-    conversation.push({
-      role: "assistant",
-      content: turnContent,
-      tool_calls: pendingToolCalls,
-      ...(turnMetadataRecord ? { providerMetadata: turnMetadataRecord } : {}),
-    });
-
-    for (const call of pendingToolCalls) {
-      throwIfAborted(signal);
-      const toolName = call.function?.name || call.name;
-      const toolArgs = call.function?.arguments || call.arguments || "{}";
-      yield { type: "tool_call", data: { id: call.id, name: toolName, arguments: toolArgs } };
-      let resultText: string;
-      let success = true;
-      try {
-        resultText = await executeMainToolCall({
-          deps: { storage: deps.storage, integrations: deps.integrations },
-          input: toolRuntimeInput,
-          customTools: mainTools.customTools,
-          allowedToolNames: mainTools.allowedToolNames,
-          call,
-        });
-      } catch (err) {
-        success = false;
-        resultText = err instanceof Error ? err.message : String(err);
+      if (!mainTools || pendingToolCalls.length === 0) break;
+      if (iteration >= MAX_MAIN_TOOL_ITERATIONS) {
+        yield {
+          type: "phase",
+          data: `Tool-call iteration limit (${MAX_MAIN_TOOL_ITERATIONS}) reached; finishing without further tool calls.`,
+        };
+        break;
       }
-      throwIfAborted(signal);
-      yield {
-        type: "tool_result",
-        data: { toolCallId: call.id, name: toolName, result: resultText, success },
-      };
+
+      const turnMetadataRecord = providerMetadataRecord(turnProviderMetadata);
       conversation.push({
-        role: "tool",
-        content: resultText,
-        tool_call_id: call.id,
-        name: toolName,
+        role: "assistant",
+        content: turnContent,
+        tool_calls: pendingToolCalls,
+        ...(turnMetadataRecord ? { providerMetadata: turnMetadataRecord } : {}),
       });
-    }
+
+      for (const call of pendingToolCalls) {
+        throwIfAborted(signal);
+        const toolName = call.function?.name || call.name;
+        const toolArgs = call.function?.arguments || call.arguments || "{}";
+        yield { type: "tool_call", data: { id: call.id, name: toolName, arguments: toolArgs } };
+        let resultText: string;
+        let success = true;
+        try {
+          resultText = await executeMainToolCall({
+            deps: { storage: deps.storage, integrations: deps.integrations },
+            input: toolRuntimeInput,
+            customTools: mainTools.customTools,
+            allowedToolNames: mainTools.allowedToolNames,
+            call,
+          });
+        } catch (err) {
+          success = false;
+          resultText = err instanceof Error ? err.message : String(err);
+        }
+        throwIfAborted(signal);
+        yield {
+          type: "tool_result",
+          data: { toolCallId: call.id, name: toolName, result: resultText, success },
+        };
+        conversation.push({
+          role: "tool",
+          content: resultText,
+          tool_call_id: call.id,
+          name: toolName,
+        });
+      }
     }
   } finally {
     // Expose the accumulated turn to the caller even when the stream is
