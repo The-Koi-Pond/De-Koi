@@ -23,6 +23,11 @@ import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { backgroundsApi } from "../../../../shared/api/settings-assets-api";
 import { integrationGateway } from "../../../../shared/api/integration-gateway";
+import {
+  abortGenerationDryRun,
+  streamGenerationDryRun,
+  type GenerationDryRunEvent,
+} from "../../../../shared/api/generation-dry-run-api";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { visualAssetsApi } from "../../../../shared/api/visual-assets-api";
 import { urlBinaryApi } from "../../../../shared/api/url-binary-api";
@@ -2019,5 +2024,26 @@ export function useGenerate() {
     [queryClient],
   );
 
-  return { generate, retryAgents };
+  const dryRun = useCallback(async function* (
+    args: GenerateArgs & { runId?: string | null },
+  ): AsyncGenerator<GenerationDryRunEvent> {
+    yield* streamGenerationDryRun({
+      ...args,
+      userStatus: useUIStore.getState().userStatus,
+      userActivity: useUIStore.getState().userActivity,
+      userTimeZone: resolveUserTimeZone(),
+      imagePromptSettings: {
+        includeAppearances: useUIStore.getState().imagePromptIncludeAppearances,
+        format: useUIStore.getState().imagePromptFormat,
+        styleProfileId: useUIStore.getState().imageStyleProfiles.defaultProfileId,
+        styleProfiles: useUIStore.getState().imageStyleProfiles,
+      },
+      hideAutomatedSummarySourceMessages: useUIStore.getState().summaryPopoverSettings.hideSummarizedMessages,
+      trimIncompleteModelOutput: useUIStore.getState().trimIncompleteModelOutput,
+      debugMode: useUIStore.getState().debugMode,
+      debugSink: enqueueAgentDebugEntry,
+    });
+  }, []);
+
+  return { generate, retryAgents, dryRun, abortDryRun: abortGenerationDryRun };
 }
