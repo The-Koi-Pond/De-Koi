@@ -457,7 +457,7 @@ export function useTagCharacterGalleryImage(characterId: string) {
 export function useCharacterGroups() {
   return useQuery({
     queryKey: characterKeys.groups,
-    queryFn: () => storageApi.list<unknown>("character-groups"),
+    queryFn: () => storageApi.list<unknown>("character-groups", { orderBy: "updatedAt", descending: true }),
   });
 }
 

@@ -27,9 +27,9 @@ import {
   TRACKER_DATA_PANEL_SECTIONS,
   CLEARED_DETAIL_IDS,
   clampImageDimension,
+  closeDetailRouteState,
   mergeLearnedGameSetupOptions,
   mobilePanelClosePatch,
-  mobilePanelReopenPatch,
   normalizeLearnedGameSetupOption,
   normalizeRememberedGameSetupText,
   normalizeSummaryPopoverSettings,
@@ -135,6 +135,7 @@ export const useUIStore = create<UIState>()(
       gameAssetsBrowserOpen: false,
       characterLibraryOpen: false,
       editorDirty: false,
+      mobileDetailOriginPanel: null,
 
       // Settings defaults
       fontSize: 17 as FontSize,
@@ -307,26 +308,27 @@ export const useUIStore = create<UIState>()(
       setChatBackground: (url) => set({ chatBackground: url }),
       setChatBackgroundBlur: (v) =>
         set({ chatBackgroundBlur: Math.max(0, Math.min(24, Math.round(Number.isFinite(v) ? v : 0))) }),
-      openCharacterDetail: (id) => set(openDetailRouteState({ characterDetailId: id })),
-      closeCharacterDetail: () => set({ characterDetailId: null, editorDirty: false }),
-      openLorebookDetail: (id) => set(openDetailRouteState({ lorebookDetailId: id, characterLibraryOpen: false })),
-      closeLorebookDetail: () => set({ lorebookDetailId: null, editorDirty: false }),
-      openPresetDetail: (id) => set(openDetailRouteState({ presetDetailId: id, characterLibraryOpen: false })),
-      closePresetDetail: () => set({ presetDetailId: null, editorDirty: false }),
-      openConnectionDetail: (id) => set(openDetailRouteState({ connectionDetailId: id, characterLibraryOpen: false })),
-      closeConnectionDetail: () => set({ connectionDetailId: null, editorDirty: false }),
+      openCharacterDetail: (id) => set((s) => openDetailRouteState(s, { characterDetailId: id })),
+      closeCharacterDetail: () => set((s) => closeDetailRouteState(s, { characterDetailId: null })),
+      openLorebookDetail: (id) =>
+        set((s) => openDetailRouteState(s, { lorebookDetailId: id, characterLibraryOpen: false })),
+      closeLorebookDetail: () => set((s) => closeDetailRouteState(s, { lorebookDetailId: null })),
+      openPresetDetail: (id) =>
+        set((s) => openDetailRouteState(s, { presetDetailId: id, characterLibraryOpen: false })),
+      closePresetDetail: () => set((s) => closeDetailRouteState(s, { presetDetailId: null })),
+      openConnectionDetail: (id) =>
+        set((s) => openDetailRouteState(s, { connectionDetailId: id, characterLibraryOpen: false })),
+      closeConnectionDetail: () => set((s) => closeDetailRouteState(s, { connectionDetailId: null })),
       openAgentDetail: (agentType) =>
-        set(openDetailRouteState({ agentDetailId: agentType, characterLibraryOpen: false })),
-      closeAgentDetail: () =>
-        // On narrow viewports opening the editor closed the catalog panel; reopen it so
-        // Back returns to the Agents list instead of falling through to chat.
-        set({ agentDetailId: null, editorDirty: false, ...mobilePanelReopenPatch() }),
-      openToolDetail: (id) => set(openDetailRouteState({ toolDetailId: id, characterLibraryOpen: false })),
-      closeToolDetail: () => set({ toolDetailId: null, editorDirty: false }),
-      openPersonaDetail: (id) => set(openDetailRouteState({ personaDetailId: id, characterLibraryOpen: false })),
-      closePersonaDetail: () => set({ personaDetailId: null, editorDirty: false }),
-      openRegexDetail: (id) => set(openDetailRouteState({ regexDetailId: id, characterLibraryOpen: false })),
-      closeRegexDetail: () => set({ regexDetailId: null, editorDirty: false }),
+        set((s) => openDetailRouteState(s, { agentDetailId: agentType, characterLibraryOpen: false })),
+      closeAgentDetail: () => set((s) => closeDetailRouteState(s, { agentDetailId: null })),
+      openToolDetail: (id) => set((s) => openDetailRouteState(s, { toolDetailId: id, characterLibraryOpen: false })),
+      closeToolDetail: () => set((s) => closeDetailRouteState(s, { toolDetailId: null })),
+      openPersonaDetail: (id) =>
+        set((s) => openDetailRouteState(s, { personaDetailId: id, characterLibraryOpen: false })),
+      closePersonaDetail: () => set((s) => closeDetailRouteState(s, { personaDetailId: null })),
+      openRegexDetail: (id) => set((s) => openDetailRouteState(s, { regexDetailId: id, characterLibraryOpen: false })),
+      closeRegexDetail: () => set((s) => closeDetailRouteState(s, { regexDetailId: null })),
       openCharacterLibrary: () =>
         set({
           ...CLEARED_DETAIL_IDS,
@@ -385,6 +387,7 @@ export const useUIStore = create<UIState>()(
           botBrowserOpen: false,
           gameAssetsBrowserOpen: false,
           editorDirty: false,
+          mobileDetailOriginPanel: null,
         }),
       setEditorDirty: (dirty) => set({ editorDirty: dirty }),
 

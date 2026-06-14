@@ -98,6 +98,8 @@ const DEFAULT_CACHING_AT_DEPTH = 5;
 const MAX_CACHING_AT_DEPTH = 100;
 const DEFAULT_MAX_PARALLEL_JOBS = 1;
 const MAX_PARALLEL_JOBS = 16;
+const SELECTED_PROVIDER_OPTION_CLASS =
+  "bg-[color-mix(in_srgb,var(--primary)_24%,var(--card))] text-[var(--primary)] ring-1 ring-[color-mix(in_srgb,var(--primary)_62%,transparent)]";
 const LEGACY_LOCAL_SIDECAR_CONNECTION_ID = "__local_sidecar__";
 
 const OPENAI_CHATGPT_SETUP_STEPS = [
@@ -921,7 +923,7 @@ export function ConnectionEditor() {
                   className={cn(
                     "truncate rounded-xl px-3 py-2.5 text-xs font-medium transition-all",
                     localProvider === key
-                      ? "bg-sky-400/15 text-sky-400 ring-1 ring-sky-400/30"
+                      ? SELECTED_PROVIDER_OPTION_CLASS
                       : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
                   )}
                 >
@@ -1116,7 +1118,7 @@ export function ConnectionEditor() {
                       className={cn(
                         "flex flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left text-[0.6875rem] transition-all",
                         isActive
-                          ? "bg-sky-400/15 text-sky-400 ring-1 ring-sky-400/30"
+                          ? SELECTED_PROVIDER_OPTION_CLASS
                           : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
                       )}
                     >

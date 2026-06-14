@@ -239,7 +239,9 @@ export type FullPageRoutePatch = Partial<
     | "botBrowserOpen"
     | "gameAssetsBrowserOpen"
     | "rightPanelOpen"
+    | "rightPanel"
     | "editorDirty"
+    | "mobileDetailOriginPanel"
   >
 >;
 
@@ -264,15 +266,32 @@ export function mobilePanelClosePatch(): FullPageRoutePatch {
   return isMobilePanelViewport() ? { rightPanelOpen: false } : {};
 }
 
-export function mobilePanelReopenPatch(): FullPageRoutePatch {
-  return isMobilePanelViewport() ? { rightPanelOpen: true } : {};
-}
-
-export function openDetailRouteState(patch: FullPageRoutePatch): FullPageRoutePatch {
+export function openDetailRouteState(
+  state: Pick<UIState, "rightPanelOpen" | "rightPanel" | "mobileDetailOriginPanel">,
+  patch: FullPageRoutePatch,
+): FullPageRoutePatch {
   return {
     ...CLEARED_DETAIL_IDS,
     ...patch,
-    ...mobilePanelClosePatch(),
+    ...(isMobilePanelViewport()
+      ? {
+          rightPanelOpen: false,
+          mobileDetailOriginPanel: state.rightPanelOpen ? state.rightPanel : state.mobileDetailOriginPanel,
+        }
+      : {}),
+  };
+}
+
+export function closeDetailRouteState(
+  state: Pick<UIState, "mobileDetailOriginPanel">,
+  patch: FullPageRoutePatch,
+): FullPageRoutePatch {
+  const originPanel = isMobilePanelViewport() ? state.mobileDetailOriginPanel : null;
+  return {
+    ...patch,
+    editorDirty: false,
+    mobileDetailOriginPanel: null,
+    ...(originPanel ? { rightPanelOpen: true, rightPanel: originPanel } : {}),
   };
 }
 
@@ -323,6 +342,8 @@ export interface UIState {
   characterLibraryOpen: boolean;
   /** True when any open detail editor has unsaved changes */
   editorDirty: boolean;
+  /** The right panel that launched the active mobile detail route, if any. */
+  mobileDetailOriginPanel: Panel | null;
 
   // ── Settings (persisted) ──
   fontSize: FontSize;
