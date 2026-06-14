@@ -538,14 +538,7 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "import_st_chat_into_group" => import_call(state, &args, &["st-chat-into-group"], "body"),
         "import_st_preset" => import_call(state, &args, &["st-preset"], "payload"),
         "import_st_lorebook" => import_call(state, &args, &["st-lorebook"], "payload"),
-        "import_list_directory" => imports::import_call(
-            state,
-            &["list-directory"],
-            json!({
-                "path": optional_string(&args, "path").unwrap_or_default(),
-                "pickerSelected": optional_bool(&args, "pickerSelected").unwrap_or(false),
-            }),
-        ),
+        "import_list_directory" => remote_import_list_directory(state, &args),
         "import_st_bulk_scan" => import_call(state, &args, &["st-bulk", "scan"], "payload"),
         "import_st_bulk_run" => import_call(state, &args, &["st-bulk", "run"], "payload"),
         "custom_tool_execute" => {
@@ -1285,6 +1278,23 @@ fn import_call(
     payload_key: &str,
 ) -> AppResult<Value> {
     imports::import_call(state, rest, optional_value(args, payload_key))
+}
+
+fn remote_import_list_directory(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+    if optional_bool(args, "pickerSelected") == Some(true) {
+        return Err(AppError::invalid_input(
+            "pickerSelected is only trusted through the native folder picker",
+        ));
+    }
+
+    imports::import_call(
+        state,
+        &["list-directory"],
+        json!({
+            "path": optional_string(args, "path").unwrap_or_default(),
+            "pickerSelected": false,
+        }),
+    )
 }
 
 fn background_upload(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
@@ -2204,6 +2214,29 @@ mod tests {
 
         assert_eq!(error.code, "not_found");
         assert!(error.message.contains("No matching"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_rejects_untrusted_remote_picker_selected_directory_listing() {
+        let state = test_state("remote-picker-selected-listing");
+        let error = dispatch(
+            &state,
+            InvokeRequest {
+                command: "import_list_directory".to_string(),
+                args: Some(json!({
+                    "path": state.data_dir.to_string_lossy(),
+                    "pickerSelected": true
+                })),
+            },
+        )
+        .await
+        .expect_err("remote callers must not claim native picker trust");
+
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(
+            error.message,
+            "pickerSelected is only trusted through the native folder picker"
+        );
     }
 
     #[tokio::test]
