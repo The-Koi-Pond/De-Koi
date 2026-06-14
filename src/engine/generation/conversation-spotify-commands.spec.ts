@@ -3,6 +3,7 @@ import type { IntegrationGateway } from "../capabilities/integrations";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import { assembleGenerationPrompt } from "./prompt-assembly";
 import { persistConnectedCommandTags } from "./connected-commands";
+import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
 import type { JsonRecord } from "./runtime-records";
 
 function asStorageValue<T>(value: unknown): T {
@@ -207,6 +208,15 @@ async function conversationPromptText(commandCapabilities: JsonRecord, metadata:
 }
 
 describe("conversation Spotify command prompting", () => {
+  it("uses one activation contract for conversation command defaults", () => {
+    expect(conversationCommandPromptEnabled({ mode: "conversation" })).toBe(true);
+    expect(conversationCommandPromptEnabled({ mode: "conversation", metadata: {} })).toBe(true);
+    expect(conversationCommandPromptEnabled({ mode: "conversation", metadata: { characterCommands: false } })).toBe(
+      false,
+    );
+    expect(conversationCommandPromptEnabled({ mode: "roleplay", metadata: {} })).toBe(false);
+  });
+
   it("advertises Spotify only when playback is available and command capability is enabled", async () => {
     await expect(conversationPromptText({ spotifyPlaybackAvailable: false })).resolves.not.toContain(
       '[spotify: title="Song title", artist="Artist"]',
