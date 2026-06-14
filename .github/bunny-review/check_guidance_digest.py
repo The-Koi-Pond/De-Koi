@@ -130,6 +130,62 @@ def run_packet_case(module):
         return len(packet)
 
 
+def run_semantic_repair_case(module):
+    incomplete = {
+        "findings": [],
+        "nitpicks": [],
+        "pre_merge_checks": [],
+        "open_questions": [],
+        "what_i_checked": [],
+    }
+    repaired = {
+        "change_summary": [
+            "Wah, the repair pass restored the missing summary so the review contract has real loot on the table."
+        ],
+        "findings": [],
+        "nitpicks": [],
+        "pre_merge_checks": [],
+        "open_questions": [],
+        "what_i_checked": [
+            "Aha, Bunny checked the review packet and repaired the schema gap."
+        ],
+    }
+
+    class FakeCompletions:
+        def __init__(self):
+            self.calls = []
+
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(
+                usage=None,
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content="FINAL_REVIEW\n" + json.dumps(repaired)
+                        )
+                    )
+                ],
+            )
+
+    completions = FakeCompletions()
+    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    stats = module.build_stats("packet")
+    parsed = module.extract_json_or_repair(
+        client,
+        [{"role": "system", "content": "prompt"}, {"role": "user", "content": "packet"}],
+        "FINAL_REVIEW\n" + json.dumps(incomplete),
+        stats,
+    )
+
+    assert len(completions.calls) == 1, "semantic schema gap should trigger one repair call"
+    assert parsed["change_summary"] == repaired["change_summary"]
+    assert parsed["_schema_repair_gaps"], "repair diagnostics should be retained"
+    normalized = module.normalize_review_object(parsed, "HEAD~1", ["src/example.ts"])
+    assert normalized["what_i_checked"][0].startswith("Bunny repaired the model review JSON")
+    return stats["model_calls"]
+
+
 def run_model_key_case(module):
     old_llm = os.environ.get("LLM_API_KEY")
     old_openai = os.environ.get("OPENAI_API_KEY")
@@ -182,14 +238,17 @@ def run_status_case(module):
 def main():
     module = load_bunny_review()
     packet_len = run_packet_case(module)
+    repair_calls = run_semantic_repair_case(module)
     run_model_key_case(module)
     run_status_case(module)
     print(
         "bunny_review_smoke "
         f"packet_len={packet_len} "
+        f"semantic_repair_calls={repair_calls} "
         "patch_overview_dedup=true "
         "packet_budget_chunking=true "
         "summary_fallback=true "
+        "semantic_repair=true "
         "render_voice=true "
         "model_key_fallback=true "
         "ci_control_status_ignored=true"

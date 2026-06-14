@@ -272,6 +272,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python /tmp/bunny-review-tool/.github/bunny-review/bunny_review.py post
 
+      - name: Upload Bunny review diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bunny-review-diagnostics-${{ github.run_id }}
+          path: |
+            review.json
+            review.md
+            inline-comments.json
+            bunny-ci-control.json
+            bunny-ci-status.md
+            bunny-ci-config-warnings.md
+            check-runs.json
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Complete Bunny status
         if: always()
         env:

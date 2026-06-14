@@ -624,9 +624,63 @@ def model_call(client, messages, stats):
     return resp.choices[0].message.content or ""
 
 
+def review_contract_gaps(review_obj):
+    if not isinstance(review_obj, dict):
+        return ["review root must be a JSON object"]
+    gaps = []
+    if not normalize_text_list(review_obj.get("change_summary")):
+        gaps.append("change_summary must be a non-empty list of summary strings")
+    if not normalize_text_list(review_obj.get("what_i_checked")):
+        gaps.append("what_i_checked must include review context or proof notes")
+    for key in ("findings", "nitpicks", "pre_merge_checks", "open_questions"):
+        if key not in review_obj:
+            gaps.append(f"{key} is missing")
+        elif not isinstance(review_obj.get(key), list):
+            gaps.append(f"{key} must be a list")
+    return gaps
+
+
+def semantic_repair_review_object(client, messages, review_obj, gaps, stats):
+    gap_text = "\n".join(f"- {gap}" for gap in gaps)
+    repair_messages = [
+        *messages,
+        {
+            "role": "assistant",
+            "content": "FINAL_REVIEW\n"
+            + json.dumps(review_obj, indent=2, sort_keys=True),
+        },
+        {
+            "role": "user",
+            "content": (
+                "The JSON parsed, but it violated Bunny's review schema contract:\n"
+                f"{gap_text}\n\n"
+                "Rebuild the full final review JSON from the original review packet. "
+                "Preserve any valid findings, nitpicks, open questions, and CI/proof checks. "
+                "Re-evaluate proof gaps from the packet; add a Proof Gap check only when "
+                "the diff has realistic behavior risk without focused proof. "
+                "Ensure change_summary and what_i_checked are non-empty. Reply only with "
+                "FINAL_REVIEW followed by one JSON object matching the required schema."
+            ),
+        },
+    ]
+    try:
+        repaired = extract_json(model_call(client, repair_messages, stats))
+    except Exception as exc:
+        review_obj["_schema_repair_gaps"] = gaps
+        review_obj["_schema_repair_error"] = " ".join(str(exc).split())
+        return review_obj
+    repaired_gaps = review_contract_gaps(repaired)
+    if repaired_gaps:
+        repaired["_schema_repair_gaps"] = gaps
+        repaired["_schema_repair_remaining_gaps"] = repaired_gaps
+    else:
+        repaired["_schema_repair_gaps"] = gaps
+    return repaired
+
+
 def extract_json_or_repair(client, messages, content, stats):
     try:
-        return extract_json(content)
+        parsed = extract_json(content)
     except ValueError:
         repair_messages = [
             *messages,
@@ -641,7 +695,11 @@ def extract_json_or_repair(client, messages, content, stats):
                 ),
             },
         ]
-        return extract_json(model_call(client, repair_messages, stats))
+        parsed = extract_json(model_call(client, repair_messages, stats))
+    gaps = review_contract_gaps(parsed)
+    if gaps:
+        return semantic_repair_review_object(client, messages, parsed, gaps, stats)
+    return parsed
 
 
 def review_packet_with_model(client, skill, triage_content, stats):
@@ -1631,6 +1689,21 @@ def normalize_review_object(review_obj, base, files):
     review_obj["change_summary"] = summary or fallback_change_summary(base, files)
     review_obj["open_questions"] = normalize_text_list(review_obj.get("open_questions"))
     review_obj["what_i_checked"] = normalize_text_list(review_obj.get("what_i_checked"))
+    repaired_gaps = normalize_text_list(review_obj.get("_schema_repair_gaps"))
+    remaining_gaps = normalize_text_list(review_obj.get("_schema_repair_remaining_gaps"))
+    repair_error = str(review_obj.get("_schema_repair_error") or "").strip()
+    if repaired_gaps:
+        note = (
+            "Bunny repaired the model review JSON before rendering because required schema fields were missing: "
+            + "; ".join(repaired_gaps[:3])
+        )
+        if note not in review_obj["what_i_checked"]:
+            review_obj["what_i_checked"].insert(0, note)
+    if remaining_gaps or repair_error:
+        detail = "; ".join(remaining_gaps[:3]) or repair_error
+        note = f"Bunny's schema repair remained incomplete, so renderer fallbacks may appear: {detail}"
+        if note not in review_obj["what_i_checked"]:
+            review_obj["what_i_checked"].insert(0, note)
     for key in ("findings", "nitpicks", "pre_merge_checks"):
         if not isinstance(review_obj.get(key), list):
             review_obj[key] = []
@@ -1639,7 +1712,7 @@ def normalize_review_object(review_obj, base, files):
             "Bunny rebuilt the loot summary from git diff metadata because the final model output omitted `change_summary`."
         )
         if note not in review_obj["what_i_checked"]:
-            review_obj["what_i_checked"].append(note)
+            review_obj["what_i_checked"].insert(0, note)
     return review_obj
 
 
