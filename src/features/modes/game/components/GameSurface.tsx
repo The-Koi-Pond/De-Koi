@@ -1764,44 +1764,6 @@ export function GameSurface({
     setAudioSettingsHydrated(true);
   }, [persistedGameAudioSettings]);
 
-  // Clear stale party dialogue when switching chats (M7)
-  const prevSceneRuntimeScopeRef = useRef(sceneRuntimeScopeKey);
-  useEffect(() => {
-    if (prevSceneRuntimeScopeRef.current === sceneRuntimeScopeKey) return; // skip initial mount
-    prevSceneRuntimeScopeRef.current = sceneRuntimeScopeKey;
-    recentMusicHistoryRef.current = normalizeRecentMusicHistory(chatMeta.gameRecentMusic);
-    partyDialogueRestoredRef.current = false;
-    partyTurnRequestIdRef.current += 1;
-    partyTurnInFlightRef.current = false;
-    setPartyDialogue([]);
-    setPartyChatMessageId(null);
-    setPartyChatInput(null);
-    setQueuedQte(null);
-    setQueuedEncounter(null);
-    setQueuedCombatGeneration(null);
-    setCombatGenerationPending(false);
-    setCombatItemEffects([]);
-    setCombatMechanics([]);
-    setCombatDialogueCues([]);
-    setPendingEncounter(null);
-    setCombatParty(null);
-    setCombatEnemies(null);
-    setCombatSpriteSuggestion(null);
-    setNarrationDoneMsgId(null);
-    lastProcessedMsgRef.current = null;
-    startGameGuardRef.current = false;
-    startSessionGuardRef.current = false;
-    setStartGameRequested(false);
-    setStartSessionRequested(false);
-    setPrepareInitialWidgetsOpen(false);
-    setPrepareSessionWidgetsOpen(false);
-    // Allow the auto-tutorial to re-evaluate for the new chat (guard still gates on disabled flag)
-    tutorialAutoTriggeredRef.current = false;
-  }, [
-    sceneRuntimeScopeKey,
-    chatMeta.gameRecentMusic,
-  ]);
-
   const clearPendingInteractiveCommands = useCallback(() => {
     setActiveChoices(null);
     setActiveQte(null);
@@ -1830,48 +1792,6 @@ export function GameSurface({
   useEffect(() => {
     fetchManifest();
   }, [fetchManifest]);
-
-  // Clean up audio + reset playback state when SWITCHING chats.
-  // On unmount, only dispose audio (stop sounds) but keep store state intact so that
-  // same-chat remount (e.g. returning from persona editor) can read it immediately
-  // without waiting for the scene restore effect.
-  const prevSceneRuntimeMediaScopeRef = useRef(sceneRuntimeScopeKey);
-  useEffect(() => {
-    if (prevSceneRuntimeMediaScopeRef.current !== sceneRuntimeScopeKey) {
-      audioManager.dispose();
-      useGameAssetStore.getState().resetPlaybackState();
-      sceneReadyMsgIdRef.current = undefined;
-      weatherMsgRef.current = null;
-      isRestoredRef.current = false;
-      sceneRestoredRef.current = false;
-      prevSceneRuntimeMediaScopeRef.current = sceneRuntimeScopeKey;
-    }
-    return () => {
-      audioManager.dispose();
-    };
-  }, [sceneRuntimeScopeKey]);
-
-  // Reconnect audio and background on mount if the store was disposed
-  // (e.g. user left to home and returned to the same game).
-  // Only reconnect for restored sessions — new games should not replay stale store state.
-  useEffect(() => {
-    if (!assetManifest || !isRestoredRef.current) return;
-    const { currentMusic, currentAmbient, currentBackground: storeBg } = useGameAssetStore.getState();
-    const assetMap = scopedAssetMap;
-    // Restore background from metadata if the store was reset
-    if (!storeBg) {
-      const savedBg = chatMeta.gameSceneBackground as string | undefined;
-      if (savedBg) {
-        useGameAssetStore.getState().setCurrentBackground(savedBg);
-      }
-    }
-    if (!useSpotifyGameMusic && currentMusic && assetMap?.[currentMusic] && !audioManager.getState().musicTag) {
-      audioManager.playMusic(currentMusic, assetMap);
-    }
-    if (currentAmbient && assetMap?.[currentAmbient] && !audioManager.getState().ambientTag) {
-      audioManager.playAmbient(currentAmbient, assetMap);
-    }
-  }, [assetManifest, chatMeta.gameSceneBackground, scopedAssetMap, useSpotifyGameMusic]);
 
   const gameCharacterIds = useMemo(() => {
     const ids = new Set<string>();
@@ -2333,7 +2253,7 @@ export function GameSurface({
     sceneAnalysisEnabled && !!latestAssistantMsg?.content && !isStreaming && !sceneAnalysis.isPending;
   const canRetryAssets = !!retryableAssetGeneration && (assetGenerationFailed || !pendingAssetGeneration);
 
-  const buildSpotifyRetryRequest = useCallback(() => {
+  const buildSpotifyRetryRequest = useCallback((recentSpotifyTracks: string[]) => {
     const msg = latestAssistantMsgRef.current;
     if (!msg?.content) return null;
 
@@ -2367,8 +2287,8 @@ export function GameSurface({
         recentMusic: recentMusicHistoryRef.current,
         useSpotifyMusic: useSpotifyGameMusic,
         availableSpotifyTracks: [] as SceneSpotifyTrackCandidate[],
-        currentSpotifyTrack: recentSpotifyTrackHistoryRef.current[0] ?? null,
-        recentSpotifyTracks: recentSpotifyTrackHistoryRef.current,
+        currentSpotifyTrack: recentSpotifyTracks[0] ?? null,
+        recentSpotifyTracks,
         currentAmbient: useGameAssetStore.getState().currentAmbient,
         currentLocation: gameSnapshot?.location ?? null,
         genre: typeof setupConfig?.genre === "string" ? setupConfig.genre : null,
@@ -2430,6 +2350,85 @@ export function GameSurface({
     setRetryMenuOpen,
   });
 
+  const partyDialogueRestoredRef = useRef(false);
+  const prevSceneRuntimeScopeRef = useRef(sceneRuntimeScopeKey);
+  const prevSceneRuntimeMediaScopeRef = useRef(sceneRuntimeScopeKey);
+
+  // Clear stale party dialogue when switching chats (M7)
+  useEffect(() => {
+    if (prevSceneRuntimeScopeRef.current === sceneRuntimeScopeKey) return; // skip initial mount
+    prevSceneRuntimeScopeRef.current = sceneRuntimeScopeKey;
+    recentMusicHistoryRef.current = normalizeRecentMusicHistory(chatMeta.gameRecentMusic);
+    partyDialogueRestoredRef.current = false;
+    partyTurnRequestIdRef.current += 1;
+    partyTurnInFlightRef.current = false;
+    setPartyDialogue([]);
+    setPartyChatMessageId(null);
+    setPartyChatInput(null);
+    setQueuedQte(null);
+    setQueuedEncounter(null);
+    setQueuedCombatGeneration(null);
+    setCombatGenerationPending(false);
+    setCombatItemEffects([]);
+    setCombatMechanics([]);
+    setCombatDialogueCues([]);
+    setPendingEncounter(null);
+    setCombatParty(null);
+    setCombatEnemies(null);
+    setCombatSpriteSuggestion(null);
+    setNarrationDoneMsgId(null);
+    lastProcessedMsgRef.current = null;
+    startGameGuardRef.current = false;
+    startSessionGuardRef.current = false;
+    setStartGameRequested(false);
+    setStartSessionRequested(false);
+    setPrepareInitialWidgetsOpen(false);
+    setPrepareSessionWidgetsOpen(false);
+    // Allow the auto-tutorial to re-evaluate for the new chat (guard still gates on disabled flag)
+    tutorialAutoTriggeredRef.current = false;
+  }, [chatMeta.gameRecentMusic, sceneRuntimeScopeKey, setNarrationDoneMsgId]);
+
+  // Clean up audio + reset playback state when SWITCHING chats.
+  // On unmount, only dispose audio (stop sounds) but keep store state intact so that
+  // same-chat remount (e.g. returning from persona editor) can read it immediately
+  // without waiting for the scene restore effect.
+  useEffect(() => {
+    if (prevSceneRuntimeMediaScopeRef.current !== sceneRuntimeScopeKey) {
+      audioManager.dispose();
+      useGameAssetStore.getState().resetPlaybackState();
+      sceneReadyMsgIdRef.current = undefined;
+      weatherMsgRef.current = null;
+      isRestoredRef.current = false;
+      sceneRestoredRef.current = false;
+      prevSceneRuntimeMediaScopeRef.current = sceneRuntimeScopeKey;
+    }
+    return () => {
+      audioManager.dispose();
+    };
+  }, [isRestoredRef, sceneReadyMsgIdRef, sceneRestoredRef, sceneRuntimeScopeKey, weatherMsgRef]);
+
+  // Reconnect audio and background on mount if the store was disposed
+  // (e.g. user left to home and returned to the same game).
+  // Only reconnect for restored sessions — new games should not replay stale store state.
+  useEffect(() => {
+    if (!assetManifest || !isRestoredRef.current) return;
+    const { currentMusic, currentAmbient, currentBackground: storeBg } = useGameAssetStore.getState();
+    const assetMap = scopedAssetMap;
+    // Restore background from metadata if the store was reset
+    if (!storeBg) {
+      const savedBg = chatMeta.gameSceneBackground as string | undefined;
+      if (savedBg) {
+        useGameAssetStore.getState().setCurrentBackground(savedBg);
+      }
+    }
+    if (!useSpotifyGameMusic && currentMusic && assetMap?.[currentMusic] && !audioManager.getState().musicTag) {
+      audioManager.playMusic(currentMusic, assetMap);
+    }
+    if (currentAmbient && assetMap?.[currentAmbient] && !audioManager.getState().ambientTag) {
+      audioManager.playAmbient(currentAmbient, assetMap);
+    }
+  }, [assetManifest, chatMeta.gameSceneBackground, isRestoredRef, scopedAssetMap, useSpotifyGameMusic]);
+
   const handleCheckpointLoaded = useCallback(
     (result: { gameState?: unknown; metadata?: Record<string, unknown> }) => {
       setCheckpointsOpen(false);
@@ -2478,8 +2477,6 @@ export function GameSurface({
     },
     [messages],
   );
-
-  const partyDialogueRestoredRef = useRef(false);
 
   useEffect(() => {
     if (sceneRestoredRef.current || isMessagesLoading || !latestAssistantMsg?.content) return;
@@ -2559,7 +2556,9 @@ export function GameSurface({
     hasQteResponseAfterMessage,
     hasCombatResultAfterMessage,
     handlePartyChangeCommands,
+    isRestoredRef,
     resetRecentSpotifyTrackHistory,
+    sceneRestoredRef,
     useSpotifyGameMusic,
   ]);
 
@@ -2629,7 +2628,7 @@ export function GameSurface({
         }).catch(() => {});
       }
     };
-  }, [activeChatId, persistMetadata]);
+  }, [activeChatId, persistMetadata, sceneRestoredRef]);
 
   // ── Restore in-progress combat state from chat metadata on page load ──
   // Without this, refreshing during a fight drops the user back into prose narration even
@@ -2868,6 +2867,7 @@ export function GameSurface({
     isStreaming,
     activeChatId,
     updateWeather,
+    weatherMsgRef,
     gameState,
     gameSnapshot?.location,
   ]);
@@ -3501,7 +3501,7 @@ export function GameSurface({
     // Allow processScene to run for this message again
     lastProcessedMsgRef.current = null;
     processSceneRef.current?.();
-  }, []);
+  }, [processSceneRef]);
 
   /** Skip scene analysis and fall back to inline GM tags only. */
   const skipSceneAnalysis = useCallback(() => {
@@ -3563,7 +3563,7 @@ export function GameSurface({
     };
     window.addEventListener("marinara:generation-complete", handler);
     return () => window.removeEventListener("marinara:generation-complete", handler);
-  }, [activeChatId]);
+  }, [activeChatId, processSceneRef]);
 
   // Handle assistant/narrator messages that arrive by refetch instead of live streaming,
   // such as session-start recaps and session-conclude summary messages.
@@ -3572,7 +3572,7 @@ export function GameSurface({
     if (!latestAssistantMsg?.content) return;
     if (lastProcessedMsgRef.current === latestAssistantMsg.id) return;
     processSceneRef.current?.();
-  }, [isMessagesLoading, isStreaming, latestAssistantMsg?.content, latestAssistantMsg?.id]);
+  }, [isMessagesLoading, isStreaming, latestAssistantMsg?.content, latestAssistantMsg?.id, processSceneRef]);
 
   // Listen for generation-error event to show retry button.
   useEffect(() => {
@@ -3603,7 +3603,7 @@ export function GameSurface({
     setIntroCinematicActive(true);
     setDirectionsPlaying(true);
     setActiveDirections(blueprint.introSequence);
-  }, [blueprint, latestAssistantMsg?.content]);
+  }, [blueprint, isRestoredRef, latestAssistantMsg?.content]);
 
   const applyGameAudioSettings = useCallback(
     (overrides: Partial<GameAudioSettings> = {}, options: { unlock?: boolean } = {}) => {
@@ -3720,7 +3720,21 @@ export function GameSurface({
     } catch {
       /* generate handles its own error toast */
     }
-  }, [activeChatId, generateGameTurn, isStreaming]);
+  }, [
+    activeChatId,
+    appliedInventorySegmentsRef,
+    appliedSegmentsRef,
+    generateGameTurn,
+    isStreaming,
+    markSceneReady,
+    readableQueueRef,
+    resetAssetGenerationState,
+    setActiveReadable,
+    setPendingInventorySegmentUpdates,
+    setNarrationDoneMsgId,
+    setPendingSegmentEffects,
+    setSceneAnalysisFailed,
+  ]);
 
   const prepareGameTurnSubmission = useCallback(
     async (
@@ -4239,7 +4253,14 @@ export function GameSurface({
       toast.error(message);
       return null;
     }
-  }, [activeChatId, inventoryItems, patchVisibleGameState, showInventoryNotifications, updateChatMetadata]);
+  }, [
+    activeChatId,
+    inventoryItems,
+    patchVisibleGameState,
+    setInventoryItems,
+    showInventoryNotifications,
+    updateChatMetadata,
+  ]);
 
   const handleIncrementInventoryItem = useCallback(
     async (itemName: string) => {
@@ -4295,7 +4316,14 @@ export function GameSurface({
         toast.error(message);
       }
     },
-    [activeChatId, inventoryItems, patchVisibleGameState, showInventoryNotifications, updateChatMetadata],
+    [
+      activeChatId,
+      inventoryItems,
+      patchVisibleGameState,
+      setInventoryItems,
+      showInventoryNotifications,
+      updateChatMetadata,
+    ],
   );
 
   const handleRemoveInventoryItem = useCallback(
@@ -4367,6 +4395,7 @@ export function GameSurface({
       inventoryItems,
       patchVisibleGameState,
       publishSessionChat,
+      setInventoryItems,
       showInventoryNotifications,
       updateChatMetadata,
     ],
@@ -4443,6 +4472,7 @@ export function GameSurface({
       inventoryItems,
       patchVisibleGameState,
       publishSessionChat,
+      setInventoryItems,
       showInventoryNotifications,
       updateChatMetadata,
     ],
@@ -4518,6 +4548,7 @@ export function GameSurface({
       inventoryItems,
       patchVisibleGameState,
       publishSessionChat,
+      setInventoryItems,
       showInventoryNotifications,
       updateChatMetadata,
     ],
@@ -4578,7 +4609,7 @@ export function GameSurface({
         return null;
       }
     },
-    [activeChatId, inventoryItems, patchVisibleGameState, updateChatMetadata],
+    [activeChatId, inventoryItems, patchVisibleGameState, setInventoryItems, updateChatMetadata],
   );
 
   const handleReorderInventoryItem = useCallback(
@@ -4613,7 +4644,7 @@ export function GameSurface({
         toast.error(message);
       }
     },
-    [activeChatId, inventoryItems, updateChatMetadata],
+    [activeChatId, inventoryItems, setInventoryItems, updateChatMetadata],
   );
 
   const handleEditSegment = useCallback(
@@ -6280,7 +6311,15 @@ export function GameSurface({
         );
       }
     },
-    [activeChatId, handleSendGameTurn, inventoryItems, latestAssistantMsg?.id, showInventoryNotifications],
+    [
+      activeChatId,
+      handleSendGameTurn,
+      inventoryItems,
+      latestAssistantMsg?.id,
+      setInventoryOpen,
+      setPendingInventoryUse,
+      showInventoryNotifications,
+    ],
   );
 
   useEffect(() => {
@@ -6332,6 +6371,7 @@ export function GameSurface({
     latestAssistantMsg?.content,
     latestAssistantMsg?.id,
     pendingInventoryUse,
+    setPendingInventoryUse,
     showInventoryNotifications,
   ]);
 
@@ -6753,6 +6793,9 @@ export function GameSurface({
       );
     }
   }, [
+    appliedInventorySegmentsRef,
+    appliedSegmentsRef,
+    applySceneResultRef,
     latestAssistantMsg,
     scopedAssetMap,
     gameState,
@@ -6768,6 +6811,8 @@ export function GameSurface({
     sceneTurnNumber,
     gameSceneIllustrationAllowed,
     latestPlayerAction,
+    setPendingInventorySegmentUpdates,
+    setPendingSegmentEffects,
   ]);
 
   const normalizedWidgets = useMemo(() => normalizeHudWidgets(hudWidgets), [hudWidgets]);
