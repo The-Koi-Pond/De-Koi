@@ -57,7 +57,7 @@ fn list_fonts(state: &AppState) -> AppResult<Value> {
         if !FONT_EXTS.contains(&ext.as_str()) {
             continue;
         }
-        if is_shadowed_legacy_google_single_file(&filename, &metadata) {
+        if is_shadowed_managed_google_single_file(&filename, &metadata) {
             continue;
         }
         let meta = metadata
@@ -457,8 +457,6 @@ fn replace_managed_google_font_files(
         .lock()
         .map_err(|_| AppError::new("font_download_failed", "Font metadata lock was poisoned"))?;
     let metadata = read_font_metadata(root);
-    let has_managed_google_shards =
-        managed_google_family_has_shards(safe_name, &metadata, downloaded);
     for target in downloaded {
         if root.join(&target.filename).exists()
             && metadata
@@ -472,6 +470,9 @@ fn replace_managed_google_font_files(
                 format!("\"{family}\" is already installed"),
             ));
         }
+    }
+    if has_downloaded_google_shards(safe_name, downloaded) {
+        reject_ambiguous_legacy_single_file(root, safe_name, family, &metadata)?;
     }
     let operation_id = format!("{}-{}", now_millis(), std::process::id(),);
     let mut temp_files = Vec::new();
@@ -489,12 +490,7 @@ fn replace_managed_google_font_files(
                 continue;
             }
             let filename = entry.file_name().to_string_lossy().to_string();
-            if !is_managed_google_family_file(
-                &filename,
-                safe_name,
-                &metadata,
-                has_managed_google_shards,
-            ) {
+            if !is_managed_google_family_file(&filename, safe_name, &metadata) {
                 continue;
             }
             let backup_filename = format!("{filename}.{operation_id}.bak");
@@ -547,7 +543,6 @@ fn is_managed_google_family_file(
     filename: &str,
     safe_name: &str,
     metadata: &Map<String, Value>,
-    has_managed_google_shards: bool,
 ) -> bool {
     let extension = Path::new(filename)
         .extension()
@@ -559,49 +554,45 @@ fn is_managed_google_family_file(
     {
         return false;
     }
-    if font_metadata_source(metadata, filename) == Some("google") {
-        return true;
-    }
-    is_unmetadata_legacy_google_single_file_shadowed_by_shards(
-        filename,
-        safe_name,
-        metadata,
-        has_managed_google_shards,
-    )
+    font_metadata_source(metadata, filename) == Some("google")
 }
 
-fn is_shadowed_legacy_google_single_file(filename: &str, metadata: &Map<String, Value>) -> bool {
+fn is_shadowed_managed_google_single_file(filename: &str, metadata: &Map<String, Value>) -> bool {
     let Some(safe_name) = legacy_google_single_safe_name(filename) else {
         return false;
     };
-    is_unmetadata_legacy_google_single_file_shadowed_by_shards(
-        filename,
-        &safe_name,
-        metadata,
-        managed_google_family_has_shards(&safe_name, metadata, &[]),
-    )
+    is_legacy_google_single_filename(filename, &safe_name)
+        && font_metadata_source(metadata, filename) == Some("google")
+        && managed_google_family_has_shards(&safe_name, metadata)
 }
 
-fn is_unmetadata_legacy_google_single_file_shadowed_by_shards(
-    filename: &str,
+fn reject_ambiguous_legacy_single_file(
+    root: &Path,
     safe_name: &str,
+    family: &str,
     metadata: &Map<String, Value>,
-    has_managed_google_shards: bool,
-) -> bool {
-    has_managed_google_shards
-        && is_legacy_google_single_filename(filename, safe_name)
-        && font_metadata_source(metadata, filename).is_none()
+) -> AppResult<()> {
+    let filename = format!("{safe_name}-Regular.woff2");
+    if root.join(&filename).exists() && font_metadata_source(metadata, &filename).is_none() {
+        return Err(AppError::new(
+            "font_download_conflict",
+            format!(
+                "\"{family}\" cannot replace {filename} because the existing file has no Google font metadata"
+            ),
+        ));
+    }
+    Ok(())
 }
 
-fn managed_google_family_has_shards(
-    safe_name: &str,
-    metadata: &Map<String, Value>,
-    downloaded: &[DownloadedFontFile],
-) -> bool {
+fn managed_google_family_has_shards(safe_name: &str, metadata: &Map<String, Value>) -> bool {
     metadata.iter().any(|(filename, meta)| {
         meta.get("source").and_then(Value::as_str) == Some("google")
             && is_legacy_google_shard_filename(filename, safe_name)
-    }) || downloaded
+    })
+}
+
+fn has_downloaded_google_shards(safe_name: &str, downloaded: &[DownloadedFontFile]) -> bool {
+    downloaded
         .iter()
         .any(|target| is_legacy_google_shard_filename(&target.filename, safe_name))
 }
@@ -629,12 +620,9 @@ fn is_legacy_google_shard_filename(filename: &str, safe_name: &str) -> bool {
 }
 
 fn legacy_google_regular_suffix(filename: &str, safe_name: &str) -> Option<String> {
-    let Some(stem) = Path::new(filename)
+    let stem = Path::new(filename)
         .file_stem()
-        .and_then(|stem| stem.to_str())
-    else {
-        return None;
-    };
+        .and_then(|stem| stem.to_str())?;
     let extension = Path::new(filename)
         .extension()
         .and_then(|ext| ext.to_str())
@@ -648,9 +636,7 @@ fn legacy_google_regular_suffix(filename: &str, safe_name: &str) -> Option<Strin
     if stem == legacy_stem {
         return Some(String::new());
     }
-    let Some(suffix) = stem.strip_prefix(&format!("{legacy_stem}-")) else {
-        return None;
-    };
+    let suffix = stem.strip_prefix(&format!("{legacy_stem}-"))?;
     if suffix.len() == 3 && suffix.chars().all(|ch| ch.is_ascii_digit()) {
         return Some(suffix.to_string());
     }
@@ -963,7 +949,7 @@ mod tests {
     }
 
     #[test]
-    fn list_fonts_hides_stale_google_single_file_shadowed_by_managed_shards() {
+    fn list_fonts_hides_managed_google_single_file_shadowed_by_managed_shards() {
         let (_root, state) = test_state("list-google-shards");
         let root = fonts_root(&state).expect("font root should exist");
         fs::write(root.join("NotoSansJP-Regular.woff2"), b"stale single font")
@@ -978,6 +964,15 @@ mod tests {
             .expect("managed shard should be written");
 
         let mut metadata = Map::new();
+        metadata.insert(
+            "NotoSansJP-Regular.woff2".to_string(),
+            json!({
+                "family": "Noto Sans JP",
+                "weight": "400",
+                "style": "normal",
+                "source": "google"
+            }),
+        );
         metadata.insert(
             "NotoSansJP-Regular-001.woff2".to_string(),
             json!({
@@ -1024,7 +1019,7 @@ mod tests {
             !filenames
                 .iter()
                 .any(|filename| filename == "NotoSansJP-Regular.woff2"),
-            "stale unmetadata single file should be hidden: {filenames:?}"
+            "managed Google single file should be hidden: {filenames:?}"
         );
         assert!(
             filenames
@@ -1037,6 +1032,37 @@ mod tests {
                 .iter()
                 .any(|filename| filename == "Roboto-Regular.woff2"),
             "explicit user font should remain visible: {filenames:?}"
+        );
+    }
+
+    #[test]
+    fn list_fonts_keeps_unmetadata_single_file_despite_managed_google_shards() {
+        let (_root, state) = test_state("list-unmetadata-user-single");
+        let root = fonts_root(&state).expect("font root should exist");
+        fs::write(root.join("NotoSansJP-Regular.woff2"), b"user font")
+            .expect("user font should be written");
+        fs::write(root.join("NotoSansJP-Regular-001.woff2"), b"managed shard")
+            .expect("managed shard should be written");
+
+        let mut metadata = Map::new();
+        metadata.insert(
+            "NotoSansJP-Regular-001.woff2".to_string(),
+            json!({
+                "family": "Noto Sans JP",
+                "weight": "400",
+                "style": "normal",
+                "source": "google"
+            }),
+        );
+        write_font_metadata(&root, &metadata).expect("metadata should be written");
+
+        let filenames = listed_font_filenames(&list_fonts(&state).expect("fonts should list"));
+
+        assert!(
+            filenames
+                .iter()
+                .any(|filename| filename == "NotoSansJP-Regular.woff2"),
+            "ambiguous no-metadata single file should remain visible: {filenames:?}"
         );
     }
 
@@ -1076,6 +1102,15 @@ mod tests {
         fs::write(root.path.join(first_shard), b"old managed shard")
             .expect("old shard should be written");
         let mut metadata = Map::new();
+        metadata.insert(
+            stale.to_string(),
+            json!({
+                "family": "Noto Sans JP",
+                "weight": "400",
+                "style": "normal",
+                "source": "google"
+            }),
+        );
         metadata.insert(
             first_shard.to_string(),
             json!({
@@ -1118,15 +1153,14 @@ mod tests {
     }
 
     #[test]
-    fn replace_managed_google_font_files_removes_stale_single_file_on_first_sharded_download() {
+    fn replace_managed_google_font_files_rejects_unmetadata_single_on_first_sharded_download() {
         let root = TempFontRoot::new("first-sharded-download");
-        let stale = "NotoSansJP-Regular.woff2";
+        let user_single = "NotoSansJP-Regular.woff2";
         let first_shard = "NotoSansJP-Regular-001.woff2";
         let second_shard = "NotoSansJP-Regular-002.woff2";
-        fs::write(root.path.join(stale), b"stale single font")
-            .expect("stale font should be written");
+        fs::write(root.path.join(user_single), b"user font").expect("user font should be written");
 
-        replace_managed_google_font_files(
+        let error = replace_managed_google_font_files(
             &root.path,
             "NotoSansJP",
             "Noto Sans JP",
@@ -1135,19 +1169,16 @@ mod tests {
                 downloaded_font(second_shard, b"new managed shard two"),
             ],
         )
-        .expect("first sharded download should remove stale single file");
+        .expect_err("first sharded download should reject ambiguous single file");
 
+        assert_eq!(error.code, "font_download_conflict");
+        assert_eq!(
+            fs::read(root.path.join(user_single)).expect("user font should remain"),
+            b"user font"
+        );
         assert!(
-            !root.path.join(stale).exists(),
-            "stale unmetadata single file should be removed"
-        );
-        assert_eq!(
-            fs::read(root.path.join(first_shard)).expect("first shard should exist"),
-            b"new managed shard one"
-        );
-        assert_eq!(
-            fs::read(root.path.join(second_shard)).expect("second shard should exist"),
-            b"new managed shard two"
+            !root.path.join(first_shard).exists(),
+            "downloaded shard should not be installed after conflict"
         );
     }
 
