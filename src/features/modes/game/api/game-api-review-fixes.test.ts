@@ -36,6 +36,12 @@ const chatCommandApiMock = vi.hoisted(() => ({
   branch: vi.fn(),
 }));
 
+const trackerSnapshotApiMock = vi.hoisted(() => ({
+  latest: vi.fn(),
+  get: vi.fn(),
+  save: vi.fn(),
+}));
+
 const llmApiMock = vi.hoisted(() => ({
   complete: vi.fn(),
 }));
@@ -65,6 +71,10 @@ vi.mock("../../../../shared/api/chat-command-api", () => ({
   chatCommandApi: chatCommandApiMock,
 }));
 
+vi.mock("../../../../shared/api/tracker-snapshot-api", () => ({
+  trackerSnapshotApi: trackerSnapshotApiMock,
+}));
+
 vi.mock("../../../../shared/api/llm-api", () => ({
   llmApi: llmApiMock,
 }));
@@ -77,7 +87,7 @@ import { RESTORED_CHECKPOINT_ANCHOR_META_KEY } from "./game-api-checkpoint-helpe
 import { runGameLorebookKeeperAfterConclusion } from "./game-api-lorebook-keeper";
 import { moveOnMap } from "./game-api-map";
 import { mapForMovement, moveMapPartyPosition, setupMapFromResponse } from "./game-api-map-helpers";
-import { skillCheck, transitionGameState } from "./game-api-mechanics";
+import { advanceTime, skillCheck, transitionGameState, updateWeather } from "./game-api-mechanics";
 import { resolveWeatherUpdate } from "./game-api-mechanics-helpers";
 import { removePartyMember, upsertPartyCard } from "./game-api-party";
 import { normalizedName, partyCardNameMatches } from "./game-api-party-helpers";
@@ -272,6 +282,12 @@ function mockCheckpointSnapshotGet(
 describe("game API review guards", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    trackerSnapshotApiMock.latest.mockResolvedValue(null);
+    trackerSnapshotApiMock.get.mockResolvedValue(null);
+    trackerSnapshotApiMock.save.mockImplementation(async (_chatId: string, snapshot: Record<string, unknown>) => ({
+      kind: "tracker",
+      ...snapshot,
+    }));
   });
 
   it("uses kind-specific image size buckets for generated asset previews", () => {
@@ -1228,6 +1244,84 @@ describe("game API review guards", () => {
     expect(createOrder < updateOrder).toBe(testCase.expectedCreateBeforeUpdate);
   });
 
+  it("persists time advances to the visible world state", async () => {
+    let chat: Record<string, unknown> = {
+      id: "chat-1",
+      metadata: { gameTime: { day: 1, hour: 8, minute: 0 } },
+      gameState: {
+        id: "state-1",
+        chatId: "chat-1",
+        messageId: "",
+        swipeIndex: 0,
+        time: "Day 1, 08:00 (morning)",
+        weather: "clear",
+        temperature: "20C",
+      },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string) => (entity === "chats" ? chat : null));
+    storageApiMock.list.mockImplementation(async (entity: string) => (entity === "messages" ? [] : []));
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => {
+      chat = {
+        ...chat,
+        ...patch,
+        id,
+        metadata: { ...gRecord(chat.metadata), ...gRecord(patch.metadata) },
+      };
+      return chat;
+    });
+
+    const result = await advanceTime({ chatId: "chat-1", action: "dialogue" });
+
+    expect(result.formatted).toBe("Day 1, 08:15 (morning)");
+    expect(gRecord(chat.metadata).gameTimeFormatted).toBe("Day 1, 08:15 (morning)");
+    expect(chat.gameState).toEqual(
+      expect.objectContaining({
+        time: "Day 1, 08:15 (morning)",
+        weather: "clear",
+        temperature: "20C",
+      }),
+    );
+  });
+
+  it("persists weather updates to the visible world state", async () => {
+    let chat: Record<string, unknown> = {
+      id: "chat-1",
+      metadata: {},
+      gameState: {
+        id: "state-1",
+        chatId: "chat-1",
+        messageId: "",
+        swipeIndex: 0,
+        time: "Day 1, 08:00 (morning)",
+        weather: "clear",
+        temperature: "20C",
+      },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string) => (entity === "chats" ? chat : null));
+    storageApiMock.list.mockImplementation(async (entity: string) => (entity === "messages" ? [] : []));
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => {
+      chat = {
+        ...chat,
+        ...patch,
+        id,
+        metadata: { ...gRecord(chat.metadata), ...gRecord(patch.metadata) },
+      };
+      return chat;
+    });
+
+    const result = await updateWeather({ chatId: "chat-1", action: "travel", location: "harbor", type: "rain" });
+
+    expect(result.changed).toBe(true);
+    expect(gRecord(gRecord(chat.metadata).gameWeather).type).toBe("rain");
+    expect(chat.gameState).toEqual(
+      expect.objectContaining({
+        time: "Day 1, 08:00 (morning)",
+        weather: "rain",
+        temperature: expect.stringMatching(/^-?\d+\u00b0C$/),
+      }),
+    );
+  });
+
   it("derives the next session number from the highest existing session number", () => {
     expect(
       nextGameSessionNumber([
@@ -1263,6 +1357,8 @@ describe("game API review guards", () => {
       generated: { storyArc: "Fixed arc" },
     });
 
+    expect(result.sessionChat.id).toBe("chat-1");
+    expect(result.targetSessionChat.id).toBe("chat-1");
     expect(result.campaignProgression).toEqual({
       storyArc: "Fixed arc",
       plotTwists: [],
@@ -1278,6 +1374,59 @@ describe("game API review guards", () => {
             plotTwists: [],
             partyArcs: [],
           },
+        }),
+      }),
+    );
+  });
+
+  it("updates campaign progression from the selected session transcript", async () => {
+    const sessions = [
+      { id: "chat-current", metadata: { gameId: "game-1", gameSessionNumber: 3 } },
+      { id: "chat-target", metadata: { gameId: "game-1", gameSessionNumber: 2 } },
+      { id: "other-game", metadata: { gameId: "other", gameSessionNumber: 2 } },
+    ];
+    const messageListChatIds: string[] = [];
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) =>
+      entity === "chats" ? (sessions.find((session) => session.id === id) ?? null) : null,
+    );
+    storageApiMock.list.mockImplementation(async (entity: string, options?: Record<string, unknown>) => {
+      if (entity === "chats") return sessions;
+      if (entity === "messages") {
+        const filters = gRecord(options?.filters);
+        messageListChatIds.push(String(filters.chatId ?? ""));
+        return filters.chatId === "chat-target"
+          ? [{ role: "assistant", content: "The party recovered the tide key." }]
+          : [{ role: "assistant", content: "Wrong session transcript." }];
+      }
+      return [];
+    });
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => ({
+      id,
+      ...patch,
+    }));
+
+    const result = await updateCampaignProgression({ chatId: "chat-current", sessionNumber: 2 });
+
+    expect(messageListChatIds).toEqual(["chat-target"]);
+    expect(result.sessionChat.id).toBe("chat-current");
+    expect(result.targetSessionChat.id).toBe("chat-target");
+    expect(result.campaignProgression).toEqual({
+      storyArc: "Session 2 advanced the campaign.",
+      plotTwists: [],
+      partyArcs: [],
+    });
+    expect(result.targetSessionChat.metadata).toEqual(
+      expect.objectContaining({
+        gameCampaignProgression: result.campaignProgression,
+      }),
+    );
+    expect(storageApiMock.update).toHaveBeenCalledTimes(1);
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "chats",
+      "chat-target",
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          gameCampaignProgression: result.campaignProgression,
         }),
       }),
     );
@@ -1546,6 +1695,75 @@ describe("game API review guards", () => {
       createCheckpoint({ chatId: "chat-1", label: "Before fight", triggerType: "manual" }),
     ).rejects.toThrow(
       "Checkpoint creation failed: checkpoint create failed; snapshot snapshot-1 cleanup failed: snapshot delete failed",
+    );
+  });
+
+  it("copies current location, weather, and time summaries into checkpoint rows", async () => {
+    storageApiMock.get.mockImplementation(async (entity: string) => {
+      if (entity === "chats") {
+        return {
+          id: "chat-1",
+          metadata: {},
+          gameState: {
+            location: "Moonlit Harbor",
+            weather: "rain",
+            time: "Day 2, 21:00 (night)",
+          },
+        };
+      }
+      return null;
+    });
+    storageApiMock.list.mockResolvedValue([{ id: "message-1", createdAt: "2026-01-01T00:00:00.000Z" }]);
+    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => ({
+      id: entity === "game-state-snapshots" ? "snapshot-1" : "checkpoint-1",
+      ...value,
+    }));
+
+    await createCheckpoint({ chatId: "chat-1", label: "Before storm", triggerType: "manual" });
+
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "game-checkpoints",
+      expect.objectContaining({
+        location: "Moonlit Harbor",
+        weather: "rain",
+        timeOfDay: "Day 2, 21:00 (night)",
+      }),
+    );
+  });
+
+  it("uses fresher metadata summaries when checkpoint mirrored state is stale", async () => {
+    storageApiMock.get.mockImplementation(async (entity: string) => {
+      if (entity === "chats") {
+        return {
+          id: "chat-1",
+          metadata: {
+            gameWeather: { type: "rain" },
+            gameTimeFormatted: "Day 2, 21:00 (night)",
+          },
+          gameState: {
+            location: "Moonlit Harbor",
+            weather: "clear",
+            time: "Day 1, 08:00 (morning)",
+          },
+        };
+      }
+      return null;
+    });
+    storageApiMock.list.mockResolvedValue([{ id: "message-1", createdAt: "2026-01-01T00:00:00.000Z" }]);
+    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => ({
+      id: entity === "game-state-snapshots" ? "snapshot-1" : "checkpoint-1",
+      ...value,
+    }));
+
+    await createCheckpoint({ chatId: "chat-1", label: "After storm", triggerType: "manual" });
+
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "game-checkpoints",
+      expect.objectContaining({
+        location: "Moonlit Harbor",
+        weather: "rain",
+        timeOfDay: "Day 2, 21:00 (night)",
+      }),
     );
   });
 

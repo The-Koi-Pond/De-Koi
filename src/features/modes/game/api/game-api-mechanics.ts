@@ -1,4 +1,5 @@
 import * as g from "./game-api-support";
+import { worldStateApi } from "../../../runtime/world-state/index";
 import { createAutomaticGameCheckpoint } from "./game-api-checkpoint-helpers";
 import {
   gameTimeFromMeta,
@@ -194,6 +195,7 @@ export async function advanceTime(data: {
     : g.advanceGameTime(currentTime, data.action);
   const formatted = g.formatGameTime(time);
   const sessionChat = await g.patchChatMetadata(data.chatId, { gameTime: time, gameTimeFormatted: formatted });
+  await worldStateApi.patch(data.chatId, { time: formatted });
   return { time, formatted, sessionChat };
 }
 
@@ -230,6 +232,10 @@ export async function updateWeather(data: {
   const sessionChat = weatherUpdate.shouldPersist
     ? await g.patchChatMetadata(data.chatId, { gameWeather: forced })
     : chat;
+  await worldStateApi.patch(data.chatId, {
+    weather: weatherUpdate.weather.type,
+    temperature: `${weatherUpdate.weather.temperature}\u00b0C`,
+  });
   return { changed: weatherUpdate.changed, weather: weatherUpdate.weather, sessionChat };
 }
 

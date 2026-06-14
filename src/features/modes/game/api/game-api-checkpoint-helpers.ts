@@ -44,6 +44,20 @@ function checkpointSnapshotMetadata(meta: Record<string, unknown>): Record<strin
   return snapshotMeta;
 }
 
+function checkpointSummaryValue(value: unknown): string | null {
+  return g.readTrimmed(value) || null;
+}
+
+function checkpointWeatherSummary(gameState: Record<string, unknown>, meta: Record<string, unknown>): string | null {
+  const metaWeather = g.asRecord(meta.gameWeather);
+  const metadataWeather = checkpointSummaryValue(metaWeather.type) ?? checkpointSummaryValue(meta.gameWeather);
+  return metadataWeather ?? checkpointSummaryValue(gameState.weather);
+}
+
+function checkpointTimeSummary(gameState: Record<string, unknown>, meta: Record<string, unknown>): string | null {
+  return checkpointSummaryValue(meta.gameTimeFormatted) ?? checkpointSummaryValue(gameState.time);
+}
+
 export async function createGameCheckpoint(data: {
   chatId: string;
   label: string;
@@ -51,12 +65,13 @@ export async function createGameCheckpoint(data: {
 }): Promise<{ id: string }> {
   const chat = await g.getChat(data.chatId);
   const meta = g.chatMeta(chat);
+  const gameState = g.asRecord((chat as { gameState?: unknown }).gameState);
   const messages = await g.listMessages(data.chatId);
   const messageId = checkpointAnchorFromMeta(meta, latestMessage(messages));
   const snapshot = await g.storageApi.create<{ id: string }>("game-state-snapshots", {
     chatId: data.chatId,
     messageId: messageId || null,
-    gameState: (chat as { gameState?: unknown }).gameState ?? {},
+    gameState,
     metadata: checkpointSnapshotMetadata(meta),
   });
   let record: { id: string };
@@ -67,10 +82,10 @@ export async function createGameCheckpoint(data: {
       messageId,
       label: data.label || "Checkpoint",
       triggerType: data.triggerType || "manual",
-      location: null,
+      location: checkpointSummaryValue(gameState.location),
       gameState: null,
-      weather: null,
-      timeOfDay: null,
+      weather: checkpointWeatherSummary(gameState, meta),
+      timeOfDay: checkpointTimeSummary(gameState, meta),
       turnNumber: null,
     });
   } catch (error) {
