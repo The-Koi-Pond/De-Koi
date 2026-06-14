@@ -1,6 +1,31 @@
 use super::*;
-use chrono::{DateTime, Duration, Local, NaiveDateTime, TimeZone, Utc};
-use std::path::Component;
+
+#[path = "bulk_backgrounds.rs"]
+mod backgrounds;
+#[path = "bulk_chat.rs"]
+mod chat;
+#[path = "bulk_personas.rs"]
+mod personas;
+#[path = "bulk_progress.rs"]
+mod progress;
+#[path = "bulk_runner.rs"]
+mod runner;
+#[path = "bulk_scan.rs"]
+mod scan;
+
+pub(crate) use chat::imported_jsonl_message_role;
+pub(super) use chat::{import_st_chat, import_st_chat_into_group};
+pub(super) use runner::{run_st_bulk_import, run_st_bulk_import_channel};
+pub(super) use scan::scan_st_folder;
+
+#[cfg(test)]
+use chat::{character_lookup_from_state, import_st_chat_text, StChatImportContext};
+#[cfg(test)]
+use chrono::{DateTime, Utc};
+#[cfg(test)]
+use personas::import_persona_avatar_file;
+#[cfg(test)]
+use runner::run_st_bulk_import_inner;
 
 fn bool_option(value: Option<&Value>) -> Option<bool> {
     match value {
@@ -15,353 +40,6 @@ fn bool_option(value: Option<&Value>) -> Option<bool> {
     }
 }
 
-#[derive(Default)]
-struct BulkSelections {
-    characters: Vec<String>,
-    chats: Vec<String>,
-    group_chats: Vec<String>,
-    presets: Vec<String>,
-    lorebooks: Vec<String>,
-    backgrounds: Vec<String>,
-    personas: Vec<String>,
-}
-
-impl BulkSelections {
-    fn from_options(options: &Value, data_dir: &Path) -> Self {
-        Self {
-            characters: selected_ids(options, "characters", data_dir),
-            chats: selected_ids(options, "chats", data_dir),
-            group_chats: selected_ids(options, "groupChats", data_dir),
-            presets: selected_ids(options, "presets", data_dir),
-            lorebooks: selected_ids(options, "lorebooks", data_dir),
-            backgrounds: selected_ids(options, "backgrounds", data_dir),
-            personas: selected_ids(options, "personas", data_dir),
-        }
-    }
-
-    fn total(&self) -> usize {
-        self.characters.len()
-            + self.chats.len()
-            + self.group_chats.len()
-            + self.presets.len()
-            + self.lorebooks.len()
-            + self.backgrounds.len()
-            + self.personas.len()
-    }
-}
-
-fn ids_from_items(items: Vec<Value>) -> Vec<String> {
-    items
-        .into_iter()
-        .filter_map(|item| {
-            item.get("id")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
-        })
-        .collect()
-}
-
-fn selected_ids(options: &Value, key: &str, data_dir: &Path) -> Vec<String> {
-    match options.get(key) {
-        Some(Value::Array(values)) => values
-            .iter()
-            .filter_map(Value::as_str)
-            .map(ToOwned::to_owned)
-            .collect(),
-        Some(Value::Bool(true)) => ids_from_items(scan_items_for_category(data_dir, key)),
-        _ => Vec::new(),
-    }
-}
-
-pub(crate) fn imported_jsonl_message_role(row: &Value) -> &'static str {
-    match row.get("role").and_then(Value::as_str).map(str::trim) {
-        Some("user") => "user",
-        Some("assistant") => "assistant",
-        Some("system") => "system",
-        Some("narrator") => "narrator",
-        _ if row.get("is_user").and_then(Value::as_bool).unwrap_or(false) => "user",
-        _ => "assistant",
-    }
-}
-
-fn empty_import_counts() -> Value {
-    json!({
-        "characters": 0,
-        "chats": 0,
-        "groupChats": 0,
-        "presets": 0,
-        "lorebooks": 0,
-        "backgrounds": 0,
-        "personas": 0
-    })
-}
-
-const ST_BACKGROUND_EXTENSIONS: &[&str] = &[".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"];
-
-fn imported_count(imported: &Value, key: &str) -> i64 {
-    imported.get(key).and_then(Value::as_i64).unwrap_or(0)
-}
-
-fn push_import_error(errors: &mut Vec<Value>, item: impl AsRef<str>, error: AppError) {
-    errors.push(Value::String(format!(
-        "{}: {}",
-        item.as_ref(),
-        error.message
-    )));
-}
-
-fn push_path_import_error(errors: &mut Vec<Value>, path: &Path, error: AppError) {
-    push_import_error(errors, path.to_string_lossy(), error);
-}
-
-fn selected_path(
-    data_dir: &Path,
-    category: &str,
-    id: &str,
-    errors: &mut Vec<Value>,
-) -> Option<PathBuf> {
-    match path_from_id(data_dir, category, id) {
-        Ok(path) => Some(path),
-        Err(error) => {
-            push_import_error(errors, id, error);
-            None
-        }
-    }
-}
-
-fn bump_imported(imported: &mut Value, key: &str) {
-    if let Some(value) = imported.get_mut(key) {
-        *value = json!(value.as_i64().unwrap_or(0) + 1);
-    }
-}
-
-struct BulkImportProgress<'a> {
-    emit: Option<&'a mut dyn FnMut(Value) -> AppResult<()>>,
-    current: usize,
-    total: usize,
-}
-
-impl<'a> BulkImportProgress<'a> {
-    fn new(emit: Option<&'a mut dyn FnMut(Value) -> AppResult<()>>, total: usize) -> Self {
-        Self {
-            emit,
-            current: 0,
-            total,
-        }
-    }
-
-    fn emit_item(&mut self, category: &str, item: &Path, imported: &Value) -> AppResult<()> {
-        self.current += 1;
-        self.emit_progress(category, &item.to_string_lossy(), imported)
-    }
-
-    fn emit_skipped(&mut self, category: &str, item: &str, imported: &Value) -> AppResult<()> {
-        self.current += 1;
-        self.emit_progress(category, item, imported)
-    }
-
-    fn emit_progress(&mut self, category: &str, item: &str, imported: &Value) -> AppResult<()> {
-        if let Some(emit) = self.emit.as_deref_mut() {
-            emit(json!({
-                "type": "progress",
-                "data": {
-                    "category": category,
-                    "item": item,
-                    "current": self.current,
-                    "total": self.total,
-                    "imported": imported
-                }
-            }))?;
-        }
-        Ok(())
-    }
-
-    fn emit_done(&mut self, result: &Value) -> AppResult<()> {
-        if let Some(emit) = self.emit.as_deref_mut() {
-            emit(json!({ "type": "done", "data": result }))?;
-        }
-        Ok(())
-    }
-}
-
-fn resolve_st_data_dir(root: &Path) -> Option<PathBuf> {
-    let default_user = root.join("data").join("default-user");
-    if default_user.join("characters").is_dir() {
-        return Some(default_user);
-    }
-    let data_parent = root.join("data");
-    if let Ok(entries) = fs::read_dir(&data_parent) {
-        for entry in entries.filter_map(Result::ok) {
-            let candidate = entry.path();
-            if candidate.is_dir() && candidate.join("characters").is_dir() {
-                return Some(candidate);
-            }
-        }
-    }
-    let public = root.join("public");
-    if public.join("characters").is_dir() {
-        return Some(public);
-    }
-    if root.join("characters").is_dir() {
-        return Some(root.to_path_buf());
-    }
-    None
-}
-
-fn path_id(category: &str, data_dir: &Path, path: &Path) -> String {
-    let relative = path
-        .strip_prefix(data_dir)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/");
-    format!("{category}:{relative}")
-}
-
-fn path_from_id(data_dir: &Path, category: &str, id: &str) -> AppResult<PathBuf> {
-    let prefix = format!("{category}:");
-    let relative = id
-        .strip_prefix(&prefix)
-        .ok_or_else(|| AppError::invalid_input(format!("Invalid {category} import id")))?;
-    let candidate = Path::new(relative);
-    if candidate.is_absolute()
-        || candidate.components().any(|component| {
-            matches!(
-                component,
-                Component::ParentDir | Component::RootDir | Component::Prefix(_)
-            )
-        })
-    {
-        return Err(AppError::invalid_input(
-            "Import id must not contain parent path segments",
-        ));
-    }
-    let base = data_dir.canonicalize().map_err(AppError::from)?;
-    let path = base
-        .join(candidate)
-        .canonicalize()
-        .map_err(AppError::from)?;
-    if path.starts_with(&base) {
-        Ok(path)
-    } else {
-        Err(AppError::invalid_input(
-            "Import id resolves outside the SillyTavern data directory",
-        ))
-    }
-}
-
-fn list_files(dir: &Path, extensions: &[&str], recursive: bool) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    if !dir.is_dir() {
-        return files;
-    }
-    let Ok(entries) = fs::read_dir(dir) else {
-        return files;
-    };
-    for entry in entries.filter_map(Result::ok) {
-        let path = entry.path();
-        if path.is_dir() && recursive {
-            files.extend(list_files(&path, extensions, true));
-            continue;
-        }
-        if !path.is_file() {
-            continue;
-        }
-        let ext = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| format!(".{}", ext.to_ascii_lowercase()))
-            .unwrap_or_default();
-        if extensions.iter().any(|allowed| *allowed == ext) {
-            files.push(path);
-        }
-    }
-    files.sort();
-    files
-}
-
-fn read_st_persona_settings(data_dir: &Path) -> (HashMap<String, String>, HashMap<String, String>) {
-    let settings_path = data_dir.join("settings.json");
-    let Ok(raw) = fs::read_to_string(settings_path) else {
-        return (HashMap::new(), HashMap::new());
-    };
-    let Ok(settings) = serde_json::from_str::<Value>(&raw) else {
-        return (HashMap::new(), HashMap::new());
-    };
-    let power_user = settings
-        .get("power_user")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    let names = power_user
-        .get("personas")
-        .and_then(Value::as_object)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|(key, value)| {
-                    value
-                        .as_str()
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .map(|value| (key.to_string(), value.to_string()))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let descriptions = power_user
-        .get("persona_descriptions")
-        .and_then(Value::as_object)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|(key, value)| {
-                    let description = value
-                        .as_str()
-                        .map(str::to_string)
-                        .or_else(|| {
-                            value
-                                .get("description")
-                                .and_then(Value::as_str)
-                                .map(str::to_string)
-                        })
-                        .unwrap_or_default();
-                    (!description.trim().is_empty()).then(|| (key.to_string(), description))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    (names, descriptions)
-}
-
-fn st_persona_scan_item(
-    data_dir: &Path,
-    path: &Path,
-    names: &HashMap<String, String>,
-    descriptions: &HashMap<String, String>,
-) -> Value {
-    let filename = path
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_default();
-    json!({
-        "id": path_id("personas", data_dir, path),
-        "path": path.to_string_lossy(),
-        "name": names.get(&filename).cloned().unwrap_or_else(|| file_stem(path)),
-        "description": descriptions.get(&filename).cloned().unwrap_or_default(),
-        "modifiedAt": modified_at(path),
-        "media": true,
-    })
-}
-
-fn scan_item(category: &str, data_dir: &Path, path: &Path) -> Value {
-    json!({
-        "id": path_id(category, data_dir, path),
-        "path": path.to_string_lossy(),
-        "name": file_stem(path),
-        "modifiedAt": modified_at(path),
-    })
-}
-
 fn non_empty_string(values: Vec<Option<&Value>>) -> Option<String> {
     values
         .into_iter()
@@ -370,33 +48,6 @@ fn non_empty_string(values: Vec<Option<&Value>>) -> Option<String> {
         .map(str::trim)
         .find(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-}
-
-fn parsed_character_scan_item(data_dir: &Path, path: &Path) -> Option<Value> {
-    let filename = path.file_name()?.to_string_lossy().to_string();
-    let bytes = fs::read(path).ok()?;
-    let payload = parse_character_file_from_path(&filename, path, &bytes).ok()?;
-    let data = source_character_data(&payload);
-    let name = non_empty_string(vec![
-        data.get("name"),
-        payload.get("char_name"),
-        payload.get("name"),
-    ])
-    .unwrap_or_else(|| file_stem(path));
-    let mut item = scan_item("characters", data_dir, path);
-    if let Some(object) = item.as_object_mut() {
-        object.insert("name".to_string(), Value::String(name));
-        object.insert(
-            "format".to_string(),
-            Value::String(
-                path.extension()
-                    .and_then(|ext| ext.to_str())
-                    .unwrap_or("json")
-                    .to_ascii_lowercase(),
-            ),
-        );
-    }
-    Some(item)
 }
 
 fn normalized_st_lookup_key(value: &str) -> String {
@@ -418,1430 +69,12 @@ fn push_unique_string(values: &mut Vec<String>, value: impl Into<String>) {
     }
 }
 
-type CharacterLookup = HashMap<String, Option<String>>;
-
-fn character_record_name(record: &Value) -> Option<String> {
-    record
-        .get("data")
-        .and_then(|data| data.get("name"))
-        .or_else(|| record.get("name"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-}
-
-fn add_character_lookup_alias(
-    lookup: &mut CharacterLookup,
-    alias: impl AsRef<str>,
-    character_id: &str,
-) {
-    let key = normalized_st_lookup_key(alias.as_ref());
-    if !key.is_empty() {
-        match lookup.get_mut(&key) {
-            Some(existing) if existing.as_deref() == Some(character_id) => {}
-            Some(existing) => *existing = None,
-            None => {
-                lookup.insert(key, Some(character_id.to_string()));
-            }
-        }
-    }
-}
-
-fn add_character_lookup_record(
-    lookup: &mut CharacterLookup,
-    record: &Value,
-    filename: Option<&str>,
-) {
-    let Some(character_id) = record.get("id").and_then(Value::as_str) else {
-        return;
-    };
-    if let Some(name) = character_record_name(record) {
-        add_character_lookup_alias(lookup, name, character_id);
-    }
-    if let Some(filename) = filename {
-        add_character_lookup_alias(lookup, filename, character_id);
-    }
-    for field in ["avatarFilename", "avatarPath"] {
-        if let Some(value) = record.get(field).and_then(Value::as_str) {
-            add_character_lookup_alias(lookup, value, character_id);
-        }
-    }
-}
-
-fn character_lookup_from_state(state: &AppState) -> CharacterLookup {
-    let mut lookup = HashMap::new();
-    if let Ok(characters) = state.storage.list("characters") {
-        for character in characters {
-            add_character_lookup_record(&mut lookup, &character, None);
-        }
-    }
-    lookup
-}
-
-fn character_lookup_from_state_for_ids(
-    state: &AppState,
-    character_ids: &[String],
-) -> CharacterLookup {
-    let mut lookup = HashMap::new();
-    if character_ids.is_empty() {
-        return lookup;
-    }
-    if let Ok(characters) = state.storage.list("characters") {
-        for character in characters {
-            let Some(character_id) = character.get("id").and_then(Value::as_str) else {
-                continue;
-            };
-            if character_ids.iter().any(|id| id == character_id) {
-                add_character_lookup_record(&mut lookup, &character, None);
-            }
-        }
-    }
-    lookup
-}
-
-fn lookup_character_id(lookup: &CharacterLookup, alias: impl AsRef<str>) -> Option<String> {
-    let key = normalized_st_lookup_key(alias.as_ref());
-    if key.is_empty() {
-        None
-    } else {
-        lookup.get(&key).and_then(Clone::clone)
-    }
-}
-
-fn st_preset_scan_item(data_dir: &Path, path: &Path, payload: Option<&Value>) -> Value {
-    let mut item = scan_item("presets", data_dir, path);
-    if let Some(object) = item.as_object_mut() {
-        if let Some(name) = payload.and_then(|payload| {
-            non_empty_string(vec![
-                payload.get("name"),
-                payload.get("preset_name"),
-                payload.get("displayName"),
-            ])
-        }) {
-            object.insert("name".to_string(), Value::String(name));
-        }
-        let name = file_stem(path).to_ascii_lowercase();
-        object.insert(
-            "isBuiltin".to_string(),
-            Value::Bool(matches!(
-                name.as_str(),
-                "default"
-                    | "deterministic"
-                    | "neutral"
-                    | "universal-creative"
-                    | "universal-light"
-                    | "universal-super-creative"
-            )),
-        );
-        let folder_name = path
-            .parent()
-            .and_then(|path| path.file_name())
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_default();
-        object.insert("sourceFolder".to_string(), Value::String(folder_name));
-    }
-    item
-}
-
-fn parsed_preset_scan_item(data_dir: &Path, path: &Path) -> Option<Value> {
-    let bytes = fs::read(path).ok()?;
-    let payload = parse_object(&bytes).ok()?;
-    Some(st_preset_scan_item(data_dir, path, Some(&payload)))
-}
-
-fn parsed_lorebook_scan_item(data_dir: &Path, path: &Path) -> Option<Value> {
-    let bytes = fs::read(path).ok()?;
-    let payload = parse_object(&bytes).ok()?;
-    let mut item = scan_item("lorebooks", data_dir, path);
-    if let Some(name) = non_empty_string(vec![payload.get("name"), payload.get("bookName")]) {
-        if let Some(object) = item.as_object_mut() {
-            object.insert("name".to_string(), Value::String(name));
-        }
-    }
-    Some(item)
-}
-
-fn preset_payload_has_timestamp_override(payload: &Value) -> bool {
-    timestamp_overrides_from_value(
-        payload
-            .get("timestampOverrides")
-            .or_else(|| payload.get("__timestampOverrides")),
-    )
-    .or_else(|| {
-        timestamp_overrides_from_value(Some(&json!({
-            "createdAt": payload.get("createdAt").cloned().unwrap_or(Value::Null),
-            "updatedAt": payload.get("updatedAt").cloned().unwrap_or(Value::Null),
-        })))
-    })
-    .or_else(|| {
-        payload
-            .get("metadata")
-            .and_then(|metadata| metadata.get("timestamps"))
-            .and_then(|timestamps| timestamp_overrides_from_value(Some(timestamps)))
-    })
-    .is_some()
-}
-
-fn attach_st_preset_file_timestamp(mut payload: Value, path: &Path) -> Value {
-    if preset_payload_has_timestamp_override(&payload) {
-        return payload;
-    }
-    let modified = modified_at(path);
-    if modified.is_null() {
-        return payload;
-    }
-    if let Some(object) = payload.as_object_mut() {
-        object.insert(
-            "__timestampOverrides".to_string(),
-            json!({
-                "createdAt": modified,
-                "updatedAt": modified,
-            }),
-        );
-    }
-    payload
-}
-
-#[derive(Clone, Debug, Default)]
-struct StGroupMetadata {
-    id: Option<String>,
-    chat_id: Option<String>,
-    name: String,
-    members: Vec<String>,
-}
-
-impl StGroupMetadata {
-    fn display_name(&self, fallback: &Path) -> String {
-        if self.name.trim().is_empty() {
-            file_stem(fallback).replace('_', " ")
-        } else {
-            self.name.clone()
-        }
-    }
-}
-
-fn string_array_from_json(value: Option<&Value>) -> Vec<String> {
-    value
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn read_st_group_metadata_file(path: &Path) -> Option<StGroupMetadata> {
-    let raw = fs::read_to_string(path).ok()?;
-    let parsed = serde_json::from_str::<Value>(&raw).ok()?;
-    let name = parsed
-        .get("name")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| file_stem(path));
-    Some(StGroupMetadata {
-        id: parsed
-            .get("id")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned),
-        chat_id: parsed
-            .get("chat_id")
-            .or_else(|| parsed.get("chatId"))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned),
-        name,
-        members: string_array_from_json(parsed.get("members")),
-    })
-}
-
-fn st_group_metadata_by_key(data_dir: &Path) -> HashMap<String, StGroupMetadata> {
-    let mut metadata_by_key = HashMap::new();
-    for path in list_files(&data_dir.join("groups"), &[".json"], false) {
-        let Some(metadata) = read_st_group_metadata_file(&path) else {
-            continue;
-        };
-        for key in [
-            metadata.id.as_deref(),
-            metadata.chat_id.as_deref(),
-            Some(metadata.name.as_str()),
-            path.file_stem().and_then(|stem| stem.to_str()),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            let normalized = normalized_st_lookup_key(key);
-            if !normalized.is_empty() {
-                metadata_by_key
-                    .entry(normalized)
-                    .or_insert_with(|| metadata.clone());
-            }
-        }
-    }
-    metadata_by_key
-}
-
-fn st_group_metadata_for_chat(
-    metadata_by_key: &HashMap<String, StGroupMetadata>,
-    chat_path: &Path,
-) -> Option<StGroupMetadata> {
-    let stem = file_stem(chat_path);
-    let normalized = normalized_st_lookup_key(&stem);
-    metadata_by_key.get(&normalized).cloned()
-}
-
-fn resolve_member_character_ids(
-    lookup: &CharacterLookup,
-    members: impl IntoIterator<Item = impl AsRef<str>>,
-) -> Vec<String> {
-    let mut character_ids = Vec::new();
-    for member in members {
-        if let Some(character_id) = lookup_character_id(lookup, member.as_ref()) {
-            push_unique_string(&mut character_ids, character_id);
-        }
-    }
-    character_ids
-}
-
-fn st_message_speaker_name(row: &Value) -> Option<String> {
-    for value in [
-        row.get("character_name"),
-        row.get("name"),
-        row.get("display_name"),
-        row.get("extra").and_then(|extra| extra.get("name")),
-        row.get("extra")
-            .and_then(|extra| extra.get("character_name")),
-    ] {
-        if let Some(value) = value
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            return Some(value.to_string());
-        }
-    }
-    None
-}
-
-fn st_message_display_text(row: &Value) -> Option<String> {
-    row.get("extra")
-        .and_then(|extra| {
-            extra
-                .get("display_text")
-                .or_else(|| extra.get("displayText"))
-        })
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
-        .filter(|value| !value.trim().is_empty())
-}
-
-fn st_message_datetime(row: &Value) -> Option<DateTime<Utc>> {
-    let raw = row
-        .get("send_date")
-        .or_else(|| row.get("sendDate"))
-        .or_else(|| row.get("createdAt"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?;
-    if let Ok(parsed) = DateTime::parse_from_rfc3339(raw) {
-        return Some(parsed.with_timezone(&Utc));
-    }
-    for pattern in [
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M",
-        "%B %d, %Y %I:%M%p",
-        "%B %d, %Y %I:%M %p",
-        "%b %d, %Y %I:%M%p",
-        "%b %d, %Y %I:%M %p",
-    ] {
-        if let Ok(parsed) = NaiveDateTime::parse_from_str(raw, pattern) {
-            if let Some(local) = Local.from_local_datetime(&parsed).single() {
-                return Some(local.with_timezone(&Utc));
-            }
-        }
-    }
-    None
-}
-
-fn st_message_hidden_from_ai(row: &Value) -> bool {
-    row.get("is_system")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-        || bool_option(row.get("extra").and_then(|extra| extra.get("hiddenFromAI")))
-            .unwrap_or(false)
-        || bool_option(row.get("extra").and_then(|extra| extra.get("hiddenFromAi")))
-            .unwrap_or(false)
-}
-
-#[derive(Clone, Default)]
-struct StChatImportContext {
-    character_lookup: CharacterLookup,
-    default_character_id: Option<String>,
-    timestamp_overrides: Option<(String, String)>,
-}
-
-fn st_row_character_id(row: &Value, context: &StChatImportContext, role: &str) -> Value {
-    if let Some(character_id) = row
-        .get("characterId")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        return Value::String(character_id.to_string());
-    }
-    if role != "assistant" && role != "narrator" {
-        return Value::Null;
-    }
-    if let Some(speaker) = st_message_speaker_name(row) {
-        if let Some(character_id) = lookup_character_id(&context.character_lookup, speaker) {
-            return Value::String(character_id);
-        }
-    }
-    context
-        .default_character_id
-        .as_ref()
-        .map(|value| Value::String(value.clone()))
-        .unwrap_or(Value::Null)
-}
-
-fn st_message_extra(row: &Value) -> Value {
-    let mut extra = Map::new();
-    if let Some(display_text) = st_message_display_text(row) {
-        extra.insert("displayText".to_string(), Value::String(display_text));
-    }
-    if let Some(send_date) = row
-        .get("send_date")
-        .or_else(|| row.get("sendDate"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        extra.insert(
-            "sillyTavernSendDate".to_string(),
-            Value::String(send_date.to_string()),
-        );
-    }
-    if let Some(speaker) = st_message_speaker_name(row) {
-        extra.insert(
-            "sillyTavernSpeaker".to_string(),
-            Value::String(speaker.to_string()),
-        );
-    }
-    if st_message_hidden_from_ai(row) {
-        extra.insert("hiddenFromAI".to_string(), Value::Bool(true));
-        extra.insert("hiddenFromAi".to_string(), Value::Bool(true));
-    }
-    Value::Object(extra)
-}
-
-fn st_datetime_from_rfc3339(value: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(value)
-        .map(|time| time.with_timezone(&Utc))
-        .ok()
-}
-
-fn st_created_timestamp_override(context: &StChatImportContext) -> Option<DateTime<Utc>> {
-    context
-        .timestamp_overrides
-        .as_ref()
-        .and_then(|(created_at, _)| st_datetime_from_rfc3339(created_at))
-}
-
-fn normalized_st_message_timestamp(
-    candidate: DateTime<Utc>,
-    previous: &mut Option<DateTime<Utc>>,
-) -> String {
-    let normalized = if let Some(previous_timestamp) = previous.as_ref() {
-        if candidate <= *previous_timestamp {
-            *previous_timestamp + Duration::milliseconds(1)
-        } else {
-            candidate
-        }
-    } else {
-        candidate
-    };
-    *previous = Some(normalized);
-    normalized.to_rfc3339()
-}
-
-fn st_file_timestamp_overrides(file: &Value) -> Option<(String, String)> {
-    timestamp_overrides_from_value(
-        file.get("timestampOverrides")
-            .or_else(|| file.get("__timestampOverrides")),
-    )
-    .or_else(|| {
-        timestamp_overrides_from_value(Some(&json!({
-            "createdAt": file.get("createdAt").cloned().unwrap_or(Value::Null),
-            "updatedAt": file.get("updatedAt").cloned().unwrap_or(Value::Null),
-        })))
-    })
-    .or_else(|| {
-        timestamp_overrides_from_value(
-            file.get("lastModified")
-                .or_else(|| file.get("last_modified")),
-        )
-    })
-}
-
-fn st_timestamp_overrides_from_body_and_file(
-    body: &Value,
-    file: &Value,
-) -> Option<(String, String)> {
-    timestamp_overrides_from_value(
-        body.get("timestampOverrides")
-            .or_else(|| body.get("__timestampOverrides")),
-    )
-    .or_else(|| {
-        timestamp_overrides_from_value(Some(&json!({
-            "createdAt": body.get("createdAt").cloned().unwrap_or(Value::Null),
-            "updatedAt": body.get("updatedAt").cloned().unwrap_or(Value::Null),
-        })))
-    })
-    .or_else(|| st_file_timestamp_overrides(file))
-}
-
-fn scan_characters(data_dir: &Path) -> Vec<Value> {
-    list_files(
-        &data_dir.join("characters"),
-        &[".json", ".png", ".charx"],
-        false,
-    )
-    .into_iter()
-    .filter_map(|path| parsed_character_scan_item(data_dir, &path))
-    .collect()
-}
-
-fn scan_chats(data_dir: &Path) -> Vec<Value> {
-    list_files(&data_dir.join("chats"), &[".jsonl"], true)
-        .into_iter()
-        .map(|path| {
-            let mut item = scan_item("chats", data_dir, &path);
-            if let Some(object) = item.as_object_mut() {
-                let folder_name = path
-                    .parent()
-                    .and_then(|path| path.file_name())
-                    .map(|name| name.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                object.insert("folderName".to_string(), Value::String(folder_name.clone()));
-                object.insert("characterName".to_string(), Value::String(folder_name));
-                object.insert("chatName".to_string(), Value::String(file_stem(&path)));
-            }
-            item
-        })
-        .collect()
-}
-
-fn scan_group_chats(data_dir: &Path) -> Vec<Value> {
-    let group_metadata_by_key = st_group_metadata_by_key(data_dir);
-    list_files(&data_dir.join("group chats"), &[".jsonl", ".json"], true)
-        .into_iter()
-        .map(|path| {
-            let mut item = scan_item("groupChats", data_dir, &path);
-            if let Some(object) = item.as_object_mut() {
-                let metadata = st_group_metadata_for_chat(&group_metadata_by_key, &path);
-                let group_name = metadata
-                    .as_ref()
-                    .map(|metadata| metadata.display_name(&path))
-                    .unwrap_or_else(|| file_stem(&path));
-                let members = metadata
-                    .as_ref()
-                    .map(|metadata| metadata.members.clone())
-                    .unwrap_or_default();
-                object.insert("groupName".to_string(), Value::String(group_name));
-                object.insert("members".to_string(), json!(members));
-            }
-            item
-        })
-        .collect()
-}
-
-fn scan_presets(data_dir: &Path) -> Vec<Value> {
-    let mut preset_files = Vec::new();
-    for folder in ["presets", "TextGen Settings", "OpenAI Settings"] {
-        preset_files.extend(list_files(&data_dir.join(folder), &[".json"], false));
-    }
-    preset_files.sort();
-    preset_files.dedup();
-    preset_files
-        .into_iter()
-        .filter_map(|path| parsed_preset_scan_item(data_dir, &path))
-        .collect()
-}
-
-fn scan_lorebooks(data_dir: &Path) -> Vec<Value> {
-    let mut lorebook_files = list_files(&data_dir.join("worlds"), &[".json"], false);
-    lorebook_files.extend(list_files(&data_dir.join("world-info"), &[".json"], false));
-    lorebook_files.sort();
-    lorebook_files.dedup();
-    lorebook_files
-        .into_iter()
-        .filter_map(|path| parsed_lorebook_scan_item(data_dir, &path))
-        .collect()
-}
-
-fn scan_backgrounds(data_dir: &Path) -> Vec<Value> {
-    list_files(
-        &data_dir.join("backgrounds"),
-        ST_BACKGROUND_EXTENSIONS,
-        true,
-    )
-    .into_iter()
-    .map(|path| scan_item("backgrounds", data_dir, &path))
-    .collect()
-}
-
-fn scan_personas(data_dir: &Path) -> Vec<Value> {
-    let (persona_names, persona_descriptions) = read_st_persona_settings(data_dir);
-    let mut persona_files = Vec::new();
-    for folder in ["User Avatars", "user avatars"] {
-        let avatar_dir = data_dir.join(folder);
-        if avatar_dir.is_dir() {
-            persona_files.extend(list_files(
-                &avatar_dir,
-                &[".png", ".jpg", ".jpeg", ".webp"],
-                false,
-            ));
-            break;
-        }
-    }
-    persona_files.extend(list_files(
-        &data_dir.join("personas"),
-        &[".json", ".txt"],
-        false,
-    ));
-    persona_files.sort();
-    persona_files.dedup();
-    persona_files
-        .into_iter()
-        .map(|path| {
-            let is_media = path
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .map(|ext| {
-                    matches!(
-                        ext.to_ascii_lowercase().as_str(),
-                        "png" | "jpg" | "jpeg" | "webp"
-                    )
-                })
-                .unwrap_or(false);
-            if is_media {
-                st_persona_scan_item(data_dir, &path, &persona_names, &persona_descriptions)
-            } else {
-                let mut item = scan_item("personas", data_dir, &path);
-                if let Some(object) = item.as_object_mut() {
-                    object.insert("description".to_string(), Value::String(String::new()));
-                    object.insert("media".to_string(), Value::Bool(false));
-                }
-                item
-            }
-        })
-        .collect()
-}
-
-fn scan_items_for_category(data_dir: &Path, key: &str) -> Vec<Value> {
-    match key {
-        "characters" => scan_characters(data_dir),
-        "chats" => scan_chats(data_dir),
-        "groupChats" => scan_group_chats(data_dir),
-        "presets" => scan_presets(data_dir),
-        "lorebooks" => scan_lorebooks(data_dir),
-        "backgrounds" => scan_backgrounds(data_dir),
-        "personas" => scan_personas(data_dir),
-        _ => Vec::new(),
-    }
-}
-
-pub(super) fn scan_st_folder(body: Value) -> AppResult<Value> {
-    let root = match resolve_import_folder(&body) {
-        Ok(root) => root,
-        Err(error) => {
-            return Ok(json!({
-                "success": false,
-                "error": error.message,
-                "characters": [],
-                "chats": [],
-                "groupChats": [],
-                "presets": [],
-                "lorebooks": [],
-                "backgrounds": [],
-                "personas": []
-            }));
-        }
-    };
-    let Some(data_dir) = resolve_st_data_dir(&root) else {
-        return Ok(json!({
-            "success": false,
-            "error": "Could not find SillyTavern data directory. Make sure the path points to your SillyTavern installation folder.",
-            "characters": [],
-            "chats": [],
-            "groupChats": [],
-            "presets": [],
-            "lorebooks": [],
-            "backgrounds": [],
-            "personas": []
-        }));
-    };
-
-    let characters = scan_characters(&data_dir);
-    let chats = scan_chats(&data_dir);
-    let group_chats = scan_group_chats(&data_dir);
-    let presets = scan_presets(&data_dir);
-    let lorebooks = scan_lorebooks(&data_dir);
-    let backgrounds = scan_backgrounds(&data_dir);
-    let personas = scan_personas(&data_dir);
-
-    Ok(json!({
-        "success": true,
-        "dataDir": data_dir.to_string_lossy(),
-        "characters": characters,
-        "chats": chats,
-        "groupChats": group_chats,
-        "presets": presets,
-        "lorebooks": lorebooks,
-        "backgrounds": backgrounds,
-        "personas": personas,
-    }))
-}
-
-fn import_st_chat_text(
-    state: &AppState,
-    text: &str,
-    chat_name: String,
-    inherited: Option<Value>,
-    context: StChatImportContext,
-) -> AppResult<Value> {
-    let mut character_name = String::new();
-    let mut character_ids = Vec::new();
-    let mut parsed_rows = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let parsed = parse_json_text(line).map_err(|error| {
-            AppError::invalid_input(format!("Invalid chat JSONL at line {}: {error}", index + 1))
-        })?;
-        if character_name.is_empty() {
-            if let Some(name) = parsed.get("character_name").and_then(Value::as_str) {
-                character_name = name.to_string();
-            }
-        }
-        if let Some(character_id) = parsed
-            .get("characterId")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            if !character_ids.iter().any(|id| id == character_id) {
-                character_ids.push(character_id.to_string());
-            }
-        }
-        let role = imported_jsonl_message_role(&parsed);
-        if role == "assistant" || role == "narrator" {
-            if let Some(speaker) = st_message_speaker_name(&parsed) {
-                if let Some(character_id) = lookup_character_id(&context.character_lookup, speaker)
-                {
-                    push_unique_string(&mut character_ids, character_id);
-                }
-            }
-        }
-        parsed_rows.push(parsed);
-    }
-    if let Some(default_character_id) = context.default_character_id.as_ref() {
-        push_unique_string(&mut character_ids, default_character_id.clone());
-    }
-    let has_importable_message = parsed_rows.iter().any(|row| {
-        row.get("mes")
-            .or_else(|| row.get("content"))
-            .and_then(Value::as_str)
-            .is_some_and(|content| !content.trim().is_empty())
-    });
-    if !has_importable_message {
-        return Err(AppError::invalid_input(
-            "Chat import JSONL must contain at least one message",
-        ));
-    }
-    let mut chat = ensure_object(inherited.unwrap_or_else(|| json!({})))?;
-    chat.remove("id");
-    chat.insert("name".to_string(), Value::String(chat_name));
-    chat.entry("mode".to_string())
-        .or_insert(Value::String("roleplay".to_string()));
-    if character_ids.is_empty() {
-        chat.entry("characterIds".to_string())
-            .or_insert_with(|| json!([]));
-    } else {
-        let mut merged_character_ids = shared::string_array_from_value(chat.get("characterIds"));
-        for character_id in character_ids {
-            if !merged_character_ids.iter().any(|id| id == &character_id) {
-                merged_character_ids.push(character_id);
-            }
-        }
-        chat.insert("characterIds".to_string(), json!(merged_character_ids));
-    }
-    chat.entry("metadata".to_string())
-        .or_insert_with(|| json!({}));
-    if !character_name.is_empty() {
-        chat.entry("importedCharacterName".to_string())
-            .or_insert(Value::String(character_name));
-    }
-    if let Some((created_at, updated_at)) = context.timestamp_overrides.as_ref() {
-        chat.insert("createdAt".to_string(), Value::String(created_at.clone()));
-        chat.insert("updatedAt".to_string(), Value::String(updated_at.clone()));
-    }
-    let mut created_chat_id = None;
-    let mut created_message_ids = Vec::new();
-    let result = (|| -> AppResult<Value> {
-        let chat_record = state.storage.create("chats", Value::Object(chat))?;
-        let chat_id = created_record_id(&chat_record, "chat")?;
-        created_chat_id = Some(chat_id.clone());
-        let mut imported = 0usize;
-        let fallback_timestamp = st_created_timestamp_override(&context).unwrap_or_else(Utc::now);
-        let mut previous_timestamp = None;
-        for row in parsed_rows {
-            let content = row
-                .get("mes")
-                .or_else(|| row.get("content"))
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            if content.trim().is_empty() {
-                continue;
-            }
-            let role = imported_jsonl_message_role(&row);
-            let character_id = st_row_character_id(&row, &context, role);
-            let extra = st_message_extra(&row);
-            let mut message_payload = json!({
-                "chatId": chat_id,
-                "role": role,
-                "content": content,
-                "characterId": character_id,
-                "extra": extra,
-                "activeSwipeIndex": 0,
-                "swipes": [{ "content": content, "extra": extra }]
-            });
-            let created_at = normalized_st_message_timestamp(
-                st_message_datetime(&row).unwrap_or(fallback_timestamp),
-                &mut previous_timestamp,
-            );
-            if let Some(object) = message_payload.as_object_mut() {
-                object.insert("createdAt".to_string(), Value::String(created_at.clone()));
-                object.insert("updatedAt".to_string(), Value::String(created_at));
-            }
-            let message =
-                crate::storage_commands::message_swipes::create_message(state, message_payload)?;
-            created_message_ids.push(created_record_id(&message, "message")?);
-            imported += 1;
-        }
-        flush_import_writes(state)?;
-        Ok(
-            json!({ "success": true, "chatId": chat_id, "chat": chat_record, "messagesImported": imported }),
-        )
-    })();
-
-    result.map_err(|error| {
-        let mut rollback_errors = Vec::new();
-        rollback_created_records(
-            state,
-            "messages",
-            &created_message_ids,
-            &mut rollback_errors,
-        );
-        if let Some(chat_id) = created_chat_id.as_deref() {
-            rollback_created_records(state, "chats", &[chat_id.to_string()], &mut rollback_errors);
-        }
-        append_rollback_errors(error, "chat import", rollback_errors)
-    })
-}
-
-pub(super) fn import_st_chat(state: &AppState, body: Value) -> AppResult<Value> {
-    let file = body
-        .get("file")
-        .ok_or_else(|| AppError::invalid_input("file is required"))?;
-    let uploaded = decode_uploaded_file_value(file)?;
-    let text = String::from_utf8(uploaded.bytes)
-        .map_err(|_| AppError::invalid_input("Chat import file must be UTF-8 JSONL"))?;
-    let chat_name = Path::new(&uploaded.name)
-        .file_stem()
-        .map(|name| name.to_string_lossy().replace('_', " "))
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| "Imported Chat".to_string());
-    import_st_chat_text(
-        state,
-        &text,
-        chat_name,
-        None,
-        StChatImportContext {
-            timestamp_overrides: st_timestamp_overrides_from_body_and_file(&body, file),
-            ..StChatImportContext::default()
-        },
-    )
-}
-
-pub(super) fn import_st_chat_into_group(state: &AppState, body: Value) -> AppResult<Value> {
-    let target_chat_id = required_string(&body, "chatId")?;
-    let target = get_required(state, "chats", target_chat_id)?;
-    let file = body
-        .get("file")
-        .ok_or_else(|| AppError::invalid_input("file is required"))?;
-    let uploaded = decode_uploaded_file_value(file)?;
-    let text = String::from_utf8(uploaded.bytes)
-        .map_err(|_| AppError::invalid_input("Chat import file must be UTF-8 JSONL"))?;
-    let mut inherited = target.clone();
-    if let Some(object) = inherited.as_object_mut() {
-        let group_id = object
-            .get("groupId")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(new_id);
-        object.insert("groupId".to_string(), Value::String(group_id.clone()));
-        state
-            .storage
-            .patch("chats", target_chat_id, json!({ "groupId": group_id }))?;
-    }
-    let branch_name = Path::new(&uploaded.name)
-        .file_stem()
-        .map(|name| name.to_string_lossy().replace('_', " "))
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| "Imported".to_string());
-    let target_character_ids = shared::string_array_from_value(target.get("characterIds"));
-    let context = StChatImportContext {
-        character_lookup: character_lookup_from_state_for_ids(state, &target_character_ids),
-        default_character_id: None,
-        timestamp_overrides: st_timestamp_overrides_from_body_and_file(&body, file),
-    };
-    import_st_chat_text(state, &text, branch_name, Some(inherited), context).map_err(|error| {
-        let mut rollback_errors = Vec::new();
-        restore_record(state, "chats", &target, &mut rollback_errors);
-        append_rollback_errors(error, "chat branch import", rollback_errors)
-    })
-}
-
-fn import_persona_payload(
-    state: &AppState,
-    payload: Value,
-    fallback_name: &str,
-) -> AppResult<Value> {
-    let mut object = ensure_object(payload).unwrap_or_default();
-    object
-        .entry("name".to_string())
-        .or_insert(Value::String(fallback_name.to_string()));
-    if !object.contains_key("description") {
-        if let Some(persona) = object
-            .get("persona")
-            .or_else(|| object.get("content"))
-            .and_then(Value::as_str)
-        {
-            object.insert(
-                "description".to_string(),
-                Value::String(persona.to_string()),
-            );
-        }
-    }
-    let mut created_persona_id = None;
-    let result = (|| -> AppResult<Value> {
-        let record = state.storage.create(
-            "personas",
-            with_entity_defaults("personas", Value::Object(object))?,
-        )?;
-        let persona_id = created_record_id(&record, "persona")?;
-        created_persona_id = Some(persona_id.clone());
-        flush_import_writes(state)?;
-        Ok(
-            json!({ "success": true, "id": persona_id, "name": record.get("name").cloned().unwrap_or(Value::Null), "persona": record }),
-        )
-    })();
-
-    result.map_err(|error| {
-        let mut rollback_errors = Vec::new();
-        if let Some(persona_id) = created_persona_id.as_deref() {
-            rollback_created_records(
-                state,
-                "personas",
-                &[persona_id.to_string()],
-                &mut rollback_errors,
-            );
-        }
-        append_rollback_errors(error, "persona import", rollback_errors)
-    })
-}
-
-fn import_persona_file(state: &AppState, path: &Path) -> AppResult<Value> {
-    let raw = fs::read_to_string(path)?;
-    let fallback_name = file_stem(path);
-    let payload = parse_json_text(&raw)
-        .unwrap_or_else(|_| json!({ "name": fallback_name, "description": raw }));
-    import_persona_payload(state, payload, &fallback_name)
-}
-
-fn import_persona_avatar_file(
-    state: &AppState,
-    path: &Path,
-    name: String,
-    description: String,
-) -> AppResult<Value> {
-    let stored = super::super::media_uploads::persist_image_file_copy(
-        state,
-        "avatars/personas",
-        &path
-            .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_else(|| file_stem(path)),
-        path,
-    )?;
-    let modified = modified_at(path);
-    let avatar_path = stored.absolute_path.clone();
-    let payload = json!({
-        "name": name,
-        "description": description,
-        "avatarPath": stored.asset_url,
-        "avatarFilePath": stored.absolute_path,
-        "avatarFilename": stored.filename,
-        "importedModifiedAt": modified,
-    });
-    import_persona_payload(state, payload, &file_stem(path)).map_err(|error| {
-        let mut rollback_errors = Vec::new();
-        rollback_managed_file_path(
-            state,
-            "avatars/personas",
-            &avatar_path,
-            &mut rollback_errors,
-        );
-        append_rollback_errors(error, "persona import", rollback_errors)
-    })
-}
-
-fn restore_record(
-    state: &AppState,
-    collection: &str,
-    original: &Value,
-    rollback_errors: &mut Vec<String>,
-) {
-    let Some(id) = original.get("id").and_then(Value::as_str) else {
-        rollback_errors.push(format!("{collection}: original record is missing an id"));
-        return;
-    };
-    let rows = match state.storage.list(collection) {
-        Ok(rows) => rows,
-        Err(error) => {
-            rollback_errors.push(format!("{collection}/{id}: {error}"));
-            return;
-        }
-    };
-    let mut replaced = false;
-    let restored = rows
-        .into_iter()
-        .map(|row| {
-            if row.get("id").and_then(Value::as_str) == Some(id) {
-                replaced = true;
-                original.clone()
-            } else {
-                row
-            }
-        })
-        .collect::<Vec<_>>();
-    if !replaced {
-        rollback_errors.push(format!(
-            "{collection}/{id}: record was not found for restore"
-        ));
-        return;
-    }
-    if let Err(error) = state.storage.replace_all(collection, restored) {
-        rollback_errors.push(format!("{collection}/{id}: {error}"));
-    }
-}
-
-fn copy_background_file(state: &AppState, path: &Path) -> AppResult<Value> {
-    if !has_allowed_extension(path, ST_BACKGROUND_EXTENSIONS) {
-        return Err(AppError::invalid_input(
-            "Background import only supports image files",
-        ));
-    }
-    let name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .ok_or_else(|| AppError::invalid_input("Background file is missing a filename"))?;
-    let target = state.backgrounds.root().join(&name);
-    let mut final_target = target.clone();
-    if final_target.exists() {
-        let stem = Path::new(&name)
-            .file_stem()
-            .map(|stem| stem.to_string_lossy().to_string())
-            .unwrap_or_else(|| "background".to_string());
-        let ext = Path::new(&name)
-            .extension()
-            .map(|ext| format!(".{}", ext.to_string_lossy()))
-            .unwrap_or_default();
-        for index in 1..10_000 {
-            let candidate = state
-                .backgrounds
-                .root()
-                .join(format!("{stem}-{index}{ext}"));
-            if !candidate.exists() {
-                final_target = candidate;
-                break;
-            }
-        }
-    }
-    fs::copy(path, &final_target)?;
-    Ok(json!({ "success": true, "path": final_target.to_string_lossy() }))
-}
-
-fn has_allowed_extension(path: &Path, extensions: &[&str]) -> bool {
-    let ext = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| format!(".{}", ext.to_ascii_lowercase()))
-        .unwrap_or_default();
-    extensions.iter().any(|allowed| *allowed == ext)
-}
-
-fn run_st_bulk_import_inner(
-    state: &AppState,
-    body: Value,
-    event_sink: Option<&mut dyn FnMut(Value) -> AppResult<()>>,
-) -> AppResult<Value> {
-    let root = resolve_import_folder(&body)?;
-    let data_dir = resolve_st_data_dir(&root)
-        .ok_or_else(|| AppError::invalid_input("Could not find SillyTavern data directory"))?;
-    let options = body.get("options").cloned().unwrap_or_else(|| json!({}));
-    let selections = BulkSelections::from_options(&options, &data_dir);
-    let mut progress = BulkImportProgress::new(event_sink, selections.total());
-    let mut imported = empty_import_counts();
-    let mut errors: Vec<Value> = Vec::new();
-    let tag_mode = options
-        .get("characterTagImportMode")
-        .and_then(Value::as_str)
-        .unwrap_or("all");
-    if !matches!(tag_mode, "all" | "existing" | "none") {
-        return Err(AppError::invalid_input(
-            "Invalid characterTagImportMode. Expected all, existing, or none.",
-        ));
-    }
-    let import_embedded = bool_option(options.get("importEmbeddedLorebook")).unwrap_or(true);
-    let (persona_names, persona_descriptions) = read_st_persona_settings(&data_dir);
-    let mut character_lookup = character_lookup_from_state(state);
-    let mut chat_group_ids: HashMap<String, String> = HashMap::new();
-    let group_metadata_by_key = st_group_metadata_by_key(&data_dir);
-
-    for id in selections.characters {
-        let Some(path) = selected_path(&data_dir, "characters", &id, &mut errors) else {
-            progress.emit_skipped("Characters", &id, &imported)?;
-            continue;
-        };
-        progress.emit_item("Characters", &path, &imported)?;
-        let filename = path
-            .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_default();
-        let result = fs::read(&path)
-            .map_err(AppError::from)
-            .and_then(|bytes| parse_character_file_from_path(&filename, &path, &bytes))
-            .and_then(|payload| {
-                let trusted_avatar_source = filename
-                    .to_ascii_lowercase()
-                    .ends_with(".png")
-                    .then_some(path.as_path());
-                import_st_character_payload(
-                    state,
-                    payload,
-                    Some(filename.clone()),
-                    &json!({ "tagImportMode": tag_mode, "importEmbeddedLorebook": import_embedded }),
-                    trusted_avatar_source,
-                )
-            });
-        match result {
-            Ok(result) => {
-                bump_imported(&mut imported, "characters");
-                let filename = path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .map(ToOwned::to_owned);
-                if let Some(character) = result.get("character") {
-                    add_character_lookup_record(
-                        &mut character_lookup,
-                        character,
-                        filename.as_deref(),
-                    );
-                }
-            }
-            Err(error) => push_path_import_error(&mut errors, &path, error),
-        }
-    }
-
-    for id in selections.lorebooks {
-        let Some(path) = selected_path(&data_dir, "lorebooks", &id, &mut errors) else {
-            progress.emit_skipped("Lorebooks", &id, &imported)?;
-            continue;
-        };
-        progress.emit_item("Lorebooks", &path, &imported)?;
-        let result = fs::read(&path)
-            .map_err(AppError::from)
-            .and_then(|bytes| parse_object(&bytes))
-            .and_then(|payload| {
-                create_lorebook_from_payload(state, &payload, &file_stem(&path), None)
-            });
-        match result {
-            Ok(_) => bump_imported(&mut imported, "lorebooks"),
-            Err(error) => push_path_import_error(&mut errors, &path, error),
-        }
-    }
-
-    for id in selections.presets {
-        let Some(path) = selected_path(&data_dir, "presets", &id, &mut errors) else {
-            progress.emit_skipped("Presets", &id, &imported)?;
-            continue;
-        };
-        progress.emit_item("Presets", &path, &imported)?;
-        let result = fs::read(&path)
-            .map_err(AppError::from)
-            .and_then(|bytes| parse_object(&bytes))
-            .map(|payload| attach_st_preset_file_timestamp(payload, &path))
-            .and_then(|payload| import_st_preset_payload(state, payload, Some(&file_stem(&path))));
-        match result {
-            Ok(_) => bump_imported(&mut imported, "presets"),
-            Err(error) => push_path_import_error(&mut errors, &path, error),
-        }
-    }
-
-    for id in selections.personas {
-        let Some(path) = selected_path(&data_dir, "personas", &id, &mut errors) else {
-            progress.emit_skipped("Personas", &id, &imported)?;
-            continue;
-        };
-        progress.emit_item("Personas", &path, &imported)?;
-        let is_media = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| {
-                matches!(
-                    ext.to_ascii_lowercase().as_str(),
-                    "png" | "jpg" | "jpeg" | "webp"
-                )
-            })
-            .unwrap_or(false);
-        let result = if is_media {
-            let filename = path
-                .file_name()
-                .map(|name| name.to_string_lossy().to_string())
-                .unwrap_or_default();
-            import_persona_avatar_file(
-                state,
-                &path,
-                persona_names
-                    .get(&filename)
-                    .cloned()
-                    .unwrap_or_else(|| file_stem(&path)),
-                persona_descriptions
-                    .get(&filename)
-                    .cloned()
-                    .unwrap_or_default(),
-            )
-        } else {
-            import_persona_file(state, &path)
-        };
-        match result {
-            Ok(_) => bump_imported(&mut imported, "personas"),
-            Err(error) => push_path_import_error(&mut errors, &path, error),
-        }
-    }
-
-    for id in selections.backgrounds {
-        let Some(path) = selected_path(&data_dir, "backgrounds", &id, &mut errors) else {
-            progress.emit_skipped("Backgrounds", &id, &imported)?;
-            continue;
-        };
-        progress.emit_item("Backgrounds", &path, &imported)?;
-        match copy_background_file(state, &path) {
-            Ok(_) => bump_imported(&mut imported, "backgrounds"),
-            Err(error) => push_path_import_error(&mut errors, &path, error),
-        }
-    }
-
-    for id in selections.chats {
-        let Some(path) = selected_path(&data_dir, "chats", &id, &mut errors) else {
-            progress.emit_skipped("Chats", &id, &imported)?;
-            continue;
-        };
-        progress.emit_item("Chats", &path, &imported)?;
-        let folder_name = path
-            .parent()
-            .and_then(|path| path.file_name())
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_default();
-        let branch_name = file_stem(&path).replace('_', " ");
-        let default_character_id = lookup_character_id(&character_lookup, &folder_name);
-        let chat_name = if folder_name.trim().is_empty() {
-            branch_name.clone()
-        } else {
-            folder_name.clone()
-        };
-        let group_key = normalized_st_lookup_key(&folder_name);
-        let group_id = if group_key.is_empty() {
-            None
-        } else {
-            Some(
-                chat_group_ids
-                    .entry(group_key)
-                    .or_insert_with(new_id)
-                    .clone(),
-            )
-        };
-        let character_ids = default_character_id
-            .as_ref()
-            .map(|id| vec![id.clone()])
-            .unwrap_or_default();
-        let mut inherited = json!({
-            "name": chat_name,
-            "mode": "roleplay",
-            "characterIds": character_ids,
-            "metadata": {
-                "branchName": branch_name,
-                "sillyTavernSource": "chat",
-                "sillyTavernCharacterFolder": folder_name,
-                "sillyTavernFile": path.file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_default()
-            }
-        });
-        if let Some(group_id) = group_id {
-            if let Some(object) = inherited.as_object_mut() {
-                object.insert("groupId".to_string(), Value::String(group_id));
-            }
-        }
-        let result = fs::read_to_string(&path)
-            .map_err(AppError::from)
-            .and_then(|text| {
-                import_st_chat_text(
-                    state,
-                    &text,
-                    chat_name,
-                    Some(inherited),
-                    StChatImportContext {
-                        character_lookup: character_lookup.clone(),
-                        default_character_id,
-                        timestamp_overrides: None,
-                    },
-                )
-            });
-        match result {
-            Ok(_) => bump_imported(&mut imported, "chats"),
-            Err(error) => push_path_import_error(&mut errors, &path, error),
-        }
-    }
-
-    for id in selections.group_chats {
-        let Some(path) = selected_path(&data_dir, "groupChats", &id, &mut errors) else {
-            progress.emit_skipped("Group chats", &id, &imported)?;
-            continue;
-        };
-        progress.emit_item("Group chats", &path, &imported)?;
-        let metadata = st_group_metadata_for_chat(&group_metadata_by_key, &path);
-        let chat_name = metadata
-            .as_ref()
-            .map(|metadata| metadata.display_name(&path))
-            .unwrap_or_else(|| file_stem(&path).replace('_', " "));
-        let member_names = metadata
-            .as_ref()
-            .map(|metadata| metadata.members.clone())
-            .unwrap_or_default();
-        let character_ids = resolve_member_character_ids(&character_lookup, &member_names);
-        let group_id = metadata
-            .as_ref()
-            .and_then(|metadata| metadata.id.clone().or_else(|| metadata.chat_id.clone()))
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(new_id);
-        let inherited = json!({
-            "name": chat_name,
-            "mode": "roleplay",
-            "groupId": group_id,
-            "characterIds": character_ids,
-            "metadata": {
-                "branchName": file_stem(&path).replace('_', " "),
-                "groupChatMode": "individual",
-                "groupResponseOrder": "sequential",
-                "sillyTavernSource": "groupChat",
-                "sillyTavernGroupId": metadata.as_ref().and_then(|metadata| metadata.id.clone()).unwrap_or_default(),
-                "sillyTavernChatId": metadata.as_ref().and_then(|metadata| metadata.chat_id.clone()).unwrap_or_default(),
-                "sillyTavernMembers": member_names,
-                "sillyTavernFile": path.file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_default()
-            }
-        });
-        let result = fs::read_to_string(&path)
-            .map_err(AppError::from)
-            .and_then(|text| {
-                import_st_chat_text(
-                    state,
-                    &text,
-                    chat_name,
-                    Some(inherited),
-                    StChatImportContext {
-                        character_lookup: character_lookup.clone(),
-                        default_character_id: None,
-                        timestamp_overrides: None,
-                    },
-                )
-            });
-        match result {
-            Ok(_) => bump_imported(&mut imported, "groupChats"),
-            Err(error) => push_path_import_error(&mut errors, &path, error),
-        }
-    }
-
-    let imported_total = [
-        "characters",
-        "chats",
-        "groupChats",
-        "presets",
-        "lorebooks",
-        "backgrounds",
-        "personas",
-    ]
-    .iter()
-    .map(|key| imported_count(&imported, key))
-    .sum::<i64>();
-    let result = json!({
-        "success": imported_total > 0 || errors.is_empty(),
-        "imported": imported,
-        "errors": errors
-    });
-    progress.emit_done(&result)?;
-    Ok(result)
-}
-
-pub(super) fn run_st_bulk_import(state: &AppState, body: Value) -> AppResult<Value> {
-    run_st_bulk_import_inner(state, body, None)
-}
-
-pub(super) fn run_st_bulk_import_channel(
-    state: &AppState,
-    body: Value,
-    mut emit: impl FnMut(Value) -> AppResult<()>,
-) -> AppResult<()> {
-    match run_st_bulk_import_inner(state, body, Some(&mut emit)) {
-        Ok(_) => Ok(()),
-        Err(error) => emit(json!({
-            "type": "error",
-            "data": {
-                "error": error.message,
-                "code": error.code
-            }
-        })),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::state::AppState;
     use base64::engine::general_purpose;
+    use std::collections::HashMap;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1875,6 +108,24 @@ mod tests {
             fs::create_dir_all(parent).expect("fixture parent should be created");
         }
         fs::write(path, bytes).expect("fixture file should be written");
+    }
+
+    #[cfg(unix)]
+    fn symlink_file_fixture(source: &Path, link: &Path) -> std::io::Result<()> {
+        std::os::unix::fs::symlink(source, link)
+    }
+
+    #[cfg(windows)]
+    fn symlink_file_fixture(source: &Path, link: &Path) -> std::io::Result<()> {
+        std::os::windows::fs::symlink_file(source, link)
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn symlink_file_fixture(_source: &Path, _link: &Path) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "file symlinks are not supported by this test target",
+        ))
     }
 
     fn block_collection_writes(state: &AppState, collection: &str) {
@@ -2120,6 +371,264 @@ mod tests {
     }
 
     #[test]
+    fn scan_st_folder_rejects_ambiguous_non_default_user_data_dirs() {
+        let st_root = temp_path("scan-ambiguous-data-dirs");
+        write_json(
+            &st_root
+                .join("data")
+                .join("alice")
+                .join("characters")
+                .join("Alice.json"),
+            &json!({ "spec": "chara_card_v2", "data": { "name": "Alice" } }),
+        );
+        write_json(
+            &st_root
+                .join("data")
+                .join("bob")
+                .join("characters")
+                .join("Bob.json"),
+            &json!({ "spec": "chara_card_v2", "data": { "name": "Bob" } }),
+        );
+        let (folder_path, folder_token) = folder_access(&st_root);
+
+        let scan = scan_st_folder(json!({
+            "folderPath": folder_path,
+            "folderToken": folder_token,
+        }))
+        .expect("ambiguous scan should return a failure response");
+
+        assert_eq!(scan["success"], Value::Bool(false));
+        assert!(
+            scan.get("error").and_then(Value::as_str).is_some_and(
+                |message| message.contains("Multiple SillyTavern user data directories")
+            ),
+            "ambiguous roots should not silently pick a profile"
+        );
+        assert!(
+            scan_ids(&scan, "characters").is_empty(),
+            "ambiguous scans must not advertise arbitrary user records"
+        );
+
+        let _ = fs::remove_dir_all(st_root);
+    }
+
+    #[test]
+    fn run_st_bulk_import_rejects_ambiguous_non_default_user_data_dirs() {
+        let app_root = temp_path("ambiguous-data-dirs-app");
+        let st_root = temp_path("ambiguous-data-dirs-source");
+        write_json(
+            &st_root
+                .join("data")
+                .join("alice")
+                .join("characters")
+                .join("Alice.json"),
+            &json!({ "spec": "chara_card_v2", "data": { "name": "Alice" } }),
+        );
+        write_json(
+            &st_root
+                .join("data")
+                .join("bob")
+                .join("characters")
+                .join("Bob.json"),
+            &json!({ "spec": "chara_card_v2", "data": { "name": "Bob" } }),
+        );
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        let (folder_path, folder_token) = folder_access(&st_root);
+
+        let error = run_st_bulk_import_inner(
+            &state,
+            json!({
+                "folderPath": folder_path,
+                "folderToken": folder_token,
+                "options": {
+                    "characters": true
+                }
+            }),
+            None,
+        )
+        .expect_err("ambiguous import roots must reject before selecting categories");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(
+            error
+                .message
+                .contains("Multiple SillyTavern user data directories"),
+            "import should use the same explicit ambiguity rule as scan"
+        );
+        assert!(
+            state.storage.list("characters").unwrap().is_empty(),
+            "ambiguous imports must not create records from an arbitrary profile"
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+        let _ = fs::remove_dir_all(st_root);
+    }
+
+    #[test]
+    fn scan_st_folder_includes_lowercase_persona_avatar_alias_after_empty_title_alias() {
+        let st_root = temp_path("scan-persona-lowercase-alias");
+        let data_dir = st_root.join("data").join("default-user");
+        fs::create_dir_all(data_dir.join("characters"))
+            .expect("fixture characters directory should mark the ST data root");
+        fs::create_dir_all(data_dir.join("User Avatars"))
+            .expect("empty title-case avatar alias should be created");
+        write_bytes(
+            &data_dir.join("user avatars").join("Hidden.png"),
+            &general_purpose::STANDARD
+                .decode(TINY_PNG)
+                .expect("fixture PNG should decode"),
+        );
+        let (folder_path, folder_token) = folder_access(&st_root);
+
+        let scan = scan_st_folder(json!({
+            "folderPath": folder_path,
+            "folderToken": folder_token,
+        }))
+        .expect("scan should succeed");
+        let persona_ids = scan_ids(&scan, "personas");
+
+        assert_eq!(scan["success"], Value::Bool(true));
+        assert_eq!(persona_ids.len(), 1);
+        assert!(
+            persona_ids.iter().any(|id| id.ends_with("/Hidden.png")),
+            "a populated lowercase avatar alias should not be blocked by an empty title-case alias"
+        );
+        if !cfg!(windows) {
+            assert!(
+                persona_ids.contains(&"personas:user avatars/Hidden.png".to_string()),
+                "case-sensitive installs should expose the lowercase alias path"
+            );
+        }
+
+        let _ = fs::remove_dir_all(st_root);
+    }
+
+    #[test]
+    fn scan_st_folder_dedups_overlapping_persona_avatar_aliases() {
+        let st_root = temp_path("scan-persona-alias-overlap");
+        let data_dir = st_root.join("data").join("default-user");
+        fs::create_dir_all(data_dir.join("characters"))
+            .expect("fixture characters directory should mark the ST data root");
+        let png_bytes = general_purpose::STANDARD
+            .decode(TINY_PNG)
+            .expect("fixture PNG should decode");
+        write_bytes(
+            &data_dir.join("User Avatars").join("Shared.png"),
+            &png_bytes,
+        );
+        write_bytes(
+            &data_dir.join("user avatars").join("Shared.png"),
+            &png_bytes,
+        );
+        write_bytes(
+            &data_dir.join("user avatars").join("Lower Only.png"),
+            &png_bytes,
+        );
+        let (folder_path, folder_token) = folder_access(&st_root);
+
+        let scan = scan_st_folder(json!({
+            "folderPath": folder_path,
+            "folderToken": folder_token,
+        }))
+        .expect("scan should succeed");
+        let persona_ids = scan_ids(&scan, "personas");
+        let shared_count = persona_ids
+            .iter()
+            .filter(|id| id.ends_with("/Shared.png"))
+            .count();
+
+        assert_eq!(scan["success"], Value::Bool(true));
+        assert_eq!(
+            shared_count,
+            if cfg!(windows) { 1 } else { 2 },
+            "same-named files in distinct alias folders should both scan, while mirrored aliases should not duplicate a physical file"
+        );
+        assert!(
+            persona_ids.iter().any(|id| id.ends_with("/Lower Only.png")),
+            "non-overlapping files from later aliases should still be included"
+        );
+
+        let _ = fs::remove_dir_all(st_root);
+    }
+
+    #[test]
+    fn scan_st_folder_skips_symlinked_files_outside_data_dir() {
+        let app_root = temp_path("scan-symlink-escape-app");
+        let st_root = temp_path("scan-symlink-escape-source");
+        let outside_root = temp_path("scan-symlink-escape-outside");
+        let data_dir = st_root.join("data").join("default-user");
+        let alice_path = data_dir.join("characters").join("Alice.json");
+        let escaped_path = outside_root.join("Escaped.json");
+        let escaped_link = data_dir.join("characters").join("Escaped.json");
+        write_json(
+            &alice_path,
+            &json!({ "spec": "chara_card_v2", "data": { "name": "Alice" } }),
+        );
+        write_json(
+            &escaped_path,
+            &json!({ "spec": "chara_card_v2", "data": { "name": "Escaped" } }),
+        );
+        let symlink_result = symlink_file_fixture(&escaped_path, &escaped_link);
+        if cfg!(windows) && symlink_result.is_err() {
+            let _ = fs::remove_dir_all(app_root);
+            let _ = fs::remove_dir_all(st_root);
+            let _ = fs::remove_dir_all(outside_root);
+            return;
+        }
+        symlink_result.expect("fixture symlink should be created");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        let (folder_path, folder_token) = folder_access(&st_root);
+
+        let scan = scan_st_folder(json!({
+            "folderPath": folder_path,
+            "folderToken": folder_token,
+        }))
+        .expect("scan should succeed");
+        let character_ids = scan_ids(&scan, "characters");
+
+        assert_eq!(scan["success"], Value::Bool(true));
+        assert_eq!(
+            character_ids,
+            vec!["characters:characters/Alice.json".to_string()],
+            "scan should only mint importable ids under the selected ST data directory"
+        );
+
+        let result = run_st_bulk_import_inner(
+            &state,
+            json!({
+                "folderPath": folder_path,
+                "folderToken": folder_token,
+                "options": {
+                    "characters": true
+                }
+            }),
+            None,
+        )
+        .expect("boolean character import should only use importable scanned files");
+
+        assert_eq!(result["success"], Value::Bool(true));
+        assert_eq!(result["imported"]["characters"], json!(1));
+        assert!(
+            result["errors"]
+                .as_array()
+                .map(Vec::is_empty)
+                .unwrap_or(false),
+            "skipped symlink escapes must not become stale selected-item errors"
+        );
+        assert_eq!(
+            state.storage.list("characters").unwrap().len(),
+            1,
+            "normal in-tree files should still import through scan-generated ids"
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+        let _ = fs::remove_dir_all(st_root);
+        let _ = fs::remove_dir_all(outside_root);
+    }
+
+    #[test]
     fn run_st_bulk_import_accepts_legacy_boolean_category_selection() {
         let app_root = temp_path("boolean-selection-app");
         let st_root = temp_path("boolean-selection-source");
@@ -2202,6 +711,54 @@ mod tests {
         assert!(
             state.storage.list("characters").unwrap().is_empty(),
             "invalid options must reject before importing anything"
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+        let _ = fs::remove_dir_all(st_root);
+    }
+
+    #[test]
+    fn run_st_bulk_import_rejects_character_lookup_read_failure() {
+        let app_root = temp_path("bulk-chat-lookup-failure-app");
+        let st_root = temp_path("bulk-chat-lookup-failure-source");
+        let data_dir = st_root.join("data").join("default-user");
+        fs::create_dir_all(data_dir.join("characters"))
+            .expect("fixture characters directory should mark the ST data root");
+        write_bytes(
+            &data_dir.join("chats").join("Bot").join("Branch.jsonl"),
+            br#"{"character_name":"Bot","mes":"hello"}"#,
+        );
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        state
+            .storage
+            .clear_all()
+            .expect("test storage cache should clear");
+        block_collection_writes(&state, "characters");
+        let (folder_path, folder_token) = folder_access(&st_root);
+
+        let error = state
+            .storage
+            .update_collections_atomically(vec!["messages"], |_| {
+                Ok(run_st_bulk_import_inner(
+                    &state,
+                    json!({
+                        "folderPath": folder_path,
+                        "folderToken": folder_token,
+                        "options": {
+                            "chats": true
+                        }
+                    }),
+                    None,
+                )
+                .expect_err("character lookup read failure must reject bulk chat import"))
+            })
+            .expect("atomic read-failure harness should complete");
+
+        assert_eq!(error.code, "io_error");
+        assert!(
+            state.storage.list("chats").unwrap().is_empty(),
+            "lookup failure must not create unlinked chats"
         );
 
         let _ = fs::remove_dir_all(app_root);
@@ -2782,6 +1339,119 @@ mod tests {
     }
 
     #[test]
+    fn import_st_chat_text_ignores_blank_row_character_ids() {
+        let app_root = temp_path("chat-blank-row-character-id");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+
+        let result = import_st_chat_text(
+            &state,
+            concat!(
+                r#"{"role":"assistant","characterId":"blank-row-character","content":"   "}"#,
+                "\n",
+                r#"{"role":"assistant","content":"hello"}"#
+            ),
+            "Imported Chat".to_string(),
+            None,
+            StChatImportContext::default(),
+        )
+        .expect("chat import should succeed");
+
+        assert_eq!(result.get("messagesImported"), Some(&json!(1)));
+        let chat_id = result
+            .get("chatId")
+            .and_then(Value::as_str)
+            .expect("import result should include chat id");
+        let chat = state
+            .storage
+            .get("chats", chat_id)
+            .expect("chat should be readable")
+            .expect("chat should exist");
+        assert!(
+            shared::string_array_from_value(chat.get("characterIds")).is_empty(),
+            "blank skipped rows must not add explicit row character ids to the parent chat"
+        );
+        let messages = state
+            .storage
+            .list("messages")
+            .expect("messages should list");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(
+            messages[0].get("content").and_then(Value::as_str),
+            Some("hello")
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+    }
+
+    #[test]
+    fn import_st_chat_text_ignores_blank_row_speaker_links() {
+        let app_root = temp_path("chat-blank-row-speaker");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        state
+            .storage
+            .create("characters", json!({ "data": { "name": "Blank Bot" } }))
+            .expect("blank-row character should create");
+        let real_character = state
+            .storage
+            .create("characters", json!({ "data": { "name": "Real Bot" } }))
+            .expect("real character should create");
+        let real_character_id = real_character
+            .get("id")
+            .and_then(Value::as_str)
+            .expect("real character should include id")
+            .to_string();
+        let context = StChatImportContext {
+            character_lookup: character_lookup_from_state(&state)
+                .expect("character lookup should build"),
+            default_character_id: None,
+            timestamp_overrides: None,
+        };
+
+        let result = import_st_chat_text(
+            &state,
+            concat!(
+                r#"{"name":"Blank Bot","mes":"   "}"#,
+                "\n",
+                r#"{"name":"Real Bot","mes":"hello"}"#
+            ),
+            "Imported Chat".to_string(),
+            None,
+            context,
+        )
+        .expect("chat import should succeed");
+
+        assert_eq!(result.get("messagesImported"), Some(&json!(1)));
+        let chat_id = result
+            .get("chatId")
+            .and_then(Value::as_str)
+            .expect("import result should include chat id");
+        let chat = state
+            .storage
+            .get("chats", chat_id)
+            .expect("chat should be readable")
+            .expect("chat should exist");
+        assert_eq!(
+            shared::string_array_from_value(chat.get("characterIds")),
+            vec![real_character_id.clone()],
+            "only persisted assistant/narrator rows should add speaker-derived character ids"
+        );
+        let messages = state
+            .storage
+            .list("messages")
+            .expect("messages should list");
+        assert_eq!(
+            row_with_content(&messages, "hello")
+                .get("characterId")
+                .and_then(Value::as_str),
+            Some(real_character_id.as_str())
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+    }
+
+    #[test]
     fn import_st_chat_text_preserves_marinara_jsonl_roles() {
         let app_root = temp_path("chat-message-roles");
         let state = AppState::from_data_dir(&app_root, Vec::new())
@@ -2932,25 +1602,45 @@ mod tests {
 
         let result = import_st_chat_text(
             &state,
-            r#"{"is_system":true,"mes":"hidden note","character_name":"Bot"}"#,
+            concat!(
+                r#"{"is_system":true,"mes":"hidden note","character_name":"Bot"}"#,
+                "\n",
+                r#"{"is_user":true,"mes":"visible user"}"#
+            ),
             "Imported Chat".to_string(),
             None,
-            StChatImportContext::default(),
+            StChatImportContext {
+                character_lookup: HashMap::new(),
+                default_character_id: Some("default-bot".to_string()),
+                timestamp_overrides: None,
+            },
         )
         .expect("ST system transcript rows with content should import");
 
-        assert_eq!(result.get("messagesImported"), Some(&json!(1)));
+        assert_eq!(result.get("messagesImported"), Some(&json!(2)));
         let messages = state
             .storage
             .list("messages")
             .expect("messages should list");
-        assert_eq!(messages.len(), 1);
+        assert_eq!(messages.len(), 2);
         assert_eq!(
             messages[0].get("content").and_then(Value::as_str),
             Some("hidden note")
         );
+        assert_eq!(
+            messages[0].get("role").and_then(Value::as_str),
+            Some("system")
+        );
+        assert!(
+            messages[0].get("characterId").is_none_or(Value::is_null),
+            "ST system rows must not receive the default assistant character id"
+        );
         assert_eq!(messages[0]["extra"]["hiddenFromAI"], json!(true));
         assert_eq!(messages[0]["extra"]["hiddenFromAi"], json!(true));
+        assert_eq!(
+            messages[1].get("role").and_then(Value::as_str),
+            Some("user")
+        );
 
         let _ = fs::remove_dir_all(app_root);
     }
@@ -2970,7 +1660,8 @@ mod tests {
             .expect("character should include id")
             .to_string();
         let context = StChatImportContext {
-            character_lookup: character_lookup_from_state(&state),
+            character_lookup: character_lookup_from_state(&state)
+                .expect("character lookup should build"),
             default_character_id: None,
             timestamp_overrides: None,
         };
@@ -3033,7 +1724,8 @@ mod tests {
             .create("characters", json!({ "data": { "name": "Bot" } }))
             .expect("second character should create");
         let context = StChatImportContext {
-            character_lookup: character_lookup_from_state(&state),
+            character_lookup: character_lookup_from_state(&state)
+                .expect("character lookup should build"),
             default_character_id: None,
             timestamp_overrides: None,
         };
@@ -3252,6 +1944,66 @@ mod tests {
     }
 
     #[test]
+    fn import_st_chat_into_group_rejects_character_lookup_read_failure() {
+        let app_root = temp_path("branch-character-lookup-failure");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        state
+            .storage
+            .clear_all()
+            .expect("test storage cache should clear");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "target-chat",
+                    "name": "Target Chat",
+                    "mode": "roleplay",
+                    "metadata": {},
+                    "characterIds": ["target-character"]
+                }),
+            )
+            .expect("target chat should be created");
+        block_collection_writes(&state, "characters");
+
+        let error = state
+            .storage
+            .update_collections_atomically(vec!["messages"], |_| {
+                Ok(import_st_chat_into_group(
+                    &state,
+                    json!({
+                        "chatId": "target-chat",
+                        "file": uploaded_jsonl_file(
+                            "branch.jsonl",
+                            r#"{"name":"Target","mes":"hello"}"#
+                        )
+                    }),
+                )
+                .expect_err("character lookup read failure must reject branch import"))
+            })
+            .expect("atomic read-failure harness should complete");
+
+        assert_eq!(error.code, "io_error");
+        let target = state
+            .storage
+            .get("chats", "target-chat")
+            .expect("target chat should be readable")
+            .expect("target chat should remain");
+        assert!(
+            target.get("groupId").is_none(),
+            "lookup failure should reject before mutating the target chat"
+        );
+        assert_eq!(
+            state.storage.list("chats").unwrap().len(),
+            1,
+            "lookup failure must not create an unlinked branch chat"
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+    }
+
+    #[test]
     fn import_persona_avatar_file_rolls_back_avatar_when_persona_write_fails() {
         let app_root = temp_path("persona-avatar-rollback");
         let source_root = temp_path("persona-source");
@@ -3427,5 +2179,76 @@ mod tests {
 
         let _ = fs::remove_dir_all(app_root);
         let _ = fs::remove_dir_all(st_root);
+    }
+
+    #[test]
+    fn copy_background_file_uses_unique_name_without_overwriting_collision() {
+        let app_root = temp_path("background-collision-app");
+        let source_root = temp_path("background-collision-source");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        let existing = state.backgrounds.root().join("scene.png");
+        let source = source_root.join("scene.png");
+        write_bytes(&existing, b"existing-background");
+        write_bytes(&source, b"new-background");
+
+        let result = super::backgrounds::copy_background_file_with_attempts(&state, &source, 3)
+            .expect("background copy should use a numbered collision target");
+        let imported_path = PathBuf::from(
+            result
+                .get("path")
+                .and_then(Value::as_str)
+                .expect("copy result should include a path"),
+        );
+
+        assert_eq!(
+            imported_path.file_name().and_then(|name| name.to_str()),
+            Some("scene-1.png")
+        );
+        assert_eq!(
+            fs::read(&existing).unwrap(),
+            b"existing-background".to_vec()
+        );
+        assert_eq!(
+            fs::read(state.backgrounds.root().join("scene-1.png")).unwrap(),
+            b"new-background".to_vec()
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn copy_background_file_errors_when_collision_targets_are_exhausted() {
+        let app_root = temp_path("background-collision-exhausted-app");
+        let source_root = temp_path("background-collision-exhausted-source");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        let existing = state.backgrounds.root().join("scene.png");
+        let collision = state.backgrounds.root().join("scene-1.png");
+        let source = source_root.join("scene.png");
+        write_bytes(&existing, b"existing-background");
+        write_bytes(&collision, b"existing-collision");
+        write_bytes(&source, b"new-background");
+
+        let error = super::backgrounds::copy_background_file_with_attempts(&state, &source, 2)
+            .expect_err("exhausted collision targets should reject instead of overwriting");
+
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(
+            fs::read(&existing).unwrap(),
+            b"existing-background".to_vec()
+        );
+        assert_eq!(
+            fs::read(&collision).unwrap(),
+            b"existing-collision".to_vec()
+        );
+        assert!(
+            !state.backgrounds.root().join("scene-2.png").exists(),
+            "exhausted helper should not create an unattempted target"
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+        let _ = fs::remove_dir_all(source_root);
     }
 }
