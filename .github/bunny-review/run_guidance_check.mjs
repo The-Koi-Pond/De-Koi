@@ -47,7 +47,7 @@ function runCandidates(candidates, spawn = spawnSync, io = process) {
     return result.status ?? 1;
   }
 
-  io.stderr.write("Unable to run Bunny guidance digest proof with any Python launcher.\n");
+  io.stderr.write("Unable to run Bunny review smoke proof with any Python launcher.\n");
   for (const command of missing) {
     io.stderr.write(`- ${command}: launcher not found\n`);
   }

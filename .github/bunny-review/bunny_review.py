@@ -25,36 +25,13 @@ MAX_CONTEXT_CHARS = 80_000
 MAX_CONTEXT_FILE_CHARS = 20_000
 MAX_SEARCH_HITS = 30
 MAX_SEARCH_FILE_BYTES = 250_000
-MAX_IDENTIFIER_CONTEXT_CHARS = 12_000
-MAX_COMPACT_IDENTIFIER_CONTEXT_CHARS = 4_000
-MAX_IDENTIFIER_TERMS = 16
-MAX_IDENTIFIER_HITS_PER_TERM = 6
+MAX_IDENTIFIER_CONTEXT_CHARS = 60_000
+MAX_IDENTIFIER_TERMS = 24
+MAX_IDENTIFIER_HITS_PER_TERM = 12
 MAX_FILE_PATCH_CHARS = 55_000
 MAX_FILE_SUMMARY_CHARS = 9_000
-MAX_COMPACT_FILE_PATCH_CHARS = 28_000
-MAX_COMPACT_FILE_SUMMARY_CHARS = 5_000
-MAX_COMPACT_FILE_CONTEXT_CHARS = 30_000
-MAX_GUIDANCE_DIGEST_CHARS = 12_000
-MAX_COMPACT_GUIDANCE_DIGEST_CHARS = 5_000
-MAX_GUIDANCE_FILE_CHARS = 3_000
-MAX_COMPACT_GUIDANCE_FILE_CHARS = 1_500
-MAX_GLOBAL_REVIEW_CONTEXT_CHARS = 24_000
-MAX_COMPACT_GLOBAL_REVIEW_CONTEXT_CHARS = 10_000
-MAX_GLOBAL_FILE_MAP_CHARS = 1_800
-MAX_COMPACT_GLOBAL_FILE_MAP_CHARS = 900
-MAX_GLOBAL_HUNK_CHARS = 900
-MAX_COMPACT_GLOBAL_HUNK_CHARS = 450
-MAX_CONTRACT_TRACE_CONTEXT_CHARS = 24_000
-MAX_COMPACT_CONTRACT_TRACE_CONTEXT_CHARS = 10_000
-MAX_CONTRACT_TRACE_ENTRY_CHARS = 4_000
-MAX_COMPACT_CONTRACT_TRACE_ENTRY_CHARS = 1_800
-MAX_CONTRACT_TRACE_PATHS = 6
-MAX_CONTRACT_TRACE_SYMBOLS = 12
-COMPACT_DIFF_UNIFIED_LINES = 20
-MAX_REVIEW_CHUNKS = 10
+MAX_REVIEW_CHUNKS = 8
 MAX_CHUNK_PATCH_CHARS = 90_000
-MAX_SINGLE_PACKET_CHARS = 60_000
-MAX_FORCED_CHUNK_PATCH_CHARS = 35_000
 MAX_INLINE_COMMENT_CHARS = 1_200
 MAX_CONTRACT_STATE_ENTRIES = 12
 MAX_CONTRACT_STATE_TEXT_CHARS = 320
@@ -68,26 +45,10 @@ SECRET_VALUE_RE = re.compile(
 SECRET_FILE_PART_RE = re.compile(
     r"(?i)(^|[/\\])(\.env[^/\\]*|.*secret.*|.*credential.*|id_rsa|id_ed25519|\.npmrc|\.netrc)([/\\]|$)"
 )
-REPO_PATH_RE = re.compile(
-    r"(?:(?<=`)|(?<=\s)|(?<=\()|^)"
-    r"((?:\.github|src-tauri|src|scripts|skills|docs|public|custom_components)"
-    r"[A-Za-z0-9_./-]*(?:\.[A-Za-z0-9_/-]+)?)"
-    r"(?::\d+)?"
-)
 
 
 class ReviewTooLarge(Exception):
     pass
-
-
-class EmptyModelResponse(Exception):
-    pass
-
-
-class ModelRequestTimeout(Exception):
-    def __init__(self, cause):
-        self.cause = cause
-        super().__init__(safe_model_error(cause))
 
 
 def positive_int_env(name, default):
@@ -183,18 +144,6 @@ def truncate(text, limit):
         text[:limit]
         + f"\n\n[truncated: section was {len(text)} chars, limit is {limit} chars]\n"
     )
-
-
-def truncate_to_budget(text, limit):
-    if limit <= 0:
-        return ""
-    if len(text) <= limit:
-        return text
-    suffix = f"\n\n[truncated: section was {len(text)} chars, budget is {limit} chars]\n"
-    if len(suffix) >= limit:
-        return suffix[:limit]
-    keep = max(0, limit - len(suffix))
-    return text[:keep].rstrip() + suffix
 
 
 def redact_for_model(text):
@@ -322,20 +271,11 @@ def search_repo_with_python(pattern):
     return "\n".join(hits) or "no matches"
 
 
-def search_repo_hits(pattern, max_hits, exclude_paths=None):
+def search_repo_hits(pattern, max_hits):
     result = search_repo(pattern)
     if result == "no matches" or result.startswith("refused:"):
         return []
-    excluded = tuple(str(path).replace("\\", "/") + ":" for path in (exclude_paths or []))
-    hits = []
-    for line in result.splitlines():
-        normalized = line.replace("\\", "/")
-        if excluded and any(normalized.startswith(path) for path in excluded):
-            continue
-        hits.append(line)
-        if len(hits) >= max_hits:
-            break
-    return hits
+    return result.splitlines()[:max_hits]
 
 
 def extract_changed_identifiers(patch):
@@ -370,53 +310,36 @@ def extract_changed_identifiers(patch):
         "list",
         "id",
     }
-    metadata = {}
+    counts = {}
     for line in patch.splitlines():
         if not line.startswith(("+", "-")) or line.startswith(("+++", "---")):
             continue
-        body = line[1:].strip()
-        is_declaration = bool(
-            re.search(
-                r"\b(export|import|function|class|interface|type|enum|const|let|var)\b",
-                body,
-            )
-        )
-        is_public = body.startswith(("export ", "import "))
         for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", line):
             if token.lower() in stop_words:
                 continue
-            item = metadata.setdefault(
-                token,
-                {"count": 0, "declaration": False, "public": False},
-            )
-            item["count"] += 1
-            item["declaration"] = item["declaration"] or is_declaration
-            item["public"] = item["public"] or is_public
+            counts[token] = counts.get(token, 0) + 1
     preferred = sorted(
-        metadata,
+        counts,
         key=lambda token: (
-            not metadata[token]["public"],
-            not metadata[token]["declaration"],
-            metadata[token]["count"] < 2,
             not any(char.isupper() for char in token) and "_" not in token,
-            -metadata[token]["count"],
+            -counts[token],
             token.lower(),
         ),
     )
     return preferred[:MAX_IDENTIFIER_TERMS]
 
 
-def build_identifier_context(patch, limit=MAX_IDENTIFIER_CONTEXT_CHARS, exclude_paths=None):
+def build_identifier_context(patch):
     terms = extract_changed_identifiers(patch)
     sections = []
     for term in terms:
-        hits = search_repo_hits(term, MAX_IDENTIFIER_HITS_PER_TERM, exclude_paths=exclude_paths)
+        hits = search_repo_hits(term, MAX_IDENTIFIER_HITS_PER_TERM)
         if not hits:
             continue
         sections.append(f"### {term}\n" + "\n".join(hits))
     if not sections:
         return "No changed identifier usage context found."
-    return truncate("\n\n".join(sections), limit)
+    return truncate("\n\n".join(sections), MAX_IDENTIFIER_CONTEXT_CHARS)
 
 
 def changed_files(base):
@@ -458,202 +381,48 @@ def load_rules():
         return {"_load_error": str(exc)}
 
 
-def markdown_section(text, heading):
-    match = re.search(rf"^##\s+{re.escape(heading)}\s*$", text, flags=re.MULTILINE)
-    if not match:
-        return ""
-    rest = text[match.end() :]
-    next_match = re.search(r"^##\s+", rest, flags=re.MULTILINE)
-    end = match.end() + next_match.start() if next_match else len(text)
-    return text[match.start() : end].strip()
-
-
-def guidance_paths_for_files(files):
-    rules = load_rules()
-    guidance = ["AGENTS.md", "skills/de-koi-agent-workflow/SKILL.md"]
-    if rules and "_load_error" not in rules:
-        for item in rules.get("path_instructions", []):
-            prefixes = item.get("prefixes", [])
-            if any(any(path.startswith(prefix) for prefix in prefixes) for path in files):
-                guidance.extend(item.get("guidance", []))
-    else:
-        joined = "\n".join(files)
-        if any(
-            marker in joined
-            for marker in ("src/engine/", "src/features/", "src/shared/api/", "src-tauri/")
-        ):
-            guidance.append("skills/de-koi-architecture-guard/SKILL.md")
-        if any(
-            marker in joined
-            for marker in (
-                "chat",
-                "roleplay",
-                "game",
-                "modes",
-                "prompt",
-                "generation",
-                "summary",
-                "memory",
-            )
-        ):
-            guidance.append("skills/de-koi-mode-separation/SKILL.md")
-        if any(
-            marker in joined
-            for marker in ("fix/", "storage", "imports", "provider", "transport", "commands")
-        ):
-            guidance.append("skills/de-koi-bugfix-discipline/SKILL.md")
-        if any(marker in joined for marker in ("README", "docs/", "skills/", "AGENTS.md")):
-            guidance.append("skills/de-koi-getting-started/SKILL.md")
+def guidance_from_rules(files, rules):
+    guidance = ["AGENTS.md"]
+    for item in rules.get("path_instructions", []):
+        prefixes = item.get("prefixes", [])
+        if any(any(path.startswith(prefix) for prefix in prefixes) for path in files):
+            guidance.extend(item.get("guidance", []))
     return list(dict.fromkeys(guidance))
 
 
-def join_digest_sections(sections):
-    return "\n\n".join(section for section in sections if section).strip()
-
-
-def guidance_omission_section(path, reason):
-    return f"## guidance: {path}\n[guidance omitted: {reason}]"
-
-
-def aggregate_guidance_omission_section(paths, limit):
-    if "AGENTS.md" in paths:
-        intro = [
-            "AGENTS.md was omitted because the minimum guidance notes exceed the "
-            "guidance digest budget.",
-            "Selected guidance files were also omitted from individual sections.",
-        ]
-    else:
-        intro = [
-            "Selected guidance files were omitted from individual sections because "
-            "their minimum notes exceed the guidance digest budget.",
-        ]
-    body = "\n".join(
-        [
-            *intro,
-            "Bunny must request focused context if one of these guidance files is "
-            "needed to validate a concrete finding.",
-            "",
-            *[f"- {path}" for path in paths],
-        ]
-    )
-    return fit_guidance_section("guidance omissions", body, limit)
-
-
-def fit_guidance_section(title, body, budget):
-    section = f"## {title}\n{body}".strip()
-    if len(section) <= budget:
-        return section
-    note = f"\n\n[truncated: guidance section was {len(section)} chars, budget is {budget} chars]"
-    prefix = f"## {title}\n"
-    keep = budget - len(prefix) - len(note)
-    if keep > 0:
-        return prefix + body[:keep].rstrip() + note
-    omission = guidance_omission_section(
-        title.removeprefix("guidance: "),
-        "digest budget was exhausted before content could fit",
-    )
-    return truncate_to_budget(omission, budget)
-
-
-def read_guidance_body(path, limit):
-    try:
-        body = read_text(path, limit)
-    except Exception as exc:
-        return f"Could not read: {exc}"
-    return truncate_to_budget(body.strip() or "[empty guidance file]", limit)
-
-
-def build_agents_guidance_body():
-    notes = "\n".join(
-        [
-            "Bunny path rules are provided separately as structured JSON for matched paths.",
-            "Keep findings tied to changed lines in the focused patch context.",
-        ]
-    )
-    try:
-        agents = read_text("AGENTS.md", 16_000)
-        hard_rules = markdown_section(agents, "Hard Rules") or agents
-    except Exception as exc:
-        hard_rules = f"Could not read AGENTS.md hard rules: {exc}"
-    return f"{notes}\n\n{hard_rules}".strip()
-
-
-def guidance_items_for_paths(paths, file_limit):
-    selected = []
-    for path in paths:
-        body = read_guidance_body(path, file_limit)
-        minimum_section = guidance_omission_section(
-            path,
-            "selected by path rules, but remaining digest budget was reserved for other selected guidance files",
+def select_guidance(files):
+    rules = load_rules()
+    if rules and "_load_error" not in rules:
+        return guidance_from_rules(files, rules)
+    guidance = ["AGENTS.md"]
+    joined = "\n".join(files)
+    if any(
+        marker in joined
+        for marker in ("packages/shared/", "packages/server/src/", "packages/client/src/")
+    ):
+        guidance.append("docs/ARCHITECTURE_MAP.md")
+    if any(
+        marker in joined
+        for marker in (
+            "chat",
+            "roleplay",
+            "game",
+            "conversation",
+            "prompt",
+            "generation",
+            "summary",
+            "memory",
         )
-        selected.append(
-            {
-                "path": path,
-                "title": f"guidance: {path}",
-                "body": body,
-                "minimum": minimum_section,
-            }
-        )
-    return selected
-
-
-def build_guidance_sections(selected, limit):
-    minimum_digest = join_digest_sections(item["minimum"] for item in selected)
-    if len(minimum_digest) > limit:
-        return [aggregate_guidance_omission_section([item["path"] for item in selected], limit)]
-
-    sections = []
-    for index, item in enumerate(selected):
-        later_minimum = join_digest_sections(
-            entry["minimum"] for entry in selected[index + 1 :]
-        )
-        current = join_digest_sections(sections)
-        before_current = 2 if current else 0
-        after_current = 2 if later_minimum else 0
-        budget = (
-            limit
-            - len(current)
-            - before_current
-            - len(later_minimum)
-            - after_current
-        )
-        if budget <= 0:
-            break
-        if len(item["minimum"]) > budget:
-            sections.append(truncate_to_budget(item["minimum"], budget))
-            continue
-        sections.append(
-            fit_guidance_section(item["title"], item["body"], budget)
-        )
-    return sections
-
-
-def build_path_guidance_sections(paths, limit, file_limit):
-    return build_guidance_sections(guidance_items_for_paths(paths, file_limit), limit)
-
-
-def build_repo_guidance_digest(files, *, compact=False):
-    limit = MAX_COMPACT_GUIDANCE_DIGEST_CHARS if compact else MAX_GUIDANCE_DIGEST_CHARS
-    file_limit = MAX_COMPACT_GUIDANCE_FILE_CHARS if compact else MAX_GUIDANCE_FILE_CHARS
-    selected_guidance = [
-        path for path in guidance_paths_for_files(files) if path != "AGENTS.md"
-    ]
-    sections = build_guidance_sections(
-        [
-            {
-                "path": "AGENTS.md",
-                "title": "AGENTS.md hard rules",
-                "body": build_agents_guidance_body(),
-                "minimum": guidance_omission_section(
-                    "AGENTS.md",
-                    "required repo guidance, but the guidance digest budget was exhausted",
-                ),
-            },
-            *guidance_items_for_paths(selected_guidance, file_limit),
-        ],
-        limit,
-    )
-    return join_digest_sections(sections)
+    ):
+        guidance.append("packages/client/.instructions.md")
+    if any(
+        marker in joined
+        for marker in ("storage", "import", "provider", "db/", "migration", "services/")
+    ):
+        guidance.append("docs/FILE_STORAGE_MIGRATION.md")
+    if any(marker in joined for marker in ("README", "docs/", "AGENTS.md", "CONTRIBUTING.md", "CLAUDE.md")):
+        guidance.append("CONTRIBUTING.md")
+    return list(dict.fromkeys(guidance))
 
 
 def matching_path_rules(files):
@@ -673,197 +442,30 @@ def matching_path_rules(files):
     return json.dumps(payload, indent=2, sort_keys=True)
 
 
-def diff_for_path(base, path, *, unified=80):
+def diff_for_path(base, path):
     return redact_for_model(
-        run_git_raw(
-            [
-                "diff",
-                "--find-renames",
-                f"--unified={unified}",
-                f"{base}...HEAD",
-                "--",
-                path,
-            ]
-        )
+        run_git_raw(["diff", "--find-renames", "--unified=80", f"{base}...HEAD", "--", path])
     )
 
 
-def packet_body_budget_for_section(sections_before, section_title, sections_after):
-    skeleton = format_packet_sections(
-        [*sections_before, (section_title, ""), *sections_after]
-    )
-    return max(0, MAX_REVIEW_PACKET_CHARS - len(skeleton))
-
-
-def remaining_context_budget(sections, limit):
-    if limit is None:
-        return None
-    current = "\n\n".join(sections)
-    separator = 2 if current else 0
-    return limit - len(current) - separator
-
-
-def append_context_section(sections, section, limit):
-    remaining = remaining_context_budget(sections, limit)
-    if remaining is None:
-        sections.append(section)
-        return True
-    if remaining <= 0:
-        return False
-    sections.append(truncate_to_budget(section, remaining))
-    return True
-
-
-def build_file_context(base, files, *, compact=False, max_context_chars=None):
+def build_file_context(base, files):
     sections = []
-    patch_limit = MAX_COMPACT_FILE_PATCH_CHARS if compact else MAX_FILE_PATCH_CHARS
-    summary_limit = (
-        MAX_COMPACT_FILE_SUMMARY_CHARS if compact else MAX_FILE_SUMMARY_CHARS
-    )
-    context_limit = max_context_chars
-    if compact:
-        context_limit = min(
-            MAX_COMPACT_FILE_CONTEXT_CHARS,
-            max_context_chars
-            if max_context_chars is not None
-            else MAX_COMPACT_FILE_CONTEXT_CHARS,
-        )
-    unified = COMPACT_DIFF_UNIFIED_LINES if compact else 80
     for path in files:
-        patch = diff_for_path(base, path, unified=unified)
+        patch = diff_for_path(base, path)
         if not patch:
             continue
-        full_section = f"### {path}\n```diff\n{patch}\n```"
-        remaining = remaining_context_budget(sections, context_limit)
-        if (
-            (len(patch) <= patch_limit or (not compact and context_limit is not None))
-            and (remaining is None or len(full_section) <= remaining)
-        ):
-            if not append_context_section(sections, full_section, context_limit):
-                break
+        if len(patch) <= MAX_FILE_PATCH_CHARS:
+            sections.append(f"### {path}\n```diff\n{patch}\n```")
             continue
-        summary_section = (
+        sections.append(
             "### "
             + path
             + "\n```text\n"
             + truncate(run_git(["diff", "--stat", f"{base}...HEAD", "--", path], 2_000), 2_000)
-            + truncate(patch, summary_limit)
+            + truncate(patch, MAX_FILE_SUMMARY_CHARS)
             + "\n```"
         )
-        if not append_context_section(sections, summary_section, context_limit):
-            break
-    body = "\n\n".join(sections) or "No per-file patch context found."
-    if context_limit is not None:
-        return truncate_to_budget(body, context_limit)
-    return body
-
-
-def file_interface_context(path):
-    try:
-        body = read_context_file(path)
-    except Exception as exc:
-        return f"Could not read current file: {exc}"
-    lines = []
-    suffix = pathlib.Path(path).suffix.lower()
-    for raw in body.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        if suffix in {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}:
-            if line.startswith(("import ", "export ", "type ", "interface ", "class ", "function ", "const ")):
-                lines.append(line)
-        elif suffix == ".rs":
-            if line.startswith(("use ", "pub ", "impl ", "fn ", "struct ", "enum ")):
-                lines.append(line)
-        elif suffix in {".py"}:
-            if line.startswith(("import ", "from ", "def ", "class ")):
-                lines.append(line)
-        if len(lines) >= 80:
-            break
-    return "\n".join(lines) if lines else "No compact interface lines found."
-
-
-def build_global_file_map(base, files, *, compact=False):
-    sections = []
-    per_file_limit = (
-        MAX_COMPACT_GLOBAL_FILE_MAP_CHARS if compact else MAX_GLOBAL_FILE_MAP_CHARS
-    )
-    hunk_limit = MAX_COMPACT_GLOBAL_HUNK_CHARS if compact else MAX_GLOBAL_HUNK_CHARS
-    unified = 0 if compact else 3
-    for path in files:
-        stat = run_git(["diff", "--numstat", f"{base}...HEAD", "--", path], 1_000)
-        hunk_sketch = truncate(diff_for_path(base, path, unified=unified), hunk_limit)
-        body = (
-            f"numstat: {stat.strip() or 'unavailable'}\n"
-            f"current interface lines:\n{file_interface_context(path)}\n\n"
-            f"changed hunk sketch:\n{hunk_sketch}"
-        )
-        sections.append(f"### {path}\n{truncate(body, per_file_limit)}")
-    return "\n\n".join(sections) or "No changed file map available."
-
-
-def build_global_review_context(base, files, *, compact=False):
-    limit = (
-        MAX_COMPACT_GLOBAL_REVIEW_CONTEXT_CHARS
-        if compact
-        else MAX_GLOBAL_REVIEW_CONTEXT_CHARS
-    )
-    sections = [
-        ("file relationship map", build_global_file_map(base, files, compact=compact)),
-    ]
-    body = "\n\n".join(f"## {title}\n{redact_for_model(text)}" for title, text in sections)
-    return truncate(body, limit)
-
-
-def patch_overview(patch, files, context_files, *, compact, include_full_patch):
-    packet_kind = "compact fallback" if compact else "standard"
-    scope = "full diff" if include_full_patch else "focused chunk"
-    return (
-        f"{packet_kind} packet for the {scope}. "
-        "The canonical changed-line evidence is in the per-file patch context section; "
-        "the raw patch is not repeated here so the model budget is reserved for review. "
-        f"Changed files: {len(files)}. Focus files: {len(context_files)}. "
-        f"Raw diff chars for this scope: {len(patch)}."
-    )
-
-
-def print_packet_section_telemetry(sections, *, compact):
-    sizes = sorted(
-        ((title, len(redact_for_model(body))) for title, body in sections),
-        key=lambda item: item[1],
-        reverse=True,
-    )
-    summary = "; ".join(f"{title}={size}" for title, size in sizes)
-    print(
-        "Bunny packet sections "
-        f"mode={'compact' if compact else 'standard'}; "
-        + truncate(summary, 1_400),
-        flush=True,
-    )
-
-
-def format_packet_section(title, body):
-    return f"## {title}\n```text\n{redact_for_model(body)}\n```"
-
-
-def format_packet_sections(sections):
-    return "\n\n".join(format_packet_section(title, body) for title, body in sections)
-
-
-def append_optional_global_context(sections, global_context):
-    if not global_context:
-        return
-    packet_so_far = format_packet_sections(sections)
-    section_title = "PR global review map"
-    section_overhead = len(format_packet_section(section_title, ""))
-    join_overhead = 2 if packet_so_far else 0
-    remaining = MAX_REVIEW_PACKET_CHARS - len(packet_so_far) - section_overhead - join_overhead
-    omitted = (
-        "Omitted because required focus-file patch context, path rules, CI, and "
-        "guidance consumed the packet budget."
-    )
-    if remaining >= len(omitted):
-        sections.append((section_title, truncate_to_budget(global_context, remaining)))
+    return "\n\n".join(sections) or "No per-file patch context found."
 
 
 def build_review_packet(
@@ -873,25 +475,24 @@ def build_review_packet(
     focus_files=None,
     include_full_patch=True,
     *,
-    compact=False,
-    global_context=None,
-    prior_contracts=None,
-    emit_telemetry=True,
+    truncate_packet=True,
 ):
     files = changed_files(base)
     context_files = focus_files or files
-    unified = COMPACT_DIFF_UNIFIED_LINES if compact else 80
     if focus_files is None or include_full_patch:
         patch = redact_for_model(
-            run_git_raw(
-                ["diff", "--find-renames", f"--unified={unified}", f"{base}...HEAD"]
-            )
+            run_git_raw(["diff", "--find-renames", "--unified=80", f"{base}...HEAD"])
         )
     else:
-        patch = "\n".join(
-            diff_for_path(base, path, unified=unified) for path in focus_files
-        )
-    sections_before_file_context = [
+        patch = "\n".join(diff_for_path(base, path) for path in focus_files)
+    scope = "full diff" if focus_files is None or include_full_patch else "focused chunk"
+    patch_body = (
+        "Raw patch is not repeated here; use the per-file patch context section "
+        "as the canonical changed-line evidence. "
+        f"Scope: {scope}. Changed files: {len(files)}. Focus files: {len(context_files)}. "
+        f"Raw diff chars for this scope: {len(patch)}."
+    )
+    sections = [
         ("review mode", mode),
         ("git status", run_git(["status", "--short", "--branch"], 12_000)),
         ("repo root", run_git(["rev-parse", "--show-toplevel"], 4_000)),
@@ -900,79 +501,34 @@ def build_review_packet(
         ("changed files", "\n".join(files) or "No changed files reported."),
         ("numstat", run_git(["diff", "--numstat", f"{base}...HEAD"], 20_000)),
         ("focus files", "\n".join(context_files) or "All changed files."),
-        (
-            "patch overview",
-            patch_overview(
-                patch,
-                files,
-                context_files,
-                compact=compact,
-                include_full_patch=include_full_patch,
-            ),
-        ),
-        (
-            "prior contract trace context",
-            build_prior_contract_trace_context(
-                base,
-                prior_contracts or [],
-                files,
-                compact=compact,
-                focus_files=context_files if focus_files else None,
-            ),
-        ),
-    ]
-    sections_after_file_context = [
-        (
-            "changed identifier usage",
-            build_identifier_context(
-                patch,
-                MAX_COMPACT_IDENTIFIER_CONTEXT_CHARS
-                if compact
-                else MAX_IDENTIFIER_CONTEXT_CHARS,
-                exclude_paths=context_files,
-            ),
-        ),
+        ("patch overview", patch_body),
+        ("per-file patch context", build_file_context(base, context_files)),
+        ("changed identifier usage", build_identifier_context(patch)),
         ("Bunny path rules", matching_path_rules(files)),
-        ("repo guidance digest", build_repo_guidance_digest(files, compact=compact)),
     ]
     if ci_status:
-        sections_after_file_context.append(("CI status", ci_status))
+        sections.append(("CI status", ci_status))
+    for path in select_guidance(files):
+        try:
+            sections.append((f"guidance: {path}", read_text(path, 30_000)))
+        except Exception as exc:
+            sections.append((f"guidance: {path}", f"Could not read: {exc}"))
 
-    file_context_budget = packet_body_budget_for_section(
-        sections_before_file_context,
-        "per-file patch context",
-        sections_after_file_context,
+    packet = "\n\n".join(
+        f"## {title}\n```text\n{redact_for_model(body)}\n```" for title, body in sections
     )
-    sections = [
-        *sections_before_file_context,
-        (
-            "per-file patch context",
-            build_file_context(
-                base,
-                context_files,
-                compact=compact,
-                max_context_chars=file_context_budget,
-            ),
-        ),
-        *sections_after_file_context,
-    ]
-
-    append_optional_global_context(sections, global_context)
-    if emit_telemetry:
-        print_packet_section_telemetry(sections, compact=compact)
-    packet = format_packet_sections(sections)
-    if len(packet) > MAX_REVIEW_PACKET_CHARS:
-        packet = truncate_to_budget(packet, MAX_REVIEW_PACKET_CHARS)
+    if truncate_packet and len(packet) > MAX_REVIEW_PACKET_CHARS:
+        packet = truncate(packet, MAX_REVIEW_PACKET_CHARS)
     return packet
 
 
-def chunk_changed_files(base, files, *, max_patch_chars=MAX_CHUNK_PATCH_CHARS):
+def chunk_changed_files(base, files):
     chunks = []
     current = []
     current_size = 0
     for path in files:
         patch_size = len(diff_for_path(base, path))
-        if current and current_size + patch_size > max_patch_chars:
+        if current and current_size + patch_size > MAX_CHUNK_PATCH_CHARS:
             chunks.append(current)
             current = []
             current_size = 0
@@ -988,246 +544,16 @@ def chunk_changed_files(base, files, *, max_patch_chars=MAX_CHUNK_PATCH_CHARS):
     return merged
 
 
-def contract_changed_path_groups(files, prior_contracts):
-    changed = set(files)
-    groups = []
-    for entry in normalize_contract_state_entries(prior_contracts):
-        paths = [path for path in contract_trace_paths(entry) if path in changed]
-        paths = ordered_unique(paths)
-        if len(paths) > 1:
-            groups.append(paths)
-    return groups
-
-
-def merge_contract_related_chunks(chunks, groups):
-    result = [list(chunk) for chunk in chunks]
-    for group in groups:
-        group_set = set(group)
-        indices = [
-            index
-            for index, chunk in enumerate(result)
-            if group_set.intersection(chunk)
-        ]
-        if len(indices) <= 1:
-            continue
-        merged_paths = []
-        for index in indices:
-            merged_paths.extend(result[index])
-        first = indices[0]
-        remove = set(indices[1:])
-        next_result = []
-        for index, chunk in enumerate(result):
-            if index == first:
-                next_result.append(ordered_unique(merged_paths))
-            elif index not in remove:
-                next_result.append(chunk)
-        result = next_result
-    return result
-
-
-def model_base_label() -> str:
-    return "custom" if os.environ.get("LLM_BASE_URL", "").strip() else "default"
-
-
-def model_api_key() -> str:
-    return os.environ.get("LLM_API_KEY", "").strip() or os.environ.get(
-        "OPENAI_API_KEY", ""
-    ).strip()
-
-
-def missing_model_api_key_message() -> str:
-    return (
-        "The reviewer could not run because no model API key is configured. "
-        "Set `DE_KOI_BUNNY_LLM_API_KEY` for provider-specific Bunny credentials "
-        "or keep `OPENAI_API_KEY` for the default provider. No key, no coin slot, "
-        "no Bunny review."
-    )
-
-
-def approx_tokens_from_chars(chars: int) -> int:
-    return max(1, round(chars / 4))
-
-
-def message_chars(messages) -> int:
-    return sum(len(str(message.get("content", ""))) for message in messages)
-
-
-def is_timeout_error(exc: Exception) -> bool:
-    if isinstance(exc, TimeoutError):
-        return True
-    return any("timeout" in cls.__name__.lower() for cls in type(exc).__mro__)
-
-
-def safe_model_error(exc: Exception) -> str:
-    if isinstance(exc, ModelRequestTimeout):
-        return safe_model_error(exc.cause)
-    parts = [type(exc).__name__]
-    status_code = getattr(exc, "status_code", None)
-    response = getattr(exc, "response", None)
-    if status_code is None and response is not None:
-        status_code = getattr(response, "status_code", None)
-    if status_code is not None:
-        parts.append(f"status={status_code}")
-    code = getattr(exc, "code", None)
-    if code is not None:
-        safe_code = re.sub(r"[^A-Za-z0-9_.-]", "_", str(code))[:48]
-        if safe_code:
-            parts.append(f"code={safe_code}")
-    return ": ".join([parts[0], " ".join(parts[1:])]) if len(parts) > 1 else parts[0]
-
-
-def packet_chars_for_chunk(base, ci_status, mode, chunk, global_context, prior_contracts):
-    return len(
-        build_review_packet(
-            base,
-            ci_status,
-            mode,
-            focus_files=chunk,
-            include_full_patch=False,
-            global_context=global_context,
-            prior_contracts=prior_contracts,
-            emit_telemetry=False,
-        )
-    )
-
-
-def split_chunk(chunk, protected_groups=None):
-    midpoint = max(1, len(chunk) // 2)
-    protected = [
-        set(group).intersection(chunk)
-        for group in (protected_groups or [])
-        if len(set(group).intersection(chunk)) > 1
-    ]
-    if protected:
-        candidates = sorted(
-            range(1, len(chunk)),
-            key=lambda index: (abs(index - midpoint), index),
-        )
-        for index in candidates:
-            left = set(chunk[:index])
-            right = set(chunk[index:])
-            if all(not (group.intersection(left) and group.intersection(right)) for group in protected):
-                return chunk[:index], chunk[index:]
-    return chunk[:midpoint], chunk[midpoint:]
-
-
-def enforce_packet_chunk_size(base, ci_status, mode, chunks, global_context, prior_contracts, protected_groups=None):
-    result = []
-    queue = [list(chunk) for chunk in chunks]
-    forced = False
-    max_final_packet_chars = 0
-    oversized_unsplit = False
-    while queue:
-        chunk = queue.pop(0)
-        packet_chars = packet_chars_for_chunk(
-            base,
-            ci_status,
-            mode,
-            chunk,
-            global_context,
-            prior_contracts,
-        )
-        can_split = len(chunk) > 1 and len(result) + len(queue) + 2 <= MAX_REVIEW_CHUNKS
-        if packet_chars > MAX_SINGLE_PACKET_CHARS and can_split:
-            left, right = split_chunk(chunk, protected_groups)
-            queue = [left, right, *queue]
-            forced = True
-            continue
-        if packet_chars > MAX_SINGLE_PACKET_CHARS:
-            oversized_unsplit = True
-        max_final_packet_chars = max(max_final_packet_chars, packet_chars)
-        result.append(chunk)
-    return result, forced, max_final_packet_chars, oversized_unsplit
-
-
-def plan_review_chunks(base, ci_status, mode, files, prior_contracts=None):
-    contract_groups = contract_changed_path_groups(files, prior_contracts or [])
-    patch_chunks = merge_contract_related_chunks(
-        chunk_changed_files(base, files),
-        contract_groups,
-    )
-    all_packet_chars = len(
-        build_review_packet(
-            base,
-            ci_status,
-            mode,
-            prior_contracts=prior_contracts,
-            emit_telemetry=False,
-        )
-    )
-    if len(patch_chunks) <= 1 and all_packet_chars <= MAX_SINGLE_PACKET_CHARS:
-        return {
-            "chunks": patch_chunks,
-            "patch_chunks": patch_chunks,
-            "forced_by_packet_size": False,
-            "reason": "single packet under threshold",
-            "probe_packet_chars": all_packet_chars,
-            "max_chunk_packet_chars": all_packet_chars,
-            "chunk_patch_threshold": MAX_CHUNK_PATCH_CHARS,
-            "global_review_context": None,
-            "compact_global_review_context": None,
-        }
-
-    chunk_patch_threshold = MAX_CHUNK_PATCH_CHARS
-    chunks = patch_chunks
-    forced_by_packet_size = False
-    if len(chunks) <= 1:
-        chunk_patch_threshold = MAX_FORCED_CHUNK_PATCH_CHARS
-        chunks = merge_contract_related_chunks(
-            chunk_changed_files(
-                base,
-                files,
-                max_patch_chars=chunk_patch_threshold,
-            ),
-            contract_groups,
-        )
-        if len(chunks) <= 1:
-            chunk_patch_threshold = max(1, MAX_FORCED_CHUNK_PATCH_CHARS // 2)
-            chunks = merge_contract_related_chunks(
-                chunk_changed_files(
-                    base,
-                    files,
-                    max_patch_chars=chunk_patch_threshold,
-                ),
-                contract_groups,
-            )
-        forced_by_packet_size = len(chunks) > len(patch_chunks)
-
-    global_review_context = build_global_review_context(base, files)
-    compact_global_review_context = build_global_review_context(
+def review_chunks_for_packet_budget(base, ci_status, mode, files):
+    full_review_packet = build_review_packet(
         base,
-        files,
-        compact=True,
+        ci_status,
+        mode,
+        truncate_packet=False,
     )
-    chunks, packet_split, max_chunk_packet_chars, oversized_unsplit = (
-        enforce_packet_chunk_size(
-            base,
-            ci_status,
-            mode,
-            chunks,
-            global_review_context,
-            prior_contracts or [],
-            contract_groups,
-        )
-    )
-    forced_by_packet_size = forced_by_packet_size or packet_split
-    if oversized_unsplit:
-        reason = "packet over threshold but max chunk split limit reached"
-    elif forced_by_packet_size:
-        reason = "assembled packet over threshold"
-    else:
-        reason = "raw patch chunking"
-    return {
-        "chunks": chunks,
-        "patch_chunks": patch_chunks,
-        "forced_by_packet_size": forced_by_packet_size,
-        "reason": reason,
-        "probe_packet_chars": all_packet_chars,
-        "max_chunk_packet_chars": max_chunk_packet_chars,
-        "chunk_patch_threshold": chunk_patch_threshold,
-        "global_review_context": global_review_context,
-        "compact_global_review_context": compact_global_review_context,
-    }
+    if len(full_review_packet) > MAX_REVIEW_PACKET_CHARS:
+        return full_review_packet, chunk_changed_files(base, files)
+    return full_review_packet, [files]
 
 
 def usage_value(usage, *path):
@@ -1255,17 +581,10 @@ def build_stats(review_packet):
     return {
         "started_at": time.monotonic(),
         "model_calls": 0,
-        "model_requests_started": 0,
-        "model_request_failures": 0,
-        "model_request_elapsed_s": 0.0,
-        "last_model_error": "",
         "review_packet_chars": len(review_packet),
-        "fallback_packet_chars": 0,
-        "fallback_reviews": 0,
         "extra_context_chars": 0,
         "context_files": 0,
         "context_searches": 0,
-        "empty_model_responses": 0,
         "prompt_tokens": 0,
         "completion_tokens": 0,
         "reasoning_tokens": 0,
@@ -1279,17 +598,10 @@ def print_telemetry(stats):
         "Bunny telemetry: "
         f"elapsed_s={elapsed:.1f}; "
         f"model_calls={stats['model_calls']}; "
-        f"model_requests_started={stats['model_requests_started']}; "
-        f"model_request_failures={stats['model_request_failures']}; "
-        f"model_request_elapsed_s={stats['model_request_elapsed_s']:.1f}; "
-        f"last_model_error={stats['last_model_error']}; "
         f"review_packet_chars={stats['review_packet_chars']}; "
-        f"fallback_reviews={stats['fallback_reviews']}; "
-        f"fallback_packet_chars={stats['fallback_packet_chars']}; "
         f"extra_context_chars={stats['extra_context_chars']}; "
         f"context_files={stats['context_files']}; "
         f"context_searches={stats['context_searches']}; "
-        f"empty_model_responses={stats['empty_model_responses']}; "
         f"prompt_tokens={stats['prompt_tokens']}; "
         f"completion_tokens={stats['completion_tokens']}; "
         f"reasoning_tokens={stats['reasoning_tokens']}; "
@@ -1299,73 +611,16 @@ def print_telemetry(stats):
 
 
 def model_call(client, messages, stats):
-    model = os.environ.get("LLM_MODEL", "gpt-5.5")
-    chars = message_chars(messages)
-    stats["model_requests_started"] += 1
-    started_at = time.monotonic()
-    print(
-        "Bunny model request starting: "
-        f"model={model}; "
-        f"base={model_base_label()}; "
-        f"timeout_s={MODEL_REQUEST_TIMEOUT}; "
-        f"max_retries={MODEL_MAX_RETRIES}; "
-        f"messages={len(messages)}; "
-        f"message_chars={chars}; "
-        f"approx_tokens={approx_tokens_from_chars(chars)}",
-        flush=True,
-    )
-    try:
-        resp = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            timeout=MODEL_REQUEST_TIMEOUT,
-        )
-    except Exception as exc:
-        elapsed = time.monotonic() - started_at
-        stats["model_request_failures"] += 1
-        stats["model_request_elapsed_s"] += elapsed
-        stats["last_model_error"] = safe_model_error(exc)
-        print(
-            "Bunny model request failed: "
-            f"elapsed_s={elapsed:.1f}; "
-            f"error_type={type(exc).__name__}; "
-            f"error={stats['last_model_error']}",
-            flush=True,
-        )
-        if is_timeout_error(exc):
-            raise ModelRequestTimeout(exc) from exc
-        raise
-    elapsed = time.monotonic() - started_at
-    stats["model_request_elapsed_s"] += elapsed
-    print(
-        "Bunny model request completed: "
-        f"elapsed_s={elapsed:.1f}; "
-        f"model={model}",
-        flush=True,
+    resp = client.chat.completions.create(
+        model=os.environ.get("LLM_MODEL", "gpt-5.5"),
+        messages=messages,
+        timeout=MODEL_REQUEST_TIMEOUT,
     )
     stats["model_calls"] += 1
-    usage = getattr(resp, "usage", None)
-    add_usage(stats, usage)
+    add_usage(stats, getattr(resp, "usage", None))
     if isinstance(resp, str):
-        content = resp
-        finish_reason = None
-    else:
-        choice = resp.choices[0] if getattr(resp, "choices", None) else None
-        finish_reason = getattr(choice, "finish_reason", None)
-        message = getattr(choice, "message", None)
-        content = getattr(message, "content", None) or ""
-    if not content.strip():
-        stats["empty_model_responses"] += 1
-        details = (
-            f"empty model response from {model}; "
-            f"prompt_tokens={usage_value(usage, 'prompt_tokens')}; "
-            f"completion_tokens={usage_value(usage, 'completion_tokens')}; "
-            f"total_tokens={usage_value(usage, 'total_tokens')}"
-        )
-        if finish_reason:
-            details += f"; finish_reason={finish_reason}"
-        raise EmptyModelResponse(details)
-    return content
+        return resp
+    return resp.choices[0].message.content or ""
 
 
 def extract_json_or_repair(client, messages, content, stats):
@@ -1436,40 +691,9 @@ def skeptical_review_pass(client, skill, triage_content, stats):
     return extract_json_or_repair(client, messages, response, stats)
 
 
-def contract_verification_pass(client, skill, triage_content, stats):
-    contract_prompt = (
-        "Run a focused prior-contract verification pass over the packet. First inspect "
-        "the Prior Bunny Repair Contracts and prior contract trace context. For each "
-        "prior contract, classify it mentally as resolved, still_open_with_evidence, "
-        "needs_context, or stale_or_unverifiable. Report a finding only for "
-        "still_open_with_evidence when the packet includes the changed implementation "
-        "or proof evidence needed to validate the problem and the finding can cite an "
-        "added or changed diff line. If context is missing, do not turn that contract "
-        "into a finding; instead add a Review Limitation pre_merge_check or "
-        "what_i_checked note. Return the normal Bunny JSON schema."
-    )
-    messages = [
-        {"role": "system", "content": skill},
-        {"role": "user", "content": triage_content},
-        {"role": "user", "content": contract_prompt},
-    ]
-    response = model_call(client, messages, stats)
-    return extract_json_or_repair(client, messages, response, stats)
-
-
-def judge_review_pass(
-    client,
-    skill,
-    triage_content,
-    broad_review,
-    skeptical_review,
-    contract_review,
-    stats,
-):
+def judge_review_pass(client, skill, triage_content, broad_review, skeptical_review, stats):
     judge_prompt = (
-        "Merge these independent review passes into the final Bunny Review JSON. "
-        "If a prior-contract verification pass is present, treat it as the authority "
-        "on whether older contracts are resolved, still open, or context-limited. "
+        "Merge these two independent review passes into the final Bunny Review JSON. "
         "Deduplicate overlapping findings, keep the clearest title/body/fix_hint, normalize "
         "severity, and reject weak or speculative findings. Preserve concrete findings even "
         "if only one pass found them, and include a repair_contract for every defect finding. "
@@ -1484,7 +708,6 @@ def judge_review_pass(
         "with FINAL_REVIEW followed by the final JSON object."
         f"\n\n# Broad Review JSON\n{json.dumps(broad_review, indent=2, sort_keys=True)}"
         f"\n\n# Skeptical Review JSON\n{json.dumps(skeptical_review, indent=2, sort_keys=True)}"
-        f"\n\n# Prior Contract Verification JSON\n{json.dumps(contract_review or {}, indent=2, sort_keys=True)}"
     )
     messages = [
         {"role": "system", "content": skill},
@@ -1495,146 +718,17 @@ def judge_review_pass(
     return extract_json_or_repair(client, messages, response, stats)
 
 
-def three_pass_review(client, skill, triage_content, stats, *, include_contract_pass=False):
+def three_pass_review(client, skill, triage_content, stats):
     broad_review = review_packet_with_model(client, skill, triage_content, stats)
     skeptical_review = skeptical_review_pass(client, skill, triage_content, stats)
-    contract_review = (
-        contract_verification_pass(client, skill, triage_content, stats)
-        if include_contract_pass
-        else None
-    )
     return judge_review_pass(
         client,
         skill,
         triage_content,
         broad_review,
         skeptical_review,
-        contract_review,
         stats,
     )
-
-
-def emergency_single_pass_review(client, skill, triage_content, stats):
-    emergency_prompt = (
-        "Emergency fallback: the standard multi-pass Bunny review timed out before "
-        "a review object was emitted. Run one compact final pass using only the packet "
-        "already provided. Do not request extra context. Do not run a second specialist "
-        "pass. Report only concrete changed-line defects you can verify from the packet. "
-        "If no concrete defect is visible, return an empty findings array and describe "
-        "the timeout fallback in what_i_checked. Reply only with FINAL_REVIEW followed "
-        "by one JSON object matching the Bunny Review schema."
-    )
-    messages = [
-        {"role": "system", "content": skill},
-        {"role": "user", "content": triage_content},
-        {"role": "user", "content": emergency_prompt},
-    ]
-    response = model_call(client, messages, stats)
-    return extract_json_or_repair(client, messages, response, stats)
-
-
-def incomplete_timeout_fallback_review(exc):
-    detail = model_failure_detail(exc)
-    return {
-        "change_summary": [
-            "Bunny Review could not complete model inspection after the compact timeout fallback.",
-        ],
-        "findings": [],
-        "nitpicks": [],
-        "pre_merge_checks": [
-            {
-                "name": "Review Failed",
-                "status": "fail",
-                "type": "Review Control",
-                "detail": detail,
-            }
-        ],
-        "open_questions": [],
-        "what_i_checked": [
-            "The standard review pass timed out.",
-            "The compact fallback pass timed out or returned no usable review object.",
-            "The emergency single-pass fallback also failed before emitting a review object.",
-        ],
-    }
-
-
-def compact_retry_reason(exc):
-    if isinstance(exc, EmptyModelResponse):
-        return "model endpoint returned empty content"
-    if isinstance(exc, ModelRequestTimeout):
-        return "model request timed out"
-    return None
-
-
-def review_with_compact_failure_fallback(
-    client,
-    skill,
-    stats,
-    build_packet,
-    triage_for_packet,
-    focus_note,
-    *,
-    include_contract_pass=False,
-):
-    review_packet = build_packet(compact=False)
-    stats["review_packet_chars"] += len(review_packet)
-    try:
-        return three_pass_review(
-            client,
-            skill,
-            triage_for_packet(review_packet, focus_note),
-            stats,
-            include_contract_pass=include_contract_pass,
-        )
-    except Exception as exc:
-        reason = compact_retry_reason(exc)
-        if reason is None:
-            raise
-        compact_packet = build_packet(compact=True)
-        stats["review_packet_chars"] += len(compact_packet)
-        stats["fallback_packet_chars"] += len(compact_packet)
-        stats["fallback_reviews"] += 1
-        print(
-            "Bunny compact fallback: "
-            f"{reason}: {safe_model_error(exc)}; "
-            f"retry_packet_chars={len(compact_packet)}",
-            flush=True,
-        )
-        compact_note = (
-            f"{focus_note} This is a compact fallback packet after the model "
-            f"{reason} for the standard packet."
-        )
-        compact_triage = triage_for_packet(compact_packet, compact_note)
-        try:
-            return three_pass_review(
-                client,
-                skill,
-                compact_triage,
-                stats,
-                include_contract_pass=include_contract_pass,
-            )
-        except Exception as compact_exc:
-            compact_reason = compact_retry_reason(compact_exc)
-            if compact_reason is None:
-                raise
-            print(
-                "Bunny emergency single-pass fallback: "
-                f"{compact_reason}: {safe_model_error(compact_exc)}",
-                flush=True,
-            )
-            stats["fallback_reviews"] += 1
-            try:
-                return emergency_single_pass_review(client, skill, compact_triage, stats)
-            except Exception as emergency_exc:
-                emergency_reason = compact_retry_reason(emergency_exc)
-                if emergency_reason is None:
-                    raise
-                print(
-                    "Bunny incomplete timeout fallback: "
-                    f"{emergency_reason}: {safe_model_error(emergency_exc)}",
-                    flush=True,
-                )
-                return incomplete_timeout_fallback_review(emergency_exc)
 
 
 def parse_context_request(content):
@@ -1669,58 +763,7 @@ def extract_json(content):
     end = cleaned.rfind("}")
     if start == -1 or end == -1 or end < start:
         raise ValueError("model response did not contain a JSON object")
-    raw_json = cleaned[start : end + 1]
-    try:
-        return json.loads(raw_json)
-    except json.JSONDecodeError as exc:
-        repaired = repair_invalid_json_escapes(raw_json)
-        if repaired == raw_json:
-            raise ValueError(str(exc)) from exc
-        try:
-            return json.loads(repaired)
-        except json.JSONDecodeError as repaired_exc:
-            raise ValueError(str(repaired_exc)) from repaired_exc
-
-
-def repair_invalid_json_escapes(raw_json):
-    valid_simple_escapes = {'"', "\\", "/", "b", "f", "n", "r", "t"}
-    repaired = []
-    in_string = False
-    index = 0
-    while index < len(raw_json):
-        char = raw_json[index]
-        if not in_string:
-            repaired.append(char)
-            if char == '"':
-                in_string = True
-            index += 1
-            continue
-        if char == '"':
-            repaired.append(char)
-            in_string = False
-            index += 1
-            continue
-        if char != "\\":
-            repaired.append(char)
-            index += 1
-            continue
-        next_char = raw_json[index + 1] if index + 1 < len(raw_json) else ""
-        if next_char in valid_simple_escapes:
-            repaired.append(char + next_char)
-            index += 2
-            continue
-        elif next_char == "u":
-            code = raw_json[index + 2 : index + 6]
-            if len(code) == 4 and all(digit in "0123456789abcdefABCDEF" for digit in code):
-                repaired.append(raw_json[index : index + 6])
-                index += 6
-                continue
-            else:
-                repaired.append("\\\\")
-        else:
-            repaired.append("\\\\")
-        index += 1
-    return "".join(repaired)
+    return json.loads(cleaned[start : end + 1])
 
 
 def build_extra_context(request, stats):
@@ -2022,7 +1065,7 @@ def warn_is_blocking_proof_gap(item):
 
 def finding_summary(findings):
     if not findings:
-        return "No bad machinery found."
+        return "No actionable defects isolated."
     counts = {}
     for finding in findings:
         severity = str(finding.severity or "unknown").lower()
@@ -2065,7 +1108,7 @@ def merge_signal(review_obj, findings, nitpicks, pre_merge):
             "label": "REVIEW INCOMPLETE",
             "title": "Review Incomplete",
             "admonition": "CAUTION",
-            "detail": "Wah, the review machine jammed before Bunny could count the bugs.",
+            "detail": "Bunny Review did not complete, so no model findings are available.",
         }
     has_blocking = any(
         severity_meta(finding.severity)["rank"] <= severity_meta("high")["rank"]
@@ -2097,13 +1140,13 @@ def merge_signal(review_obj, findings, nitpicks, pre_merge):
             "label": "READY WITH NOTES",
             "title": "Ready With Notes",
             "admonition": "WARNING",
-            "detail": "No payout-breaking bugs found, but a few loose coins are still rattling around.",
+            "detail": "No actionable defects were isolated, but non-blocking notes remain.",
         }
     return {
         "label": "READY",
         "title": "Ready",
         "admonition": "TIP",
-        "detail": "Aha, no bad machinery found for this head. Expected CI controls paid out clean.",
+        "detail": "No actionable findings were isolated for this head. Expected CI controls were observed passing.",
     }
 
 
@@ -2158,15 +1201,15 @@ def review_callout(findings, pre_merge):
         return "\n".join(
             [
                 "> [!CAUTION]",
-                "> **Machine jammed.** Bunny Review did not complete, so no model findings are available.",
-                "> Fix the failed review control or rerun Bunny before calling this PR reviewed.",
+                "> **Specimen unexamined.** Bunny Review did not complete, so no model findings are available.",
+                "> Repair the failed review control or rerun Bunny before treating this PR as reviewed.",
             ]
         )
     if has_blocking or has_failed_check:
         return "\n".join(
             [
                 "> [!CAUTION]",
-                f"> **Bad deal on the counter.** {summary}",
+                f"> **Specimen unstable.** {summary}",
                 "> Repair blocking/high findings and failed controls before merge.",
             ]
         )
@@ -2174,14 +1217,14 @@ def review_callout(findings, pre_merge):
         return "\n".join(
             [
                 "> [!WARNING]",
-                f"> **The machine still rattles.** {summary}",
-                "> Check the findings and warning rows before merge.",
+                f"> **Anomalies remain.** {summary}",
+                "> Examine the findings and warning rows before merge.",
             ]
         )
     return "\n".join(
         [
             "> [!TIP]",
-            "> **Jackpot stays clean.** Bunny found no actionable defects in the checked mechanism.",
+            "> **No actionable defects isolated.** The examined mechanism yielded no merge-blocking specimen.",
         ]
     )
 
@@ -2271,183 +1314,11 @@ def compact_contract_for_state(contract):
     return compact or None
 
 
-def ordered_unique(values):
-    seen = set()
-    result = []
-    for value in values:
-        item = str(value or "").strip()
-        if not item or item in seen:
-            continue
-        seen.add(item)
-        result.append(item)
-    return result
-
-
-def normalize_repo_path_candidate(value):
-    text = str(value or "").strip().strip("`'\"[](){}<>,.;")
-    if not text:
-        return ""
-    text = re.sub(r"^(?:a|b)/", "", text.replace("\\", "/"))
-    text = re.sub(r":\d+(?::\d+)?$", "", text)
-    if not text or text.startswith("/") or re.match(r"^[A-Za-z]:", text):
-        return ""
-    if ".." in pathlib.PurePosixPath(text).parts:
-        return ""
-    try:
-        _safe_path(text)
-    except Exception:
-        return ""
-    if "/" not in text and text not in {"AGENTS.md", "README.md", "package.json", "pnpm-lock.yaml"}:
-        return ""
-    if not pathlib.PurePosixPath(text).suffix and text not in {"AGENTS.md", "README.md", "package.json", "pnpm-lock.yaml"}:
-        return ""
-    return text
-
-
-def extract_repo_paths_from_text(text):
-    paths = []
-    for fenced in re.findall(r"`([^`]+)`", str(text or "")):
-        path = normalize_repo_path_candidate(fenced)
-        if path:
-            paths.append(path)
-    for match in REPO_PATH_RE.findall(str(text or "")):
-        path = normalize_repo_path_candidate(match)
-        if path:
-            paths.append(path)
-    return ordered_unique(paths)
-
-
-def contract_value_texts(entry):
-    texts = [
-        entry.get("title"),
-        entry.get("fix_hint"),
-        entry.get("path"),
-    ]
-    contract = entry.get("repair_contract") if isinstance(entry, dict) else None
-    if isinstance(contract, dict):
-        for key, _ in CONTRACT_LABELS:
-            texts.extend(compact_list(contract.get(key)))
-    return [str(text) for text in texts if str(text or "").strip()]
-
-
-def symbol_hints_from_texts(texts):
-    path_tokens = set()
-    for text in texts:
-        for path in extract_repo_paths_from_text(text):
-            path_tokens.update(part for part in path.replace(".", "/").split("/") if part)
-    symbols = []
-    stop = {
-        "accepted",
-        "acceptable",
-        "contract",
-        "current",
-        "default",
-        "expected",
-        "finding",
-        "generation",
-        "missing",
-        "request",
-        "result",
-        "should",
-        "warning",
-        "without",
-    }
-    for text in texts:
-        for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", text):
-            if token in path_tokens or token.lower() in stop:
-                continue
-            if any(char.isupper() for char in token) or "_" in token or token.endswith(("Id", "IDs")):
-                symbols.append(token)
-    return ordered_unique(symbols)[:MAX_CONTRACT_TRACE_SYMBOLS]
-
-
-def contract_trace_hints(entry):
-    if not isinstance(entry, dict):
-        return {
-            "owner_paths": [],
-            "proof_paths": [],
-            "symbol_hints": [],
-            "changed_lever_hint": "",
-        }
-    contract = entry.get("repair_contract") if isinstance(entry.get("repair_contract"), dict) else {}
-    owner_paths = []
-    proof_paths = []
-    direct_path = normalize_repo_path_candidate(entry.get("path"))
-    if direct_path:
-        owner_paths.append(direct_path)
-
-    for key in ("invariant", "related_failure_paths", "adjacent_traps", "acceptable_fix_shapes"):
-        for value in compact_list(contract.get(key)):
-            owner_paths.extend(extract_repo_paths_from_text(value))
-    for value in compact_list(contract.get("expected_proof")):
-        paths = extract_repo_paths_from_text(value)
-        proof_paths.extend(paths)
-        owner_paths.extend(path for path in paths if not re.search(r"\.(test|spec)\.", path))
-    for value in [entry.get("fix_hint"), entry.get("title")]:
-        owner_paths.extend(extract_repo_paths_from_text(value))
-
-    for path in list(owner_paths):
-        if re.search(r"\.(test|spec)\.", path):
-            proof_paths.append(path)
-
-    texts = contract_value_texts(entry)
-    lever = compact_state_text(
-        entry.get("fix_hint")
-        or (compact_list(contract.get("acceptable_fix_shapes")) or [""])[0]
-        or (compact_list(contract.get("invariant")) or [""])[0],
-        240,
-    )
-    return {
-        "owner_paths": ordered_unique(owner_paths)[:MAX_CONTRACT_TRACE_PATHS],
-        "proof_paths": ordered_unique(proof_paths)[:MAX_CONTRACT_TRACE_PATHS],
-        "symbol_hints": symbol_hints_from_texts(texts),
-        "changed_lever_hint": lever,
-    }
-
-
-def normalize_contract_hint_paths(value):
-    return [
-        path
-        for path in (
-            normalize_repo_path_candidate(item)
-            for item in compact_list(value)[:MAX_CONTRACT_TRACE_PATHS]
-        )
-        if path
-    ]
-
-
-def normalize_contract_hints(raw, entry):
-    derived = contract_trace_hints(entry)
-    owner_paths = normalize_contract_hint_paths(raw.get("owner_paths")) if isinstance(raw, dict) else []
-    proof_paths = normalize_contract_hint_paths(raw.get("proof_paths")) if isinstance(raw, dict) else []
-    symbol_hints = compact_state_values(raw.get("symbol_hints")) if isinstance(raw, dict) else []
-    changed_lever_hint = compact_state_text(raw.get("changed_lever_hint"), 240) if isinstance(raw, dict) else ""
-    return {
-        "owner_paths": ordered_unique(owner_paths + derived["owner_paths"])[:MAX_CONTRACT_TRACE_PATHS],
-        "proof_paths": ordered_unique(proof_paths + derived["proof_paths"])[:MAX_CONTRACT_TRACE_PATHS],
-        "symbol_hints": ordered_unique(symbol_hints + derived["symbol_hints"])[:MAX_CONTRACT_TRACE_SYMBOLS],
-        "changed_lever_hint": changed_lever_hint or derived["changed_lever_hint"],
-    }
-
-
-def contract_trace_paths(entry):
-    if not isinstance(entry, dict):
-        return []
-    path = normalize_repo_path_candidate(entry.get("path"))
-    return ordered_unique(
-        ([path] if path else [])
-        + normalize_contract_hint_paths(entry.get("owner_paths"))
-        + normalize_contract_hint_paths(entry.get("proof_paths"))
-        + contract_trace_hints(entry)["owner_paths"]
-        + contract_trace_hints(entry)["proof_paths"]
-    )[:MAX_CONTRACT_TRACE_PATHS]
-
-
 def contract_state_entry_from_finding(finding, *, status="open"):
     contract = compact_contract_for_state(finding.repair_contract)
     if not contract or finding.severity == "nitpick":
         return None
-    entry = {
+    return {
         "id": finding_id(finding),
         "status": status,
         "severity": str(finding.severity or "medium"),
@@ -2457,8 +1328,6 @@ def contract_state_entry_from_finding(finding, *, status="open"):
         "fix_hint": compact_state_text(finding.fix_hint, 260),
         "repair_contract": contract,
     }
-    entry.update(contract_trace_hints(entry))
-    return entry
 
 
 def contract_identity(entry):
@@ -2513,18 +1382,18 @@ def normalize_contract_state_entries(entries):
         contract = compact_contract_for_state(raw.get("repair_contract"))
         if not contract:
             continue
-        entry = {
-            "id": compact_state_text(raw.get("id"), 40),
-            "status": compact_state_text(raw.get("status") or "prior", 40),
-            "severity": compact_state_text(raw.get("severity") or "medium", 24),
-            "path": compact_state_text(raw.get("path"), 260),
-            "line": raw.get("line") if isinstance(raw.get("line"), int) else None,
-            "title": compact_state_text(raw.get("title"), 180),
-            "fix_hint": compact_state_text(raw.get("fix_hint"), 260),
-            "repair_contract": contract,
-        }
-        entry.update(normalize_contract_hints(raw, entry))
-        normalized.append(entry)
+        normalized.append(
+            {
+                "id": compact_state_text(raw.get("id"), 40),
+                "status": compact_state_text(raw.get("status") or "prior", 40),
+                "severity": compact_state_text(raw.get("severity") or "medium", 24),
+                "path": compact_state_text(raw.get("path"), 260),
+                "line": raw.get("line") if isinstance(raw.get("line"), int) else None,
+                "title": compact_state_text(raw.get("title"), 180),
+                "fix_hint": compact_state_text(raw.get("fix_hint"), 260),
+                "repair_contract": contract,
+            }
+        )
         if len(normalized) >= MAX_CONTRACT_STATE_ENTRIES:
             break
     return normalized
@@ -2604,100 +1473,12 @@ def format_contract_entries_for_prompt(entries, limit=12_000):
         )
         if entry.get("fix_hint"):
             lines.append(f"- Suggested repair: {entry['fix_hint']}")
-        if entry.get("changed_lever_hint"):
-            lines.append(f"- Changed lever hint: {entry['changed_lever_hint']}")
-        if entry.get("owner_paths"):
-            lines.append("- Owner paths: " + "; ".join(entry["owner_paths"]))
-        if entry.get("proof_paths"):
-            lines.append("- Proof paths: " + "; ".join(entry["proof_paths"]))
-        if entry.get("symbol_hints"):
-            lines.append("- Symbol hints: " + "; ".join(entry["symbol_hints"]))
         contract = entry.get("repair_contract") or {}
         for key, label in CONTRACT_LABELS:
             values = compact_state_values(contract.get(key))
             if values:
                 lines.append(f"- {label}: " + "; ".join(values))
     return truncate("\n".join(lines).strip(), limit)
-
-
-def contract_entries_for_focus(entries, focus_files=None):
-    normalized = normalize_contract_state_entries(entries)
-    if not focus_files:
-        return normalized
-    focus = set(focus_files)
-    selected = []
-    for entry in normalized:
-        paths = set(contract_trace_paths(entry))
-        if paths & focus:
-            selected.append(entry)
-    return selected
-
-
-def contract_path_trace(base, path, changed, *, compact):
-    hunk_limit = MAX_COMPACT_GLOBAL_HUNK_CHARS if compact else MAX_GLOBAL_HUNK_CHARS
-    interface_limit = MAX_COMPACT_GLOBAL_FILE_MAP_CHARS if compact else MAX_GLOBAL_FILE_MAP_CHARS
-    lines = [f"### {path}", f"- Changed in current PR: {'yes' if path in changed else 'no'}"]
-    lines.append("Current interface lines:")
-    lines.append(truncate(file_interface_context(path), interface_limit))
-    if path in changed:
-        lines.append("Changed hunk sketch:")
-        lines.append(truncate(diff_for_path(base, path, unified=0 if compact else 3), hunk_limit))
-    else:
-        lines.append("Changed hunk sketch: not changed in the current PR.")
-    return "\n".join(lines)
-
-
-def build_prior_contract_trace_context(base, entries, files, *, compact=False, focus_files=None):
-    selected = contract_entries_for_focus(entries, focus_files)
-    if not selected:
-        if normalize_contract_state_entries(entries):
-            return "No open prior Bunny contracts route to this packet's focus files."
-        return "No prior Bunny repair contracts found."
-
-    changed = set(files)
-    entry_limit = MAX_COMPACT_CONTRACT_TRACE_ENTRY_CHARS if compact else MAX_CONTRACT_TRACE_ENTRY_CHARS
-    context_limit = (
-        MAX_COMPACT_CONTRACT_TRACE_CONTEXT_CHARS
-        if compact
-        else MAX_CONTRACT_TRACE_CONTEXT_CHARS
-    )
-    sections = [
-        "Prior contract trace context. Use this to verify whether older Bunny repair contracts are satisfied by the current diff. Findings must still cite changed lines; if the relevant implementation or proof is not visible here, report a Review Limitation instead of treating the contract as proven open.",
-    ]
-    for index, entry in enumerate(selected, 1):
-        location = f"{entry.get('path') or 'unknown'}:{entry.get('line') or '?'}"
-        paths = contract_trace_paths(entry)
-        changed_paths = [path for path in paths if path in changed]
-        ordered_paths = ordered_unique(changed_paths + paths)[:MAX_CONTRACT_TRACE_PATHS]
-        body = [
-            f"## Contract {index}: {entry.get('title') or '<untitled>'}",
-            f"- ID: {entry.get('id') or 'unknown'}",
-            f"- Status: {entry.get('status') or 'prior'}",
-            f"- Severity: {entry.get('severity') or 'medium'}",
-            f"- Original location: {location}",
-        ]
-        if entry.get("changed_lever_hint"):
-            body.append(f"- Changed lever hint: {entry['changed_lever_hint']}")
-        if entry.get("owner_paths"):
-            body.append("- Owner paths: " + "; ".join(entry["owner_paths"]))
-        if entry.get("proof_paths"):
-            body.append("- Proof paths: " + "; ".join(entry["proof_paths"]))
-        if entry.get("symbol_hints"):
-            body.append("- Symbol hints: " + "; ".join(entry["symbol_hints"]))
-        contract = entry.get("repair_contract") or {}
-        for key, label in CONTRACT_LABELS:
-            values = compact_state_values(contract.get(key))
-            if values:
-                body.append(f"- {label}: " + "; ".join(values))
-        if ordered_paths:
-            body.append("")
-            body.append("### Routed file evidence")
-            for path in ordered_paths:
-                body.append(contract_path_trace(base, path, changed, compact=compact))
-        else:
-            body.append("- Routed file evidence: no concrete repo paths were extracted from this contract.")
-        sections.append(truncate("\n".join(body), entry_limit))
-    return truncate("\n\n".join(sections), context_limit)
 
 
 def is_ci_check(item):
@@ -2707,7 +1488,7 @@ def is_ci_check(item):
 
 def is_stale_ci_text(text):
     lowered = text.lower()
-    if "ci" not in lowered and "cargo" not in lowered and "rust check" not in lowered:
+    if "ci" not in lowered and "pnpm" not in lowered and "build" not in lowered:
         return False
     stale_markers = (
         "still running",
@@ -2759,7 +1540,7 @@ def ci_status_to_pre_merge_checks(ci_status):
                 "name": "CI Status",
                 "status": "fail",
                 "type": "CI Timing",
-                "detail": "One or more expected CI controls failed or were cancelled; this payout is not fit for merge.",
+                "detail": "One or more expected CI controls failed or were cancelled; the specimen is not fit for merge.",
             }
         ]
     if "warning:" in lowered or "still running" in lowered:
@@ -2823,10 +1604,10 @@ def render_walkthrough(
         "",
         render_review_metadata(review_obj, head_sha),
         "",
-        "### 🧭 Loot Summary",
+        "### 🧭 Specimen Summary",
     ])
-    body.extend([f"- {line}" for line in summary[:2]] or ["- No loot summary produced."])
-    body.extend(["", "### 🔎 Bad Machinery"])
+    body.extend([f"- {line}" for line in summary[:2]] or ["- No specimen summary produced."])
+    body.extend(["", "### 🔎 Isolated Defects"])
     if findings:
         body.extend(
             [
@@ -2852,7 +1633,7 @@ def render_walkthrough(
                 ]
             )
         else:
-            body.extend(["", "> [!TIP]", "> No bad machinery found."])
+            body.extend(["", "> [!TIP]", "> No actionable defects isolated."])
     if resolved:
         body.extend(["", "### ✅ Resolved Since Last Review"])
         for item in resolved[:5]:
@@ -2876,7 +1657,7 @@ def render_walkthrough(
     else:
         body.append("- None recorded.")
     agent_prompt = render_agent_prompt_details(
-        findings, "🤖 Copy prompt for Bunny's busted-machine findings"
+        findings, "🤖 Copy prompt for isolated Bunny findings"
     )
     if agent_prompt:
         body.extend(["", agent_prompt])
@@ -2904,7 +1685,7 @@ def render_walkthrough(
     if questions:
         body.extend(["", "### ❓ Open Questions"])
         body.extend([f"- {line}" for line in questions[:2]])
-    body.extend(["", "### 🧪 Coins Counted"])
+    body.extend(["", "### 🧪 Observations"])
     body.extend([f"- {line}" for line in checked[:3]] or ["- Review packet and diff context inspected."])
     if invalid_findings:
         body.extend(
@@ -2992,7 +1773,7 @@ def write_skipped_review(title, body, *, status="unknown", metadata=None):
         "nitpicks": [],
         "pre_merge_checks": [{"name": title, "status": status, "detail": body}],
         "open_questions": [],
-        "what_i_checked": ["No model pass ran; Bunny never got to shake the machine."],
+        "what_i_checked": ["No model pass ran; the specimen remained unexamined."],
     }
     if metadata:
         review_obj.update(metadata)
@@ -3003,33 +1784,12 @@ def write_skipped_review(title, body, *, status="unknown", metadata=None):
 
 
 def model_failure_detail(exc):
-    if isinstance(exc, EmptyModelResponse):
-        message = " ".join(str(exc).split())
-        if len(message) > 500:
-            message = message[:497] + "..."
-        return (
-            "Bunny Review could not complete because the model endpoint returned "
-            f"empty content before a review object was emitted: {message}"
-        )
-    if isinstance(exc, ModelRequestTimeout):
-        message = " ".join(safe_model_error(exc).split())
-        if len(message) > 500:
-            message = message[:497] + "..."
-        return (
-            "Bunny Review could not complete because the model provider timed out "
-            f"before a review object was emitted: {message}"
-        )
-    if isinstance(exc, ValueError):
-        message = " ".join(str(exc).split())
-        if len(message) > 500:
-            message = message[:497] + "..."
-        return (
-            "Bunny Review could not complete because the model response could not "
-            f"be parsed into the required JSON review object: {message}"
-        )
+    message = " ".join(str(exc).split())
+    if len(message) > 500:
+        message = message[:497] + "..."
     return (
         f"Bunny Review could not complete because the model provider rejected the "
-        f"review request: {safe_model_error(exc)}"
+        f"review request: {type(exc).__name__}: {message}"
     )
 
 
@@ -3298,6 +2058,20 @@ def parse_command_mode():
     return "auto"
 
 
+def model_api_key():
+    return os.environ.get("LLM_API_KEY", "").strip() or os.environ.get(
+        "OPENAI_API_KEY", ""
+    ).strip()
+
+
+def missing_model_api_key_message():
+    return (
+        "The reviewer could not run because no model API key is available in this "
+        "workflow run. Set `DE_KOI_BUNNY_LLM_API_KEY` for provider-specific Bunny "
+        "credentials or keep `OPENAI_API_KEY` for the default provider."
+    )
+
+
 def produce_review(args):
     pr_num = os.environ.get("PR_NUM", "")
     api_key = model_api_key()
@@ -3347,38 +2121,13 @@ def produce_review(args):
         print("Bunny telemetry: skipped=missing_model_api_key", flush=True)
         return
 
-    prior_contract_state = prior_review_contract_state(pr_num)
-    prior_contract_context = (
-        format_contract_entries_for_prompt(prior_contract_state)
-        if prior_contract_state
-        else prior_review_contracts_context(pr_num)
-    )
-
-    chunk_plan = plan_review_chunks(
+    full_review_packet, chunks = review_chunks_for_packet_budget(
         base,
         ci_status,
         effective_mode,
         files,
-        prior_contracts=prior_contract_state,
     )
-    patch_chunks = chunk_plan["patch_chunks"]
-    chunks = chunk_plan["chunks"]
-    global_review_context = chunk_plan["global_review_context"]
-    compact_global_review_context = chunk_plan["compact_global_review_context"]
     use_chunked_review = len(chunks) > 1
-    print(
-        "Bunny chunk decision: "
-        f"files={len(files)}; "
-        f"patch_chunks={len(patch_chunks)}; "
-        f"chunks={len(chunks)}; "
-        f"forced_by_packet_size={str(chunk_plan['forced_by_packet_size']).lower()}; "
-        f"reason={chunk_plan['reason']}; "
-        f"probe_packet_chars={chunk_plan['probe_packet_chars']}; "
-        f"max_chunk_packet_chars={chunk_plan['max_chunk_packet_chars']}; "
-        f"single_packet_threshold={MAX_SINGLE_PACKET_CHARS}; "
-        f"chunk_patch_threshold={chunk_plan['chunk_patch_threshold']}",
-        flush=True,
-    )
 
     from openai import OpenAI
 
@@ -3388,6 +2137,12 @@ def produce_review(args):
         max_retries=MODEL_MAX_RETRIES,
     )
     skill = bunny_prompt_path().read_text("utf-8")
+    prior_contract_state = prior_review_contract_state(pr_num)
+    prior_contract_context = (
+        format_contract_entries_for_prompt(prior_contract_state)
+        if prior_contract_state
+        else prior_review_contracts_context(pr_num)
+    )
 
     def triage_for_packet(review_packet, focus_note):
         triage = (
@@ -3396,9 +2151,6 @@ def produce_review(args):
             "Use the provided review packet as the complete inspection context. "
             "If prior Bunny contracts are included, first judge whether the current diff satisfies "
             "or leaves those contracts incomplete before issuing adjacent related findings. "
-            "Do not report an open prior contract as a blocker unless the packet includes "
-            "the changed implementation or proof evidence needed to verify it; if that "
-            "context is missing, record a Review Limitation instead. "
             "You have one chance to request focused extra context before the final review. "
             "If the packet is enough, reply with FINAL_REVIEW followed by a JSON object in the skill's schema. "
             "If more context is necessary to validate a concrete potential finding, reply only with "
@@ -3419,40 +2171,23 @@ def produce_review(args):
         stats = build_stats("")
         chunk_reviews = []
         for index, chunk in enumerate(chunks, 1):
+            review_packet = build_review_packet(
+                base,
+                ci_status,
+                effective_mode,
+                focus_files=chunk,
+                include_full_patch=False,
+            )
+            stats["review_packet_chars"] += len(review_packet)
             focus_note = (
                 f"This is chunk {index} of {len(chunks)}. Review only these focus files: "
                 + ", ".join(chunk)
-                + ". When packet budget permits, the packet also includes a PR global "
-                "review map for every changed file so sibling wiring, extracted "
-                "implementations, and adjacent contracts are visible while this pass "
-                "cites findings only on focus-file diff lines. Request extra context "
-                "only for a concrete suspected defect that the global map and focused "
-                "patch cannot validate."
+                + "."
             )
+            triage_content = triage_for_packet(review_packet, focus_note)
             try:
                 chunk_reviews.append(
-                    review_with_compact_failure_fallback(
-                        client,
-                        skill,
-                        stats,
-                        lambda compact, chunk=chunk: build_review_packet(
-                            base,
-                            ci_status,
-                            effective_mode,
-                            focus_files=chunk,
-                            include_full_patch=False,
-                            compact=compact,
-                            global_context=(
-                                compact_global_review_context
-                                if compact
-                                else global_review_context
-                            ),
-                            prior_contracts=prior_contract_state,
-                        ),
-                        triage_for_packet,
-                        focus_note,
-                        include_contract_pass=bool(prior_contract_state),
-                    )
+                    three_pass_review(client, skill, triage_content, stats)
                 )
             except Exception as exc:
                 write_skipped_review(
@@ -3471,26 +2206,18 @@ def produce_review(args):
                 return
         review_obj = merge_review_objects(chunk_reviews)
         review_obj.setdefault("what_i_checked", []).append(
-            f"Examined the PR in {len(chunks)} file chunk(s), each paired with a PR-wide global review map."
+            f"Examined the PR in {len(chunks)} file chunk(s) so the large diff did not contaminate context retention."
         )
     else:
-        stats = build_stats("")
+        review_packet = (
+            full_review_packet
+            if len(full_review_packet) <= MAX_REVIEW_PACKET_CHARS
+            else truncate(full_review_packet, MAX_REVIEW_PACKET_CHARS)
+        )
+        stats = build_stats(review_packet)
+        triage_content = triage_for_packet(review_packet, "Review the full current diff.")
         try:
-            review_obj = review_with_compact_failure_fallback(
-                client,
-                skill,
-                stats,
-                lambda compact: build_review_packet(
-                    base,
-                    ci_status,
-                    effective_mode,
-                    compact=compact,
-                    prior_contracts=prior_contract_state,
-                ),
-                triage_for_packet,
-                "Review the full current diff.",
-                include_contract_pass=bool(prior_contract_state),
-            )
+            review_obj = three_pass_review(client, skill, triage_content, stats)
         except Exception as exc:
             write_skipped_review(
                 "Review Failed",
@@ -3611,7 +2338,7 @@ def patch_command_status_running(pr_num, head_sha, mode):
             "## 🐰 Bunny Review Running",
             "",
             "> [!NOTE]",
-            "> Wah, Bunny is shaking the machine and counting the fake coins.",
+            "> Reviewer workflow is running. The specimen is under observation.",
             "",
             f"- **Mode:** `{mode or 'unknown'}`",
             f"- **{commit_line(head_sha)}**",
@@ -3627,7 +2354,7 @@ def patch_command_status_complete(pr_num, head_sha):
             "## ✅ Bunny Review Completed",
             "",
             "> [!TIP]",
-            "> Review posted. Bunny counted the loot and left the receipt.",
+            "> Review posted. The specimen has left the observation table.",
             "",
             f"- **{commit_line(head_sha)}**",
         ]
