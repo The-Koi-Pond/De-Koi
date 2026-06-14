@@ -20,8 +20,10 @@ jobs:
     if: >
       github.event.pull_request.base.ref == 'main' &&
       github.event.pull_request.draft == false &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+               github.event.pull_request.author_association) &&
       (github.event.action != 'synchronize' || vars.DE_KOI_PR_SYNC_AUTOMATION != 'off')
-    runs-on: ${{ fromJSON(vars.DE_KOI_BUNNY_DISPATCH_RUNS_ON || '["self-hosted","Linux","X64","bunny-dispatch"]') }}
+    runs-on: ${{ fromJSON(vars.DE_KOI_BUNNY_DISPATCH_RUNS_ON || '"ubuntu-latest"') }}
     steps:
       - name: Dispatch trusted Bunny reviewer
         env:
