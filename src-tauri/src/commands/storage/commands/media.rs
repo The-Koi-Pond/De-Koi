@@ -1,10 +1,10 @@
 use super::{
-    avatars, characters, entity_images, exports, generation, images, llm, lorebook_images,
-    personas, shared, sidecar, sprites,
+    avatars, characters, connection_secrets, entity_images, exports, generation, images, llm,
+    lorebook_images, personas, shared, sidecar, sprites,
 };
 use crate::state::AppState;
 use marinara_core::AppError;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tauri::State;
 
 #[tauri::command]
@@ -204,9 +204,7 @@ pub fn connection_save_default_parameters(
     id: String,
     params: Value,
 ) -> Result<Value, AppError> {
-    state
-        .storage
-        .patch("connections", &id, json!({ "defaultParameters": params }))
+    connection_secrets::save_default_parameters(&state, &id, params)
 }
 
 #[tauri::command]

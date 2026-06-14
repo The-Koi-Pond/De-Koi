@@ -1,7 +1,7 @@
 use crate::state::AppState;
 use crate::storage_commands::{
     admin, agents, avatars, backgrounds, backup, bot_browser, characters, chat_memory, chats,
-    custom_tools, entity_commands, entity_images, exports, fonts, game_assets,
+    connection_secrets, custom_tools, entity_commands, entity_images, exports, fonts, game_assets,
     game_state_snapshots, generation, http, images, imports, integrations, knowledge, llm,
     lorebook_images, managed_thumbnails, mari, personas, profile, profile_commands, prompts,
     shared, sidecar, sprites, translation, updates,
@@ -1244,10 +1244,10 @@ fn connection_save_default_parameters(
     state: &AppState,
     args: &Map<String, Value>,
 ) -> AppResult<Value> {
-    state.storage.patch(
-        "connections",
+    connection_secrets::save_default_parameters(
+        state,
         required_string(args, "id")?,
-        json!({ "defaultParameters": optional_value(args, "params") }),
+        optional_value(args, "params"),
     )
 }
 
@@ -2136,6 +2136,99 @@ mod tests {
 
         assert!(!default_for_agents(&state, "language-a"));
         assert!(default_for_agents(&state, "language-b"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_connection_default_parameters_validate_and_mask() {
+        let state = test_state("connection-default-parameters");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "language-a",
+                    "name": "Language A",
+                    "provider": "openai",
+                    "apiKeyEncrypted": "stored-secret",
+                    "apiKeyHash": "stored-hash",
+                    "apiKeyMasked": "stored-mask",
+                    "defaultParameters": null
+                }),
+            )
+            .expect("connection should seed");
+
+        let updated = dispatch(
+            &state,
+            InvokeRequest {
+                command: "connection_save_default_parameters".to_string(),
+                args: Some(json!({
+                    "id": "language-a",
+                    "params": {
+                        "temperature": 0.4
+                    }
+                })),
+            },
+        )
+        .await
+        .expect("remote default parameter save should dispatch");
+
+        assert_eq!(updated["defaultParameters"], json!({ "temperature": 0.4 }));
+        assert_eq!(updated["hasApiKey"], json!(true));
+        assert_eq!(updated["apiKey"], json!(connection_secrets::API_KEY_MASK));
+        assert!(updated.get("apiKeyEncrypted").is_none());
+        assert!(updated.get("apiKeyHash").is_none());
+        assert!(updated.get("apiKeyMasked").is_none());
+
+        let cleared = dispatch(
+            &state,
+            InvokeRequest {
+                command: "connection_save_default_parameters".to_string(),
+                args: Some(json!({
+                    "id": "language-a",
+                    "params": null
+                })),
+            },
+        )
+        .await
+        .expect("remote default parameter clear should dispatch");
+
+        assert_eq!(cleared["defaultParameters"], Value::Null);
+        assert_eq!(cleared["hasApiKey"], json!(true));
+        assert_eq!(cleared["apiKey"], json!(connection_secrets::API_KEY_MASK));
+
+        for (label, params) in [
+            ("arrays", json!(["bad"])),
+            ("JSON strings", json!("{\"temperature\":0.9}")),
+            ("empty strings", json!("")),
+            ("booleans", json!(false)),
+        ] {
+            let error = dispatch(
+                &state,
+                InvokeRequest {
+                    command: "connection_save_default_parameters".to_string(),
+                    args: Some(json!({
+                        "id": "language-a",
+                        "params": params
+                    })),
+                },
+            )
+            .await
+            .unwrap_err();
+
+            assert!(
+                error
+                    .to_string()
+                    .contains("defaultParameters must be a JSON object or null"),
+                "{label} produced unexpected error: {error}"
+            );
+        }
+        let stored = state
+            .storage
+            .get("connections", "language-a")
+            .expect("connection should read")
+            .expect("connection should exist");
+        assert_eq!(stored["defaultParameters"], Value::Null);
+        assert_eq!(stored["apiKeyEncrypted"], json!("stored-secret"));
     }
 
     #[tokio::test]
