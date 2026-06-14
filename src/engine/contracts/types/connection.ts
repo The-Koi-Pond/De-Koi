@@ -62,8 +62,8 @@ export interface APIConnection {
   imageService: string | null;
   /** For endpoint-based image services (e.g. RunPod Serverless): the endpoint ID sent alongside the base URL. */
   imageEndpointId: string | null;
-  /** Default generation parameters for new chats using this connection (JSON) */
-  defaultParameters: string | null;
+  /** Default generation parameters for new chats using this connection */
+  defaultParameters: Record<string, unknown> | null;
   /** Prompt preset to use instead of a chat's selected preset when this connection is active */
   promptPresetId: string | null;
   /** Hard cap on max_tokens for the API response (for providers with lower limits, e.g. DeepSeek at 8192). */
