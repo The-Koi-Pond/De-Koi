@@ -226,22 +226,45 @@ fn has_no_connection_rows(state: &AppState) -> AppResult<bool> {
     Ok(state.storage.list("connections")?.is_empty())
 }
 
+fn configured_chat_connection_id<'a>(chat: &'a Value, key: &str) -> Option<&'a str> {
+    chat.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+async fn memory_embedding_context_for_connection_id(
+    state: &AppState,
+    connection_id: &str,
+) -> AppResult<MemoryEmbeddingContext> {
+    let (embedding_connection_id, connection) =
+        prompts::resolve_embedding_connection_for_id_async(state, connection_id).await?;
+    memory_embedding_context_from_connection(embedding_connection_id, connection)
+}
+
+async fn memory_embedding_context_for_explicit_connection_id(
+    state: &AppState,
+    connection_id: &str,
+) -> AppResult<MemoryEmbeddingContext> {
+    let (embedding_connection_id, connection) =
+        prompts::resolve_explicit_embedding_connection_async(state, connection_id).await?;
+    memory_embedding_context_from_connection(embedding_connection_id, connection)
+}
+
 async fn memory_embedding_context(
     state: &AppState,
     chat: &Value,
 ) -> AppResult<Option<MemoryEmbeddingContext>> {
-    if let Some(connection_id) = chat
-        .get("connectionId")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        let (embedding_connection_id, connection) =
-            prompts::resolve_embedding_connection_for_id_async(state, connection_id).await?;
-        return Ok(Some(memory_embedding_context_from_connection(
-            embedding_connection_id,
-            connection,
-        )?));
+    if let Some(connection_id) = configured_chat_connection_id(chat, "embeddingConnectionId") {
+        return Ok(Some(
+            memory_embedding_context_for_explicit_connection_id(state, connection_id).await?,
+        ));
+    }
+
+    if let Some(connection_id) = configured_chat_connection_id(chat, "connectionId") {
+        return Ok(Some(
+            memory_embedding_context_for_connection_id(state, connection_id).await?,
+        ));
     }
 
     match prompts::resolve_default_embedding_connection_async(state).await {
@@ -1147,6 +1170,32 @@ mod tests {
             .collect()
     }
 
+    fn seed_five_visible_messages(state: &AppState, chat_id: &str) -> (Vec<String>, String) {
+        let mut message_ids = Vec::new();
+        let mut content_lines = Vec::new();
+        for index in 0..5 {
+            let id = format!("message-{index}");
+            let role = if index % 2 == 0 { "user" } else { "assistant" };
+            let content = format!("visible memory {index}");
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({
+                        "id": id,
+                        "chatId": chat_id,
+                        "role": role,
+                        "content": content,
+                        "createdAt": format!("2026-06-01T10:0{index}:00.000Z")
+                    }),
+                )
+                .expect("message should seed");
+            message_ids.push(format!("message-{index}"));
+            content_lines.push(format!("{role}: visible memory {index}"));
+        }
+        (message_ids, content_lines.join("\n"))
+    }
+
     #[test]
     fn list_chat_memories_accepts_string_serialized_chunks() {
         let state = test_state("chat-memory-list-string");
@@ -1406,6 +1455,162 @@ mod tests {
 
         assert_eq!(context.connection_id, "embedding-connection");
         assert_eq!(context.model, "text-embedding-3-small");
+    }
+
+    #[tokio::test]
+    async fn refresh_chat_memories_errors_when_chat_embedding_override_lacks_model() {
+        let state = test_state("memory-refresh-chat-override-missing-model");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "embeddingConnectionId": "override-embedding"
+                }),
+            )
+            .expect("chat should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "override-embedding",
+                    "name": "Override Embeddings",
+                    "provider": "custom",
+                    "model": "chat-model"
+                }),
+            )
+            .expect("override embedding connection should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "default-embedding",
+                    "name": "Default Embeddings",
+                    "provider": "custom",
+                    "model": "chat-model",
+                    "embeddingModel": "default-embedding-model",
+                    "isDefault": true
+                }),
+            )
+            .expect("default embedding connection should seed");
+
+        let error = refresh_chat_memories(&state, "chat-1")
+            .await
+            .expect_err("chat embedding override without a model should not fall back");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("embeddingModel"));
+        assert!(error.message.contains("override-embedding"));
+    }
+
+    #[tokio::test]
+    async fn refresh_chat_memories_prefers_chat_embedding_override_over_generation_connection() {
+        let state = test_state("memory-refresh-chat-override-wins");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "connectionId": "chat-connection",
+                    "embeddingConnectionId": "override-embedding"
+                }),
+            )
+            .expect("chat should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "chat-connection",
+                    "name": "Chat",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "embeddingConnectionId": "generation-embedding"
+                }),
+            )
+            .expect("chat connection should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "generation-embedding",
+                    "name": "Generation Embeddings",
+                    "provider": "custom",
+                    "model": "chat-model",
+                    "embeddingModel": "generation-embedding-model"
+                }),
+            )
+            .expect("generation embedding connection should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "override-embedding",
+                    "name": "Override Embeddings",
+                    "provider": "custom",
+                    "model": "chat-model",
+                    "embeddingModel": "override-embedding-model"
+                }),
+            )
+            .expect("override embedding connection should seed");
+        let (message_ids, content) = seed_five_visible_messages(&state, "chat-1");
+        state
+            .storage
+            .patch(
+                "chats",
+                "chat-1",
+                json!({
+                    "memories": [
+                        {
+                            "id": "memory-1",
+                            "chatId": "chat-1",
+                            "content": content,
+                            "messageCount": 5,
+                            "messageIds": message_ids,
+                            "embedding": [0.1, 0.2],
+                            "hasEmbedding": true,
+                            "embeddingStatus": "vectorized",
+                            "embeddingSource": "provider",
+                            "embeddingConnectionId": "override-embedding",
+                            "embeddingModel": "override-embedding-model"
+                        }
+                    ]
+                }),
+            )
+            .expect("existing memory should seed");
+
+        let result = refresh_chat_memories(&state, "chat-1")
+            .await
+            .expect("matching override memory should be reused without provider call");
+
+        assert_eq!(result["rebuilt"], json!(1));
+        assert_eq!(result["embedded"], json!(0));
+        assert_eq!(result["reused"], json!(1));
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        let memory = chat["memories"][0]
+            .as_object()
+            .expect("memory should be an object");
+        assert_eq!(memory.get("embeddingSource"), Some(&json!("provider")));
+        assert_eq!(
+            memory.get("embeddingConnectionId"),
+            Some(&json!("override-embedding"))
+        );
+        assert_eq!(
+            memory.get("embeddingModel"),
+            Some(&json!("override-embedding-model"))
+        );
     }
 
     #[tokio::test]
@@ -1693,6 +1898,99 @@ mod tests {
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("embeddingModel"));
         assert!(error.message.contains("embedding-connection"));
+        let chat = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat should read")
+            .expect("chat should exist");
+        assert!(chat.get("memories").is_none());
+    }
+
+    #[tokio::test]
+    async fn import_chat_memories_errors_on_chat_embedding_override_before_generation_connection() {
+        let state = test_state("memory-import-chat-override-missing-model");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "connectionId": "chat-connection",
+                    "embeddingConnectionId": "override-embedding"
+                }),
+            )
+            .expect("chat should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "chat-connection",
+                    "name": "Chat",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "embeddingConnectionId": "generation-embedding"
+                }),
+            )
+            .expect("chat connection should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "generation-embedding",
+                    "name": "Generation Embeddings",
+                    "provider": "custom",
+                    "model": "chat-model"
+                }),
+            )
+            .expect("generation embedding connection should seed");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "override-embedding",
+                    "name": "Override Embeddings",
+                    "provider": "custom",
+                    "model": "chat-model",
+                    "embeddingModel": "   "
+                }),
+            )
+            .expect("override embedding connection should seed");
+
+        let error = import_chat_memories(
+            &state,
+            "chat-1",
+            json!({
+                "type": "marinara_memory_recall",
+                "version": 1,
+                "data": {
+                    "sourceChat": {
+                        "id": "source-chat",
+                        "name": "Source chat",
+                        "mode": "conversation",
+                        "memoryCount": 1
+                    },
+                    "chunks": [
+                        {
+                            "content": "needs override vectorization",
+                            "embedding": null,
+                            "messageCount": 1
+                        }
+                    ]
+                }
+            }),
+            None,
+        )
+        .await
+        .expect_err("chat embedding override should be validated before generation connection");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("embeddingModel"));
+        assert!(error.message.contains("override-embedding"));
+        assert!(!error.message.contains("generation-embedding"));
         let chat = state
             .storage
             .get("chats", "chat-1")
