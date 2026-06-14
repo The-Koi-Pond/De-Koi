@@ -6,6 +6,9 @@ use std::collections::HashSet;
 const MAX_ASSISTANT_RUN_INTERVAL: i64 = 100;
 const DEFAULT_AGENT_CREDIT: &str = "Marinara Dev Team";
 const DEFAULT_AGENT_MAX_TOKENS: i64 = 4096;
+const SECRET_PLOT_AGENT_TYPE: &str = "secret-plot-driver";
+const SECRET_PLOT_PACING_VALUES: [&str; 5] =
+    ["slow", "exploration", "building", "climactic", "cooldown"];
 
 #[derive(Clone, Copy)]
 struct BuiltInAgentDefinition {
@@ -764,13 +767,16 @@ pub(crate) fn agent_memory(
         "PATCH" => {
             let agent_config_id = agent_config_id(state, agent_type, true)?
                 .ok_or_else(|| AppError::not_found("Agent is not configured"))?;
-            let patch = body
+            let mut patch = body
                 .get("patch")
                 .and_then(Value::as_object)
                 .cloned()
                 .ok_or_else(|| {
                     AppError::invalid_input("Body must be { patch: { key: value, ... } }")
                 })?;
+            if agent_type == SECRET_PLOT_AGENT_TYPE {
+                patch = normalize_secret_plot_memory_patch(patch)?;
+            }
             for (key, value) in patch {
                 set_agent_memory_value(state, &agent_config_id, chat_id, &key, value)?;
             }
@@ -790,6 +796,140 @@ pub(crate) fn agent_memory(
             "Unsupported agent memory method",
         )),
     }
+}
+
+fn normalize_secret_plot_memory_patch(patch: Map<String, Value>) -> AppResult<Map<String, Value>> {
+    let mut normalized = Map::new();
+    for (key, value) in patch {
+        match key.as_str() {
+            "overarchingArc" => {
+                normalized.insert(key, normalize_secret_plot_arc(value)?);
+            }
+            "sceneDirections" => {
+                normalized.insert(
+                    key,
+                    Value::Array(normalize_secret_plot_scene_directions(value)?),
+                );
+            }
+            "recentlyFulfilled" => {
+                normalized.insert(
+                    key,
+                    Value::Array(normalize_secret_plot_string_array(value)?),
+                );
+            }
+            "staleDetected" => {
+                let Some(value) = value.as_bool() else {
+                    return Err(AppError::invalid_input(
+                        "Secret Plot staleDetected must be a boolean",
+                    ));
+                };
+                normalized.insert(key, Value::Bool(value));
+            }
+            "pacing" => {
+                let Some(value) = value.as_str() else {
+                    return Err(AppError::invalid_input(
+                        "Secret Plot pacing must be a string",
+                    ));
+                };
+                let value = value.trim();
+                if !SECRET_PLOT_PACING_VALUES.contains(&value) {
+                    return Err(AppError::invalid_input(
+                        "Secret Plot pacing must be slow, exploration, building, climactic, or cooldown",
+                    ));
+                }
+                normalized.insert(key, Value::String(value.to_string()));
+            }
+            _ => {
+                return Err(AppError::invalid_input(format!(
+                    "Unsupported Secret Plot memory field: {key}"
+                )));
+            }
+        }
+    }
+    if normalized.is_empty() {
+        return Err(AppError::invalid_input(
+            "Secret Plot memory patch must include at least one supported field",
+        ));
+    }
+    Ok(normalized)
+}
+
+fn normalize_secret_plot_arc(value: Value) -> AppResult<Value> {
+    match value {
+        Value::Null => Ok(Value::Null),
+        Value::String(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                Ok(Value::Null)
+            } else {
+                Ok(Value::String(trimmed.to_string()))
+            }
+        }
+        Value::Object(object) => Ok(Value::Object(object)),
+        _ => Err(AppError::invalid_input(
+            "Secret Plot overarchingArc must be an object, string, or null",
+        )),
+    }
+}
+
+fn normalize_secret_plot_scene_directions(value: Value) -> AppResult<Vec<Value>> {
+    let Value::Array(entries) = value else {
+        return Err(AppError::invalid_input(
+            "Secret Plot sceneDirections must be an array",
+        ));
+    };
+    let mut normalized = Vec::new();
+    for entry in entries {
+        match entry {
+            Value::String(raw) => {
+                let direction = raw.trim();
+                if !direction.is_empty() {
+                    normalized.push(json!({ "direction": direction, "fulfilled": false }));
+                }
+            }
+            Value::Object(object) => {
+                let Some(direction) = object.get("direction").and_then(Value::as_str) else {
+                    return Err(AppError::invalid_input(
+                        "Secret Plot scene direction must include direction text",
+                    ));
+                };
+                let direction = direction.trim();
+                if !direction.is_empty() {
+                    normalized.push(json!({
+                        "direction": direction,
+                        "fulfilled": object.get("fulfilled").and_then(Value::as_bool).unwrap_or(false)
+                    }));
+                }
+            }
+            _ => {
+                return Err(AppError::invalid_input(
+                    "Secret Plot scene directions must be strings or objects",
+                ));
+            }
+        }
+    }
+    Ok(normalized)
+}
+
+fn normalize_secret_plot_string_array(value: Value) -> AppResult<Vec<Value>> {
+    let Value::Array(entries) = value else {
+        return Err(AppError::invalid_input(
+            "Secret Plot recentlyFulfilled must be an array",
+        ));
+    };
+    let mut normalized = Vec::new();
+    for entry in entries {
+        let Value::String(raw) = entry else {
+            return Err(AppError::invalid_input(
+                "Secret Plot recentlyFulfilled entries must be strings",
+            ));
+        };
+        let text = raw.trim();
+        if !text.is_empty() {
+            normalized.push(Value::String(text.to_string()));
+        }
+    }
+    Ok(normalized)
 }
 
 pub(crate) fn clear_agent_runs_and_memory_for_chat(
@@ -1502,6 +1642,102 @@ mod tests {
             Some("agent-director")
         );
         assert_eq!(row.get("chatId").and_then(Value::as_str), Some("chat-1"));
+    }
+
+    #[test]
+    fn secret_plot_memory_patch_rejects_invalid_fields_without_writing_memory() {
+        let state = test_state("secret-plot-invalid-memory-patch");
+
+        let unknown = agent_memory(
+            &state,
+            "PATCH",
+            "secret-plot-driver",
+            "chat-1",
+            json!({ "patch": { "note": "not part of the Secret Plot schema" } }),
+        )
+        .expect_err("unknown Secret Plot memory keys should reject");
+        assert_eq!(unknown.code, "invalid_input");
+
+        let invalid_stale = agent_memory(
+            &state,
+            "PATCH",
+            "secret-plot-driver",
+            "chat-1",
+            json!({ "patch": { "staleDetected": "yes" } }),
+        )
+        .expect_err("invalid Secret Plot field types should reject");
+        assert_eq!(invalid_stale.code, "invalid_input");
+
+        let rows = state
+            .storage
+            .list("agent-memory")
+            .expect("agent memory should list");
+        assert!(
+            rows.is_empty(),
+            "invalid Secret Plot patches must not persist partial memory rows"
+        );
+    }
+
+    #[test]
+    fn secret_plot_memory_patch_normalizes_supported_fields() {
+        let state = test_state("secret-plot-valid-memory-patch");
+
+        let response = agent_memory(
+            &state,
+            "PATCH",
+            "secret-plot-driver",
+            "chat-1",
+            json!({
+                "patch": {
+                    "overarchingArc": "  A mystery starts quietly.  ",
+                    "sceneDirections": [
+                        "  Let the conversation breathe.  ",
+                        { "direction": "  A clue becomes tempting.  ", "fulfilled": true }
+                    ],
+                    "recentlyFulfilled": ["  old clue  ", ""],
+                    "pacing": " building ",
+                    "staleDetected": true
+                }
+            }),
+        )
+        .expect("valid Secret Plot memory patch should persist");
+
+        let memory = response
+            .get("memory")
+            .and_then(Value::as_object)
+            .expect("response should include memory");
+        assert_eq!(memory["overarchingArc"], "A mystery starts quietly.");
+        assert_eq!(
+            memory["sceneDirections"],
+            json!([
+                { "direction": "Let the conversation breathe.", "fulfilled": false },
+                { "direction": "A clue becomes tempting.", "fulfilled": true }
+            ])
+        );
+        assert_eq!(memory["recentlyFulfilled"], json!(["old clue"]));
+        assert_eq!(memory["pacing"], "building");
+        assert_eq!(memory["staleDetected"], true);
+    }
+
+    #[test]
+    fn secret_plot_schema_does_not_apply_to_other_agent_memory() {
+        let state = test_state("director-arbitrary-memory-patch");
+
+        let response = agent_memory(
+            &state,
+            "PATCH",
+            "director",
+            "chat-1",
+            json!({ "patch": { "note": { "text": "keep me" }, "staleDetected": "yes" } }),
+        )
+        .expect("non-Secret agents should keep arbitrary memory patches");
+
+        let memory = response
+            .get("memory")
+            .and_then(Value::as_object)
+            .expect("response should include memory");
+        assert_eq!(memory["note"], json!({ "text": "keep me" }));
+        assert_eq!(memory["staleDetected"], "yes");
     }
 
     #[test]
