@@ -4,6 +4,8 @@ export const RESTORED_CHECKPOINT_ANCHOR_META_KEY = "gameRestoredCheckpointAnchor
 
 export const RESTORED_CHECKPOINT_LEGACY_META_KEY = "gameRestoredCheckpointLegacyAnchorMissing";
 
+export const CHECKPOINT_SNAPSHOT_KIND = "checkpoint";
+
 function latestMessage(messages: g.ChatMessage[]): g.ChatMessage | null {
   let fallback: g.ChatMessage | null = null;
   let latestTimed: { message: g.ChatMessage; createdAt: string } | null = null;
@@ -69,6 +71,7 @@ export async function createGameCheckpoint(data: {
   const messages = await g.listMessages(data.chatId);
   const messageId = checkpointAnchorFromMeta(meta, latestMessage(messages));
   const snapshot = await g.storageApi.create<{ id: string }>("game-state-snapshots", {
+    kind: CHECKPOINT_SNAPSHOT_KIND,
     chatId: data.chatId,
     messageId: messageId || null,
     gameState,

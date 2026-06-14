@@ -83,8 +83,14 @@ vi.mock("../../../../shared/api/llm-api", () => ({
 import { gameApi } from "./game-api";
 import { illustrationReferenceData, imageReviewId, imageSize } from "./game-api-asset-helpers";
 import { generateAssets, previewGeneratedAssets } from "./game-api-assets";
-import { branchFromCheckpoint, createCheckpoint, deleteCheckpoint, loadCheckpoint } from "./game-api-checkpoints";
-import { RESTORED_CHECKPOINT_ANCHOR_META_KEY } from "./game-api-checkpoint-helpers";
+import {
+  branchFromCheckpoint,
+  createCheckpoint,
+  deleteCheckpoint,
+  listCheckpoints,
+  loadCheckpoint,
+} from "./game-api-checkpoints";
+import { CHECKPOINT_SNAPSHOT_KIND, RESTORED_CHECKPOINT_ANCHOR_META_KEY } from "./game-api-checkpoint-helpers";
 import { regenerateSessionLorebook, runGameLorebookKeeperAfterConclusion } from "./game-api-lorebook-keeper";
 import { moveOnMap } from "./game-api-map";
 import { mapForMovement, moveMapPartyPosition, setupMapFromResponse } from "./game-api-map-helpers";
@@ -153,7 +159,9 @@ const CHECKPOINT_ROW = {
 
 const SNAPSHOT_ROW = {
   id: "snapshot-1",
+  kind: CHECKPOINT_SNAPSHOT_KIND,
   chatId: "chat-1",
+  messageId: "anchor-1",
   gameState: { hp: 2 },
   metadata: { gameWeather: "rain" },
 };
@@ -271,11 +279,20 @@ async function transitionWithCheckpointProbe(
 function mockCheckpointSnapshotGet(
   chat: Record<string, unknown> | null = null,
   snapshot: Record<string, unknown> = SNAPSHOT_ROW,
+  checkpoint: Record<string, unknown> = CHECKPOINT_ROW,
 ) {
   storageApiMock.get.mockImplementation(async (entity: string) => {
-    if (entity === "game-checkpoints") return CHECKPOINT_ROW;
+    if (entity === "game-checkpoints") return checkpoint;
     if (entity === "game-state-snapshots") return snapshot;
     if (entity === "chats") return chat;
+    return null;
+  });
+}
+
+function mockDeleteCheckpointGet(snapshot: Record<string, unknown> | null = SNAPSHOT_ROW) {
+  storageApiMock.get.mockImplementation(async (entity: string) => {
+    if (entity === "game-checkpoints") return { id: "checkpoint-1", snapshotId: "snapshot-1" };
+    if (entity === "game-state-snapshots") return snapshot;
     return null;
   });
 }
@@ -2190,7 +2207,7 @@ describe("game API review guards", () => {
       deleteCalls: [["game-checkpoints", "checkpoint-1"]],
     },
   ])("$label", async ({ deleted, expected, deleteCalls }) => {
-    storageApiMock.get.mockResolvedValue({ id: "checkpoint-1", snapshotId: "snapshot-1" });
+    mockDeleteCheckpointGet(SNAPSHOT_ROW);
     storageApiMock.delete.mockResolvedValue({ deleted });
 
     await expect(deleteCheckpoint("checkpoint-1")).resolves.toEqual(expected);
@@ -2201,8 +2218,60 @@ describe("game API review guards", () => {
     });
   });
 
+  it("requests game checkpoints newest-first for a chat", async () => {
+    storageApiMock.list.mockResolvedValue([
+      { id: "checkpoint-new", chatId: "chat-1", createdAt: "2026-06-02T00:00:00.000Z" },
+      { id: "checkpoint-old", chatId: "chat-1", createdAt: "2026-06-01T00:00:00.000Z" },
+    ]);
+
+    await expect(listCheckpoints("chat-1")).resolves.toEqual([
+      { id: "checkpoint-new", chatId: "chat-1", createdAt: "2026-06-02T00:00:00.000Z" },
+      { id: "checkpoint-old", chatId: "chat-1", createdAt: "2026-06-01T00:00:00.000Z" },
+    ]);
+
+    expect(storageApiMock.list).toHaveBeenCalledWith("game-checkpoints", {
+      filters: { chatId: "chat-1" },
+      orderBy: "createdAt",
+      descending: true,
+    });
+  });
+
+  it("does not delete imported legacy tracker snapshots when deleting a checkpoint", async () => {
+    mockDeleteCheckpointGet({
+      id: "snapshot-1",
+      kind: "tracker",
+      chatId: "chat-1",
+      messageId: "anchor-1",
+      gameState: { stale: true },
+      location: "Old Keep",
+      recentEvents: ["legacy save"],
+    });
+    storageApiMock.delete.mockResolvedValue({ deleted: true });
+
+    await expect(deleteCheckpoint("checkpoint-1")).resolves.toEqual({ ok: true });
+
+    expect(storageApiMock.delete).toHaveBeenCalledTimes(1);
+    expect(storageApiMock.delete).toHaveBeenCalledWith("game-checkpoints", "checkpoint-1");
+  });
+
+  it("does not delete sparse imported tracker snapshots with a legacy gameState column", async () => {
+    mockDeleteCheckpointGet({
+      id: "snapshot-1",
+      chatId: "chat-1",
+      messageId: "anchor-1",
+      gameState: { stale: true },
+      metadata: { gameWeather: { type: "clear" } },
+    });
+    storageApiMock.delete.mockResolvedValue({ deleted: true });
+
+    await expect(deleteCheckpoint("checkpoint-1")).resolves.toEqual({ ok: true });
+
+    expect(storageApiMock.delete).toHaveBeenCalledTimes(1);
+    expect(storageApiMock.delete).toHaveBeenCalledWith("game-checkpoints", "checkpoint-1");
+  });
+
   it("surfaces checkpoint snapshot cleanup failure without hiding checkpoint deletion", async () => {
-    storageApiMock.get.mockResolvedValue({ id: "checkpoint-1", snapshotId: "snapshot-1" });
+    mockDeleteCheckpointGet(SNAPSHOT_ROW);
     storageApiMock.delete.mockImplementation(async (entity: string) => {
       if (entity === "game-state-snapshots") throw new Error("snapshot cleanup failed");
       return { deleted: true };
@@ -2248,6 +2317,69 @@ describe("game API review guards", () => {
     });
   });
 
+  it("patches checkpoint branches with imported legacy tracker-shaped snapshots", async () => {
+    mockCheckpointSnapshotGet(
+      null,
+      {
+        id: "snapshot-1",
+        kind: "tracker",
+        chatId: "chat-1",
+        messageId: "anchor-1",
+        swipeIndex: 0,
+        gameState: { stale: true },
+        location: "Old Keep",
+        weather: "rain",
+        time: "Day 4, 21:00",
+        recentEvents: ["legacy save"],
+        playerStats: { status: "hurt" },
+      },
+      { ...CHECKPOINT_ROW, gameState: "combat" },
+    );
+    chatCommandApiMock.branch.mockResolvedValue({
+      id: "branch-1",
+      metadata: {
+        gameId: "game-1",
+        gameActiveState: "exploration",
+        gameWeather: { type: "clear" },
+        gameTime: { day: 1, hour: 8, minute: 0 },
+        gameTimeFormatted: "Day 1, 08:00",
+      },
+    });
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => ({
+      id,
+      ...patch,
+    }));
+
+    await expect(branchFromCheckpoint({ chatId: "chat-1", checkpointId: "checkpoint-1" })).resolves.toMatchObject({
+      id: "branch-1",
+      gameState: expect.objectContaining({
+        kind: "tracker",
+        messageId: "anchor-1",
+        location: "Old Keep",
+        weather: "rain",
+        time: "Day 4, 21:00",
+        recentEvents: ["legacy save"],
+        playerStats: { status: "hurt" },
+      }),
+      metadata: expect.objectContaining({
+        branchedFromCheckpointId: "checkpoint-1",
+        gameActiveState: "combat",
+        gameId: "game-1",
+        gameWeather: { type: "rain" },
+        gameTimeFormatted: "Day 4, 21:00",
+      }),
+    });
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "chats",
+      "branch-1",
+      expect.objectContaining({
+        metadata: expect.not.objectContaining({
+          gameTime: { day: 1, hour: 8, minute: 0 },
+        }),
+      }),
+    );
+  });
+
   it("reports snapshot cleanup failure when checkpoint creation rolls back", async () => {
     storageApiMock.get.mockImplementation(async (entity: string) => {
       if (entity === "chats") return { id: "chat-1", metadata: {}, gameState: {} };
@@ -2291,6 +2423,12 @@ describe("game API review guards", () => {
 
     await createCheckpoint({ chatId: "chat-1", label: "Before storm", triggerType: "manual" });
 
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "game-state-snapshots",
+      expect.objectContaining({
+        kind: CHECKPOINT_SNAPSHOT_KIND,
+      }),
+    );
     expect(storageApiMock.create).toHaveBeenCalledWith(
       "game-checkpoints",
       expect.objectContaining({
@@ -2377,5 +2515,136 @@ describe("game API review guards", () => {
       },
     });
     expect(storageApiMock.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats sparse message-targeted legacy snapshots as tracker rows despite a gameState column", async () => {
+    mockCheckpointSnapshotGet(
+      {
+        id: "chat-1",
+        metadata: {
+          gameId: "game-1",
+          gameWeather: { type: "clear" },
+          gameTime: { day: 1, hour: 8, minute: 0 },
+          gameTimeFormatted: "Day 1, 08:00",
+        },
+        gameState: { location: "wrong" },
+      },
+      {
+        id: "snapshot-1",
+        chatId: "chat-1",
+        messageId: "anchor-1",
+        gameState: { stale: true },
+        metadata: { gameWeather: { type: "clear" } },
+      },
+      { ...CHECKPOINT_ROW, gameState: "combat" },
+    );
+    storageApiMock.update.mockResolvedValue({ id: "chat-1" });
+    storageApiMock.create.mockResolvedValue({ id: "restore-message-1" });
+
+    const result = await loadCheckpoint({ chatId: "chat-1", checkpointId: "checkpoint-1" });
+
+    expect(result.gameState).toEqual({
+      id: "snapshot-1",
+      chatId: "chat-1",
+      messageId: "anchor-1",
+    });
+    expect(result.metadata).toEqual(
+      expect.objectContaining({
+        gameId: "game-1",
+        gameActiveState: "combat",
+        [RESTORED_CHECKPOINT_ANCHOR_META_KEY]: "anchor-1",
+      }),
+    );
+    expect(result.metadata).toEqual(
+      expect.not.objectContaining({
+        gameWeather: { type: "clear" },
+        gameTime: { day: 1, hour: 8, minute: 0 },
+        gameTimeFormatted: "Day 1, 08:00",
+      }),
+    );
+  });
+
+  it("restores imported legacy tracker-shaped checkpoint snapshots", async () => {
+    mockCheckpointSnapshotGet(
+      {
+        id: "chat-1",
+        metadata: {
+          gameId: "game-1",
+          gameWeather: { type: "clear" },
+          gameTime: { day: 1, hour: 8, minute: 0 },
+          gameTimeFormatted: "Day 1, 08:00",
+        },
+        gameState: { location: "wrong" },
+      },
+      {
+        id: "snapshot-1",
+        kind: "tracker",
+        chatId: "chat-1",
+        messageId: "anchor-1",
+        swipeIndex: 0,
+        gameState: { stale: true },
+        date: "Day 4",
+        time: "21:00",
+        location: "Old Keep",
+        weather: "rain",
+        presentCharacters: [{ name: "Mira" }],
+        recentEvents: ["legacy save"],
+        playerStats: { status: "hurt" },
+        personaStats: null,
+        committed: true,
+        createdAt: "2026-06-01T00:00:00.000Z",
+      },
+      { ...CHECKPOINT_ROW, gameState: "combat" },
+    );
+    storageApiMock.update.mockResolvedValue({ id: "chat-1" });
+    storageApiMock.create.mockResolvedValue({ id: "restore-message-1" });
+
+    const result = await loadCheckpoint({ chatId: "chat-1", checkpointId: "checkpoint-1" });
+
+    expect(result).toMatchObject({
+      ok: true,
+      gameState: expect.objectContaining({
+        kind: "tracker",
+        date: "Day 4",
+        time: "21:00",
+        location: "Old Keep",
+        weather: "rain",
+        presentCharacters: [{ name: "Mira" }],
+        recentEvents: ["legacy save"],
+        playerStats: { status: "hurt" },
+        committed: true,
+      }),
+      metadata: expect.objectContaining({
+        [RESTORED_CHECKPOINT_ANCHOR_META_KEY]: "anchor-1",
+        gameActiveState: "combat",
+        gameId: "game-1",
+        gameWeather: { type: "rain" },
+        gameTimeFormatted: "21:00",
+      }),
+    });
+    expect(result.gameState as Record<string, unknown>).not.toHaveProperty("gameState");
+
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "chats",
+      "chat-1",
+      expect.objectContaining({
+        gameState: expect.objectContaining({ location: "Old Keep", recentEvents: ["legacy save"] }),
+        metadata: expect.objectContaining({
+          gameActiveState: "combat",
+          gameId: "game-1",
+          gameWeather: { type: "rain" },
+          gameTimeFormatted: "21:00",
+        }),
+      }),
+    );
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "chats",
+      "chat-1",
+      expect.objectContaining({
+        metadata: expect.not.objectContaining({
+          gameTime: { day: 1, hour: 8, minute: 0 },
+        }),
+      }),
+    );
   });
 });
