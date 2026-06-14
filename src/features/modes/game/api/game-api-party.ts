@@ -72,9 +72,7 @@ function resolvePartyReputationActions(
 ): Array<{ npcId: string; action: string }> {
   return actions.map((action) => {
     const target = action.npcName.trim();
-    const idMatches = npcs.filter((npc) => g.readTrimmed(npc.id) === target);
-    const matches =
-      idMatches.length > 0 ? idMatches : npcs.filter((npc) => normalizedName(npc.name) === normalizedName(target));
+    const matches = npcs.filter((npc) => normalizedName(npc.name) === normalizedName(target));
     if (matches.length === 0) {
       throw new Error(`Party-turn reputation target was not found: ${target}.`);
     }

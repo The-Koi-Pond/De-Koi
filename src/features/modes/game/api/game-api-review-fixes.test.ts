@@ -630,6 +630,44 @@ describe("game API review guards", () => {
     expect(result.npcs).toMatchObject([{ id: "npc-1", reputation: 30, met: true }]);
   });
 
+  it("resolves party-turn reputation tags by NPC display name when another NPC id collides", async () => {
+    const chat = {
+      id: "chat-1",
+      characterIds: [],
+      metadata: {
+        gameNpcs: [
+          { id: "Mira", name: "Ren", reputation: 10, met: false, notes: [] },
+          { id: "npc-2", name: "Mira", reputation: 15, met: false, notes: [] },
+        ],
+        gameCharacterCards: [{ name: "Mira" }],
+      },
+    };
+    mockChat(chat);
+    storageApiMock.list.mockResolvedValue([]);
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => ({
+      id,
+      ...patch,
+    }));
+    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => ({
+      id: `${entity}-1`,
+      ...value,
+    }));
+    llmApiMock.complete.mockResolvedValue(
+      '[party-turn]\n[Mira] [main]: We can help. [reputation: npc="Mira" action="helped"]',
+    );
+
+    const result = await partyTurn({
+      chatId: "chat-1",
+      narration: "Mira waits.",
+      connectionId: "conn-1",
+    });
+
+    expect(result.npcs).toMatchObject([
+      { id: "Mira", name: "Ren", reputation: 10, met: false },
+      { id: "npc-2", name: "Mira", reputation: 30, met: true },
+    ]);
+  });
+
   it.each([
     {
       label: "unknown",
