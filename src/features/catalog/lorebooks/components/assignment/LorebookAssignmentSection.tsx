@@ -119,7 +119,7 @@ export function LorebookAssignmentSection({ ownerType, ownerId, ownerName }: Lor
     setDraft({
       lorebookId: lorebook?.id ?? null,
       mode: scope.mode,
-      chatIds: eligibleScopeChatIds(scope.chatIds, eligibleChats),
+      chatIds: scope.chatIds,
       search: "",
     });
   };
