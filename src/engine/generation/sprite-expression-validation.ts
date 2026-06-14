@@ -182,7 +182,17 @@ function resolveExpression(expression: string, availableExpressions: string[]): 
   );
 }
 
-export function validateSpriteExpressionEntries<T extends SpriteExpressionEntry>(
+function fallbackExpression(expressions: string[]): string | null {
+  const normalizedFallbacks = new Set(["neutral", "default", "idle", "fullneutral", "fulldefault", "fullidle"]);
+  return (
+    expressions.find((entry) => normalizedFallbacks.has(normalizeExpressionToken(entry))) ??
+    expressions.find((entry) => /^full[_-]?(?:neutral|default|idle)$/i.test(entry.trim())) ??
+    expressions[0] ??
+    null
+  );
+}
+
+function validateSpriteExpressionEntries<T extends SpriteExpressionEntry>(
   expressions: T[] | undefined,
   availableSprites: AvailableSpriteCharacter[] | undefined,
 ): ExpressionValidationResult<T> {
@@ -241,4 +251,40 @@ export function validateSpriteExpressionEntries<T extends SpriteExpressionEntry>
   }
 
   return { expressions: validated, warnings };
+}
+
+export function completeRequiredSpriteExpressionEntries<T extends SpriteExpressionEntry>(
+  expressions: T[] | undefined,
+  availableSprites: AvailableSpriteCharacter[] | undefined,
+  requiredCharacterIds: readonly unknown[] | undefined,
+): ExpressionValidationResult<SpriteExpressionEntry> {
+  const validation = validateSpriteExpressionEntries(expressions, availableSprites);
+  if (!Array.isArray(availableSprites) || !Array.isArray(requiredCharacterIds)) {
+    return validation;
+  }
+
+  const completed: SpriteExpressionEntry[] = [...validation.expressions];
+  const seen = new Set(
+    completed
+      .map((entry) => (typeof entry.characterId === "string" ? entry.characterId.trim() : ""))
+      .filter((characterId) => characterId.length > 0),
+  );
+
+  for (const rawId of requiredCharacterIds) {
+    const characterId = typeof rawId === "string" ? rawId.trim() : "";
+    if (!characterId || seen.has(characterId)) continue;
+    const character = availableSprites.find((sprite) => sprite.characterId === characterId);
+    if (!character) continue;
+    const expression = fallbackExpression(character.expressions);
+    if (!expression) continue;
+    completed.push({
+      characterId: character.characterId,
+      characterName: character.characterName,
+      expression,
+      transition: "none",
+    });
+    seen.add(character.characterId);
+  }
+
+  return { expressions: completed, warnings: validation.warnings };
 }

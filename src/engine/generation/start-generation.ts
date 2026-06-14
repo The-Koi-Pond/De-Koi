@@ -97,7 +97,7 @@ import {
   type StartGenerationInput,
 } from "./start-generation-input";
 import {
-  validateSpriteExpressionEntries,
+  completeRequiredSpriteExpressionEntries,
   type AvailableSpriteCharacter,
   type SpriteExpressionEntry,
 } from "./sprite-expression-validation";
@@ -2355,6 +2355,7 @@ function buildSavedGenerationPromptSnapshot(args: {
 function spriteExpressionsFromAgentResults(
   results: AgentResult[],
   availableSprites: AvailableSpriteCharacter[] | undefined,
+  requiredCharacterIds: readonly unknown[] = [],
 ): Record<string, string> | null {
   const entries: SpriteExpressionEntry[] = [];
   const hasAvailableSprites = Array.isArray(availableSprites) && availableSprites.length > 0;
@@ -2374,15 +2375,33 @@ function spriteExpressionsFromAgentResults(
     }
   }
 
-  if (entries.length === 0 || !hasAvailableSprites) return null;
+  if (!hasAvailableSprites) return null;
 
-  const validation = validateSpriteExpressionEntries(entries, availableSprites);
+  const validation = completeRequiredSpriteExpressionEntries(entries, availableSprites, requiredCharacterIds);
   for (const entry of validation.expressions) {
     const expression = readString(entry.expression).trim();
     const characterId = readString(entry.characterId).trim();
     if (characterId && expression) expressions[characterId] = expression;
   }
   return Object.keys(expressions).length > 0 ? expressions : null;
+}
+
+function requiredSpriteExpressionTargetIds(chat: JsonRecord, input: StartGenerationInput): string[] {
+  const targetId =
+    input.impersonate === true ? readString(chat.personaId).trim() : (assistantMessageCharacterId(chat, input) ?? "");
+  return targetId ? [targetId] : [];
+}
+
+function requiredSpriteExpressionTargetIdsForMessage(message: unknown): string[] {
+  if (!isRecord(message)) return [];
+  const role = readString(message.role).trim();
+  const characterId = readString(message.characterId).trim();
+  if (role !== "user" && characterId) return [characterId];
+  if (role === "user") {
+    const personaId = readString(parseRecord(parseRecord(message.extra).personaSnapshot).personaId).trim();
+    if (personaId) return [personaId];
+  }
+  return [];
 }
 
 function assertVisibleGeneratedContent(content: string, attachments?: JsonRecord[]): void {
@@ -2898,7 +2917,11 @@ async function persistAgentMessageExtraForTarget(
     existingExtra: target?.extra,
     mergeContextInjectionUpdates: true,
   });
-  const spriteExpressions = spriteExpressionsFromAgentResults(results, availableSprites);
+  const spriteExpressions = spriteExpressionsFromAgentResults(
+    results,
+    availableSprites,
+    requiredSpriteExpressionTargetIdsForMessage(target),
+  );
   if (spriteExpressions && Object.keys(spriteExpressions).length > 0) {
     extraPatch.spriteExpressions = spriteExpressions;
   }
@@ -3650,7 +3673,11 @@ export async function* startGeneration(
     const preSaveAgentResults = isUserMessageRegeneration ? [] : uniqueAgentResults(runtime?.preResults ?? []);
     const preSaveSpriteExpressions = isUserMessageRegeneration
       ? null
-      : spriteExpressionsFromAgentResults(preSaveAgentResults, runtime?.availableSprites ?? []);
+      : spriteExpressionsFromAgentResults(
+          preSaveAgentResults,
+          runtime?.availableSprites ?? [],
+          requiredSpriteExpressionTargetIds(chat, input),
+        );
     content = await applyRuntimeRegexScripts(deps.storage, "ai_output", content);
     throwIfAborted(signal);
     const connected = isUserMessageRegeneration
@@ -3738,7 +3765,11 @@ export async function* startGeneration(
       }
       agentEvents.length = 0;
       const allAgentResults = uniqueAgentResults([...preSaveAgentResults, ...emittedAgentResults]);
-      const spriteExpressions = spriteExpressionsFromAgentResults(allAgentResults, runtime?.availableSprites ?? []);
+      const spriteExpressions = spriteExpressionsFromAgentResults(
+        allAgentResults,
+        runtime?.availableSprites ?? [],
+        requiredSpriteExpressionTargetIdsForMessage(latestSaved),
+      );
       if (saved) {
         const patched = await patchSavedMessageAgentExtra({
           storage: deps.storage,
