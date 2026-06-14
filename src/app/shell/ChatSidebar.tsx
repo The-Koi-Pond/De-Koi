@@ -51,7 +51,7 @@ import { showConfirmDialog } from "../../shared/lib/app-dialogs";
 import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../shared/lib/utils";
 import { avatarFileUrlFromPath, resolveAvatarFileUrl } from "../../shared/api/local-file-api";
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect, type DragEvent } from "react";
 import { CHAT_MODES } from "../../engine/contracts/constants/chat-modes";
 import type { ChatFolder } from "../../engine/contracts/types/chat";
 import { Modal } from "../../shared/components/ui/Modal";
@@ -65,6 +65,9 @@ type ChatSidebarRow = {
   chat: NonNullable<ReturnType<typeof useChatSummaries>["data"]>[number];
   branchCount: number;
 };
+type ChatDropTarget = { folderId: string | null } | null;
+
+const CHAT_DRAG_MIME = "application/x-de-koi-chat-id";
 
 function getChatTags(chat: { metadata?: { tags?: unknown } | null }): string[] {
   return Array.isArray(chat.metadata?.tags)
@@ -74,6 +77,14 @@ function getChatTags(chat: { metadata?: { tags?: unknown } | null }): string[] {
 
 function isChatPinned(chat: { metadata?: unknown }): boolean {
   return parseChatMetadata(chat.metadata).pinned === true;
+}
+
+function getNextUnnamedChatFolderName(folders: ChatFolder[]): string {
+  const names = new Set(folders.map((folder) => folder.name.trim().toLowerCase()).filter(Boolean));
+  if (!names.has("new folder")) return "New Folder";
+  let index = 2;
+  while (names.has(`new folder ${index}`)) index += 1;
+  return `New Folder ${index}`;
 }
 
 function toSearchText(value: unknown): string {
@@ -234,9 +245,9 @@ export function ChatSidebar({
   } | null>(null);
 
   // Folder UI state
-  const [creatingFolder, setCreatingFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
   const [movingChatId, setMovingChatId] = useState<string | null>(null);
+  const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
+  const [chatDropTarget, setChatDropTarget] = useState<ChatDropTarget>(null);
 
   // Multi-select state
   const [multiSelectMode, setMultiSelectMode] = useState(false);
@@ -528,11 +539,8 @@ export function ChatSidebar({
 
   // ── Folder handlers ──
   const handleCreateFolder = useCallback(() => {
-    if (!newFolderName.trim()) return;
-    createFolderMut.mutate({ name: newFolderName.trim(), mode: activeTab });
-    setNewFolderName("");
-    setCreatingFolder(false);
-  }, [newFolderName, activeTab, createFolderMut]);
+    createFolderMut.mutate({ name: getNextUnnamedChatFolderName(modeFolders), mode: activeTab });
+  }, [activeTab, createFolderMut, modeFolders]);
 
   const handleToggleCollapse = useCallback(
     (folder: ChatFolder) => {
@@ -579,6 +587,60 @@ export function ChatSidebar({
       setMovingChatId(null);
     },
     [moveChatMut],
+  );
+
+  const clearChatDragState = useCallback(() => {
+    setDraggedChatId(null);
+    setChatDropTarget(null);
+  }, []);
+
+  const handleChatDragStart = useCallback(
+    (event: DragEvent<HTMLDivElement>, chatId: string) => {
+      if (multiSelectMode || modeFolders.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      setDraggedChatId(chatId);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(CHAT_DRAG_MIME, chatId);
+      event.dataTransfer.setData("text/plain", chatId);
+    },
+    [modeFolders.length, multiSelectMode],
+  );
+
+  const handleChatDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>, folderId: string | null) => {
+      if (!draggedChatId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "move";
+      setChatDropTarget((current) => (current?.folderId === folderId ? current : { folderId }));
+    },
+    [draggedChatId],
+  );
+
+  const handleChatDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+    setChatDropTarget(null);
+  }, []);
+
+  const handleChatDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>, folderId: string | null) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const chatId = draggedChatId || event.dataTransfer.getData(CHAT_DRAG_MIME);
+      if (!chatId) {
+        clearChatDragState();
+        return;
+      }
+      const currentFolderId = chats?.find((chat) => chat.id === chatId)?.folderId ?? null;
+      if (currentFolderId !== folderId) {
+        moveChatMut.mutate({ chatId, folderId });
+      }
+      clearChatDragState();
+    },
+    [chats, clearChatDragState, draggedChatId, moveChatMut],
   );
 
   // ── Batch actions ──
@@ -648,6 +710,9 @@ export function ChatSidebar({
         tabIndex={0}
         key={chat.groupId ?? chat.id}
         data-chat-id={chat.id}
+        draggable={!multiSelectMode && modeFolders.length > 0}
+        onDragStart={(event) => handleChatDragStart(event, chat.id)}
+        onDragEnd={clearChatDragState}
         onClick={async () => {
           if (multiSelectMode) {
             toggleSelectChat(chat.id);
@@ -680,6 +745,7 @@ export function ChatSidebar({
             : isActive
               ? "bg-[var(--sidebar-accent)] shadow-sm"
               : "hover:bg-[var(--sidebar-accent)]/60",
+          draggedChatId === chat.id && "opacity-55 ring-1 ring-[var(--primary)]/30",
         )}
       >
         {/* Multi-select checkbox */}
@@ -991,49 +1057,23 @@ export function ChatSidebar({
             />
           </div>
 
-          {creatingFolder ? (
-            <div className="flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 py-2 ring-1 ring-[var(--primary)]/20">
-              <FolderPlus size="0.75rem" className="text-[var(--muted-foreground)]" />
-              <input
-                autoFocus
-                placeholder="Folder name..."
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreateFolder();
-                  if (e.key === "Escape") {
-                    setCreatingFolder(false);
-                    setNewFolderName("");
-                  }
-                }}
-                onBlur={() => {
-                  if (newFolderName.trim()) handleCreateFolder();
-                  else {
-                    setCreatingFolder(false);
-                    setNewFolderName("");
-                  }
-                }}
-                className="min-w-0 flex-1 bg-transparent text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
-              />
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-1.5">
-              <button
-                onClick={handleNewChatFromTab}
-                className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)]/15 px-2.5 text-[0.72rem] font-semibold text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25 active:scale-[0.98]"
-              >
-                <Plus size="0.8rem" />
-                New {activeTab === "conversation" ? "chat" : activeTab === "game" ? "game" : "RP"}
-              </button>
-              <button
-                onClick={() => setCreatingFolder(true)}
-                className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 text-[0.72rem] font-semibold text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/50 hover:text-[var(--foreground)] active:scale-[0.98]"
-              >
-                <FolderPlus size="0.8rem" />
-                Folder
-              </button>
-            </div>
-          )}
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              onClick={handleNewChatFromTab}
+              className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)]/15 px-2.5 text-[0.72rem] font-semibold text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25 active:scale-[0.98]"
+            >
+              <Plus size="0.8rem" />
+              New {activeTab === "conversation" ? "chat" : activeTab === "game" ? "game" : "RP"}
+            </button>
+            <button
+              onClick={handleCreateFolder}
+              disabled={createFolderMut.isPending}
+              className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 text-[0.72rem] font-semibold text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/50 hover:text-[var(--foreground)] active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
+            >
+              <FolderPlus size="0.8rem" />
+              Folder
+            </button>
+          </div>
 
           {displayChats.length > 0 && (
             <button
@@ -1192,9 +1232,14 @@ export function ChatSidebar({
                     folder={folder}
                     entries={folderEntries}
                     renderChatRow={renderChatRow}
+                    isDropTarget={chatDropTarget?.folderId === folder.id}
+                    draggedChatId={draggedChatId}
                     onToggleCollapse={handleToggleCollapse}
                     onRename={handleRenameFolder}
                     onDelete={handleDeleteFolder}
+                    onChatDragOver={handleChatDragOver}
+                    onChatDragLeave={handleChatDragLeave}
+                    onChatDrop={handleChatDrop}
                   />
                 );
               })}
@@ -1202,7 +1247,19 @@ export function ChatSidebar({
           )}
 
           {/* Unfiled chats */}
-          {unfiledChats.map(renderChatRow)}
+          <div
+            data-chat-folder-root
+            onDragOver={(event) => handleChatDragOver(event, null)}
+            onDragLeave={handleChatDragLeave}
+            onDrop={(event) => handleChatDrop(event, null)}
+            className={cn(
+              "flex flex-col gap-0.5 rounded-lg transition-colors",
+              draggedChatId && "min-h-8",
+              chatDropTarget && chatDropTarget.folderId === null && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+            )}
+          >
+            {unfiledChats.map(renderChatRow)}
+          </div>
         </div>
       </div>
 
@@ -1384,23 +1441,46 @@ function FolderRow({
   folder,
   entries,
   renderChatRow,
+  isDropTarget,
+  draggedChatId,
   onToggleCollapse,
   onRename,
   onDelete,
+  onChatDragOver,
+  onChatDragLeave,
+  onChatDrop,
 }: {
   folder: ChatFolder;
   entries: ChatSidebarRow[];
   renderChatRow: (entry: ChatSidebarRow) => React.ReactNode;
+  isDropTarget: boolean;
+  draggedChatId: string | null;
   onToggleCollapse: (folder: ChatFolder) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
+  onChatDragOver: (event: DragEvent<HTMLDivElement>, folderId: string | null) => void;
+  onChatDragLeave: (event: DragEvent<HTMLDivElement>) => void;
+  onChatDrop: (event: DragEvent<HTMLDivElement>, folderId: string | null) => void;
 }) {
   const dragControls = useDragControls();
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(folder.name);
 
   return (
-    <Reorder.Item value={folder.id} dragListener={false} dragControls={dragControls} as="div" className="flex flex-col">
+    <Reorder.Item
+      value={folder.id}
+      dragListener={false}
+      dragControls={dragControls}
+      as="div"
+      onDragOver={(event) => onChatDragOver(event, folder.id)}
+      onDragLeave={onChatDragLeave}
+      onDrop={(event) => onChatDrop(event, folder.id)}
+      className={cn(
+        "flex flex-col rounded-lg transition-colors",
+        draggedChatId && "ring-inset",
+        isDropTarget && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+      )}
+    >
       {/* Folder header */}
       <div className="group relative flex items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-[var(--sidebar-accent)]/40">
         <div
