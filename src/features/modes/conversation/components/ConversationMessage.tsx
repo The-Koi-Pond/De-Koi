@@ -22,7 +22,7 @@ import {
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import type { Message, MessageExtra } from "../../../../engine/contracts/types/chat";
 import type { ConversationAvatarOverride } from "../../../../engine/contracts/types/character";
-import { useUIStore } from "../../../../shared/stores/ui.store";
+import { useUIStore, type ConversationMessageStyle } from "../../../../shared/stores/ui.store";
 import { cn, copyToClipboard, getAvatarCropStyle, parseAvatarCropJson } from "../../../../shared/lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../../../shared/lib/markdown";
 import { chatKeys } from "../../../catalog/chats/index";
@@ -341,6 +341,8 @@ interface ConversationMessageProps {
   onToggleSelect?: (toggle: MessageSelectionToggle) => void;
   /** When true, omit the data-card-css hook so the message renders vanilla (used while editing). */
   suppressCardCss?: boolean;
+  /** Conversation message layout selected in UI settings. */
+  messageStyle?: ConversationMessageStyle;
   /** When set and the body is empty, shows "X is typing..." inside the message body (CSS hooks: .mari-typing-*). */
   typingLabel?: string;
 }
@@ -369,6 +371,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   isSelected,
   onToggleSelect,
   suppressCardCss,
+  messageStyle = "classic",
   typingLabel,
 }: ConversationMessageProps) {
   const [editing, setEditing] = useState(false);
@@ -406,6 +409,7 @@ export const ConversationMessage = memo(function ConversationMessage({
 
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
+  const isBubbleStyle = messageStyle === "bubble";
 
   // Parse extra early so we can access persona snapshot
   const extra = useMemo(() => {
@@ -1119,15 +1123,18 @@ export const ConversationMessage = memo(function ConversationMessage({
   return (
     <div
       className={cn(
-        "mari-message relative flex gap-4 px-4 py-0.5 transition-colors hover:bg-[var(--secondary)]/30",
+        "mari-message relative flex px-4 py-0.5 transition-colors",
+        isBubbleStyle ? "gap-3" : "gap-4 hover:bg-[var(--secondary)]/30",
         isUser ? "mari-message-user" : "mari-message-assistant",
+        isBubbleStyle && (isUser ? "flex-row-reverse justify-start" : "justify-start"),
         !noHoverGroup && "group",
-        isGrouped ? "mt-0" : "mt-4",
+        isGrouped ? "mt-0" : isBubbleStyle ? "mt-3" : "mt-4",
         isStreaming && "bg-[var(--secondary)]/20",
         multiSelectMode && isSelected && "bg-[var(--destructive)]/10",
       )}
       data-message-id={message.id}
       data-message-role={message.role}
+      data-message-style={messageStyle}
       data-card-css={cardCssId}
       data-grouped={isGrouped || undefined}
       onClick={handleMessageClick}
@@ -1150,10 +1157,15 @@ export const ConversationMessage = memo(function ConversationMessage({
       )}
 
       {/* Avatar column — fixed 40px width */}
-      <div className="mari-message-avatar w-10 flex-shrink-0">
+      <div className={cn("mari-message-avatar flex-shrink-0", isBubbleStyle ? "w-8 self-end" : "w-10")}>
         {!isGrouped && !conversationAvatar.hide && (
           <>
-            <div className="relative h-10 w-10 overflow-hidden rounded-full bg-[var(--accent)]">
+            <div
+              className={cn(
+                "relative overflow-hidden rounded-full bg-[var(--accent)]",
+                isBubbleStyle ? "h-8 w-8" : "h-10 w-10",
+              )}
+            >
               {/* Emoji and resolved sprite/gallery overrides render directly; the normal avatar
                   goes through the file-path/thumbnail-aware resolver with crop styling. */}
               {conversationAvatar.emoji ? (
@@ -1196,10 +1208,22 @@ export const ConversationMessage = memo(function ConversationMessage({
       </div>
 
       {/* Message content column */}
-      <div className="mari-message-body min-w-0 flex-1">
+      <div
+        className={cn(
+          "mari-message-body min-w-0",
+          isBubbleStyle ? "flex max-w-[min(78%,42rem)] flex-col gap-1" : "flex-1",
+          isBubbleStyle && (isUser ? "items-end" : "items-start"),
+        )}
+      >
         {/* Header — name + timestamp (only for first in group) */}
         {!isGrouped && (
-          <div className="mari-message-meta flex items-baseline gap-2 mb-0.5">
+          <div
+            className={cn(
+              "mari-message-meta flex items-baseline gap-2 mb-0.5",
+              isBubbleStyle && "px-2",
+              isBubbleStyle && isUser && "flex-row-reverse",
+            )}
+          >
             {hiddenFromAIHeader}
             <span
               className="mari-message-name text-[0.9375rem] font-semibold leading-tight hover:underline cursor-default"
@@ -1261,6 +1285,12 @@ export const ConversationMessage = memo(function ConversationMessage({
           <div
             className={cn(
               "mari-message-content text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap",
+              isBubbleStyle && "mari-message-bubble min-w-0 max-w-full rounded-2xl px-3.5 py-2 shadow-sm ring-1",
+              isBubbleStyle &&
+                (isUser
+                  ? "rounded-br-md bg-[var(--primary)] text-[var(--primary-foreground)] ring-[var(--primary)]/25"
+                  : "rounded-bl-md bg-[var(--card)]/90 text-[var(--foreground)] ring-[var(--border)]"),
+              isBubbleStyle && isGrouped && (isUser ? "rounded-tr-md rounded-br-2xl" : "rounded-tl-md rounded-bl-2xl"),
               (isStreaming || typingLabel) && !renderedContent && "py-1",
             )}
             style={messageTextStyle}
@@ -1284,11 +1314,7 @@ export const ConversationMessage = memo(function ConversationMessage({
               </div>
             ) : (
               <>
-                <MessageContent
-                  content={renderedContent}
-                  mentionNames={mentionNames}
-                  onImageOpen={openImageLightbox}
-                />
+                <MessageContent content={renderedContent} mentionNames={mentionNames} onImageOpen={openImageLightbox} />
                 {isStreaming && (
                   <span className="ml-0.5 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-[var(--foreground)]/50" />
                 )}
@@ -1356,7 +1382,8 @@ export const ConversationMessage = memo(function ConversationMessage({
       {!hideActions && (
         <div
           className={cn(
-            "mari-message-actions absolute -top-3 right-4 flex items-center gap-0.5 rounded-md border border-[var(--border)] bg-[var(--card)]/90 px-1 py-0.5 shadow-sm backdrop-blur-sm transition-all dark:border-white/20 dark:bg-black/40",
+            "mari-message-actions absolute -top-3 flex items-center gap-0.5 rounded-md border border-[var(--border)] bg-[var(--card)]/90 px-1 py-0.5 shadow-sm backdrop-blur-sm transition-all dark:border-white/20 dark:bg-black/40",
+            isBubbleStyle && isUser ? "left-4" : "right-4",
             "opacity-0 group-hover:opacity-100",
             (showActions || forceShowActions) && "opacity-100",
           )}

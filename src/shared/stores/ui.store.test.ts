@@ -92,3 +92,21 @@ describe("useUIStore mobile detail routes", () => {
     });
   });
 });
+
+describe("useUIStore conversation message style", () => {
+  afterEach(() => {
+    useUIStore.setState({ conversationMessageStyle: "classic" });
+  });
+
+  it("stores bubble layout selections", () => {
+    useUIStore.getState().setConversationMessageStyle("bubble");
+
+    expect(useUIStore.getState().conversationMessageStyle).toBe("bubble");
+  });
+
+  it("normalizes unknown layout selections to classic", () => {
+    useUIStore.getState().setConversationMessageStyle("compact" as never);
+
+    expect(useUIStore.getState().conversationMessageStyle).toBe("classic");
+  });
+});
