@@ -286,6 +286,12 @@ function normalizeChatMetadataPatch(
   if (Object.prototype.hasOwnProperty.call(patch, "inactiveCharacterIds")) {
     metadata.inactiveCharacterIds = normalizeChatInactiveCharacterIds(chat, patch.inactiveCharacterIds);
   }
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "activeAgentIds") &&
+    !Object.prototype.hasOwnProperty.call(patch, "enableAgents")
+  ) {
+    metadata.enableAgents = Array.isArray(metadata.activeAgentIds) && metadata.activeAgentIds.length > 0;
+  }
   return metadata;
 }
 
@@ -398,9 +404,7 @@ async function galleryImageDataUrl(gallery: unknown, galleryId: string): Promise
   return null;
 }
 
-async function resolveImageAttachmentDataUrl(
-  attachment: StorageImageAttachmentReference,
-): Promise<string | null> {
+async function resolveImageAttachmentDataUrl(attachment: StorageImageAttachmentReference): Promise<string | null> {
   const inline =
     inlineImageDataUrl(attachment.data) ||
     inlineImageDataUrl(attachment.url) ||

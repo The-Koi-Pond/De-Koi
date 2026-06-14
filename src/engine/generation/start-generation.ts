@@ -1,4 +1,9 @@
-import { BUILT_IN_AGENTS, BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS, type AgentResult } from "../contracts/types/agent";
+import {
+  BUILT_IN_AGENTS,
+  BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS,
+  enabledChatAgentIdSet,
+  type AgentResult,
+} from "../contracts/types/agent";
 import type {
   DaySummaryEntry,
   GenerationPromptSnapshot,
@@ -29,7 +34,7 @@ import {
 } from "./active-characters";
 import { persistSecretPlotAgentMemory, type SecretPlotRerollMode } from "./agent-memory-runtime";
 import { createGenerationAgentRuntime } from "./agent-runner";
-import { buildBuiltInAgentFallback, canonicalAgentActiveIdSet } from "./built-in-agent-fallback";
+import { buildBuiltInAgentFallback } from "./built-in-agent-fallback";
 import {
   consumePendingConnectedInfluences,
   persistConnectedCommandTags,
@@ -2947,7 +2952,7 @@ function lorebookKeeperRunInterval(agent: JsonRecord | null): number {
 }
 
 function chatActiveAgentIds(chat: JsonRecord): Set<string> {
-  return canonicalAgentActiveIdSet(parseRecord(chat.metadata).activeAgentIds);
+  return enabledChatAgentIdSet(parseRecord(chat.metadata), readString(chat.mode || chat.chatMode).trim());
 }
 
 function chatHasLorebookKeeperEnabled(chat: JsonRecord, agent: JsonRecord): boolean {

@@ -1,7 +1,7 @@
 import type { LorebookEntryTimingState } from "../contracts/types/lorebook";
 import type { ChatMLMessage, MarkerConfig, WrapFormat } from "../contracts/types/prompt";
 import type { CharacterData } from "../contracts/types/character";
-import { BUILT_IN_AGENTS } from "../contracts/types/agent";
+import { BUILT_IN_AGENTS, enabledChatAgentIds } from "../contracts/types/agent";
 import {
   DEFAULT_CONVERSATION_SYSTEM_PROMPT,
   DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT,
@@ -1425,8 +1425,8 @@ function renderJsonBlock(label: string, value: unknown): string {
   return `${label}:\n${JSON.stringify(record, null, 2).slice(0, 4000)}`;
 }
 
-function activeTrackerAgentIds(meta: JsonRecord): string[] {
-  return stringArray(meta.activeAgentIds).filter((id) => TRACKER_AGENT_IDS.has(id));
+function activeTrackerAgentIds(meta: JsonRecord, mode: unknown): string[] {
+  return enabledChatAgentIds(meta, mode).filter((id) => TRACKER_AGENT_IDS.has(id));
 }
 
 type TrackerPromptSection = {
@@ -1633,7 +1633,7 @@ function formattedTrackersContent(sections: TrackerPromptSection[], wrapFormat: 
 
 function committedTrackerStatePromptMessage(input: PromptAssemblyInput, wrapFormat: WrapFormat): ChatMLMessage | null {
   const meta = parseRecord(input.chat.metadata);
-  const activeIds = new Set(activeTrackerAgentIds(meta));
+  const activeIds = new Set(activeTrackerAgentIds(meta, input.chat.mode || input.chat.chatMode));
   if (activeIds.size === 0) return null;
 
   const state = trackerPromptValue(input.chat.gameState ?? meta.gameState);

@@ -3,6 +3,9 @@ import {
   BUILT_IN_AGENT_IDS,
   BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS,
   DEFAULT_AGENT_TOOLS,
+  enabledChatAgentIdSet,
+  filterAgentIdsForChatMode,
+  isBuiltInAgentAvailableInChatMode,
   type AgentContext,
   type AgentResult,
 } from "../contracts/types/agent";
@@ -49,7 +52,6 @@ import {
   BUILT_IN_AGENT_TYPES,
   buildBuiltInAgentFallback,
   builtInAgentType,
-  canonicalAgentActiveIdSet,
   isBuiltInAgent,
 } from "./built-in-agent-fallback";
 import { llmParameters } from "./context";
@@ -568,6 +570,10 @@ function chatMetadata(input: GenerationAgentRuntimeInput): JsonRecord {
   return parseRecord(input.chat.metadata);
 }
 
+function chatMode(input: GenerationAgentRuntimeInput): string {
+  return readString(input.chat.mode || input.chat.chatMode).trim();
+}
+
 function chatToolsEnabled(input: GenerationAgentRuntimeInput): boolean {
   return boolish(chatMetadata(input).enableTools, false);
 }
@@ -576,13 +582,8 @@ function chatActiveToolIds(input: GenerationAgentRuntimeInput): Set<string> {
   return stringSet(chatMetadata(input).activeToolIds);
 }
 
-function chatHasActiveAgents(input: GenerationAgentRuntimeInput): boolean {
-  if (input.agentTypes && input.agentTypes.size > 0) return true;
-  return chatActiveAgentIds(input).size > 0;
-}
-
 function chatActiveAgentIds(input: GenerationAgentRuntimeInput): Set<string> {
-  return canonicalAgentActiveIdSet(chatMetadata(input).activeAgentIds);
+  return enabledChatAgentIdSet(chatMetadata(input), chatMode(input));
 }
 
 function chatActiveLorebookIds(input: GenerationAgentRuntimeInput): Set<string> {
@@ -1129,10 +1130,17 @@ async function resolveLorebookKeeperRuntimeTarget(
 }
 
 async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput): Promise<ResolvedAgentsResult> {
-  if (!chatHasActiveAgents(input)) return { agents: [], skippedResults: [], staticInjections: [], agentWarnings: [] };
   const scopedAgentIds = chatActiveAgentIds(input);
+  const hasExplicitAgentTypes = !!input.agentTypes && input.agentTypes.size > 0;
+  const requestedAgentTypes =
+    hasExplicitAgentTypes && input.agentTypes ? filterAgentIdsForChatMode(input.agentTypes, chatMode(input)) : null;
+  if (hasExplicitAgentTypes && requestedAgentTypes?.size === 0) {
+    return { agents: [], skippedResults: [], staticInjections: [], agentWarnings: [] };
+  }
+  if ((!requestedAgentTypes || requestedAgentTypes.size === 0) && scopedAgentIds.size === 0) {
+    return { agents: [], skippedResults: [], staticInjections: [], agentWarnings: [] };
+  }
   const activationMessages = activationScanMessages(input);
-  const requestedAgentTypes = input.agentTypes ?? null;
   const explicitAgentTypes = requestedAgentTypes ?? scopedAgentIds;
   const agentRows = await deps.storage.list<JsonRecord>("agents");
   const configuredBuiltInTypes = new Set(
@@ -1142,6 +1150,7 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     const type = builtInAgentType(agent);
     const id = readString(agent.id);
     if (!boolish(agent.enabled, true)) return false;
+    if (!isBuiltInAgentAvailableInChatMode(chatMode(input), type)) return false;
     const requestedExplicitly = requestedAgentTypes && (requestedAgentTypes.has(type) || requestedAgentTypes.has(id));
     const scopedToChat = scopedAgentIds.size > 0 && (scopedAgentIds.has(type) || scopedAgentIds.has(id));
     if (

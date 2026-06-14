@@ -231,6 +231,22 @@ export const BUILT_IN_AGENT_IDS = {
 } as const;
 
 export type AgentCategory = "writer" | "tracker" | "misc";
+export type AgentChatMode = "conversation" | "roleplay" | "game" | "visual_novel";
+
+const CONVERSATION_BUILT_IN_AGENT_IDS = [
+  "schedule-planner",
+  "response-orchestrator",
+  "autonomous-messenger",
+] as const;
+
+const GAME_BUILT_IN_AGENT_IDS = ["world-state", "quest", "expression", "combat"] as const;
+
+const ROLEPLAY_AGENT_PICKER_HIDDEN_IDS = [
+  "prompt-reviewer",
+  "schedule-planner",
+  "response-orchestrator",
+  "autonomous-messenger",
+] as const;
 
 export interface BuiltInAgentMeta {
   id: string;
@@ -242,6 +258,7 @@ export interface BuiltInAgentMeta {
   /** Whether "Add as Prompt Section" should default to on when first created */
   defaultInjectAsSection?: boolean;
   category: AgentCategory;
+  modeAllowlist?: readonly AgentChatMode[];
 }
 
 const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
@@ -456,6 +473,7 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     phase: "pre_generation",
     enabledByDefault: false,
     category: "tracker",
+    modeAllowlist: ["conversation"],
   },
   {
     id: "response-orchestrator",
@@ -465,6 +483,7 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     phase: "pre_generation",
     enabledByDefault: false,
     category: "misc",
+    modeAllowlist: ["conversation"],
   },
   {
     id: "autonomous-messenger",
@@ -474,6 +493,7 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     phase: "parallel",
     enabledByDefault: false,
     category: "misc",
+    modeAllowlist: ["conversation"],
   },
   {
     id: "cyoa",
@@ -483,6 +503,7 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     phase: "post_processing",
     enabledByDefault: false,
     category: "misc",
+    modeAllowlist: ["roleplay", "visual_novel"],
   },
   {
     id: "secret-plot-driver",
@@ -500,6 +521,92 @@ export const BUILT_IN_AGENTS: BuiltInAgentMeta[] = BUILT_IN_AGENT_DEFINITIONS.ma
   ...agent,
   credit: DEFAULT_AGENT_CREDIT,
 }));
+
+const BUILT_IN_AGENT_ID_PREFIX = "builtin:";
+const BUILT_IN_AGENT_ID_SET = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));
+const CONVERSATION_BUILT_IN_AGENT_ID_SET = new Set<string>(CONVERSATION_BUILT_IN_AGENT_IDS);
+const GAME_BUILT_IN_AGENT_ID_SET = new Set<string>(GAME_BUILT_IN_AGENT_IDS);
+const ROLEPLAY_AGENT_PICKER_HIDDEN_ID_SET = new Set<string>(ROLEPLAY_AGENT_PICKER_HIDDEN_IDS);
+
+function normalizeAgentChatMode(mode: unknown): Exclude<AgentChatMode, "visual_novel"> {
+  return mode === "conversation" || mode === "game" ? mode : "roleplay";
+}
+
+function metadataRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== "string" || !value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function boolishFalse(value: unknown): boolean {
+  if (value === false) return true;
+  if (typeof value !== "string") return false;
+  return ["false", "0", "no", "off"].includes(value.trim().toLowerCase());
+}
+
+function canonicalAgentActiveId(value: unknown): string {
+  const id = typeof value === "string" ? value.trim() : "";
+  if (!id.startsWith(BUILT_IN_AGENT_ID_PREFIX)) return id;
+  const type = id.slice(BUILT_IN_AGENT_ID_PREFIX.length).trim();
+  return BUILT_IN_AGENT_ID_SET.has(type) ? type : id;
+}
+
+function canonicalAgentActiveIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.map(canonicalAgentActiveId).filter(Boolean)));
+}
+
+function chatAgentsEnabled(metadata: unknown): boolean {
+  return !boolishFalse(metadataRecord(metadata).enableAgents);
+}
+
+function modeAllowlistIncludes(
+  mode: Exclude<AgentChatMode, "visual_novel">,
+  allowlist: readonly AgentChatMode[],
+): boolean {
+  return allowlist.includes(mode) || (mode === "roleplay" && allowlist.includes("visual_novel"));
+}
+
+export function isBuiltInAgentAvailableInChatMode(mode: unknown, agentId: string): boolean {
+  const id = canonicalAgentActiveId(agentId);
+  const meta = BUILT_IN_AGENTS.find((agent) => agent.id === id) ?? null;
+  if (!meta) return true;
+  const chatMode = normalizeAgentChatMode(mode);
+  if (meta.modeAllowlist && !modeAllowlistIncludes(chatMode, meta.modeAllowlist)) return false;
+  if (chatMode === "conversation") return CONVERSATION_BUILT_IN_AGENT_ID_SET.has(id);
+  if (chatMode === "game") return GAME_BUILT_IN_AGENT_ID_SET.has(id);
+  return true;
+}
+
+export function isBuiltInAgentHiddenFromChatSettingsPicker(mode: unknown, agentId: string): boolean {
+  const id = canonicalAgentActiveId(agentId);
+  if (!isBuiltInAgentAvailableInChatMode(mode, id)) return true;
+  return normalizeAgentChatMode(mode) === "roleplay" && ROLEPLAY_AGENT_PICKER_HIDDEN_ID_SET.has(id);
+}
+
+export function enabledChatAgentIds(metadata: unknown, mode: unknown): string[] {
+  const record = metadataRecord(metadata);
+  if (!chatAgentsEnabled(record)) return [];
+  return canonicalAgentActiveIds(record.activeAgentIds).filter((id) => isBuiltInAgentAvailableInChatMode(mode, id));
+}
+
+export function enabledChatAgentIdSet(metadata: unknown, mode: unknown): Set<string> {
+  return new Set(enabledChatAgentIds(metadata, mode));
+}
+
+export function filterAgentIdsForChatMode(agentIds: Iterable<string>, mode: unknown): Set<string> {
+  const filtered = new Set<string>();
+  for (const id of agentIds) {
+    const canonical = canonicalAgentActiveId(id);
+    if (canonical && isBuiltInAgentAvailableInChatMode(mode, canonical)) filtered.add(canonical);
+  }
+  return filtered;
+}
 
 export const BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS: Readonly<Record<string, number>> = {
   director: 5,

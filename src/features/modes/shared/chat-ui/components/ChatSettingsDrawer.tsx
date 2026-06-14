@@ -158,7 +158,9 @@ import {
   DEFAULT_AGENT_MAX_TOKENS,
   MAX_AGENT_MAX_TOKENS,
   MIN_AGENT_MAX_TOKENS,
+  enabledChatAgentIds,
   getDefaultBuiltInAgentSettings,
+  isBuiltInAgentHiddenFromChatSettingsPicker,
 } from "../../../../../engine/contracts/types/agent";
 import {
   estimateAgentLoadCost,
@@ -203,14 +205,6 @@ interface ChatSettingsDrawerProps {
   onResetSpritePlacements?: () => void;
   onSpriteSideChange?: (side: "left" | "right") => void;
 }
-
-// Agents that should not be manually added to roleplay chats
-const HIDDEN_ROLEPLAY_AGENTS = new Set([
-  "prompt-reviewer",
-  "schedule-planner",
-  "response-orchestrator",
-  "autonomous-messenger",
-]);
 
 type SpotifySourceType = "liked" | "playlist" | "artist" | "any";
 
@@ -452,9 +446,7 @@ function nonEmptyString(value: unknown): string | null {
 function getChatActiveAgentIds(chat: Chat): string[] {
   const metadata =
     chat.metadata && typeof chat.metadata === "object" && !Array.isArray(chat.metadata) ? chat.metadata : {};
-  const activeIds =
-    metadata && typeof metadata === "object" ? (metadata as { activeAgentIds?: unknown }).activeAgentIds : [];
-  return Array.isArray(activeIds) ? activeIds.filter((id): id is string => typeof id === "string") : [];
+  return enabledChatAgentIds(metadata, chat.mode);
 }
 
 const isLiteBuild = import.meta.env.VITE_DE_KOI_LITE === "true" || import.meta.env.VITE_MARINARA_LITE === "true";
@@ -617,10 +609,7 @@ function ChatSettingsDrawerInner({
     typeof metadata.lorebookTokenBudget === "number" && Number.isFinite(metadata.lorebookTokenBudget)
       ? Math.max(0, Math.floor(metadata.lorebookTokenBudget))
       : LIMITS.DEFAULT_LOREBOOK_TOKEN_BUDGET;
-  const activeAgentIds = useMemo<string[]>(
-    () => metadataStringArray(metadata.activeAgentIds),
-    [metadata.activeAgentIds],
-  );
+  const activeAgentIds = useMemo<string[]>(() => enabledChatAgentIds(metadata, chatMode), [chatMode, metadata]);
   const inactiveCharacterIds = useMemo<string[]>(
     () =>
       Array.isArray(metadata.inactiveCharacterIds)
@@ -734,7 +723,7 @@ function ChatSettingsDrawerInner({
   const availableAgents = useMemo(() => {
     const agents: AvailableAgent[] = [];
     for (const a of BUILT_IN_AGENTS) {
-      if (HIDDEN_ROLEPLAY_AGENTS.has(a.id)) continue;
+      if (isBuiltInAgentHiddenFromChatSettingsPicker(chatMode, a.id)) continue;
       const existing = agentConfigsByType.get(a.id);
       agents.push({
         id: a.id,
@@ -761,7 +750,7 @@ function ChatSettingsDrawerInner({
       }
     }
     return agents;
-  }, [agentConfigs, agentConfigsByType]);
+  }, [agentConfigs, agentConfigsByType, chatMode]);
 
   // Estimate the per-turn cost of the active agent loadout — feeds the readout
   // in the agents picker header and the per-row token badges. Approximate; see

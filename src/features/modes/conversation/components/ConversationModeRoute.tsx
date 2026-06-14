@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react";
+import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
 import { getChatDisplayName, parseChatMetadata } from "../../../../shared/lib/chat-display";
 import { extractCreatorNotesCss } from "../../../../shared/lib/creator-notes-css";
 import { cssTargetsTypingIndicator, filterCssByMode } from "../../../../shared/lib/chat-css";
@@ -47,9 +48,7 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
   const overlays = useChatOverlays(activeChatId);
   const spriteState = useSpriteMetadataState({ chat: data.chat, chatMeta: data.chatMeta, messages: data.messages });
   const { agentsEnabled, enabledAgentTypes, agentThoughtBubbleTypes } = useMemo(() => {
-    const activeAgentIds = Array.isArray(data.chatMeta.activeAgentIds)
-      ? data.chatMeta.activeAgentIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
-      : [];
+    const activeAgentIds = enabledChatAgentIds(data.chatMeta, "conversation");
     const set = new Set<string>();
     for (const id of activeAgentIds) set.add(id.trim());
     const agentsEnabled = activeAgentIds.length > 0;
@@ -58,7 +57,7 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
       enabledAgentTypes: agentsEnabled ? set : new Set<string>(),
       agentThoughtBubbleTypes: set,
     };
-  }, [data.chatMeta.activeAgentIds]);
+  }, [data.chatMeta]);
   const timeline = useChatTimelineActions({
     activeChatId,
     messages: data.messages,

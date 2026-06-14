@@ -878,6 +878,7 @@ function copyOptional(source: JsonRecord, keys: string[]): JsonRecord {
 
 const SCENE_CARRYOVER_METADATA_KEYS = [
   "agentOverrides",
+  "enableAgents",
   "enableTools",
   "expressionAvatarsEnabled",
   "spriteSide",
