@@ -426,7 +426,13 @@ export async function consumePendingConnectedInfluences(storage: StorageGateway,
   const chatId = readString(chat.id).trim();
   const mode = readString(chat.mode || chat.chatMode);
   const meta = parseRecord(chat.metadata);
-  if (!chatId || (mode !== "roleplay" && mode !== "game") || !readString(chat.connectedChatId).trim()) return;
+  if (
+    !chatId ||
+    (mode !== "roleplay" && mode !== "game" && mode !== "conversation") ||
+    !readString(chat.connectedChatId).trim()
+  ) {
+    return;
+  }
   if (readString(meta.sceneStatus) === "active") return;
   const notes = parseArray(chat.notes).filter(isRecord);
   let changed = false;

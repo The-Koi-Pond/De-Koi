@@ -2358,11 +2358,37 @@ function connectedPromptLines(notes: JsonRecord[], type: "note" | "influence", c
     .map((content) => `- ${content}`);
 }
 
+function connectedInfluenceDescription(mode: string): string {
+  if (mode === "game") {
+    return "The following out-of-character notes come from a connected conversation. They represent things the players discussed or decided outside the game. Use them to steer the next scene, NPC reactions, objectives, or world state when appropriate. Do not mention them explicitly as OOC in the narrative.";
+  }
+  if (mode === "conversation") {
+    return "The following context comes from a connected game or roleplay chat. Use it to keep this conversation aware of the current situation when relevant.";
+  }
+  return "The following out-of-character notes come from a connected conversation. They represent things the players discussed or decided outside of the roleplay. Weave them naturally into the story. Do not mention them explicitly as OOC in the narrative.";
+}
+
+function connectedNoteDescription(mode: string): string {
+  if (mode === "game") {
+    return "Durable notes from a connected conversation. These persist across every turn until the user clears them and represent ongoing truth: character knowledge, world facts, and recurring dynamics. Use them to inform NPC behavior, world state, and scene framing without calling them notes in the narrative.";
+  }
+  if (mode === "conversation") {
+    return "Durable notes from a connected game or roleplay chat. These persist across turns until the user clears them and represent ongoing context this conversation should remember.";
+  }
+  return "Durable notes from a connected conversation. These persist across every turn until the user clears them and represent things the character has been told to remember about themselves, the user, or the world. Use them to inform behavior, knowledge, and reactions naturally without calling them notes in the narrative.";
+}
+
 function buildConnectedConversationBlocks(chat: JsonRecord): ChatMLMessage[] {
   const chatId = readString(chat.id).trim();
   const mode = readString(chat.mode || chat.chatMode, "conversation");
   const meta = parseRecord(chat.metadata);
-  if (!chatId || (mode !== "roleplay" && mode !== "game") || !readString(chat.connectedChatId).trim()) return [];
+  if (
+    !chatId ||
+    (mode !== "roleplay" && mode !== "game" && mode !== "conversation") ||
+    !readString(chat.connectedChatId).trim()
+  ) {
+    return [];
+  }
   if (readString(meta.sceneStatus) === "active") return [];
   const notes = parseArray(chat.notes).filter(isRecord);
   if (notes.length === 0) return [];
@@ -2373,14 +2399,9 @@ function buildConnectedConversationBlocks(chat: JsonRecord): ChatMLMessage[] {
     blocks.push({
       role: "system",
       contextKind: "prompt",
-      content: [
-        "<ooc_influences>",
-        mode === "game"
-          ? "The following out-of-character notes come from a connected conversation. They represent things the players discussed or decided outside the game. Use them to steer the next scene, NPC reactions, objectives, or world state when appropriate. Do not mention them explicitly as OOC in the narrative."
-          : "The following out-of-character notes come from a connected conversation. They represent things the players discussed or decided outside of the roleplay. Weave them naturally into the story. Do not mention them explicitly as OOC in the narrative.",
-        ...influenceLines,
-        "</ooc_influences>",
-      ].join("\n"),
+      content: ["<ooc_influences>", connectedInfluenceDescription(mode), ...influenceLines, "</ooc_influences>"].join(
+        "\n",
+      ),
     });
   }
 
@@ -2389,14 +2410,9 @@ function buildConnectedConversationBlocks(chat: JsonRecord): ChatMLMessage[] {
     blocks.push({
       role: "system",
       contextKind: "prompt",
-      content: [
-        "<conversation_notes>",
-        mode === "game"
-          ? "Durable notes from a connected conversation. These persist across every turn until the user clears them and represent ongoing truth: character knowledge, world facts, and recurring dynamics. Use them to inform NPC behavior, world state, and scene framing without calling them notes in the narrative."
-          : "Durable notes from a connected conversation. These persist across every turn until the user clears them and represent things the character has been told to remember about themselves, the user, or the world. Use them to inform behavior, knowledge, and reactions naturally without calling them notes in the narrative.",
-        ...noteLines,
-        "</conversation_notes>",
-      ].join("\n"),
+      content: ["<conversation_notes>", connectedNoteDescription(mode), ...noteLines, "</conversation_notes>"].join(
+        "\n",
+      ),
     });
   }
   return blocks;

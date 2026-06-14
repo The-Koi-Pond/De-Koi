@@ -59,6 +59,45 @@ function readPlayerSkillModifier(chat: g.Chat, skill: string): number {
   return 0;
 }
 
+function gameSetupConfig(meta: Record<string, unknown>): Record<string, unknown> | null {
+  const setup = g.asRecord(meta.gameSetupConfig);
+  return Object.keys(setup).length > 0 ? setup : null;
+}
+
+function gameSetupDifficulty(meta: Record<string, unknown>): string {
+  return g.readTrimmed(gameSetupConfig(meta)?.difficulty) || "normal";
+}
+
+function gameSetupElementPreset(meta: Record<string, unknown>): string | undefined {
+  return g.readTrimmed(gameSetupConfig(meta)?.elementPreset) || undefined;
+}
+
+function chatNotes(chat: g.Chat): Record<string, unknown>[] {
+  const notes = (chat as { notes?: unknown }).notes;
+  return Array.isArray(notes) ? notes.map(g.asRecord) : [];
+}
+
+async function queueCombatTransitionInfluence(gameChat: g.Chat): Promise<void> {
+  const linkedChatId = g.readTrimmed(gameChat.connectedChatId);
+  if (!linkedChatId) return;
+  const linkedChat = await g.storageApi.get<g.Chat>("chats", linkedChatId).catch(() => null);
+  if (!linkedChat) return;
+  await g.storageApi.update<g.Chat>("chats", linkedChatId, {
+    notes: [
+      ...chatNotes(linkedChat),
+      {
+        id: g.newId("note"),
+        type: "influence",
+        sourceChatId: gameChat.id,
+        targetChatId: linkedChatId,
+        content: "The linked game has entered combat. Keep the fight in mind if this conversation continues.",
+        consumed: false,
+        createdAt: g.nowIso(),
+      },
+    ],
+  });
+}
+
 export async function skillCheck(data: {
   chatId: string;
   skill: string;
@@ -93,7 +132,8 @@ export async function skillCheck(data: {
 }
 
 export async function transitionGameState(data: { chatId: string; newState: g.GameActiveState }) {
-  const meta = g.chatMeta(await g.getChat(data.chatId));
+  const chat = await g.getChat(data.chatId);
+  const meta = g.chatMeta(chat);
   const previousState = (meta.gameActiveState as g.GameActiveState | undefined) ?? "exploration";
   const newState = g.validateTransition(previousState, data.newState);
   const checkpoint =
@@ -118,6 +158,9 @@ export async function transitionGameState(data: { chatId: string; newState: g.Ga
       triggerType: checkpoint.triggerType,
     });
   }
+  if (previousState !== "combat" && newState === "combat") {
+    await queueCombatTransitionInfluence(chat);
+  }
   return { previousState, newState, sessionChat, ...(checkpointWarning ? { checkpointWarning } : {}) };
 }
 
@@ -127,18 +170,21 @@ export async function updateWidgets(data: { chatId: string; widgets: g.HudWidget
 }
 
 export async function combatRound(data: {
+  chatId: string;
   combatants: Array<Omit<g.Combatant, "sprite">>;
   round: number;
   playerAction?: g.CombatPlayerAction;
   mechanics?: g.CombatMechanic[];
+  difficulty?: string;
   elementPreset?: string;
 }) {
+  const meta = g.chatMeta(await g.getChat(data.chatId));
   const combatants: Array<Omit<g.Combatant, "sprite">> = data.combatants.map((combatant) => ({ ...combatant }));
   const result = g.resolveCombatRound(
     combatants,
     data.round,
-    "normal",
-    data.elementPreset,
+    data.difficulty ?? gameSetupDifficulty(meta),
+    data.elementPreset ?? gameSetupElementPreset(meta),
     data.playerAction,
     data.mechanics,
   );
@@ -176,12 +222,23 @@ export async function elementPreset(name: string) {
   };
 }
 
-export async function combatLoot(data: { enemyCount: number; difficulty?: string }) {
-  return { drops: g.generateCombatLoot(data.enemyCount, data.difficulty ?? "normal") };
+export async function combatLoot(data: { chatId: string; enemyCount: number; difficulty?: string }) {
+  const meta = g.chatMeta(await g.getChat(data.chatId));
+  return { drops: g.generateCombatLoot(data.enemyCount, data.difficulty ?? gameSetupDifficulty(meta)) };
 }
 
-export async function lootGenerate(data: { count?: number; difficulty?: string }): Promise<{ drops: g.LootDrop[] }> {
-  return { drops: g.generateLootTable(Math.max(0, Math.min(10, data.count ?? 1)), data.difficulty ?? "normal") };
+export async function lootGenerate(data: {
+  chatId: string;
+  count?: number;
+  difficulty?: string;
+}): Promise<{ drops: g.LootDrop[] }> {
+  const meta = g.chatMeta(await g.getChat(data.chatId));
+  return {
+    drops: g.generateLootTable(
+      Math.max(0, Math.min(10, data.count ?? 1)),
+      data.difficulty ?? gameSetupDifficulty(meta),
+    ),
+  };
 }
 
 export async function advanceTime(data: {

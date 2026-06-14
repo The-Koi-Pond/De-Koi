@@ -34,6 +34,7 @@ export const gameApi = {
   startGame: sessionApi.startGame,
   startSession: sessionApi.startSession,
   concludeSession: sessionApi.concludeSession,
+  regenerateSessionConclusion: sessionApi.regenerateSessionConclusion,
   regenerateSessionLorebook: lorebookKeeperApi.regenerateSessionLorebook,
   updateCampaignProgression: sessionApi.updateCampaignProgression,
   upsertPartyCard: partyApi.upsertPartyCard,
