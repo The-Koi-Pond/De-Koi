@@ -1392,11 +1392,11 @@ pub(super) fn normalize_profile_prompt_overrides(rows: &mut Vec<Value>) -> usize
         let Some(key) = key else {
             continue;
         };
-        if !prompt_overrides::is_supported_prompt_override_key(&key) {
+        let Some(key) = prompt_overrides::resolve_import_prompt_override_key(&key) else {
             unsupported += 1;
             log::trace!("skipping unsupported prompt override key={key}");
             continue;
-        }
+        };
         if trimmed_profile_string(object.get("template")).is_none() {
             unsupported += 1;
             log::trace!("skipping empty prompt override key={key}");

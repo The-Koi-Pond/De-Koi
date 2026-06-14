@@ -88,6 +88,31 @@ fn normalizes_sillytavern_selective_logic_numbers() {
 }
 
 #[test]
+fn normalizes_numeric_lorebook_entry_roles() {
+    for (role, expected) in [
+        (json!(0), "system"),
+        (json!(1), "user"),
+        (json!(2), "assistant"),
+        (json!("0"), "system"),
+        (json!("1"), "user"),
+        (json!("2"), "assistant"),
+        (json!(" assistant "), "assistant"),
+    ] {
+        let entry = normalize_lorebook_entry(
+            "book-1",
+            &json!({
+                "content": "Lore",
+                "key": ["moon"],
+                "role": role
+            }),
+            0,
+        );
+
+        assert_eq!(entry["role"], expected);
+    }
+}
+
+#[test]
 fn detects_entry_tag_from_content_signals() {
     let entry = normalize_lorebook_entry(
         "book-1",
@@ -155,6 +180,7 @@ fn normalizes_imported_lorebook_entry_after_raw_field_merge() {
             "content": "Lore",
             "key": ["moon"],
             "selectiveLogic": 2,
+            "role": "2",
             "useProbability": false,
             "probability": 25
         }),
@@ -162,6 +188,7 @@ fn normalizes_imported_lorebook_entry_after_raw_field_merge() {
     );
 
     assert_eq!(entry["selectiveLogic"], "not");
+    assert_eq!(entry["role"], "assistant");
     assert!(entry["probability"].is_null());
     assert!(entry.get("useProbability").is_none());
 }

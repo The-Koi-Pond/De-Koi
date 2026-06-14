@@ -1,6 +1,5 @@
-use super::*;
 use super::lorebook_signals::{detect_category, detect_entry_tag};
-
+use super::*;
 pub(super) fn string_field(value: &Value, key: &str) -> String {
     value
         .get(key)
@@ -72,7 +71,6 @@ pub(super) fn embedded_lorebook(payload: &Value) -> Option<Value> {
         .max_by_key(|book| lorebook_entry_count(book))
         .cloned()
 }
-
 pub(super) fn alt_descriptions(data: &Value) -> Value {
     data.get("extensions")
         .and_then(|extensions| extensions.get("altDescriptions"))
@@ -86,7 +84,6 @@ pub(super) fn alt_descriptions(data: &Value) -> Value {
         .cloned()
         .unwrap_or_else(|| json!([]))
 }
-
 pub(super) fn strip_stale_embedded_lorebook_pointer(data: &mut Value) {
     if let Some(book) = data.pointer_mut("/extensions/importMetadata/embeddedLorebook") {
         if let Some(object) = book.as_object_mut() {
@@ -94,7 +91,6 @@ pub(super) fn strip_stale_embedded_lorebook_pointer(data: &mut Value) {
         }
     }
 }
-
 pub(super) fn character_import_extensions(
     payload: &Value,
     data: &Value,
@@ -171,7 +167,6 @@ pub(super) fn normalize_character_data(
     strip_stale_embedded_lorebook_pointer(&mut normalized);
     normalized
 }
-
 trait ImportStringFallback {
     fn if_empty(self, fallback: &str) -> String;
 }
@@ -235,6 +230,18 @@ fn selective_logic_value(value: Option<&Value>) -> &'static str {
     }
 }
 
+fn lorebook_entry_role(value: Option<&Value>) -> &'static str {
+    let raw = match value {
+        Some(Value::String(raw)) => raw.trim().to_ascii_lowercase(),
+        Some(Value::Number(raw)) => raw.as_i64().unwrap_or(0).to_string(),
+        _ => String::new(),
+    };
+    match raw.as_str() {
+        "1" | "user" => "user",
+        "2" | "assistant" => "assistant",
+        _ => "system",
+    }
+}
 pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: usize) -> Value {
     let keys = entry.get("key").or_else(|| entry.get("keys"));
     let secondary = entry
@@ -246,11 +253,6 @@ pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: 
         .and_then(Value::as_bool)
         .map(|disabled| !disabled)
         .unwrap_or_else(|| bool_field(entry.get("enabled"), true));
-    let role = entry
-        .get("role")
-        .and_then(Value::as_str)
-        .filter(|role| matches!(*role, "user" | "assistant" | "system"))
-        .unwrap_or("system");
     let position = match entry.get("position") {
         Some(Value::String(raw)) if raw == "after_char" => 1,
         Some(Value::String(raw)) if raw == "at_depth" || raw == "depth" => 2,
@@ -291,7 +293,7 @@ pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: 
         "position": position,
         "depth": number(entry.get("depth"), 4),
         "order": number(entry.get("order").or_else(|| entry.get("insertion_order")).or_else(|| entry.get("uid")).or_else(|| entry.get("id")), index as i64),
-        "role": role,
+        "role": lorebook_entry_role(entry.get("role")),
         "sticky": optional_number(entry.get("sticky")),
         "cooldown": optional_number(entry.get("cooldown")),
         "delay": optional_number(entry.get("delay")),
@@ -324,7 +326,6 @@ pub(super) fn normalize_imported_lorebook_entry(
             }
         }
     }
-
     if !object.contains_key("keys") {
         if let Some(keys) = entry.get("key").or_else(|| entry.get("keys")) {
             object.insert(
@@ -370,12 +371,10 @@ pub(super) fn normalize_imported_lorebook_entry(
             object.insert("position".to_string(), json!(position));
         }
     }
-    if !matches!(
-        object.get("role").and_then(Value::as_str),
-        Some("user" | "assistant" | "system")
-    ) {
-        object.insert("role".to_string(), Value::String("system".to_string()));
-    }
+    object.insert(
+        "role".to_string(),
+        json!(lorebook_entry_role(object.get("role"))),
+    );
     object.insert(
         "selectiveLogic".to_string(),
         Value::String(
