@@ -570,7 +570,9 @@ pub(crate) fn clean_saved_sprites(
         let expression = expression_from_path(&path);
         let filename = file_name(&path)?;
         if !is_cleanup_file(&path) {
-            failed.push(json!({ "expression": expression, "error": "Only PNG, JPEG, and WEBP sprites can be background-cleaned" }));
+            failed.push(
+                json!({ "expression": expression, "error": cleanup_file_rejection_message(&path) }),
+            );
             continue;
         }
         match cleanup_file_to_png(state, &path, cleanup_strength(&body), &requested_engine) {
@@ -2105,6 +2107,13 @@ fn is_cleanup_file(path: &Path) -> bool {
     extension(path).is_some_and(|ext| CLEANUP_EXTENSIONS.contains(&ext.as_str()))
 }
 
+fn cleanup_file_rejection_message(path: &Path) -> &'static str {
+    if extension(path).is_some_and(|ext| ext == "avif") {
+        return "AVIF sprites are supported for storage, but background cleanup does not support AVIF yet";
+    }
+    "Only PNG, JPEG, and WEBP sprites can be background-cleaned"
+}
+
 fn extension(path: &Path) -> Option<String> {
     path.extension()
         .and_then(|value| value.to_str())
@@ -3226,6 +3235,38 @@ mod sprite_cleanup_restore_point_tests {
             assert!(point.exists());
         }
         assert_eq!(collect_sprite_cleanup_restore_points(&sprite_dir).len(), 6);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn clean_saved_sprites_reports_avif_cleanup_as_unsupported() {
+        let (state, root, sprite_dir) = test_state("avif-unsupported");
+        fs::write(sprite_dir.join("neutral.avif"), b"not decoded")
+            .expect("avif sprite should be written");
+
+        let result = clean_saved_sprites(
+            &state,
+            "character-1",
+            json!({ "engine": "builtin", "expressions": ["neutral"] }),
+            None,
+        )
+        .expect("unsupported avif cleanup should return partial result");
+
+        assert_eq!(result.get("processed").and_then(Value::as_u64), Some(0));
+        assert!(result.get("restorePointId").is_some_and(Value::is_null));
+        let failed = result
+            .get("failed")
+            .and_then(Value::as_array)
+            .expect("avif cleanup should report failure");
+        assert_eq!(failed.len(), 1);
+        assert_eq!(
+            failed[0].get("error").and_then(Value::as_str),
+            Some(
+                "AVIF sprites are supported for storage, but background cleanup does not support AVIF yet"
+            )
+        );
+        assert!(sprite_dir.join("neutral.avif").exists());
 
         let _ = fs::remove_dir_all(root);
     }
