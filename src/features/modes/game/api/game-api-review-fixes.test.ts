@@ -711,7 +711,7 @@ describe("game API review guards", () => {
     expect(storageApiMock.update).not.toHaveBeenCalled();
   });
 
-  it("cleans up party-turn messages when reputation persistence fails", async () => {
+  it("cleans up party-turn messages and swipe sidecars when reputation persistence fails", async () => {
     const chat = {
       id: "chat-1",
       characterIds: [],
@@ -722,12 +722,29 @@ describe("game API review guards", () => {
     };
     mockChat(chat);
     storageApiMock.list.mockResolvedValue([]);
-    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => ({
-      id: entity === "messages" ? "message-1" : `${entity}-1`,
-      ...value,
-    }));
+    const persistedMessages = new Map<string, Record<string, unknown>>();
+    const persistedMessageSwipes = new Map<string, Array<Record<string, unknown>>>();
+    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => {
+      const id = entity === "messages" ? "message-1" : `${entity}-1`;
+      const row = { id, ...value };
+      if (entity === "messages") {
+        persistedMessages.set(id, row);
+        const swipes = Array.isArray(value.swipes)
+          ? value.swipes.map((swipe, index) => ({ ...gRecord(swipe), messageId: id, index }))
+          : [];
+        persistedMessageSwipes.set(id, swipes);
+      }
+      return row;
+    });
     storageApiMock.update.mockRejectedValue(new Error("reputation failed"));
-    chatCommandApiMock.bulkDeleteMessages.mockResolvedValue({ deleted: 1 });
+    chatCommandApiMock.bulkDeleteMessages.mockImplementation(async (_chatId: string, messageIds: string[]) => {
+      let deleted = 0;
+      for (const messageId of messageIds) {
+        if (persistedMessages.delete(messageId)) deleted += 1;
+        persistedMessageSwipes.delete(messageId);
+      }
+      return { deleted };
+    });
     llmApiMock.complete.mockResolvedValue(
       '[party-turn]\n[Mira] [main]: We can help. [reputation: npc="Mira" action="helped"]',
     );
@@ -741,6 +758,8 @@ describe("game API review guards", () => {
     ).rejects.toThrow("reputation failed");
 
     expect(chatCommandApiMock.bulkDeleteMessages).toHaveBeenCalledWith("chat-1", ["message-1"]);
+    expect(persistedMessages.has("message-1")).toBe(false);
+    expect(persistedMessageSwipes.has("message-1")).toBe(false);
     expect(storageApiMock.delete).not.toHaveBeenCalled();
   });
 
