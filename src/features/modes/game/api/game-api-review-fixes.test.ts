@@ -2110,6 +2110,117 @@ describe("game API review guards", () => {
     );
   });
 
+  it("keeps generated conclusion siblings when regenerating a historical session directly", async () => {
+    const summaries: SessionSummary[] = [
+      { ...fallbackSummary, sessionNumber: 1, summary: "Session one summary" },
+      { ...fallbackSummary, sessionNumber: 2, summary: "Old session two summary" },
+    ];
+    const sessions = [
+      {
+        id: "chat-current",
+        metadata: {
+          gameId: "game-1",
+          gameSessionNumber: 3,
+          gamePreviousSessionSummaries: summaries,
+          gameCampaignProgression: { storyArc: "Old arc" },
+          gameCharacterCards: [{ name: "Mira" }],
+        },
+      },
+      { id: "chat-target", metadata: { gameId: "game-1", gameSessionNumber: 2 } },
+    ];
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) =>
+      entity === "chats" ? (sessions.find((session) => session.id === id) ?? null) : null,
+    );
+    storageApiMock.list.mockImplementation(async (entity: string) => (entity === "chats" ? sessions : []));
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => ({
+      id,
+      ...patch,
+    }));
+
+    const result = await regenerateSessionConclusion({
+      chatId: "chat-current",
+      sessionNumber: 2,
+      generated: {
+        summary: { sessionNumber: 99, summary: "Direct generated session two summary" },
+        campaignProgression: { storyArc: "Direct generated arc" },
+        characterCards: [{ name: "Direct Generated Ren" }],
+      },
+    });
+
+    expect(result.summary).toEqual(
+      expect.objectContaining({ sessionNumber: 2, summary: "Direct generated session two summary" }),
+    );
+    expect(result.sessionChat.metadata).toEqual(
+      expect.objectContaining({
+        gamePreviousSessionSummaries: [
+          expect.objectContaining({ sessionNumber: 1, summary: "Session one summary" }),
+          expect.objectContaining({ sessionNumber: 2, summary: "Direct generated session two summary" }),
+        ],
+        gameCampaignProgression: expect.objectContaining({ storyArc: "Direct generated arc" }),
+        gameCharacterCards: [{ name: "Direct Generated Ren" }],
+      }),
+    );
+  });
+
+  it("keeps repaired conclusion siblings when applying historical regeneration JSON repair", async () => {
+    const summaries: SessionSummary[] = [
+      { ...fallbackSummary, sessionNumber: 1, summary: "Session one summary" },
+      { ...fallbackSummary, sessionNumber: 2, summary: "Old session two summary" },
+    ];
+    const sessions = [
+      {
+        id: "chat-current",
+        metadata: {
+          gameId: "game-1",
+          gameSessionNumber: 3,
+          gamePreviousSessionSummaries: summaries,
+          gameCampaignProgression: { storyArc: "Old arc" },
+          gameCharacterCards: [{ name: "Mira" }],
+        },
+      },
+      { id: "chat-target", metadata: { gameId: "game-1", gameSessionNumber: 2 } },
+    ];
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) =>
+      entity === "chats" ? (sessions.find((session) => session.id === id) ?? null) : null,
+    );
+    storageApiMock.list.mockImplementation(async (entity: string) => (entity === "chats" ? sessions : []));
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => ({
+      id,
+      ...patch,
+    }));
+
+    const result = (await applyGameJsonRepair(
+      {
+        kind: "session_conclusion",
+        title: "Repair Session 2 Conclusion JSON",
+        applyBody: {
+          chatId: "chat-current",
+          sessionNumber: 2,
+          regenerateSessionConclusion: true,
+        },
+      } as never,
+      JSON.stringify({
+        summary: { sessionNumber: 99, summary: "Repaired session two summary" },
+        campaignProgression: { storyArc: "Repaired arc" },
+        characterCards: [{ name: "Repaired Ren" }],
+      }),
+    )) as { summary: SessionSummary; sessionChat: { metadata: Record<string, unknown> } };
+
+    expect(result.summary).toEqual(
+      expect.objectContaining({ sessionNumber: 2, summary: "Repaired session two summary" }),
+    );
+    expect(result.sessionChat.metadata).toEqual(
+      expect.objectContaining({
+        gamePreviousSessionSummaries: [
+          expect.objectContaining({ sessionNumber: 1, summary: "Session one summary" }),
+          expect.objectContaining({ sessionNumber: 2, summary: "Repaired session two summary" }),
+        ],
+        gameCampaignProgression: expect.objectContaining({ storyArc: "Repaired arc" }),
+        gameCharacterCards: [{ name: "Repaired Ren" }],
+      }),
+    );
+  });
+
   it("does not activate a newly created keeper lorebook when entry creation fails", async () => {
     const chat = { id: "chat-1", name: "Game", metadata: { activeLorebookIds: ["existing-lorebook"] } };
     storageApiMock.get.mockResolvedValue(chat);

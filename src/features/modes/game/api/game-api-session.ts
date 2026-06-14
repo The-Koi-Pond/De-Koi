@@ -565,8 +565,14 @@ export async function regenerateSessionConclusion(data: {
   let characterCards = Array.isArray(meta.gameCharacterCards) ? meta.gameCharacterCards : [];
   let summary = normalizeSessionSummaryPayload(existingSummary, fallback, null);
   if (data.generated) {
-    const payload = g.asRecord(data.generated.summary ?? data.generated);
-    summary = normalizeSessionSummaryPayload(payload, fallback, null);
+    const normalized = normalizeSessionConclusionGenerated(
+      data.generated,
+      { summary: fallback, campaignProgression, characterCards },
+      null,
+    );
+    summary = { ...normalized.summary, sessionNumber: requestedSessionNumber };
+    campaignProgression = normalized.campaignProgression;
+    characterCards = normalized.characterCards;
   } else {
     const connectionId = data.connectionId ?? chat.connectionId ?? undefined;
     if (!connectionId) {
