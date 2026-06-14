@@ -260,7 +260,7 @@ export async function partyTurn(input: {
       const messageId = typeof message.id === "string" ? message.id.trim() : "";
       if (!messageId) throw error;
       try {
-        await g.storageApi.delete("messages", messageId);
+        await g.chatCommandApi.bulkDeleteMessages(input.chatId, [messageId]);
       } catch (cleanupError) {
         const updateMessage = error instanceof Error ? error.message : String(error);
         const cleanupMessage = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);

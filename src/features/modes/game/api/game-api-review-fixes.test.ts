@@ -34,6 +34,7 @@ const urlBinaryApiMock = vi.hoisted(() => ({
 
 const chatCommandApiMock = vi.hoisted(() => ({
   branch: vi.fn(),
+  bulkDeleteMessages: vi.fn(),
 }));
 
 const trackerSnapshotApiMock = vi.hoisted(() => ({
@@ -688,7 +689,7 @@ describe("game API review guards", () => {
       ...value,
     }));
     storageApiMock.update.mockRejectedValue(new Error("reputation failed"));
-    storageApiMock.delete.mockResolvedValue({ deleted: true });
+    chatCommandApiMock.bulkDeleteMessages.mockResolvedValue({ deleted: 1 });
     llmApiMock.complete.mockResolvedValue(
       '[party-turn]\n[Mira] [main]: We can help. [reputation: npc="Mira" action="helped"]',
     );
@@ -701,7 +702,8 @@ describe("game API review guards", () => {
       }),
     ).rejects.toThrow("reputation failed");
 
-    expect(storageApiMock.delete).toHaveBeenCalledWith("messages", "message-1");
+    expect(chatCommandApiMock.bulkDeleteMessages).toHaveBeenCalledWith("chat-1", ["message-1"]);
+    expect(storageApiMock.delete).not.toHaveBeenCalled();
   });
 
   it("normalizes NPC avatar names through gallery and metadata merge", async () => {
