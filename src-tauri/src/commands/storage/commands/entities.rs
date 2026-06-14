@@ -757,6 +757,14 @@ mod tests {
         .expect_err("blank extension name should reject");
         assert_eq!(blank_name.code, "invalid_input");
 
+        let whitespace_name = storage_create_inner(
+            &state,
+            "extensions".to_string(),
+            json!({ "name": "   ", "css": "body {}", "enabled": true }),
+        )
+        .expect_err("whitespace extension name should reject");
+        assert_eq!(whitespace_name.code, "invalid_input");
+
         let oversized_css = storage_create_inner(
             &state,
             "extensions".to_string(),
@@ -822,6 +830,15 @@ mod tests {
         )
         .expect_err("non-boolean enabled should reject");
         assert_eq!(invalid_enabled.code, "invalid_input");
+
+        let whitespace_name = storage_update_inner(
+            &state,
+            "extensions".to_string(),
+            "ext-1".to_string(),
+            json!({ "name": "   " }),
+        )
+        .expect_err("whitespace extension name update should reject");
+        assert_eq!(whitespace_name.code, "invalid_input");
 
         let updated = storage_update_inner(
             &state,

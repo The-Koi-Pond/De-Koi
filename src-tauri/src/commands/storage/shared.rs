@@ -689,6 +689,12 @@ fn required_extension_string(
             "Extension {field} is required"
         )));
     }
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(AppError::invalid_input(format!(
+            "Extension {field} is required"
+        )));
+    }
     if value.chars().count() > max_chars {
         return Err(AppError::invalid_input(format!(
             "Extension {field} is too long"
@@ -812,10 +818,11 @@ pub(crate) fn normalize_extension_for_update(patch: Value) -> AppResult<Value> {
     let mut normalized = Map::new();
 
     if let Some(name) = optional_extension_string(&object, "name", MAX_EXTENSION_NAME_CHARS)? {
+        let name = name.trim();
         if name.is_empty() {
             return Err(AppError::invalid_input("Extension name is required"));
         }
-        normalized.insert("name".to_string(), Value::String(name));
+        normalized.insert("name".to_string(), Value::String(name.to_string()));
     }
     if let Some(description) =
         optional_extension_string(&object, "description", MAX_EXTENSION_DESCRIPTION_CHARS)?
