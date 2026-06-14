@@ -241,10 +241,6 @@ export function resolveRestoredNarrationState(options: {
     return { index: serverIndex, hasStoredPosition: true };
   }
 
-  if (storedProgress && storedProgress.messageId === null) {
-    return { index: storedProgress.index, hasStoredPosition: true };
-  }
-
   return { index: 0, hasStoredPosition: false };
 }
 

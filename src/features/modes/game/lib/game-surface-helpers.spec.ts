@@ -62,7 +62,7 @@ describe("game surface helpers", () => {
     expect(parseStoredNarrationProgress("not-json")).toBeNull();
   });
 
-  it("restores narration progress from current-message and legacy local values", () => {
+  it("restores narration progress only from current-message values", () => {
     expect(
       resolveRestoredNarrationState({
         currentMessageId: "m2",
@@ -79,7 +79,7 @@ describe("game surface helpers", () => {
         serverIndex: undefined,
         serverMessageId: undefined,
       }),
-    ).toEqual({ index: 3, hasStoredPosition: true });
+    ).toEqual({ index: 0, hasStoredPosition: false });
 
     expect(
       resolveRestoredNarrationState({
@@ -89,6 +89,15 @@ describe("game surface helpers", () => {
         serverMessageId: "m2",
       }),
     ).toEqual({ index: 1, hasStoredPosition: true });
+
+    expect(
+      resolveRestoredNarrationState({
+        currentMessageId: null,
+        storedProgress: { index: 3, messageId: null },
+        serverIndex: undefined,
+        serverMessageId: undefined,
+      }),
+    ).toEqual({ index: 0, hasStoredPosition: false });
   });
 
   it("filters generated NPC and combat enemy names", () => {
