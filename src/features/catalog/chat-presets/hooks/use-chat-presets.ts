@@ -259,7 +259,6 @@ export function useApplyChatPreset() {
         nextMetadata.enableAgents = Array.isArray(nextMetadata.activeAgentIds) && nextMetadata.activeAgentIds.length > 0;
       }
       const patch: Record<string, unknown> = {
-        chatPresetId: presetId,
         metadata: nextMetadata,
       };
       patch.connectionId = "connectionId" in settings ? (settings.connectionId ?? null) : null;
