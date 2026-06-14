@@ -2567,6 +2567,14 @@ mod tests {
     #[tokio::test]
     async fn dispatch_accepts_empty_remote_game_asset_folder_description() {
         let state = test_state("remote-empty-game-asset-description");
+        state
+            .game_assets
+            .create_folder("locations")
+            .expect("locations folder should exist before clearing metadata");
+        state
+            .game_assets
+            .set_folder_description("locations", "Known places")
+            .expect("locations folder description should be seeded");
 
         let result = dispatch(
             &state,
@@ -2594,7 +2602,7 @@ mod tests {
             .iter()
             .find(|item| item.get("path").and_then(Value::as_str) == Some("locations"))
             .expect("locations folder should exist");
-        assert_eq!(locations["description"], "");
+        assert!(locations.get("description").is_none());
 
         let error = dispatch(
             &state,
