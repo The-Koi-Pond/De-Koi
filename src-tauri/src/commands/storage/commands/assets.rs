@@ -120,7 +120,7 @@ pub fn game_assets_delete_folder(
 ) -> Result<Value, AppError> {
     state
         .game_assets
-        .remove(&path, recursive.unwrap_or(false))?;
+        .remove_folder(&path, recursive.unwrap_or(false))?;
     Ok(json!({ "deleted": true }))
 }
 
@@ -134,7 +134,7 @@ pub fn game_assets_delete_file(
         managed_thumbnails::ManagedThumbnailKind::Game,
         &path,
     );
-    state.game_assets.remove(&path, false)?;
+    state.game_assets.remove_file(&path)?;
     Ok(json!({ "deleted": true }))
 }
 

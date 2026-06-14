@@ -1596,6 +1596,7 @@ impl IntoResponse for HttpError {
 fn http_status_for_app_error(error: &AppError) -> StatusCode {
     match error.code.as_str() {
         "not_found" => StatusCode::NOT_FOUND,
+        "conflict" => StatusCode::CONFLICT,
         "invalid_input" => StatusCode::BAD_REQUEST,
         "request_body_too_large" => StatusCode::PAYLOAD_TOO_LARGE,
         "admin_access_invalid" => StatusCode::UNAUTHORIZED,

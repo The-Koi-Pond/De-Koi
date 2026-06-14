@@ -176,7 +176,7 @@ fn delete_background(state: &AppState, id: &str) -> AppResult<Value> {
         managed_thumbnails::ManagedThumbnailKind::Background,
         &filename,
     );
-    state.backgrounds.remove(&filename, false)?;
+    state.backgrounds.remove_file(&filename)?;
     if let Some(meta) = find_background_meta(state, &filename)? {
         if let Some(id) = meta.get("id").and_then(Value::as_str) {
             let _ = state.storage.delete("background-metadata", id);

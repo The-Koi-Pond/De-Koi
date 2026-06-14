@@ -244,13 +244,13 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             let path = required_string(&args, "path")?;
             state
                 .game_assets
-                .remove(path, optional_bool(&args, "recursive").unwrap_or(false))?;
+                .remove_folder(path, optional_bool(&args, "recursive").unwrap_or(false))?;
             Ok(json!({ "deleted": true }))
         }
         "game_assets_delete_file" => {
             let path = required_string(&args, "path")?;
             let thumbnail_files = game_asset_managed_thumbnail_files(state, path);
-            state.game_assets.remove(path, false)?;
+            state.game_assets.remove_file(path)?;
             remove_game_asset_managed_thumbnail_files(thumbnail_files);
             Ok(json!({ "deleted": true }))
         }
@@ -942,7 +942,7 @@ fn delete_game_assets_and_clear_succeeded_thumbnails(state: &AppState, paths: &[
     let mut failed = Vec::new();
     for path in paths {
         let thumbnail_files = game_asset_managed_thumbnail_files(state, path);
-        match state.game_assets.remove(path, false) {
+        match state.game_assets.remove_file(path) {
             Ok(()) => {
                 remove_game_asset_managed_thumbnail_files(thumbnail_files);
                 succeeded.push(Value::String(path.clone()));
@@ -963,9 +963,9 @@ fn move_game_assets_and_clear_succeeded_thumbnails(
     for path in paths {
         let thumbnail_files = game_asset_managed_thumbnail_files(state, path);
         match state.game_assets.move_to_folder(path, target_folder) {
-            Ok(value) => {
+            Ok(_) => {
                 remove_game_asset_managed_thumbnail_files(thumbnail_files);
-                succeeded.push(value);
+                succeeded.push(Value::String(path.clone()));
             }
             Err(error) => failed.push(json!({ "path": path, "error": error.message })),
         }
