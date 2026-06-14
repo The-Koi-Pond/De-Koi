@@ -207,6 +207,63 @@ export interface UpdateLorebookCommand {
   entries?: UpdateLorebookEntryCommand[];
 }
 
+interface CreatePresetGroupCommand {
+  id?: string;
+  name: string;
+  parentGroupId?: string | null;
+  order?: number;
+  enabled?: boolean;
+}
+
+interface CreatePresetSectionCommand {
+  id?: string;
+  identifier?: string;
+  name: string;
+  content?: string;
+  role?: "system" | "user" | "assistant";
+  enabled?: boolean;
+  isMarker?: boolean;
+  groupId?: string | null;
+  markerConfig?: Record<string, unknown> | null;
+  injectionPosition?: "ordered" | "depth";
+  injectionDepth?: number;
+  injectionOrder?: number;
+  order?: number;
+  forbidOverrides?: boolean;
+}
+
+interface CreatePresetChoiceOptionCommand {
+  id?: string;
+  label: string;
+  value: string;
+}
+
+interface CreatePresetChoiceBlockCommand {
+  id?: string;
+  variableName: string;
+  question: string;
+  options: CreatePresetChoiceOptionCommand[];
+  multiSelect?: boolean;
+  separator?: string;
+  randomPick?: boolean;
+  sortOrder?: number;
+}
+
+export interface CreatePresetCommand {
+  type: "create_preset";
+  name: string;
+  description?: string;
+  wrapFormat?: "xml" | "markdown" | "none";
+  author?: string;
+  groups?: CreatePresetGroupCommand[];
+  sections?: CreatePresetSectionCommand[];
+  choiceBlocks?: CreatePresetChoiceBlockCommand[];
+  variableGroups?: Array<Record<string, unknown>>;
+  variableValues?: Record<string, string>;
+  defaultChoices?: Record<string, string | string[]>;
+  parameters?: Record<string, unknown>;
+}
+
 interface CreateChatCommand {
   type: "create_chat";
   character: string;
@@ -234,6 +291,7 @@ type AssistantCommand =
   | UpdatePersonaCommand
   | CreateLorebookCommand
   | UpdateLorebookCommand
+  | CreatePresetCommand
   | CreateChatCommand
   | NavigateCommand
   | FetchCommand;
@@ -277,6 +335,7 @@ const UPDATE_PERSONA_RE = new RegExp(`\\[update_persona:\\s*(${QUOTED_PARAM_BLOC
 const CREATE_LOREBOOK_RE = new RegExp(`\\[create_lorebook:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const CREATE_LOREBOOK_BLOCK_RE = /<create_lorebook>([\s\S]*?)<\/create_lorebook>/gi;
 const UPDATE_LOREBOOK_BLOCK_RE = /<update_lorebook>([\s\S]*?)<\/update_lorebook>/gi;
+const CREATE_PRESET_BLOCK_RE = /<create_preset>([\s\S]*?)<\/create_preset>/gi;
 const CREATE_CHAT_RE = new RegExp(`\\[create_chat:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const NAVIGATE_RE = new RegExp(`\\[navigate:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const FETCH_RE = new RegExp(`\\[fetch:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
@@ -427,6 +486,158 @@ function parseLorebookBlock(raw: string): CreateLorebookCommand | null {
       category: typeof parsed.category === "string" ? parsed.category : undefined,
       tags: parseUnknownStringList(parsed.tags),
       entries: entries.length ? entries : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseStringRecord(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const entries = Object.entries(raw)
+    .map(([key, value]) => [key, typeof value === "string" ? value : String(value)] as const)
+    .filter(([key]) => key.trim().length > 0);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function parseDefaultChoices(raw: unknown): Record<string, string | string[]> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const entries: Array<[string, string | string[]]> = [];
+  for (const [key, value] of Object.entries(raw)) {
+    if (!key.trim()) continue;
+    if (typeof value === "string") {
+      entries.push([key, value]);
+    } else if (Array.isArray(value)) {
+      entries.push([key, value.map((item) => String(item))]);
+    }
+  }
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function parsePresetBlock(raw: string): CreatePresetCommand | null {
+  try {
+    const parsed = JSON.parse(stripJsonFence(raw)) as Record<string, unknown>;
+    const name = typeof parsed.name === "string" ? parsed.name.trim() : "";
+    if (!name) return null;
+
+    const groups = (Array.isArray(parsed.groups) ? parsed.groups : [])
+      .map((group): CreatePresetGroupCommand | null => {
+        if (!group || typeof group !== "object") return null;
+        const data = group as Record<string, unknown>;
+        const groupName = typeof data.name === "string" ? data.name.trim() : "";
+        if (!groupName) return null;
+        return {
+          id: typeof data.id === "string" ? data.id.trim() || undefined : undefined,
+          name: groupName,
+          parentGroupId:
+            typeof data.parentGroupId === "string"
+              ? data.parentGroupId.trim() || null
+              : data.parentGroupId === null
+                ? null
+                : undefined,
+          order: typeof data.order === "number" && Number.isFinite(data.order) ? Math.floor(data.order) : undefined,
+          enabled: typeof data.enabled === "boolean" ? data.enabled : undefined,
+        };
+      })
+      .filter((group): group is CreatePresetGroupCommand => group !== null);
+
+    const sections = (Array.isArray(parsed.sections) ? parsed.sections : [])
+      .map((section): CreatePresetSectionCommand | null => {
+        if (!section || typeof section !== "object") return null;
+        const data = section as Record<string, unknown>;
+        const sectionName = typeof data.name === "string" ? data.name.trim() : "";
+        if (!sectionName) return null;
+        const role = data.role === "user" || data.role === "assistant" ? data.role : "system";
+        const injectionPosition = data.injectionPosition === "depth" ? "depth" : "ordered";
+        return {
+          id: typeof data.id === "string" ? data.id.trim() || undefined : undefined,
+          identifier: typeof data.identifier === "string" ? data.identifier.trim() || undefined : undefined,
+          name: sectionName,
+          content: typeof data.content === "string" ? data.content : undefined,
+          role,
+          enabled: typeof data.enabled === "boolean" ? data.enabled : undefined,
+          isMarker: typeof data.isMarker === "boolean" ? data.isMarker : undefined,
+          groupId:
+            typeof data.groupId === "string" ? data.groupId.trim() || null : data.groupId === null ? null : undefined,
+          markerConfig:
+            data.markerConfig && typeof data.markerConfig === "object" && !Array.isArray(data.markerConfig)
+              ? (data.markerConfig as Record<string, unknown>)
+              : data.markerConfig === null
+                ? null
+                : undefined,
+          injectionPosition,
+          injectionDepth:
+            typeof data.injectionDepth === "number" && Number.isFinite(data.injectionDepth)
+              ? Math.max(0, Math.floor(data.injectionDepth))
+              : undefined,
+          injectionOrder:
+            typeof data.injectionOrder === "number" && Number.isFinite(data.injectionOrder)
+              ? Math.floor(data.injectionOrder)
+              : undefined,
+          order: typeof data.order === "number" && Number.isFinite(data.order) ? Math.floor(data.order) : undefined,
+          forbidOverrides: typeof data.forbidOverrides === "boolean" ? data.forbidOverrides : undefined,
+        };
+      })
+      .filter((section): section is CreatePresetSectionCommand => section !== null);
+
+    const choiceBlocks = (Array.isArray(parsed.choiceBlocks) ? parsed.choiceBlocks : [])
+      .map((block): CreatePresetChoiceBlockCommand | null => {
+        if (!block || typeof block !== "object") return null;
+        const data = block as Record<string, unknown>;
+        const variableName = typeof data.variableName === "string" ? data.variableName.trim() : "";
+        const question = typeof data.question === "string" ? data.question.trim() : "";
+        const options = (Array.isArray(data.options) ? data.options : [])
+          .map((option): CreatePresetChoiceOptionCommand | null => {
+            if (!option || typeof option !== "object") return null;
+            const optionData = option as Record<string, unknown>;
+            const label = typeof optionData.label === "string" ? optionData.label.trim() : "";
+            const value = typeof optionData.value === "string" ? optionData.value : "";
+            if (!label) return null;
+            return {
+              id: typeof optionData.id === "string" ? optionData.id.trim() || undefined : undefined,
+              label,
+              value,
+            };
+          })
+          .filter((option): option is CreatePresetChoiceOptionCommand => option !== null);
+        if (!variableName || !question || options.length === 0) return null;
+        return {
+          id: typeof data.id === "string" ? data.id.trim() || undefined : undefined,
+          variableName,
+          question,
+          options,
+          multiSelect: typeof data.multiSelect === "boolean" ? data.multiSelect : undefined,
+          separator: typeof data.separator === "string" ? data.separator : undefined,
+          randomPick: typeof data.randomPick === "boolean" ? data.randomPick : undefined,
+          sortOrder:
+            typeof data.sortOrder === "number" && Number.isFinite(data.sortOrder)
+              ? Math.floor(data.sortOrder)
+              : undefined,
+        };
+      })
+      .filter((block): block is CreatePresetChoiceBlockCommand => block !== null);
+
+    return {
+      type: "create_preset",
+      name,
+      description: typeof parsed.description === "string" ? parsed.description : undefined,
+      wrapFormat:
+        parsed.wrapFormat === "markdown" || parsed.wrapFormat === "none" || parsed.wrapFormat === "xml"
+          ? parsed.wrapFormat
+          : undefined,
+      author: typeof parsed.author === "string" ? parsed.author : undefined,
+      groups: groups.length ? groups : undefined,
+      sections: sections.length ? sections : undefined,
+      choiceBlocks: choiceBlocks.length ? choiceBlocks : undefined,
+      variableGroups: Array.isArray(parsed.variableGroups)
+        ? parsed.variableGroups.filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+        : undefined,
+      variableValues: parseStringRecord(parsed.variableValues),
+      defaultChoices: parseDefaultChoices(parsed.defaultChoices),
+      parameters:
+        parsed.parameters && typeof parsed.parameters === "object" && !Array.isArray(parsed.parameters)
+          ? (parsed.parameters as Record<string, unknown>)
+          : undefined,
     };
   } catch {
     return null;
@@ -685,6 +896,11 @@ export function parseCharacterCommands(content: string): {
     if (cmd) commands.push(cmd);
   }
 
+  for (const match of content.matchAll(CREATE_PRESET_BLOCK_RE)) {
+    const cmd = parsePresetBlock(match[1] ?? "");
+    if (cmd) commands.push(cmd);
+  }
+
   for (const match of content.matchAll(CREATE_LOREBOOK_RE)) {
     const params = match[1]!;
     const name = parseQuotedParam(params, "name");
@@ -753,6 +969,7 @@ export function parseCharacterCommands(content: string): {
     .replace(UPDATE_PERSONA_RE, "")
     .replace(CREATE_LOREBOOK_BLOCK_RE, "")
     .replace(UPDATE_LOREBOOK_BLOCK_RE, "")
+    .replace(CREATE_PRESET_BLOCK_RE, "")
     .replace(CREATE_LOREBOOK_RE, "")
     .replace(CREATE_CHAT_RE, "")
     .replace(NAVIGATE_RE, "")
