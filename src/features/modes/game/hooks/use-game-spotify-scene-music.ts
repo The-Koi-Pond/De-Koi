@@ -43,7 +43,7 @@ type SpotifySceneRetryRequest = {
 
 type UseGameSpotifySceneMusicParams = {
   activeChatId: string;
-  buildRetryRequest: () => SpotifySceneRetryRequest | null;
+  buildRetryRequest: (recentSpotifyTracks: string[]) => SpotifySceneRetryRequest | null;
   enabled: boolean;
   isStreaming: boolean;
   persistMetadata: (chatId: string, patch: Record<string, unknown>) => Promise<unknown>;
@@ -201,7 +201,7 @@ export function useGameSpotifySceneMusic({
 
   const handleRetrySpotifyMusic = useCallback(async () => {
     if (!activeChatId || !enabled || isStreaming || sceneAnalysisPending) return;
-    const retryRequest = buildRetryRequest();
+    const retryRequest = buildRetryRequest(recentSpotifyTrackHistoryRef.current);
     if (!retryRequest) return;
     setRetryMenuOpen(false);
 
