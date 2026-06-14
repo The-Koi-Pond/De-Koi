@@ -1,10 +1,10 @@
 interface GenerationAgentConnectionWarning {
-  code: "default_agent_connection_active";
+  code: "default_agent_connection_active" | "local_sidecar_unavailable";
   severity: "warning";
   message: string;
   agentNames: string[];
-  connectionName: string;
-  model: string;
+  connectionName?: string;
+  model?: string;
 }
 
 export type LegacyStreamProtocolEvent =

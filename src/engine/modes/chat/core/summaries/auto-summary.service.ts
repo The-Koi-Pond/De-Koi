@@ -3,6 +3,7 @@ import type { LlmGateway, LlmMessage } from "../../../../capabilities/llm";
 import type { StorageGateway } from "../../../../capabilities/storage";
 import type { BaseLLMProvider } from "../../../../generation-core/llm/base-provider.js";
 import { boolish } from "../../../../generation/runtime-records";
+import { formatZonedDate, normalizeUserTimeZone } from "../../../../shared/time/timezone";
 import { readString as stringValue } from "../../../../shared/value-readers";
 import { stripConversationPromptTimestamps } from "./transcript-sanitize.js";
 
@@ -29,6 +30,8 @@ interface ConversationSummaryRunResult {
 export interface ConversationSummaryBackfillResult {
   generatedDays: string[];
   consolidatedWeeks: string[];
+  generatedDaySummaries: Record<string, DaySummaryEntry>;
+  consolidatedWeekSummaries: Record<string, WeekSummaryEntry>;
   failedDays: Array<{ date: string; error: string }>;
   failedWeeks: Array<{ weekKey: string; error: string }>;
   missingDayCount: number;
@@ -50,6 +53,7 @@ interface GenerateMissingConversationSummariesOptions {
   charIdToName: Map<string, string>;
   now?: Date;
   rolloverHour?: number;
+  timeZone?: string;
   timeoutMs?: number;
   maxMissingDays?: number;
 }
@@ -58,6 +62,7 @@ interface RunConversationSummaryBackfillInput {
   chatId: string;
   maxMissingDays?: number;
   connectionId?: string | null;
+  timeZone?: string | null;
 }
 
 const DEFAULT_SUMMARY_TIMEOUT_MS = 300_000;
@@ -245,6 +250,12 @@ function formatConversationDateKey(date: Date): string {
   return `${String(date.getDate()).padStart(2, "0")}.${String(date.getMonth() + 1).padStart(2, "0")}.${date.getFullYear()}`;
 }
 
+function formatZonedConversationDateKey(date: Date, timeZone?: string): string {
+  if (!timeZone) return formatConversationDateKey(date);
+  const [year, month, day] = formatZonedDate(date, timeZone).split("-");
+  return `${day}.${month}.${year}`;
+}
+
 function getConversationWeekMonday(date: Date): Date {
   const day = date.getDay();
   const diff = day === 0 ? -6 : 1 - day;
@@ -255,8 +266,8 @@ function logicalDate(date: Date, rolloverHour: number): Date {
   return new Date(date.getTime() - rolloverHour * 3_600_000);
 }
 
-function logicalDateKey(date: Date, rolloverHour: number): string {
-  return formatConversationDateKey(logicalDate(date, rolloverHour));
+function logicalDateKey(date: Date, rolloverHour: number, timeZone?: string): string {
+  return formatZonedConversationDateKey(logicalDate(date, rolloverHour), timeZone);
 }
 
 function getMessageAuthor(
@@ -276,6 +287,7 @@ function buildDayBuckets(
   personaName: string,
   charIdToName: Map<string, string>,
   rolloverHour: number,
+  timeZone?: string,
 ): ConversationSummaryDayBucket[] {
   const buckets = new Map<string, ConversationSummaryDayBucket>();
   for (const message of messages) {
@@ -285,7 +297,7 @@ function buildDayBuckets(
     const content = stripConversationPromptTimestamps((message.content ?? "").trim());
     if (!content) continue;
 
-    const date = logicalDateKey(createdAt, rolloverHour);
+    const date = logicalDateKey(createdAt, rolloverHour, timeZone);
     const bucket = buckets.get(date) ?? { date, msgs: [] };
     bucket.msgs.push({
       role: message.role,
@@ -485,13 +497,14 @@ async function generateMissingConversationSummaries(
   options: GenerateMissingConversationSummariesOptions,
 ): Promise<ConversationSummaryRunResult> {
   const rolloverHour = Math.max(0, Math.min(11, Math.floor(options.rolloverHour ?? 4)));
+  const timeZone = normalizeUserTimeZone(options.timeZone);
   const timeoutMs = options.timeoutMs ?? DEFAULT_SUMMARY_TIMEOUT_MS;
   const now = options.now ?? new Date();
-  const todayDateKey = logicalDateKey(now, rolloverHour);
+  const todayDateKey = logicalDateKey(now, rolloverHour, timeZone);
   const daySummaries = normalizeDaySummaries(options.metadata.daySummaries);
   const weekSummaries = normalizeWeekSummaries(options.metadata.weekSummaries);
 
-  const buckets = buildDayBuckets(options.messages, options.personaName, options.charIdToName, rolloverHour);
+  const buckets = buildDayBuckets(options.messages, options.personaName, options.charIdToName, rolloverHour, timeZone);
   const pastBuckets = buckets.filter((bucket) => bucket.date !== todayDateKey);
   const missingBuckets = pastBuckets.filter((bucket) => !daySummaries[bucket.date]);
   const maxMissingDays =
@@ -537,7 +550,7 @@ async function generateMissingConversationSummaries(
     if (weekSummaries[weekKey]) continue;
     const monday = parseConversationDateKey(weekKey);
     const nextMonday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 7);
-    if (logicalDate(now, rolloverHour).getTime() < nextMonday.getTime()) continue;
+    if (parseConversationDateKey(todayDateKey).getTime() < nextMonday.getTime()) continue;
 
     const messageDays = messageDaysByWeek.get(weekKey);
     if (messageDays && [...messageDays].some((dateKey) => !daySummaries[dateKey])) continue;
@@ -596,6 +609,8 @@ export async function backfillConversationSummaries(
       missingDayCount: 0,
       processedDayCount: 0,
       remainingMissingDayCount: 0,
+      generatedDaySummaries: {},
+      consolidatedWeekSummaries: {},
     };
   }
 
@@ -611,6 +626,7 @@ export async function backfillConversationSummaries(
     personaName: await loadPersonaName(capabilities.storage, chat),
     charIdToName: await loadCharacterNames(capabilities.storage, characterIds),
     rolloverHour: Math.max(0, Math.min(11, Math.floor(numberValue(metadata.dayRolloverHour, 4)))),
+    timeZone: normalizeUserTimeZone(metadata.promptTimeZone) ?? normalizeUserTimeZone(input.timeZone),
     maxMissingDays,
   });
 
@@ -624,6 +640,8 @@ export async function backfillConversationSummaries(
   return {
     generatedDays: Object.keys(result.newlyGeneratedDays),
     consolidatedWeeks: Object.keys(result.newlyConsolidatedWeeks),
+    generatedDaySummaries: result.newlyGeneratedDays,
+    consolidatedWeekSummaries: result.newlyConsolidatedWeeks,
     failedDays: result.failedDays,
     failedWeeks: result.failedWeeks,
     missingDayCount: result.missingDayCount,

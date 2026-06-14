@@ -196,7 +196,7 @@ describe("generation agent runner", () => {
     expect(prompt).not.toContain("full_combat");
   });
 
-  it("uses the synthetic Local Model connection instead of skipping the agent as dangling", async () => {
+  it("skips unavailable legacy Local Model agent overrides with a dedicated warning", async () => {
     const requests: LlmRequest[] = [];
     const sidecarConnection = {
       id: LOCAL_SIDECAR_CONNECTION_ID,
@@ -236,9 +236,23 @@ describe("generation agent runner", () => {
       runtimeInput(sidecarConnection),
     );
 
-    expect(runtime.preResults).toEqual([]);
+    expect(runtime.preResults).toEqual([
+      expect.objectContaining({
+        success: false,
+        data: expect.objectContaining({
+          code: "local_sidecar_unavailable",
+          connectionId: LOCAL_SIDECAR_CONNECTION_ID,
+        }),
+      }),
+    ]);
+    expect(runtime.agentWarnings).toEqual([
+      expect.objectContaining({
+        code: "local_sidecar_unavailable",
+        agentNames: ["Expression Agent"],
+      }),
+    ]);
     await runtime.runParallel();
-    expect(requests.map((request) => request.connectionId)).toEqual([LOCAL_SIDECAR_CONNECTION_ID]);
+    expect(requests).toEqual([]);
   });
 
   it("still skips agents assigned to missing generic API connections", async () => {

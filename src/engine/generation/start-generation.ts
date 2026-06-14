@@ -1,5 +1,10 @@
 import { BUILT_IN_AGENTS, BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS, type AgentResult } from "../contracts/types/agent";
-import type { GenerationPromptSnapshot, GenerationPromptSnapshotMessage } from "../contracts/types/chat";
+import type {
+  DaySummaryEntry,
+  GenerationPromptSnapshot,
+  GenerationPromptSnapshotMessage,
+  WeekSummaryEntry,
+} from "../contracts/types/chat";
 import type { GameState } from "../contracts/types/game-state";
 import type { EventGateway } from "../capabilities/events";
 import type { IntegrationGateway } from "../capabilities/integrations";
@@ -9,8 +14,13 @@ import type { SpriteOwnerType, VisualAssetGateway } from "../capabilities/visual
 import { buildProseGuardianAvoidanceGuide } from "../shared/text/generation-guide";
 import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
+import { normalizeUserTimeZone } from "../shared/time/timezone";
 import { buildImpersonateInstruction } from "../modes/chat/commands/impersonate-prompt";
 import { getConversationStatus } from "../modes/chat/autonomous/autonomous.service";
+import {
+  backfillConversationSummaries,
+  type ConversationSummaryBackfillResult,
+} from "../modes/chat/core/summaries/auto-summary.service";
 import { getBusyDelay, getMentionDelay, type WeekSchedule } from "../modes/chat/schedules/schedule.service";
 import {
   activeCharacterIds,
@@ -1234,6 +1244,60 @@ function requestMessages(input: StartGenerationInput): LlmMessage[] | null {
       }),
     )
     .filter((message) => message.content.length > 0);
+}
+
+function resolveGenerationPromptTimeZone(chat: JsonRecord, input: StartGenerationInput): string | undefined {
+  const persisted = normalizeUserTimeZone(parseRecord(chat.metadata).promptTimeZone);
+  if (persisted) return persisted;
+  const fromInput = normalizeUserTimeZone(input.userTimeZone);
+  if (fromInput) return fromInput;
+  try {
+    return normalizeUserTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  } catch {
+    return undefined;
+  }
+}
+
+function mergeSummaryEntries<T extends DaySummaryEntry | WeekSummaryEntry>(
+  current: unknown,
+  patch: Record<string, T>,
+): Record<string, T> {
+  const currentRecord = isRecord(current) ? (current as Record<string, T>) : {};
+  return { ...currentRecord, ...patch };
+}
+
+function chatWithBackfilledSummaries(chat: JsonRecord, result: ConversationSummaryBackfillResult): JsonRecord {
+  if (result.generatedDays.length === 0 && result.consolidatedWeeks.length === 0) return chat;
+  const metadata = parseRecord(chat.metadata);
+  return {
+    ...chat,
+    metadata: {
+      ...metadata,
+      daySummaries: mergeSummaryEntries(metadata.daySummaries, result.generatedDaySummaries),
+      weekSummaries: mergeSummaryEntries(metadata.weekSummaries, result.consolidatedWeekSummaries),
+    },
+  };
+}
+
+async function prepareConversationSummariesForGeneration(
+  deps: GenerationEngineDeps,
+  chat: JsonRecord,
+  input: StartGenerationInput,
+  connection: JsonRecord,
+): Promise<JsonRecord> {
+  if (readString(chat.mode || chat.chatMode, "conversation") !== "conversation") return chat;
+  const chatId = readString(chat.id).trim() || readString(input.chatId).trim();
+  const result = await backfillConversationSummaries(
+    { storage: deps.storage, llm: deps.llm },
+    {
+      chatId,
+      connectionId: readString(connection.id).trim() || readString(input.connectionId).trim() || null,
+      timeZone: resolveGenerationPromptTimeZone(chat, input),
+    },
+  );
+  if (result.generatedDays.length === 0 && result.consolidatedWeeks.length === 0) return chat;
+  const refreshed = await deps.storage.get<JsonRecord>("chats", chatId).catch(() => null);
+  return chatWithBackfilledSummaries(isRecord(refreshed) ? refreshed : chat, result);
 }
 
 function generationMessageLoadOptions(
@@ -3230,7 +3294,7 @@ export async function* startGeneration(
   const chatId = readString(input.chatId).trim();
   if (!chatId) throw new Error("chatId is required");
   throwIfAborted(signal);
-  const chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
+  let chat = requireRecord(await deps.storage.get("chats", chatId), "Chat");
   throwIfAborted(signal);
   input = await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input);
   throwIfAborted(signal);
@@ -3271,6 +3335,8 @@ export async function* startGeneration(
   } else {
     storedMessages = await loadMessagesForGenerationTarget({ storage: deps.storage, chatId, chat, input });
   }
+  chat = await prepareConversationSummariesForGeneration(deps, chat, input, connection);
+  throwIfAborted(signal);
   let regenerationTarget = regenerationTargetFromMessages(storedMessages, input.regenerateMessageId);
   const userRegenerationSourceMessage = await userMessageRegenerationSourceMessage(
     deps.storage,

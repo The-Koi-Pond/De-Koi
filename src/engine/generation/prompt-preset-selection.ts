@@ -44,18 +44,19 @@ export function buildGenerationPromptPresetCandidates(args: {
   impersonatePromptPresetId?: unknown;
   requestPromptPresetId?: unknown;
 }): PromptPresetCandidate[] {
+  if (args.chatMode === "conversation") return [];
+
   const candidates: PromptPresetCandidate[] = [];
   const seen = new Set<string>();
 
   if (args.impersonate) {
     pushUnique(candidates, seen, asNonEmptyString(args.impersonatePromptPresetId), "impersonate");
   }
+  pushUnique(candidates, seen, asNonEmptyString(args.chatPromptPresetId), "chat");
   pushUnique(candidates, seen, asNonEmptyString(args.requestPromptPresetId), "request");
 
   if (supportsConnectionPromptPresetOverride(args.chatMode)) {
     pushUnique(candidates, seen, asNonEmptyString(args.connectionPromptPresetId), "connection");
   }
-
-  pushUnique(candidates, seen, asNonEmptyString(args.chatPromptPresetId), "chat");
   return candidates;
 }
