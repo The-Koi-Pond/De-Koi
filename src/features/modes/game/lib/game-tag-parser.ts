@@ -109,6 +109,27 @@ export interface ParsedGmTags {
   readables: ReadableTag[];
 }
 
+function reputationTagRegex(): RegExp {
+  return /\[reputation:\s*npc="([^"]+)"\s*action="([^"]+)"\]/gi;
+}
+
+export function parseReputationTags(text: string): Array<{ npcName: string; action: string }> {
+  const actions: Array<{ npcName: string; action: string }> = [];
+  let match: RegExpExecArray | null;
+  const regex = reputationTagRegex();
+  while ((match = regex.exec(text)) !== null) {
+    actions.push({
+      npcName: match[1]!.trim(),
+      action: match[2]!.trim(),
+    });
+  }
+  return actions;
+}
+
+export function stripReputationTags(text: string): string {
+  return text.replace(reputationTagRegex(), "");
+}
+
 function parseQteMatch(match: RegExpMatchArray): { actions: string[]; timer: number } | null {
   const actions = match[1]!
     .split("|")
@@ -823,15 +844,8 @@ export function parseGmTags(content: string): ParsedGmTags {
   }
 
   // [reputation: npc="Name" action="helped"] — can appear multiple times
-  const repRegex = /\[reputation:\s*npc="([^"]+)"\s*action="([^"]+)"\]/gi;
-  let repMatch: RegExpExecArray | null;
-  while ((repMatch = repRegex.exec(text)) !== null) {
-    result.reputationActions.push({
-      npcName: repMatch[1]!.trim(),
-      action: repMatch[2]!.trim(),
-    });
-  }
-  text = text.replace(/\[reputation:\s*npc="[^"]+"\s*action="[^"]+"\]/gi, "");
+  result.reputationActions.push(...parseReputationTags(text));
+  text = stripReputationTags(text);
 
   // [combat: enemies="Goblin:5:40:8:5:6, Skeleton:3:25:6:3:4" allies="Dottore, Nasira"]
   // Format: Name:Level:HP:ATK:DEF:SPD — comma separated for multiple enemies

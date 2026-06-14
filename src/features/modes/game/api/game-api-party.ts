@@ -1,4 +1,5 @@
 import * as g from "./game-api-support";
+import { parseReputationTags, stripReputationTags } from "../lib/game-tag-parser";
 import {
   buildGameCard,
   currentPartyNames,
@@ -63,6 +64,27 @@ async function partyIdsMatchingName(
     if (npc && normalizedName(g.readTrimmed(npc.name)) === targetName) matches.add(id);
   }
   return matches;
+}
+
+function resolvePartyReputationActions(
+  npcs: g.GameNpc[],
+  actions: Array<{ npcName: string; action: string }>,
+): Array<{ npcId: string; action: string }> {
+  return actions.map((action) => {
+    const target = action.npcName.trim();
+    const matches = npcs.filter((npc) => normalizedName(npc.name) === normalizedName(target));
+    if (matches.length === 0) {
+      throw new Error(`Party-turn reputation target was not found: ${target}.`);
+    }
+    if (matches.length > 1) {
+      throw new Error(`Party-turn reputation target is ambiguous: ${target}.`);
+    }
+    const npcId = g.readTrimmed(matches[0]!.id);
+    if (!npcId) {
+      throw new Error(`Party-turn reputation target has no stored NPC id: ${target}.`);
+    }
+    return { npcId, action: action.action };
+  });
 }
 
 export async function upsertPartyCard(data: {
@@ -208,10 +230,17 @@ export async function partyTurn(input: {
     ],
     parameters: { temperature: 0.9, maxTokens: 1200 },
   });
-  const clean = raw.replace(/\[(?:party-turn|party-chat)\]/gi, "").trim();
+  const withoutPartyMarkers = raw.replace(/\[(?:party-turn|party-chat)\]/gi, "").trim();
+  const reputationActions = parseReputationTags(withoutPartyMarkers);
+  const clean = stripReputationTags(withoutPartyMarkers).trim();
   if (!clean || g.parsePartyDialogue(clean).length === 0) {
     throw new Error("The party response was empty or malformed.");
   }
+  const npcs = Array.isArray(meta.gameNpcs) ? (meta.gameNpcs as g.GameNpc[]) : [];
+  const reputationResult =
+    reputationActions.length > 0
+      ? g.processReputationActions(npcs, resolvePartyReputationActions(npcs, reputationActions))
+      : null;
   const message = await g.createChatMessage(input.chatId, {
     role: "assistant",
     characterId: null,
@@ -220,6 +249,30 @@ export async function partyTurn(input: {
     swipes: [{ content: `[party-turn]\n${clean}` }],
     activeSwipeIndex: 0,
   });
+  let reputationNpcs: g.GameNpc[] | null = null;
+  if (reputationResult && reputationResult.changes.length > 0) {
+    try {
+      await g.patchChatMetadata(input.chatId, { gameNpcs: reputationResult.npcs });
+      reputationNpcs = reputationResult.npcs;
+    } catch (error) {
+      const messageId = typeof message.id === "string" ? message.id.trim() : "";
+      if (!messageId) throw error;
+      try {
+        await g.chatCommandApi.bulkDeleteMessages(input.chatId, [messageId]);
+      } catch (cleanupError) {
+        const updateMessage = error instanceof Error ? error.message : String(error);
+        const cleanupMessage = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+        throw new Error(
+          `Party-turn reputation update failed: ${updateMessage}; message cleanup failed: ${cleanupMessage}`,
+        );
+      }
+      throw error;
+    }
+  }
   g.mirrorGameMessageToDiscord(meta, clean, "Party");
-  return { raw: clean, messageId: typeof message.id === "string" ? message.id : null };
+  return {
+    raw: clean,
+    messageId: typeof message.id === "string" ? message.id : null,
+    ...(reputationNpcs ? { npcs: reputationNpcs } : {}),
+  };
 }

@@ -260,7 +260,7 @@ export async function updateReputation(data: {
   const npcs = Array.isArray(meta.gameNpcs) ? (meta.gameNpcs as g.GameNpc[]) : [];
   const result = g.processReputationActions(npcs, data.actions);
   const sessionChat = await g.patchChatMetadata(data.chatId, { gameNpcs: result.npcs });
-  return { npcs: result.npcs, changes: result.changes, sessionChat };
+  return { npcs: result.npcs, changes: result.changes, milestones: result.milestones, sessionChat };
 }
 
 export async function initCombatEncounter(input: {
