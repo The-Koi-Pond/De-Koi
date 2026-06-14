@@ -50,20 +50,28 @@
       { "name": "defaultPrompt", "description": "The built-in prompt for this sprite sheet request." },
       { "name": "appearance", "description": "Character appearance text.", "example": "silver hair, travel cloak, sharp green eyes" },
       { "name": "expressions", "description": "Comma-separated requested expression labels.", "example": "neutral, happy, sad, angry" },
+      { "name": "expressionList", "description": "Legacy alias for comma-separated requested expression labels.", "example": "neutral, happy, sad, angry" },
+      { "name": "expressionCount", "description": "Legacy alias for the requested expression count.", "example": "4" },
       { "name": "cols", "description": "Requested grid columns.", "example": "2" },
       { "name": "rows", "description": "Requested grid rows.", "example": "2" },
       { "name": "sheetWidth", "description": "Resolved sheet width in pixels.", "example": "1024" },
-      { "name": "sheetHeight", "description": "Resolved sheet height in pixels.", "example": "1024" }
+      { "name": "sheetHeight", "description": "Resolved sheet height in pixels.", "example": "1024" },
+      { "name": "cellWidth", "description": "Legacy alias for resolved cell width in pixels.", "example": "512" },
+      { "name": "cellHeight", "description": "Legacy alias for resolved cell height in pixels.", "example": "512" }
     ],
     "template": "${defaultPrompt}",
     "exampleContext": {
       "defaultPrompt": "character expression sprite sheet source image, designed to be sliced into cells, EXACTLY 4 total portrait cells and every cell must be filled, strict 2 columns by 2 rows grid, same character in every cell, expressions left-to-right top-to-bottom: neutral, happy, sad, angry, silver hair, travel cloak, sharp green eyes, no text, no labels, no watermark",
       "appearance": "silver hair, travel cloak, sharp green eyes",
       "expressions": "neutral, happy, sad, angry",
+      "expressionList": "neutral, happy, sad, angry",
+      "expressionCount": 4,
       "cols": 2,
       "rows": 2,
       "sheetWidth": 1024,
-      "sheetHeight": 1024
+      "sheetHeight": 1024,
+      "cellWidth": 512,
+      "cellHeight": 512
     }
   },
   {
@@ -73,6 +81,7 @@
       { "name": "defaultPrompt", "description": "The built-in prompt for this full-body sprite request." },
       { "name": "appearance", "description": "Character appearance text.", "example": "silver hair, travel cloak, sharp green eyes" },
       { "name": "expression", "description": "Requested pose or expression label.", "example": "idle" },
+      { "name": "pose", "description": "Legacy alias for the requested full-body pose label.", "example": "idle" },
       { "name": "spriteType", "description": "Sprite type from the generation request.", "example": "full-body" }
     ],
     "template": "${defaultPrompt}",
@@ -80,6 +89,7 @@
       "defaultPrompt": "single full-body character sprite, one character only, entire body visible from head to toe, centered in frame, no cropping, solid white studio background, silver hair, travel cloak, sharp green eyes, pose/action: idle, anime/game sprite style, consistent character design, no grid, no panel borders, no text, no labels, no watermark",
       "appearance": "silver hair, travel cloak, sharp green eyes",
       "expression": "idle",
+      "pose": "idle",
       "spriteType": "full-body"
     }
   },
@@ -90,6 +100,9 @@
       { "name": "defaultPrompt", "description": "The built-in prompt for this full-body sheet request." },
       { "name": "appearance", "description": "Character appearance text.", "example": "silver hair, travel cloak, sharp green eyes" },
       { "name": "expressions", "description": "Comma-separated requested pose labels.", "example": "idle, attack, cast, victory" },
+      { "name": "poseList", "description": "Legacy alias for comma-separated requested pose labels.", "example": "idle, attack, cast, victory" },
+      { "name": "poseCount", "description": "Legacy alias for the requested pose count.", "example": "4" },
+      { "name": "cellCount", "description": "Legacy alias for the total grid cell count.", "example": "4" },
       { "name": "cols", "description": "Requested grid columns.", "example": "2" },
       { "name": "rows", "description": "Requested grid rows.", "example": "2" },
       { "name": "sheetWidth", "description": "Resolved sheet width in pixels.", "example": "1024" },
@@ -102,6 +115,9 @@
       "defaultPrompt": "full-body character pose sprite sheet source image, designed to be sliced into cells, target output canvas is 1024x1536 pixels, with each cell exactly 512x768 pixels, strict 2 columns by 2 rows grid, same character in every cell, first 4 cells must match these poses: idle, attack, cast, victory, silver hair, travel cloak, sharp green eyes, no text, no labels, no watermark",
       "appearance": "silver hair, travel cloak, sharp green eyes",
       "expressions": "idle, attack, cast, victory",
+      "poseList": "idle, attack, cast, victory",
+      "poseCount": 4,
+      "cellCount": 4,
       "cols": 2,
       "rows": 2,
       "sheetWidth": 1024,

@@ -354,7 +354,14 @@ impl EmptyFallback for str {
     }
 }
 
-pub(crate) fn prompt_override(body: &Value, id: &str) -> Option<String> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ImagePromptOverride {
+    pub(crate) prompt: String,
+    pub(crate) negative_prompt: Option<String>,
+    pub(crate) has_negative_prompt: bool,
+}
+
+pub(crate) fn image_prompt_override(body: &Value, id: &str) -> Option<ImagePromptOverride> {
     body.get("promptOverrides")
         .and_then(Value::as_array)
         .and_then(|items| {
@@ -362,7 +369,18 @@ pub(crate) fn prompt_override(body: &Value, id: &str) -> Option<String> {
                 let item_id = item.get("id").and_then(Value::as_str)?;
                 let prompt = item.get("prompt").and_then(Value::as_str)?.trim();
                 if item_id == id && !prompt.is_empty() {
-                    Some(prompt.to_string())
+                    let negative_value = item
+                        .get("negativePrompt")
+                        .or_else(|| item.get("negative_prompt"));
+                    let negative_prompt = negative_value.and_then(Value::as_str);
+                    Some(ImagePromptOverride {
+                        prompt: prompt.to_string(),
+                        negative_prompt: negative_prompt
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .map(str::to_string),
+                        has_negative_prompt: negative_prompt.is_some(),
+                    })
                 } else {
                     None
                 }
@@ -370,22 +388,18 @@ pub(crate) fn prompt_override(body: &Value, id: &str) -> Option<String> {
         })
 }
 
+pub(crate) fn prompt_override(body: &Value, id: &str) -> Option<String> {
+    image_prompt_override(body, id).map(|item| item.prompt)
+}
+
 pub(crate) fn negative_prompt_override(body: &Value, id: &str) -> Option<String> {
-    body.get("promptOverrides")
-        .and_then(Value::as_array)
-        .and_then(|items| {
-            items.iter().find_map(|item| {
-                let item_id = item.get("id").and_then(Value::as_str)?;
-                if item_id != id {
-                    return None;
-                }
-                item.get("negativePrompt")
-                    .or_else(|| item.get("negative_prompt"))
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .map(str::to_string)
-            })
-        })
+    image_prompt_override(body, id).and_then(|item| {
+        if item.has_negative_prompt {
+            Some(item.negative_prompt.unwrap_or_default())
+        } else {
+            None
+        }
+    })
 }
 
 pub(crate) fn image_generation_options(body: &Value) -> ImageGenerationOptions {
@@ -600,5 +614,31 @@ mod tests {
             negative_prompt_override(&body, "avatar-mira"),
             Some(String::new())
         );
+    }
+
+    #[test]
+    fn image_prompt_override_preserves_negative_prompt_presence() {
+        let body = json!({
+            "promptOverrides": [
+                { "id": "keep", "prompt": "new prompt", "negativePrompt": " bad anatomy " },
+                { "id": "clear", "prompt": "clear prompt", "negativePrompt": "" },
+                { "id": "null", "prompt": "null prompt", "negativePrompt": null }
+            ]
+        });
+
+        let keep = image_prompt_override(&body, "keep").expect("override should exist");
+        assert_eq!(keep.prompt, "new prompt");
+        assert_eq!(keep.negative_prompt, Some("bad anatomy".to_string()));
+        assert!(keep.has_negative_prompt);
+
+        let clear = image_prompt_override(&body, "clear").expect("override should exist");
+        assert_eq!(clear.prompt, "clear prompt");
+        assert_eq!(clear.negative_prompt, None);
+        assert!(clear.has_negative_prompt);
+
+        let null = image_prompt_override(&body, "null").expect("override should exist");
+        assert_eq!(null.prompt, "null prompt");
+        assert_eq!(null.negative_prompt, None);
+        assert!(!null.has_negative_prompt);
     }
 }

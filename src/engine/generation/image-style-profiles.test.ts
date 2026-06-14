@@ -3,6 +3,7 @@ import {
   compileImagePrompt,
   createDefaultImageStyleProfileSettings,
   normalizeImageStyleProfileSettings,
+  spriteImageNegativePrompt,
 } from "./image-style-profiles";
 
 describe("image style profiles", () => {
@@ -100,6 +101,22 @@ describe("image style profiles", () => {
     expect(compiled.negativePrompt).toContain("watermark");
     expect(compiled.negativePrompt).toContain("text");
     expect(compiled.diagnostics.movedNegativeFragments).toEqual(expect.arrayContaining(["avoid watermark", "no text"]));
+  });
+
+  it("compiles sprite negative prompts with style-profile negatives", () => {
+    const settings = createDefaultImageStyleProfileSettings();
+    const compiled = compileImagePrompt({
+      kind: "sprite",
+      prompt: "",
+      negativePrompt: spriteImageNegativePrompt({ spriteType: "full-body", fullBodyExpressionMode: true }),
+      styleProfileId: "danbooru",
+      styleProfiles: settings,
+    });
+
+    expect(compiled.negativePrompt).toContain("worst quality");
+    expect(compiled.negativePrompt).toContain("missing cells");
+    expect(compiled.negativePrompt).toContain("cut off feet");
+    expect(compiled.negativePrompt).toContain("different body poses");
   });
 
   it("preserves required portrait details when compact profile tags exceed the soft budget", () => {

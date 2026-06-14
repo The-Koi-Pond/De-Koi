@@ -1,6 +1,6 @@
 use super::images::{
-    generate_image_with_options, image_generation_options, is_openai_gpt_image_model,
-    prompt_override,
+    generate_image_with_options, image_generation_options, image_prompt_override,
+    is_openai_gpt_image_model, ImageGenerationOptions, ImagePromptOverride,
 };
 use super::shared::*;
 use super::*;
@@ -192,6 +192,7 @@ pub(crate) async fn generate_sprite_sheet_preview(
     let connection_id = required_string(&body, "connectionId")?;
     let connection = connection_secrets::connection_for_runtime(state, connection_id)?;
     let plan = build_sprite_plan(&body, Some(&connection));
+    let image_options = image_generation_options(&body);
     if plan.should_generate_individually() {
         let items = plan
             .expressions
@@ -199,27 +200,34 @@ pub(crate) async fn generate_sprite_sheet_preview(
             .map(|expression| {
                 let prompt_id =
                     sprite_prompt_review_id("expression", &plan.sprite_type, expression);
-                let prompt = prompt_override(&body, &prompt_id).unwrap_or_else(|| {
-                    let default_prompt = single_sprite_prompt(
-                        &plan.sprite_type,
-                        &plan.appearance,
-                        expression,
-                        &body,
-                        &plan.model,
-                    );
-                    registered_sprite_prompt(
-                        state,
-                        SPRITE_PORTRAIT_SINGLE_PROMPT_KEY,
-                        default_prompt,
-                        &plan,
-                        Some(expression),
-                    )
-                });
+                let prompt_override = image_prompt_override(&body, &prompt_id);
+                let prompt = prompt_override
+                    .as_ref()
+                    .map(|item| item.prompt.clone())
+                    .unwrap_or_else(|| {
+                        let default_prompt = single_sprite_prompt(
+                            &plan.sprite_type,
+                            &plan.appearance,
+                            expression,
+                            &body,
+                            &plan.model,
+                        );
+                        registered_sprite_prompt(
+                            state,
+                            SPRITE_PORTRAIT_SINGLE_PROMPT_KEY,
+                            default_prompt,
+                            &plan,
+                            Some(expression),
+                        )
+                    });
+                let negative_prompt =
+                    negative_prompt_for_review_item(&image_options, prompt_override.as_ref());
                 json!({
                     "id": prompt_id,
                     "kind": "sprite",
                     "title": format!("Expression: {}", expression.replace('_', " ")),
                     "prompt": prompt,
+                    "negativePrompt": negative_prompt,
                     "width": 1024,
                     "height": 1024
                 })
@@ -232,9 +240,14 @@ pub(crate) async fn generate_sprite_sheet_preview(
         &plan.sprite_type,
         &format!("{}x{}-{}", plan.cols, plan.rows, plan.expressions.join(",")),
     );
-    let prompt = prompt_override(&body, &prompt_id).unwrap_or_else(|| {
-        registered_sprite_prompt(state, plan.prompt_key, plan.prompt.clone(), &plan, None)
-    });
+    let prompt_override = image_prompt_override(&body, &prompt_id);
+    let prompt = prompt_override
+        .as_ref()
+        .map(|item| item.prompt.clone())
+        .unwrap_or_else(|| {
+            registered_sprite_prompt(state, plan.prompt_key, plan.prompt.clone(), &plan, None)
+        });
+    let negative_prompt = negative_prompt_for_review_item(&image_options, prompt_override.as_ref());
     Ok(json!({
         "items": [{
             "id": prompt_id,
@@ -245,6 +258,7 @@ pub(crate) async fn generate_sprite_sheet_preview(
                 format!("Expression sprites: {}x{}", plan.cols, plan.rows)
             },
             "prompt": prompt,
+            "negativePrompt": negative_prompt,
             "width": plan.sheet_width,
             "height": plan.sheet_height
         }]
@@ -268,28 +282,34 @@ pub(crate) async fn generate_sprite_sheet(state: &AppState, body: Value) -> AppR
         let mut failed = Vec::new();
         for expression in &plan.expressions {
             let prompt_id = sprite_prompt_review_id("expression", &plan.sprite_type, expression);
-            let prompt = prompt_override(&body, &prompt_id).unwrap_or_else(|| {
-                let default_prompt = single_sprite_prompt(
-                    &plan.sprite_type,
-                    &plan.appearance,
-                    expression,
-                    &body,
-                    &plan.model,
-                );
-                registered_sprite_prompt(
-                    state,
-                    SPRITE_PORTRAIT_SINGLE_PROMPT_KEY,
-                    default_prompt,
-                    &plan,
-                    Some(expression),
-                )
-            });
+            let prompt_override = image_prompt_override(&body, &prompt_id);
+            let prompt = prompt_override
+                .as_ref()
+                .map(|item| item.prompt.clone())
+                .unwrap_or_else(|| {
+                    let default_prompt = single_sprite_prompt(
+                        &plan.sprite_type,
+                        &plan.appearance,
+                        expression,
+                        &body,
+                        &plan.model,
+                    );
+                    registered_sprite_prompt(
+                        state,
+                        SPRITE_PORTRAIT_SINGLE_PROMPT_KEY,
+                        default_prompt,
+                        &plan,
+                        Some(expression),
+                    )
+                });
+            let request_options =
+                image_options_for_prompt_override(&image_options, prompt_override.as_ref());
             match generate_image_with_options(
                 &connection,
                 &format!("{prompt}{reference_note}"),
                 1024,
                 1024,
-                image_options.clone(),
+                request_options,
             )
             .await
             {
@@ -336,15 +356,21 @@ pub(crate) async fn generate_sprite_sheet(state: &AppState, body: Value) -> AppR
         &plan.sprite_type,
         &format!("{}x{}-{}", plan.cols, plan.rows, plan.expressions.join(",")),
     );
-    let prompt = prompt_override(&body, &prompt_id).unwrap_or_else(|| {
-        registered_sprite_prompt(state, plan.prompt_key, plan.prompt.clone(), &plan, None)
-    });
+    let prompt_override = image_prompt_override(&body, &prompt_id);
+    let prompt = prompt_override
+        .as_ref()
+        .map(|item| item.prompt.clone())
+        .unwrap_or_else(|| {
+            registered_sprite_prompt(state, plan.prompt_key, plan.prompt.clone(), &plan, None)
+        });
+    let request_options =
+        image_options_for_prompt_override(&image_options, prompt_override.as_ref());
     let (sheet_base64, _mime_type) = generate_image_with_options(
         &connection,
         &format!("{prompt}{reference_note}"),
         plan.sheet_width as u64,
         plan.sheet_height as u64,
-        image_options,
+        request_options,
     )
     .await?;
     let sheet_base64 = if body
@@ -859,6 +885,29 @@ fn build_sprite_plan(body: &Value, connection: Option<&Value>) -> SpritePlan {
     }
 }
 
+fn negative_prompt_for_review_item(
+    base_options: &ImageGenerationOptions,
+    prompt_override: Option<&ImagePromptOverride>,
+) -> Option<String> {
+    match prompt_override {
+        Some(prompt_override) if prompt_override.has_negative_prompt => {
+            prompt_override.negative_prompt.clone()
+        }
+        _ => base_options.negative_prompt.clone(),
+    }
+}
+
+fn image_options_for_prompt_override(
+    base_options: &ImageGenerationOptions,
+    prompt_override: Option<&ImagePromptOverride>,
+) -> ImageGenerationOptions {
+    let mut options = base_options.clone();
+    if let Some(prompt_override) = prompt_override.filter(|item| item.has_negative_prompt) {
+        options.negative_prompt = prompt_override.negative_prompt.clone();
+    }
+    options
+}
+
 fn resolve_canvas(cols: u32, rows: u32, sprite_type: &str, model: &str) -> (u32, u32, u32, u32) {
     let cell_width = 512;
     let cell_height = if sprite_type == "full-body" { 768 } else { 512 };
@@ -1035,6 +1084,7 @@ fn registered_sprite_prompt(
     let expression_value = expression
         .or_else(|| plan.expressions.first().map(String::as_str))
         .unwrap_or("");
+    let expression_label = format_sprite_label_for_prompt(expression_value);
     let expressions = if let Some(expression) = expression {
         format_sprite_label_for_prompt(expression)
     } else {
@@ -1044,14 +1094,18 @@ fn registered_sprite_prompt(
             .collect::<Vec<_>>()
             .join(", ")
     };
+    let expression_count = plan.expressions.len();
+    let cell_count = plan.cols * plan.rows;
     let context = Map::from_iter([
         ("defaultPrompt".to_string(), json!(default_prompt)),
         ("appearance".to_string(), json!(plan.appearance.as_str())),
-        (
-            "expression".to_string(),
-            json!(format_sprite_label_for_prompt(expression_value)),
-        ),
-        ("expressions".to_string(), json!(expressions)),
+        ("expression".to_string(), json!(expression_label.as_str())),
+        ("expressions".to_string(), json!(expressions.as_str())),
+        ("expressionCount".to_string(), json!(expression_count)),
+        ("expressionList".to_string(), json!(expressions.as_str())),
+        ("pose".to_string(), json!(expression_label.as_str())),
+        ("poseCount".to_string(), json!(expression_count)),
+        ("poseList".to_string(), json!(expressions.as_str())),
         ("spriteType".to_string(), json!(plan.sprite_type.as_str())),
         ("cols".to_string(), json!(plan.cols)),
         ("rows".to_string(), json!(plan.rows)),
@@ -1059,6 +1113,7 @@ fn registered_sprite_prompt(
         ("sheetHeight".to_string(), json!(plan.sheet_height)),
         ("cellWidth".to_string(), json!(plan.cell_width)),
         ("cellHeight".to_string(), json!(plan.cell_height)),
+        ("cellCount".to_string(), json!(cell_count)),
     ]);
     let default_prompt = context
         .get("defaultPrompt")
@@ -2772,14 +2827,20 @@ mod sprite_prompt_override_tests {
         (state, root)
     }
 
-    async fn preview_prompt(state: &AppState, body: Value) -> String {
+    async fn preview_item(state: &AppState, body: Value) -> Value {
         generate_sprite_sheet_preview(state, body)
             .await
             .expect("sprite preview should build")
             .get("items")
             .and_then(Value::as_array)
             .and_then(|items| items.first())
-            .and_then(|item| item.get("prompt"))
+            .cloned()
+            .expect("preview item should be returned")
+    }
+
+    async fn preview_prompt(state: &AppState, body: Value) -> String {
+        let item = preview_item(state, body).await;
+        item.get("prompt")
             .and_then(Value::as_str)
             .expect("preview prompt should be returned")
             .to_string()
@@ -2863,6 +2924,136 @@ mod sprite_prompt_override_tests {
         }
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn sprite_preview_supports_legacy_sprite_override_aliases() {
+        let (state, root) = test_state("legacy-aliases");
+        for (key, template) in [
+            (
+                SPRITE_EXPRESSION_SHEET_PROMPT_KEY,
+                "LEGACY ${expressionList} ${expressionCount} ${cellWidth}x${cellHeight}",
+            ),
+            (SPRITE_FULL_BODY_SINGLE_PROMPT_KEY, "LEGACY ${pose}"),
+            (
+                SPRITE_FULL_BODY_SHEET_PROMPT_KEY,
+                "LEGACY ${poseList} ${poseCount} ${cellCount} ${cellWidth}x${cellHeight}",
+            ),
+        ] {
+            state
+                .storage
+                .upsert_with_id(
+                    "prompt-overrides",
+                    key,
+                    json!({
+                        "id": key,
+                        "key": key,
+                        "template": template,
+                        "enabled": true
+                    }),
+                )
+                .expect("prompt override should write");
+        }
+
+        assert_eq!(
+            preview_prompt(
+                &state,
+                base_body("expressions", vec!["neutral", "happy"], 2, 1)
+            )
+            .await,
+            "LEGACY neutral, happy 2 512x512"
+        );
+        assert_eq!(
+            preview_prompt(&state, base_body("full-body", vec!["idle"], 1, 1)).await,
+            "LEGACY idle"
+        );
+        assert_eq!(
+            preview_prompt(&state, base_body("full-body", vec!["idle", "attack"], 2, 1)).await,
+            "LEGACY idle, attack 2 2 512x768"
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn sprite_preview_round_trips_negative_prompts() {
+        let (state, root) = test_state("negative-prompts");
+        let mut body = base_body("expressions", vec!["neutral", "happy"], 2, 1);
+        body.as_object_mut()
+            .expect("body should be object")
+            .insert("negativePrompt".to_string(), json!("bad anatomy"));
+
+        let item = preview_item(&state, body.clone()).await;
+        assert_eq!(
+            item.get("negativePrompt").and_then(Value::as_str),
+            Some("bad anatomy")
+        );
+
+        let prompt_id = sprite_prompt_review_id("sheet", "expressions", "2x1-neutral,happy");
+        body.as_object_mut().expect("body should be object").insert(
+            "promptOverrides".to_string(),
+            json!([{ "id": prompt_id, "prompt": "EDITED PROMPT", "negativePrompt": "edited negative" }]),
+        );
+        let item = preview_item(&state, body.clone()).await;
+        assert_eq!(
+            item.get("prompt").and_then(Value::as_str),
+            Some("EDITED PROMPT")
+        );
+        assert_eq!(
+            item.get("negativePrompt").and_then(Value::as_str),
+            Some("edited negative")
+        );
+
+        body.as_object_mut().expect("body should be object").insert(
+            "promptOverrides".to_string(),
+            json!([{ "id": prompt_id, "prompt": "EDITED PROMPT", "negativePrompt": "" }]),
+        );
+        let item = preview_item(&state, body).await;
+        assert!(item
+            .get("negativePrompt")
+            .expect("negativePrompt field should be present")
+            .is_null());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sprite_prompt_override_negative_prompt_replaces_generation_options() {
+        let base_options = ImageGenerationOptions {
+            negative_prompt: Some("base negative".to_string()),
+            reference_images: vec!["reference-image".to_string()],
+            transparent_background: true,
+            apply_prompt_defaults: true,
+        };
+        let edited = ImagePromptOverride {
+            prompt: "edited prompt".to_string(),
+            negative_prompt: Some("edited negative".to_string()),
+            has_negative_prompt: true,
+        };
+        let options = image_options_for_prompt_override(&base_options, Some(&edited));
+        assert_eq!(options.negative_prompt, Some("edited negative".to_string()));
+        assert_eq!(options.reference_images, base_options.reference_images);
+        assert!(options.transparent_background);
+
+        let cleared = ImagePromptOverride {
+            prompt: "edited prompt".to_string(),
+            negative_prompt: None,
+            has_negative_prompt: true,
+        };
+        assert_eq!(
+            image_options_for_prompt_override(&base_options, Some(&cleared)).negative_prompt,
+            None
+        );
+
+        let prompt_only = ImagePromptOverride {
+            prompt: "edited prompt".to_string(),
+            negative_prompt: None,
+            has_negative_prompt: false,
+        };
+        assert_eq!(
+            image_options_for_prompt_override(&base_options, Some(&prompt_only)).negative_prompt,
+            Some("base negative".to_string())
+        );
     }
 
     #[tokio::test]
@@ -3989,8 +4180,9 @@ mod background_remover_runtime_tests {
         env::remove_var("U2NETP_PATH");
         env::set_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR", "1");
 
-        let result = try_remove_background_with_backgroundremover(&state, &encode_test_png(), false)
-            .expect("optional cache-clear failure should fall back");
+        let result =
+            try_remove_background_with_backgroundremover(&state, &encode_test_png(), false)
+                .expect("optional cache-clear failure should fall back");
 
         assert!(
             result.is_none(),
