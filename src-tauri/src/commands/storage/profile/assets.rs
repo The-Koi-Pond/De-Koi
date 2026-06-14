@@ -36,12 +36,22 @@ const OLD_ASSET_MARKERS: &[&str] = &[
     "/api/sprites/file/",
     "api/sprites/file/",
     "sprites/file/",
+    "/api/agents/images/file/",
+    "api/agents/images/file/",
+    "agents/images/file/",
+    "agents/images/",
+    "/api/connections/images/file/",
+    "api/connections/images/file/",
+    "connections/images/file/",
+    "connections/images/",
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LegacyProfileAssetKind {
     Avatar,
     Background,
+    AgentImage,
+    ConnectionImage,
     LorebookImage,
     FileDataUrl,
 }
@@ -806,6 +816,20 @@ pub(super) fn normalize_legacy_profile_asset_paths(
                         .entry("imageFilename".to_string())
                         .or_insert_with(|| Value::String(asset.filename.clone()));
                 }
+                if matches!(field, "imagePath" | "imageUrl")
+                    && matches!(
+                        asset.kind,
+                        LegacyProfileAssetKind::AgentImage
+                            | LegacyProfileAssetKind::ConnectionImage
+                    )
+                {
+                    object
+                        .entry("imageFilePath".to_string())
+                        .or_insert_with(|| Value::String(asset.absolute_path.clone()));
+                    object
+                        .entry("imageFilename".to_string())
+                        .or_insert_with(|| Value::String(asset.filename.clone()));
+                }
             }
         }
         Value::Array(items) => {
@@ -908,6 +932,9 @@ fn legacy_profile_asset_for_path(
             "marinara-background:",
             &relative_asset_tail(&relative, Path::new("backgrounds")),
         ),
+        LegacyProfileAssetKind::AgentImage | LegacyProfileAssetKind::ConnectionImage => {
+            file_path_asset_url(&absolute)
+        }
         LegacyProfileAssetKind::LorebookImage => managed_asset_url(
             "marinara-lorebook-image:",
             &relative_asset_tail(&relative, Path::new("lorebooks/images")),
@@ -949,6 +976,12 @@ fn legacy_profile_asset_relative_path(value: &str) -> Option<PathBuf> {
         ("api/sprites/file/", "sprites"),
         ("sprites/file/", "sprites"),
         ("sprites/", "sprites"),
+        ("api/agents/images/file/", "entity-images/agents"),
+        ("agents/images/file/", "entity-images/agents"),
+        ("agents/images/", "entity-images/agents"),
+        ("api/connections/images/file/", "entity-images/connections"),
+        ("connections/images/file/", "entity-images/connections"),
+        ("connections/images/", "entity-images/connections"),
         ("api/lorebook-images/file/", "lorebooks/images"),
         ("lorebooks/images/file/", "lorebooks/images"),
         ("lorebooks/images/", "lorebooks/images"),
@@ -969,6 +1002,10 @@ fn legacy_profile_asset_kind(relative: &Path) -> LegacyProfileAssetKind {
         LegacyProfileAssetKind::Avatar
     } else if relative.starts_with(Path::new("backgrounds")) {
         LegacyProfileAssetKind::Background
+    } else if relative.starts_with(Path::new("entity-images/agents")) {
+        LegacyProfileAssetKind::AgentImage
+    } else if relative.starts_with(Path::new("entity-images/connections")) {
+        LegacyProfileAssetKind::ConnectionImage
     } else if relative.starts_with(Path::new("lorebooks/images")) {
         LegacyProfileAssetKind::LorebookImage
     } else {
@@ -1312,6 +1349,76 @@ mod tests {
         );
 
         restored.commit();
+        fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_agent_connection_image_paths_normalize_to_entity_images() {
+        let data_dir = temp_data_dir("legacy-entity-images");
+        let state = AppState::from_data_dir(data_dir.clone(), Vec::new())
+            .expect("test app state should initialize");
+        fs::create_dir_all(data_dir.join("entity-images/agents")).unwrap();
+        fs::create_dir_all(data_dir.join("entity-images/connections")).unwrap();
+        fs::write(data_dir.join("entity-images/agents/agent.png"), b"agent").unwrap();
+        fs::write(
+            data_dir.join("entity-images/connections/connection.png"),
+            b"connection",
+        )
+        .unwrap();
+
+        let mut value = json!({
+            "agents": [
+                { "imagePath": "/api/agents/images/file/agent.png" }
+            ],
+            "connections": [
+                { "imageUrl": "connections/images/connection.png" }
+            ]
+        });
+
+        normalize_legacy_profile_asset_paths(&state, None, &mut value);
+
+        let agent = &value["agents"][0];
+        let agent_image_path = agent["imagePath"]
+            .as_str()
+            .expect("agent image path should normalize");
+        assert!(
+            agent_image_path.starts_with("asset://localhost/")
+                || agent_image_path.starts_with("http://asset.localhost/")
+        );
+        let agent_file_path = PathBuf::from(
+            agent["imageFilePath"]
+                .as_str()
+                .expect("agent file path should be stored"),
+        );
+        assert!(agent_file_path.is_file());
+        assert!(agent_file_path.ends_with(
+            Path::new("entity-images")
+                .join("agents")
+                .join("agent.png")
+        ));
+        assert_eq!(agent["imageFilename"], "agent.png");
+
+        let connection = &value["connections"][0];
+        let connection_image_path = connection["imageUrl"]
+            .as_str()
+            .expect("connection image path should normalize");
+        assert!(
+            connection_image_path.starts_with("asset://localhost/")
+                || connection_image_path.starts_with("http://asset.localhost/")
+        );
+        let connection_file_path = PathBuf::from(
+            connection["imageFilePath"]
+                .as_str()
+                .expect("connection file path should be stored"),
+        );
+        assert!(connection_file_path.is_file());
+        assert!(connection_file_path.ends_with(
+            Path::new("entity-images")
+                .join("connections")
+                .join("connection.png")
+        ));
+        assert_eq!(connection["imageFilename"], "connection.png");
+
         fs::remove_dir_all(data_dir).unwrap();
     }
 
