@@ -1569,15 +1569,23 @@ async fn dj_mari_playlist(state: &AppState, body: Value) -> AppResult<Value> {
         body.get("deviceId").and_then(Value::as_str),
     )
     .await;
-    let (playback_started, playback_error) = match playback {
+    let (playback_started, playback_error, repeat_restored, repeat_restore_error) = match playback {
         Ok(value) => (
             value
                 .get("started")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
             value.get("error").cloned().unwrap_or(Value::Null),
+            value
+                .get("repeatRestored")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            value
+                .get("repeatRestoreError")
+                .cloned()
+                .unwrap_or(Value::Null),
         ),
-        Err(error) => (false, Value::String(error.message)),
+        Err(error) => (false, Value::String(error.message), false, Value::Null),
     };
     Ok(json!({
         "success": true,
@@ -1589,6 +1597,8 @@ async fn dj_mari_playlist(state: &AppState, body: Value) -> AppResult<Value> {
         "trackCount": matched_tracks.len(),
         "playbackStarted": playback_started,
         "playbackError": playback_error,
+        "repeatRestored": repeat_restored,
+        "repeatRestoreError": repeat_restore_error,
         "tracks": matched_tracks.iter().map(matched_track_json).collect::<Vec<_>>()
     }))
 }
@@ -2413,6 +2423,14 @@ async fn start_dj_mari_playlist_playback(
 ) -> AppResult<Value> {
     require_spotify_scope(credentials, SPOTIFY_PLAYBACK_CONTROL_SCOPE)?;
     let device_id = device_id.filter(|value| !value.trim().is_empty());
+    let (repeat_to_restore, repeat_capture_error) =
+        match spotify_current_playback_summary(credentials).await {
+            Ok(playback) => (
+                spotify_repeat_state_to_restore(&playback).map(str::to_string),
+                None,
+            ),
+            Err(error) => (None, Some(error.message)),
+        };
     if let Some(device_id) = device_id {
         let _ = spotify_api(
             credentials,
@@ -2436,7 +2454,62 @@ async fn start_dj_mari_playlist_playback(
             "error": spotify_control_error(&response, "Spotify could not start the new playlist.").message
         }));
     }
-    Ok(json!({ "started": true, "error": Value::Null }))
+    let (repeat_restored, repeat_restore_error) = if let Some(capture_error) = repeat_capture_error
+    {
+        (
+            false,
+            Value::String(format!(
+                "Spotify repeat state could not be captured before playback: {capture_error}"
+            )),
+        )
+    } else {
+        spotify_restore_repeat_after_playlist_start(
+            credentials,
+            repeat_to_restore.as_deref(),
+            device_id,
+        )
+        .await
+    };
+    Ok(json!({
+        "started": true,
+        "error": Value::Null,
+        "repeatRestored": repeat_restored,
+        "repeatRestoreError": repeat_restore_error
+    }))
+}
+
+async fn spotify_restore_repeat_after_playlist_start(
+    credentials: &SpotifyCredentials,
+    repeat_to_restore: Option<&str>,
+    device_id: Option<&str>,
+) -> (bool, Value) {
+    let Some(repeat) = repeat_to_restore else {
+        return (false, Value::Null);
+    };
+    match spotify_set_repeat_with_retries(credentials, repeat, device_id, 3).await {
+        Ok(restored_state) => {
+            if restored_state.as_ref().and_then(Value::as_str) == Some(repeat) {
+                (true, Value::Null)
+            } else {
+                (
+                    false,
+                    Value::String(format!(
+                        "Spotify repeat restore to {repeat} was not confirmed."
+                    )),
+                )
+            }
+        }
+        Err(error) => (false, Value::String(error.message)),
+    }
+}
+
+fn spotify_repeat_state_to_restore(playback: &Value) -> Option<&'static str> {
+    match playback.get("repeatState").and_then(Value::as_str) {
+        Some("track") => Some("track"),
+        Some("context") => Some("context"),
+        Some("off") => Some("off"),
+        _ => None,
+    }
 }
 
 fn spotify_error_message(body: &str, fallback: &str) -> String {
@@ -3515,6 +3588,27 @@ mod tests {
             spotify_control_error(&restricted_device, "Spotify playback command failed");
         assert_eq!(restricted_error.code, "spotify_device_restricted");
         assert!(restricted_error.message.contains("current device"));
+    }
+
+    #[test]
+    fn spotify_repeat_state_to_restore_accepts_spotify_repeat_modes_only() {
+        assert_eq!(
+            spotify_repeat_state_to_restore(&json!({ "repeatState": "track" })),
+            Some("track")
+        );
+        assert_eq!(
+            spotify_repeat_state_to_restore(&json!({ "repeatState": "context" })),
+            Some("context")
+        );
+        assert_eq!(
+            spotify_repeat_state_to_restore(&json!({ "repeatState": "off" })),
+            Some("off")
+        );
+        assert_eq!(
+            spotify_repeat_state_to_restore(&json!({ "repeatState": "album" })),
+            None
+        );
+        assert_eq!(spotify_repeat_state_to_restore(&json!({})), None);
     }
 
     #[test]
