@@ -90,7 +90,7 @@ import {
   listCheckpoints,
   loadCheckpoint,
 } from "./game-api-checkpoints";
-import { RESTORED_CHECKPOINT_ANCHOR_META_KEY } from "./game-api-checkpoint-helpers";
+import { CHECKPOINT_SNAPSHOT_KIND, RESTORED_CHECKPOINT_ANCHOR_META_KEY } from "./game-api-checkpoint-helpers";
 import { regenerateSessionLorebook, runGameLorebookKeeperAfterConclusion } from "./game-api-lorebook-keeper";
 import { moveOnMap } from "./game-api-map";
 import { mapForMovement, moveMapPartyPosition, setupMapFromResponse } from "./game-api-map-helpers";
@@ -159,6 +159,7 @@ const CHECKPOINT_ROW = {
 
 const SNAPSHOT_ROW = {
   id: "snapshot-1",
+  kind: CHECKPOINT_SNAPSHOT_KIND,
   chatId: "chat-1",
   messageId: "anchor-1",
   gameState: { hp: 2 },
@@ -2259,6 +2260,7 @@ describe("game API review guards", () => {
       chatId: "chat-1",
       messageId: "anchor-1",
       gameState: { stale: true },
+      metadata: { gameWeather: { type: "clear" } },
     });
     storageApiMock.delete.mockResolvedValue({ deleted: true });
 
@@ -2422,6 +2424,12 @@ describe("game API review guards", () => {
     await createCheckpoint({ chatId: "chat-1", label: "Before storm", triggerType: "manual" });
 
     expect(storageApiMock.create).toHaveBeenCalledWith(
+      "game-state-snapshots",
+      expect.objectContaining({
+        kind: CHECKPOINT_SNAPSHOT_KIND,
+      }),
+    );
+    expect(storageApiMock.create).toHaveBeenCalledWith(
       "game-checkpoints",
       expect.objectContaining({
         location: "Moonlit Harbor",
@@ -2526,6 +2534,7 @@ describe("game API review guards", () => {
         chatId: "chat-1",
         messageId: "anchor-1",
         gameState: { stale: true },
+        metadata: { gameWeather: { type: "clear" } },
       },
       { ...CHECKPOINT_ROW, gameState: "combat" },
     );

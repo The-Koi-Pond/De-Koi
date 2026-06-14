@@ -1,5 +1,6 @@
 import * as g from "./game-api-support";
 import {
+  CHECKPOINT_SNAPSHOT_KIND,
   RESTORED_CHECKPOINT_ANCHOR_META_KEY,
   RESTORED_CHECKPOINT_LEGACY_META_KEY,
   createGameCheckpoint,
@@ -55,7 +56,7 @@ function hasOwnField(record: Record<string, unknown>, field: string): boolean {
 }
 
 function hasCheckpointPayload(snapshot: CheckpointSnapshot | null): boolean {
-  return !!snapshot && hasOwnField(snapshot, "gameState") && hasOwnField(snapshot, "metadata");
+  return !!snapshot && snapshot.kind === CHECKPOINT_SNAPSHOT_KIND && hasOwnField(snapshot, "gameState");
 }
 
 function isTrackerSnapshot(snapshot: CheckpointSnapshot | null): boolean {
