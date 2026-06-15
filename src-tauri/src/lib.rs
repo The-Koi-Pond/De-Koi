@@ -3,6 +3,7 @@ pub(crate) mod builtins;
 pub(crate) mod connection_refs;
 pub mod http_dispatch;
 pub mod http_server;
+pub(crate) mod http_storage_dispatch;
 mod seed_defaults;
 pub mod state;
 #[path = "commands/storage.rs"]
