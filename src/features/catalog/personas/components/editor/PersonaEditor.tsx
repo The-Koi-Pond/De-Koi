@@ -244,8 +244,8 @@ export function PersonaEditor() {
       <ExportFormatDialog
         open={exportDialogOpen}
         title="Export Persona"
-        description="Native keeps Marinara persona metadata. Compatible exports simple persona JSON for other tools."
-        compatibleDescription="Exports persona fields directly without the Marinara wrapper."
+        description="Native keeps De-Koi persona metadata. Compatible exports simple persona JSON for other tools."
+        compatibleDescription="Exports persona fields directly without the native wrapper."
         onClose={() => setExportDialogOpen(false)}
         onSelect={(format: ExportFormatChoice) => {
           if (!personaId) return;

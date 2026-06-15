@@ -37,8 +37,8 @@ export function CharacterEditorDialogs({
       <ExportFormatDialog
         open={exportDialogOpen}
         title="Export Character"
-        description="Native keeps Marinara metadata. Compatible exports direct Chara Card V2 JSON for other platforms."
-        compatibleDescription="Exports direct Chara Card V2 JSON without the Marinara wrapper."
+        description="Native keeps De-Koi metadata. Compatible exports direct Chara Card V2 JSON for other platforms."
+        compatibleDescription="Exports direct Chara Card V2 JSON without the native wrapper."
         showPngOption
         onClose={onCloseExportDialog}
         onSelect={(format: ExportFormatChoice) => {

@@ -189,9 +189,9 @@ body {
   position: relative;
   isolation: isolate;
   background:
-    radial-gradient(ellipse at 18% 18%, rgba(82, 225, 218, 0.14), transparent 32%),
-    radial-gradient(ellipse at 86% 68%, rgba(255, 137, 87, 0.16), transparent 35%),
-    radial-gradient(ellipse at 50% 46%, rgba(7, 20, 24, 0.88) 0%, rgba(4, 10, 14, 0.96) 66%, #020508 100%);
+    radial-gradient(ellipse at 18% 18%, rgba(82, 225, 218, 0.11), transparent 34%),
+    radial-gradient(ellipse at 86% 68%, rgba(255, 137, 87, 0.12), transparent 38%),
+    radial-gradient(ellipse at 50% 46%, rgba(7, 20, 24, 0.9) 0%, rgba(4, 10, 14, 0.97) 68%, #020508 100%);
 }
 
 .koi-pond-surface::before {
@@ -201,25 +201,25 @@ body {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 18% 27%, rgba(82, 225, 218, 0.44), transparent 31%),
-    radial-gradient(circle at 78% 34%, rgba(255, 137, 87, 0.62), transparent 34%),
+    radial-gradient(circle at 18% 27%, rgba(82, 225, 218, 0.3), transparent 31%),
+    radial-gradient(circle at 78% 34%, rgba(255, 137, 87, 0.42), transparent 34%),
     linear-gradient(
       135deg,
-      rgba(255, 137, 87, 0.68),
-      rgba(255, 192, 97, 0.34) 31%,
-      rgba(82, 225, 218, 0.4) 68%,
-      rgba(164, 93, 61, 0.54)
+      rgba(255, 137, 87, 0.48),
+      rgba(255, 192, 97, 0.24) 31%,
+      rgba(82, 225, 218, 0.3) 68%,
+      rgba(164, 93, 61, 0.36)
     );
-  opacity: 0.76;
+  opacity: 0.58;
   filter: drop-shadow(0 0 18px rgba(255, 137, 87, 0.1)) drop-shadow(0 0 26px rgba(82, 225, 218, 0.08));
   -webkit-mask-image: url("/koi-bg.svg");
   mask-image: url("/koi-bg.svg");
-  -webkit-mask-position: center 47%;
-  mask-position: center 47%;
+  -webkit-mask-position: center 50%;
+  mask-position: center 50%;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
-  -webkit-mask-size: min(1460px, 150vw) auto;
-  mask-size: min(1460px, 150vw) auto;
+  -webkit-mask-size: min(1280px, 132vw) auto;
+  mask-size: min(1280px, 132vw) auto;
 }
 
 .koi-pond-surface::after {
@@ -232,8 +232,8 @@ body {
     radial-gradient(
       ellipse at 50% 45%,
       rgba(3, 7, 10, 0.76) 0%,
-      rgba(4, 10, 14, 0.58) 40%,
-      rgba(5, 13, 17, 0.28) 66%,
+      rgba(4, 10, 14, 0.64) 38%,
+      rgba(5, 13, 17, 0.34) 68%,
       rgba(2, 5, 8, 0.64) 100%
     ),
     linear-gradient(

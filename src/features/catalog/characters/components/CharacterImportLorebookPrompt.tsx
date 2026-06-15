@@ -15,7 +15,7 @@ export function CharacterImportLorebookPrompt({ files, previews, onChoose }: Cha
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-[var(--foreground)]">Embedded lorebook found</p>
           <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
-            Import the embedded lorebook as a standalone Marinara lorebook, or keep it only inside the character card.
+            Import the embedded lorebook as a standalone De-Koi lorebook, or keep it only inside the character card.
           </p>
           <div className="mt-3 max-h-32 overflow-y-auto rounded-lg border border-[var(--border)]/70 bg-[var(--background)]/40">
             {previews.map((preview) => (

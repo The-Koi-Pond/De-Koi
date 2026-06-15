@@ -18,7 +18,7 @@ export function getDiscoveryActionLabel(action: DiscoveryAction) {
     case "replay-onboarding":
       return "Replay Tutorial";
     case "open-professor-mari":
-      return "Open Professor Mari";
+      return "Open Assistant";
     case "go-home":
       return "Go Home";
   }

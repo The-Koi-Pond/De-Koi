@@ -71,7 +71,7 @@ export type MariEntryAction =
     };
 
 const MARI_DEFAULT_ACTION_REASON =
-  "Professor Mari can inspect De-Koi's codebase, create extension/custom-agent records, and apply exact code edits through approved workspace tools.";
+  "The Assistant can inspect De-Koi's codebase, create extension/custom-agent records, and apply exact code edits through approved workspace tools.";
 
 const MARI_DEFAULT_ACTION: MariEntryAction = {
   type: "none",
@@ -106,7 +106,7 @@ export async function runProfessorMariEntry(input: MariEntryRequest, gateway: Ma
   const content = typeof response.content === "string" ? response.content : "";
   if (!content.trim()) {
     throw new Error(
-      "Professor Mari returned an empty response. Try again or select a different tool-capable connection.",
+      "Assistant returned an empty response. Try again or select a different tool-capable connection.",
     );
   }
   return {

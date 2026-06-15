@@ -32,7 +32,7 @@ function showChibiProfessorMariToast() {
       <div className="relative flex max-w-[360px] gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 pr-9 text-[var(--foreground)] shadow-lg">
         <button
           type="button"
-          aria-label="Dismiss Chibi Professor Mari"
+          aria-label="Dismiss Chibi Assistant"
           className="absolute right-2 top-2 rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
           onClick={() => toast.dismiss(toastId)}
         >
@@ -40,7 +40,7 @@ function showChibiProfessorMariToast() {
         </button>
         <img
           src={CHIBI_PROFESSOR_MARI_IMAGE}
-          alt="Chibi Professor Mari"
+          alt="Chibi Assistant"
           className="h-24 w-20 shrink-0 object-contain"
           onError={(event) => {
             event.currentTarget.hidden = true;
@@ -48,10 +48,9 @@ function showChibiProfessorMariToast() {
         />
         <div className="space-y-2 text-sm leading-relaxed">
           <p>
-            If you see this image while scrolling through De-Koi, you've been visited by the rare Chibi
-            Professor Mari!
+            If you see this image while scrolling through De-Koi, you've been visited by the rare Chibi Assistant!
           </p>
-          <p>Good luck and fortune will come to you very soon. Make sure to say "thank you, Professor!"</p>
+          <p>Good luck and fortune will come to you very soon. Make sure to say "thank you, Assistant!"</p>
           <p>Remember, you are loved and appreciated. Cheers!</p>
         </div>
       </div>

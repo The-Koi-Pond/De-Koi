@@ -104,7 +104,7 @@
     "category": "Getting started",
     "summary": "Configure and organize model providers, API keys, local endpoints, managed Local Model setup, image providers, voice providers, and default connections.",
     "keywords": ["api", "key", "model", "provider", "openrouter", "openai", "claude", "local", "endpoint", "local model", "gguf", "huggingface", "sidecar", "folder", "organize"],
-    "audience": "Users setting up Marinara, running a local model, grouping providers, or switching which model powers chats and agents.",
+    "audience": "Users setting up De-Koi, running a local model, grouping providers, or switching which model powers chats and agents.",
     "where": "Title bar > Connections, including connection folders and the Local Model card.",
     "actions": [{ "type": "open-panel", "panel": "connections", "label": "Open Connections" }],
     "coverage": "core"
@@ -169,7 +169,7 @@
     "id": "bot-browser",
     "title": "Bot Browser",
     "category": "Library",
-    "summary": "Browse downloadable character cards and related community resources from inside Marinara.",
+    "summary": "Browse downloadable character cards and related community resources from inside De-Koi.",
     "keywords": ["browser", "bots", "download", "community", "cards", "search"],
     "audience": "Users looking for characters and resources to start with.",
     "where": "Title bar > Browser.",
@@ -178,13 +178,13 @@
   },
   {
     "id": "professor-mari",
-    "title": "Professor Mari",
+    "title": "Assistant",
     "category": "Help",
     "summary": "A dedicated assistant surface for app questions, codebase help, and guided changes separate from active chats.",
     "keywords": ["help", "assistant", "mari", "ask", "support", "customize", "codebase"],
-    "audience": "Users who want help understanding or customizing Marinara without interrupting a chat.",
-    "where": "Mari avatar button in the title bar or mobile top bar.",
-    "actions": [{ "type": "open-professor-mari", "label": "Open Professor Mari" }],
+    "audience": "Users who want help understanding or customizing De-Koi without interrupting a chat.",
+    "where": "Assistant avatar button in the title bar or mobile top bar.",
+    "actions": [{ "type": "open-professor-mari", "label": "Open Assistant" }],
     "coverage": "core"
   },
   {
@@ -251,7 +251,7 @@
     "category": "Advanced",
     "summary": "Mirror chat messages into a Discord channel through a webhook while keeping character names and narration labels readable.",
     "keywords": ["discord", "webhook", "mirror", "share", "channel", "broadcast"],
-    "audience": "Users who want to archive or share chat output outside Marinara.",
+    "audience": "Users who want to archive or share chat output outside De-Koi.",
     "where": "Per-chat settings drawer.",
     "actions": [{ "type": "go-home", "label": "Open a chat" }],
     "coverage": "advanced"
@@ -390,13 +390,13 @@
   },
   {
     "id": "core-modules",
-    "title": "Plugins",
+    "title": "Modules",
     "category": "Settings",
-    "summary": "Enable or disable bundled core modules like ME Notes without downloading executable plugin packages.",
+    "summary": "Enable or disable bundled modules like ME Notes without importing custom extension files.",
     "keywords": ["plugins", "plugin", "core modules", "modules", "optional features", "notes", "notepad", "enable module", "disable module"],
-    "audience": "Users who want opt-in Marinara features that are shipped with the app and can be toggled safely.",
-    "where": "Settings > Plugins.",
-    "actions": [{ "type": "open-settings", "tab": "plugins", "label": "Open Plugins" }],
+    "audience": "Users who want opt-in De-Koi features that are shipped with the app and can be toggled safely.",
+    "where": "Settings > Modules.",
+    "actions": [{ "type": "open-settings", "tab": "plugins", "label": "Open Modules" }],
     "coverage": "advanced"
   },
   {
@@ -405,7 +405,7 @@
     "category": "Settings",
     "summary": "Install, enable, disable, and manage local extension behavior without editing core source.",
     "keywords": ["extensions", "extension", "plugin", "customize", "custom behavior", "enable extension", "disable extension"],
-    "audience": "Users customizing Marinara with optional behavior that should stay outside core app code.",
+    "audience": "Users customizing De-Koi with optional behavior that should stay outside core app code.",
     "where": "Settings > Extensions.",
     "actions": [{ "type": "open-settings", "tab": "extensions", "label": "Open Extensions" }],
     "coverage": "advanced"
@@ -427,7 +427,7 @@
     "category": "Settings",
     "summary": "Customize visual themes, custom CSS themes, fonts, chat backgrounds, game asset backgrounds, gradient styling, and mode-specific appearance.",
     "keywords": ["theme", "themes", "custom css", "fonts", "backgrounds", "game assets", "appearance", "gradient", "visual style"],
-    "audience": "Users who want Marinara to look or read differently for their setup, screenshots, or accessibility needs.",
+    "audience": "Users who want De-Koi to look or read differently for their setup, screenshots, or accessibility needs.",
     "where": "Settings > Appearance and Settings > Themes.",
     "actions": [{ "type": "open-settings", "tab": "appearance", "label": "Open Appearance" }],
     "coverage": "advanced"

@@ -423,7 +423,7 @@ export interface UIState {
   speechToTextEnabled: boolean;
   /** When true, show the global Spotify mini player in the app chrome. */
   spotifyPlayerEnabled: boolean;
-  /** When true, allow the rare Chibi Professor Mari scroll toast to register. */
+  /** When true, allow the rare Chibi Assistant scroll toast to register. */
   chibiProfessorMariEnabled: boolean;
   /** Optional remote Rust runtime URL. Blank uses the embedded Tauri backend. */
   remoteRuntimeUrl: string;
@@ -486,7 +486,7 @@ export interface UIState {
   textBlipMode: TextBlipMode;
   /** Optional locally persisted custom blip sound, stored as a small data URL. */
   customTextBlipSound: CustomTextBlipSound | null;
-  /** When true, show native local notifications for new Conversation messages while Marinara is unfocused. */
+  /** When true, show native local notifications for new Conversation messages while De-Koi is unfocused. */
   conversationBrowserNotifications: boolean;
 
   // ── Custom Conversation Prompt ──

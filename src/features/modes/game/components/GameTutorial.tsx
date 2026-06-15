@@ -214,7 +214,7 @@ function TutorialCard({
         <div className="mb-2 flex justify-center">
           <img
             src={stepData.sprite.src}
-            alt="Professor Mari"
+            alt="Assistant"
             className="h-20 max-h-[12vh] w-auto object-contain drop-shadow-lg sm:h-28 sm:max-h-[14vh]"
             style={stepData.sprite.flip ? { transform: "scaleX(-1)" } : undefined}
             draggable={false}

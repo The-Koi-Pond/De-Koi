@@ -562,7 +562,7 @@ export function LorebookEditor() {
       <ExportFormatDialog
         open={exportDialogOpen}
         title="Export Lorebook"
-        description="Native keeps Marinara folders and entry fields. Compatible exports a folderless World Info JSON for other roleplay tools."
+        description="Native keeps De-Koi folders and entry fields. Compatible exports a folderless World Info JSON for other roleplay tools."
         onClose={() => setExportDialogOpen(false)}
         onSelect={(format: ExportFormatChoice) => void handleExportLorebook(format)}
       />
