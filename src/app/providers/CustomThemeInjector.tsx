@@ -7,6 +7,7 @@ import { useThemes } from "../../features/shell/settings/index";
 import { useExtensions } from "../../features/shell/settings/index";
 import { storageApi } from "../../shared/api/storage-api";
 import { stripDangerousCss } from "../../shared/lib/chat-css";
+import { extensionHasRunnableJavaScript } from "../../shared/lib/extension-import";
 import { createExtensionStorageApi } from "./extension-storage-api";
 
 type ExtensionGlobal = typeof globalThis & {
@@ -103,7 +104,7 @@ export function CustomThemeInjector() {
     document.querySelectorAll(`[id^="${prefix}"]`).forEach((el) => el.remove());
 
     for (const ext of installedExtensions) {
-      if (!ext.enabled || !ext.js) continue;
+      if (!ext.enabled || !extensionHasRunnableJavaScript(ext)) continue;
 
       try {
         const extensionCleanups: Array<() => void> = [];
