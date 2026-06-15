@@ -114,6 +114,7 @@ export function PresetsPanel() {
   const presetFolderList = presetFolders ?? [];
   const presetLibraryLoading = isLoading || presetFoldersLoading;
   const presetFolderDataReady = !presetFoldersLoading && !presetFoldersError;
+  const presetFiltersActive = search.trim().length > 0;
 
   const presetFolderIds = useMemo(() => new Set(presetFolderList.map((folder) => folder.id)), [presetFolderList]);
 
@@ -132,6 +133,11 @@ export function PresetsPanel() {
     }
     return byFolder;
   }, [filteredPresets, presetFolderList]);
+
+  const displayedPresetFolders = useMemo(() => {
+    if (!presetFiltersActive) return presetFolderList;
+    return presetFolderList.filter((folder) => (presetsByFolder.get(folder.id)?.length ?? 0) > 0);
+  }, [presetFiltersActive, presetFolderList, presetsByFolder]);
 
   const selectPreset = (presetId: string) => {
     if (!activeChat) return;
@@ -239,7 +245,11 @@ export function PresetsPanel() {
   const handleRenameFolder = useCallback(
     (folderId: string) => {
       const name = editFolderName.trim();
-      if (!name) return;
+      if (!name) {
+        setEditingFolderId(null);
+        setEditFolderName("");
+        return;
+      }
       updatePresetFolder.mutate({ id: folderId, name });
       setEditingFolderId(null);
       setEditFolderName("");
@@ -484,6 +494,16 @@ export function PresetsPanel() {
     );
   };
 
+  const showPresetEmptyState =
+    !presetLibraryLoading &&
+    filteredPresets.length === 0 &&
+    (presetFoldersError || presetFiltersActive || displayedPresetFolders.length === 0);
+  const showPresetList =
+    !presetLibraryLoading &&
+    !presetFoldersError &&
+    (filteredPresets.length > 0 || displayedPresetFolders.length > 0);
+  const showPresetFlatFallback = !presetLibraryLoading && presetFoldersError && filteredPresets.length > 0;
+
   return (
     <div className="flex flex-col gap-2 p-3">
       {/* Action buttons */}
@@ -613,24 +633,23 @@ export function PresetsPanel() {
       )}
 
       {/* Empty state */}
-      {!presetLibraryLoading &&
-        !presetFoldersError &&
-        filteredPresets.length === 0 &&
-        presetFolderList.length === 0 && (
-          <div className="flex flex-col items-center gap-2 py-8 text-center">
-            <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-400/20 to-violet-500/20">
-              <FileText size="1.25rem" className="text-purple-400" />
-            </div>
-            <p className="text-xs text-[var(--muted-foreground)]">
-              {search ? "No matching presets" : "No presets yet"}
-            </p>
+      {showPresetEmptyState && (
+        <div className="flex flex-col items-center gap-2 py-8 text-center">
+          <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-400/20 to-violet-500/20">
+            <FileText size="1.25rem" className="text-purple-400" />
           </div>
-        )}
+          <p className="text-xs text-[var(--muted-foreground)]">{search ? "No matching presets" : "No presets yet"}</p>
+        </div>
+      )}
 
       {/* Preset list */}
-      {!presetLibraryLoading && !presetFoldersError && (filteredPresets.length > 0 || presetFolderList.length > 0) && (
+      {showPresetFlatFallback && (
+        <div className="stagger-children flex flex-col gap-1">{filteredPresets.map(renderPresetRow)}</div>
+      )}
+
+      {showPresetList && (
         <div className="flex flex-col gap-1">
-          {presetFolderList.map((folder) => {
+          {displayedPresetFolders.map((folder) => {
             const folderPresets = presetsByFolder.get(folder.id) ?? [];
             const isExpanded = !folder.collapsed;
             const isDropTarget = presetDropTargetId === folder.id;

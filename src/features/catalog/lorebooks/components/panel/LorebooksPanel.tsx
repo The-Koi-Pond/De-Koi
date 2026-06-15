@@ -221,6 +221,7 @@ export function LorebooksPanel() {
   const lorebookFolderList = lorebookFolders ?? [];
   const lorebookLibraryLoading = isLoading || lorebookFoldersLoading;
   const lorebookFolderDataReady = !lorebookFoldersLoading && !lorebookFoldersError;
+  const lorebookFiltersActive = activeCategory !== "all" || activeTag !== null || searchQuery.trim().length > 0;
 
   const lorebookFolderIds = useMemo(() => new Set(lorebookFolderList.map((folder) => folder.id)), [lorebookFolderList]);
 
@@ -239,6 +240,11 @@ export function LorebooksPanel() {
     }
     return byFolder;
   }, [lorebookFolderList, sorted]);
+
+  const displayedLorebookFolders = useMemo(() => {
+    if (!lorebookFiltersActive) return lorebookFolderList;
+    return lorebookFolderList.filter((folder) => (lorebooksByFolder.get(folder.id)?.length ?? 0) > 0);
+  }, [lorebookFiltersActive, lorebookFolderList, lorebooksByFolder]);
 
   // Group root-level lorebooks by category for "all" view.
   const grouped = useMemo(() => {
@@ -321,7 +327,11 @@ export function LorebooksPanel() {
   const handleRenameFolder = useCallback(
     (folderId: string) => {
       const name = editFolderName.trim();
-      if (!name) return;
+      if (!name) {
+        setEditingFolderId(null);
+        setEditFolderName("");
+        return;
+      }
       updateLorebookFolder.mutate({ id: folderId, name });
       setEditingFolderId(null);
       setEditFolderName("");
@@ -523,6 +533,16 @@ export function LorebooksPanel() {
       toggleSelection,
     ],
   );
+
+  const showLorebookEmptyState =
+    !lorebookLibraryLoading &&
+    sorted.length === 0 &&
+    (lorebookFoldersError || lorebookFiltersActive || displayedLorebookFolders.length === 0);
+  const showLorebookList =
+    !lorebookLibraryLoading &&
+    !lorebookFoldersError &&
+    (sorted.length > 0 || displayedLorebookFolders.length > 0);
+  const showLorebookFlatFallback = !lorebookLibraryLoading && lorebookFoldersError && sorted.length > 0;
 
   return (
     <div className="flex flex-col gap-2 p-3">
@@ -774,7 +794,7 @@ export function LorebooksPanel() {
       )}
 
       {/* Empty state */}
-      {!lorebookLibraryLoading && !lorebookFoldersError && sorted.length === 0 && lorebookFolderList.length === 0 && (
+      {showLorebookEmptyState && (
         <div className="flex flex-col items-center gap-2 py-8 text-center">
           <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400/20 to-orange-500/20">
             <BookOpen size="1.25rem" className="text-amber-400" />
@@ -786,9 +806,11 @@ export function LorebooksPanel() {
       )}
 
       {/* Lorebook list */}
-      {!lorebookLibraryLoading && !lorebookFoldersError && (sorted.length > 0 || lorebookFolderList.length > 0) && (
+      {showLorebookFlatFallback && <div className="stagger-children flex flex-col gap-1">{sorted.map(renderLorebookRow)}</div>}
+
+      {showLorebookList && (
         <div className="flex flex-col gap-1">
-          {lorebookFolderList.map((folder) => {
+          {displayedLorebookFolders.map((folder) => {
             const folderLorebooks = lorebooksByFolder.get(folder.id) ?? [];
             const isExpanded = !folder.collapsed;
             const isDropTarget = lorebookDropTargetId === folder.id;
