@@ -3196,6 +3196,7 @@ function ExtensionsSettings() {
         );
       } else if (file.name.endsWith(".js")) {
         const name = file.name.replace(/\.js$/, "");
+        const hasRunnableJs = extensionHasRunnableJavaScript({ js: text });
         await createExtension.mutateAsync({
           name,
           description: "JS extension imported from file",
@@ -3203,7 +3204,11 @@ function ExtensionsSettings() {
           enabled: getInitialImportedExtensionEnabled({ js: text }),
           installedAt,
         });
-        toast.success(`Extension "${name}" installed disabled. Review it before enabling.`);
+        toast.success(
+          hasRunnableJs
+            ? `Extension "${name}" installed disabled. Review it before enabling.`
+            : `Extension "${name}" installed`,
+        );
       } else if (file.name.endsWith(".css")) {
         const name = file.name.replace(/\.css$/, "");
         await createExtension.mutateAsync({
