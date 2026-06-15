@@ -19,15 +19,15 @@
 
 De-Koi is a local-first AI chat, roleplay, and game engine built as a Tauri desktop app. It combines a React interface, a TypeScript product engine, and Rust capability modules for local storage, managed assets, provider transport, integrations, and an optional hostable runtime.
 
-This repository is an active refactor branch. The app is usable from source, but public release packaging and end-user installation guides are still being rebuilt around the new architecture.
+This repository is an active refactor branch. The app is usable from source, and public release packaging is being rebuilt around the Tauri desktop plus optional Rust runtime architecture.
 Use the `refactor` branch copy of this documentation for current development and integration work. `main` and historical `staging` branch docs may describe legacy architecture and should not be treated as authoritative for the refactor build unless a maintainer explicitly asks for that branch context.
-The refactor build keeps an explicit in-app update check in Settings > Advanced. It opens the matching release page for manual install; signed Tauri auto-install artifacts are not configured on this branch yet. See [Release Update Strategy](docs/release-update-strategy.md) for the stable refactor update policy.
-Token budget displays and prompt budget paths currently use deterministic estimates rather than provider-exact tokenizers. See [Token Budget Estimates](docs/token-budget-estimates.md) for the tokenizer support decision and future requirements.
+The refactor build keeps an explicit in-app update check in Settings > Advanced. It opens the matching release page for manual install; signed Tauri auto-install artifacts are not configured on this branch yet. See [Release Update Strategy](docs/release-update-strategy.md) for end-user install/update guidance and the stable refactor update policy.
+Token budget displays and prompt budget paths currently use deterministic estimates rather than provider-exact tokenizers. See [Token Budget Estimates](docs/token-budget-estimates.md) for the tokenizer support spike note and future requirements.
 Storage is file-backed JSON collections plus managed asset files. See [De-Koi Storage Schema](docs/database-schema.md) for the current collection catalog and [Legacy Marinara Storage Schema](docs/legacy-database-schema.md) for the generated comparison source.
 
 ## Screenshots
 
-Screenshots are coming soon. The previous screenshot set was removed from this refactor branch because it no longer represented the current app structure.
+Current release screenshots are not checked into this branch yet. The previous screenshot set was removed because it no longer represented the refactor app structure. See [Screenshot Guidance](docs/screenshot-guidance.md) for the required conversation, roleplay, game mode, settings, and connections captures before publishing a user-facing release.
 
 ## What It Does
 
@@ -91,6 +91,16 @@ Build the Tauri desktop bundle:
 ```sh
 pnpm tauri build
 ```
+
+## Install Or Update A Release
+
+When maintainers publish De-Koi release assets, use the GitHub Release page for that version as the source of truth. Download the artifact for your operating system, read the release notes, and keep access to the matching source commit listed by the release.
+
+Updates are manual in the current refactor architecture. The in-app update check in Settings > Advanced may open the matching GitHub Release page, but De-Koi does not silently download or install desktop updates yet. Replace the app through the platform installer or bundle you downloaded from GitHub Releases.
+
+Pre-alpha release assets may be unsigned or debug-signed and should be tested with throwaway data. The optional Rust runtime is an API server for supported desktop workflows; it is not a replacement for the desktop app installer and does not serve the React UI.
+
+Maintainers should use the [Release Readiness Checklist](docs/release-readiness-checklist.md) before publishing release notes or user-facing install pages.
 
 ## Remote Runtime
 
@@ -214,4 +224,4 @@ show up without failing the command.
 
 ## Current Status
 
-This branch is focused on the refactored desktop/runtime architecture. Public-facing installation pages, release notes, final screenshots, and license metadata should be added back when they are accurate for the new codebase.
+This branch is focused on the refactored desktop/runtime architecture. Release docs now describe the current manual install/update model, while final screenshots remain blocked until fresh captures are available for the refactor UI.
