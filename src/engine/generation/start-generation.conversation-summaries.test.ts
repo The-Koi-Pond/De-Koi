@@ -56,6 +56,7 @@ function depsForConversationSummaryGeneration() {
     update: vi.fn(async (_entity: string, id: string, patch: Record<string, unknown>) => ({ id, ...patch })),
     delete: vi.fn(async () => ({ deleted: true })),
     listChatMessages: vi.fn(async () => [...messages]),
+    getChatMessage: vi.fn(async (messageId: string) => messages.find((message) => message.id === messageId) ?? null),
     createChatMessage: vi.fn(async (_chatId: string, value: Record<string, unknown>) => {
       const saved = { id: value.role === "user" ? "new-user" : "assistant-1", chatId: "chat-1", ...value };
       messages.push(saved);

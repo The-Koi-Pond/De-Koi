@@ -11,6 +11,9 @@ function storageWithRegexScripts(regexScripts: Record<string, unknown>[]): Stora
     async get() {
       return null;
     },
+    async getChatMessage() {
+      return null;
+    },
     async create<T>(_entity: string, data: T) {
       return data;
     },

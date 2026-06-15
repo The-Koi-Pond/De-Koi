@@ -33,6 +33,7 @@ describe("getConversationStatus", () => {
           : null,
       ),
       list: vi.fn(async () => []),
+      getChatMessage: vi.fn(async () => null),
       patchChatMetadata: vi.fn(),
       update: vi.fn(),
     } as Partial<StorageGateway> as StorageGateway;
@@ -86,6 +87,7 @@ describe("getConversationStatus", () => {
           : [],
       ),
       patchChatMetadata,
+      getChatMessage: vi.fn(async () => null),
       update: vi.fn(),
     } as Partial<StorageGateway> as StorageGateway;
 

@@ -19,6 +19,9 @@ function createStorage(): StorageGateway {
     async list<T = unknown>(): Promise<T[]> {
       return [];
     },
+    async getChatMessage<T = unknown>(): Promise<T | null> {
+      return null;
+    },
     async promptFull<T = unknown>(): Promise<T | null> {
       return {
         preset: { sectionOrder: ["section-1"] },
