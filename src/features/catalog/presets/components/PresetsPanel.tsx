@@ -5,6 +5,7 @@ import { useState, useMemo, useCallback, type DragEvent } from "react";
 import { toast } from "sonner";
 import { usePresets, useDeletePreset, useDuplicatePreset, useSetDefaultPreset } from "../hooks/use-presets";
 import { useUpdateChat, useUpdateChatMetadata } from "../../chats/index";
+import { RegexScriptsSection } from "../../regex-scripts/shell";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { exportApi } from "../../../../shared/api/export-api";
@@ -500,9 +501,7 @@ export function PresetsPanel() {
     filteredPresets.length === 0 &&
     (presetFoldersError || presetFiltersActive || displayedPresetFolders.length === 0);
   const showPresetList =
-    !presetLibraryLoading &&
-    !presetFoldersError &&
-    (filteredPresets.length > 0 || displayedPresetFolders.length > 0);
+    !presetLibraryLoading && !presetFoldersError && (filteredPresets.length > 0 || displayedPresetFolders.length > 0);
   const showPresetFlatFallback = !presetLibraryLoading && presetFoldersError && filteredPresets.length > 0;
 
   return (
@@ -769,6 +768,8 @@ export function PresetsPanel() {
             : "Click a preset to edit"}
         </p>
       )}
+
+      <RegexScriptsSection title="Regexes" className="mt-1" />
 
       {/* Choice selection modal */}
       {activeChat && (

@@ -68,7 +68,7 @@ import { isPartyTurnMessage } from "../lib/game-surface-helpers";
 import type { SpriteInfo } from "../../../catalog/sprites/index";
 import { useTranslate } from "../../../../shared/hooks/use-translate";
 import { useTTSConfig } from "../../../../shared/hooks/use-tts";
-import { useApplyRegex } from "../../../catalog/agents/regex-application";
+import { useApplyRegex } from "../../../catalog/regex-scripts/regex-application";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useGameAssetStore } from "../stores/game-asset.store";
 import { useGameModeStore } from "../stores/game-mode.store";
@@ -127,7 +127,6 @@ type SpeakerAvatarInfo = {
   dialogueColor?: string;
 };
 
-
 const EMPTY_GAME_SIDE_LINES: GameSideLine[] = [];
 const MAX_SIDE_LINES_PER_SEGMENT = 4;
 
@@ -166,7 +165,6 @@ const SYNTHETIC_GAME_START_MESSAGE_RE = /^\s*\[start(?:\s+the)?\s+game\]\s*$/i;
 function isSyntheticGameStartMessage(message: Pick<NarrationMessage, "role" | "content">): boolean {
   return message.role === "user" && SYNTHETIC_GAME_START_MESSAGE_RE.test(message.content || "");
 }
-
 
 interface GameNarrationProps {
   messages: NarrationMessage[];
@@ -318,7 +316,6 @@ interface GameNarrationProps {
   onMaxNavOffsetChange?: (max: number) => void;
 }
 
-
 function getGameTranslationHtml(message: NarrationMessage, translatedText: string): string {
   const content =
     message.role === "assistant" || message.role === "narrator" || message.role === "system"
@@ -326,7 +323,6 @@ function getGameTranslationHtml(message: NarrationMessage, translatedText: strin
       : translatedText.replace(/^\[(?:To the party|To the GM)]\s*/i, "");
   return animateTextHtml(formatNarration(content.trim(), false));
 }
-
 
 function withSegmentSource(
   segment: NarrationSegment,

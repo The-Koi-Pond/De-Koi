@@ -53,7 +53,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { createMessageMacroResolver } from "../../../../../shared/lib/chat-macros";
 import { canonicalizeKeywordEscapes } from "../../../../../shared/lib/chat-css";
-import { useApplyRegex } from "../../../../catalog/agents/regex-application";
+import { useApplyRegex } from "../../../../catalog/regex-scripts/regex-application";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { playTextBlip } from "../../../../../shared/lib/text-blip-sound";
 import { useTranslate } from "../../../../../shared/hooks/use-translate";
