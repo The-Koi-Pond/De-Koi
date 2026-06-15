@@ -56,7 +56,12 @@ const collectionMetadata = {
     model: "`Lorebook`",
     confidence: "Schema-backed",
     notes:
-      "Parent rows for `lorebook-entries` and `lorebook-folders`; may scope to character, persona, chat, or global use.",
+      "Parent rows for `lorebook-entries` and `lorebook-folders`; may scope to character, persona, chat, or global use. Optional `folderId` points to `lorebook-library-folders.id`.",
+  },
+  "lorebook-library-folders": {
+    model: "`LibraryFolder`",
+    confidence: "Schema-backed",
+    notes: "Catalog organization folders for lorebook rows. Deleting a folder clears `lorebooks.folderId`.",
   },
   "lorebook-entries": {
     model: "`LorebookEntry`",
@@ -71,7 +76,13 @@ const collectionMetadata = {
   prompts: {
     model: "`PromptPreset`",
     confidence: "Schema-backed",
-    notes: "Parent rows for prompt groups, sections, variables, and overrides.",
+    notes:
+      "Parent rows for prompt groups, sections, variables, and overrides. Optional `folderId` points to `preset-folders.id`.",
+  },
+  "preset-folders": {
+    model: "`LibraryFolder`",
+    confidence: "Schema-backed",
+    notes: "Catalog organization folders for prompt preset rows. Deleting a folder clears `prompts.folderId`.",
   },
   "prompt-groups": {
     model: "`PromptGroup`",
@@ -270,7 +281,9 @@ const cleanupDescriptions = {
   ClearChatFolder: "Clear `chats.folderId` for rows in the deleted folder.",
   ClearConnectionFolder: "Clear `connections.folderId` for rows in the deleted folder.",
   ClearGalleryFolder: "Clear `folderId` on gallery rows in the deleted folder.",
+  ClearLorebookLibraryFolder: "Clear `lorebooks.folderId` for rows in the deleted folder.",
   ClearLorebookReferences: "Clear references to the deleted lorebook.",
+  ClearPresetFolder: "Clear `prompts.folderId` for rows in the deleted folder.",
   DeleteCharacterGallery: "Delete character gallery rows and files.",
   DeleteLorebookChildren: "Delete lorebook entries and folders.",
   DeleteMessageTrackerSnapshots: "Delete tracker snapshots for the message.",

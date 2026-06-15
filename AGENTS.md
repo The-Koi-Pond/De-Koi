@@ -77,6 +77,7 @@ For code changes, final responses must include behavior changed, primary files/m
 - `src/engine`: React-free product behavior and mode orchestration.
 - `src/features`: React UI packages. Shell tools live in `src/features/shell`, catalog/resource editors live in `src/features/catalog`, mode surfaces live in `src/features/modes`, shared runtime UI lives in `src/features/runtime`.
 - `src/features/catalog/sprites`: Shared catalog sprite query keys, types, and React Query hooks used by character and persona sprite editors plus runtime sprite consumers.
+- `src/features/catalog/library-folders`: Shared durable library-folder hooks for organizing lorebooks and prompt presets.
 - `src/shared/api`: Embedded Tauri and hostable runtime wrappers. Feature code should call these wrappers instead of raw Tauri or raw remote-runtime fetch.
 - `src-tauri`: Rust command facades, hostable runtime dispatch, storage, LLM/provider transport, assets, imports, integrations, and other privileged capabilities.
 - `src-tauri/src/commands/storage/sidecar.rs`: Rust-owned Local Model sidecar config, curated GGUF/runtime downloader, loopback process management, synthetic `sidecar:local` connection materialization, and sidecar smoke tests.

@@ -65,13 +65,19 @@ pub(crate) fn admin_expunge(state: &AppState, body: Value) -> AppResult<Value> {
             )?,
             "lorebooks" => clear_collections(
                 state,
-                &["lorebooks", "lorebook-entries", "lorebook-folders"],
+                &[
+                    "lorebooks",
+                    "lorebook-library-folders",
+                    "lorebook-entries",
+                    "lorebook-folders",
+                ],
                 &mut cleared_collections,
             )?,
             "presets" => clear_collections(
                 state,
                 &[
                     "prompts",
+                    "preset-folders",
                     "prompt-groups",
                     "prompt-sections",
                     "prompt-variables",

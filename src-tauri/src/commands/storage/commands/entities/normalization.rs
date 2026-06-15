@@ -877,6 +877,197 @@ pub(super) fn validate_lorebook_folder_parent(
     Ok(())
 }
 
+pub(super) fn library_folder_defaults_for_create(value: Value) -> Result<Value, AppError> {
+    let mut object = ensure_object(value)?;
+    normalize_library_folder_name(&mut object)?;
+    if object
+        .get("sortOrder")
+        .and_then(Value::as_i64)
+        .is_none_or(|value| value < 0)
+    {
+        object.insert("sortOrder".to_string(), json!(0));
+    }
+    if object
+        .get("order")
+        .and_then(Value::as_i64)
+        .is_none_or(|value| value < 0)
+    {
+        let order = object
+            .get("sortOrder")
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        object.insert("order".to_string(), json!(order));
+    }
+    Ok(Value::Object(object))
+}
+
+pub(super) fn normalize_library_folder_name(
+    object: &mut Map<String, Value>,
+) -> Result<(), AppError> {
+    if let Some(name) = object.get("name") {
+        let name = name
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| AppError::invalid_input("Library folder name is required"))?;
+        object.insert("name".to_string(), Value::String(name.to_string()));
+    }
+    Ok(())
+}
+
+pub(super) fn normalize_library_folder_for_update(
+    entity: &str,
+    patch: Value,
+) -> Result<Value, AppError> {
+    if !matches!(entity, "lorebook-library-folders" | "preset-folders") {
+        return Ok(patch);
+    }
+    let mut object = ensure_object(patch)?;
+    normalize_library_folder_name(&mut object)?;
+    Ok(Value::Object(object))
+}
+
+pub(crate) fn validate_library_folder_for_create(
+    _state: &AppState,
+    entity: &str,
+    value: &Value,
+) -> Result<(), AppError> {
+    if !matches!(entity, "lorebook-library-folders" | "preset-folders") {
+        return Ok(());
+    }
+    let object = value
+        .as_object()
+        .ok_or_else(|| AppError::invalid_input("Library folder must be an object"))?;
+    let name = object
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if name.is_none() {
+        return Err(AppError::invalid_input("Library folder name is required"));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_library_folder_for_patch(
+    _state: &AppState,
+    entity: &str,
+    patch: &Value,
+) -> Result<(), AppError> {
+    if !matches!(entity, "lorebook-library-folders" | "preset-folders") {
+        return Ok(());
+    }
+    let object = patch
+        .as_object()
+        .ok_or_else(|| AppError::invalid_input("Patch must be an object"))?;
+    if let Some(name) = object.get("name") {
+        let valid = name
+            .as_str()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty());
+        if !valid {
+            return Err(AppError::invalid_input("Library folder name is required"));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_library_item_folder_for_create(
+    state: &AppState,
+    entity: &str,
+    value: &Value,
+) -> Result<(), AppError> {
+    let Some(folder_collection) = library_folder_collection_for_item_entity(entity) else {
+        return Ok(());
+    };
+    validate_library_item_folder_assignment(
+        state,
+        folder_collection,
+        parse_chat_folder_id(value.get("folderId"))?,
+    )
+}
+
+pub(crate) fn validate_library_item_folder_for_patch(
+    state: &AppState,
+    entity: &str,
+    patch: &Value,
+) -> Result<(), AppError> {
+    let Some(folder_collection) = library_folder_collection_for_item_entity(entity) else {
+        return Ok(());
+    };
+    let Some(object) = patch.as_object() else {
+        return Err(AppError::invalid_input("Patch must be an object"));
+    };
+    if !object.contains_key("folderId") {
+        return Ok(());
+    }
+    validate_library_item_folder_assignment(
+        state,
+        folder_collection,
+        parse_chat_folder_id(patch.get("folderId"))?,
+    )
+}
+
+pub(super) fn normalize_library_item_folder_for_create(
+    entity: &str,
+    value: Value,
+) -> Result<Value, AppError> {
+    if library_folder_collection_for_item_entity(entity).is_none() {
+        return Ok(value);
+    }
+    let mut object = ensure_object(value)?;
+    normalize_folder_id_object(&mut object)?;
+    Ok(Value::Object(object))
+}
+
+pub(super) fn normalize_library_item_folder_for_update(
+    entity: &str,
+    patch: Value,
+) -> Result<Value, AppError> {
+    if library_folder_collection_for_item_entity(entity).is_none() {
+        return Ok(patch);
+    }
+    let mut object = ensure_object(patch)?;
+    normalize_folder_id_object(&mut object)?;
+    Ok(Value::Object(object))
+}
+
+pub(super) fn normalize_folder_id_object(object: &mut Map<String, Value>) -> Result<(), AppError> {
+    if !object.contains_key("folderId") {
+        return Ok(());
+    }
+    let normalized = parse_chat_folder_id(object.get("folderId"))?
+        .map(Value::String)
+        .unwrap_or(Value::Null);
+    object.insert("folderId".to_string(), normalized);
+    Ok(())
+}
+
+pub(super) fn library_folder_collection_for_item_entity(entity: &str) -> Option<&'static str> {
+    match entity {
+        "lorebooks" => Some("lorebook-library-folders"),
+        "prompts" => Some("preset-folders"),
+        _ => None,
+    }
+}
+
+pub(super) fn validate_library_item_folder_assignment(
+    state: &AppState,
+    folder_collection: &str,
+    folder_id: Option<String>,
+) -> Result<(), AppError> {
+    let Some(folder_id) = folder_id else {
+        return Ok(());
+    };
+    if state.storage.get(folder_collection, &folder_id)?.is_some() {
+        Ok(())
+    } else {
+        Err(AppError::invalid_input(format!(
+            "{folder_collection}/{folder_id} was not found"
+        )))
+    }
+}
+
 /// Reject a `global-gallery` row whose `folderId` points at a `gallery-folders`
 /// row that does not exist. The dedicated upload command coerces a missing
 /// folder to root, but the generic create/update path (used by the lightbox

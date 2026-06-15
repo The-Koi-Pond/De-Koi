@@ -97,6 +97,7 @@ export const createLorebookSchema = z.object({
   enabled: z.boolean().default(true),
   excludeFromVectorization: z.boolean().default(false),
   tags: z.array(z.string()).default([]),
+  folderId: z.string().nullable().default(null),
   generatedBy: lorebookGeneratedBySchema.nullable().default(null),
   sourceAgentId: z.string().nullable().default(null),
 });
@@ -123,6 +124,7 @@ export const updateLorebookSchema = z
     enabled: z.boolean().optional(),
     excludeFromVectorization: z.boolean().optional(),
     tags: z.array(z.string()).optional(),
+    folderId: z.string().nullable().optional(),
     generatedBy: lorebookGeneratedBySchema.nullable().optional(),
     sourceAgentId: z.string().nullable().optional(),
   })

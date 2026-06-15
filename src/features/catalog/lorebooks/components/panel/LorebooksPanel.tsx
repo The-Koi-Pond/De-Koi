@@ -2,7 +2,7 @@
 // Panel: Lorebooks (overhauled)
 // Category tabs, search, click-to-edit, AI generate
 // ──────────────────────────────────────────────
-import { useRef, useState, useMemo, useCallback, type ChangeEvent } from "react";
+import { useRef, useState, useMemo, useCallback, type ChangeEvent, type DragEvent } from "react";
 import { toast } from "sonner";
 import {
   Plus,
@@ -14,7 +14,11 @@ import {
   ArrowUpDown,
   Tag,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
+  FolderOpen,
+  FolderPlus,
+  Pencil,
   X,
   Trash2,
 } from "lucide-react";
@@ -31,6 +35,14 @@ import { exportApi } from "../../../../../shared/api/export-api";
 import { getChatCharacterIds } from "../../../../../shared/lib/chat-macros";
 import { parseChatMetadata } from "../../../../../shared/lib/chat-display";
 import { ExportFormatDialog, type ExportFormatChoice } from "../../../../../shared/components/ui/ExportFormatDialog";
+import {
+  getNextUnnamedLibraryFolderName,
+  useCreateLibraryFolder,
+  useDeleteLibraryFolder,
+  useLibraryFolders,
+  useMoveLibraryItem,
+  useUpdateLibraryFolder,
+} from "../../../library-folders";
 import { LorebookRow } from "./LorebookRow";
 import {
   collectLorebookTags,
@@ -42,6 +54,8 @@ import {
 } from "./lorebook-panel-model";
 import { LOREBOOK_PANEL_CATEGORIES, type LorebookPanelCategory } from "./lorebook-panel-config";
 
+const LOREBOOK_LIBRARY_DRAG_MIME = "application/x-de-koi-lorebook-id";
+
 export function LorebooksPanel() {
   const [activeCategory, setActiveCategory] = useState<LorebookPanelCategory>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -52,6 +66,10 @@ export function LorebooksPanel() {
   const [selectedLorebookIds, setSelectedLorebookIds] = useState<Set<string>>(new Set());
   const [exportingSelected, setExportingSelected] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editFolderName, setEditFolderName] = useState("");
+  const [draggedLorebookId, setDraggedLorebookId] = useState<string | null>(null);
+  const [lorebookDropTargetId, setLorebookDropTargetId] = useState<string | null | undefined>(undefined);
   const lorebookImageInputRef = useRef<HTMLInputElement>(null);
   const imageTargetLorebookIdRef = useRef<string | null>(null);
 
@@ -91,6 +109,16 @@ export function LorebooksPanel() {
   const deleteLorebook = useDeleteLorebook();
   const updateLorebook = useUpdateLorebook();
   const uploadLorebookImage = useUploadLorebookImage();
+  const {
+    data: lorebookFolders,
+    isLoading: lorebookFoldersLoading,
+    isError: lorebookFoldersError,
+    refetch: refetchLorebookFolders,
+  } = useLibraryFolders("lorebooks");
+  const createLorebookFolder = useCreateLibraryFolder("lorebooks");
+  const updateLorebookFolder = useUpdateLibraryFolder("lorebooks");
+  const deleteLorebookFolder = useDeleteLibraryFolder("lorebooks");
+  const moveLorebookItem = useMoveLibraryItem("lorebooks");
   const openModal = useUIStore((s) => s.openModal);
   const openLorebookDetail = useUIStore((s) => s.openLorebookDetail);
 
@@ -190,11 +218,33 @@ export function LorebooksPanel() {
     return sortLorebooksForPanel(filtered, sort);
   }, [filtered, sort]);
 
-  // Group by category for "all" view
+  const lorebookFolderList = lorebookFolders ?? [];
+  const lorebookLibraryLoading = isLoading || lorebookFoldersLoading;
+  const lorebookFolderDataReady = !lorebookFoldersLoading && !lorebookFoldersError;
+
+  const lorebookFolderIds = useMemo(() => new Set(lorebookFolderList.map((folder) => folder.id)), [lorebookFolderList]);
+
+  const rootLorebooks = useMemo(
+    () => sorted.filter((lorebook) => !lorebook.folderId || !lorebookFolderIds.has(lorebook.folderId)),
+    [sorted, lorebookFolderIds],
+  );
+
+  const lorebooksByFolder = useMemo(() => {
+    const byFolder = new Map<string, Lorebook[]>();
+    for (const folder of lorebookFolderList) byFolder.set(folder.id, []);
+    for (const lorebook of sorted) {
+      if (lorebook.folderId && byFolder.has(lorebook.folderId)) {
+        byFolder.get(lorebook.folderId)?.push(lorebook);
+      }
+    }
+    return byFolder;
+  }, [lorebookFolderList, sorted]);
+
+  // Group root-level lorebooks by category for "all" view.
   const grouped = useMemo(() => {
     if (activeCategory !== "all") return null;
-    return groupLorebooksByCategory(sorted);
-  }, [sorted, activeCategory]);
+    return groupLorebooksByCategory(rootLorebooks);
+  }, [rootLorebooks, activeCategory]);
 
   const exitSelectionMode = useCallback(() => {
     setSelectionMode(false);
@@ -259,6 +309,112 @@ export function LorebooksPanel() {
     exitSelectionMode();
   }, [selectedLorebookIds, deleteLorebook, exitSelectionMode]);
 
+  const handleCreateFolder = useCallback(() => {
+    createLorebookFolder.mutate({ name: getNextUnnamedLibraryFolderName(lorebookFolderList) });
+  }, [createLorebookFolder, lorebookFolderList]);
+
+  const handleStartRenameFolder = useCallback((folderId: string, name: string) => {
+    setEditingFolderId(folderId);
+    setEditFolderName(name);
+  }, []);
+
+  const handleRenameFolder = useCallback(
+    (folderId: string) => {
+      const name = editFolderName.trim();
+      if (!name) return;
+      updateLorebookFolder.mutate({ id: folderId, name });
+      setEditingFolderId(null);
+      setEditFolderName("");
+    },
+    [editFolderName, updateLorebookFolder],
+  );
+
+  const handleDeleteFolder = useCallback(
+    async (folderId: string, name: string) => {
+      if (
+        !(await showConfirmDialog({
+          title: "Delete Folder",
+          message: `Delete "${name}"? Lorebooks inside it move back to the main list.`,
+          confirmLabel: "Delete",
+          tone: "destructive",
+        }))
+      ) {
+        return;
+      }
+      deleteLorebookFolder.mutate(folderId);
+    },
+    [deleteLorebookFolder],
+  );
+
+  const handleToggleFolderCollapsed = useCallback(
+    (folderId: string, collapsed: boolean) => {
+      updateLorebookFolder.mutate({ id: folderId, collapsed });
+    },
+    [updateLorebookFolder],
+  );
+
+  const clearLorebookDragState = useCallback(() => {
+    setDraggedLorebookId(null);
+    setLorebookDropTargetId(undefined);
+  }, []);
+
+  const canDragLorebooks = lorebookFolderDataReady && lorebookFolderList.length > 0 && !selectionMode;
+
+  const handleLorebookDragStart = useCallback(
+    (event: DragEvent<HTMLDivElement>, lorebookId: string) => {
+      if (!canDragLorebooks) {
+        event.preventDefault();
+        return;
+      }
+      event.stopPropagation();
+      setDraggedLorebookId(lorebookId);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(LOREBOOK_LIBRARY_DRAG_MIME, lorebookId);
+      event.dataTransfer.setData("text/plain", lorebookId);
+    },
+    [canDragLorebooks],
+  );
+
+  const handleLorebookDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>, folderId: string | null) => {
+      if (!draggedLorebookId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "move";
+      setLorebookDropTargetId((current) => (current === folderId ? current : folderId));
+    },
+    [draggedLorebookId],
+  );
+
+  const handleLorebookDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
+    if (relatedTarget && event.currentTarget.contains(relatedTarget)) return;
+    setLorebookDropTargetId(undefined);
+  }, []);
+
+  const handleLorebookDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>, folderId: string | null) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const lorebookId =
+        draggedLorebookId ||
+        event.dataTransfer.getData(LOREBOOK_LIBRARY_DRAG_MIME) ||
+        event.dataTransfer.getData("text/plain");
+      if (!lorebookId) {
+        clearLorebookDragState();
+        return;
+      }
+
+      const existingFolderId = sorted.find((lorebook) => lorebook.id === lorebookId)?.folderId ?? null;
+      const currentFolderId = existingFolderId && lorebookFolderIds.has(existingFolderId) ? existingFolderId : null;
+      if (currentFolderId !== folderId) {
+        moveLorebookItem.mutate({ itemId: lorebookId, folderId });
+      }
+      clearLorebookDragState();
+    },
+    [clearLorebookDragState, draggedLorebookId, lorebookFolderIds, moveLorebookItem, sorted],
+  );
+
   const handlePickLorebookImage = useCallback((lorebookId: string) => {
     imageTargetLorebookIdRef.current = lorebookId;
     if (lorebookImageInputRef.current) {
@@ -303,6 +459,69 @@ export function LorebooksPanel() {
       reader.readAsDataURL(file);
     },
     [uploadLorebookImage],
+  );
+
+  const renderLorebookRow = useCallback(
+    (lb: Lorebook) => {
+      const combinedNames = [...getCharacterNames(lb), ...getPersonaNames(lb)].join(", ") || undefined;
+      return (
+        <LorebookRow
+          key={lb.id}
+          lorebook={lb}
+          characterName={combinedNames}
+          personaName={undefined}
+          onClick={() => {
+            if (selectionMode) toggleSelection(lb.id);
+            else openLorebookDetail(lb.id);
+          }}
+          onDelete={async () => {
+            if (
+              await showConfirmDialog({
+                title: "Delete Lorebook",
+                message: `Delete "${lb.name}"? All entries will be lost.`,
+                confirmLabel: "Delete",
+                tone: "destructive",
+              })
+            ) {
+              deleteLorebook.mutate(lb.id);
+            }
+          }}
+          onImagePick={() => handlePickLorebookImage(lb.id)}
+          selectionMode={selectionMode}
+          isSelected={selectedLorebookIds.has(lb.id)}
+          onToggleSelect={() => toggleSelection(lb.id)}
+          draggable={canDragLorebooks}
+          isDragging={draggedLorebookId === lb.id}
+          onDragStart={(event) => handleLorebookDragStart(event, lb.id)}
+          onDragEnd={clearLorebookDragState}
+          folderOptions={lorebookFolderList}
+          folderMoveDisabled={moveLorebookItem.isPending}
+          onMoveToFolder={(folderId) => {
+            const currentFolderId = lb.folderId && lorebookFolderIds.has(lb.folderId) ? lb.folderId : null;
+            if (currentFolderId !== folderId) {
+              moveLorebookItem.mutate({ itemId: lb.id, folderId });
+            }
+          }}
+        />
+      );
+    },
+    [
+      canDragLorebooks,
+      clearLorebookDragState,
+      deleteLorebook,
+      draggedLorebookId,
+      getCharacterNames,
+      getPersonaNames,
+      handleLorebookDragStart,
+      handlePickLorebookImage,
+      lorebookFolderIds,
+      lorebookFolderList,
+      moveLorebookItem,
+      openLorebookDetail,
+      selectedLorebookIds,
+      selectionMode,
+      toggleSelection,
+    ],
   );
 
   return (
@@ -520,8 +739,20 @@ export function LorebooksPanel() {
         </div>
       )}
 
+      {!lorebookLibraryLoading && !lorebookFoldersError && (
+        <button
+          type="button"
+          onClick={handleCreateFolder}
+          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/70 px-2.5 py-1.5 text-[0.6875rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+          title="New folder"
+        >
+          <FolderPlus size="0.75rem" />
+          New folder
+        </button>
+      )}
+
       {/* Loading */}
-      {isLoading && (
+      {lorebookLibraryLoading && (
         <div className="flex flex-col gap-2 py-2">
           {[1, 2, 3].map((i) => (
             <div key={i} className="shimmer h-14 rounded-xl" />
@@ -529,8 +760,21 @@ export function LorebooksPanel() {
         </div>
       )}
 
+      {!lorebookLibraryLoading && lorebookFoldersError && (
+        <div className="rounded-xl border border-[var(--destructive)]/25 bg-[var(--destructive)]/10 px-3 py-2 text-xs text-[var(--destructive)]">
+          <p>Could not load lorebook folders.</p>
+          <button
+            type="button"
+            onClick={() => void refetchLorebookFolders()}
+            className="mt-1 rounded-md px-2 py-1 text-[0.625rem] font-medium ring-1 ring-[var(--destructive)]/30 hover:bg-[var(--destructive)]/10"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Empty state */}
-      {!isLoading && sorted.length === 0 && (
+      {!lorebookLibraryLoading && !lorebookFoldersError && sorted.length === 0 && lorebookFolderList.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-8 text-center">
           <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400/20 to-orange-500/20">
             <BookOpen size="1.25rem" className="text-amber-400" />
@@ -542,89 +786,135 @@ export function LorebooksPanel() {
       )}
 
       {/* Lorebook list */}
-      {!isLoading && sorted.length > 0 && (
-        <div className="stagger-children flex flex-col gap-1">
-          {activeCategory === "all" && grouped
-            ? // Grouped view
-              Array.from(grouped.entries()).map(([category, books]) => {
-                const catMeta =
-                  LOREBOOK_PANEL_CATEGORIES.find((c) => c.id === category) ??
-                  LOREBOOK_PANEL_CATEGORIES.find((c) => c.id === "uncategorized") ??
-                  LOREBOOK_PANEL_CATEGORIES[0];
-                const CatIcon = catMeta.icon;
-                return (
-                  <div key={category} className="mb-2">
-                    <div className="mb-1 flex items-center gap-1.5 px-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                      <CatIcon size="0.6875rem" />
-                      {catMeta.label}
-                      <span className="ml-auto text-[0.625rem] font-normal">{books.length}</span>
-                    </div>
-                    {books.map((lb) => {
-                      const combinedNames = [...getCharacterNames(lb), ...getPersonaNames(lb)].join(", ") || undefined;
-                      return (
-                        <LorebookRow
-                          key={lb.id}
-                          lorebook={lb}
-                          characterName={combinedNames}
-                          personaName={undefined}
-                          onClick={() => {
-                            if (selectionMode) toggleSelection(lb.id);
-                            else openLorebookDetail(lb.id);
-                          }}
-                          onDelete={async () => {
-                            if (
-                              await showConfirmDialog({
-                                title: "Delete Lorebook",
-                                message: `Delete "${lb.name}"? All entries will be lost.`,
-                                confirmLabel: "Delete",
-                                tone: "destructive",
-                              })
-                            ) {
-                              deleteLorebook.mutate(lb.id);
-                            }
-                          }}
-                          onImagePick={() => handlePickLorebookImage(lb.id)}
-                          selectionMode={selectionMode}
-                          isSelected={selectedLorebookIds.has(lb.id)}
-                          onToggleSelect={() => toggleSelection(lb.id)}
-                        />
-                      );
-                    })}
+      {!lorebookLibraryLoading && !lorebookFoldersError && (sorted.length > 0 || lorebookFolderList.length > 0) && (
+        <div className="flex flex-col gap-1">
+          {lorebookFolderList.map((folder) => {
+            const folderLorebooks = lorebooksByFolder.get(folder.id) ?? [];
+            const isExpanded = !folder.collapsed;
+            const isDropTarget = lorebookDropTargetId === folder.id;
+            return (
+              <div
+                key={folder.id}
+                data-lorebook-library-folder-id={folder.id}
+                onDragOver={(event) => handleLorebookDragOver(event, folder.id)}
+                onDragLeave={handleLorebookDragLeave}
+                onDrop={(event) => handleLorebookDrop(event, folder.id)}
+                className={cn(
+                  "rounded-xl border border-transparent bg-[var(--secondary)]/35 transition-colors",
+                  isDropTarget && "border-amber-400/35 bg-amber-400/10",
+                )}
+              >
+                <div className="flex items-center gap-1.5 px-2 py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleFolderCollapsed(folder.id, !folder.collapsed)}
+                    className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                    title={isExpanded ? "Collapse folder" : "Expand folder"}
+                  >
+                    <ChevronRight size="0.75rem" className={cn("transition-transform", isExpanded && "rotate-90")} />
+                  </button>
+                  <FolderOpen size="0.875rem" className="shrink-0 text-amber-400" />
+                  {editingFolderId === folder.id ? (
+                    <input
+                      autoFocus
+                      value={editFolderName}
+                      onChange={(event) => setEditFolderName(event.target.value)}
+                      onBlur={() => handleRenameFolder(folder.id)}
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") handleRenameFolder(folder.id);
+                        if (event.key === "Escape") {
+                          setEditingFolderId(null);
+                          setEditFolderName("");
+                        }
+                      }}
+                      className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs outline-none focus:border-amber-400/50"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleToggleFolderCollapsed(folder.id, !folder.collapsed)}
+                      className="min-w-0 flex-1 truncate text-left text-xs font-medium text-[var(--foreground)]"
+                      title={folder.name}
+                    >
+                      {folder.name}
+                    </button>
+                  )}
+                  <span className="rounded-md bg-[var(--background)]/60 px-1.5 py-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
+                    {folderLorebooks.length}
+                  </span>
+                  {!selectionMode && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleStartRenameFolder(folder.id, folder.name)}
+                        className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                        title="Rename folder"
+                      >
+                        <Pencil size="0.6875rem" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteFolder(folder.id, folder.name)}
+                        className="rounded-md p-1 text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/15"
+                        title="Delete folder"
+                      >
+                        <Trash2 size="0.6875rem" />
+                      </button>
+                    </>
+                  )}
+                </div>
+                {isExpanded && (
+                  <div className="flex flex-col gap-1 px-1 pb-1">
+                    {folderLorebooks.length > 0 ? (
+                      folderLorebooks.map(renderLorebookRow)
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-[var(--border)] px-2 py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">
+                        Drop lorebooks here
+                      </div>
+                    )}
                   </div>
-                );
-              })
-            : // Flat view
-              sorted.map((lb: Lorebook) => {
-                const combinedNames = [...getCharacterNames(lb), ...getPersonaNames(lb)].join(", ") || undefined;
-                return (
-                  <LorebookRow
-                    key={lb.id}
-                    lorebook={lb}
-                    characterName={combinedNames}
-                    personaName={undefined}
-                    onClick={() => {
-                      if (selectionMode) toggleSelection(lb.id);
-                      else openLorebookDetail(lb.id);
-                    }}
-                    onDelete={async () => {
-                      if (
-                        await showConfirmDialog({
-                          title: "Delete Lorebook",
-                          message: `Delete "${lb.name}"? All entries will be lost.`,
-                          confirmLabel: "Delete",
-                          tone: "destructive",
-                        })
-                      ) {
-                        deleteLorebook.mutate(lb.id);
-                      }
-                    }}
-                    onImagePick={() => handlePickLorebookImage(lb.id)}
-                    selectionMode={selectionMode}
-                    isSelected={selectedLorebookIds.has(lb.id)}
-                    onToggleSelect={() => toggleSelection(lb.id)}
-                  />
-                );
-              })}
+                )}
+              </div>
+            );
+          })}
+
+          <div
+            data-lorebook-library-root
+            onDragOver={(event) => handleLorebookDragOver(event, null)}
+            onDragLeave={handleLorebookDragLeave}
+            onDrop={(event) => handleLorebookDrop(event, null)}
+            className={cn(
+              "stagger-children flex min-h-8 flex-col gap-1 rounded-xl transition-colors",
+              draggedLorebookId && "p-1",
+              lorebookDropTargetId === null && "bg-amber-400/10 ring-1 ring-amber-400/35",
+            )}
+          >
+            {activeCategory === "all" && grouped
+              ? Array.from(grouped.entries()).map(([category, books]) => {
+                  const catMeta =
+                    LOREBOOK_PANEL_CATEGORIES.find((c) => c.id === category) ??
+                    LOREBOOK_PANEL_CATEGORIES.find((c) => c.id === "uncategorized") ??
+                    LOREBOOK_PANEL_CATEGORIES[0];
+                  const CatIcon = catMeta.icon;
+                  return (
+                    <div key={category} className="mb-2">
+                      <div className="mb-1 flex items-center gap-1.5 px-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                        <CatIcon size="0.6875rem" />
+                        {catMeta.label}
+                        <span className="ml-auto text-[0.625rem] font-normal">{books.length}</span>
+                      </div>
+                      {books.map(renderLorebookRow)}
+                    </div>
+                  );
+                })
+              : rootLorebooks.map(renderLorebookRow)}
+            {rootLorebooks.length === 0 && draggedLorebookId && (
+              <div className="rounded-lg border border-dashed border-[var(--border)] px-2 py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">
+                Drop here to remove folder
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

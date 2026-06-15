@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Panel: Presets (overhauled — search, assign, edit, duplicate)
 // ──────────────────────────────────────────────
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, type DragEvent } from "react";
 import { toast } from "sonner";
 import { usePresets, useDeletePreset, useDuplicatePreset, useSetDefaultPreset } from "../hooks/use-presets";
 import { useUpdateChat, useUpdateChatMetadata } from "../../chats/index";
@@ -11,10 +11,34 @@ import { exportApi } from "../../../../shared/api/export-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { ChoiceSelectionModal } from "./ChoiceSelectionModal";
-import { Plus, Download, FileText, Trash2, Check, Copy, Search, Code2, Hash, Star } from "lucide-react";
+import {
+  Plus,
+  Download,
+  FileText,
+  Trash2,
+  Check,
+  Copy,
+  Search,
+  Code2,
+  Hash,
+  Star,
+  ChevronRight,
+  FolderOpen,
+  FolderPlus,
+  Pencil,
+} from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { boolish } from "../../../../engine/generation/runtime-records";
 import { isRecord, normalizeChoiceSelections, type ChoiceSelections } from "../lib/choice-selections";
+import {
+  LibraryFolderSelect,
+  getNextUnnamedLibraryFolderName,
+  useCreateLibraryFolder,
+  useDeleteLibraryFolder,
+  useLibraryFolders,
+  useMoveLibraryItem,
+  useUpdateLibraryFolder,
+} from "../../library-folders";
 
 type PresetRow = {
   id: string;
@@ -24,9 +48,12 @@ type PresetRow = {
   isDefault?: string | boolean;
   author?: string;
   sectionOrder?: string | string[];
+  folderId?: string | null;
 };
 
 type PresetChoices = ChoiceSelections;
+
+const PRESET_LIBRARY_DRAG_MIME = "application/x-de-koi-preset-id";
 
 function getPresetChoices(metadata: unknown): PresetChoices {
   if (typeof metadata === "string") {
@@ -44,6 +71,16 @@ export function PresetsPanel() {
   const deletePreset = useDeletePreset();
   const duplicatePreset = useDuplicatePreset();
   const setDefaultPreset = useSetDefaultPreset();
+  const {
+    data: presetFolders,
+    isLoading: presetFoldersLoading,
+    isError: presetFoldersError,
+    refetch: refetchPresetFolders,
+  } = useLibraryFolders("presets");
+  const createPresetFolder = useCreateLibraryFolder("presets");
+  const updatePresetFolder = useUpdateLibraryFolder("presets");
+  const deletePresetFolder = useDeleteLibraryFolder("presets");
+  const movePresetItem = useMoveLibraryItem("presets");
   const openModal = useUIStore((s) => s.openModal);
   const openPresetDetail = useUIStore((s) => s.openPresetDetail);
   const activeChat = useChatStore((s) => s.activeChat);
@@ -54,6 +91,10 @@ export function PresetsPanel() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedPresetIds, setSelectedPresetIds] = useState<Set<string>>(new Set());
   const [exportingSelected, setExportingSelected] = useState(false);
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editFolderName, setEditFolderName] = useState("");
+  const [draggedPresetId, setDraggedPresetId] = useState<string | null>(null);
+  const [presetDropTargetId, setPresetDropTargetId] = useState<string | null | undefined>(undefined);
 
   const canAssignToActiveChat = !!activeChat && activeChat.mode !== "conversation";
   const activePresetId = canAssignToActiveChat ? (activeChat?.promptPresetId ?? null) : null;
@@ -69,6 +110,28 @@ export function PresetsPanel() {
         (p.author ?? "").toLowerCase().includes(q),
     );
   }, [presets, search]);
+
+  const presetFolderList = presetFolders ?? [];
+  const presetLibraryLoading = isLoading || presetFoldersLoading;
+  const presetFolderDataReady = !presetFoldersLoading && !presetFoldersError;
+
+  const presetFolderIds = useMemo(() => new Set(presetFolderList.map((folder) => folder.id)), [presetFolderList]);
+
+  const rootPresets = useMemo(
+    () => filteredPresets.filter((preset) => !preset.folderId || !presetFolderIds.has(preset.folderId)),
+    [filteredPresets, presetFolderIds],
+  );
+
+  const presetsByFolder = useMemo(() => {
+    const byFolder = new Map<string, PresetRow[]>();
+    for (const folder of presetFolderList) byFolder.set(folder.id, []);
+    for (const preset of filteredPresets) {
+      if (preset.folderId && byFolder.has(preset.folderId)) {
+        byFolder.get(preset.folderId)?.push(preset);
+      }
+    }
+    return byFolder;
+  }, [filteredPresets, presetFolderList]);
 
   const selectPreset = (presetId: string) => {
     if (!activeChat) return;
@@ -164,6 +227,263 @@ export function PresetsPanel() {
     exitSelectionMode();
   }, [selectedPresetIds, deletePreset]);
 
+  const handleCreateFolder = useCallback(() => {
+    createPresetFolder.mutate({ name: getNextUnnamedLibraryFolderName(presetFolderList) });
+  }, [createPresetFolder, presetFolderList]);
+
+  const handleStartRenameFolder = useCallback((folderId: string, name: string) => {
+    setEditingFolderId(folderId);
+    setEditFolderName(name);
+  }, []);
+
+  const handleRenameFolder = useCallback(
+    (folderId: string) => {
+      const name = editFolderName.trim();
+      if (!name) return;
+      updatePresetFolder.mutate({ id: folderId, name });
+      setEditingFolderId(null);
+      setEditFolderName("");
+    },
+    [editFolderName, updatePresetFolder],
+  );
+
+  const handleDeleteFolder = useCallback(
+    async (folderId: string, name: string) => {
+      if (
+        !(await showConfirmDialog({
+          title: "Delete Folder",
+          message: `Delete "${name}"? Presets inside it move back to the main list.`,
+          confirmLabel: "Delete",
+          tone: "destructive",
+        }))
+      ) {
+        return;
+      }
+      deletePresetFolder.mutate(folderId);
+    },
+    [deletePresetFolder],
+  );
+
+  const handleToggleFolderCollapsed = useCallback(
+    (folderId: string, collapsed: boolean) => {
+      updatePresetFolder.mutate({ id: folderId, collapsed });
+    },
+    [updatePresetFolder],
+  );
+
+  const clearPresetDragState = useCallback(() => {
+    setDraggedPresetId(null);
+    setPresetDropTargetId(undefined);
+  }, []);
+
+  const canDragPresets = presetFolderDataReady && presetFolderList.length > 0 && !selectionMode;
+
+  const handlePresetDragStart = useCallback(
+    (event: DragEvent<HTMLDivElement>, presetId: string) => {
+      if (!canDragPresets) {
+        event.preventDefault();
+        return;
+      }
+      event.stopPropagation();
+      setDraggedPresetId(presetId);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(PRESET_LIBRARY_DRAG_MIME, presetId);
+      event.dataTransfer.setData("text/plain", presetId);
+    },
+    [canDragPresets],
+  );
+
+  const handlePresetDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>, folderId: string | null) => {
+      if (!draggedPresetId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "move";
+      setPresetDropTargetId((current) => (current === folderId ? current : folderId));
+    },
+    [draggedPresetId],
+  );
+
+  const handlePresetDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
+    if (relatedTarget && event.currentTarget.contains(relatedTarget)) return;
+    setPresetDropTargetId(undefined);
+  }, []);
+
+  const handlePresetDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>, folderId: string | null) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const presetId =
+        draggedPresetId ||
+        event.dataTransfer.getData(PRESET_LIBRARY_DRAG_MIME) ||
+        event.dataTransfer.getData("text/plain");
+      if (!presetId) {
+        clearPresetDragState();
+        return;
+      }
+
+      const existingFolderId = filteredPresets.find((preset) => preset.id === presetId)?.folderId ?? null;
+      const currentFolderId = existingFolderId && presetFolderIds.has(existingFolderId) ? existingFolderId : null;
+      if (currentFolderId !== folderId) {
+        movePresetItem.mutate({ itemId: presetId, folderId });
+      }
+      clearPresetDragState();
+    },
+    [clearPresetDragState, draggedPresetId, filteredPresets, movePresetItem, presetFolderIds],
+  );
+
+  const renderPresetRow = (preset: PresetRow) => {
+    const isSelected = activePresetId === preset.id;
+    const isBulkSelected = selectedPresetIds.has(preset.id);
+    const sectionCount = getSectionCount(preset);
+    const wrapFormat = (preset.wrapFormat ?? "xml") as string;
+    const isDefault = boolish(preset.isDefault ?? (preset as PresetRow & { default?: unknown }).default, false);
+
+    return (
+      <div
+        key={preset.id}
+        draggable={canDragPresets}
+        onDragStart={(event) => handlePresetDragStart(event, preset.id)}
+        onDragEnd={clearPresetDragState}
+        className={cn(
+          "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
+          selectionMode && isBulkSelected && "ring-1 ring-purple-400/40 bg-purple-400/10",
+          isSelected && "ring-1 ring-purple-400/40 bg-purple-400/5",
+          draggedPresetId === preset.id && "opacity-55 ring-1 ring-[var(--primary)]/30",
+        )}
+      >
+        {/* Click to open editor */}
+        <div
+          className="flex min-w-0 flex-1 items-center gap-3"
+          onClick={() => {
+            if (selectionMode) toggleSelection(preset.id);
+            else openPresetDetail(preset.id);
+          }}
+        >
+          {selectionMode && (
+            <div
+              className={cn(
+                "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
+                isBulkSelected
+                  ? "border-purple-400 bg-purple-400 text-white"
+                  : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)] text-transparent",
+              )}
+            >
+              <Check size="0.75rem" />
+            </div>
+          )}
+          <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-purple-400 to-violet-500 text-white shadow-sm">
+            <FileText size="1rem" />
+            {isSelected && (
+              <div className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-purple-400 shadow-sm">
+                <Check size="0.625rem" className="text-white" />
+              </div>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-sm font-medium">{preset.name}</span>
+              {isDefault && (
+                <span className="shrink-0 rounded bg-purple-400/15 px-1 py-0.5 text-[0.5625rem] font-medium text-purple-400">
+                  DEFAULT
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-[0.6875rem] text-[var(--muted-foreground)]">
+              <span className="flex items-center gap-0.5">
+                {wrapFormat === "xml" ? <Code2 size="0.5625rem" /> : <Hash size="0.5625rem" />}
+                {wrapFormat.toUpperCase()}
+              </span>
+              <span>{sectionCount} sections</span>
+              {preset.author && <span className="truncate">by {preset.author}</span>}
+            </div>
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        {!selectionMode && (
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
+            <LibraryFolderSelect
+              value={preset.folderId}
+              folders={presetFolderList}
+              itemLabel={preset.name}
+              disabled={movePresetItem.isPending}
+              onChange={(folderId) => {
+                const currentFolderId =
+                  preset.folderId && presetFolderIds.has(preset.folderId) ? preset.folderId : null;
+                if (currentFolderId !== folderId) {
+                  movePresetItem.mutate({ itemId: preset.id, folderId });
+                }
+              }}
+            />
+            {canAssignToActiveChat && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  selectPreset(preset.id);
+                }}
+                className={cn(
+                  "rounded-lg p-1.5 transition-all active:scale-90",
+                  isSelected
+                    ? "bg-purple-400/15 text-purple-400"
+                    : "text-[var(--muted-foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]",
+                )}
+                title={isSelected ? "Unassign from chat" : "Assign to chat"}
+              >
+                <Check size="0.75rem" />
+              </button>
+            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setDefaultPreset.mutate(preset.id);
+              }}
+              className={cn(
+                "rounded-lg p-1.5 transition-all active:scale-90",
+                isDefault
+                  ? "text-yellow-500"
+                  : "text-[var(--muted-foreground)] hover:bg-yellow-500/10 hover:text-yellow-500",
+              )}
+              title={isDefault ? "Default preset" : "Set as default"}
+            >
+              <Star size="0.75rem" className={isDefault ? "fill-yellow-500" : ""} />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                duplicatePreset.mutate(preset.id);
+              }}
+              className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-sky-400/10 hover:text-sky-400 active:scale-90"
+              title="Duplicate"
+            >
+              <Copy size="0.75rem" />
+            </button>
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (
+                  await showConfirmDialog({
+                    title: "Delete Preset",
+                    message: `Delete "${preset.name}"?`,
+                    confirmLabel: "Delete",
+                    tone: "destructive",
+                  })
+                ) {
+                  deletePreset.mutate(preset.id);
+                }
+              }}
+              className="rounded-lg p-1.5 transition-all hover:bg-[var(--destructive)]/15 active:scale-90"
+              title="Delete"
+            >
+              <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col gap-2 p-3">
       {/* Action buttons */}
@@ -258,8 +578,20 @@ export function PresetsPanel() {
         />
       </div>
 
+      {!presetLibraryLoading && !presetFoldersError && (
+        <button
+          type="button"
+          onClick={handleCreateFolder}
+          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/70 px-2.5 py-1.5 text-[0.6875rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+          title="New folder"
+        >
+          <FolderPlus size="0.75rem" />
+          New folder
+        </button>
+      )}
+
       {/* Loading */}
-      {isLoading && (
+      {presetLibraryLoading && (
         <div className="flex flex-col gap-2 py-2">
           {[1, 2, 3].map((i) => (
             <div key={i} className="shimmer h-16 rounded-xl" />
@@ -267,152 +599,148 @@ export function PresetsPanel() {
         </div>
       )}
 
-      {/* Empty state */}
-      {!isLoading && filteredPresets.length === 0 && (
-        <div className="flex flex-col items-center gap-2 py-8 text-center">
-          <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-400/20 to-violet-500/20">
-            <FileText size="1.25rem" className="text-purple-400" />
-          </div>
-          <p className="text-xs text-[var(--muted-foreground)]">{search ? "No matching presets" : "No presets yet"}</p>
+      {!presetLibraryLoading && presetFoldersError && (
+        <div className="rounded-xl border border-[var(--destructive)]/25 bg-[var(--destructive)]/10 px-3 py-2 text-xs text-[var(--destructive)]">
+          <p>Could not load preset folders.</p>
+          <button
+            type="button"
+            onClick={() => void refetchPresetFolders()}
+            className="mt-1 rounded-md px-2 py-1 text-[0.625rem] font-medium ring-1 ring-[var(--destructive)]/30 hover:bg-[var(--destructive)]/10"
+          >
+            Retry
+          </button>
         </div>
       )}
 
+      {/* Empty state */}
+      {!presetLibraryLoading &&
+        !presetFoldersError &&
+        filteredPresets.length === 0 &&
+        presetFolderList.length === 0 && (
+          <div className="flex flex-col items-center gap-2 py-8 text-center">
+            <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-400/20 to-violet-500/20">
+              <FileText size="1.25rem" className="text-purple-400" />
+            </div>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {search ? "No matching presets" : "No presets yet"}
+            </p>
+          </div>
+        )}
+
       {/* Preset list */}
-      <div className="stagger-children flex flex-col gap-1">
-        {filteredPresets.map((preset) => {
-          const isSelected = activePresetId === preset.id;
-          const isBulkSelected = selectedPresetIds.has(preset.id);
-          const sectionCount = getSectionCount(preset);
-          const wrapFormat = (preset.wrapFormat ?? "xml") as string;
-          const isDefault = boolish(preset.isDefault ?? (preset as PresetRow & { default?: unknown }).default, false);
-
-          return (
-            <div
-              key={preset.id}
-              className={cn(
-                "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
-                selectionMode && isBulkSelected && "ring-1 ring-purple-400/40 bg-purple-400/10",
-                isSelected && "ring-1 ring-purple-400/40 bg-purple-400/5",
-              )}
-            >
-              {/* Click to open editor */}
+      {!presetLibraryLoading && !presetFoldersError && (filteredPresets.length > 0 || presetFolderList.length > 0) && (
+        <div className="flex flex-col gap-1">
+          {presetFolderList.map((folder) => {
+            const folderPresets = presetsByFolder.get(folder.id) ?? [];
+            const isExpanded = !folder.collapsed;
+            const isDropTarget = presetDropTargetId === folder.id;
+            return (
               <div
-                className="flex min-w-0 flex-1 items-center gap-3"
-                onClick={() => {
-                  if (selectionMode) toggleSelection(preset.id);
-                  else openPresetDetail(preset.id);
-                }}
-              >
-                {selectionMode && (
-                  <div
-                    className={cn(
-                      "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
-                      isBulkSelected
-                        ? "border-purple-400 bg-purple-400 text-white"
-                        : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)] text-transparent",
-                    )}
-                  >
-                    <Check size="0.75rem" />
-                  </div>
+                key={folder.id}
+                data-preset-library-folder-id={folder.id}
+                onDragOver={(event) => handlePresetDragOver(event, folder.id)}
+                onDragLeave={handlePresetDragLeave}
+                onDrop={(event) => handlePresetDrop(event, folder.id)}
+                className={cn(
+                  "rounded-xl border border-transparent bg-[var(--secondary)]/35 transition-colors",
+                  isDropTarget && "border-purple-400/35 bg-purple-400/10",
                 )}
-                <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-purple-400 to-violet-500 text-white shadow-sm">
-                  <FileText size="1rem" />
-                  {isSelected && (
-                    <div className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-purple-400 shadow-sm">
-                      <Check size="0.625rem" className="text-white" />
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate text-sm font-medium">{preset.name}</span>
-                    {isDefault && (
-                      <span className="shrink-0 rounded bg-purple-400/15 px-1 py-0.5 text-[0.5625rem] font-medium text-purple-400">
-                        DEFAULT
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 text-[0.6875rem] text-[var(--muted-foreground)]">
-                    <span className="flex items-center gap-0.5">
-                      {wrapFormat === "xml" ? <Code2 size="0.5625rem" /> : <Hash size="0.5625rem" />}
-                      {wrapFormat.toUpperCase()}
-                    </span>
-                    <span>{sectionCount} sections</span>
-                    {preset.author && <span className="truncate">by {preset.author}</span>}
-                  </div>
-                </div>
-              </div>
-
-              {/* Action buttons */}
-              {!selectionMode && (
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
-                  {canAssignToActiveChat && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        selectPreset(preset.id);
+              >
+                <div className="flex items-center gap-1.5 px-2 py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleFolderCollapsed(folder.id, !folder.collapsed)}
+                    className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                    title={isExpanded ? "Collapse folder" : "Expand folder"}
+                  >
+                    <ChevronRight size="0.75rem" className={cn("transition-transform", isExpanded && "rotate-90")} />
+                  </button>
+                  <FolderOpen size="0.875rem" className="shrink-0 text-purple-400" />
+                  {editingFolderId === folder.id ? (
+                    <input
+                      autoFocus
+                      value={editFolderName}
+                      onChange={(event) => setEditFolderName(event.target.value)}
+                      onBlur={() => handleRenameFolder(folder.id)}
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") handleRenameFolder(folder.id);
+                        if (event.key === "Escape") {
+                          setEditingFolderId(null);
+                          setEditFolderName("");
+                        }
                       }}
-                      className={cn(
-                        "rounded-lg p-1.5 transition-all active:scale-90",
-                        isSelected
-                          ? "bg-purple-400/15 text-purple-400"
-                          : "text-[var(--muted-foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]",
-                      )}
-                      title={isSelected ? "Unassign from chat" : "Assign to chat"}
+                      className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs outline-none focus:border-purple-400/50"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleToggleFolderCollapsed(folder.id, !folder.collapsed)}
+                      className="min-w-0 flex-1 truncate text-left text-xs font-medium text-[var(--foreground)]"
+                      title={folder.name}
                     >
-                      <Check size="0.75rem" />
+                      {folder.name}
                     </button>
                   )}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDefaultPreset.mutate(preset.id);
-                    }}
-                    className={cn(
-                      "rounded-lg p-1.5 transition-all active:scale-90",
-                      isDefault
-                        ? "text-yellow-500"
-                        : "text-[var(--muted-foreground)] hover:bg-yellow-500/10 hover:text-yellow-500",
-                    )}
-                    title={isDefault ? "Default preset" : "Set as default"}
-                  >
-                    <Star size="0.75rem" className={isDefault ? "fill-yellow-500" : ""} />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      duplicatePreset.mutate(preset.id);
-                    }}
-                    className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-sky-400/10 hover:text-sky-400 active:scale-90"
-                    title="Duplicate"
-                  >
-                    <Copy size="0.75rem" />
-                  </button>
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (
-                        await showConfirmDialog({
-                          title: "Delete Preset",
-                          message: `Delete "${preset.name}"?`,
-                          confirmLabel: "Delete",
-                          tone: "destructive",
-                        })
-                      ) {
-                        deletePreset.mutate(preset.id);
-                      }
-                    }}
-                    className="rounded-lg p-1.5 transition-all hover:bg-[var(--destructive)]/15 active:scale-90"
-                    title="Delete"
-                  >
-                    <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
-                  </button>
+                  <span className="rounded-md bg-[var(--background)]/60 px-1.5 py-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
+                    {folderPresets.length}
+                  </span>
+                  {!selectionMode && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleStartRenameFolder(folder.id, folder.name)}
+                        className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                        title="Rename folder"
+                      >
+                        <Pencil size="0.6875rem" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteFolder(folder.id, folder.name)}
+                        className="rounded-md p-1 text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/15"
+                        title="Delete folder"
+                      >
+                        <Trash2 size="0.6875rem" />
+                      </button>
+                    </>
+                  )}
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                {isExpanded && (
+                  <div className="flex flex-col gap-1 px-1 pb-1">
+                    {folderPresets.length > 0 ? (
+                      folderPresets.map(renderPresetRow)
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-[var(--border)] px-2 py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">
+                        Drop presets here
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          <div
+            data-preset-library-root
+            onDragOver={(event) => handlePresetDragOver(event, null)}
+            onDragLeave={handlePresetDragLeave}
+            onDrop={(event) => handlePresetDrop(event, null)}
+            className={cn(
+              "stagger-children flex min-h-8 flex-col gap-1 rounded-xl transition-colors",
+              draggedPresetId && "p-1",
+              presetDropTargetId === null && "bg-purple-400/10 ring-1 ring-purple-400/35",
+            )}
+          >
+            {rootPresets.map(renderPresetRow)}
+            {rootPresets.length === 0 && draggedPresetId && (
+              <div className="rounded-lg border border-dashed border-[var(--border)] px-2 py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">
+                Drop here to remove folder
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {activeChat && !selectionMode && (
         <p className="px-1 text-[0.625rem] text-[var(--muted-foreground)]/60">

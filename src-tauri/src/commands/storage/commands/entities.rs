@@ -428,6 +428,8 @@ pub(crate) fn storage_create_inner(
     reject_message_swipe_mutation(&entity)?;
     validate_chat_folder_for_create(state, &entity, &value)?;
     validate_connection_folder_for_create(state, &entity, &value)?;
+    validate_library_folder_for_create(state, &entity, &value)?;
+    validate_library_item_folder_for_create(state, &entity, &value)?;
     validate_lorebook_entry_folder_for_create(state, &entity, &value)?;
     validate_lorebook_folder_for_create(state, &entity, &value)?;
     validate_gallery_folder_for_create(state, &entity, &value)?;
@@ -518,6 +520,8 @@ pub(crate) fn storage_update_inner(
     }
     validate_chat_folder_for_patch(state, &entity, &id, &patch)?;
     validate_connection_folder_for_patch(state, &entity, &patch)?;
+    validate_library_folder_for_patch(state, &entity, &patch)?;
+    validate_library_item_folder_for_patch(state, &entity, &patch)?;
     validate_lorebook_entry_folder_for_patch(state, &entity, &id, &patch)?;
     validate_lorebook_folder_for_patch(state, &entity, &id, &patch)?;
     validate_gallery_folder_for_patch(state, &entity, &patch)?;
@@ -528,6 +532,8 @@ pub(crate) fn storage_update_inner(
     }
     let normalized_patch = shared::normalize_update_patch(&entity, patch)?;
     let normalized_patch = normalize_chat_for_update(&entity, normalized_patch)?;
+    let normalized_patch = normalize_library_folder_for_update(&entity, normalized_patch)?;
+    let normalized_patch = normalize_library_item_folder_for_update(&entity, normalized_patch)?;
     let mut normalized_patch = normalize_lorebook_entry_for_update(&entity, normalized_patch)?;
     if entity == "chats" {
         validate_chat_metadata_patch(state, &id, &mut normalized_patch)?;
@@ -569,6 +575,8 @@ pub(crate) fn prepare_entity_for_create(
         "lorebook-entries" => normalize_lorebook_entry_for_create(value),
         "chat-folders" => chat_folder_defaults_for_create(value),
         "connection-folders" => connection_folder_defaults_for_create(state, value),
+        "lorebook-library-folders" | "preset-folders" => library_folder_defaults_for_create(value),
+        "lorebooks" | "prompts" => normalize_library_item_folder_for_create(entity, value),
         "gallery" | "character-gallery" | "persona-gallery" | "global-gallery" => {
             gallery_defaults_for_create(state, value)
         }
@@ -6306,6 +6314,71 @@ mod tests {
         )
         .expect_err("mode-only patch should validate existing folder");
         assert_eq!(error.code, "invalid_input");
+    }
+
+    #[test]
+    fn library_folders_validate_scope_and_delete_unfiles_items() {
+        let state = test_state("library-folder-scope-delete");
+        storage_create_inner(
+            &state,
+            "lorebook-library-folders".to_string(),
+            json!({ "id": "lorebook-folder", "name": "Lorebooks" }),
+        )
+        .expect("lorebook library folder should be created");
+        storage_create_inner(
+            &state,
+            "preset-folders".to_string(),
+            json!({ "id": "preset-folder", "name": "Presets" }),
+        )
+        .expect("preset folder should be created");
+        storage_create_inner(
+            &state,
+            "lorebooks".to_string(),
+            json!({ "id": "book-1", "name": "Book", "folderId": "lorebook-folder" }),
+        )
+        .expect("lorebook should accept a lorebook library folder");
+        storage_create_inner(
+            &state,
+            "prompts".to_string(),
+            json!({ "id": "preset-1", "name": "Preset", "folderId": "preset-folder" }),
+        )
+        .expect("prompt preset should accept a preset folder");
+
+        let lorebook_error = storage_update_inner(
+            &state,
+            "lorebooks".to_string(),
+            "book-1".to_string(),
+            json!({ "folderId": "preset-folder" }),
+        )
+        .expect_err("lorebooks must not use preset folders");
+        assert_eq!(lorebook_error.code, "invalid_input");
+
+        let preset_error = storage_update_inner(
+            &state,
+            "prompts".to_string(),
+            "preset-1".to_string(),
+            json!({ "folderId": "lorebook-folder" }),
+        )
+        .expect_err("presets must not use lorebook folders");
+        assert_eq!(preset_error.code, "invalid_input");
+
+        delete_entity(&state, "lorebook-library-folders", "lorebook-folder", false)
+            .expect("deleting lorebook library folder should succeed");
+        let book = state
+            .storage
+            .get("lorebooks", "book-1")
+            .expect("lorebook should read")
+            .expect("lorebook should still exist");
+        assert_eq!(book.get("folderId"), Some(&Value::Null));
+
+        delete_entity(&state, "preset-folders", "preset-folder", false)
+            .expect("deleting preset folder should succeed");
+        let preset = state
+            .storage
+            .get("prompts", "preset-1")
+            .expect("preset should read")
+            .expect("preset should still exist");
+        assert_eq!(preset.get("folderId"), Some(&Value::Null));
     }
 
     #[test]

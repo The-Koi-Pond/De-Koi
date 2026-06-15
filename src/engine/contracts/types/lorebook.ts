@@ -73,6 +73,8 @@ export interface Lorebook {
   excludeFromVectorization: boolean;
   /** Tags for organizing/filtering lorebooks */
   tags: string[];
+  /** Library folder this lorebook belongs to (null = root/unfiled). */
+  folderId: string | null;
   /** Agent/generation origin tracking */
   generatedBy: "user" | "agent" | "import" | "lorebook-maker" | "game-session" | null;
   sourceAgentId: string | null;
