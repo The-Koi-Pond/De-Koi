@@ -282,75 +282,75 @@ export function AgentsPanel() {
         </PanelSection>
       )}
 
-      {(!searchActive || visibleCustomTools.length > 0) && (
-        <PanelSection
-          title="Custom Tools"
-          icon={<Wrench size="0.8125rem" />}
-          action={
-            <button
-              onClick={handleCreateTool}
-              className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
-              title="Create custom tool"
+      <PanelSection
+        title="Custom Tools"
+        icon={<Wrench size="0.8125rem" />}
+        action={
+          <button
+            onClick={handleCreateTool}
+            className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
+            title="Create custom tool"
+          >
+            <Plus size="0.8125rem" />
+          </button>
+        }
+      >
+        <div className="mb-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
+          Define custom functions the AI can call during generation (webhook or static).
+        </div>
+        {!customToolRows.length ? (
+          <p className="px-1 py-2 text-[0.625rem] text-[var(--muted-foreground)]">No custom tools yet.</p>
+        ) : visibleCustomTools.length === 0 ? (
+          <p className="px-1 py-2 text-[0.625rem] text-[var(--muted-foreground)]">No custom tools match your search.</p>
+        ) : (
+          visibleCustomTools.map((tool) => (
+            <div
+              key={tool.id}
+              className="group relative flex items-center gap-2.5 rounded-xl p-2.5 transition-colors hover:bg-[var(--sidebar-accent)]"
             >
-              <Plus size="0.8125rem" />
-            </button>
-          }
-        >
-          <div className="mb-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
-            Define custom functions the AI can call during generation (webhook or static).
-          </div>
-          {!customToolRows.length ? (
-            <p className="px-1 py-2 text-[0.625rem] text-[var(--muted-foreground)]">No custom tools yet.</p>
-          ) : (
-            visibleCustomTools.map((tool) => (
-              <div
-                key={tool.id}
-                className="group relative flex items-center gap-2.5 rounded-xl p-2.5 transition-colors hover:bg-[var(--sidebar-accent)]"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--secondary)] text-[var(--primary)]">
-                  <Wrench size="0.875rem" />
-                </span>
-                <button className="min-w-0 flex-1 pr-16 text-left" onClick={() => openToolDetail(tool.id)}>
-                  <div className="truncate text-xs font-medium font-mono">{tool.name}</div>
-                  <div className="text-[0.625rem] text-[var(--muted-foreground)] line-clamp-2">
-                    {tool.description || "No description"}
-                  </div>
-                  <span className="mt-1 inline-flex rounded bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)]">
-                    {tool.executionType}
-                  </span>
-                </button>
-                <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100">
-                  <button
-                    className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
-                    title="Edit tool"
-                    onClick={() => openToolDetail(tool.id)}
-                  >
-                    <Pencil size="0.8125rem" />
-                  </button>
-                  <button
-                    className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--destructive)]"
-                    title="Delete tool"
-                    onClick={async () => {
-                      if (
-                        await showConfirmDialog({
-                          title: "Delete Tool",
-                          message: `Delete "${tool.name}"?`,
-                          confirmLabel: "Delete",
-                          tone: "destructive",
-                        })
-                      ) {
-                        deleteTool.mutate(tool.id);
-                      }
-                    }}
-                  >
-                    <Trash2 size="0.8125rem" />
-                  </button>
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--secondary)] text-[var(--primary)]">
+                <Wrench size="0.875rem" />
+              </span>
+              <button className="min-w-0 flex-1 pr-16 text-left" onClick={() => openToolDetail(tool.id)}>
+                <div className="truncate text-xs font-medium font-mono">{tool.name}</div>
+                <div className="text-[0.625rem] text-[var(--muted-foreground)] line-clamp-2">
+                  {tool.description || "No description"}
                 </div>
+                <span className="mt-1 inline-flex rounded bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)]">
+                  {tool.executionType}
+                </span>
+              </button>
+              <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100">
+                <button
+                  className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
+                  title="Edit tool"
+                  onClick={() => openToolDetail(tool.id)}
+                >
+                  <Pencil size="0.8125rem" />
+                </button>
+                <button
+                  className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--destructive)]"
+                  title="Delete tool"
+                  onClick={async () => {
+                    if (
+                      await showConfirmDialog({
+                        title: "Delete Tool",
+                        message: `Delete "${tool.name}"?`,
+                        confirmLabel: "Delete",
+                        tone: "destructive",
+                      })
+                    ) {
+                      deleteTool.mutate(tool.id);
+                    }
+                  }}
+                >
+                  <Trash2 size="0.8125rem" />
+                </button>
               </div>
-            ))
-          )}
-        </PanelSection>
-      )}
+            </div>
+          ))
+        )}
+      </PanelSection>
     </div>
   );
 }
