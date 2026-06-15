@@ -13,6 +13,7 @@ function storageGateway(): StorageGateway {
     update: vi.fn(),
     delete: vi.fn(),
     listChatMessages: vi.fn(),
+    getChatMessage: vi.fn(),
     createChatMessage: vi.fn(),
     updateChatMessage: vi.fn(),
     deleteChatMessage: vi.fn(),

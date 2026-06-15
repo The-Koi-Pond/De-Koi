@@ -49,6 +49,9 @@ function createBackfillHarness(messageCreatedAt: string, metadata: Record<string
             .filter(([key, value]) => key.startsWith("messages:") && (value as { chatId?: string }).chatId === chatId)
             .map(([, value]) => value);
         },
+        async getChatMessage(_messageId: string) {
+          return null;
+        },
         async patchChatSummaries(_chatId: string, summaries: { daySummaries?: Record<string, unknown> }) {
           patchedSummaries.push(summaries);
         },
