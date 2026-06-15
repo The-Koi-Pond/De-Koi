@@ -42,6 +42,9 @@ function promptStorage(): StorageGateway {
     async listChatMessages() {
       return [];
     },
+    async getChatMessage() {
+      return null;
+    },
     async createChatMessage() {
       throw new Error("createChatMessage should not be called");
     },
@@ -106,6 +109,9 @@ function commandStorage(): StorageGateway {
     },
     async listChatMessages() {
       return [];
+    },
+    async getChatMessage() {
+      return null;
     },
     async createChatMessage() {
       throw new Error("createChatMessage should not be called");

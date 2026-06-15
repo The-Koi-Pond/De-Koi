@@ -87,6 +87,9 @@ function commandStorage(args: {
     async listChatMessages() {
       return [];
     },
+    async getChatMessage() {
+      return null;
+    },
     async createChatMessage<T = unknown>(chatId: string, value: Record<string, unknown>) {
       if (!args.messages) throw new Error("createChatMessage should not be called");
       args.messages.push({ chatId, value });

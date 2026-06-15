@@ -4,7 +4,7 @@
 import { chatBackgroundMetadataToUrl } from "./backgrounds";
 import { planRoleplayScene, createRoleplayScene } from "../../engine/modes/roleplay/scene/scene-service";
 import { llmApi } from "../api/llm-api";
-import { storageApi } from "../api/storage-api";
+import { chatMetadataStorageApi, chatTranscriptStorageApi, storageApi } from "../api/storage-api";
 import { visualAssetsApi } from "../api/visual-assets-api";
 import { spriteApi } from "../api/image-generation-api";
 import { useChatStore } from "../stores/chat.store";
@@ -229,7 +229,7 @@ async function listSpriteExpressions(characterId: string): Promise<string[]> {
 async function setMessagesHidden(messageIds: string[], hidden: boolean) {
   await Promise.all(
     messageIds.map((messageId) =>
-      storageApi.patchChatMessageExtra(messageId, {
+      chatTranscriptStorageApi.patchChatMessageExtra(messageId, {
         hiddenFromAI: hidden,
         hiddenFromAi: hidden,
       }),
@@ -622,7 +622,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
       }
 
       if (/^(reset|clear|default)$/i.test(raw)) {
-        await storageApi.patchChatMetadata(ctx.chatId, { impersonatePrompt: null });
+        await chatMetadataStorageApi.patchChatMetadata(ctx.chatId, { impersonatePrompt: null });
         ctx.invalidate();
         return { handled: true, feedback: "Impersonate prompt reset to the default." };
       }
@@ -632,7 +632,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
         return { handled: true, feedback: "Please provide a prompt, or use /impersonate_prompt reset." };
       }
 
-      await storageApi.patchChatMetadata(ctx.chatId, { impersonatePrompt: prompt });
+      await chatMetadataStorageApi.patchChatMetadata(ctx.chatId, { impersonatePrompt: prompt });
       ctx.invalidate();
       return { handled: true, feedback: `Impersonate prompt updated:\n${prompt}` };
     },
@@ -659,7 +659,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
 
       setTimeout(async () => {
         try {
-          await storageApi.createChatMessage(chatId, {
+          await chatTranscriptStorageApi.createChatMessage(chatId, {
             role: "narrator",
             content: `⏰ **Reminder:** ${message}`,
           });
@@ -706,7 +706,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
 
       // If no prompt and no messages, guide the user
       if (!prompt) {
-        const msgs = await storageApi.listChatMessages<unknown>(ctx.chatId);
+        const msgs = await chatTranscriptStorageApi.listChatMessages<unknown>(ctx.chatId);
         if (!msgs || msgs.length === 0) {
           return {
             handled: true,
@@ -808,7 +808,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
         };
       }
 
-      const messages = await storageApi.listChatMessages<{ id: string; extra?: unknown }>(ctx.chatId);
+      const messages = await chatTranscriptStorageApi.listChatMessages<{ id: string; extra?: unknown }>(ctx.chatId);
       const total = messages.length;
       const max = indices[indices.length - 1]!;
       if (max > total) {
@@ -846,7 +846,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
         };
       }
 
-      const messages = await storageApi.listChatMessages<{ id: string; extra?: unknown }>(ctx.chatId);
+      const messages = await chatTranscriptStorageApi.listChatMessages<{ id: string; extra?: unknown }>(ctx.chatId);
       const total = messages.length;
       const max = indices[indices.length - 1]!;
       if (max > total) {

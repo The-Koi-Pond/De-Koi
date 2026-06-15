@@ -1,5 +1,5 @@
 import type { ChatMLMessage, GenerationParameters } from "../contracts/types/prompt";
-import type { StorageGateway } from "../capabilities/storage";
+import type { ChatMessageListOptions, StorageGateway } from "../capabilities/storage";
 import type { VisualAssetGateway } from "../capabilities/visual-assets";
 import { llmParameters, loadChatMessages, requireRecord, resolveGenerationConnection } from "./context";
 import { assembleGenerationPrompt } from "./prompt-assembly";
@@ -48,9 +48,7 @@ export interface PromptPreviewResult {
   } | null;
 }
 
-function promptPreviewMessageLoadOptions(
-  chat: Record<string, unknown>,
-): Parameters<StorageGateway["listChatMessages"]>[1] {
+function promptPreviewMessageLoadOptions(chat: Record<string, unknown>): ChatMessageListOptions {
   const chatLimit = readNumber(parseRecord(chat.metadata).contextMessageLimit, 0);
   const historyLimit = Math.max(1, Math.min(9999, chatLimit || 300));
   return { limit: Math.max(40, Math.min(340, historyLimit + 20)) };

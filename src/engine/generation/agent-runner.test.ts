@@ -40,6 +40,9 @@ function testStorage(agentRows: JsonRecord[], connections: JsonRecord[]): Storag
     async listChatMessages() {
       return [];
     },
+    async getChatMessage() {
+      return null;
+    },
     async createChatMessage() {
       throw new Error("createChatMessage should not be called");
     },

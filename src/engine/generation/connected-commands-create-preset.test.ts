@@ -39,6 +39,9 @@ function createStorage(): StorageGateway & { rows: Map<StorageEntity, Row[]> } {
     async listChatMessages<T = unknown>(): Promise<T[]> {
       return [];
     },
+    async getChatMessage<T = unknown>(): Promise<T | null> {
+      return null;
+    },
     async createChatMessage<T = unknown>(): Promise<T> {
       return {} as T;
     },
