@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 import { toast } from "sonner";
 import { useUIStore } from "../../stores/ui.store";
 
-const CHIBI_PROFESSOR_MARI_IMAGE = "/sprites/mari/chibi-professor-mari.png";
+const CHIBI_PROFESSOR_MARI_IMAGE = "/icon-192.png";
 const CHIBI_PROFESSOR_MARI_SEEN_KEY = "marinara:chibi-professor-mari-toast-seen";
 const CHIBI_PROFESSOR_MARI_ROLL_CHANCE = 0.001;
 const CHIBI_PROFESSOR_MARI_ROLL_COOLDOWN_MS = 3_000;
@@ -47,9 +47,7 @@ function showChibiProfessorMariToast() {
           }}
         />
         <div className="space-y-2 text-sm leading-relaxed">
-          <p>
-            If you see this image while scrolling through De-Koi, you've been visited by the rare Chibi Assistant!
-          </p>
+          <p>If you see this mark while scrolling through De-Koi, you've been visited by the rare Assistant!</p>
           <p>Good luck and fortune will come to you very soon. Make sure to say "thank you, Assistant!"</p>
           <p>Remember, you are loved and appreciated. Cheers!</p>
         </div>

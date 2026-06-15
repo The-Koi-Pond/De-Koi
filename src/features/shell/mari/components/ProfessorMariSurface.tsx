@@ -22,8 +22,8 @@ import type { AvatarCropValue } from "../../../../shared/lib/utils";
 import { cn, parseAvatarCropJson } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 
-const MARI_AVATAR_URL = "/sprites/mari/Mari_profile.png";
-const MARI_CHIBI_URL = "/sprites/mari/chibi-professor-mari.png";
+const MARI_AVATAR_URL = "/icon-192.png";
+const MARI_CHIBI_URL = "/logo.png";
 const MARI_CHARACTER_ID = "__professor_mari_shell__";
 const MARI_WELCOME_CONTENT =
   "Howdy, welcome to De-Koi!\n\nThe pond is calm, and I'm here to help you find your way. Feeling a little lost? It's not a skill issue yet! Ask me anything about how the app works, or have me edit it to fit what you need. Am I not the best? 😎";

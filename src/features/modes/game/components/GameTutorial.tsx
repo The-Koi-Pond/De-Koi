@@ -8,6 +8,8 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight } from "lucide-react";
 
+const ASSISTANT_MARK_URL = "/icon-192.png";
+
 // ─── Step definitions ─────────────────────────
 
 interface GameTutorialStep {
@@ -24,28 +26,28 @@ const STEPS: GameTutorialStep[] = [
     title: "Your Map",
     body: "This is the map of your current location. When it's your turn to act, you can click on one of the nodes to travel to the selected spot.",
     side: "right",
-    sprite: { src: "/sprites/mari/Mari_point_middle_left.png" },
+    sprite: { src: ASSISTANT_MARK_URL },
   },
   {
     target: "game-party",
     title: "Your Party",
     body: "This is your party. Click the portraits to inspect their character cards.",
     side: "bottom",
-    sprite: { src: "/sprites/mari/Mari_point_up_left.png" },
+    sprite: { src: ASSISTANT_MARK_URL },
   },
   {
     target: "game-controls",
     title: "Control Panel",
     body: "This is the control panel. Open the tutorial, view your history, end the session, view your journal, control the sound volume, open the gallery, re-try generations, and access settings here.",
     side: "left",
-    sprite: { src: "/sprites/mari/Mari_point_up_left.png", flip: true },
+    sprite: { src: ASSISTANT_MARK_URL },
   },
   {
     target: "game-dialogue",
     title: "Narration & Input",
     body: "This is where the narrative happens. Access old messages from logs, proceed by clicking the auto-play/next buttons. When it's your time to act, you will be presented with an input box. You may choose whether to address your party specifically or the GM in general. Have fun!",
     side: "top",
-    sprite: { src: "/sprites/mari/Mari_explaining.png" },
+    sprite: { src: ASSISTANT_MARK_URL },
   },
 ];
 

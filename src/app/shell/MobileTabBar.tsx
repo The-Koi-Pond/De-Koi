@@ -1,4 +1,4 @@
-import { LayoutGrid, MessageSquare } from "lucide-react";
+import { Bot, LayoutGrid, MessageSquare } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
 import { TOOLS_PANELS, type MobileToolsPanel } from "../../shared/components/mobile-shell-actions";
 import { useChatStore } from "../../shared/stores/chat.store";
@@ -134,14 +134,7 @@ export function MobileTabBar({
         <TabButton icon={<MessageSquare size="1.15rem" />} label="Chats" active={isChats} onClick={openChats} />
 
         <TabButton
-          icon={
-            <img
-              src="/sprites/mari/Mari_profile.png"
-              alt=""
-              className="h-[1.15rem] w-[1.15rem] rounded-[0.2rem] object-cover"
-              draggable={false}
-            />
-          }
+          icon={<Bot size="1.15rem" />}
           label="Assistant"
           active={isMari}
           onClick={openMari}

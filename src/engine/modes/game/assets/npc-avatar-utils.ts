@@ -1,27 +1,10 @@
 import type { GameNpc } from "../../../contracts/types/game";
 
-const BUILT_IN_MARI_AVATAR = "/sprites/mari/Mari_profile.png";
-
-function normalizeNpcName(name: string): string {
-  return name
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/'/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function isMariNpcName(name: unknown): boolean {
-  if (typeof name !== "string") return false;
-  const normalized = normalizeNpcName(name);
-  return normalized === "mari" || normalized === "professor mari";
-}
+const DEPRECATED_BUILT_IN_MARI_AVATAR = "/sprites/mari/Mari_profile.png";
 
 function isInvalidBuiltInMariNpcAvatar(npc: Pick<GameNpc, "name" | "avatarUrl">): boolean {
   const avatarPath = typeof npc.avatarUrl === "string" ? npc.avatarUrl.split("?")[0] : "";
-  return avatarPath === BUILT_IN_MARI_AVATAR && !isMariNpcName(npc.name);
+  return avatarPath === DEPRECATED_BUILT_IN_MARI_AVATAR;
 }
 
 export function sanitizeGameNpcAvatarUrls(npcs: GameNpc[]): GameNpc[] {

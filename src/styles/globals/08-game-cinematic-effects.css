@@ -936,12 +936,10 @@
 
 .mari-professor-pixel-sprite {
   position: absolute;
-  bottom: 15%;
-  width: clamp(8.25rem, 37%, 11rem);
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-  filter: drop-shadow(0.45rem 0.55rem 0 rgba(0, 0, 0, 0.2));
-  transform-origin: 52% 100%;
+  bottom: 19%;
+  width: clamp(8.5rem, 39%, 12rem);
+  filter: drop-shadow(0.35rem 0.45rem 0 rgba(0, 0, 0, 0.16));
+  transform-origin: 50% 100%;
   transform: translateY(0) rotate(-1deg);
 }
 
