@@ -6,6 +6,12 @@ import type {
   StorageGateway,
   StorageListOptions,
 } from "../../engine/capabilities/storage";
+import {
+  getStorageCollectionMetadata,
+  type StorageInvalidationRule,
+  type StorageManagedAssetKind,
+  type StorageReadJsonField,
+} from "../../engine/capabilities/storage-collections";
 import { collapseExcessBlankLines } from "../../engine/shared/text/newlines";
 import { ApiError } from "./api-errors";
 import {
@@ -62,31 +68,20 @@ function normalizeObjectField(
   }
 }
 
+function storageReadFieldFallback(field: StorageReadJsonField): Record<string, unknown> | null {
+  return field.kind === "object" && field.fallback === "empty-object" ? {} : null;
+}
+
 function normalizeStorageRecord(entity: StorageEntity, value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const record = { ...(value as Record<string, unknown>) };
 
-  switch (entity) {
-    case "chats":
-      for (const field of [
-        "characterIds",
-        "activeLorebookIds",
-        "activeAgentIds",
-        "activeToolIds",
-        "memories",
-        "notes",
-      ]) {
-        normalizeArrayField(record, field);
-      }
-      normalizeObjectField(record, "metadata", {});
-      normalizeObjectField(record, "gameState", null);
-      break;
-    case "messages":
-      for (const field of ["swipes", "images", "attachments"]) normalizeArrayField(record, field);
-      normalizeObjectField(record, "extra", {});
-      break;
-    default:
-      break;
+  for (const field of getStorageCollectionMetadata(entity).readJsonFields ?? []) {
+    if (field.kind === "array") {
+      normalizeArrayField(record, field.name);
+    } else {
+      normalizeObjectField(record, field.name, storageReadFieldFallback(field));
+    }
   }
 
   return record;
@@ -120,59 +115,27 @@ function storageWriteInvalidationKinds(
   entity: StorageEntity,
   value?: Record<string, unknown>,
 ): RemoteManagedAssetKind[] {
-  switch (entity) {
-    case "gallery":
-    case "character-gallery":
-    case "persona-gallery":
-    case "global-gallery":
-      return ["gallery"];
-    case "background-metadata":
-      return ["background"];
-    case "lorebooks":
-    case "lorebook-entries":
-      return value && ("image" in value || "imagePath" in value || "imageFilename" in value) ? ["lorebook"] : [];
-    case "agents":
-    case "connections":
-      return value && ("image" in value || "imagePath" in value || "imageFilename" in value) ? ["entity-image"] : [];
-    case "characters":
-      return value && ("avatarPath" in value || "avatarFilePath" in value || "avatarFilename" in value)
-        ? ["avatar", "avatar-thumbnail"]
-        : [];
-    case "personas":
-      return value && ("avatarPath" in value || "avatarFilePath" in value || "avatarFilename" in value)
-        ? ["avatar", "avatar-thumbnail"]
-        : [];
-    case "sprites":
-      return ["sprite"];
-    default:
-      return [];
-  }
+  return storageInvalidationKinds(getStorageCollectionMetadata(entity).writeInvalidation, value);
 }
 
 function storageDeleteInvalidationKinds(entity: StorageEntity): RemoteManagedAssetKind[] {
-  switch (entity) {
-    case "gallery":
-    case "character-gallery":
-    case "persona-gallery":
-    case "global-gallery":
-      return ["gallery"];
-    case "background-metadata":
-      return ["background"];
-    case "lorebooks":
-    case "lorebook-entries":
-      return ["lorebook"];
-    case "agents":
-    case "connections":
-      return ["entity-image"];
-    case "characters":
-      return ["avatar", "avatar-thumbnail", "gallery", "sprite"];
-    case "personas":
-      return ["avatar", "avatar-thumbnail", "gallery", "sprite"];
-    case "sprites":
-      return ["sprite"];
-    default:
-      return [];
+  return toRemoteManagedAssetKinds(getStorageCollectionMetadata(entity).deleteInvalidation ?? []);
+}
+
+function storageInvalidationKinds(
+  rules: readonly StorageInvalidationRule[] | undefined,
+  value?: Record<string, unknown>,
+): RemoteManagedAssetKind[] {
+  const kinds = new Set<StorageManagedAssetKind>();
+  for (const rule of rules ?? []) {
+    if (rule.whenAnyField && (!value || !rule.whenAnyField.some((field) => field in value))) continue;
+    for (const kind of rule.kinds) kinds.add(kind);
   }
+  return toRemoteManagedAssetKinds(Array.from(kinds));
+}
+
+function toRemoteManagedAssetKinds(kinds: readonly StorageManagedAssetKind[]): RemoteManagedAssetKind[] {
+  return [...kinds] as RemoteManagedAssetKind[];
 }
 
 function normalizeStorageReadResult(entity: StorageEntity, value: unknown): unknown {
