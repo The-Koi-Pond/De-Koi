@@ -1380,6 +1380,7 @@ dependencies = [
  "marinara-core",
  "marinara-llm",
  "marinara-security",
+ "marinara-sidecar",
  "marinara-storage",
  "pdf-extract",
  "png 0.18.1",
@@ -3244,6 +3245,22 @@ dependencies = [
  "regex",
  "serde_json",
  "url",
+]
+
+[[package]]
+name = "marinara-sidecar"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "flate2",
+ "marinara-core",
+ "rand 0.10.1",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tar",
+ "tokio",
+ "zip",
 ]
 
 [[package]]
