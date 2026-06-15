@@ -165,6 +165,10 @@ import {
   type GameTimeMeta,
   type StoredNarrationProgress,
 } from "../lib/game-surface-helpers";
+import {
+  processLatestSceneAssistantMessage,
+  scheduleSceneAssistantProcessing,
+} from "../lib/game-scene-message-processing";
 import { ActiveWorldInfoButton, ActiveWorldInfoModal } from "../../../runtime/visuals/index";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import type { Chat, Message } from "../../../../engine/contracts/types/chat";
@@ -2878,21 +2882,23 @@ export function GameSurface({
   // Keep the processing function fresh on every render so it captures current closure values
   processSceneRef.current = () => {
     // Read from ref, NOT closure — the Zustand subscription fires before React re-renders
-    const msg = latestAssistantMsgRef.current;
-    if (!msg?.content) {
-      console.warn("[scene-process] No message content yet, skipping");
-      return;
-    }
-    if (lastProcessedMsgRef.current === msg.id) return;
-    if (isRestoredRef.current) {
-      lastProcessedMsgRef.current = msg.id;
-      return;
-    }
+    const sceneProcessOutcome = processLatestSceneAssistantMessage({
+      latestMessage: latestAssistantMsgRef.current,
+      lastProcessedMessageId: lastProcessedMsgRef.current,
+      isRestored: isRestoredRef.current,
+      markProcessed: (messageId) => {
+        lastProcessedMsgRef.current = messageId;
+      },
+      processMessage: () => {},
+    });
+    if (!sceneProcessOutcome.messageToProcess) return;
 
+    const msg = sceneProcessOutcome.messageToProcess;
     const assets = getScopedAssetMap();
 
-    console.warn("[scene-process] FIRING for message:", msg.id, "| assets:", !!assets);
-    lastProcessedMsgRef.current = msg.id;
+    if (useUIStore.getState().debugMode) {
+      console.debug("[scene-process] processing message", msg.id, { hasAssets: !!assets });
+    }
     setNarrationDoneMsgId(null);
     setSceneAnalysisFailed(false);
     setPartyDialogue([]);
@@ -3104,12 +3110,16 @@ export function GameSurface({
     }
 
     if (directAddressMode) {
-      console.warn("[scene-wrapup] skipping scene analysis for direct %s address", directAddressMode);
+      if (useUIStore.getState().debugMode) {
+        console.debug("[scene-wrapup] skipping scene analysis for direct %s address", directAddressMode);
+      }
       markSceneReady(msg.id);
       return;
     }
 
-    console.warn("[scene-wrapup] path:", sceneConnId ? "connection" : "inline-only");
+    if (useUIStore.getState().debugMode) {
+      console.debug("[scene-wrapup] path:", sceneConnId ? "connection" : "inline-only");
+    }
     // Only send assets the LLM actually picks from: backgrounds (capped 50) and SFX (capped 50).
     // Music and ambient are handled by deterministic server-side scoring — not sent.
     const assetKeys = Object.keys(assets ?? {});
@@ -3298,8 +3308,8 @@ export function GameSurface({
   }
 
   async function applySceneResult(result: SceneAnalysis, msg: { id: string }) {
-    if (import.meta.env.DEV) {
-      console.log("[scene-analysis] Result from model:", JSON.stringify(result, null, 2));
+    if (useUIStore.getState().debugMode) {
+      console.debug("[scene-analysis] Result from model:", JSON.stringify(result, null, 2));
     }
     setSceneAnalysisFailed(false);
     // NOTE: Game state transitions are owned exclusively by the GM model via [state: ...] tags.
@@ -3548,20 +3558,24 @@ export function GameSurface({
     const handler = (e: Event) => {
       const chatId = (e as CustomEvent).detail?.chatId;
       if (chatId !== activeChatId) return;
-      console.warn("[scene-process] generation-complete event received for chat:", chatId);
+      if (useUIStore.getState().debugMode) {
+        console.debug("[scene-process] generation-complete event received for chat:", chatId);
+      }
       // Wait one animation frame so React commits the new messages → ref is fresh
-      requestAnimationFrame(() => {
-        const tryProcess = (attempt: number) => {
-          const msg = latestAssistantMsgRef.current;
-          if (msg?.content && lastProcessedMsgRef.current !== msg.id) {
-            processSceneRef.current?.();
-          } else if (attempt < 10) {
-            setTimeout(() => tryProcess(attempt + 1), 200);
-          } else {
-            console.warn("[scene-process] Gave up waiting for message after generation-complete");
+      scheduleSceneAssistantProcessing({
+        getLatestMessage: () => latestAssistantMsgRef.current,
+        getLastProcessedMessageId: () => lastProcessedMsgRef.current,
+        processLatestMessage: () => {
+          processSceneRef.current?.();
+        },
+        requestFrame: (callback) => requestAnimationFrame(callback),
+        retryAlreadyProcessed: true,
+        setDelay: (callback, delayMs) => setTimeout(callback, delayMs),
+        onTimeout: (timeout) => {
+          if (useUIStore.getState().debugMode) {
+            console.debug("[scene-process] assistant message did not arrive after generation-complete", timeout);
           }
-        };
-        tryProcess(0);
+        },
       });
     };
     window.addEventListener("marinara:generation-complete", handler);
@@ -3572,8 +3586,6 @@ export function GameSurface({
   // such as session-start recaps and session-conclude summary messages.
   useEffect(() => {
     if (isMessagesLoading || isStreaming) return;
-    if (!latestAssistantMsg?.content) return;
-    if (lastProcessedMsgRef.current === latestAssistantMsg.id) return;
     processSceneRef.current?.();
   }, [isMessagesLoading, isStreaming, latestAssistantMsg?.content, latestAssistantMsg?.id, processSceneRef]);
 
