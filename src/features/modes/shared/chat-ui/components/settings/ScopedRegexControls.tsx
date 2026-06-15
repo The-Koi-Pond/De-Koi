@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { cn } from "../../../../../../shared/lib/utils";
-import { regexScriptTargetCharacterIds, type RegexScriptRow } from "../../../../../catalog/agents/index";
+import { regexScriptTargetCharacterIds, type RegexScriptRow } from "../../../../../catalog/regex-scripts/index";
 
 export function ScopedRegexModeSelector({
   mode,

@@ -140,15 +140,8 @@ import {
 import type { AgentPhase } from "../../../../../engine/contracts/types/agent";
 import type { Chat, ChatMode } from "../../../../../engine/contracts/types/chat";
 import type { ChatPreset, ChatPresetSettings } from "../../../../../engine/contracts/types/chat-preset";
-import {
-  useAgentConfigs,
-  useCreateAgent,
-  useRegexScripts,
-  useUpdateAgent,
-  useUpdateRegexScript,
-  isRegexScriptScoped,
-  type AgentConfigRow,
-} from "../../../../catalog/agents/index";
+import { useAgentConfigs, useCreateAgent, useUpdateAgent, type AgentConfigRow } from "../../../../catalog/agents/index";
+import { isRegexScriptScoped, useRegexScripts, useUpdateRegexScript } from "../../../../catalog/regex-scripts/index";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
 import { DEFAULT_AGENT_PROMPTS } from "../../../../../engine/contracts/constants/agent-prompts";
 import { LIMITS } from "../../../../../engine/contracts/constants/defaults";

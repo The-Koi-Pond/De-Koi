@@ -26,10 +26,13 @@ import {
   type PreparedManagedImageAttachments,
 } from "../../../../../shared/api/message-attachment-api";
 import { useGenerate } from "../../../../runtime/generation/index";
-import { readScopedRegexMode, useApplyRegex } from "../../../../catalog/agents/regex-application";
+import { readScopedRegexMode, useApplyRegex } from "../../../../catalog/regex-scripts/regex-application";
 import { useCreateMessage, useDeleteMessage, useUpdateMessageExtra, chatKeys } from "../../../../catalog/chats/index";
 import { characterKeys } from "../../../../catalog/characters/index";
-import { invalidateGalleryImagesForChat, invalidateGalleryImagesForManagedAttachments } from "../../../../catalog/gallery/index";
+import {
+  invalidateGalleryImagesForChat,
+  invalidateGalleryImagesForManagedAttachments,
+} from "../../../../catalog/gallery/index";
 import { personaKeys } from "../../../../catalog/personas/index";
 import type { Message } from "../../../../../engine/contracts/types/chat";
 import { buildGuidedGenerationInstructionMessage } from "../../../../../engine/shared/text/generation-guide";

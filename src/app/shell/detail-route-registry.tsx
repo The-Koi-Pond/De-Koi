@@ -29,7 +29,7 @@ const PersonaEditor = lazy(() =>
   import("../../features/catalog/personas/shell").then((module) => ({ default: module.PersonaEditor })),
 );
 const RegexScriptEditor = lazy(() =>
-  import("../../features/catalog/agents/shell").then((module) => ({
+  import("../../features/catalog/regex-scripts/shell").then((module) => ({
     default: module.RegexScriptEditor,
   })),
 );

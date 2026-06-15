@@ -88,6 +88,17 @@
     "coverage": "core"
   },
   {
+    "id": "regex-scripts",
+    "title": "Regex Scripts",
+    "category": "Advanced",
+    "summary": "Manage SillyTavern-style find/replace scripts that transform user input, AI output, or prompt-only text.",
+    "keywords": ["regex", "regex scripts", "find replace", "sillytavern regex", "user input", "ai output", "prompt only", "scoped regex"],
+    "audience": "Power users importing scoped scripts from cards or customizing text before it is sent, displayed, or assembled into prompts.",
+    "where": "Title bar > Presets > Regexes, plus scoped regex controls in per-chat settings.",
+    "actions": [{ "type": "open-panel", "panel": "presets", "label": "Open Regexes" }],
+    "coverage": "advanced"
+  },
+  {
     "id": "connections",
     "title": "Connections",
     "category": "Getting started",

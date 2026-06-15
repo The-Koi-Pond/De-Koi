@@ -31,7 +31,7 @@ import {
   type PreparedManagedImageAttachments,
 } from "../../../../shared/api/message-attachment-api";
 import { useGenerate } from "../../../runtime/generation/index";
-import { readScopedRegexMode, useApplyRegex } from "../../../catalog/agents/regex-application";
+import { readScopedRegexMode, useApplyRegex } from "../../../catalog/regex-scripts/regex-application";
 import {
   useCreateMessage,
   useDeleteMessage,
@@ -40,7 +40,10 @@ import {
   chatKeys,
 } from "../../../catalog/chats/index";
 import { characterKeys } from "../../../catalog/characters/index";
-import { invalidateGalleryImagesForChat, invalidateGalleryImagesForManagedAttachments } from "../../../catalog/gallery/index";
+import {
+  invalidateGalleryImagesForChat,
+  invalidateGalleryImagesForManagedAttachments,
+} from "../../../catalog/gallery/index";
 import {
   personaKeys,
   useActivePersonaSummary,
