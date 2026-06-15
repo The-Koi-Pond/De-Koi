@@ -4,6 +4,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../shared/lib/utils";
 import { regexScriptTargetCharacterIds } from "../lib/regex-script-filter";
+import { parseRegexScriptImportPayloads } from "../lib/regex-script-import";
 import {
   useCreateRegexScript,
   useDeleteRegexScript,
@@ -19,19 +20,6 @@ type RegexScriptsSectionProps = {
   defaultOpen?: boolean;
   className?: string;
 };
-
-function uniqueStringArray(value: unknown): string[] {
-  const raw = Array.isArray(value) ? value : typeof value === "string" && value.trim() ? [value] : [];
-  return Array.from(
-    new Set(raw.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)),
-  );
-}
-
-function importedRegexTargetCharacterIds(obj: Record<string, unknown>): string[] {
-  const multiTargetIds = uniqueStringArray(obj.targetCharacterIds);
-  if (multiTargetIds.length > 0) return multiTargetIds;
-  return uniqueStringArray(obj.characterId);
-}
 
 export function RegexScriptsSection({
   title = "Regex Scripts",
@@ -67,55 +55,11 @@ export function RegexScriptsSection({
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
-      const arr = Array.isArray(parsed) ? parsed : [parsed];
-      if (arr.length === 0) throw new Error("No regex scripts found in file");
-      let imported = 0;
-      for (const obj of arr) {
-        if (!obj || typeof obj !== "object" || Array.isArray(obj)) continue;
-        const row = obj as Record<string, unknown>;
-        const name = row.name || row.scriptName;
-        let findRegex = typeof row.findRegex === "string" ? row.findRegex : "";
-        let flags = typeof row.flags === "string" ? row.flags : "gi";
-        const delimited = findRegex.match(/^\/(.+)\/([gimsuy]*)$/s);
-        if (delimited) {
-          findRegex = delimited[1] ?? "";
-          flags = delimited[2] || "g";
-        }
-        if (!name || !findRegex) continue;
-
-        const stPlacementMap: Record<number, string> = { 1: "user_input", 2: "ai_output" };
-        let placement: string[] = ["ai_output"];
-        if (Array.isArray(row.placement)) {
-          const mapped = row.placement
-            .map((p: unknown) => (typeof p === "number" ? stPlacementMap[p] : p))
-            .filter((p: unknown): p is string => p === "ai_output" || p === "user_input");
-          if (mapped.length > 0) placement = mapped;
-        }
-
-        let enabled = true;
-        if (typeof row.enabled === "boolean") enabled = row.enabled;
-        else if (typeof row.enabled === "string") enabled = row.enabled !== "false";
-        else if (typeof row.disabled === "boolean") enabled = !row.disabled;
-        const targetCharacterIds = importedRegexTargetCharacterIds(row);
-
-        await createRegexScript.mutateAsync({
-          name,
-          enabled,
-          findRegex,
-          characterId: targetCharacterIds[0] ?? null,
-          targetCharacterIds,
-          replaceString: row.replaceString ?? "",
-          trimStrings: row.trimStrings ?? [],
-          placement,
-          flags,
-          promptOnly: row.promptOnly ?? false,
-          order: row.order ?? 0,
-          minDepth: row.minDepth ?? null,
-          maxDepth: row.maxDepth ?? null,
-        });
-        imported++;
+      const payloads = parseRegexScriptImportPayloads(parsed);
+      for (const payload of payloads) {
+        await createRegexScript.mutateAsync(payload);
       }
-      setImportSuccess(`Imported ${imported} regex script(s).`);
+      setImportSuccess(`Imported ${payloads.length} regex script(s).`);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Failed to import regex scripts");
     }
