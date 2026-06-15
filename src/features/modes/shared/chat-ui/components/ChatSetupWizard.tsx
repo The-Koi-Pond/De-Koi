@@ -60,6 +60,8 @@ import {
   type EditableGenerationParameters,
 } from "../../../../../shared/components/ui/GenerationParametersEditor";
 
+const ASSISTANT_MARK_URL = "/icon-192.png";
+
 // ─── Step definitions ─────────────────────────
 
 interface WizardStep {
@@ -76,32 +78,31 @@ const ALL_STEPS: WizardStep[] = [
     key: "connection",
     title: "Choose a Connection",
     body: "Which AI provider should this chat use? If you haven't set one up yet, you can do that from the Connections panel.",
-    sprite: "/sprites/mari/Mari_explaining.png",
+    sprite: ASSISTANT_MARK_URL,
   },
   {
     key: "preset",
     title: "Pick a Preset",
     body: "Presets control the system prompt structure and generation parameters. The default preset works great for most chats!",
-    sprite: "/sprites/mari/Mari_thinking.png",
+    sprite: ASSISTANT_MARK_URL,
   },
   {
     key: "persona",
     title: "Select Your Persona",
     body: "Your persona tells the AI who you are. Pick one or skip to stay anonymous.",
-    sprite: "/sprites/mari/Mari_greet.png",
+    sprite: ASSISTANT_MARK_URL,
   },
   {
     key: "characters",
     title: "Add Characters",
     body: "Characters bring your chat to life! Add one or more characters for the AI to roleplay as.",
-    sprite: "/sprites/mari/Mari_point_middle_left.png",
+    sprite: ASSISTANT_MARK_URL,
   },
   {
     key: "lorebooks",
     title: "Attach Lorebooks",
     body: "Lorebooks inject world info and lore into the AI's context when relevant keywords appear. Optional but great for rich worlds!",
-    sprite: "/sprites/mari/Mari_point_up_left.png",
-    spriteFlip: true,
+    sprite: ASSISTANT_MARK_URL,
   },
 ];
 
