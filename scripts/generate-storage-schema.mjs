@@ -9,7 +9,6 @@ const sourceRows = [
   ["Storage engine", "`src-tauri/crates/storage/src/lib.rs`"],
   ["Collection contract list", "`src-tauri/src/commands/storage/contracts.rs`"],
   ["Frontend storage gateway", "`src/engine/capabilities/storage.ts`"],
-  ["Frontend collection manifest", "`src/engine/capabilities/storage-collections.ts`"],
   ["Frontend runtime wrapper", "`src/shared/api/storage-api.ts`"],
   ["Domain TypeScript types", "`src/engine/contracts/types/*`"],
   ["Runtime validation schemas", "`src/engine/contracts/schemas/*`"],
@@ -419,9 +418,8 @@ ${table(["Label", "Meaning"], confidenceRows)}
 - All normal collection rows are JSON objects with \`id\`, \`createdAt\`, and \`updatedAt\` available after a storage \`create\`.
 - Collection names are validated before file access.
 - Relationships are conventional IDs stored in fields such as \`chatId\`, \`characterId\`, \`lorebookId\`, or \`folderId\`; cleanup is implemented by storage commands, not by database constraints.
-- Generic frontend CRUD uses \`StorageEntity\` from \`src/engine/capabilities/storage.ts\`, derived from the checked manifest in \`src/engine/capabilities/storage-collections.ts\`.
-- \`message-swipes\` is internal sidecar storage. It is in the Rust profile contract but explicitly marked internal-only in the frontend manifest and intentionally blocked from generic frontend mutation.
-- \`pnpm check:storage-contracts\` fails when the Rust storage collection registry and TypeScript storage manifest drift.
+- Generic frontend CRUD uses \`StorageEntity\` from \`src/engine/capabilities/storage.ts\`.
+- \`message-swipes\` is internal sidecar storage. It is in the Rust profile contract but intentionally blocked from generic frontend mutation.
 - Profile export/import uses every \`contracts::profile_collections()\` entry. Modern profile imports skip absent collections so a partial package does not wipe unrelated local collections.
 
 ## Collection Catalog
