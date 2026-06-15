@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, type DragEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { User } from "lucide-react";
 
@@ -23,6 +23,9 @@ export function CharactersListSection({
   hasActiveChat,
   isAssigning,
   assigningGroup,
+  canDragCharacters,
+  draggedCharacterId,
+  isRootDropTarget,
   onRetry,
   onToggleSelection,
   onToggleGroupMember,
@@ -32,6 +35,11 @@ export function CharactersListSection({
   onDuplicateCharacter,
   onDeleteCharacter,
   onToggleIncludedTag,
+  onCharacterDragStart,
+  onCharacterDragEnd,
+  onCharacterRootDragOver,
+  onCharacterDragLeave,
+  onCharacterRootDrop,
 }: {
   characters: ParsedCharacterRow[];
   filteredCount: number;
@@ -46,6 +54,9 @@ export function CharactersListSection({
   hasActiveChat: boolean;
   isAssigning: boolean;
   assigningGroup: CharacterListRowAssigningGroup | null;
+  canDragCharacters: boolean;
+  draggedCharacterId: string | null;
+  isRootDropTarget: boolean;
   onRetry: () => void;
   onToggleSelection: (characterId: string) => void;
   onToggleGroupMember: (groupId: string, memberId: string, memberIds: string[]) => void;
@@ -55,6 +66,11 @@ export function CharactersListSection({
   onDuplicateCharacter: (character: ParsedCharacterRow) => void;
   onDeleteCharacter: (character: ParsedCharacterRow) => void;
   onToggleIncludedTag: (tag: string) => void;
+  onCharacterDragStart: (event: DragEvent<HTMLDivElement>, characterId: string) => void;
+  onCharacterDragEnd: () => void;
+  onCharacterRootDragOver: (event: DragEvent<HTMLDivElement>) => void;
+  onCharacterDragLeave: (event: DragEvent<HTMLDivElement>) => void;
+  onCharacterRootDrop: (event: DragEvent<HTMLDivElement>) => void;
 }) {
   const listScrollRef = useRef<HTMLDivElement | null>(null);
   const rowVirtualizer = useVirtualizer({
@@ -104,7 +120,20 @@ export function CharactersListSection({
         </div>
       )}
 
-      <div ref={listScrollRef} className="max-h-[min(52vh,34rem)] overflow-y-auto pr-1">
+      <div
+        ref={listScrollRef}
+        data-character-group-root
+        onDragOver={onCharacterRootDragOver}
+        onDragLeave={onCharacterDragLeave}
+        onDrop={onCharacterRootDrop}
+        className={[
+          "max-h-[min(52vh,34rem)] overflow-y-auto rounded-xl pr-1 transition-colors",
+          draggedCharacterId ? "min-h-8" : "",
+          isRootDropTarget ? "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
             const character = characters[virtualRow.index];
@@ -128,6 +157,8 @@ export function CharactersListSection({
                   selectionMode={selectionMode}
                   isAssigning={isAssigning}
                   assigningGroup={assigningGroup}
+                  draggable={canDragCharacters}
+                  isDragging={draggedCharacterId === character.id}
                   onToggleSelection={onToggleSelection}
                   onToggleGroupMember={onToggleGroupMember}
                   onOpenCharacterDetail={onOpenCharacterDetail}
@@ -136,6 +167,8 @@ export function CharactersListSection({
                   onDuplicateCharacter={onDuplicateCharacter}
                   onDeleteCharacter={onDeleteCharacter}
                   onToggleIncludedTag={onToggleIncludedTag}
+                  onCharacterDragStart={onCharacterDragStart}
+                  onCharacterDragEnd={onCharacterDragEnd}
                 />
               </div>
             );

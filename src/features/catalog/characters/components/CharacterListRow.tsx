@@ -1,3 +1,4 @@
+import type { DragEvent } from "react";
 import { Check, Copy, Hash, Trash2, User, X } from "lucide-react";
 
 import { getCharacterTitle } from "../../../../shared/lib/character-display";
@@ -31,6 +32,8 @@ export function CharacterListRow({
   selectionMode,
   isAssigning,
   assigningGroup,
+  draggable,
+  isDragging,
   onToggleSelection,
   onToggleGroupMember,
   onOpenCharacterDetail,
@@ -39,6 +42,8 @@ export function CharacterListRow({
   onDuplicateCharacter,
   onDeleteCharacter,
   onToggleIncludedTag,
+  onCharacterDragStart,
+  onCharacterDragEnd,
 }: {
   character: ParsedCharacterRow;
   hasActiveChat: boolean;
@@ -47,6 +52,8 @@ export function CharacterListRow({
   selectionMode: boolean;
   isAssigning: boolean;
   assigningGroup: CharacterListRowAssigningGroup | null;
+  draggable: boolean;
+  isDragging: boolean;
   onToggleSelection: (characterId: string) => void;
   onToggleGroupMember: (groupId: string, memberId: string, memberIds: string[]) => void;
   onOpenCharacterDetail: (characterId: string) => void;
@@ -55,6 +62,8 @@ export function CharacterListRow({
   onDuplicateCharacter: (character: ParsedCharacterRow) => void;
   onDeleteCharacter: (character: ParsedCharacterRow) => void;
   onToggleIncludedTag: (tag: string) => void;
+  onCharacterDragStart: (event: DragEvent<HTMLDivElement>, characterId: string) => void;
+  onCharacterDragEnd: () => void;
 }) {
   const charName = getText(character.parsed.name) || "Unnamed";
   const charTitle = getCharacterTitle({ name: charName, comment: character.comment });
@@ -83,8 +92,11 @@ export function CharacterListRow({
     <div
       role="button"
       tabIndex={0}
+      draggable={draggable}
       aria-label={rowActionLabel}
       onClick={activateRow}
+      onDragStart={(event) => onCharacterDragStart(event, character.id)}
+      onDragEnd={onCharacterDragEnd}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
         if (event.key !== "Enter" && event.key !== " ") return;
@@ -108,6 +120,7 @@ export function CharacterListRow({
         isSelected && !isAssigning && "ring-1 ring-[var(--primary)]/40 bg-[var(--primary)]/5",
         isAssigning && isInTargetGroup && "ring-1 ring-violet-500/50 bg-violet-500/10",
         isAssigning && !isInTargetGroup && "opacity-60 hover:opacity-100",
+        isDragging && "opacity-55 ring-1 ring-[var(--primary)]/30",
       )}
     >
       {selectionMode && (

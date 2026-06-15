@@ -12,12 +12,21 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useRef } from "react";
+import { useRef, type DragEvent } from "react";
 
 import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../../shared/lib/utils";
 import { PersonaAvatarImage } from "../PersonaAvatarImage";
 import type { PersonaPanelGroup, PersonaPanelRow } from "../../lib/personas-panel-model";
+
+export type PersonaGroupDropTarget = { kind: "group"; groupId: string } | { kind: "root" };
+
+function isPersonaGroupDropTarget(current: PersonaGroupDropTarget | null, target: PersonaGroupDropTarget): boolean {
+  if (!current) return false;
+  if (current.kind !== target.kind) return false;
+  if (current.kind === "root") return true;
+  return target.kind === "group" && current.groupId === target.groupId;
+}
 
 interface PersonaGroupsSectionProps {
   groups: PersonaPanelGroup[];
@@ -29,6 +38,9 @@ interface PersonaGroupsSectionProps {
   editingGroupId: string | null;
   editGroupName: string;
   assigningToGroup: string | null;
+  draggedPersonaId: string | null;
+  personaDropTarget: PersonaGroupDropTarget | null;
+  canDragPersonas: boolean;
   onGroupsExpandedChange: (value: boolean) => void;
   onExpandedGroupIdChange: (groupId: string | null) => void;
   onCreatingGroupChange: (value: boolean) => void;
@@ -40,6 +52,11 @@ interface PersonaGroupsSectionProps {
   onRenameGroup: (groupId: string) => void;
   onDeleteGroup: (groupId: string) => void;
   onToggleGroupMember: (groupId: string, personaId: string, currentMembers: string[]) => void;
+  onPersonaDragStart: (event: DragEvent<HTMLDivElement>, personaId: string, sourceGroupId: string | null) => void;
+  onPersonaDragEnd: () => void;
+  onPersonaDragOver: (event: DragEvent<HTMLDivElement>, target: PersonaGroupDropTarget) => void;
+  onPersonaDragLeave: (event: DragEvent<HTMLDivElement>) => void;
+  onPersonaDrop: (event: DragEvent<HTMLDivElement>, groupId: string | null) => void;
   onExitSelectionMode: () => void;
 }
 
@@ -53,6 +70,9 @@ export function PersonaGroupsSection({
   editingGroupId,
   editGroupName,
   assigningToGroup,
+  draggedPersonaId,
+  personaDropTarget,
+  canDragPersonas,
   onGroupsExpandedChange,
   onExpandedGroupIdChange,
   onCreatingGroupChange,
@@ -64,6 +84,11 @@ export function PersonaGroupsSection({
   onRenameGroup,
   onDeleteGroup,
   onToggleGroupMember,
+  onPersonaDragStart,
+  onPersonaDragEnd,
+  onPersonaDragOver,
+  onPersonaDragLeave,
+  onPersonaDrop,
   onExitSelectionMode,
 }: PersonaGroupsSectionProps) {
   const skipRenameOnBlurRef = useRef(false);
@@ -129,8 +154,22 @@ export function PersonaGroupsSection({
             {groups.map((group) => {
               const isExpanded = expandedGroupId === group.id;
               const isSynthetic = group.isSynthetic === true;
+              const groupDropTarget: PersonaGroupDropTarget = isSynthetic
+                ? { kind: "root" }
+                : { kind: "group", groupId: group.id };
+              const isDropTarget = isPersonaGroupDropTarget(personaDropTarget, groupDropTarget);
               return (
-                <div key={group.id} className="rounded-xl bg-[var(--secondary)]/60 ring-1 ring-[var(--border)]/50">
+                <div
+                  key={group.id}
+                  onDragOver={(event) => onPersonaDragOver(event, groupDropTarget)}
+                  onDragLeave={onPersonaDragLeave}
+                  onDrop={(event) => onPersonaDrop(event, isSynthetic ? null : group.id)}
+                  className={cn(
+                    "rounded-xl bg-[var(--secondary)]/60 ring-1 ring-[var(--border)]/50 transition-colors",
+                    draggedPersonaId && "ring-inset",
+                    isDropTarget && "bg-[var(--sidebar-accent)]/45 ring-[var(--primary)]/25",
+                  )}
+                >
                   <div className="flex items-center gap-1.5 px-2.5 py-2">
                     <button
                       onClick={() => onExpandedGroupIdChange(isExpanded ? null : group.id)}
@@ -231,7 +270,16 @@ export function PersonaGroupsSection({
                             const persona = personaMap.get(personaId);
                             if (!persona) return null;
                             return (
-                              <div key={personaId} className="flex items-center gap-2 rounded-lg px-1 py-1 text-xs">
+                              <div
+                                key={personaId}
+                                draggable={canDragPersonas}
+                                onDragStart={(event) => onPersonaDragStart(event, personaId, isSynthetic ? null : group.id)}
+                                onDragEnd={onPersonaDragEnd}
+                                className={cn(
+                                  "flex items-center gap-2 rounded-lg px-1 py-1 text-xs",
+                                  draggedPersonaId === personaId && "opacity-55 ring-1 ring-[var(--primary)]/30",
+                                )}
+                              >
                                 <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
                                   {persona.avatarPath ? (
                                     <PersonaAvatarImage
