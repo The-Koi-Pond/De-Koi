@@ -152,6 +152,15 @@ export function formatRegexScriptImportResult(result: RegexScriptImportWriteResu
   return parts.join(" ");
 }
 
+export function reconcileRegexScriptImportPendingSignatures(
+  pendingSignatures: Set<string>,
+  durableScripts?: RegexScriptImportComparable[],
+): void {
+  for (const script of durableScripts ?? []) {
+    pendingSignatures.delete(regexScriptImportSignature(script));
+  }
+}
+
 function formatRegexScriptImportError(result: RegexScriptImportWriteResult, cause: unknown): string {
   const message = cause instanceof Error ? cause.message : "Failed to import regex scripts";
   return [
@@ -166,15 +175,15 @@ function formatRegexScriptImportError(result: RegexScriptImportWriteResult, caus
 export async function writeRegexScriptImportPayloads({
   payloads,
   existingScripts,
-  seenSignatures,
+  pendingSignatures,
   create,
 }: {
   payloads: CreateRegexScriptInput[];
   existingScripts?: RegexScriptImportComparable[];
-  seenSignatures?: Set<string>;
+  pendingSignatures?: Set<string>;
   create: (payload: CreateRegexScriptInput) => Promise<unknown>;
 }): Promise<RegexScriptImportWriteResult> {
-  const seen = seenSignatures ?? new Set<string>();
+  const seen = new Set(pendingSignatures);
   for (const script of existingScripts ?? []) {
     seen.add(regexScriptImportSignature(script));
   }
@@ -192,6 +201,7 @@ export async function writeRegexScriptImportPayloads({
       await create(payload);
       created++;
       seen.add(signature);
+      pendingSignatures?.add(signature);
     } catch (error) {
       throw new RegexScriptImportWriteError(
         {

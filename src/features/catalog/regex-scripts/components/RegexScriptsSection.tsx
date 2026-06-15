@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { ChevronDown, GripVertical, Pencil, Plus, Regex, ToggleLeft, ToggleRight, Trash2, Upload } from "lucide-react";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
@@ -7,6 +7,7 @@ import { regexScriptTargetCharacterIds } from "../lib/regex-script-filter";
 import {
   formatRegexScriptImportResult,
   parseRegexScriptImportPayloads,
+  reconcileRegexScriptImportPendingSignatures,
   writeRegexScriptImportPayloads,
 } from "../lib/regex-script-import";
 import {
@@ -41,12 +42,16 @@ export function RegexScriptsSection({
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [draggedRegexId, setDraggedRegexId] = useState<string | null>(null);
   const [regexDragReadyId, setRegexDragReadyId] = useState<string | null>(null);
-  const recentImportSignaturesRef = useRef(new Set<string>());
+  const pendingImportSignaturesRef = useRef(new Set<string>());
 
   const sortedRegexScripts = useMemo(
     () => [...((regexScripts ?? []) as RegexScriptRow[])].sort((a, b) => a.order - b.order),
     [regexScripts],
   );
+
+  useEffect(() => {
+    reconcileRegexScriptImportPendingSignatures(pendingImportSignaturesRef.current, regexScripts);
+  }, [regexScripts]);
 
   const handleCreateRegex = () => {
     openRegexDetail("__new__");
@@ -64,7 +69,7 @@ export function RegexScriptsSection({
       const result = await writeRegexScriptImportPayloads({
         payloads,
         existingScripts: regexScripts,
-        seenSignatures: recentImportSignaturesRef.current,
+        pendingSignatures: pendingImportSignaturesRef.current,
         create: (payload) => createRegexScript.mutateAsync(payload),
       });
       setImportSuccess(formatRegexScriptImportResult(result));

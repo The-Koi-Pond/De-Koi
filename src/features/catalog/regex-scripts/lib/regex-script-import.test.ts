@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { CreateRegexScriptInput } from "../../../../engine/contracts/schemas/regex.schema";
 import { filterRegexScriptsByCharacterIds } from "./regex-script-filter";
-import { parseRegexScriptImportPayloads, writeRegexScriptImportPayloads } from "./regex-script-import";
+import {
+  parseRegexScriptImportPayloads,
+  reconcileRegexScriptImportPendingSignatures,
+  writeRegexScriptImportPayloads,
+} from "./regex-script-import";
 
 describe("parseRegexScriptImportPayloads", () => {
   it("normalizes JSON-string target ids to real scoped character ids", () => {
@@ -89,13 +93,13 @@ describe("parseRegexScriptImportPayloads", () => {
       { name: "First", findRegex: "secret", replaceString: "redacted", placement: ["ai_output"] },
       { name: "Second", findRegex: "private", replaceString: "hidden", placement: ["ai_output"] },
     ]);
-    const seenSignatures = new Set<string>();
+    const pendingSignatures = new Set<string>();
     const writes: string[] = [];
 
     await expect(
       writeRegexScriptImportPayloads({
         payloads,
-        seenSignatures,
+        pendingSignatures,
         create: async (payload) => {
           writes.push(payload.name);
           if (payload.name === "Second") throw new Error("storage unavailable");
@@ -109,7 +113,8 @@ describe("parseRegexScriptImportPayloads", () => {
 
     const retry = await writeRegexScriptImportPayloads({
       payloads,
-      seenSignatures,
+      pendingSignatures,
+      existingScripts: [],
       create: async (payload) => {
         writes.push(payload.name);
         return { id: `created-${payload.name}`, ...payload };
@@ -118,5 +123,41 @@ describe("parseRegexScriptImportPayloads", () => {
 
     expect(retry).toEqual({ total: 2, created: 1, skipped: 1, failed: 0, pending: 0 });
     expect(writes).toEqual(["First", "Second", "Second"]);
+  });
+
+  it("creates again after a successful import is observed and then deleted", async () => {
+    const [payload] = parseRegexScriptImportPayloads({
+      name: "Reimportable",
+      findRegex: "secret",
+      replaceString: "redacted",
+      placement: ["ai_output"],
+    });
+    const pendingSignatures = new Set<string>();
+    const writes: string[] = [];
+
+    await writeRegexScriptImportPayloads({
+      payloads: [payload],
+      pendingSignatures,
+      existingScripts: [],
+      create: async (nextPayload) => {
+        writes.push(nextPayload.name);
+        return { id: "created", ...nextPayload };
+      },
+    });
+
+    reconcileRegexScriptImportPendingSignatures(pendingSignatures, [payload]);
+
+    const reimport = await writeRegexScriptImportPayloads({
+      payloads: [payload],
+      pendingSignatures,
+      existingScripts: [],
+      create: async (nextPayload) => {
+        writes.push(nextPayload.name);
+        return { id: "recreated", ...nextPayload };
+      },
+    });
+
+    expect(reimport).toEqual({ total: 1, created: 1, skipped: 0, failed: 0, pending: 0 });
+    expect(writes).toEqual(["Reimportable", "Reimportable"]);
   });
 });
