@@ -82,7 +82,7 @@ export class CharacterImportPartialSuccessError extends Error {
 export const TAG_IMPORT_OPTIONS: Array<{ value: TagImportMode; label: string; description: string }> = [
   { value: "all", label: "All tags", description: "Keep source tags." },
   { value: "none", label: "No tags", description: "Skip source tags." },
-  { value: "existing", label: "Existing only", description: "Keep tags already in Marinara." },
+  { value: "existing", label: "Existing only", description: "Keep tags already in De-Koi." },
 ];
 
 function readCharacterImportString(value: unknown, fallback = ""): string {

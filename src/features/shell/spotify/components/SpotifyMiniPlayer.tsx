@@ -574,7 +574,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
             className="h-14 w-14 shrink-0 rounded-lg object-contain"
             draggable={false}
           />
-          <p className="text-sm font-medium leading-snug">DJ Mari is composing a playlist for you, hold on tight!</p>
+          <p className="text-sm font-medium leading-snug">Assistant DJ is composing a playlist for you, hold on tight!</p>
         </div>
       ),
       { duration: Infinity, position: "bottom-right" },
@@ -604,7 +604,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
     onSuccess: (result) => {
       dismissDjMariToast();
       invalidate();
-      toast.success("DJ Mari playlist is ready", {
+      toast.success("Assistant DJ playlist is ready", {
         description: `${result.name} - ${result.trackCount} tracks`,
         duration: DJ_MARI_PLAYLIST_READY_TOAST_MS,
         action: result.playlistUrl
@@ -624,7 +624,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
     },
     onError: (error) => {
       dismissDjMariToast();
-      toast.error(error instanceof Error ? error.message : "DJ Mari could not create the playlist.");
+      toast.error(error instanceof Error ? error.message : "Assistant DJ could not create the playlist.");
     },
   });
 
@@ -925,8 +925,8 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
             onClick={() => createDjMariPlaylist.mutate()}
             disabled={createDjMariPlaylist.isPending}
             className="inline-flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-[0.625rem] font-black leading-none text-[oklch(0.70_0.012_145)] transition-colors hover:text-[oklch(0.96_0.006_145)] disabled:cursor-wait disabled:opacity-80"
-            title="DJ Mari composes a playlist for you!"
-            aria-label="DJ Mari composes a playlist for you!"
+            title="Assistant DJ composes a playlist for you!"
+            aria-label="Assistant DJ composes a playlist for you!"
           >
             {createDjMariPlaylist.isPending ? <Loader2 size="0.8125rem" className="animate-spin" /> : "DJ"}
           </button>
@@ -937,7 +937,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
                 runControl.mutate({ type: "transfer", deviceId: sdkDeviceId, play: player?.isPlaying === true })
               }
               className="hidden h-7 w-7 items-center justify-center rounded-full text-[oklch(0.70_0.012_145)] transition-colors hover:text-[oklch(0.96_0.006_145)] sm:inline-flex"
-              title="Use Marinara player"
+              title="Use De-Koi player"
             >
               <Laptop size="0.8125rem" />
             </button>

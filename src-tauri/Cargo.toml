@@ -17,6 +17,7 @@ members = [
   "crates/integrations",
   "crates/llm",
   "crates/security",
+  "crates/sidecar",
   "crates/storage",
 ]
 
@@ -70,6 +71,7 @@ marinara-security = { path = "crates/security" }
 marinara-storage = { path = "crates/storage" }
 marinara-assets = { path = "crates/assets" }
 marinara-llm = { path = "crates/llm" }
+marinara-sidecar = { path = "crates/sidecar" }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-window-state = "2"

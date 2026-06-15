@@ -223,7 +223,7 @@ export function MemoryRecallMemoriesModal({ chatId, open, onClose }: { chatId: s
 
         {!memoriesQuery.isLoading && !memoriesQuery.error && memories.length === 0 && (
           <div className="rounded-xl bg-[var(--secondary)]/60 px-4 py-8 text-center text-xs text-[var(--muted-foreground)]">
-            No recall memories have been created for this chat yet. Marinara creates them after generation in groups of
+            No recall memories have been created for this chat yet. De-Koi creates them after generation in groups of
             5 messages. Configure an embedding model for semantic recall, or use the local lexical fallback.
           </div>
         )}

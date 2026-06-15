@@ -306,7 +306,7 @@ export function resolveScope(tab: NotepadTab, context: NotepadContext, state: No
     return {
       key: "global",
       label: "Every chat",
-      placeholder: "Write anything you want available everywhere in Marinara.",
+      placeholder: "Write anything you want available everywhere in De-Koi.",
     };
   }
 

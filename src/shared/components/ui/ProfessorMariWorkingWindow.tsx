@@ -49,7 +49,7 @@ export function ProfessorMariWorkingWindow({ visible, className }: ProfessorMari
           />
         )}
         <p className="text-xs font-medium leading-relaxed">
-          Professor Mari is working (and Dottore is providing moral support)…
+          Assistant is working (and Dottore is providing moral support)…
         </p>
       </div>
     </div>

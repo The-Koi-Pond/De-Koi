@@ -975,7 +975,7 @@ export function ConnectionEditor() {
             help={
               usesLocalAuthProvider
                 ? "This provider uses your local subscription login instead of a provider API key."
-                : "Your authentication key from the AI provider. You can get one from their website. It's like a password that lets Marinara talk to the AI service."
+                : "Your authentication key from the AI provider. You can get one from their website. It's like a password that lets De-Koi talk to the AI service."
             }
           >
             <input
@@ -1049,7 +1049,7 @@ export function ConnectionEditor() {
             />
             {isClaudeSubscriptionProvider ? (
               <p className="mt-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
-                Marinara sends requests through the local Claude Code command using your Claude subscription login.
+                De-Koi sends requests through the local Claude Code command using your Claude subscription login.
               </p>
             ) : usesLocalChatGptAuth ? (
               <p className="mt-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
@@ -1155,7 +1155,7 @@ export function ConnectionEditor() {
                 placeholder="abc123def456"
               />
               <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                Marinara calls <code>/run</code> and polls <code>/status</code> on this endpoint using the Base URL
+                De-Koi calls <code>/run</code> and polls <code>/status</code> on this endpoint using the Base URL
                 above.
               </p>
             </FieldGroup>
@@ -1577,7 +1577,7 @@ export function ConnectionEditor() {
             <FieldGroup
               label="Max Parallel Agent Jobs"
               icon={<SlidersHorizontal size="0.875rem" className="text-fuchsia-400" />}
-              help="How many agent LLM requests Marinara may run at once for this connection. Higher values can speed up agent-heavy chats on providers that tolerate parallel calls."
+              help="How many agent LLM requests De-Koi may run at once for this connection. Higher values can speed up agent-heavy chats on providers that tolerate parallel calls."
             >
               <div className="flex items-center gap-3">
                 <DraftNumberInput
@@ -1607,7 +1607,7 @@ export function ConnectionEditor() {
             <FieldGroup
               label="Prompt Preset Override"
               icon={<FileText size="0.875rem" className="text-violet-400" />}
-              help="Optional. When roleplay or visual novel chats use this connection, Marinara assembles this prompt preset instead of the chat's selected prompt preset. Conversation and game mode keep their built-in prompt flows."
+              help="Optional. When roleplay or visual novel chats use this connection, De-Koi assembles this prompt preset instead of the chat's selected prompt preset. Conversation and game mode keep their built-in prompt flows."
             >
               <select
                 value={localPromptPresetId}
@@ -1625,7 +1625,7 @@ export function ConnectionEditor() {
                 ))}
               </select>
               <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                Use this for models that need a different prompt structure. If this preset has variables, Marinara uses
+                Use this for models that need a different prompt structure. If this preset has variables, De-Koi uses
                 the preset&apos;s saved defaults unless the chat already uses the same preset.
               </p>
             </FieldGroup>
@@ -1679,7 +1679,7 @@ export function ConnectionEditor() {
             <FieldGroup
               label="Claude Fast Mode"
               icon={<Zap size="0.875rem" className="text-amber-400" />}
-              help="When enabled, Marinara asks Claude Code to use its fast-mode routing for this subscription connection. When disabled, Marinara explicitly forces fast mode off so a persisted Claude CLI preference cannot silently downgrade the selected model."
+              help="When enabled, De-Koi asks Claude Code to use its fast-mode routing for this subscription connection. When disabled, De-Koi explicitly forces fast mode off so a persisted Claude CLI preference cannot silently downgrade the selected model."
             >
               <label className="flex cursor-pointer select-none items-center gap-3 px-2 py-1">
                 <div className="relative">
@@ -2154,7 +2154,7 @@ function ClaudeSubscriptionAuthHelp() {
             Routes chat through your local Claude Code login so it bills against your Anthropic subscription instead of
             an API key.
           </p>
-          <p className="mt-1 text-sky-200/90">Prerequisites on the Marinara host:</p>
+          <p className="mt-1 text-sky-200/90">Prerequisites on the De-Koi host:</p>
           <ol className="mt-1 list-decimal space-y-0.5 pl-4">
             {CLAUDE_SUBSCRIPTION_SETUP_STEPS.map((step) => {
               return (
@@ -2172,7 +2172,7 @@ function ClaudeSubscriptionAuthHelp() {
             })}
           </ol>
           <p className="mt-2">
-            Marinara reads the local <code className="rounded bg-[var(--secondary)] px-1 py-0.5">claude</code> session
+            De-Koi reads the local <code className="rounded bg-[var(--secondary)] px-1 py-0.5">claude</code> session
             and lets the Claude Code tooling choose its endpoint. Embeddings need a separate connection.
           </p>
         </div>

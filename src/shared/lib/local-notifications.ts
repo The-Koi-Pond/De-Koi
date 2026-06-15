@@ -89,7 +89,7 @@ export async function showConversationLocalNotification({
 
   const name = typeof characterName === "string" && characterName.trim() ? characterName.trim() : "Character";
   const title = `New message from ${name.slice(0, 80)}`;
-  const body = "Open Marinara to read it.";
+  const body = "Open De-Koi to read it.";
 
   const tauriNotifications = await getTauriNotificationApi();
   if (tauriNotifications) {

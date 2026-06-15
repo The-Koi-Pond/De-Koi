@@ -49,7 +49,7 @@ describe("mariApi settings persistence", () => {
     });
   });
 
-  it("updates the fixed Professor Mari settings row after the first save", async () => {
+  it("updates the fixed Assistant settings row after the first save", async () => {
     await mariApi.preferences.save({ selectedConnectionId: "conn-1", selectedPersonaId: null });
     await mariApi.history.appendMessage({ role: "user", content: "Hello, Professor." });
 

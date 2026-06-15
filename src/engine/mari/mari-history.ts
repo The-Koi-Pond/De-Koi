@@ -111,7 +111,7 @@ function fitCompactionTranscript(value: string, maxChars: number): string {
 
 function formatCompactionTranscript(messages: MariMessage[], maxContext: number): string {
   const transcript = messages
-    .map((message) => `${message.role === "assistant" ? "Professor Mari" : "User"}: ${message.content.trim()}`)
+    .map((message) => `${message.role === "assistant" ? "Assistant" : "User"}: ${message.content.trim()}`)
     .filter((line) => line.trim().length > 0)
     .join("\n\n");
   const maxChars = Math.max(12_000, Math.min(96_000, Math.floor(maxContext * 2.4)));
@@ -165,10 +165,10 @@ export async function compactProfessorMariHistory({
         {
           role: "system",
           content: [
-            "You compact Professor Mari's conversation history for future turns.",
+            "You compact the Assistant's conversation history for future turns.",
             "Preserve durable user preferences, implementation decisions, unresolved tasks, important discoveries, and the latest project state.",
             "Discard greetings, filler, repeated status updates, and details superseded by later messages.",
-            "Write concise but specific notes that Professor Mari can rely on as memory. Do not answer the user.",
+            "Write concise but specific notes that the Assistant can rely on as memory. Do not answer the user.",
           ].join("\n"),
         },
         {

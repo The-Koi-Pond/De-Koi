@@ -36,10 +36,11 @@ function CoreModulesSettings() {
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
             <Package size="0.75rem" />
-            Bundled opt-in modules shipped with Marinara.
+            Bundled opt-in modules shipped with De-Koi.
           </div>
           <p className="mt-1 text-[0.6875rem] leading-snug text-[var(--muted-foreground)]">
-            Downloadable plugin installs are intentionally separate from this trusted core list.
+            Modules are trusted built-in features. Extensions are imported CSS/JS/JSON files managed on the Extensions
+            tab.
           </p>
         </div>
         <button
@@ -62,7 +63,7 @@ function CoreModulesSettings() {
 
         {!isLoading && isError && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-snug text-[var(--foreground)]">
-            Core modules are registered, but Marinara could not read module settings from app storage.{" "}
+            Core modules are registered, but De-Koi could not read module settings from app storage.{" "}
             {error instanceof Error ? error.message : "Open this in the Tauri app shell and try again."}
           </div>
         )}

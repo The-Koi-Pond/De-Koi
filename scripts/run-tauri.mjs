@@ -60,12 +60,18 @@ if (cargoBin && existsSync(cargoBin)) {
 }
 
 if (isTauriDev) {
-  env[autoDevtoolsEnv] ??= env[legacyAutoDevtoolsEnv] ?? "1";
-  if (!hasCargoFeature(tauriArgs, devtoolsFeature)) {
+  const autoDevtoolsRequested = env[autoDevtoolsEnv] === "1" || env[legacyAutoDevtoolsEnv] === "1";
+
+  if (autoDevtoolsRequested) {
+    env[autoDevtoolsEnv] = "1";
+  }
+
+  if (autoDevtoolsRequested && !hasCargoFeature(tauriArgs, devtoolsFeature)) {
     insertBeforeRunnerArgs(tauriArgs, ["--features", devtoolsFeature]);
   }
 
   if (
+    autoDevtoolsRequested &&
     process.platform === "win32" &&
     !env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS?.includes("--remote-debugging-port=")
   ) {

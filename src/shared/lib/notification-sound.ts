@@ -22,7 +22,7 @@ export const NOTIFICATION_SOUND_OPTIONS: Array<{
   {
     id: "refactor",
     label: "Refactor",
-    description: "The current short Marinara ping.",
+    description: "The current short De-Koi ping.",
   },
   {
     id: "legacy-v1.6.1",

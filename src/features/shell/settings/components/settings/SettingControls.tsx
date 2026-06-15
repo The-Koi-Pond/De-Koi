@@ -69,7 +69,7 @@ export function ConversationSoundSetting() {
       ? "This browser or app shell does not expose native notifications."
       : localNotificationPermission === "denied"
         ? "Notifications are blocked in the browser or operating system. Re-enable them in site or system settings to use this."
-        : "Show a generic native notification when a Conversation-mode character replies while Marinara is not focused. Message contents are never shown.";
+        : "Show a generic native notification when a Conversation-mode character replies while De-Koi is not focused. Message contents are never shown.";
 
   const previewNotificationSound = (sound: CustomNotificationSound | null = customNotificationSound) => {
     playNotificationPing(notificationSound, sound);
@@ -94,7 +94,7 @@ export function ConversationSoundSetting() {
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result !== "string") {
-        setCustomSoundError("Marinara could not read that audio file.");
+        setCustomSoundError("De-Koi could not read that audio file.");
         return;
       }
       const type = (getNotificationAudioMimeType(file) ?? file.type) || "audio/*";
@@ -109,7 +109,7 @@ export function ConversationSoundSetting() {
       setCustomSoundError(null);
       playNotificationPing("custom", nextSound);
     };
-    reader.onerror = () => setCustomSoundError("Marinara could not read that audio file.");
+    reader.onerror = () => setCustomSoundError("De-Koi could not read that audio file.");
     reader.readAsDataURL(file);
   };
 
@@ -125,7 +125,7 @@ export function ConversationSoundSetting() {
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result !== "string") {
-        setCustomBlipError("Marinara could not read that audio file.");
+        setCustomBlipError("De-Koi could not read that audio file.");
         return;
       }
       const sound: CustomTextBlipSound = {
@@ -139,7 +139,7 @@ export function ConversationSoundSetting() {
       setCustomBlipError(null);
       playTextBlip({ mode: "custom", customSound: sound });
     };
-    reader.onerror = () => setCustomBlipError("Marinara could not read that audio file.");
+    reader.onerror = () => setCustomBlipError("De-Koi could not read that audio file.");
     reader.readAsDataURL(file);
   };
 
@@ -180,7 +180,7 @@ export function ConversationSoundSetting() {
       )}
       {localNotificationPermission === "granted" && nativeNotificationsChecked && (
         <p className="pl-6 text-[0.625rem] leading-snug text-[var(--muted-foreground)]">
-          Marinara will only notify while the app is unfocused.
+          De-Koi will only notify while the app is unfocused.
         </p>
       )}
       <ToggleSetting

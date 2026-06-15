@@ -103,7 +103,7 @@ export function CharacterLorebookTab({
           <span className="text-[0.6875rem] text-[var(--muted-foreground)]">
             {linkedLorebookId
               ? "Opens the lorebook editor where you can add, edit, or delete entries."
-              : "Imports this embedded lorebook into Marinara as a linked lorebook."}
+              : "Imports this embedded lorebook into De-Koi as a linked lorebook."}
           </span>
         </div>
       )}
