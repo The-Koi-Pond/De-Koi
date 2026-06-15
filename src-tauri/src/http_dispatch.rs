@@ -1,10 +1,10 @@
+use crate::http_storage_dispatch;
 use crate::state::AppState;
 use crate::storage_commands::{
     admin, agents, avatars, backgrounds, backup, bot_browser, characters, chat_memory, chats,
-    connection_secrets, custom_tools, entity_commands, entity_images, exports, fonts, game_assets,
-    game_state_snapshots, generation, http, images, imports, integrations, knowledge, llm,
-    lorebook_images, managed_thumbnails, mari, personas, profile, profile_commands, prompts,
-    shared, sidecar, sprites, translation, updates,
+    connection_secrets, custom_tools, entity_images, exports, fonts, game_assets, generation, http,
+    images, imports, integrations, knowledge, llm, lorebook_images, managed_thumbnails, mari,
+    personas, profile, profile_commands, prompts, shared, sidecar, sprites, translation, updates,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -49,12 +49,6 @@ fn optional_string(args: &Map<String, Value>, key: &str) -> Option<String> {
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .map(ToOwned::to_owned)
-}
-
-fn required_i64(args: &Map<String, Value>, key: &str) -> AppResult<i64> {
-    args.get(key)
-        .and_then(Value::as_i64)
-        .ok_or_else(|| AppError::invalid_input(format!("{key} is required")))
 }
 
 fn optional_bool(args: &Map<String, Value>, key: &str) -> Option<bool> {
@@ -559,30 +553,44 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             required_string(&args, "agentType")?,
             required_string(&args, "chatId")?,
         ),
-        "storage_list" => storage_list(state, &args),
+        "storage_list" => http_storage_dispatch::storage_list(state, &args),
         "lorebook_entries_list_by_lorebook_ids" => {
-            lorebook_entries_list_by_lorebook_ids(state, &args)
+            http_storage_dispatch::lorebook_entries_list_by_lorebook_ids(state, &args)
         }
-        "storage_get" => storage_get(state, &args),
-        "storage_create" => storage_create(state, &args),
-        "storage_update" => storage_update(state, &args),
-        "storage_delete" => storage_delete(state, &args),
-        "storage_duplicate" => storage_duplicate(state, &args),
-        "connection_folder_reorder" => connection_folder_reorder(state, &args),
-        "lorebook_folder_reorder" => lorebook_folder_reorder(state, &args),
-        "connection_move" => connection_move(state, &args),
-        "chat_message_add_swipe" => chat_message_add_swipe(state, &args),
+        "storage_get" => http_storage_dispatch::storage_get(state, &args),
+        "storage_create" => http_storage_dispatch::storage_create(state, &args),
+        "storage_update" => http_storage_dispatch::storage_update(state, &args),
+        "storage_delete" => http_storage_dispatch::storage_delete(state, &args),
+        "storage_duplicate" => http_storage_dispatch::storage_duplicate(state, &args),
+        "connection_folder_reorder" => {
+            http_storage_dispatch::connection_folder_reorder(state, &args)
+        }
+        "lorebook_folder_reorder" => http_storage_dispatch::lorebook_folder_reorder(state, &args),
+        "connection_move" => http_storage_dispatch::connection_move(state, &args),
+        "chat_message_add_swipe" => http_storage_dispatch::chat_message_add_swipe(state, &args),
         "chat_message_update_content_if_unchanged" => {
-            chat_message_update_content_if_unchanged(state, &args)
+            http_storage_dispatch::chat_message_update_content_if_unchanged(state, &args)
         }
-        "chat_message_set_active_swipe" => chat_message_set_active_swipe(state, &args),
-        "chat_message_delete_swipe" => chat_message_delete_swipe(state, &args),
-        "chat_evict_prompt_snapshots" => chat_evict_prompt_snapshots(state, &args),
-        "chat_autonomous_unread_mark" => chat_autonomous_unread_mark(state, &args),
-        "chat_autonomous_unread_clear" => chat_autonomous_unread_clear(state, &args),
-        "tracker_snapshot_latest" => tracker_snapshot_latest(state, &args).await,
-        "tracker_snapshot_get" => tracker_snapshot_get(state, &args).await,
-        "tracker_snapshot_save" => tracker_snapshot_save(state, &args).await,
+        "chat_message_set_active_swipe" => {
+            http_storage_dispatch::chat_message_set_active_swipe(state, &args)
+        }
+        "chat_message_delete_swipe" => {
+            http_storage_dispatch::chat_message_delete_swipe(state, &args)
+        }
+        "chat_evict_prompt_snapshots" => {
+            http_storage_dispatch::chat_evict_prompt_snapshots(state, &args)
+        }
+        "chat_autonomous_unread_mark" => {
+            http_storage_dispatch::chat_autonomous_unread_mark(state, &args)
+        }
+        "chat_autonomous_unread_clear" => {
+            http_storage_dispatch::chat_autonomous_unread_clear(state, &args)
+        }
+        "tracker_snapshot_latest" => {
+            http_storage_dispatch::tracker_snapshot_latest(state, &args).await
+        }
+        "tracker_snapshot_get" => http_storage_dispatch::tracker_snapshot_get(state, &args).await,
+        "tracker_snapshot_save" => http_storage_dispatch::tracker_snapshot_save(state, &args).await,
         "chat_memories_list" => {
             let exclude_recent_message_ids = optional_string_vec(&args, "excludeRecentMessageIds")?;
             let exclude_recent_start_at = optional_string(&args, "excludeRecentStartAt");
@@ -656,8 +664,8 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             required_string(&args, "messageId")?,
             Value::Null,
         ),
-        "chat_connect" => chat_connect(state, &args),
-        "chat_disconnect" => chat_disconnect(state, &args),
+        "chat_connect" => http_storage_dispatch::chat_connect(state, &args),
+        "chat_disconnect" => http_storage_dispatch::chat_disconnect(state, &args),
         "admin_expunge_command" => admin::admin_expunge(
             state,
             json!({ "confirm": true, "scopes": required_string_vec(&args, "scopes")? }),
@@ -1022,201 +1030,6 @@ async fn spotify_playlists(state: &AppState, args: &Map<String, Value>) -> AppRe
     .await
 }
 
-async fn tracker_snapshot_latest(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    Ok(
-        game_state_snapshots::latest_tracker_snapshot(state, required_string(args, "chatId")?)?
-            .unwrap_or(Value::Null),
-    )
-}
-
-async fn tracker_snapshot_get(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    Ok(game_state_snapshots::tracker_snapshot_for_target(
-        state,
-        required_string(args, "chatId")?,
-        required_string(args, "messageId")?,
-        required_i64(args, "swipeIndex")?,
-    )?
-    .unwrap_or(Value::Null))
-}
-
-async fn tracker_snapshot_save(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    game_state_snapshots::save_tracker_snapshot(
-        state,
-        required_string(args, "chatId")?,
-        optional_value(args, "snapshot"),
-    )
-}
-
-fn chat_connect(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    let chat_id = required_string(args, "chatId")?;
-    let target_chat_id = required_string(args, "targetChatId")?;
-    chats::connect_chats(state, chat_id, target_chat_id)
-}
-
-fn chat_disconnect(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    chats::disconnect_connected_chat(state, required_string(args, "chatId")?)
-}
-
-fn storage_list(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    entity_commands::storage_list_inner(
-        state,
-        required_string(args, "entity")?.to_string(),
-        args.get("options")
-            .filter(|value| !value.is_null())
-            .cloned(),
-    )
-}
-
-fn lorebook_entries_list_by_lorebook_ids(
-    state: &AppState,
-    args: &Map<String, Value>,
-) -> AppResult<Value> {
-    entity_commands::lorebook_entries_list_by_lorebook_ids_inner(
-        state,
-        required_string_vec(args, "lorebookIds")?,
-    )
-}
-
-fn storage_get(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    entity_commands::storage_get_inner(
-        state,
-        required_string(args, "entity")?.to_string(),
-        required_string(args, "id")?.to_string(),
-        args.get("options")
-            .filter(|value| !value.is_null())
-            .cloned(),
-    )
-}
-
-fn storage_create(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    entity_commands::storage_create_inner(
-        state,
-        required_string(args, "entity")?.to_string(),
-        optional_value(args, "value"),
-    )
-}
-
-fn storage_update(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    entity_commands::storage_update_inner(
-        state,
-        required_string(args, "entity")?.to_string(),
-        required_string(args, "id")?.to_string(),
-        optional_value(args, "patch"),
-    )
-}
-
-fn storage_delete(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    let entity = required_string(args, "entity")?;
-    let id = required_string(args, "id")?;
-    entity_commands::delete_entity(
-        state,
-        entity,
-        id,
-        args.get("force").and_then(Value::as_bool).unwrap_or(false),
-    )
-}
-
-fn storage_duplicate(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    entity_commands::duplicate_entity(
-        state,
-        required_string(args, "entity")?,
-        required_string(args, "id")?,
-    )
-}
-
-fn connection_folder_reorder(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    entity_commands::connection_folder_reorder_inner(
-        state,
-        required_string_vec(args, "orderedIds")?,
-    )
-}
-
-fn lorebook_folder_reorder(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    let parent_folder_id = match args.get("parentFolderId") {
-        Some(Value::Null) | None => None,
-        Some(Value::String(value)) => Some(value.clone()),
-        Some(_) => {
-            return Err(AppError::invalid_input(
-                "parentFolderId must be a folder id or null",
-            ));
-        }
-    };
-    entity_commands::lorebook_folder_reorder_inner(
-        state,
-        required_string(args, "lorebookId")?,
-        required_string_vec(args, "orderedIds")?,
-        parent_folder_id,
-    )
-}
-
-fn connection_move(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    entity_commands::connection_move_inner(
-        state,
-        required_string(args, "connectionId")?,
-        args.get("folderId")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-    )
-}
-
-fn chat_message_add_swipe(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    Ok(shared::project_timeline_message(chats::message_swipes(
-        state,
-        "POST",
-        required_string(args, "chatId")?,
-        required_string(args, "messageId")?,
-        optional_value(args, "body"),
-    )?))
-}
-
-fn chat_message_update_content_if_unchanged(
-    state: &AppState,
-    args: &Map<String, Value>,
-) -> AppResult<Value> {
-    chats::update_message_content_if_unchanged(
-        state,
-        required_string(args, "chatId")?,
-        required_string(args, "messageId")?,
-        required_string(args, "expectedContent")?,
-        required_string(args, "content")?,
-    )
-}
-
-fn chat_message_set_active_swipe(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    Ok(shared::project_timeline_message(chats::set_active_swipe(
-        state,
-        required_string(args, "chatId")?,
-        required_string(args, "messageId")?,
-        json!({ "index": optional_value(args, "index") }),
-    )?))
-}
-
-fn chat_message_delete_swipe(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    Ok(shared::project_timeline_message(chats::delete_swipe(
-        state,
-        required_string(args, "chatId")?,
-        required_string(args, "messageId")?,
-        required_string(args, "index")?,
-    )?))
-}
-
-fn chat_evict_prompt_snapshots(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    let keep_last = args.get("keepLast").and_then(Value::as_u64).unwrap_or(2) as usize;
-    chats::evict_prompt_snapshots(state, required_string(args, "chatId")?, keep_last)
-}
-
-fn chat_autonomous_unread_mark(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    chats::mark_autonomous_unread(
-        state,
-        required_string(args, "chatId")?,
-        optional_value(args, "body"),
-    )
-}
-
-fn chat_autonomous_unread_clear(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    chats::clear_autonomous_unread(state, required_string(args, "chatId")?)
-}
-
 async fn connection_test(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     generation::test_connection(state, required_string(args, "id")?).await
 }
@@ -1398,15 +1211,6 @@ mod tests {
                 "base64": general_purpose::STANDARD.encode(bytes)
             }
         })
-    }
-
-    fn default_for_agents(state: &AppState, id: &str) -> bool {
-        state
-            .storage
-            .get("connections", id)
-            .expect("connection should read")
-            .and_then(|row| row.get("defaultForAgents").and_then(Value::as_bool))
-            .unwrap_or(false)
     }
 
     fn seed_character(state: &AppState, id: &str) {
@@ -1625,35 +1429,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dispatch_storage_create_rejects_unsupported_entity() {
-        let state = test_state("storage-create-unsupported-entity");
-
-        let error = dispatch(
-            &state,
-            InvokeRequest {
-                command: "storage_create".to_string(),
-                args: Some(json!({
-                    "entity": "typo-collection",
-                    "value": { "id": "row-1" }
-                })),
-            },
-        )
-        .await
-        .expect_err("remote storage_create should reject unsupported entities");
-
-        assert_eq!(error.code, "invalid_input");
-        assert!(error
-            .message
-            .contains("Unsupported storage entity: typo-collection"));
-        assert!(!state
-            .data_dir
-            .join("data")
-            .join("collections")
-            .join("typo-collection.json")
-            .exists());
-    }
-
-    #[tokio::test]
     async fn dispatch_chat_memories_list_rejects_malformed_limit() {
         let state = test_state("chat-memories-malformed-limit");
         state
@@ -1801,79 +1576,6 @@ mod tests {
         assert_eq!(memory_ids, vec!["keep-me"]);
     }
 
-    #[tokio::test]
-    async fn dispatch_chat_disconnect_clears_partner_and_connected_notes() {
-        let state = test_state("chat-disconnect-connected-notes");
-        state
-            .storage
-            .create(
-                "chats",
-                json!({
-                    "id": "conversation-1",
-                    "name": "Conversation",
-                    "connectedChatId": "game-1"
-                }),
-            )
-            .unwrap();
-        state
-            .storage
-            .create(
-                "chats",
-                json!({
-                    "id": "game-1",
-                    "name": "Game",
-                    "connectedChatId": "conversation-1",
-                    "notes": [
-                        {
-                            "id": "stale-influence",
-                            "type": "influence",
-                            "content": "Remove stale influence",
-                            "sourceChatId": "conversation-1",
-                            "targetChatId": "game-1",
-                            "consumed": false
-                        },
-                        {
-                            "id": "other-note",
-                            "type": "note",
-                            "content": "Keep unrelated note",
-                            "sourceChatId": "other-chat",
-                            "targetChatId": "other-target"
-                        }
-                    ]
-                }),
-            )
-            .unwrap();
-
-        let result = dispatch(
-            &state,
-            InvokeRequest {
-                command: "chat_disconnect".to_string(),
-                args: Some(json!({ "chatId": "conversation-1" })),
-            },
-        )
-        .await
-        .expect("remote chat disconnect should dispatch");
-
-        assert_eq!(result["disconnected"], true);
-        assert_eq!(result["chatIds"], json!(["conversation-1", "game-1"]));
-        let conversation = state
-            .storage
-            .get("chats", "conversation-1")
-            .unwrap()
-            .unwrap();
-        let game = state.storage.get("chats", "game-1").unwrap().unwrap();
-        assert!(conversation
-            .get("connectedChatId")
-            .is_some_and(Value::is_null));
-        assert!(game.get("connectedChatId").is_some_and(Value::is_null));
-        let notes = game["notes"].as_array().unwrap();
-        assert_eq!(notes.len(), 1);
-        assert_eq!(
-            notes[0].get("id").and_then(Value::as_str),
-            Some("other-note")
-        );
-    }
-
     #[test]
     fn remote_runtime_command_surfaces_match_desktop_minus_documented_non_remote_commands() {
         let mut expected_remote = desktop_commands();
@@ -1985,160 +1687,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dispatch_storage_list_uses_projected_message_reads() {
-        let state = test_state("storage-list-projected-messages");
-        state
-            .storage
-            .replace_all(
-                "messages",
-                vec![
-                    json!({
-                        "id": "skip-me",
-                        "chatId": "chat-b",
-                        "content": "skip",
-                        "extra": { "large": "ignored" },
-                        "swipes": [{ "content": "skip swipe", "extra": { "thinking": "skip thought" } }]
-                    }),
-                    json!({
-                        "id": "message-1",
-                        "chatId": "chat-a",
-                        "content": "stored content",
-                        "extra": { "thinking": "visible thought", "large": "ignored" },
-                        "swipes": [{ "content": "active swipe", "extra": { "thinking": "swipe thought", "large": "ignored" } }]
-                    }),
-                ],
-            )
-            .expect("messages should be installed");
-        crate::storage_commands::message_swipes::migrate_nested_message_swipes(&state.storage)
-            .expect("nested message swipes should migrate");
-
-        let result = dispatch(
-            &state,
-            InvokeRequest {
-                command: "storage_list".to_string(),
-                args: Some(json!({
-                    "entity": "messages",
-                    "options": {
-                        "filters": { "chatId": "chat-a" },
-                        "fields": ["id", "chatId", "content", "extra"],
-                        "fieldSelections": { "extra": ["thinking"] },
-                        "limit": 25
-                    }
-                })),
-            },
-        )
-        .await
-        .expect("remote storage_list should dispatch");
-
-        assert_eq!(
-            result,
-            json!([{
-                "id": "message-1",
-                "chatId": "chat-a",
-                "content": "active swipe",
-                "extra": { "thinking": "swipe thought" }
-            }])
-        );
-    }
-
-    #[tokio::test]
-    async fn dispatch_lorebook_entries_list_by_lorebook_ids_reads_matching_books() {
-        let state = test_state("remote-lorebook-entries-where-in");
-        state
-            .storage
-            .replace_all(
-                "lorebook-entries",
-                vec![
-                    json!({ "id": "entry-a", "lorebookId": "book-a", "content": "A" }),
-                    json!({ "id": "entry-b", "lorebookId": "book-b", "content": "B" }),
-                    json!({ "id": "entry-c", "lorebookId": "book-c", "content": "C" }),
-                ],
-            )
-            .expect("entries should seed");
-
-        let result = dispatch(
-            &state,
-            InvokeRequest {
-                command: "lorebook_entries_list_by_lorebook_ids".to_string(),
-                args: Some(json!({ "lorebookIds": ["book-a", "book-c"] })),
-            },
-        )
-        .await
-        .expect("remote batched lorebook entries should dispatch");
-
-        let ids: Vec<_> = result
-            .as_array()
-            .expect("result should be an array")
-            .iter()
-            .filter_map(|row| row.get("id").and_then(Value::as_str))
-            .collect();
-        assert_eq!(ids, vec!["entry-a", "entry-c"]);
-    }
-
-    #[tokio::test]
-    async fn dispatch_storage_create_connection_clears_previous_agent_default() {
-        let state = test_state("storage-create-connection-agent-default");
-        for (id, provider) in [("language-a", "anthropic"), ("language-b", "openai")] {
-            dispatch(
-                &state,
-                InvokeRequest {
-                    command: "storage_create".to_string(),
-                    args: Some(json!({
-                        "entity": "connections",
-                        "value": {
-                            "id": id,
-                            "name": id,
-                            "provider": provider,
-                            "defaultForAgents": true
-                        }
-                    })),
-                },
-            )
-            .await
-            .expect("remote connection create should dispatch");
-        }
-
-        assert!(!default_for_agents(&state, "language-a"));
-        assert!(default_for_agents(&state, "language-b"));
-    }
-
-    #[tokio::test]
-    async fn dispatch_storage_update_connection_clears_previous_agent_default() {
-        let state = test_state("storage-update-connection-agent-default");
-        for (id, default_for_agents) in [("language-a", true), ("language-b", false)] {
-            state
-                .storage
-                .create(
-                    "connections",
-                    json!({
-                        "id": id,
-                        "name": id,
-                        "provider": "openai",
-                        "defaultForAgents": default_for_agents
-                    }),
-                )
-                .expect("connection should be seeded");
-        }
-
-        dispatch(
-            &state,
-            InvokeRequest {
-                command: "storage_update".to_string(),
-                args: Some(json!({
-                    "entity": "connections",
-                    "id": "language-b",
-                    "patch": { "defaultForAgents": true }
-                })),
-            },
-        )
-        .await
-        .expect("remote connection update should dispatch");
-
-        assert!(!default_for_agents(&state, "language-a"));
-        assert!(default_for_agents(&state, "language-b"));
-    }
-
-    #[tokio::test]
     async fn dispatch_connection_default_parameters_validate_and_mask() {
         let state = test_state("connection-default-parameters");
         state
@@ -2229,47 +1777,6 @@ mod tests {
             .expect("connection should exist");
         assert_eq!(stored["defaultParameters"], Value::Null);
         assert_eq!(stored["apiKeyEncrypted"], json!("stored-secret"));
-    }
-
-    #[tokio::test]
-    async fn dispatch_storage_update_protects_default_chat_preset_fields() {
-        let state = test_state("storage-update-default-chat-preset");
-        state
-            .storage
-            .create(
-                "chat-presets",
-                json!({
-                    "id": "default-chat-preset",
-                    "name": "Default Chat",
-                    "mode": "chat",
-                    "isDefault": true,
-                    "isActive": true
-                }),
-            )
-            .expect("default chat preset should be seeded");
-
-        let error = dispatch(
-            &state,
-            InvokeRequest {
-                command: "storage_update".to_string(),
-                args: Some(json!({
-                    "entity": "chat-presets",
-                    "id": "default-chat-preset",
-                    "patch": { "name": "Mutated Default" }
-                })),
-            },
-        )
-        .await
-        .expect_err("default chat preset field mutations should be rejected remotely");
-
-        assert_eq!(error.code, "invalid_input");
-        assert_eq!(error.message, "Default chat presets cannot be updated");
-        let preset = state
-            .storage
-            .get("chat-presets", "default-chat-preset")
-            .expect("chat preset should read")
-            .expect("chat preset should still exist");
-        assert_eq!(preset["name"], "Default Chat");
     }
 
     #[tokio::test]
@@ -2856,217 +2363,6 @@ mod tests {
 
             assert_eq!(error.code, "unsupported_command");
         }
-    }
-
-    #[tokio::test]
-    async fn dispatch_chat_connect_rejects_self_links() {
-        let state = test_state("chat-connect-self");
-        state
-            .storage
-            .create(
-                "chats",
-                json!({ "id": "chat-1", "name": "Chat", "mode": "conversation" }),
-            )
-            .unwrap();
-
-        let error = dispatch(
-            &state,
-            InvokeRequest {
-                command: "chat_connect".to_string(),
-                args: Some(json!({ "chatId": "chat-1", "targetChatId": "chat-1" })),
-            },
-        )
-        .await
-        .expect_err("self connections should be rejected");
-
-        assert_eq!(error.code, "invalid_input");
-        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
-        assert!(chat.get("connectedChatId").is_none());
-    }
-
-    #[tokio::test]
-    async fn dispatch_chat_connect_rejects_missing_targets_without_partial_link() {
-        let state = test_state("chat-connect-missing-target");
-        state
-            .storage
-            .create(
-                "chats",
-                json!({ "id": "chat-1", "name": "Chat", "mode": "conversation" }),
-            )
-            .unwrap();
-
-        let error = dispatch(
-            &state,
-            InvokeRequest {
-                command: "chat_connect".to_string(),
-                args: Some(json!({ "chatId": "chat-1", "targetChatId": "missing-chat" })),
-            },
-        )
-        .await
-        .expect_err("missing target should be rejected before writing");
-
-        assert_eq!(error.code, "not_found");
-        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
-        assert!(chat.get("connectedChatId").is_none());
-    }
-
-    #[tokio::test]
-    async fn dispatch_chat_connect_links_existing_chats_reciprocally() {
-        let state = test_state("chat-connect-valid");
-        for chat_id in ["chat-1", "chat-2"] {
-            state
-                .storage
-                .create(
-                    "chats",
-                    json!({ "id": chat_id, "name": chat_id, "mode": "conversation" }),
-                )
-                .unwrap();
-        }
-
-        let result = dispatch(
-            &state,
-            InvokeRequest {
-                command: "chat_connect".to_string(),
-                args: Some(json!({ "chatId": "chat-1", "targetChatId": "chat-2" })),
-            },
-        )
-        .await
-        .expect("valid connection should be written");
-
-        assert_eq!(result["connected"], true);
-        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
-        let target = state.storage.get("chats", "chat-2").unwrap().unwrap();
-        assert_eq!(
-            chat.get("connectedChatId").and_then(Value::as_str),
-            Some("chat-2")
-        );
-        assert_eq!(
-            target.get("connectedChatId").and_then(Value::as_str),
-            Some("chat-1")
-        );
-    }
-
-    #[tokio::test]
-    async fn dispatch_storage_delete_message_cleans_tracker_snapshots() {
-        let state = test_state("message-delete-tracker-cleanup");
-        state
-            .storage
-            .create(
-                "chats",
-                json!({
-                    "id": "chat-1",
-                    "name": "Tracker chat",
-                    "gameState": { "kind": "tracker", "chatId": "chat-1", "messageId": "message-2", "swipeIndex": 0 }
-                }),
-            )
-            .unwrap();
-        for (message_id, created_at) in [
-            ("message-1", "2026-05-26T10:00:00Z"),
-            ("message-2", "2026-05-26T10:01:00Z"),
-        ] {
-            state
-                .storage
-                .create(
-                    "messages",
-                    json!({
-                        "id": message_id,
-                        "chatId": "chat-1",
-                        "role": "assistant",
-                        "content": "turn",
-                        "createdAt": created_at
-                    }),
-                )
-                .unwrap();
-            state
-                .storage
-                .create(
-                    "game-state-snapshots",
-                    json!({
-                        "id": format!("snapshot-{message_id}"),
-                        "kind": "tracker",
-                        "chatId": "chat-1",
-                        "messageId": message_id,
-                        "swipeIndex": 0,
-                        "createdAt": created_at,
-                        "location": message_id
-                    }),
-                )
-                .unwrap();
-        }
-
-        let result = dispatch(
-            &state,
-            InvokeRequest {
-                command: "storage_delete".to_string(),
-                args: Some(json!({ "entity": "messages", "id": "message-2" })),
-            },
-        )
-        .await
-        .expect("remote message delete should dispatch");
-
-        assert_eq!(result["deleted"], true);
-        assert!(state
-            .storage
-            .get("messages", "message-2")
-            .unwrap()
-            .is_none());
-        assert!(state
-            .storage
-            .get("game-state-snapshots", "snapshot-message-2")
-            .unwrap()
-            .is_none());
-        assert!(state
-            .storage
-            .get("game-state-snapshots", "snapshot-message-1")
-            .unwrap()
-            .is_some());
-        let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
-        assert_eq!(
-            chat["gameState"].get("messageId").and_then(Value::as_str),
-            Some("message-1")
-        );
-    }
-
-    #[tokio::test]
-    async fn dispatch_storage_delete_non_message_keeps_tracker_snapshots() {
-        let state = test_state("non-message-delete-tracker-control");
-        state
-            .storage
-            .create(
-                "personas",
-                json!({ "id": "persona-1", "name": "Keep tracker snapshots" }),
-            )
-            .unwrap();
-        state
-            .storage
-            .create(
-                "game-state-snapshots",
-                json!({
-                    "id": "snapshot-message-1",
-                    "kind": "tracker",
-                    "chatId": "chat-1",
-                    "messageId": "message-1",
-                    "swipeIndex": 0
-                }),
-            )
-            .unwrap();
-
-        let result = dispatch(
-            &state,
-            InvokeRequest {
-                command: "storage_delete".to_string(),
-                args: Some(json!({ "entity": "personas", "id": "persona-1" })),
-            },
-        )
-        .await
-        .expect("remote non-message delete should dispatch");
-
-        assert_eq!(result["deleted"], true);
-        assert!(state
-            .storage
-            .get("game-state-snapshots", "snapshot-message-1")
-            .unwrap()
-            .is_some());
     }
 
     #[tokio::test]
