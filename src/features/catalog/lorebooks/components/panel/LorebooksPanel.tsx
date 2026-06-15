@@ -369,6 +369,10 @@ export function LorebooksPanel() {
   }, []);
 
   const canDragLorebooks = lorebookFolderDataReady && lorebookFolderList.length > 0 && !selectionMode;
+  const lorebookFolderMoveOptions = useMemo(
+    () => (lorebookFolderDataReady ? lorebookFolderList : []),
+    [lorebookFolderDataReady, lorebookFolderList],
+  );
 
   const handleLorebookDragStart = useCallback(
     (event: DragEvent<HTMLDivElement>, lorebookId: string) => {
@@ -504,8 +508,8 @@ export function LorebooksPanel() {
           isDragging={draggedLorebookId === lb.id}
           onDragStart={(event) => handleLorebookDragStart(event, lb.id)}
           onDragEnd={clearLorebookDragState}
-          folderOptions={lorebookFolderList}
-          folderMoveDisabled={moveLorebookItem.isPending}
+          folderOptions={lorebookFolderMoveOptions}
+          folderMoveDisabled={moveLorebookItem.isPending || !lorebookFolderDataReady}
           onMoveToFolder={(folderId) => {
             const currentFolderId = lb.folderId && lorebookFolderIds.has(lb.folderId) ? lb.folderId : null;
             if (currentFolderId !== folderId) {
@@ -525,8 +529,9 @@ export function LorebooksPanel() {
       handleLorebookDragStart,
       handlePickLorebookImage,
       lorebookFolderIds,
-      lorebookFolderList,
+      lorebookFolderDataReady,
       moveLorebookItem,
+      lorebookFolderMoveOptions,
       openLorebookDetail,
       selectedLorebookIds,
       selectionMode,

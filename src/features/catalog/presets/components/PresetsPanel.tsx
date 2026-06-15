@@ -287,6 +287,7 @@ export function PresetsPanel() {
   }, []);
 
   const canDragPresets = presetFolderDataReady && presetFolderList.length > 0 && !selectionMode;
+  const presetFolderMoveOptions = presetFolderDataReady ? presetFolderList : [];
 
   const handlePresetDragStart = useCallback(
     (event: DragEvent<HTMLDivElement>, presetId: string) => {
@@ -416,9 +417,9 @@ export function PresetsPanel() {
           <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
             <LibraryFolderSelect
               value={preset.folderId}
-              folders={presetFolderList}
+              folders={presetFolderMoveOptions}
               itemLabel={preset.name}
-              disabled={movePresetItem.isPending}
+              disabled={movePresetItem.isPending || !presetFolderDataReady}
               onChange={(folderId) => {
                 const currentFolderId =
                   preset.folderId && presetFolderIds.has(preset.folderId) ? preset.folderId : null;
