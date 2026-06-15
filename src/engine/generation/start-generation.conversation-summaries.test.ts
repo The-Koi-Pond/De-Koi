@@ -95,33 +95,39 @@ function depsForConversationSummaryGeneration() {
 
 describe("startGeneration conversation summary preparation", () => {
   it("awaits missing conversation summaries before assembling the prompt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-14T12:00:00.000Z"));
     const { deps, storage, complete, streamedRequests } = depsForConversationSummaryGeneration();
     const controller = new AbortController();
 
-    await drain(
-      startGeneration(
-        deps,
-        {
-          chatId: "chat-1",
-          userMessage: "hello",
-          impersonateBlockAgents: true,
-          userTimeZone: "America/New_York",
-        },
-        controller.signal,
-      ),
-    );
+    try {
+      await drain(
+        startGeneration(
+          deps,
+          {
+            chatId: "chat-1",
+            userMessage: "hello",
+            impersonateBlockAgents: true,
+            userTimeZone: "America/New_York",
+          },
+          controller.signal,
+        ),
+      );
 
-    expect(complete).toHaveBeenCalledTimes(1);
-    expect(complete.mock.calls[0]?.[1]).toBe(controller.signal);
-    expect(storage.patchChatSummaries).toHaveBeenCalledWith("chat-1", {
-      daySummaries: {
-        "12.06.2026": {
-          summary: "SAME_TURN_SUMMARY_AVAILABLE",
-          keyDetails: ["timezone bucket respected"],
+      expect(complete).toHaveBeenCalledTimes(1);
+      expect(complete.mock.calls[0]?.[1]).toBe(controller.signal);
+      expect(storage.patchChatSummaries).toHaveBeenCalledWith("chat-1", {
+        daySummaries: {
+          "12.06.2026": {
+            summary: "SAME_TURN_SUMMARY_AVAILABLE",
+            keyDetails: ["timezone bucket respected"],
+          },
         },
-      },
-      weekSummaries: {},
-    });
-    expect(JSON.stringify(streamedRequests[0]?.messages ?? [])).toContain("SAME_TURN_SUMMARY_AVAILABLE");
+        weekSummaries: {},
+      });
+      expect(JSON.stringify(streamedRequests[0]?.messages ?? [])).toContain("SAME_TURN_SUMMARY_AVAILABLE");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

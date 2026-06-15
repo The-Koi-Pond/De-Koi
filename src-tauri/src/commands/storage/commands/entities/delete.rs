@@ -119,6 +119,10 @@ pub(super) fn apply_delete_cleanup(
             contracts::DeleteCleanup::ClearGalleryFolder => {
                 unfile_records_in_folder(state, "global-gallery", id)?
             }
+            contracts::DeleteCleanup::ClearLorebookLibraryFolder => {
+                unfile_records_in_folder(state, "lorebooks", id)?
+            }
+            contracts::DeleteCleanup::ClearPresetFolder => unfile_records_in_folder(state, "prompts", id)?,
             contracts::DeleteCleanup::ClearLorebookReferences => {
                 clear_deleted_lorebook_references(state, id)?;
             }

@@ -16,19 +16,8 @@ import type { StorageEntity } from "../../../../engine/capabilities/storage";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 import type { PromptPreset, PromptGroup, PromptSection, ChoiceBlock } from "../../../../engine/contracts/types/prompt";
-
-// ── Query Keys ──
-
-export const presetKeys = {
-  all: ["presets"] as const,
-  list: () => [...presetKeys.all, "list"] as const,
-  full: (id: string) => [...presetKeys.all, "full", id] as const,
-  sections: (presetId: string) => [...presetKeys.all, "sections", presetId] as const,
-  groups: (presetId: string) => [...presetKeys.all, "groups", presetId] as const,
-  choiceBlocks: (presetId: string) => [...presetKeys.all, "choices", presetId] as const,
-  default: () => [...presetKeys.all, "default"] as const,
-  defaultSummary: () => [...presetKeys.default(), "summary"] as const,
-};
+import { presetKeys } from "../query-keys";
+export { presetKeys } from "../query-keys";
 
 type PromptNestedKind = "groups" | "sections" | "variables";
 
@@ -36,6 +25,7 @@ export type PromptPresetSummary = Pick<PromptPreset, "id" | "name" | "isDefault"
   description?: string;
   wrapFormat?: string;
   author?: string;
+  folderId?: string | null;
   sectionOrder?: string | string[];
   default?: boolean | string;
 };
@@ -48,7 +38,7 @@ export interface PresetFullData {
 }
 
 const PRESET_SUMMARY_OPTIONS = {
-  fields: ["id", "name", "description", "wrapFormat", "isDefault", "default", "author", "sectionOrder"],
+  fields: ["id", "name", "description", "wrapFormat", "isDefault", "default", "author", "folderId", "sectionOrder"],
 };
 
 const promptNestedEntity: Record<PromptNestedKind, StorageEntity> = {

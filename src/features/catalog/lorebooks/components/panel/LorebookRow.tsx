@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type DragEvent } from "react";
 import { BookOpen, Camera, Trash2, UserRound } from "lucide-react";
 import type { Lorebook } from "../../../../../engine/contracts/types/lorebook";
 import { resolveManagedLocalAssetThumbnailUrl } from "../../../../../shared/api/local-file-api";
 import { cn } from "../../../../../shared/lib/utils";
+import { LibraryFolderSelect } from "../../../library-folders";
 import { LOREBOOK_CATEGORY_COLORS, LOREBOOK_PANEL_CATEGORIES } from "./lorebook-panel-config";
 
 export function LorebookRow({
@@ -15,6 +16,13 @@ export function LorebookRow({
   selectionMode,
   isSelected,
   onToggleSelect,
+  draggable,
+  isDragging,
+  onDragStart,
+  onDragEnd,
+  folderOptions = [],
+  folderMoveDisabled,
+  onMoveToFolder,
 }: {
   lorebook: Lorebook;
   characterName?: string;
@@ -25,6 +33,13 @@ export function LorebookRow({
   selectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
+  draggable?: boolean;
+  isDragging?: boolean;
+  onDragStart?: (event: DragEvent<HTMLDivElement>) => void;
+  onDragEnd?: () => void;
+  folderOptions?: Array<{ id: string; name: string }>;
+  folderMoveDisabled?: boolean;
+  onMoveToFolder?: (folderId: string | null) => void;
 }) {
   const gradient = LOREBOOK_CATEGORY_COLORS[lorebook.category] ?? LOREBOOK_CATEGORY_COLORS.uncategorized;
   const CatIcon = LOREBOOK_PANEL_CATEGORIES.find((category) => category.id === lorebook.category)?.icon ?? BookOpen;
@@ -58,9 +73,13 @@ export function LorebookRow({
 
   return (
     <div
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       className={cn(
         "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
         selectionMode && isSelected && "ring-1 ring-amber-400/40 bg-amber-400/10",
+        isDragging && "opacity-55 ring-1 ring-[var(--primary)]/30",
       )}
       onClick={onClick}
     >
@@ -127,6 +146,13 @@ export function LorebookRow({
       </div>
       {!selectionMode && (
         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
+          <LibraryFolderSelect
+            value={lorebook.folderId}
+            folders={folderOptions}
+            itemLabel={lorebook.name}
+            disabled={folderMoveDisabled}
+            onChange={(folderId) => onMoveToFolder?.(folderId)}
+          />
           <button
             onClick={(event) => {
               event.stopPropagation();

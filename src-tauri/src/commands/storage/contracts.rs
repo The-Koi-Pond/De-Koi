@@ -19,7 +19,9 @@ pub(crate) enum DeleteCleanup {
     ClearChatFolder,
     ClearConnectionFolder,
     ClearGalleryFolder,
+    ClearLorebookLibraryFolder,
     ClearLorebookReferences,
+    ClearPresetFolder,
     DeleteCharacterGallery,
     DeleteLorebookChildren,
     DeleteMessageTrackerSnapshots,
@@ -150,6 +152,8 @@ const CHAT_FOLDER_DEFAULTS: &[&str] = &["color", "collapsed", "sortOrder", "orde
 const CHAT_FOLDER_FIELDS: &[TypedJsonField] = &[boolish("collapsed")];
 const CONNECTION_DEFAULTS: &[&str] = &["enabled", "imagePath"];
 const CONNECTION_FOLDER_DEFAULTS: &[&str] = &["color", "collapsed", "sortOrder", "order"];
+const LIBRARY_FOLDER_DEFAULTS: &[&str] = &["collapsed", "sortOrder", "order"];
+const LIBRARY_FOLDER_FIELDS: &[TypedJsonField] = &[boolish("collapsed")];
 const CHARACTER_DEFAULTS: &[&str] = &["data", "comment", "avatarPath"];
 const LOREBOOK_DEFAULTS: &[&str] = &[
     "description",
@@ -169,6 +173,7 @@ const LOREBOOK_DEFAULTS: &[&str] = &[
     "enabled",
     "excludeFromVectorization",
     "tags",
+    "folderId",
     "generatedBy",
     "sourceAgentId",
 ];
@@ -194,6 +199,7 @@ const PROMPT_DEFAULTS: &[&str] = &[
     "parameters",
     "defaultChoices",
     "isDefault",
+    "folderId",
 ];
 const CHAT_PRESET_DEFAULTS: &[&str] = &["settings", "isDefault", "default", "isActive", "active"];
 const AGENT_DEFAULTS: &[&str] = &["enabled", "credit", "imagePath"];
@@ -209,6 +215,9 @@ const CHAT_PRESET_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::ActivateDefaultCh
 const CHAT_FOLDER_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::ClearChatFolder];
 const CONNECTION_FOLDER_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::ClearConnectionFolder];
 const GALLERY_FOLDER_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::ClearGalleryFolder];
+const LOREBOOK_LIBRARY_FOLDER_CLEANUP: &[DeleteCleanup] =
+    &[DeleteCleanup::ClearLorebookLibraryFolder];
+const PRESET_FOLDER_CLEANUP: &[DeleteCleanup] = &[DeleteCleanup::ClearPresetFolder];
 const CHARACTER_CLEANUP: &[DeleteCleanup] = &[
     DeleteCleanup::RemoveOwnedMedia,
     DeleteCleanup::DeleteCharacterGallery,
@@ -271,6 +280,14 @@ pub(crate) const COLLECTIONS: &[StorageCollectionContract] = &[
         LOREBOOK_CLEANUP,
     ),
     contract(
+        "lorebook-library-folders",
+        true,
+        false,
+        LIBRARY_FOLDER_DEFAULTS,
+        LIBRARY_FOLDER_FIELDS,
+        LOREBOOK_LIBRARY_FOLDER_CLEANUP,
+    ),
+    contract(
         "lorebook-entries",
         true,
         true,
@@ -293,6 +310,14 @@ pub(crate) const COLLECTIONS: &[StorageCollectionContract] = &[
         PROMPT_DEFAULTS,
         PROMPT_FIELDS,
         PROMPT_CLEANUP,
+    ),
+    contract(
+        "preset-folders",
+        true,
+        false,
+        LIBRARY_FOLDER_DEFAULTS,
+        LIBRARY_FOLDER_FIELDS,
+        PRESET_FOLDER_CLEANUP,
     ),
     contract(
         "prompt-groups",

@@ -1238,6 +1238,15 @@ fn apply_create_default_field(
         ("connection-folders", "sortOrder") | ("connection-folders", "order") => {
             insert_default(object, field, json!(0));
         }
+        ("lorebook-library-folders", "collapsed") | ("preset-folders", "collapsed") => {
+            insert_default(object, field, Value::Bool(false));
+        }
+        ("lorebook-library-folders", "sortOrder")
+        | ("lorebook-library-folders", "order")
+        | ("preset-folders", "sortOrder")
+        | ("preset-folders", "order") => {
+            insert_default(object, field, json!(0));
+        }
         ("messages", "extra") => insert_message_extra_default(object)?,
         ("characters", "data") => insert_character_data_default(object)?,
         ("characters", "comment") => insert_default(object, field, Value::String(String::new())),
@@ -1257,8 +1266,10 @@ fn apply_create_default_field(
         | ("lorebooks", "characterId")
         | ("lorebooks", "personaId")
         | ("lorebooks", "chatId")
+        | ("lorebooks", "folderId")
         | ("lorebooks", "generatedBy")
         | ("lorebooks", "sourceAgentId")
+        | ("prompts", "folderId")
         | ("personas", "avatarPath")
         | ("personas", "avatarCrop") => insert_default(object, field, Value::Null),
         ("lorebooks", "scanDepth") => insert_default(object, field, json!(2)),

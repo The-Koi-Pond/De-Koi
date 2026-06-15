@@ -66,6 +66,8 @@ export interface PromptPreset {
   isDefault: boolean;
   /** Author of this preset */
   author: string;
+  /** Library folder this preset belongs to (null = root/unfiled). */
+  folderId: string | null;
   createdAt: string;
   updatedAt: string;
 }

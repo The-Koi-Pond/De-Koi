@@ -150,6 +150,7 @@ export const createPromptPresetSchema = z
     isDefault: z.boolean().optional(),
     default: z.boolean().optional(),
     author: z.string().default(""),
+    folderId: z.string().nullable().default(null),
   })
   .superRefine(validatePromptPresetDefaultFlags)
   .transform(({ default: legacyDefault, ...value }) => ({
@@ -171,6 +172,7 @@ export const updatePromptPresetSchema = z
     isDefault: z.boolean().optional(),
     default: z.boolean().optional(),
     author: z.string().optional(),
+    folderId: z.string().nullable().optional(),
     defaultChoices: z.record(z.union([z.string(), z.array(z.string())])).optional(),
   })
   .superRefine(validatePromptPresetDefaultFlags)
