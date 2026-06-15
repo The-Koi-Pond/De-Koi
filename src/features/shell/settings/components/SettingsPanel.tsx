@@ -24,6 +24,10 @@ import { cn } from "../../../../shared/lib/utils";
 import { stripDangerousCss } from "../../../../shared/lib/chat-css";
 import { TEMPERATURE_UNITS } from "../../../../shared/lib/temperature-units";
 import { QUOTE_FORMATS } from "../../../../shared/lib/dialogue-quotes";
+import {
+  extensionHasRunnableJavaScript,
+  getInitialImportedExtensionEnabled,
+} from "../../../../shared/lib/extension-import";
 import { useExtensions, useCreateExtension, useDeleteExtension, useUpdateExtension } from "../hooks/use-extensions";
 import { CoreModulesSettings } from "../../plugins/settings";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -3150,6 +3154,21 @@ function ExtensionsSettings() {
   const deleteExtension = useDeleteExtension();
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const handleToggleExtension = async (ext: (typeof extensionList)[number]) => {
+    const nextEnabled = !ext.enabled;
+    if (nextEnabled && extensionHasRunnableJavaScript(ext)) {
+      const confirmed = await showConfirmDialog({
+        title: "Enable JavaScript extension?",
+        message: `JavaScript extensions can change the page and use extension storage. Enable "${ext.name}" only if you trust this file.`,
+        confirmLabel: "Enable",
+        cancelLabel: "Keep disabled",
+        tone: "destructive",
+      });
+      if (!confirmed) return;
+    }
+    updateExtension.mutate({ id: ext.id, enabled: nextEnabled });
+  };
+
   const handleImportExtension = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -3160,25 +3179,31 @@ function ExtensionsSettings() {
       if (file.name.endsWith(".json")) {
         const parsed = JSON.parse(text);
         const name = parsed.name ?? file.name.replace(/\.json$/, "");
+        const css = parsed.css ?? null;
+        const js = parsed.js ?? null;
         await createExtension.mutateAsync({
           name,
           description: parsed.description ?? "",
-          css: parsed.css ?? null,
-          js: parsed.js ?? null,
-          enabled: true,
+          css,
+          js,
+          enabled: getInitialImportedExtensionEnabled({ js }),
           installedAt,
         });
-        toast.success(`Extension "${name}" installed`);
+        toast.success(
+          extensionHasRunnableJavaScript({ js })
+            ? `Extension "${name}" installed disabled. Review it before enabling.`
+            : `Extension "${name}" installed`,
+        );
       } else if (file.name.endsWith(".js")) {
         const name = file.name.replace(/\.js$/, "");
         await createExtension.mutateAsync({
           name,
           description: "JS extension imported from file",
           js: text,
-          enabled: true,
+          enabled: getInitialImportedExtensionEnabled({ js: text }),
           installedAt,
         });
-        toast.success(`Extension "${name}" installed`);
+        toast.success(`Extension "${name}" installed disabled. Review it before enabling.`);
       } else if (file.name.endsWith(".css")) {
         const name = file.name.replace(/\.css$/, "");
         await createExtension.mutateAsync({
@@ -3229,7 +3254,7 @@ function ExtensionsSettings() {
             )}
           >
             <button
-              onClick={() => updateExtension.mutate({ id: ext.id, enabled: !ext.enabled })}
+              onClick={() => void handleToggleExtension(ext)}
               className={cn(
                 "rounded p-0.5 transition-colors",
                 ext.enabled
