@@ -145,7 +145,6 @@ export function ChatPresetBar({
         </button>
         <button
           onClick={onSaveAsPreset}
-          disabled={!selectedChatPreset}
           title="Save current chat settings as a new preset"
           className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
         >

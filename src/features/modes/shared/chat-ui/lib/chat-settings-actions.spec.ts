@@ -77,6 +77,33 @@ describe("chat settings actions", () => {
     expect(showMutationFailure).toHaveBeenCalledWith({ removing: true, message: "clear failed" });
   });
 
+  it("keeps removal intent when latest metadata changes before mutation", async () => {
+    let latestChat = chatWithAgents(["secret-plot-driver"]);
+    const updateMeta = { mutateAsync: vi.fn().mockResolvedValue(undefined) };
+
+    await toggleChatAgent({
+      agentId: "secret-plot-driver",
+      chat: chatWithAgents(["secret-plot-driver"]),
+      activeAgentIds: ["secret-plot-driver"],
+      readLatestChat: () => latestChat,
+      updateMeta,
+      agentMemory: {
+        getMemory: vi.fn().mockImplementation(async () => {
+          latestChat = chatWithAgents([]);
+          return { memory: { overarchingArc: "Arc" } };
+        }),
+        clearMemory: vi.fn(),
+      },
+      confirmSecretPlotRemoval: vi.fn().mockResolvedValue(true),
+      showMutationFailure: vi.fn(),
+    });
+
+    expect(updateMeta.mutateAsync).toHaveBeenCalledWith(
+      { id: "chat-1", activeAgentIds: [] },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
   it("preserves mode-specific prompt persistence semantics", () => {
     expect(
       buildModePromptMetadataPatch({

@@ -115,14 +115,14 @@ export async function toggleChatAgent({
   }
 
   const current = readLatestActiveAgentIds();
-  const idx = current.indexOf(agentId);
-  const isRemoving = idx >= 0;
-  if (isRemoving) current.splice(idx, 1);
-  else current.push(agentId);
+  const isRemoving = wasRemoving;
+  const nextAgentIds = isRemoving
+    ? current.filter((id) => id !== agentId)
+    : Array.from(new Set([...current, agentId]));
   let metadataSaved = false;
   try {
     await updateMeta.mutateAsync(
-      { id: chat.id, activeAgentIds: current },
+      { id: chat.id, activeAgentIds: nextAgentIds },
       {
         onSuccess: async () => {
           metadataSaved = true;

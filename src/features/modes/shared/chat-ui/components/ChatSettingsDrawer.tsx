@@ -124,6 +124,7 @@ import { getCharacterTitle, parseCharacterDisplayData } from "../../../../../sha
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import {
   useChatPresets,
+  useCreateChatPreset,
   useSaveChatPresetSettings,
   useDuplicateChatPreset,
   useUpdateChatPreset,
@@ -1398,6 +1399,7 @@ function ChatSettingsDrawerInner({
   // ── Chat Settings Presets ──
   const presetMode = chatMode;
   const { data: chatPresets } = useChatPresets(presetMode);
+  const createChatPreset = useCreateChatPreset();
   const saveChatPreset = useSaveChatPresetSettings();
   const duplicateChatPreset = useDuplicateChatPreset();
   const renameChatPreset = useUpdateChatPreset();
@@ -1681,15 +1683,25 @@ function ChatSettingsDrawerInner({
   };
 
   const handleSaveAsPreset = async () => {
-    if (!selectedChatPreset) return;
     const baseName = await showPromptDialog({
       title: "Duplicate Preset",
       message: "Name for the new preset:",
-      defaultValue: `${selectedChatPreset.name} Copy`,
+      defaultValue: selectedChatPreset ? `${selectedChatPreset.name} Copy` : "New Preset",
       confirmLabel: "Create",
     });
     if (!baseName?.trim()) return;
     const trimmed = baseName.trim().slice(0, 120);
+    if (!selectedChatPreset) {
+      createChatPreset.mutate(
+        { name: trimmed, mode: chatMode, settings: snapshotCurrentPresetSettings() },
+        {
+          onSuccess: (created) => {
+            if (created?.id) applyChatPreset.mutate({ presetId: created.id, chatId: chat.id });
+          },
+        },
+      );
+      return;
+    }
     duplicateChatPreset.mutate(
       { id: selectedChatPreset.id, name: trimmed },
       {
