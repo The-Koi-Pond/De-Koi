@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CreateRegexScriptInput } from "../../../../engine/contracts/schemas/regex.schema";
 import { filterRegexScriptsByCharacterIds } from "./regex-script-filter";
-import { parseRegexScriptImportPayloads } from "./regex-script-import";
+import { parseRegexScriptImportPayloads, writeRegexScriptImportPayloads } from "./regex-script-import";
 
 describe("parseRegexScriptImportPayloads", () => {
   it("normalizes JSON-string target ids to real scoped character ids", () => {
@@ -57,5 +57,66 @@ describe("parseRegexScriptImportPayloads", () => {
     }).toThrow();
 
     expect(writes).toEqual([]);
+  });
+
+  it("reports exact partial accounting when storage create fails after earlier writes", async () => {
+    const payloads = parseRegexScriptImportPayloads([
+      { name: "First", findRegex: "secret", replaceString: "redacted", placement: ["ai_output"] },
+      { name: "Second", findRegex: "private", replaceString: "hidden", placement: ["ai_output"] },
+    ]);
+    const writes: CreateRegexScriptInput[] = [];
+
+    await expect(
+      writeRegexScriptImportPayloads({
+        payloads,
+        create: async (payload) => {
+          if (writes.length === 0) {
+            writes.push(payload);
+            return { id: "created", ...payload };
+          }
+          throw new Error("storage unavailable");
+        },
+      }),
+    ).rejects.toMatchObject({
+      result: { total: 2, created: 1, skipped: 0, failed: 1, pending: 0 },
+    });
+
+    expect(writes.map((payload) => payload.name)).toEqual(["First"]);
+  });
+
+  it("skips already-created import signatures on retry after a partial failure", async () => {
+    const payloads = parseRegexScriptImportPayloads([
+      { name: "First", findRegex: "secret", replaceString: "redacted", placement: ["ai_output"] },
+      { name: "Second", findRegex: "private", replaceString: "hidden", placement: ["ai_output"] },
+    ]);
+    const seenSignatures = new Set<string>();
+    const writes: string[] = [];
+
+    await expect(
+      writeRegexScriptImportPayloads({
+        payloads,
+        seenSignatures,
+        create: async (payload) => {
+          writes.push(payload.name);
+          if (payload.name === "Second") throw new Error("storage unavailable");
+          return { id: "created", ...payload };
+        },
+      }),
+    ).rejects.toMatchObject({
+      name: "RegexScriptImportWriteError",
+      result: { total: 2, created: 1, skipped: 0, failed: 1, pending: 0 },
+    });
+
+    const retry = await writeRegexScriptImportPayloads({
+      payloads,
+      seenSignatures,
+      create: async (payload) => {
+        writes.push(payload.name);
+        return { id: `created-${payload.name}`, ...payload };
+      },
+    });
+
+    expect(retry).toEqual({ total: 2, created: 1, skipped: 1, failed: 0, pending: 0 });
+    expect(writes).toEqual(["First", "Second", "Second"]);
   });
 });

@@ -4,10 +4,66 @@ import {
 } from "../../../../engine/contracts/schemas/regex.schema";
 import { regexScriptTargetCharacterIds } from "./regex-script-filter";
 
+type RegexScriptImportComparable = Omit<
+  Partial<CreateRegexScriptInput>,
+  "enabled" | "promptOnly" | "trimStrings" | "placement" | "targetCharacterIds"
+> & {
+  id?: string;
+  enabled?: boolean | string;
+  promptOnly?: boolean | string;
+  trimStrings?: unknown;
+  placement?: unknown;
+  targetCharacterIds?: unknown;
+};
+
+export type RegexScriptImportWriteResult = {
+  total: number;
+  created: number;
+  skipped: number;
+  failed: number;
+  pending: number;
+};
+
+class RegexScriptImportWriteError extends Error {
+  readonly result: RegexScriptImportWriteResult;
+
+  constructor(result: RegexScriptImportWriteResult, cause: unknown) {
+    super(formatRegexScriptImportError(result, cause));
+    this.name = "RegexScriptImportWriteError";
+    this.result = result;
+  }
+}
+
 const ST_PLACEMENT_MAP: Record<number, "user_input" | "ai_output"> = {
   1: "user_input",
   2: "ai_output",
 };
+
+function normalizedStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+  }
+  if (typeof value !== "string") return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  try {
+    return normalizedStringArray(JSON.parse(trimmed) as unknown);
+  } catch {
+    return [trimmed];
+  }
+}
+
+function normalizedPlacement(value: unknown): string[] {
+  return normalizedStringArray(value)
+    .filter((placement) => placement === "ai_output" || placement === "user_input")
+    .sort();
+}
+
+function boolish(value: unknown, fallback = false): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value === "true" || value === "1";
+  return fallback;
+}
 
 function importedRegexName(row: Record<string, unknown>): string {
   const value = typeof row.name === "string" ? row.name : typeof row.scriptName === "string" ? row.scriptName : "";
@@ -71,4 +127,84 @@ export function parseRegexScriptImportPayloads(parsed: unknown): CreateRegexScri
   }
 
   return payloads;
+}
+
+function regexScriptImportSignature(script: RegexScriptImportComparable): string {
+  return JSON.stringify({
+    name: script.name ?? "",
+    enabled: boolish(script.enabled, true),
+    findRegex: script.findRegex ?? "",
+    replaceString: script.replaceString ?? "",
+    trimStrings: normalizedStringArray(script.trimStrings),
+    placement: normalizedPlacement(script.placement),
+    flags: script.flags ?? "gi",
+    promptOnly: boolish(script.promptOnly, false),
+    order: script.order ?? 0,
+    minDepth: script.minDepth ?? null,
+    maxDepth: script.maxDepth ?? null,
+    targetCharacterIds: regexScriptTargetCharacterIds(script),
+  });
+}
+
+export function formatRegexScriptImportResult(result: RegexScriptImportWriteResult): string {
+  const parts = [`Imported ${result.created} regex script${result.created === 1 ? "" : "s"}.`];
+  if (result.skipped > 0) parts.push(`Skipped ${result.skipped} duplicate${result.skipped === 1 ? "" : "s"}.`);
+  return parts.join(" ");
+}
+
+function formatRegexScriptImportError(result: RegexScriptImportWriteResult, cause: unknown): string {
+  const message = cause instanceof Error ? cause.message : "Failed to import regex scripts";
+  return [
+    `Imported ${result.created} regex script${result.created === 1 ? "" : "s"}`,
+    `skipped ${result.skipped} duplicate${result.skipped === 1 ? "" : "s"}`,
+    `failed ${result.failed}`,
+    `left ${result.pending} unattempted`,
+    message,
+  ].join("; ");
+}
+
+export async function writeRegexScriptImportPayloads({
+  payloads,
+  existingScripts,
+  seenSignatures,
+  create,
+}: {
+  payloads: CreateRegexScriptInput[];
+  existingScripts?: RegexScriptImportComparable[];
+  seenSignatures?: Set<string>;
+  create: (payload: CreateRegexScriptInput) => Promise<unknown>;
+}): Promise<RegexScriptImportWriteResult> {
+  const seen = seenSignatures ?? new Set<string>();
+  for (const script of existingScripts ?? []) {
+    seen.add(regexScriptImportSignature(script));
+  }
+
+  let created = 0;
+  let skipped = 0;
+  for (const [index, payload] of payloads.entries()) {
+    const signature = regexScriptImportSignature(payload);
+    if (seen.has(signature)) {
+      skipped++;
+      continue;
+    }
+
+    try {
+      await create(payload);
+      created++;
+      seen.add(signature);
+    } catch (error) {
+      throw new RegexScriptImportWriteError(
+        {
+          total: payloads.length,
+          created,
+          skipped,
+          failed: 1,
+          pending: payloads.length - index - 1,
+        },
+        error,
+      );
+    }
+  }
+
+  return { total: payloads.length, created, skipped, failed: 0, pending: 0 };
 }

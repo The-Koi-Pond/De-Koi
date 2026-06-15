@@ -1,10 +1,14 @@
-import { useMemo, useState, type ChangeEvent, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { ChevronDown, GripVertical, Pencil, Plus, Regex, ToggleLeft, ToggleRight, Trash2, Upload } from "lucide-react";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../shared/lib/utils";
 import { regexScriptTargetCharacterIds } from "../lib/regex-script-filter";
-import { parseRegexScriptImportPayloads } from "../lib/regex-script-import";
+import {
+  formatRegexScriptImportResult,
+  parseRegexScriptImportPayloads,
+  writeRegexScriptImportPayloads,
+} from "../lib/regex-script-import";
 import {
   useCreateRegexScript,
   useDeleteRegexScript,
@@ -37,6 +41,7 @@ export function RegexScriptsSection({
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [draggedRegexId, setDraggedRegexId] = useState<string | null>(null);
   const [regexDragReadyId, setRegexDragReadyId] = useState<string | null>(null);
+  const recentImportSignaturesRef = useRef(new Set<string>());
 
   const sortedRegexScripts = useMemo(
     () => [...((regexScripts ?? []) as RegexScriptRow[])].sort((a, b) => a.order - b.order),
@@ -56,10 +61,13 @@ export function RegexScriptsSection({
       const text = await file.text();
       const parsed = JSON.parse(text);
       const payloads = parseRegexScriptImportPayloads(parsed);
-      for (const payload of payloads) {
-        await createRegexScript.mutateAsync(payload);
-      }
-      setImportSuccess(`Imported ${payloads.length} regex script(s).`);
+      const result = await writeRegexScriptImportPayloads({
+        payloads,
+        existingScripts: regexScripts,
+        seenSignatures: recentImportSignaturesRef.current,
+        create: (payload) => createRegexScript.mutateAsync(payload),
+      });
+      setImportSuccess(formatRegexScriptImportResult(result));
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Failed to import regex scripts");
     }
