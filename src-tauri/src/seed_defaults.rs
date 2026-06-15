@@ -4,9 +4,11 @@ use serde_json::{json, Map, Value};
 use std::path::Path;
 
 const MARINARA_PRESET_ID: &str = "7huDl_SOx3a5EZtMeKqSR";
-const MARINARA_PRESET_NAME: &str = "Marinara's Universal Preset";
+const MARINARA_PRESET_NAME: &str = "De-Koi's Universal Preset";
+const LEGACY_MARINARA_UNIVERSAL_PRESET_NAME: &str = "Marinara's Universal Preset";
 const LEGACY_MARINARA_PRESET_NAME: &str = "Default";
-const MARINARA_PRESET_AUTHOR: &str = "Marinara";
+const MARINARA_PRESET_AUTHOR: &str = "De-Koi";
+const LEGACY_MARINARA_PRESET_AUTHOR: &str = "Marinara";
 const PROFESSOR_MARI_ID: &str = "__professor_mari__";
 const LEGACY_CLEANUP_MAX_COLLECTION_BYTES: u64 = 4 * 1024 * 1024;
 const BUNDLED_MARINARA_PRESET_JSON: &str =
@@ -40,8 +42,11 @@ fn seed_marinara_preset(storage: &FileStorage, db_root: &Path) -> AppResult<()> 
 
     let has_bundled = storage.get("prompts", MARINARA_PRESET_ID)?.is_some()
         || storage.list("prompts")?.into_iter().any(|row| {
-            row.get("name").and_then(Value::as_str) == Some(MARINARA_PRESET_NAME)
-                && row.get("author").and_then(Value::as_str) == Some(MARINARA_PRESET_AUTHOR)
+            let name = row.get("name").and_then(Value::as_str);
+            let author = row.get("author").and_then(Value::as_str);
+            (name == Some(MARINARA_PRESET_NAME) && author == Some(MARINARA_PRESET_AUTHOR))
+                || (name == Some(LEGACY_MARINARA_UNIVERSAL_PRESET_NAME)
+                    && author == Some(LEGACY_MARINARA_PRESET_AUTHOR))
         });
     if !has_bundled {
         storage.create("prompts", Value::Object(preset.clone()))?;
@@ -93,7 +98,7 @@ fn collection_is_small_enough_for_startup_cleanup(
 fn rename_legacy_default_preset(storage: &FileStorage) -> AppResult<()> {
     let legacy = storage.list("prompts")?.into_iter().find(|row| {
         row.get("name").and_then(Value::as_str) == Some(LEGACY_MARINARA_PRESET_NAME)
-            && row.get("author").and_then(Value::as_str) == Some(MARINARA_PRESET_AUTHOR)
+            && row.get("author").and_then(Value::as_str) == Some(LEGACY_MARINARA_PRESET_AUTHOR)
     });
     if let Some(legacy) = legacy {
         if let Some(id) = legacy.get("id").and_then(Value::as_str) {
@@ -102,7 +107,7 @@ fn rename_legacy_default_preset(storage: &FileStorage) -> AppResult<()> {
                 id,
                 json!({
                     "name": MARINARA_PRESET_NAME,
-                    "description": "Marinara's universal roleplay preset. Serves as a good base."
+                    "description": "De-Koi's universal roleplay preset. Serves as a good base."
                 }),
             )?;
         }
@@ -356,7 +361,7 @@ mod tests {
         let preset = storage
             .get("prompts", MARINARA_PRESET_ID)
             .expect("preset lookup should succeed")
-            .expect("Marinara preset should be seeded");
+            .expect("De-Koi preset should be seeded");
         assert_eq!(preset["name"], MARINARA_PRESET_NAME);
         assert_eq!(preset["author"], MARINARA_PRESET_AUTHOR);
 

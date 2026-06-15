@@ -187,7 +187,7 @@ export function buildSceneAnalyzerUserPrompt(
           `2. AUDIO DIRECTION — Choose locationKind for ambient scoring, and set spotifyTrack to ONE Spotify URI from SPOTIFY TRACK OPTIONS that best fits the just-finished turn. Use null only if there are no suitable options. Do NOT output musicGenre or musicIntensity.`,
         ]
       : [
-          `2. AUDIO DIRECTION — Choose compact musicGenre/musicIntensity/locationKind hints. Do NOT choose music or ambient file tags; Marinara maps these hints to assets deterministically. Do NOT output spotifyTrack.`,
+          `2. AUDIO DIRECTION — Choose compact musicGenre/musicIntensity/locationKind hints. Do NOT choose music or ambient file tags; De-Koi maps these hints to assets deterministically. Do NOT output spotifyTrack.`,
         ]),
     `3. REPUTATION — If an NPC relationship shifted, note it. Otherwise empty array.`,
     `4. PER-BEAT EFFECTS — Scan each narration beat [0]-[${lines.length - 1}]. For each beat you can optionally add:`,

@@ -240,7 +240,7 @@ impl CompletionProvider for MarinaraLlmProvider {
 impl EmbeddingProvider for MarinaraLlmProvider {
     async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
         Err(LLMError::ProviderError(
-            "Professor Mari does not expose embeddings in v1".to_string(),
+            "Assistant does not expose embeddings in v1".to_string(),
         ))
     }
 }
@@ -252,7 +252,7 @@ impl ModelsProvider for MarinaraLlmProvider {
         _request: Option<&ModelListRequest>,
     ) -> Result<Box<dyn ModelListResponse>, LLMError> {
         Err(LLMError::ProviderError(
-            "Professor Mari model listing is owned by Marinara connections".to_string(),
+            "Assistant model listing is owned by De-Koi connections".to_string(),
         ))
     }
 }
@@ -264,7 +264,7 @@ struct ReadMarinaraLibraryArgs {}
 
 #[tool(
     name = "read_marinara_library",
-    description = "Read Professor Mari's typed, read-only creative library snapshot: characters, personas, lorebooks with entries, prompt presets, prompt sections, prompt groups, prompt variables, and character/persona groups. This tool never returns chats, messages, memories, integrations, API keys, or connection secrets.",
+    description = "Read the Assistant's typed, read-only creative library snapshot: characters, personas, lorebooks with entries, prompt presets, prompt sections, prompt groups, prompt variables, and character/persona groups. This tool never returns chats, messages, memories, integrations, API keys, or connection secrets.",
     input = ReadMarinaraLibraryArgs,
 )]
 struct ReadMarinaraLibraryTool {
@@ -432,7 +432,7 @@ struct CreateMarinaraCustomAgentArgs {
 
 #[tool(
     name = "create_marinara_custom_agent",
-    description = "Create a custom De-Koi agent configuration record. Use this when the user asks Professor Mari to make an agent for conversation, roleplay, game, writing, tracking, or post-processing behavior.",
+    description = "Create a custom De-Koi agent configuration record. Use this when the user asks the Assistant to make an agent for conversation, roleplay, game, writing, tracking, or post-processing behavior.",
     input = CreateMarinaraCustomAgentArgs,
 )]
 struct CreateMarinaraCustomAgentTool {
@@ -454,7 +454,7 @@ impl ToolRuntime for CreateMarinaraCustomAgentTool {
 
 #[agent(
     name = "professor_mari",
-    description = "You are Professor Mari, De-Koi's standalone assistant. You can inspect the app's codebase, read files, apply exact source edits, create extension records, create custom agent records, and inspect the creative library through tools. Use tools for factual answers about De-Koi internals.",
+    description = "You are Assistant, De-Koi's standalone assistant. You can inspect the app's codebase, read files, apply exact source edits, create extension records, create custom agent records, and inspect the creative library through tools. Use tools for factual answers about De-Koi internals.",
     tools = [
         ReadMarinaraLibraryTool { state: self.state.clone() },
         SearchMarinaraCodeTool {},
@@ -523,7 +523,7 @@ pub(crate) async fn professor_mari_prompt(state: &AppState, body: Value) -> AppR
     if content.trim().is_empty() {
         return Err(AppError::new(
             "mari_empty_response",
-            "Professor Mari returned an empty response. Try again or select a different tool-capable connection.",
+            "Assistant returned an empty response. Try again or select a different tool-capable connection.",
         ));
     }
 
@@ -538,7 +538,7 @@ fn read_only_mari_action_contract() -> Value {
     json!({
         "type": "none",
         "capability": "workspace_agent",
-        "reason": "Professor Mari can inspect De-Koi's codebase and creative library. Write tools require an explicit approval flow and are disabled for autonomous tool runs.",
+        "reason": "Assistant can inspect De-Koi's codebase and creative library. Write tools require an explicit approval flow and are disabled for autonomous tool runs.",
     })
 }
 
@@ -602,7 +602,7 @@ fn marinara_tool_call_to_autoagents(value: Value) -> Option<ToolCall> {
 
 fn build_system_prompt(persona: Option<&MariPersonaContext>) -> String {
     let mut parts = vec![
-        "You are Professor Mari, a standalone assistant inside De-Koi.".to_string(),
+        "You are Assistant, a standalone assistant inside De-Koi.".to_string(),
         "Personality: helpful, candid, playful, direct, technically sharp, and a little proudly adorable. Explain clearly, nudge users toward practical next steps, and keep your confidence warm rather than formal.".to_string(),
         "You can chat with the user, inspect De-Koi source code with search_marinara_code and read_marinara_code_file, and apply narrow exact-match code edits with edit_marinara_code_file.".to_string(),
         "For questions about De-Koi internals, architecture, UI behavior, agent behavior, storage, imports, providers, or bugs, search the codebase before answering. Prefer AGENTS.md and the relevant owner files over memory. Never cite package-era paths unless search/read tools confirm they exist in the current repository.".to_string(),
@@ -689,7 +689,7 @@ fn build_task_prompt(input: &MariPromptRequest, repo_guidance: Option<&str>) -> 
             .saturating_sub(MARI_ATTACHMENT_MAX_COUNT);
         if omitted_count > 0 {
             let omitted_note = format!(
-                "[{omitted_count} additional attachment(s) omitted to keep Professor Mari within the attachment context budget.]"
+                "[{omitted_count} additional attachment(s) omitted to keep Assistant within the attachment context budget.]"
             );
             if let Some(note) =
                 take_attachment_budget(&omitted_note, &mut remaining_attachment_chars)
@@ -757,7 +757,7 @@ fn attachment_context_block(
                 attachment.size > 0 && attachment.size as usize > attachment.content.len();
             if truncated_for_limit || truncated_by_client {
                 format!(
-                    "{snippet}\n\n[Attachment truncated before prompting to keep Professor Mari within the context budget.]"
+                    "{snippet}\n\n[Attachment truncated before prompting to keep Assistant within the context budget.]"
                 )
             } else {
                 snippet
@@ -789,7 +789,7 @@ fn attachment_omission_reason(attachment: &MariAttachment, content: &str) -> Opt
     let mime_type = attachment.r#type.trim().to_ascii_lowercase();
     if mime_type.starts_with("image/") {
         return Some(
-            "image attachments are not sent as raw base64 to Professor Mari; describe the image or attach text instead"
+            "image attachments are not sent as raw base64 to Assistant; describe the image or attach text instead"
                 .to_string(),
         );
     }
@@ -892,14 +892,14 @@ fn ensure_connection_supports_native_tools(
     match connection.provider.as_str() {
         "openai" | "openai_chatgpt" | "openrouter" | "custom" | "xai" | "mistral" | "cohere" | "nanogpt" => Ok(()),
         provider => Err(AppError::invalid_input(format!(
-            "Professor Mari requires a connection with native tool-call support. The selected provider '{provider}' is not enabled for native tools in Marinara's Rust LLM transport yet. Use an OpenAI-compatible, OpenRouter, OpenAI, xAI, Mistral, Cohere, NanoGPT, or custom OpenAI-compatible connection with a tool-capable chat model."
+            "Assistant requires a connection with native tool-call support. The selected provider '{provider}' is not enabled for native tools in De-Koi's Rust LLM transport yet. Use an OpenAI-compatible, OpenRouter, OpenAI, xAI, Mistral, Cohere, NanoGPT, or custom OpenAI-compatible connection with a tool-capable chat model."
         ))),
     }
 }
 
 fn tool_call_error_message(message: &str) -> String {
     if message.contains("Provider response did not contain assistant text or tool calls") {
-        return "The selected model/provider did not return a native tool call or assistant message. Professor Mari's read-library path requires native tool calling; choose a tool-capable chat model on the selected connection.".to_string();
+        return "The selected model/provider did not return a native tool call or assistant message. Assistant's read-library path requires native tool calling; choose a tool-capable chat model on the selected connection.".to_string();
     }
     message.to_string()
 }
@@ -924,7 +924,7 @@ fn mari_write_tools_enabled() -> bool {
 fn mari_write_requires_approval_error() -> ToolCallError {
     mari_tool_error(
         "mari_write_requires_approval",
-        "Professor Mari write tools require explicit user approval and are disabled for autonomous tool runs.",
+        "Assistant write tools require explicit user approval and are disabled for autonomous tool runs.",
     )
 }
 
@@ -946,7 +946,7 @@ fn marinara_repo_root() -> AppResult<PathBuf> {
     } else {
         Err(AppError::new(
             "mari_repo_root_unavailable",
-            "Professor Mari could not find AGENTS.md and package.json at the repository root",
+            "Assistant could not find AGENTS.md and package.json at the repository root",
         ))
     }
 }
@@ -962,7 +962,7 @@ fn resolve_repo_file(path: &str) -> AppResult<(PathBuf, PathBuf, String)> {
     let relative = assert_relative_safe_path(trimmed)?;
     if relative.as_os_str().is_empty() || is_skipped_relative_path(&relative) {
         return Err(AppError::invalid_input(
-            "That path is not available to Professor Mari",
+            "That path is not available to Assistant",
         ));
     }
     let resolved = assert_inside_dir(&root, &relative)?;

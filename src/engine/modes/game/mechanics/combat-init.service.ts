@@ -321,7 +321,7 @@ function appendGameCardContext(lines: string[], card: JsonRecord | null): void {
 
 function buildInitPrompt(context: GameCombatInitContext, chatHistory: LlmMessage[]): LlmMessage[] {
   const system = [
-    `You are an excellent game master crafting a combat encounter for Marinara game mode. The user plays ${context.playerName}.`,
+    `You are an excellent game master crafting a combat encounter for De-Koi game mode. The user plays ${context.playerName}.`,
     context.partyContext ? `Party members:\n<party>\n${context.partyContext}\n</party>` : "",
     `Player:\n<player>\n${context.playerContext}\n</player>`,
     context.worldContext ? `Current tracked game context:\n<context>\n${context.worldContext}\n</context>` : "",
