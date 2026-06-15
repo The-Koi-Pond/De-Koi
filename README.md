@@ -27,7 +27,15 @@ Storage is file-backed JSON collections plus managed asset files. See [De-Koi St
 
 ## Screenshots
 
-Current release screenshots are not checked into this branch yet. The previous screenshot set was removed because it no longer represented the refactor app structure. See [Screenshot Guidance](docs/screenshot-guidance.md) for the required conversation, roleplay, game mode, settings, and connections captures before publishing a user-facing release.
+Current release-build screenshots are checked in under [`docs/screenshots/release`](docs/screenshots/release). These captures were taken from the production web preview for the current refactor build; the mode captures show the web-shell setup path before a remote runtime and provider connection are configured.
+
+| Conversation | Roleplay | Game mode |
+| --- | --- | --- |
+| ![Conversation setup in the De-Koi release build](docs/screenshots/release/conversation.png) | ![Roleplay setup in the De-Koi release build](docs/screenshots/release/roleplay.png) | ![Game setup in the De-Koi release build](docs/screenshots/release/game-mode.png) |
+
+| Settings | Connections |
+| --- | --- |
+| ![Settings panel in the De-Koi release build](docs/screenshots/release/settings.png) | ![Connections panel in the De-Koi release build](docs/screenshots/release/connections.png) |
 
 ## What It Does
 
@@ -224,4 +232,4 @@ show up without failing the command.
 
 ## Current Status
 
-This branch is focused on the refactored desktop/runtime architecture. Release docs now describe the current manual install/update model, while final screenshots remain blocked until fresh captures are available for the refactor UI.
+This branch is focused on the refactored desktop/runtime architecture. Release docs describe the current manual install/update model, and release-build screenshots are checked in for the current web-shell setup, settings, and connections surfaces.
