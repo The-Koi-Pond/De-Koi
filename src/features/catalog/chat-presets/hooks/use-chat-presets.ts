@@ -182,6 +182,22 @@ export function useUpdateChatPreset() {
   });
 }
 
+export function useCreateChatPreset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { name: string; mode: ChatMode; settings: ChatPresetSettings }) =>
+      storageApi.create<ChatPreset>(
+        "chat-presets",
+        createChatPresetSchema.parse({
+          name: data.name,
+          mode: data.mode,
+          settings: sanitizeChatPresetSettings(data.settings, data.mode),
+        }),
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: chatPresetKeys.all }),
+  });
+}
+
 export function useSaveChatPresetSettings() {
   const qc = useQueryClient();
   return useMutation({

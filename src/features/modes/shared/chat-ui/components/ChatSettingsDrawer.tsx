@@ -8,8 +8,6 @@ import {
   Users,
   User,
   BookOpen,
-  Sliders,
-  Plug,
   ChevronDown,
   ChevronUp,
   Check,
@@ -35,15 +33,10 @@ import {
   Globe,
   Maximize2,
   Languages,
-  LetterText,
   Feather,
   Activity,
   Puzzle,
-  Save,
   FilePlus2,
-  Upload,
-  Download,
-  Star,
   Drama,
   Music2,
   Code2,
@@ -60,10 +53,13 @@ import { ChoiceSelectionModal } from "../../../../catalog/presets/index";
 import { PersonaAvatarImage } from "../../../../catalog/personas/index";
 import { SummariesEditorModal } from "./SummariesEditorModal";
 import { AdvancedParametersSection } from "./settings/AdvancedParametersSection";
+import { ChatBasicSettingsSections } from "./settings/ChatBasicSettingsSections";
 import { ConversationNotesSection } from "./settings/ConversationNotesSection";
 import { ConversationPromptSection } from "./settings/ConversationPromptSection";
 import { ImpersonateSettingsContent } from "./settings/ImpersonateSettingsContent";
 import { MemoryRecallMemoriesModal } from "./settings/MemoryRecallMemoriesModal";
+import { ModePromptSettingsSections } from "./settings/ModePromptSettingsSections";
+import { ChatPresetBar } from "./settings/ChatPresetBar";
 import { ScheduleEditor, SelfiePromptControls } from "./settings/ScheduleEditor";
 import {
   ScopedRegexCharacterGroups,
@@ -80,6 +76,7 @@ import {
   metadataStringArray,
   metadataTranslationProvider,
 } from "../lib/chat-settings-metadata";
+import { toggleChatAgent } from "../lib/chat-settings-actions";
 import {
   AgentCategorySection,
   ChatSettingsSection as Section,
@@ -127,6 +124,7 @@ import { getCharacterTitle, parseCharacterDisplayData } from "../../../../../sha
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import {
   useChatPresets,
+  useCreateChatPreset,
   useSaveChatPresetSettings,
   useDuplicateChatPreset,
   useUpdateChatPreset,
@@ -436,12 +434,6 @@ function normalizeNonNegativeInteger(value: unknown, fallback: number, max: numb
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function getChatActiveAgentIds(chat: Chat): string[] {
-  const metadata =
-    chat.metadata && typeof chat.metadata === "object" && !Array.isArray(chat.metadata) ? chat.metadata : {};
-  return enabledChatAgentIds(metadata, chat.mode);
 }
 
 const isLiteBuild = import.meta.env.VITE_DE_KOI_LITE === "true" || import.meta.env.VITE_MARINARA_LITE === "true";
@@ -1243,94 +1235,27 @@ function ChatSettingsDrawerInner({
     updateMeta.mutate({ id: chat.id, activeLorebookIds: [...activeLorebookIds, lbId] });
   };
 
-  const hasSecretPlotMemory = (memory: Record<string, unknown> | null | undefined) => {
-    if (!memory) return false;
-    const arc = memory.overarchingArc;
-    if (typeof arc === "string" && arc.trim()) return true;
-    if (arc && typeof arc === "object") {
-      const arcRecord = arc as Record<string, unknown>;
-      if (
-        String(arcRecord.description ?? "").trim() ||
-        String(arcRecord.protagonistArc ?? "").trim() ||
-        arcRecord.completed === true
-      ) {
-        return true;
-      }
-    }
-
-    const sceneDirections = memory.sceneDirections;
-    if (
-      Array.isArray(sceneDirections) &&
-      sceneDirections.some((entry) =>
-        typeof entry === "string"
-          ? entry.trim()
-          : !!(entry && typeof entry === "object" && String((entry as Record<string, unknown>).direction ?? "").trim()),
-      )
-    ) {
-      return true;
-    }
-
-    const pacing = memory.pacing;
-    if (typeof pacing === "string" ? pacing.trim() : pacing != null) return true;
-    const recentlyFulfilled = memory.recentlyFulfilled;
-    return Array.isArray(recentlyFulfilled) && recentlyFulfilled.some((entry) => String(entry ?? "").trim());
-  };
-
   const toggleAgent = async (agentId: string) => {
-    const readLatestActiveAgentIds = () => {
-      const latestChat = qc.getQueryData<Chat>(chatKeys.detail(chat.id));
-      return latestChat ? getChatActiveAgentIds(latestChat) : [...activeAgentIds];
-    };
-    const wasRemoving = readLatestActiveAgentIds().includes(agentId);
-    if (wasRemoving && agentId === "secret-plot-driver") {
-      let shouldWarn: boolean;
-      try {
-        const res = await agentApi.getMemory(agentId, chat.id);
-        shouldWarn = hasSecretPlotMemory(res.memory);
-      } catch {
-        shouldWarn = true;
-      }
-      if (shouldWarn) {
-        const ok = await showConfirmDialog({
+    await toggleChatAgent({
+      agentId,
+      chat,
+      activeAgentIds,
+      readLatestChat: () => qc.getQueryData<Chat>(chatKeys.detail(chat.id)),
+      updateMeta,
+      agentMemory: agentApi,
+      confirmSecretPlotRemoval: (message) =>
+        showConfirmDialog({
           title: "Remove Secret Plot Driver",
-          message:
-            "Remove Secret Plot Driver from this chat? This will wipe its hidden plot memory for this chat, including the current arc and scene directions. This cannot be undone.",
+          message,
           confirmLabel: "Remove Agent",
           tone: "destructive",
-        });
-        if (!ok) return;
-      }
-    }
-
-    const current = readLatestActiveAgentIds();
-    const idx = current.indexOf(agentId);
-    const isRemoving = idx >= 0;
-    if (isRemoving) current.splice(idx, 1);
-    else current.push(agentId);
-    let metadataSaved = false;
-    try {
-      await updateMeta.mutateAsync(
-        { id: chat.id, activeAgentIds: current },
-        {
-          onSuccess: async () => {
-            metadataSaved = true;
-            // When removing an agent that stores persistent memory, clean it up after metadata is saved.
-            if (isRemoving && agentId === "secret-plot-driver") {
-              await agentApi.clearMemory(agentId, chat.id);
-            }
-          },
-        },
-      );
-    } catch (error) {
-      if (metadataSaved && isRemoving && agentId === "secret-plot-driver") {
-        const rollbackIds = Array.from(new Set([...readLatestActiveAgentIds(), agentId]));
-        await updateMeta.mutateAsync({ id: chat.id, activeAgentIds: rollbackIds }).catch(() => undefined);
-      }
-      await showAlertDialog({
-        title: isRemoving ? "Couldn't Remove Agent" : "Couldn't Add Agent",
-        message: error instanceof Error ? error.message : "The agent list could not be updated. Please try again.",
-      });
-    }
+        }),
+      showMutationFailure: ({ removing, message }) =>
+        showAlertDialog({
+          title: removing ? "Couldn't Remove Agent" : "Couldn't Add Agent",
+          message,
+        }),
+    });
   };
 
   const handleLorebookKeeperBackfill = useCallback(async () => {
@@ -1474,6 +1399,7 @@ function ChatSettingsDrawerInner({
   // ── Chat Settings Presets ──
   const presetMode = chatMode;
   const { data: chatPresets } = useChatPresets(presetMode);
+  const createChatPreset = useCreateChatPreset();
   const saveChatPreset = useSaveChatPresetSettings();
   const duplicateChatPreset = useDuplicateChatPreset();
   const renameChatPreset = useUpdateChatPreset();
@@ -1757,15 +1683,25 @@ function ChatSettingsDrawerInner({
   };
 
   const handleSaveAsPreset = async () => {
-    if (!selectedChatPreset) return;
     const baseName = await showPromptDialog({
       title: "Duplicate Preset",
       message: "Name for the new preset:",
-      defaultValue: `${selectedChatPreset.name} Copy`,
+      defaultValue: selectedChatPreset ? `${selectedChatPreset.name} Copy` : "New Preset",
       confirmLabel: "Create",
     });
     if (!baseName?.trim()) return;
     const trimmed = baseName.trim().slice(0, 120);
+    if (!selectedChatPreset) {
+      createChatPreset.mutate(
+        { name: trimmed, mode: chatMode, settings: snapshotCurrentPresetSettings() },
+        {
+          onSuccess: (created) => {
+            if (created?.id) applyChatPreset.mutate({ presetId: created.id, chatId: chat.id });
+          },
+        },
+      );
+      return;
+    }
     duplicateChatPreset.mutate(
       { id: selectedChatPreset.id, name: trimmed },
       {
@@ -1942,134 +1878,29 @@ function ChatSettingsDrawerInner({
 
         {/* Chat Settings Preset bar — hidden in Game Mode and scene chats. */}
         {!isGame && !isSceneChat && (
-          <div className="flex flex-col gap-2 border-b border-[var(--border)] px-4 py-3">
-            <input
-              ref={presetFileInputRef}
-              type="file"
-              accept=".json,application/json"
-              className="hidden"
-              onChange={handleImportFile}
-            />
-            {/* Dropdown / rename input + help */}
-            <div className="flex items-center gap-2">
-              {renamingPreset ? (
-                <input
-                  value={renamePresetVal}
-                  onChange={(e) => setRenamePresetVal(e.target.value)}
-                  onBlur={handleCommitRenamePreset}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleCommitRenamePreset();
-                    else if (e.key === "Escape") setRenamingPreset(false);
-                  }}
-                  autoFocus
-                  maxLength={120}
-                  className="flex-1 min-w-0 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-[var(--primary)]/40"
-                />
-              ) : (
-                <select
-                  value={selectedChatPreset?.id ?? ""}
-                  onChange={(e) => handleSelectPreset(e.target.value)}
-                  title="Apply a chat-settings preset to this chat"
-                  className="flex-1 min-w-0 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]/40"
-                >
-                  {presetList.length === 0 && <option value="">Loading…</option>}
-                  {presetList.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {isEnabledFlag(p.isDefault ?? p.default, false) ? "Default" : p.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <button
-                onClick={handleToggleDefaultPreset}
-                disabled={!selectedChatPreset || selectedChatPresetIsActive || setActiveChatPreset.isPending}
-                title={
-                  !selectedChatPreset
-                    ? "Select a preset to mark it as default"
-                    : selectedChatPresetIsActive
-                      ? "This preset is the default for new chats in this mode"
-                      : "Mark this preset as default for new chats in this mode"
-                }
-                aria-pressed={selectedChatPresetIsActive}
-                aria-label={selectedChatPresetIsActive ? "Default preset" : "Mark as default preset"}
-                className={cn(
-                  "shrink-0 flex items-center justify-center rounded-md p-1.5 transition-colors disabled:cursor-not-allowed",
-                  selectedChatPresetIsActive
-                    ? "text-yellow-400 disabled:opacity-100"
-                    : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-yellow-400 disabled:opacity-40",
-                )}
-              >
-                <Star
-                  size="0.875rem"
-                  fill={selectedChatPresetIsActive ? "currentColor" : "none"}
-                  strokeWidth={selectedChatPresetIsActive ? 1.5 : 2}
-                />
-              </button>
-              <HelpTooltip
-                side="left"
-                text={
-                  isConversation
-                    ? "Presets bundle this chat's connection, tools, translation, memory recall, advanced parameters, and other settings. Prompt presets are not applied in conversation mode. Characters, persona, lorebooks, sprites, summary, tags, and scene prompt stay tied to the chat. Star a preset to use it as the default for new chats in this mode."
-                    : "Presets bundle this chat's connection, prompt preset, agents, tools, translation, memory recall, advanced parameters, and other settings. They never touch your characters, persona, lorebooks, sprites, summary, tags, or scene prompt — those stay tied to the chat. Star a preset to use it as the default for new chats in this mode."
-                }
-              />
-            </div>
-            {/* Single row of all preset actions */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={handleSaveIntoPreset}
-                disabled={!selectedChatPreset || selectedChatPresetIsDefault}
-                title={
-                  selectedChatPresetIsDefault
-                    ? "Cannot save into the Default preset"
-                    : "Save current chat settings into this preset"
-                }
-                className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Save size="0.875rem" />
-              </button>
-              <button
-                onClick={handleStartRenamePreset}
-                disabled={!selectedChatPreset || selectedChatPresetIsDefault}
-                title={selectedChatPresetIsDefault ? "Cannot rename the Default preset" : "Rename preset"}
-                className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Pencil size="0.875rem" />
-              </button>
-              <button
-                onClick={handleSaveAsPreset}
-                disabled={!selectedChatPreset}
-                title="Save current chat settings as a new preset"
-                className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <FilePlus2 size="0.875rem" />
-              </button>
-              <span className="mx-1 h-4 w-px shrink-0 bg-[var(--border)]" aria-hidden />
-              <button
-                onClick={handleImportClick}
-                title="Import preset (.json)"
-                className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-              >
-                <Upload size="0.875rem" />
-              </button>
-              <button
-                onClick={handleExportPreset}
-                disabled={!selectedChatPreset}
-                title="Export preset (.json)"
-                className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Download size="0.875rem" />
-              </button>
-              <button
-                onClick={handleDeletePreset}
-                disabled={!selectedChatPreset || selectedChatPresetIsDefault}
-                title={selectedChatPresetIsDefault ? "Cannot delete the Default preset" : "Delete preset"}
-                className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Trash2 size="0.875rem" />
-              </button>
-            </div>
-          </div>
+          <ChatPresetBar
+            fileInputRef={presetFileInputRef}
+            isConversation={isConversation}
+            presetList={presetList}
+            selectedChatPreset={selectedChatPreset}
+            selectedChatPresetIsActive={selectedChatPresetIsActive}
+            selectedChatPresetIsDefault={selectedChatPresetIsDefault}
+            renamingPreset={renamingPreset}
+            renamePresetVal={renamePresetVal}
+            defaultTogglePending={setActiveChatPreset.isPending}
+            onImportFile={handleImportFile}
+            onRenamePresetValChange={setRenamePresetVal}
+            onCommitRenamePreset={handleCommitRenamePreset}
+            onCancelRenamePreset={() => setRenamingPreset(false)}
+            onSelectPreset={handleSelectPreset}
+            onToggleDefaultPreset={handleToggleDefaultPreset}
+            onSaveIntoPreset={handleSaveIntoPreset}
+            onStartRenamePreset={handleStartRenamePreset}
+            onSaveAsPreset={handleSaveAsPreset}
+            onImportClick={handleImportClick}
+            onExportPreset={handleExportPreset}
+            onDeletePreset={handleDeletePreset}
+          />
         )}
 
         <div className="flex-1 overflow-y-auto">
@@ -2083,301 +1914,50 @@ function ChatSettingsDrawerInner({
             </div>
           )}
 
-          {/* Chat Name */}
-          <Section
-            label="Chat Name"
-            icon={<LetterText size="0.875rem" />}
-            help="This name is only visible to you — it won't be sent to the AI or affect the conversation in any way."
-          >
-            {editingName ? (
-              <div className="flex gap-2">
-                <input
-                  value={nameVal}
-                  onChange={(e) => setNameVal(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && saveName()}
-                  autoFocus
-                  className="flex-1 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-[var(--primary)]/40"
-                />
-                <button onClick={saveName} className="rounded-lg bg-[var(--primary)] px-3 py-2 text-xs text-white">
-                  <Check size="0.75rem" />
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => {
-                  setNameVal(chat.name);
-                  setEditingName(true);
-                }}
-                className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-left text-xs transition-colors hover:bg-[var(--accent)]"
-              >
-                {chat.name}
-              </button>
-            )}
-          </Section>
+          <ChatBasicSettingsSections
+            chat={chat}
+            isConversation={isConversation}
+            isGame={isGame}
+            sceneSystemPrompt={sceneSystemPrompt}
+            editingName={editingName}
+            nameVal={nameVal}
+            textConnectionsList={textConnectionsList}
+            presets={(presets ?? []) as ChatPreset[]}
+            currentPromptPresetHasVariables={currentPromptPresetHasVariables}
+            showLorebookMarkerWarning={showLorebookMarkerWarning}
+            onNameValChange={setNameVal}
+            onEditName={() => {
+              setNameVal(chat.name);
+              setEditingName(true);
+            }}
+            onSaveName={saveName}
+            onConnectionChange={setConnection}
+            onPresetChange={setPreset}
+            onEditPresetChoices={() => {
+              if (chat.promptPresetId) setChoiceModalPresetId(chat.promptPresetId);
+            }}
+          />
 
-          {/* Connection */}
-          <Section
-            label="Connection"
-            icon={<Plug size="0.875rem" />}
-            help={
-              isGame
-                ? "Separate AI models for the Game Master (narration, world, NPCs) and the Party chat (inter-character banter)."
-                : "Which AI provider and model to use for this chat. 'Random' picks a different connection each time from your random pool."
-            }
-          >
-            {isGame ? (
-              <div className="space-y-2">
-                <div>
-                  <label className="mb-1 block text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
-                    GM / Party Model
-                  </label>
-                  <select
-                    value={chat.connectionId ?? ""}
-                    onChange={(e) => setConnection(e.target.value || null)}
-                    className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]/40"
-                  >
-                    <option value="">None</option>
-                    <option value="random">🎲 Random</option>
-                    {textConnectionsList.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                        {c.model ? ` — ${c.model}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            ) : (
-              <>
-                <select
-                  value={chat.connectionId ?? ""}
-                  onChange={(e) => setConnection(e.target.value || null)}
-                  className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]/40"
-                >
-                  <option value="">None</option>
-                  <option value="random">🎲 Random</option>
-                  {textConnectionsList.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-                {chat.connectionId === "random" && (
-                  <p className="mt-1.5 text-[0.625rem] text-amber-400/80">
-                    Each generation will randomly pick from connections marked for the random pool.
-                  </p>
-                )}
-              </>
-            )}
-          </Section>
-
-          {/* Preset — hidden for conversation mode and game mode */}
-          {!isConversation && !isGame && !sceneSystemPrompt && (
-            <Section
-              label="Prompt Preset"
-              icon={<Sliders size="0.875rem" />}
-              help="Presets control how the system prompt is structured and what generation parameters are used. Different presets produce different AI behaviors."
-            >
-              <div className="flex items-center gap-1.5">
-                <select
-                  value={chat.promptPresetId ?? ""}
-                  onChange={(e) => setPreset(e.target.value || null)}
-                  className="flex-1 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]/40"
-                >
-                  <option value="">None</option>
-                  {((presets ?? []) as Array<{ id: string; name: string; isDefault?: boolean | string }>).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                {chat.promptPresetId && currentPromptPresetHasVariables && (
-                  <button
-                    onClick={() => setChoiceModalPresetId(chat.promptPresetId!)}
-                    className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-                    title="Edit preset variables"
-                  >
-                    <Pencil size="0.8125rem" />
-                  </button>
-                )}
-              </div>
-              {showLorebookMarkerWarning && (
-                <div className="mt-2 flex items-start gap-2 rounded-lg bg-amber-400/10 px-3 py-2 text-[0.6875rem] text-amber-200 ring-1 ring-amber-400/25">
-                  <AlertTriangle size="0.75rem" className="mt-[0.125rem] shrink-0" />
-                  <span>This preset has active lorebooks available, but no lorebook marker.</span>
-                </div>
-              )}
-            </Section>
-          )}
-
-          {/* Narrator Style — roleplay mode only */}
-          {isRoleplayMode && (
-            <Section
-              label="Narrator Style"
-              icon={<Feather size="0.875rem" />}
-              help="Optional per-chat instructions for the narration voice. This steers descriptive prose without creating an agent, changing character cards, or affecting Game Master behavior."
-            >
-              <div className="space-y-1.5">
-                <div className="relative">
-                  <textarea
-                    value={narratorStyleDraft}
-                    maxLength={2000}
-                    onChange={(e) => setNarratorStyleDraft(e.target.value)}
-                    onBlur={() => {
-                      const next = narratorStyleDraft.trim();
-                      if (next !== narratorStyleInstructions) {
-                        updateMeta.mutate({ id: chat.id, narratorStyleInstructions: next || null });
-                      }
-                    }}
-                    placeholder="e.g. Dry, theatrical, a little sardonic. Describe scenes with lush sensory detail but keep dialogue natural."
-                    rows={4}
-                    className="w-full resize-y rounded-lg bg-[var(--secondary)] px-3 py-2 pr-8 text-xs leading-relaxed outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]/40"
-                  />
-                  <button
-                    onClick={() => setNarratorStyleExpanded(true)}
-                    className="absolute right-1.5 top-1.5 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-                    title="Expand editor"
-                  >
-                    <Maximize2 size="0.75rem" />
-                  </button>
-                </div>
-                <p className="px-0.5 text-[0.5625rem] text-[var(--muted-foreground)]/70">
-                  {narratorStyleDraft ? `${narratorStyleDraft.length}/2000 characters` : "No narrator style set"}
-                </p>
-                {narratorStyleDraft && (
-                  <button
-                    onClick={() => {
-                      setNarratorStyleDraft("");
-                      updateMeta.mutate({ id: chat.id, narratorStyleInstructions: null });
-                    }}
-                    className="rounded-lg bg-[var(--secondary)] px-2.5 py-1 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-              <ExpandedTextarea
-                open={narratorStyleExpanded}
-                onClose={() => {
-                  setNarratorStyleExpanded(false);
-                  const next = narratorStyleDraft.trim();
-                  if (next !== narratorStyleInstructions) {
-                    updateMeta.mutate({ id: chat.id, narratorStyleInstructions: next || null });
-                  }
-                }}
-                title="Narrator Style"
-                value={narratorStyleDraft}
-                onChange={(value) => setNarratorStyleDraft(value.slice(0, 2000))}
-                placeholder="Optional narration voice and descriptive prose guidance for this roleplay chat..."
-              />
-            </Section>
-          )}
-
-          {/* Extra Prompt — game mode only */}
-          {isGame && (
-            <Section
-              label="Extra Prompt"
-              icon={<Feather size="0.875rem" />}
-              help="Additional instructions added to game generation prompts. Use this to suggest a writing style, ban themes, request specific behaviors, etc. Does not affect scene analysis."
-            >
-              <div className="space-y-1.5">
-                <div className="relative">
-                  <textarea
-                    value={extraPromptDraft}
-                    onChange={(e) => setExtraPromptDraft(e.target.value)}
-                    onBlur={() => {
-                      const stored = gameExtraPrompt;
-                      if (extraPromptDraft !== stored) {
-                        updateMeta.mutate({ id: chat.id, gameExtraPrompt: extraPromptDraft || null });
-                      }
-                    }}
-                    placeholder="e.g. Write in a poetic, literary style. Avoid graphic violence. Always describe the weather..."
-                    rows={5}
-                    className="w-full resize-y rounded-lg bg-[var(--secondary)] px-3 py-2 pr-8 text-xs leading-relaxed outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]/40"
-                  />
-                  <button
-                    onClick={() => setExtraPromptExpanded(true)}
-                    className="absolute right-1.5 top-1.5 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-                    title="Expand editor"
-                  >
-                    <Maximize2 size="0.75rem" />
-                  </button>
-                </div>
-                <p className="text-[0.5625rem] text-[var(--muted-foreground)]/70 px-0.5">
-                  {extraPromptDraft ? "Custom instructions active" : "No extra instructions set"}
-                </p>
-                {extraPromptDraft && (
-                  <button
-                    onClick={() => {
-                      setExtraPromptDraft("");
-                      updateMeta.mutate({ id: chat.id, gameExtraPrompt: null });
-                    }}
-                    className="rounded-lg bg-[var(--secondary)] px-2.5 py-1 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-              <ExpandedTextarea
-                open={extraPromptExpanded}
-                onClose={() => {
-                  setExtraPromptExpanded(false);
-                  const stored = gameExtraPrompt;
-                  if (extraPromptDraft !== stored) {
-                    updateMeta.mutate({ id: chat.id, gameExtraPrompt: extraPromptDraft || null });
-                  }
-                }}
-                title="Extra Prompt"
-                value={extraPromptDraft}
-                onChange={setExtraPromptDraft}
-                placeholder="Additional instructions for game generation..."
-              />
-            </Section>
-          )}
-
-          {/* Scene System Prompt — shown only for scene-created chats */}
-          {sceneSystemPrompt && (
-            <Section
-              label="Scene Instructions"
-              icon={<Sparkles size="0.875rem" />}
-              help="The system prompt generated for this scene. You can edit it to change the AI's writing style, POV, tone, and focus."
-            >
-              <div className="relative">
-                <textarea
-                  value={scenePromptDraft}
-                  onChange={(e) => setScenePromptDraft(e.target.value)}
-                  onBlur={() => {
-                    if (scenePromptDraft !== sceneSystemPrompt) {
-                      updateMeta.mutate({ id: chat.id, sceneSystemPrompt: scenePromptDraft });
-                    }
-                  }}
-                  placeholder="Scene system prompt..."
-                  rows={6}
-                  className="w-full resize-y rounded-lg bg-[var(--secondary)] px-3 py-2 pr-8 text-xs leading-relaxed outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]/40"
-                />
-                <button
-                  onClick={() => setScenePromptExpanded(true)}
-                  className="absolute right-1.5 top-1.5 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-                  title="Expand editor"
-                >
-                  <Maximize2 size="0.75rem" />
-                </button>
-              </div>
-              <ExpandedTextarea
-                open={scenePromptExpanded}
-                onClose={() => {
-                  setScenePromptExpanded(false);
-                  if (scenePromptDraft !== sceneSystemPrompt) {
-                    updateMeta.mutate({ id: chat.id, sceneSystemPrompt: scenePromptDraft });
-                  }
-                }}
-                title="Scene Instructions"
-                value={scenePromptDraft}
-                onChange={setScenePromptDraft}
-                placeholder="Scene system prompt..."
-              />
-            </Section>
-          )}
+          <ModePromptSettingsSections
+            isRoleplayMode={isRoleplayMode}
+            isGame={isGame}
+            sceneSystemPrompt={sceneSystemPrompt}
+            narratorStyleDraft={narratorStyleDraft}
+            narratorStyleInstructions={narratorStyleInstructions}
+            narratorStyleExpanded={narratorStyleExpanded}
+            extraPromptDraft={extraPromptDraft}
+            gameExtraPrompt={gameExtraPrompt}
+            extraPromptExpanded={extraPromptExpanded}
+            scenePromptDraft={scenePromptDraft}
+            scenePromptExpanded={scenePromptExpanded}
+            onNarratorStyleDraftChange={setNarratorStyleDraft}
+            onNarratorStyleExpandedChange={setNarratorStyleExpanded}
+            onExtraPromptDraftChange={setExtraPromptDraft}
+            onExtraPromptExpandedChange={setExtraPromptExpanded}
+            onScenePromptDraftChange={setScenePromptDraft}
+            onScenePromptExpandedChange={setScenePromptExpanded}
+            onMetadataPatch={(patch) => updateMeta.mutate({ id: chat.id, ...patch })}
+          />
 
           {/* Party (game mode) */}
           {isGame && (
