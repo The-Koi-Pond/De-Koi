@@ -27,7 +27,7 @@ export const PROVIDERS: Record<APIProvider, ProviderDefinition> = {
   },
   openai_chatgpt: {
     id: "openai_chatgpt",
-    name: "OpenAI (ChatGPT)",
+    name: "OpenAI (ChatGPT Subscription)",
     defaultBaseUrl: "",
     modelsEndpoint: "",
     supportsStreaming: true,
