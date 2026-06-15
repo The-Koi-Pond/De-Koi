@@ -8,6 +8,7 @@ import {
   Sparkles,
   Pencil,
   Plus,
+  Search,
   Wrench,
   ChevronDown,
   Trash2,
@@ -33,6 +34,7 @@ import { resolveEntityImageUrl } from "../../../../shared/api/local-file-api";
 import { cn } from "../../../../shared/lib/utils";
 
 export function AgentsPanel() {
+  const [search, setSearch] = useState("");
   const { data: agentConfigs, isLoading } = useAgentConfigs();
   const { data: customTools } = useCustomTools();
   const deleteAgent = useDeleteAgent();
@@ -57,6 +59,56 @@ export function AgentsPanel() {
     () => agentConfigRows.filter((config) => !builtInAgentTypes.has(config.type)),
     [agentConfigRows, builtInAgentTypes],
   );
+  const customToolRows = useMemo(() => (customTools ?? []) as CustomToolRow[], [customTools]);
+  const searchQuery = search.trim().toLowerCase();
+  const searchActive = searchQuery.length > 0;
+  const matchesSearch = useCallback(
+    (values: Array<string | null | undefined>) => {
+      if (!searchQuery) return true;
+      return values.some((value) => (value ?? "").toLowerCase().includes(searchQuery));
+    },
+    [searchQuery],
+  );
+  const visibleCustomAgents = useMemo(
+    () =>
+      customAgents
+        .filter((agent) => matchesSearch([agent.name, agent.description, agent.type, "custom"]))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [customAgents, matchesSearch],
+  );
+  const visibleCustomTools = useMemo(
+    () => customToolRows.filter((tool) => matchesSearch([tool.name, tool.description, tool.executionType])),
+    [customToolRows, matchesSearch],
+  );
+  const agentSections = useMemo(
+    () => [
+      {
+        category: "writer" as AgentCategory,
+        title: "Writer Agents",
+        icon: <PenLine size="0.8125rem" />,
+        desc: "Prose quality, continuity, directions, and narrative flow.",
+      },
+      {
+        category: "tracker" as AgentCategory,
+        title: "Tracker Agents",
+        icon: <Radar size="0.8125rem" />,
+        desc: "Track world state, expressions, quests, backgrounds, and characters.",
+      },
+      {
+        category: "misc" as AgentCategory,
+        title: "Misc Agents",
+        icon: <Puzzle size="0.8125rem" />,
+        desc: "Utilities, combat, illustrations, and other helpers.",
+      },
+    ],
+    [],
+  );
+  const visibleBuiltInCount = useMemo(
+    () => BUILT_IN_AGENTS.filter((agent) => matchesSearch([agent.name, agent.description, agent.category])).length,
+    [matchesSearch],
+  );
+  const hasVisibleResults = visibleBuiltInCount > 0 || visibleCustomAgents.length > 0 || visibleCustomTools.length > 0;
+
   const handleCreateAgent = () => {
     // Create a new custom agent immediately in DB then open editor
     openAgentDetail("__new__");
@@ -120,30 +172,47 @@ export function AgentsPanel() {
         onChange={handleAgentImageSelected}
       />
 
+      <div className="mb-2 flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Search
+            size="0.8125rem"
+            className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+          />
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search agents and tools..."
+            className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] pl-7 pr-2 text-xs outline-none transition-colors placeholder:text-[var(--muted-foreground)] focus:border-amber-400/60"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleCreateAgent}
+          className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-purple-500 to-violet-500 px-2.5 text-xs font-medium text-white shadow-sm transition-opacity hover:opacity-90"
+          title="Create custom agent"
+        >
+          <Plus size="0.8125rem" />
+          <span>New</span>
+        </button>
+      </div>
+
       {isLoading && <div className="py-4 text-center text-xs text-[var(--muted-foreground)]">Loading...</div>}
 
-      {/* ── Built-in Agents ── */}
-      {[
-        {
-          category: "writer" as AgentCategory,
-          title: "Writer Agents",
-          icon: <PenLine size="0.8125rem" />,
-          desc: "Prose quality, continuity, directions, and narrative flow.",
-        },
-        {
-          category: "tracker" as AgentCategory,
-          title: "Tracker Agents",
-          icon: <Radar size="0.8125rem" />,
-          desc: "Track world state, expressions, quests, backgrounds, and characters.",
-        },
-        {
-          category: "misc" as AgentCategory,
-          title: "Misc Agents",
-          icon: <Puzzle size="0.8125rem" />,
-          desc: "Utilities, combat, illustrations, and other helpers.",
-        },
-      ].map(({ category, title, icon, desc }) => {
-        const agents = BUILT_IN_AGENTS.filter((a) => a.category === category);
+      {searchActive && !hasVisibleResults && (
+        <div className="rounded-lg border border-dashed border-[var(--border)] px-3 py-4 text-center text-xs text-[var(--muted-foreground)]">
+          No agents or tools match your search.
+        </div>
+      )}
+
+      {agentSections.map(({ category, title, icon, desc }) => {
+        const agents = BUILT_IN_AGENTS.filter(
+          (agent) => agent.category === category && matchesSearch([agent.name, agent.description, agent.category]),
+        );
+        if (searchActive && agents.length === 0) {
+          return null;
+        }
+
         return (
           <PanelSection key={category} title={title} icon={icon}>
             <div className="mb-1.5 text-[0.625rem] text-[var(--muted-foreground)]">{desc}</div>
@@ -172,155 +241,116 @@ export function AgentsPanel() {
         );
       })}
 
-      <PanelSection
-        title="Custom Agents"
-        icon={<Sparkles size="0.8125rem" />}
-        action={
-          <button
-            onClick={handleCreateAgent}
-            className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
-            title="Create custom agent"
-          >
-            <Plus size="0.8125rem" />
-          </button>
-        }
-      >
-        <div className="text-[0.625rem] text-[var(--muted-foreground)] mb-1.5">
-          Create your own AI agents with custom instructions and settings.
-        </div>
-        {!customAgents.length ? (
-          <p className="text-[0.625rem] text-[var(--muted-foreground)] px-1 py-2">No custom agents yet.</p>
-        ) : (
-          customAgents.map((agent) => {
-            const enabled = agentEnabledFlag(agent.enabled, true);
-            return (
-              <div
-                key={agent.id}
-                className={cn(
-                  "flex items-start gap-2.5 rounded-lg p-2 transition-colors hover:bg-[var(--sidebar-accent)]",
-                  !enabled && "opacity-50",
-                )}
-              >
-                <AgentImageButton
-                  imagePath={agent.imagePath}
-                  imageFilename={agent.imageFilename}
-                  onImagePick={() => handlePickAgentImage({ id: agent.id })}
-                />
-                <button className="min-w-0 flex-1 text-left" onClick={() => openAgentDetail(agent.id)}>
-                  <div className="text-xs font-medium font-mono">{agent.name}</div>
-                  <div className="text-[0.625rem] text-[var(--muted-foreground)] line-clamp-2">
-                    {agent.description || "No description"}
-                  </div>
-                </button>
-                <button
-                  className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)]"
-                  title={enabled ? "Disable agent" : "Enable agent"}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setAgentEnabled.mutate({ agentType: agent.type, enabled: !enabled });
-                  }}
-                >
-                  {enabled ? (
-                    <ToggleRight size="0.875rem" className="text-amber-400" />
-                  ) : (
-                    <ToggleLeft size="0.875rem" />
-                  )}
-                </button>
-                <button
-                  className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)]"
-                  title="Edit agent"
-                  onClick={() => openAgentDetail(agent.id)}
-                >
-                  <Pencil size="0.8125rem" />
-                </button>
-                <button
-                  className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--destructive)]"
-                  title="Delete agent"
-                  onClick={async () => {
-                    if (
-                      await showConfirmDialog({
-                        title: "Delete Agent",
-                        message: `Delete "${agent.name}"?`,
-                        confirmLabel: "Delete",
-                        tone: "destructive",
-                      })
-                    ) {
-                      deleteAgent.mutate(agent.id);
-                    }
-                  }}
-                >
-                  <Trash2 size="0.8125rem" />
-                </button>
-              </div>
-            );
-          })
-        )}
-      </PanelSection>
-
-      {/* ── Custom Function Tools ── */}
-      <PanelSection
-        title="Custom Tools"
-        icon={<Wrench size="0.8125rem" />}
-        action={
-          <button
-            onClick={handleCreateTool}
-            className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
-            title="Create custom tool"
-          >
-            <Plus size="0.8125rem" />
-          </button>
-        }
-      >
-        <div className="text-[0.625rem] text-[var(--muted-foreground)] mb-1.5">
-          Define custom functions the AI can call during generation (webhook or static).
-        </div>
-        {!customTools || (customTools as CustomToolRow[]).length === 0 ? (
-          <p className="text-[0.625rem] text-[var(--muted-foreground)] px-1 py-2">No custom tools yet.</p>
-        ) : (
-          (customTools as CustomToolRow[]).map((tool) => (
-            <div
-              key={tool.id}
-              className="flex items-start gap-2.5 rounded-lg p-2 transition-colors hover:bg-[var(--sidebar-accent)]"
-            >
-              <Wrench size="0.875rem" className="mt-0.5 shrink-0 text-[var(--primary)]" />
-              <button className="min-w-0 flex-1 text-left" onClick={() => openToolDetail(tool.id)}>
-                <div className="text-xs font-medium font-mono">{tool.name}</div>
-                <div className="text-[0.625rem] text-[var(--muted-foreground)] line-clamp-2">
-                  {tool.description || "No description"}
-                </div>
-              </button>
-              <span className="mt-0.5 rounded bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)]">
-                {tool.executionType}
-              </span>
-              <button
-                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)]"
-                title="Edit tool"
-                onClick={() => openToolDetail(tool.id)}
-              >
-                <Pencil size="0.8125rem" />
-              </button>
-              <button
-                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--destructive)]"
-                title="Delete tool"
-                onClick={async () => {
+      {(!searchActive || visibleCustomAgents.length > 0) && (
+        <PanelSection title="Custom Agents" icon={<Sparkles size="0.8125rem" />}>
+          <div className="mb-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
+            Create your own AI agents with custom instructions and settings.
+          </div>
+          {!customAgents.length ? (
+            <p className="px-1 py-2 text-[0.625rem] text-[var(--muted-foreground)]">No custom agents yet.</p>
+          ) : (
+            visibleCustomAgents.map((agent) => {
+              const enabled = agentEnabledFlag(agent.enabled, true);
+              return renderAgentCard({
+                id: agent.id,
+                type: agent.type,
+                name: agent.name,
+                description: agent.description,
+                category: "custom",
+                custom: true,
+                imagePath: agent.imagePath,
+                imageFilename: agent.imageFilename,
+                enabled,
+                onToggle: (nextEnabled) => setAgentEnabled.mutate({ agentType: agent.type, enabled: nextEnabled }),
+                onImagePick: () => handlePickAgentImage({ id: agent.id }),
+                onDelete: async () => {
                   if (
                     await showConfirmDialog({
-                      title: "Delete Tool",
-                      message: `Delete "${tool.name}"?`,
+                      title: "Delete Agent",
+                      message: `Delete "${agent.name}"?`,
                       confirmLabel: "Delete",
                       tone: "destructive",
                     })
                   ) {
-                    deleteTool.mutate(tool.id);
+                    deleteAgent.mutate(agent.id);
                   }
-                }}
+                },
+                openAgentDetail,
+              });
+            })
+          )}
+        </PanelSection>
+      )}
+
+      {(!searchActive || visibleCustomTools.length > 0) && (
+        <PanelSection
+          title="Custom Tools"
+          icon={<Wrench size="0.8125rem" />}
+          action={
+            <button
+              onClick={handleCreateTool}
+              className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
+              title="Create custom tool"
+            >
+              <Plus size="0.8125rem" />
+            </button>
+          }
+        >
+          <div className="mb-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
+            Define custom functions the AI can call during generation (webhook or static).
+          </div>
+          {!customToolRows.length ? (
+            <p className="px-1 py-2 text-[0.625rem] text-[var(--muted-foreground)]">No custom tools yet.</p>
+          ) : (
+            visibleCustomTools.map((tool) => (
+              <div
+                key={tool.id}
+                className="group relative flex items-center gap-2.5 rounded-xl p-2.5 transition-colors hover:bg-[var(--sidebar-accent)]"
               >
-                <Trash2 size="0.8125rem" />
-              </button>
-            </div>
-          ))
-        )}
-      </PanelSection>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--secondary)] text-[var(--primary)]">
+                  <Wrench size="0.875rem" />
+                </span>
+                <button className="min-w-0 flex-1 pr-16 text-left" onClick={() => openToolDetail(tool.id)}>
+                  <div className="truncate text-xs font-medium font-mono">{tool.name}</div>
+                  <div className="text-[0.625rem] text-[var(--muted-foreground)] line-clamp-2">
+                    {tool.description || "No description"}
+                  </div>
+                  <span className="mt-1 inline-flex rounded bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)]">
+                    {tool.executionType}
+                  </span>
+                </button>
+                <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100">
+                  <button
+                    className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
+                    title="Edit tool"
+                    onClick={() => openToolDetail(tool.id)}
+                  >
+                    <Pencil size="0.8125rem" />
+                  </button>
+                  <button
+                    className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--destructive)]"
+                    title="Delete tool"
+                    onClick={async () => {
+                      if (
+                        await showConfirmDialog({
+                          title: "Delete Tool",
+                          message: `Delete "${tool.name}"?`,
+                          confirmLabel: "Delete",
+                          tone: "destructive",
+                        })
+                      ) {
+                        deleteTool.mutate(tool.id);
+                      }
+                    }}
+                  >
+                    <Trash2 size="0.8125rem" />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </PanelSection>
+      )}
     </div>
   );
 }
@@ -337,6 +367,7 @@ type AgentPanelRow = {
   enabled: boolean;
   onToggle: (enabled: boolean) => void;
   onImagePick: () => void;
+  onDelete?: () => void | Promise<void>;
 };
 
 function renderAgentCard({
@@ -351,6 +382,7 @@ function renderAgentCard({
   enabled,
   onToggle,
   onImagePick,
+  onDelete,
   openAgentDetail,
 }: AgentPanelRow & {
   openAgentDetail: (id: string) => void;
@@ -359,12 +391,15 @@ function renderAgentCard({
     <div
       key={id}
       className={cn(
-        "flex items-start gap-2.5 rounded-lg p-2 transition-colors hover:bg-[var(--sidebar-accent)]",
+        "group relative flex items-center gap-2.5 rounded-xl p-2.5 transition-colors hover:bg-[var(--sidebar-accent)]",
         !enabled && "opacity-50",
       )}
     >
       <AgentImageButton imagePath={imagePath} imageFilename={imageFilename} onImagePick={onImagePick} />
-      <button className="min-w-0 flex-1 text-left" onClick={() => openAgentDetail(custom ? id : type)}>
+      <button
+        className={cn("min-w-0 flex-1 text-left", onDelete ? "pr-28" : "pr-20")}
+        onClick={() => openAgentDetail(custom ? id : type)}
+      >
         <div className="truncate text-xs font-medium font-mono">{name}</div>
         <div className="mt-0.5 text-[0.625rem] text-[var(--muted-foreground)] line-clamp-2">
           {description || "No description"}
@@ -375,23 +410,40 @@ function renderAgentCard({
           </span>
         </div>
       </button>
-      <button
-        className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)]"
-        title={enabled ? "Disable agent" : "Enable agent"}
-        onClick={(event) => {
-          event.stopPropagation();
-          onToggle(!enabled);
-        }}
-      >
-        {enabled ? <ToggleRight size="0.875rem" className="text-amber-400" /> : <ToggleLeft size="0.875rem" />}
-      </button>
-      <button
-        className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)]"
-        title="Edit agent"
-        onClick={() => openAgentDetail(custom ? id : type)}
-      >
-        <Pencil size="0.8125rem" />
-      </button>
+      <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100">
+        <button
+          className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
+          title={enabled ? "Disable agent" : "Enable agent"}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggle(!enabled);
+          }}
+        >
+          {enabled ? <ToggleRight size="0.875rem" className="text-amber-400" /> : <ToggleLeft size="0.875rem" />}
+        </button>
+        <button
+          className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
+          title="Edit agent"
+          onClick={(event) => {
+            event.stopPropagation();
+            openAgentDetail(custom ? id : type);
+          }}
+        >
+          <Pencil size="0.8125rem" />
+        </button>
+        {onDelete && (
+          <button
+            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--destructive)]"
+            title="Delete agent"
+            onClick={(event) => {
+              event.stopPropagation();
+              void onDelete();
+            }}
+          >
+            <Trash2 size="0.8125rem" />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -431,11 +483,11 @@ function AgentImageButton({
         onImagePick();
       }}
       className={cn(
-        "group/avatar relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-[var(--primary)] transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-amber-400/50",
+        "group/avatar relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl text-[var(--primary)] transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-amber-400/50",
         resolvedImagePath ? "bg-[var(--muted)]" : "bg-[var(--secondary)]",
       )}
-      title={imagePath ? "Replace agent picture" : "Upload agent picture"}
-      aria-label={imagePath ? "Replace agent picture" : "Upload agent picture"}
+      title={imagePath || imageFilename ? "Replace agent picture" : "Upload agent picture"}
+      aria-label={imagePath || imageFilename ? "Replace agent picture" : "Upload agent picture"}
     >
       {resolvedImagePath ? (
         <img src={resolvedImagePath} alt="" className="h-full w-full object-cover" draggable={false} />
