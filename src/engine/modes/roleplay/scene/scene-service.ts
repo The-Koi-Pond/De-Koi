@@ -111,7 +111,7 @@ export async function planRoleplayScene(
         {
           role: "system",
           content: [
-            "You are a scene planner for Marinara roleplay.",
+            "You are a scene planner for De-Koi roleplay.",
             "Return only one JSON object with fields name, description, scenario, firstMessage, background, characterIds, systemPrompt, rating, relationshipHistory, and participationGuide.",
             "The name must start with Scene:. The rating must be sfw or nsfw. Use only character IDs from the provided list.",
             "The background must be null or one exact filename from the provided available backgrounds list. Never invent or rename backgrounds.",
@@ -145,7 +145,7 @@ export async function planRoleplayScene(
     if (Object.keys(parsed).length === 0) {
       return {
         plan: fallback,
-        error: "The model did not return valid scene-plan JSON, so Marinara used a local fallback plan.",
+        error: "The model did not return valid scene-plan JSON, so De-Koi used a local fallback plan.",
       };
     }
     return { plan: sanitizeScenePlan(parsed, fallback, allowedCharacterIds, plannerContext.backgrounds) };

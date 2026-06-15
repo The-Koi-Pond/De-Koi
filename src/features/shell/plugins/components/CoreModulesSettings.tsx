@@ -9,7 +9,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   "ui:styles": "Styles",
   "ui:overlay": "Overlay UI",
   "storage:browser": "Browser storage",
-  "storage:plugin-memory": "Plugin memory",
+  "storage:plugin-memory": "Module memory",
 };
 
 function permissionLabel(permission: string) {

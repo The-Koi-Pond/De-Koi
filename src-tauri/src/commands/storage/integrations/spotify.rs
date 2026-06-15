@@ -1539,7 +1539,7 @@ async fn dj_mari_playlist(state: &AppState, body: Value) -> AppResult<Value> {
         query: HashMap::new(),
     };
     let credentials = resolve_credentials(state, &route, &body).await?;
-    let playlist_name = format!("DJ Mari {}", today_label());
+    let playlist_name = format!("Assistant DJ {}", today_label());
     let liked_songs = fetch_liked_song_examples(&credentials).await?;
     let context = build_dj_mari_context(state, &playlist_name, &liked_songs)?;
     let generated_tracks = generate_dj_mari_playlist_plan(state, &playlist_name, context).await?;
@@ -1549,7 +1549,7 @@ async fn dj_mari_playlist(state: &AppState, body: Value) -> AppResult<Value> {
         return Err(AppError::with_details(
             "spotify_dj_mari_match_error",
             format!(
-                "DJ Mari only matched {} Spotify tracks. Need at least {DJ_MARI_MIN_TRACKS}; try again after adding more Liked Songs or using a broader model prompt.",
+                "Assistant DJ only matched {} Spotify tracks. Need at least {DJ_MARI_MIN_TRACKS}; try again after adding more Liked Songs or using a broader model prompt.",
                 matched_tracks.len()
             ),
             json!({
@@ -1965,7 +1965,7 @@ async fn generate_dj_mari_playlist_plan(
             marinara_llm::LlmMessage {
                 role: "system".to_string(),
                 content: [
-                    "You are DJ Mari, a taste-aware Spotify playlist curator for De-Koi.",
+                    "You are Assistant DJ, a taste-aware Spotify playlist curator for De-Koi.",
                     "Compose a private Spotify playlist for the user from their persona, characters, freshest chat context, and liked-song taste samples.",
                     "Pick 25-50 specific real songs that are likely to exist in Spotify's catalogue. Prefer strong emotional fit, roleplay/game atmosphere, repeat-listening value, and a coherent flow.",
                     "Do not include podcasts, local files, playlists, albums, duplicate songs, or fictional track names.",
@@ -2000,7 +2000,7 @@ async fn generate_dj_mari_playlist_plan(
     if tracks.is_empty() {
         return Err(AppError::new(
             "spotify_dj_mari_plan_error",
-            "DJ Mari returned no usable tracks.",
+            "Assistant DJ returned no usable tracks.",
         ));
     }
     Ok(tracks)
@@ -2368,7 +2368,7 @@ async fn create_dj_mari_spotify_playlist(
             "name": name,
             "public": false,
             "collaborative": false,
-            "description": "Created by DJ Mari in De-Koi."
+            "description": "Created by Assistant DJ in De-Koi."
         })),
     )
     .await?;

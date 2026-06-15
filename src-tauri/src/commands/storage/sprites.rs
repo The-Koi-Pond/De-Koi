@@ -2388,7 +2388,7 @@ fn background_remover_status(state: &AppState) -> Value {
         } else if command.is_some() {
             Value::Null
         } else {
-            Value::String("No bundled backgroundremover runtime was found for this platform. Marinara will use built-in matte cleanup unless BACKGROUNDREMOVER_COMMAND/BACKGROUNDREMOVER_PYTHON or PATH provides backgroundremover.".to_string())
+            Value::String("No bundled backgroundremover runtime was found for this platform. De-Koi will use built-in matte cleanup unless BACKGROUNDREMOVER_COMMAND/BACKGROUNDREMOVER_PYTHON or PATH provides backgroundremover.".to_string())
         }
     })
 }
