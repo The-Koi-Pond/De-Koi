@@ -1,47 +1,6 @@
-const _GENERIC_STORAGE_ENTITIES = [
-  "characters",
-  "character-groups",
-  "character-versions",
-  "personas",
-  "persona-groups",
-  "lorebooks",
-  "lorebook-library-folders",
-  "lorebook-entries",
-  "lorebook-folders",
-  "prompts",
-  "preset-folders",
-  "prompt-groups",
-  "prompt-sections",
-  "prompt-variables",
-  "prompt-overrides",
-  "chat-presets",
-  "agents",
-  "agent-runs",
-  "agent-memory",
-  "themes",
-  "extensions",
-  "plugin-memory",
-  "connections",
-  "connection-folders",
-  "chats",
-  "chat-folders",
-  "messages",
-  "custom-tools",
-  "regex-scripts",
-  "app-settings",
-  "gallery",
-  "character-gallery",
-  "persona-gallery",
-  "global-gallery",
-  "gallery-folders",
-  "background-metadata",
-  "sprites",
-  "knowledge-sources",
-  "game-state-snapshots",
-  "game-checkpoints",
-] as const;
+import type { StorageEntity } from "./storage-collections";
 
-export type StorageEntity = (typeof _GENERIC_STORAGE_ENTITIES)[number];
+export type { StorageEntity } from "./storage-collections";
 
 export interface StorageListBaseOptions {
   orderBy?: string;
