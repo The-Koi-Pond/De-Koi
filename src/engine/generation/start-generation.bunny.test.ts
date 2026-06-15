@@ -190,6 +190,13 @@ function generationStorage(args: {
       if (options?.before) return asStorageValue<T[]>([records.previous]);
       return asStorageValue<T[]>([records.previous, records.target]);
     },
+    async getChatMessage<T = unknown>(messageId: string): Promise<T | null> {
+      if (messageId === records.target.id) {
+        targetGetCalls += 1;
+        return asStorageValue<T | null>(await args.getTarget(targetGetCalls, records.target));
+      }
+      return null;
+    },
     async createChatMessage() {
       throw new Error("createChatMessage should not be called");
     },
@@ -270,6 +277,9 @@ function promptAssemblyRegexStorage(args: { characters: JsonRecord[]; regexScrip
     },
     async listChatMessages() {
       return [];
+    },
+    async getChatMessage() {
+      return null;
     },
     async createChatMessage() {
       throw new Error("createChatMessage should not be called");
@@ -672,6 +682,9 @@ describe("user-message regeneration review guards", () => {
       },
       async listChatMessages() {
         return [];
+      },
+      async getChatMessage() {
+        return null;
       },
       async createChatMessage() {
         throw new Error("createChatMessage should not be called");

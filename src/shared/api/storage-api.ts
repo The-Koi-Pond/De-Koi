@@ -1,5 +1,7 @@
 import type {
   AddChatMessageSwipeOptions,
+  ChatMetadataPort,
+  ChatTranscriptPort,
   ListChatMemoriesOptions,
   StorageImageAttachmentReference,
   StorageEntity,
@@ -496,6 +498,7 @@ export const storageApi: StorageGateway = {
       ...options,
       filters: { chatId },
     }),
+  getChatMessage: (messageId, options) => storageApi.get("messages", messageId, options),
   createChatMessage: (chatId, value) => storageApi.create("messages", chatMessageDefaults(chatId, value)),
   updateChatMessage: (messageId, patch) => storageApi.update("messages", messageId, normalizeMessageWrite(patch)),
   updateChatMessageContentIfUnchanged: async (chatId, messageId, expectedContent, content) => {
@@ -561,4 +564,22 @@ export const storageApi: StorageGateway = {
     ]);
     return { preset, sections, groups, choiceBlocks } as never;
   },
+};
+
+export const chatTranscriptStorageApi: ChatTranscriptPort = {
+  listChatMessages: (...args) => storageApi.listChatMessages(...args),
+  getChatMessage: (...args) => storageApi.getChatMessage(...args),
+  createChatMessage: (...args) => storageApi.createChatMessage(...args),
+  updateChatMessage: (...args) => storageApi.updateChatMessage(...args),
+  updateChatMessageContentIfUnchanged: (...args) => storageApi.updateChatMessageContentIfUnchanged?.(...args) as never,
+  deleteChatMessage: (...args) => storageApi.deleteChatMessage(...args),
+  patchChatMessageExtra: (...args) => storageApi.patchChatMessageExtra(...args),
+  resolveImageAttachmentDataUrl: (...args) => storageApi.resolveImageAttachmentDataUrl?.(...args) as never,
+  evictPromptSnapshots: (...args) => storageApi.evictPromptSnapshots?.(...args) as never,
+  addChatMessageSwipe: (...args) => storageApi.addChatMessageSwipe(...args),
+};
+
+export const chatMetadataStorageApi: ChatMetadataPort = {
+  patchChatMetadata: (...args) => storageApi.patchChatMetadata(...args),
+  patchChatSummaries: (...args) => storageApi.patchChatSummaries(...args),
 };

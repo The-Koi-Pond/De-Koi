@@ -14,7 +14,7 @@ import type { GameState } from "../contracts/types/game-state";
 import type { EventGateway } from "../capabilities/events";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
-import type { AddChatMessageSwipeOptions, StorageGateway } from "../capabilities/storage";
+import type { AddChatMessageSwipeOptions, ChatMessageListOptions, StorageGateway } from "../capabilities/storage";
 import type { SpriteOwnerType, VisualAssetGateway } from "../capabilities/visual-assets";
 import { buildProseGuardianAvoidanceGuide } from "../shared/text/generation-guide";
 import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
@@ -1350,10 +1350,7 @@ async function prepareConversationSummariesForGeneration(
   return chatWithBackfilledSummaries(isRecord(refreshed) ? refreshed : chat, result);
 }
 
-function generationMessageLoadOptions(
-  chat: JsonRecord,
-  input: StartGenerationInput,
-): Parameters<StorageGateway["listChatMessages"]>[1] {
+function generationMessageLoadOptions(chat: JsonRecord, input: StartGenerationInput): ChatMessageListOptions {
   const chatLimit = readNumber(parseRecord(chat.metadata).contextMessageLimit, 0);
   const requestedLimit = readNumber(input.historyLimit, DEFAULT_GENERATION_HISTORY_LIMIT);
   const historyLimit = Math.max(

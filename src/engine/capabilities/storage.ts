@@ -60,7 +60,9 @@ type StorageListSelector =
 
 export type StorageListOptions = StorageListBaseOptions & StorageListSelector;
 
+export type StorageReadOptions = Pick<StorageListOptions, "fields" | "fieldSelections">;
 export type ChatMessageListOptions = StorageListBaseOptions;
+export type ChatMessageReadOptions = StorageReadOptions;
 
 export type ChatMemoryListOrder = "stored" | "recent";
 
@@ -88,17 +90,21 @@ export interface StorageImageAttachmentReference {
   galleryId?: string | null;
 }
 
-export interface StorageGateway {
+export interface GenericStorageGateway {
   list<T = unknown>(entity: StorageEntity, options?: StorageListOptions): Promise<T[]>;
   get<T = unknown>(
     entity: StorageEntity,
     id: string,
-    options?: Pick<StorageListOptions, "fields" | "fieldSelections">,
+    options?: StorageReadOptions,
   ): Promise<T | null>;
   create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T>;
   update<T = unknown>(entity: StorageEntity, id: string, patch: Record<string, unknown>): Promise<T>;
   delete(entity: StorageEntity, id: string): Promise<{ deleted: boolean }>;
+}
+
+export interface ChatTranscriptPort {
   listChatMessages<T = unknown>(chatId: string, options?: ChatMessageListOptions): Promise<T[]>;
+  getChatMessage<T = unknown>(messageId: string, options?: ChatMessageReadOptions): Promise<T | null>;
   createChatMessage<T = unknown>(chatId: string, value: Record<string, unknown>): Promise<T>;
   updateChatMessage<T = unknown>(messageId: string, patch: Record<string, unknown>): Promise<T>;
   updateChatMessageContentIfUnchanged?<T = unknown>(
@@ -123,8 +129,14 @@ export interface StorageGateway {
     content: string,
     options?: AddChatMessageSwipeOptions,
   ): Promise<T>;
+}
+
+export interface ChatMetadataPort {
   patchChatMetadata<T = unknown>(chatId: string, patch: Record<string, unknown>): Promise<T>;
   patchChatSummaries<T = unknown>(chatId: string, patch: Record<string, unknown>): Promise<T>;
+}
+
+export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPort, ChatMetadataPort {
   listChatMemories<T = unknown>(chatId: string, options?: ListChatMemoriesOptions): Promise<T[]>;
   refreshChatMemories?<T = unknown>(chatId: string): Promise<T>;
   getWorldState<T = unknown>(chatId: string): Promise<T | null>;

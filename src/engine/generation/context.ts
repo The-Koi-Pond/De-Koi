@@ -1,4 +1,4 @@
-import type { StorageGateway } from "../capabilities/storage";
+import type { ChatMessageListOptions, ChatTranscriptPort, StorageGateway } from "../capabilities/storage";
 import { generationParameterSources, mergeStoredGenerationParameters } from "./generate-route-utils";
 import { boolish, isRecord, readString, type JsonRecord } from "./runtime-records";
 
@@ -35,8 +35,8 @@ function uniqueStrings(values: readonly string[]): string[] {
 }
 
 function withGenerationMessageProjection(
-  options?: Parameters<StorageGateway["listChatMessages"]>[1],
-): Parameters<StorageGateway["listChatMessages"]>[1] {
+  options?: ChatMessageListOptions,
+): ChatMessageListOptions {
   const fieldSelections = options?.fieldSelections ?? {};
   const extraFields = fieldSelections.extra ?? [];
   return {
@@ -79,16 +79,16 @@ export async function resolveGenerationConnection(
 }
 
 export async function loadChatMessages(
-  storage: StorageGateway,
+  storage: ChatTranscriptPort,
   chatId: string,
-  options?: Parameters<StorageGateway["listChatMessages"]>[1],
+  options?: ChatMessageListOptions,
 ): Promise<JsonRecord[]> {
   const messages = await storage.listChatMessages<unknown>(chatId, withGenerationMessageProjection(options));
   return Array.isArray(messages) ? messages.filter(isRecord) : [];
 }
 
-export async function loadChatMessage(storage: StorageGateway, messageId: string): Promise<JsonRecord | null> {
-  const message = await storage.get<unknown>("messages", messageId, withGenerationMessageProjection());
+export async function loadChatMessage(storage: ChatTranscriptPort, messageId: string): Promise<JsonRecord | null> {
+  const message = await storage.getChatMessage<unknown>(messageId, withGenerationMessageProjection());
   return isRecord(message) ? message : null;
 }
 

@@ -47,6 +47,9 @@ function createStorage(): StorageGateway {
     async listChatMessages<T = unknown>() {
       return [{ role: "user", content: "A shadow blocks the road." }] as T[];
     },
+    async getChatMessage() {
+      return null;
+    },
     async createChatMessage() {
       throw new Error("not implemented");
     },

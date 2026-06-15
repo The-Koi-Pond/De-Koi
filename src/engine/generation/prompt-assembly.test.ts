@@ -65,6 +65,9 @@ function promptAssemblyStorage(args: { sections: JsonRecord[] }): StorageGateway
     async listChatMessages() {
       return [];
     },
+    async getChatMessage() {
+      return null;
+    },
     async createChatMessage() {
       throw new Error("createChatMessage should not be called");
     },
