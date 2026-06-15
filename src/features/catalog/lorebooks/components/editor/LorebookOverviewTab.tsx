@@ -468,7 +468,7 @@ export function LorebookOverviewTab({
             <div>
               <label className="mb-1.5 flex items-center gap-1 text-xs font-medium">
                 Max Depth{" "}
-                <HelpTooltip text="Maximum recursive passes this lorebook contributes when it enables recursion. If multiple active lorebooks enable recursion, Marinara uses the highest active depth." />
+                <HelpTooltip text="Maximum recursive passes this lorebook contributes when it enables recursion. If multiple active lorebooks enable recursion, De-Koi uses the highest active depth." />
               </label>
               <input
                 type="number"

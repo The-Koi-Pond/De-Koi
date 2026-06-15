@@ -6,8 +6,8 @@
     "windows": [
       {
         "title": "De-Koi Pre-Alpha",
-        "width": 800,
-        "height": 600,
+        "width": 1024,
+        "height": 768,
         "center": true,
         "dragDropEnabled": false,
         "decorations": false,

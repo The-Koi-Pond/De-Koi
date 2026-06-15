@@ -31,7 +31,7 @@ const MARI_CONNECTION_SETUP_CONTENT =
   "Oh, whoops! Looks like you're trying to talk to me without having a model connection set up yet. I'm afraid I need the sweet GPU juice to run. Let me take you to the Connections tab first…";
 const MARI_NO_CONNECTION_SELECTED_ERROR =
   'No connection set for this chat! Click the "chains" icon in the input box to select one.';
-const MARI_INPUT_PLACEHOLDER = "Message @Professor Mari, /reset to reset the conversation and only then clear it";
+const MARI_INPUT_PLACEHOLDER = "Message @Assistant, /reset to reset the conversation and only then clear it";
 const MARI_ATTACHMENT_CLIENT_TEXT_BYTES = 64 * 1024;
 const MARI_IMAGE_ATTACHMENT_EXTENSIONS = new Set(["avif", "gif", "jpeg", "jpg", "png", "webp"]);
 
@@ -174,7 +174,7 @@ export function ProfessorMariSurface() {
         [
           MARI_CHARACTER_ID,
           {
-            name: "Professor Mari",
+            name: "Assistant",
             avatarUrl: MARI_AVATAR_URL,
             conversationStatus: "online",
           },
@@ -221,7 +221,7 @@ export function ProfessorMariSurface() {
       })
       .catch((error) => {
         if (!active) return;
-        setSendError(error instanceof Error ? error.message : "Professor Mari history could not be loaded.");
+        setSendError(error instanceof Error ? error.message : "Assistant history could not be loaded.");
       })
       .finally(() => {
         if (active) setHistoryLoaded(true);
@@ -250,7 +250,7 @@ export function ProfessorMariSurface() {
         if (!active) return;
         persistedConnectionIdRef.current = null;
         persistedPersonaIdRef.current = null;
-        setSendError(error instanceof Error ? error.message : "Professor Mari preferences could not be loaded.");
+        setSendError(error instanceof Error ? error.message : "Assistant preferences could not be loaded.");
       })
       .finally(() => {
         if (active) setPreferencesLoaded(true);
@@ -276,7 +276,7 @@ export function ProfessorMariSurface() {
       .catch((error) => {
         persistedConnectionIdRef.current = undefined;
         persistedPersonaIdRef.current = undefined;
-        setSendError(error instanceof Error ? error.message : "Professor Mari preferences could not be saved.");
+        setSendError(error instanceof Error ? error.message : "Assistant preferences could not be saved.");
       });
   }, [preferencesLoaded, selectedConnectionId, selectedPersonaId]);
 
@@ -356,7 +356,7 @@ export function ProfessorMariSurface() {
         setMessages([]);
         setCompaction(EMPTY_MARI_COMPACTION);
       } catch (error) {
-        setSendError(error instanceof Error ? error.message : "Professor Mari history could not be reset.");
+        setSendError(error instanceof Error ? error.message : "Assistant history could not be reset.");
       } finally {
         setSending(false);
         requestAnimationFrame(() => inputRef.current?.focus());
@@ -437,7 +437,7 @@ export function ProfessorMariSurface() {
       const assistant = await mariApi.history.appendMessage({ role: "assistant", content: response.content });
       setMessages((current) => [...current, assistant]);
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : "Professor Mari failed to respond.");
+      setSendError(error instanceof Error ? error.message : "Assistant failed to respond.");
       setSending(false);
       return;
     }
@@ -517,7 +517,7 @@ export function ProfessorMariSurface() {
             );
           })}
           {sending && (
-            <div className="px-4 py-2 text-xs text-[var(--muted-foreground)]">Professor Mari is thinking...</div>
+            <div className="px-4 py-2 text-xs text-[var(--muted-foreground)]">Assistant is thinking...</div>
           )}
           {sendError && <div className="px-4 py-2 text-xs text-red-500">{sendError}</div>}
           <div ref={messagesEndRef} className="h-1" />
@@ -718,7 +718,7 @@ function ProfessorMariLoadingState() {
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400/60" />
           <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-sky-400" />
         </span>
-        Restoring Professor Mari...
+        Restoring Assistant...
       </div>
     </div>
   );
@@ -734,7 +734,7 @@ function ProfessorMariPixelScene({ active }: { active: boolean }) {
     >
       <div className="mari-professor-pixel-glow" aria-hidden />
       <div className="mari-professor-pixel-desk" aria-hidden />
-      <img src={MARI_CHIBI_URL} alt="Professor Mari" className="mari-professor-pixel-sprite" draggable={false} />
+      <img src={MARI_CHIBI_URL} alt="Assistant" className="mari-professor-pixel-sprite" draggable={false} />
       <div className="mari-professor-laptop" aria-hidden>
         <div className="mari-professor-laptop-screen">
           <span />

@@ -1852,7 +1852,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
                 <div className="mb-3 flex justify-center">
                   <img
                     src={currentStep.sprite}
-                    alt="Professor Mari"
+                    alt="Assistant"
                     className="h-24 w-auto object-contain drop-shadow-lg sm:h-28"
                     style={currentStep.spriteFlip ? { transform: "scaleX(-1)" } : undefined}
                     draggable={false}

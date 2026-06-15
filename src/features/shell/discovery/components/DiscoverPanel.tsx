@@ -15,7 +15,7 @@ const COVERAGE_LABELS: Record<DiscoveryCoverage, string> = {
   core: "Core",
   advanced: "Advanced",
   experimental: "Experimental",
-  "needs-polish": "Needs polish",
+  "needs-polish": "Preview",
 };
 
 const COVERAGE_CLASS: Record<DiscoveryCoverage, string> = {
@@ -196,11 +196,11 @@ export function DiscoverPanel() {
           </p>
           <button
             type="button"
-            onClick={() => runDiscoveryAction({ type: "open-professor-mari", label: "Ask Professor Mari" })}
+            onClick={() => runDiscoveryAction({ type: "open-professor-mari", label: "Ask Assistant" })}
             className="de-koi-discover-action mt-3 inline-flex min-h-8 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--secondary)]/70 px-3 py-1 text-xs font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
           >
             <Sparkles size="0.8rem" aria-hidden />
-            Ask Professor Mari
+            Ask Assistant
           </button>
         </div>
       )}

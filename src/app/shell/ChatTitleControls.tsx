@@ -95,8 +95,8 @@ export function ChatTitleControls({
             ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
             : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
         )}
-        title="Professor Mari"
-        aria-label="Professor Mari"
+        title="Assistant"
+        aria-label="Assistant"
         aria-pressed={professorMariOpen}
       >
         <img

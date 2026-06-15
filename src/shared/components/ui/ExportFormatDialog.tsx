@@ -21,8 +21,8 @@ interface ExportFormatDialogProps {
 export function ExportFormatDialog({
   open,
   title,
-  description = "Choose how Marinara should package this export.",
-  nativeDescription = "Keeps Marinara-specific fields, folders, metadata, and import fidelity.",
+  description = "Choose how De-Koi should package this export.",
+  nativeDescription = "Keeps De-Koi/Marinara-specific fields, folders, metadata, and import fidelity.",
   compatibleDescription = "Uses folderless, platform-friendly JSON where possible for tools like SillyTavern and Chub.",
   pngDescription = "Chara Card V2 PNG with the avatar baked in — works in SillyTavern, Chub, and Risu.",
   zipDescription = "Packages the native export with external asset files for large profiles and recovery.",

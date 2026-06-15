@@ -142,7 +142,7 @@ export function MobileTabBar({
               draggable={false}
             />
           }
-          label="Mari"
+          label="Assistant"
           active={isMari}
           onClick={openMari}
         />

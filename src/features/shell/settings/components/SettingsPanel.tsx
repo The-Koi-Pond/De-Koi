@@ -154,7 +154,7 @@ const TABS = [
   { id: "general", label: "General" },
   { id: "appearance", label: "Appearance" },
   { id: "themes", label: "Themes" },
-  { id: "plugins", label: "Plugins" },
+  { id: "plugins", label: "Modules" },
   { id: "extensions", label: "Extensions" },
   { id: "import", label: "Import" },
   { id: "advanced", label: "Advanced" },
@@ -1004,10 +1004,10 @@ function GeneralSettings() {
       />
 
       <ToggleSetting
-        label="Chibi Professor Mari visits"
+        label="Chibi Assistant visits"
         checked={chibiProfessorMariEnabled}
         onChange={setChibiProfessorMariEnabled}
-        help="Allows the rare Chibi Professor Mari scroll toast to appear. Turn this off to prevent the easter egg from registering while you use the app."
+        help="Allows the rare Chibi Assistant scroll toast to appear. Turn this off to prevent the easter egg from registering while you use the app."
       />
 
       {/* Streaming Speed */}
@@ -1204,7 +1204,7 @@ function GeneralSettings() {
         label="Trim incomplete model endings"
         checked={trimIncompleteModelOutput}
         onChange={setTrimIncompleteModelOutput}
-        help="When on, Marinara trims a trailing unfinished sentence from AI responses before saving the message. It leaves complete responses and command-only endings alone."
+        help="When on, De-Koi trims a trailing unfinished sentence from AI responses before saving the message. It leaves complete responses and command-only endings alone."
       />
 
       <ToggleSetting
@@ -1263,7 +1263,7 @@ function GeneralSettings() {
             label="Include card appearances"
             checked={imagePromptIncludeAppearances}
             onChange={setImagePromptIncludeAppearances}
-            help="Allows character and persona appearance text to be included when Marinara asks for image prompts."
+            help="Allows character and persona appearance text to be included when De-Koi asks for image prompts."
           />
           <label className="flex flex-col gap-1.5 rounded-xl bg-[var(--background)]/50 p-3 ring-1 ring-[var(--border)]">
             <span className="text-xs font-medium text-[var(--foreground)]">Prompt wording</span>
@@ -1532,7 +1532,7 @@ function GeneralSettings() {
         </div>
 
         <p className="mt-2.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-          On desktop, folder buttons open the local app asset folders. Use upload to copy files into Marinara's managed
+          On desktop, folder buttons open the local app asset folders. Use upload to copy files into De-Koi's managed
           data directory. Audio supports MP3, OGG, WAV, FLAC, M4A, AAC, WebM, and Opus; images support PNG, JPG, GIF,
           WebP, AVIF, and SVG for sprites. Music folders use state/genre/intensity, such as exploration/fantasy/calm.
         </p>
@@ -1665,14 +1665,14 @@ function AppearanceSettings() {
         <div className="flex items-center gap-1.5">
           <Paintbrush size="0.75rem" className="text-[var(--muted-foreground)]" />
           <span className="text-xs font-medium">Visual Style</span>
-          <HelpTooltip text="Choose how the entire app looks. 'Marinara' uses a retro Y2K aesthetic with glow effects. 'SillyTavern' uses a clean, minimal look inspired by the original SillyTavern." />
+          <HelpTooltip text="Choose how the entire app looks. 'Default' uses De-Koi's retro Y2K aesthetic with glow effects. 'SillyTavern' uses a clean, minimal look inspired by the original SillyTavern." />
         </div>
         <div className="grid grid-cols-2 gap-2">
           {(
             [
               {
                 id: "default" as VisualTheme,
-                label: "Default (Marinara)",
+                label: "Default (De-Koi)",
                 desc: "Y2K / retro aesthetic with glow effects",
               },
               {
@@ -3358,7 +3358,8 @@ function ImportSettings() {
   return (
     <div className="flex flex-col gap-3">
       <div className="text-xs text-[var(--muted-foreground)]">
-        Import data from Marinara exports, SillyTavern, or other tools. Full profile imports also restore custom themes.
+        Import data from De-Koi/Marinara exports, SillyTavern, or other tools. Full profile imports also restore custom
+        themes.
       </div>
 
       <ProfileImportSection />
@@ -3457,7 +3458,7 @@ function ImportButton({
           importEmbeddedLorebook = window.confirm(
             `${preview.name ?? file.name} includes an embedded lorebook with ${preview.embeddedLorebookEntries} entr${
               preview.embeddedLorebookEntries === 1 ? "y" : "ies"
-            }.\n\nImport it as a standalone Marinara lorebook too?`,
+            }.\n\nImport it as a standalone De-Koi lorebook too?`,
           );
         }
       }
@@ -3742,7 +3743,7 @@ function AdvancedSettings() {
       if (result.updateAvailable) {
         toast.success(`Update ${result.releaseTag} is available.`);
       } else {
-        toast.info("Marinara is up to date.");
+        toast.info("De-Koi is up to date.");
       }
     } catch (err) {
       setUpdateInfo(null);
@@ -3822,10 +3823,10 @@ function AdvancedSettings() {
       <ExportFormatDialog
         open={exportProfileDialogOpen}
         title="Export Profile"
-        description="Native JSON keeps full Marinara import fidelity. Profile ZIP packages the same data with asset files outside the JSON for large profiles and recovery."
-        nativeDescription="Creates a Marinara profile JSON for direct re-import when the profile is small enough."
+        description="Native JSON keeps full De-Koi import fidelity. Profile ZIP packages the same data with asset files outside the JSON for large profiles and recovery."
+        nativeDescription="Creates a De-Koi profile JSON for direct re-import when the profile is small enough."
         compatibleDescription="Exports character cards, simple persona JSON, and folderless lorebooks for other roleplay tools."
-        zipDescription="Creates an importable profile ZIP with Marinara data plus managed assets for large profiles and recovery."
+        zipDescription="Creates an importable profile ZIP with De-Koi data plus managed assets for large profiles and recovery."
         showZipOption
         onClose={() => setExportProfileDialogOpen(false)}
         onSelect={handleExportProfileChoice}
@@ -3882,7 +3883,7 @@ function AdvancedSettings() {
           </button>
           <HelpTooltip
             side="bottom"
-            text="Manual refresh unregisters the active service worker and clears browser caches before reloading. Marinara's stored chats, settings, and other local app data stay intact."
+            text="Manual refresh unregisters the active service worker and clears browser caches before reloading. De-Koi's stored chats, settings, and other local app data stay intact."
           />
         </div>
 
@@ -3942,7 +3943,7 @@ function AdvancedSettings() {
         >
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium">Remote Runtime URL</span>
-            <HelpTooltip text="Blank uses the embedded Tauri backend. Set this to a Marinara Rust server URL to route supported storage and generation calls through the remote runtime." />
+            <HelpTooltip text="Blank uses the embedded Tauri backend. Set this to a De-Koi Rust server URL to route supported storage and generation calls through the remote runtime." />
           </div>
           <input
             type="url"
@@ -4299,7 +4300,7 @@ function AdvancedSettings() {
           Danger Zone
         </div>
         <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-          Permanently clear selected categories of local data. Marinara resets live caches immediately after a
+          Permanently clear selected categories of local data. De-Koi resets live caches immediately after a
           successful expunge so stale data does not linger on screen.
         </p>
         <div className="grid gap-2">
@@ -4360,7 +4361,7 @@ function AdvancedSettings() {
             <div className="flex items-start gap-2 text-[0.6875rem] font-medium text-[var(--destructive)]">
               <AlertTriangle size="0.875rem" className="mt-0.5 shrink-0" />
               {confirmAction === "all"
-                ? "Delete all supported data categories except Professor Mari? There is no undo."
+                ? "Delete all supported data categories except Assistant history? There is no undo."
                 : `Delete ${selectedScopes.length} selected data categor${selectedScopes.length === 1 ? "y" : "ies"}? There is no undo.`}
             </div>
             <div className="flex gap-2">

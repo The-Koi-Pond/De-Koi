@@ -84,7 +84,7 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
     [applyUserStarredChatPreset, connections, createChat],
   );
 
-  const showEmptyStateEffects = true;
+  const showQuickStartEntranceEffects = true;
 
   return (
     <>
@@ -97,7 +97,6 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
             <div
               className={cn(
                 "koi-logo-tile flex h-16 w-16 items-center justify-center overflow-hidden rounded-[1.35rem] sm:h-24 sm:w-24",
-                showEmptyStateEffects && "animate-pulse-ring bunny-glow",
               )}
             >
               <img
@@ -113,13 +112,13 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
 
           <div className="text-center">
             <h3 className="koi-glow-text inline-flex items-center justify-center gap-1 text-2xl font-black sm:gap-2 sm:text-4xl">
-              <img src="/koi-mark.svg" alt="" aria-hidden="true" className="h-5 w-10 shrink-0 sm:h-7 sm:w-16" />
+              <img src="/koi-mark.svg" alt="" aria-hidden="true" className="h-4 w-8 shrink-0 sm:h-5 sm:w-12" />
               <span>De-Koi</span>
               <img
                 src="/koi-mark.svg"
                 alt=""
                 aria-hidden="true"
-                className="h-5 w-10 shrink-0 -scale-x-100 sm:h-7 sm:w-16"
+                className="h-4 w-8 shrink-0 -scale-x-100 sm:h-5 sm:w-12"
               />
             </h3>
             <p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--foreground)]/80 sm:mt-3 sm:text-lg">
@@ -130,7 +129,7 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
           <div
             className={cn(
               "grid w-full max-w-[32rem] min-w-0 grid-cols-3 gap-2 px-0 sm:gap-4",
-              showEmptyStateEffects && "stagger-children",
+              showQuickStartEntranceEffects && "stagger-children",
             )}
           >
             <QuickStartCard
@@ -172,7 +171,10 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
           {discoverySurface}
 
           <div
-            className={cn("w-48", showEmptyStateEffects ? "retro-divider" : "h-px rounded-[1px] bg-[var(--border)]/40")}
+            className={cn(
+              "w-48",
+              showQuickStartEntranceEffects ? "retro-divider" : "h-px rounded-[1px] bg-[var(--border)]/40",
+            )}
           />
 
           <div className="flex w-full max-w-2xl flex-col items-center gap-2">

@@ -219,7 +219,7 @@ export function NewChatConnectionGate({ mode, onClose }: NewChatConnectionGatePr
                   Connections unavailable
                 </div>
                 <p className="text-xs text-[var(--muted-foreground)]">
-                  {error instanceof Error ? error.message : "Marinara could not load connections from storage."}
+                  {error instanceof Error ? error.message : "De-Koi could not load connections from storage."}
                 </p>
                 <button
                   onClick={handleOpenRemoteRuntimeSettings}
