@@ -204,13 +204,13 @@ jobs:
         run: pnpm perf:size
       - if: needs.classify.outputs.docs == 'true'
         run: pnpm check:docs
-      - name: Discovery metadata warning
+      - name: Discovery metadata gate
         if: needs.classify.outputs.frontend == 'true' || needs.classify.outputs.docs == 'true'
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            pnpm check:discovery -- --pr-aware --warn-only
+            pnpm check:discovery -- --pr-aware
           else
-            pnpm check:discovery -- --warn-only
+            pnpm check:discovery
           fi
       - name: Unused code report
         if: needs.classify.outputs.frontend == 'true'

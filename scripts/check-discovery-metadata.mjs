@@ -325,14 +325,16 @@ async function main() {
   }
 
   const prAware = hasArg("--pr-aware");
-  const changedFrom = getArgValue("--changed-from") ?? (prAware ? `origin/${process.env.GITHUB_BASE_REF || "refactor"}` : undefined);
+  const changedFrom = getArgValue("--changed-from") ?? (prAware ? `origin/${process.env.GITHUB_BASE_REF || "main"}` : undefined);
   const pullRequestBody = await readPullRequestBodyFromEvent();
   const featureDiscoverabilityDecision = parseFeatureDiscoverabilityDecision(pullRequestBody);
   const featureDiscoverabilityDecisionCount =
     Number(featureDiscoverabilityDecision.updated) + Number(featureDiscoverabilityDecision.na);
+  const localOverrideAllowed = process.env.GITHUB_ACTIONS !== "true";
+  const localAllowMissingDiscovery =
+    localOverrideAllowed && (hasArg("--allow-missing") || process.env.DISCOVERY_CHECK_ALLOW_MISSING === "1");
   const allowMissingDiscovery =
-    hasArg("--allow-missing") ||
-    process.env.DISCOVERY_CHECK_ALLOW_MISSING === "1" ||
+    localAllowMissingDiscovery ||
     (featureDiscoverabilityDecision.na && hasText(featureDiscoverabilityDecision.reason));
 
   if (changedFrom) {
@@ -363,6 +365,7 @@ async function main() {
           `Discovery metadata was not updated, but ${userFacing.length} likely user-facing file(s) changed relative to ${changedFrom}.`,
           ...userFacing.slice(0, 12).map((path) => `- ${path}`),
           "Update src/features/shell/discovery/ or mark Feature Discoverability as N/A in the PR body with a reason.",
+          "For deliberate local exceptions, rerun with --allow-missing or DISCOVERY_CHECK_ALLOW_MISSING=1.",
         ],
         { warnOnly },
       );
