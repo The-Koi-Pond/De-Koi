@@ -103,8 +103,8 @@ const SELECTED_PROVIDER_OPTION_CLASS =
 const LEGACY_LOCAL_SIDECAR_CONNECTION_ID = "__local_sidecar__";
 
 const OPENAI_CHATGPT_SETUP_STEPS = [
-  { label: "Install Codex CLI", command: "npm i -g @openai/codex" },
-  { label: "Sign in once", command: "codex login" },
+  { label: "Install Codex CLI on the same host as De-Koi", command: "npm i -g @openai/codex" },
+  { label: "Sign in to ChatGPT once", command: "codex login" },
   { label: "Codex creates a local auth.json credential file that De-Koi reads automatically." },
   { label: "API Key and Base URL are not required - leave them blank." },
 ] as const;
@@ -686,8 +686,9 @@ export function ConnectionEditor() {
             providerError: model.providerError ?? result.providerError,
           })),
         );
+        const lookupLabel = localProvider === "openai_chatgpt" ? "ChatGPT model lookup" : "Provider lookup";
         setFetchError(
-          result.providerError ? `Provider lookup failed: ${result.providerError}. Showing fallback models.` : null,
+          result.providerError ? `${lookupLabel} failed: ${result.providerError}. Showing fallback models.` : null,
         );
         setShowModelDropdown(true);
         requestAnimationFrame(() => {
@@ -699,7 +700,7 @@ export function ConnectionEditor() {
         setFetchError(err instanceof Error ? err.message : "Failed to fetch models");
       },
     });
-  }, [connectionDetailId, dirty, handleSave, fetchModels]);
+  }, [connectionDetailId, dirty, handleSave, fetchModels, localProvider]);
 
   const selectModel = useCallback((model: { id: string; context?: number; maxOutput?: number }) => {
     setLocalModel(model.id);
@@ -1255,12 +1256,17 @@ export function ConnectionEditor() {
                         ) : (
                           <Globe size="0.75rem" />
                         )}
-                        {fetchModels.isPending ? "Fetching…" : "Fetch Models from API"}
+                        {fetchModels.isPending
+                          ? "Fetching…"
+                          : usesLocalChatGptAuth
+                            ? "Fetch ChatGPT Models"
+                            : "Fetch Models from API"}
                       </button>
                       {fetchError && <p className="mt-1.5 text-[0.625rem] text-[var(--destructive)]">{fetchError}</p>}
                       {remoteModels.length > 0 && !fetchError && (
                         <p className="mt-1 text-[0.625rem] text-emerald-400">
-                          {remoteModels.length} model{remoteModels.length !== 1 ? "s" : ""} available from API
+                          {remoteModels.length} model{remoteModels.length !== 1 ? "s" : ""} available from{" "}
+                          {usesLocalChatGptAuth ? "ChatGPT" : "API"}
                         </p>
                       )}
                     </div>
@@ -1952,10 +1958,16 @@ export function ConnectionEditor() {
               {isClaudeSubscriptionProvider
                 ? "verifies your local Claude Code command is available."
                 : usesLocalChatGptAuth
-                  ? "verifies your local Codex ChatGPT login."
+                  ? "verifies your local Codex ChatGPT login and refreshes the saved session when needed."
                   : localProvider === "nanogpt"
                     ? "checks NanoGPT's model list only. Use Send Test Message to verify generation auth and account balance."
                     : "verifies your API key works."}
+              {usesLocalChatGptAuth && (
+                <>
+                  {" "}
+                  <strong>Fetch ChatGPT Models</strong> checks the live ChatGPT model catalog for this account.
+                </>
+              )}
               {localProvider !== "image_generation" && (
                 <>
                   {" "}
@@ -2120,6 +2132,11 @@ function OpenAiChatGptAuthHelp() {
             De-Koi reads the local Codex <code className="rounded bg-[var(--secondary)] px-1">auth.json</code>{" "}
             credential file and refreshes the ChatGPT session when possible. Embeddings are not available on this
             provider; configure a separate connection for embedding work.
+          </p>
+          <p className="mt-2">
+            Use <strong>Test Connection</strong> to verify the local login, <strong>Fetch ChatGPT Models</strong> to
+            confirm model access, and <strong>Send Test Message</strong> to prove generation for the selected model.
+            Claude's routing diagnosis does not have a direct ChatGPT equivalent.
           </p>
         </div>
       </div>
