@@ -9,33 +9,15 @@
 import { useState } from "react";
 import { X, MessageCircle } from "lucide-react";
 import { useChatStore } from "../../../../shared/stores/chat.store";
-import { useSetGameSetupActive } from "../../../modes/game/startup";
-import { useUIStore } from "../../../../shared/stores/ui.store";
+import { useNavigateToChatFromShell } from "../../actions";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { AnimatePresence, motion } from "framer-motion";
 
 export function ChatNotificationBubbles() {
   const chatNotifications = useChatStore((s) => s.chatNotifications);
-  const setActiveChatId = useChatStore((s) => s.setActiveChatId);
   const dismissNotification = useChatStore((s) => s.dismissNotification);
-  const setShouldOpenSettings = useChatStore((s) => s.setShouldOpenSettings);
-  const setShouldOpenWizard = useChatStore((s) => s.setShouldOpenWizard);
-  const setShouldOpenWizardInShortcutMode = useChatStore((s) => s.setShouldOpenWizardInShortcutMode);
-  const setPendingNewChatMode = useChatStore((s) => s.setPendingNewChatMode);
-  const setSetupActive = useSetGameSetupActive();
-  const closeAllDetails = useUIStore((s) => s.closeAllDetails);
+  const navigateToChat = useNavigateToChatFromShell();
   const [mobileExpanded, setMobileExpanded] = useState(false);
-
-  /** Navigate to a chat — close any editor/detail view first so ChatArea is visible. */
-  const navigateToChat = (chatId: string) => {
-    closeAllDetails();
-    setPendingNewChatMode(null);
-    setShouldOpenSettings(false);
-    setShouldOpenWizard(false);
-    setShouldOpenWizardInShortcutMode(false);
-    setSetupActive(false);
-    setActiveChatId(chatId);
-  };
 
   const notifications = Array.from(chatNotifications.values());
   const totalCount = notifications.reduce((sum, n) => sum + n.count, 0);
