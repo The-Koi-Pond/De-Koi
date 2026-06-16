@@ -58,8 +58,8 @@ pub(crate) mod llm;
 pub(crate) mod lorebook_images;
 #[path = "storage/managed_thumbnails.rs"]
 pub(crate) mod managed_thumbnails;
-#[path = "storage/mari.rs"]
-pub(crate) mod mari;
+#[path = "storage/deki.rs"]
+pub(crate) mod deki;
 #[path = "storage/media_uploads.rs"]
 pub(crate) mod media_uploads;
 #[path = "storage/message_swipes.rs"]
@@ -103,8 +103,8 @@ pub mod game_state_snapshot_commands;
 pub mod import_commands;
 #[path = "storage/commands/integrations.rs"]
 pub mod integration_commands;
-#[path = "storage/commands/mari.rs"]
-pub mod mari_commands;
+#[path = "storage/commands/deki.rs"]
+pub mod deki_commands;
 #[path = "storage/commands/media.rs"]
 pub mod media_commands;
 #[path = "storage/commands/profile.rs"]

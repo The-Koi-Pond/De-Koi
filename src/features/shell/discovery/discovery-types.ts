@@ -33,7 +33,7 @@ export type DiscoveryAction =
       label?: string;
     }
   | {
-      type: "open-professor-mari";
+      type: "open-deki";
       label?: string;
     }
   | {

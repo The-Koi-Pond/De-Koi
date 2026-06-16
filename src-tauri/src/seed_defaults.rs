@@ -9,14 +9,14 @@ const LEGACY_MARINARA_UNIVERSAL_PRESET_NAME: &str = "Marinara's Universal Preset
 const LEGACY_MARINARA_PRESET_NAME: &str = "Default";
 const MARINARA_PRESET_AUTHOR: &str = "De-Koi";
 const LEGACY_MARINARA_PRESET_AUTHOR: &str = "Marinara";
-const PROFESSOR_MARI_ID: &str = "__professor_mari__";
+const LEGACY_DEKI_CHARACTER_ID: &str = "__professor_mari__";
 const LEGACY_CLEANUP_MAX_COLLECTION_BYTES: u64 = 4 * 1024 * 1024;
 const BUNDLED_MARINARA_PRESET_JSON: &str =
     include_str!("../resources/default-data/db/default-preset.json");
 
 pub fn seed_bundled_defaults(storage: &FileStorage, default_data: &Path) -> AppResult<()> {
     let db_root = default_data.join("db");
-    remove_professor_mari_character_records(storage)?;
+    remove_legacy_deki_character_records(storage)?;
     seed_marinara_preset(storage, &db_root)?;
     seed_default_chat_presets(storage)?;
     seed_default_regex_scripts(storage)?;
@@ -58,8 +58,8 @@ fn seed_marinara_preset(storage: &FileStorage, db_root: &Path) -> AppResult<()> 
     Ok(())
 }
 
-fn remove_professor_mari_character_records(storage: &FileStorage) -> AppResult<()> {
-    delete_legacy_record_if_small(storage, "characters", PROFESSOR_MARI_ID)?;
+fn remove_legacy_deki_character_records(storage: &FileStorage) -> AppResult<()> {
+    delete_legacy_record_if_small(storage, "characters", LEGACY_DEKI_CHARACTER_ID)?;
     delete_legacy_record_if_small(storage, "characters", "professor-mari")?;
     delete_legacy_record_if_small(storage, "chats", "__professor_mari_chat__")?;
     delete_legacy_record_if_small(storage, "messages", "professor-mari-welcome")?;
@@ -298,15 +298,15 @@ mod tests {
     }
 
     #[test]
-    fn removes_professor_mari_character_seed() {
+    fn removes_legacy_deki_character_seed() {
         let (storage, root) = temp_storage();
         storage
             .create(
                 "characters",
                 json!({
-                    "id": PROFESSOR_MARI_ID,
+                    "id": LEGACY_DEKI_CHARACTER_ID,
                     "data": {
-                        "name": "Professor Mari",
+                        "name": "Deki-senpai",
                         "extensions": {
                             "isBuiltInAssistant": true
                         }
@@ -321,13 +321,13 @@ mod tests {
             .expect("defaults should seed");
 
         assert!(storage
-            .get("characters", PROFESSOR_MARI_ID)
+            .get("characters", LEGACY_DEKI_CHARACTER_ID)
             .expect("canonical lookup should succeed")
             .is_none());
     }
 
     #[test]
-    fn removes_legacy_professor_mari_records() {
+    fn removes_legacy_deki_records() {
         let (storage, root) = temp_storage();
 
         storage

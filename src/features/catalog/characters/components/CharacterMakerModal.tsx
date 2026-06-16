@@ -9,7 +9,7 @@ import { useCharacterGroups, useCreateCharacter, useUpdateGroup } from "../hooks
 import { useCreateLorebookEntry, useLorebooks } from "../../lorebooks/index";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { Sparkles, Loader2, Wand2, AlertCircle, ChevronDown, Folder, BookOpen } from "lucide-react";
-import { ProfessorMariWorkingWindow } from "../../../../shared/components/ui/ProfessorMariWorkingWindow";
+import { DekiWorkingWindow } from "../../../../shared/components/ui/DekiWorkingWindow";
 import { generateCharacterMaker } from "../../../../engine/generation/makers";
 import { llmApi } from "../../../../shared/api/llm-api";
 import type { CharacterGroup } from "../../../../engine/contracts/types/character";
@@ -212,7 +212,7 @@ export function CharacterMakerModal({ open, onClose }: Props) {
 
   return (
     <Modal open={open} onClose={handleClose} title="✦ AI Character Maker" width="max-w-xl">
-      <ProfessorMariWorkingWindow visible={streaming || saving} />
+      <DekiWorkingWindow visible={streaming || saving} />
       <div className="space-y-4">
         {/* Connection selector */}
         <div className="space-y-1.5">

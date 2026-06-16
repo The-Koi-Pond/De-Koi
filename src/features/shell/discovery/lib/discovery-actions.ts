@@ -17,8 +17,8 @@ export function getDiscoveryActionLabel(action: DiscoveryAction) {
       return "Open Settings";
     case "replay-onboarding":
       return "Replay Tutorial";
-    case "open-professor-mari":
-      return "Open Assistant";
+    case "open-deki":
+      return "Open Deki-senpai";
     case "go-home":
       return "Go Home";
   }
@@ -38,8 +38,8 @@ export function runDiscoveryAction(action: DiscoveryAction) {
     case "replay-onboarding":
       ui.setHasCompletedOnboarding(false);
       return;
-    case "open-professor-mari":
-      emitDiscoveryEvent({ type: "open-professor-mari" });
+    case "open-deki":
+      emitDiscoveryEvent({ type: "open-deki" });
       return;
     case "go-home":
       useChatStore.getState().setActiveChatId(null);

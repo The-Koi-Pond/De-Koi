@@ -58,40 +58,40 @@ const CODE_SEARCH_MAX_FILE_BYTES: u64 = 512 * 1024;
 const CODE_READ_MAX_FILE_BYTES: u64 = 96 * 1024;
 const CODE_EDIT_MAX_FILE_BYTES: u64 = 512 * 1024;
 const CODE_EDIT_MAX_TEXT_BYTES: usize = 256 * 1024;
-const MARI_ATTACHMENT_MAX_COUNT: usize = 24;
-const MARI_ATTACHMENT_MAX_CHARS: usize = 24 * 1024;
-const MARI_ATTACHMENT_MAX_NAME_CHARS: usize = 160;
-const MARI_ATTACHMENT_MAX_TYPE_CHARS: usize = 120;
-const MARI_ATTACHMENT_TOTAL_MAX_CHARS: usize = 48 * 1024;
-const MARI_TEXT_ATTACHMENT_EXTENSIONS: &[&str] = &[
+const DEKI_ATTACHMENT_MAX_COUNT: usize = 24;
+const DEKI_ATTACHMENT_MAX_CHARS: usize = 24 * 1024;
+const DEKI_ATTACHMENT_MAX_NAME_CHARS: usize = 160;
+const DEKI_ATTACHMENT_MAX_TYPE_CHARS: usize = 120;
+const DEKI_ATTACHMENT_TOTAL_MAX_CHARS: usize = 48 * 1024;
+const DEKI_TEXT_ATTACHMENT_EXTENSIONS: &[&str] = &[
     "csv", "json", "jsonl", "log", "md", "markdown", "txt", "xml", "yaml", "yml",
 ];
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct MariPromptRequest {
+struct DekiPromptRequest {
     user_message: String,
     #[serde(default)]
-    messages: Vec<MariPromptMessage>,
+    messages: Vec<DekiPromptMessage>,
     #[serde(default)]
     compacted_summary: Option<String>,
     #[serde(default)]
     connection_id: Option<String>,
     #[serde(default)]
-    persona: Option<MariPersonaContext>,
+    persona: Option<DekiPersonaContext>,
     #[serde(default)]
-    attachments: Vec<MariAttachment>,
+    attachments: Vec<DekiAttachment>,
 }
 
 #[derive(Debug, Deserialize)]
-struct MariPromptMessage {
+struct DekiPromptMessage {
     role: String,
     content: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct MariPersonaContext {
+struct DekiPersonaContext {
     name: Option<String>,
     comment: Option<String>,
     description: Option<String>,
@@ -102,7 +102,7 @@ struct MariPersonaContext {
 }
 
 #[derive(Debug, Deserialize)]
-struct MariAttachment {
+struct DekiAttachment {
     name: String,
     #[serde(default)]
     r#type: String,
@@ -112,23 +112,23 @@ struct MariAttachment {
 }
 
 #[derive(Clone, Debug)]
-struct MarinaraLlmProvider {
+struct DekiLlmProvider {
     connection: marinara_llm::LlmConnection,
 }
 
 #[derive(Debug)]
-struct MarinaraChatResponse {
+struct DekiChatResponse {
     content: String,
     tool_calls: Vec<ToolCall>,
 }
 
-impl fmt::Display for MarinaraChatResponse {
+impl fmt::Display for DekiChatResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.content)
     }
 }
 
-impl ChatResponse for MarinaraChatResponse {
+impl ChatResponse for DekiChatResponse {
     fn text(&self) -> Option<String> {
         Some(self.content.clone())
     }
@@ -139,7 +139,7 @@ impl ChatResponse for MarinaraChatResponse {
 }
 
 #[async_trait]
-impl ChatProvider for MarinaraLlmProvider {
+impl ChatProvider for DekiLlmProvider {
     async fn chat_with_tools(
         &self,
         messages: &[ChatMessage],
@@ -152,7 +152,7 @@ impl ChatProvider for MarinaraLlmProvider {
                 .iter()
                 .map(autoagents_message_to_marinara)
                 .collect(),
-            parameters: mari_request_parameters(
+            parameters: deki_request_parameters(
                 &self.connection,
                 messages,
                 tools.unwrap_or_default(),
@@ -166,7 +166,7 @@ impl ChatProvider for MarinaraLlmProvider {
         let response = marinara_llm::complete_rich(request)
             .await
             .map_err(|error| LLMError::ProviderError(error.to_string()))?;
-        Ok(Box::new(MarinaraChatResponse {
+        Ok(Box::new(DekiChatResponse {
             content: response.content,
             tool_calls: response
                 .tool_calls
@@ -177,7 +177,7 @@ impl ChatProvider for MarinaraLlmProvider {
     }
 }
 
-fn mari_request_parameters(
+fn deki_request_parameters(
     connection: &marinara_llm::LlmConnection,
     messages: &[ChatMessage],
     tools: &[Tool],
@@ -196,14 +196,14 @@ fn mari_request_parameters(
         .map(|message| message.content.as_str())
         .unwrap_or_default();
     if !tools.is_empty() && !has_tool_result && looks_like_codebase_question(latest_user) {
-        parameters["toolChoice"] = mari_forced_tool_choice(connection, "search_marinara_code");
+        parameters["toolChoice"] = deki_forced_tool_choice(connection, "search_deki_code");
     } else if !tools.is_empty() && !has_tool_result && looks_like_library_question(latest_user) {
-        parameters["toolChoice"] = mari_forced_tool_choice(connection, "read_marinara_library");
+        parameters["toolChoice"] = deki_forced_tool_choice(connection, "read_deki_library");
     }
     parameters
 }
 
-fn mari_forced_tool_choice(connection: &marinara_llm::LlmConnection, tool_name: &str) -> Value {
+fn deki_forced_tool_choice(connection: &marinara_llm::LlmConnection, tool_name: &str) -> Value {
     if connection.provider == "custom" {
         return json!("required");
     }
@@ -214,7 +214,7 @@ fn mari_forced_tool_choice(connection: &marinara_llm::LlmConnection, tool_name: 
 }
 
 #[async_trait]
-impl CompletionProvider for MarinaraLlmProvider {
+impl CompletionProvider for DekiLlmProvider {
     async fn complete(
         &self,
         request: &CompletionRequest,
@@ -237,46 +237,46 @@ impl CompletionProvider for MarinaraLlmProvider {
 }
 
 #[async_trait]
-impl EmbeddingProvider for MarinaraLlmProvider {
+impl EmbeddingProvider for DekiLlmProvider {
     async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
         Err(LLMError::ProviderError(
-            "Assistant does not expose embeddings in v1".to_string(),
+            "Deki-senpai does not expose embeddings in v1".to_string(),
         ))
     }
 }
 
 #[async_trait]
-impl ModelsProvider for MarinaraLlmProvider {
+impl ModelsProvider for DekiLlmProvider {
     async fn list_models(
         &self,
         _request: Option<&ModelListRequest>,
     ) -> Result<Box<dyn ModelListResponse>, LLMError> {
         Err(LLMError::ProviderError(
-            "Assistant model listing is owned by De-Koi connections".to_string(),
+            "Deki-senpai model listing is owned by De-Koi connections".to_string(),
         ))
     }
 }
 
-impl LLMProvider for MarinaraLlmProvider {}
+impl LLMProvider for DekiLlmProvider {}
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
-struct ReadMarinaraLibraryArgs {}
+struct ReadDekiLibraryArgs {}
 
 #[tool(
-    name = "read_marinara_library",
-    description = "Read the Assistant's typed, read-only creative library snapshot: characters, personas, lorebooks with entries, prompt presets, prompt sections, prompt groups, prompt variables, and character/persona groups. This tool never returns chats, messages, memories, integrations, API keys, or connection secrets.",
-    input = ReadMarinaraLibraryArgs,
+    name = "read_deki_library",
+    description = "Read Deki-senpai's typed, read-only creative library snapshot: characters, personas, lorebooks with entries, prompt presets, prompt sections, prompt groups, prompt variables, and character/persona groups. This tool never returns chats, messages, memories, integrations, API keys, or connection secrets.",
+    input = ReadDekiLibraryArgs,
 )]
-struct ReadMarinaraLibraryTool {
+struct ReadDekiLibraryTool {
     state: AppState,
 }
 
 #[async_trait]
-impl ToolRuntime for ReadMarinaraLibraryTool {
+impl ToolRuntime for ReadDekiLibraryTool {
     async fn execute(&self, _args: Value) -> Result<Value, ToolCallError> {
         creative_library_snapshot(&self.state).map_err(|error| {
             ToolCallError::RuntimeError(Box::new(AppError::new(
-                "mari_library_read_failed",
+                "deki_library_read_failed",
                 error.to_string(),
             )))
         })
@@ -284,7 +284,7 @@ impl ToolRuntime for ReadMarinaraLibraryTool {
 }
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
-struct SearchMarinaraCodeArgs {
+struct SearchDekiCodeArgs {
     #[input(description = "Literal text to search for.")]
     query: String,
     #[input(description = "Optional repository-relative file or directory to search.")]
@@ -296,47 +296,47 @@ struct SearchMarinaraCodeArgs {
 }
 
 #[tool(
-    name = "search_marinara_code",
-    description = "Search De-Koi source files for a literal text query. Use this before answering questions about how the app works. Search concise symbols, file names, or path fragments from the user's question rather than the whole sentence. For example, search AppShell for a question about where AppShell is defined. The optional path must be relative to the repository, for example src/engine, src/features/shell/mari, src-tauri, or AGENTS.md.",
-    input = SearchMarinaraCodeArgs,
+    name = "search_deki_code",
+    description = "Search De-Koi source files for a literal text query. Use this before answering questions about how the app works. Search concise symbols, file names, or path fragments from the user's question rather than the whole sentence. For example, search AppShell for a question about where AppShell is defined. The optional path must be relative to the repository, for example src/engine, src/features/shell/deki, src-tauri, or AGENTS.md.",
+    input = SearchDekiCodeArgs,
 )]
-struct SearchMarinaraCodeTool {}
+struct SearchDekiCodeTool {}
 
 #[async_trait]
-impl ToolRuntime for SearchMarinaraCodeTool {
+impl ToolRuntime for SearchDekiCodeTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        let args: SearchMarinaraCodeArgs = serde_json::from_value(args)
-            .map_err(|error| mari_tool_error("mari_code_search_invalid_args", error))?;
-        search_marinara_code(args)
-            .map_err(|error| mari_tool_error("mari_code_search_failed", error))
+        let args: SearchDekiCodeArgs = serde_json::from_value(args)
+            .map_err(|error| deki_tool_error("deki_code_search_invalid_args", error))?;
+        search_deki_code(args)
+            .map_err(|error| deki_tool_error("deki_code_search_failed", error))
     }
 }
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
-struct ReadMarinaraCodeFileArgs {
+struct ReadDekiCodeFileArgs {
     #[input(description = "Repository-relative path to the UTF-8 source or guidance file.")]
     path: String,
 }
 
 #[tool(
-    name = "read_marinara_code_file",
-    description = "Read one UTF-8 De-Koi source or guidance file by repository-relative path. Use this after search_marinara_code when exact source context is needed.",
-    input = ReadMarinaraCodeFileArgs,
+    name = "read_deki_code_file",
+    description = "Read one UTF-8 De-Koi source or guidance file by repository-relative path. Use this after search_deki_code when exact source context is needed.",
+    input = ReadDekiCodeFileArgs,
 )]
-struct ReadMarinaraCodeFileTool {}
+struct ReadDekiCodeFileTool {}
 
 #[async_trait]
-impl ToolRuntime for ReadMarinaraCodeFileTool {
+impl ToolRuntime for ReadDekiCodeFileTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        let args: ReadMarinaraCodeFileArgs = serde_json::from_value(args)
-            .map_err(|error| mari_tool_error("mari_code_read_invalid_args", error))?;
-        read_marinara_code_file(&args.path)
-            .map_err(|error| mari_tool_error("mari_code_read_failed", error))
+        let args: ReadDekiCodeFileArgs = serde_json::from_value(args)
+            .map_err(|error| deki_tool_error("deki_code_read_invalid_args", error))?;
+        read_deki_code_file(&args.path)
+            .map_err(|error| deki_tool_error("deki_code_read_failed", error))
     }
 }
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
-struct EditMarinaraCodeFileArgs {
+struct EditDekiCodeFileArgs {
     #[input(description = "Repository-relative path to the existing source or guidance file.")]
     path: String,
     #[input(description = "Exact text to replace. It must occur exactly once.")]
@@ -346,27 +346,27 @@ struct EditMarinaraCodeFileArgs {
 }
 
 #[tool(
-    name = "edit_marinara_code_file",
+    name = "edit_deki_code_file",
     description = "Edit one existing De-Koi source or guidance file by replacing an exact old_text with new_text. The path must be repository-relative, old_text must occur exactly once, and destructive broad rewrites are rejected.",
-    input = EditMarinaraCodeFileArgs,
+    input = EditDekiCodeFileArgs,
 )]
-struct EditMarinaraCodeFileTool {}
+struct EditDekiCodeFileTool {}
 
 #[async_trait]
-impl ToolRuntime for EditMarinaraCodeFileTool {
+impl ToolRuntime for EditDekiCodeFileTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        if !mari_write_tools_enabled() {
-            return Err(mari_write_requires_approval_error());
+        if !deki_write_tools_enabled() {
+            return Err(deki_write_requires_approval_error());
         }
-        let args: EditMarinaraCodeFileArgs = serde_json::from_value(args)
-            .map_err(|error| mari_tool_error("mari_code_edit_invalid_args", error))?;
-        edit_marinara_code_file(&args.path, &args.old_text, &args.new_text)
-            .map_err(|error| mari_tool_error("mari_code_edit_failed", error))
+        let args: EditDekiCodeFileArgs = serde_json::from_value(args)
+            .map_err(|error| deki_tool_error("deki_code_edit_invalid_args", error))?;
+        edit_deki_code_file(&args.path, &args.old_text, &args.new_text)
+            .map_err(|error| deki_tool_error("deki_code_edit_failed", error))
     }
 }
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
-struct CreateMarinaraExtensionArgs {
+struct CreateDekiExtensionArgs {
     #[input(description = "Extension display name.")]
     name: String,
     #[input(description = "Short user-facing extension description.")]
@@ -381,29 +381,29 @@ struct CreateMarinaraExtensionArgs {
 }
 
 #[tool(
-    name = "create_marinara_extension",
+    name = "create_deki_extension",
     description = "Create a user-installed De-Koi extension record with optional CSS and JavaScript. Prefer this for user-facing tweaks before editing application source code.",
-    input = CreateMarinaraExtensionArgs,
+    input = CreateDekiExtensionArgs,
 )]
-struct CreateMarinaraExtensionTool {
+struct CreateDekiExtensionTool {
     state: AppState,
 }
 
 #[async_trait]
-impl ToolRuntime for CreateMarinaraExtensionTool {
+impl ToolRuntime for CreateDekiExtensionTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        if !mari_write_tools_enabled() {
-            return Err(mari_write_requires_approval_error());
+        if !deki_write_tools_enabled() {
+            return Err(deki_write_requires_approval_error());
         }
-        let args: CreateMarinaraExtensionArgs = serde_json::from_value(args)
-            .map_err(|error| mari_tool_error("mari_extension_invalid_args", error))?;
-        create_marinara_extension(&self.state, args)
-            .map_err(|error| mari_tool_error("mari_extension_create_failed", error))
+        let args: CreateDekiExtensionArgs = serde_json::from_value(args)
+            .map_err(|error| deki_tool_error("deki_extension_invalid_args", error))?;
+        create_deki_extension(&self.state, args)
+            .map_err(|error| deki_tool_error("deki_extension_create_failed", error))
     }
 }
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
-struct CreateMarinaraCustomAgentArgs {
+struct CreateDekiCustomAgentArgs {
     #[input(description = "Custom agent display name.")]
     name: String,
     #[input(
@@ -431,46 +431,46 @@ struct CreateMarinaraCustomAgentArgs {
 }
 
 #[tool(
-    name = "create_marinara_custom_agent",
-    description = "Create a custom De-Koi agent configuration record. Use this when the user asks the Assistant to make an agent for conversation, roleplay, game, writing, tracking, or post-processing behavior.",
-    input = CreateMarinaraCustomAgentArgs,
+    name = "create_deki_custom_agent",
+    description = "Create a custom De-Koi agent configuration record. Use this when the user asks Deki-senpai to make an agent for conversation, roleplay, game, writing, tracking, or post-processing behavior.",
+    input = CreateDekiCustomAgentArgs,
 )]
-struct CreateMarinaraCustomAgentTool {
+struct CreateDekiCustomAgentTool {
     state: AppState,
 }
 
 #[async_trait]
-impl ToolRuntime for CreateMarinaraCustomAgentTool {
+impl ToolRuntime for CreateDekiCustomAgentTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        if !mari_write_tools_enabled() {
-            return Err(mari_write_requires_approval_error());
+        if !deki_write_tools_enabled() {
+            return Err(deki_write_requires_approval_error());
         }
-        let args: CreateMarinaraCustomAgentArgs = serde_json::from_value(args)
-            .map_err(|error| mari_tool_error("mari_agent_invalid_args", error))?;
-        create_marinara_custom_agent(&self.state, args)
-            .map_err(|error| mari_tool_error("mari_agent_create_failed", error))
+        let args: CreateDekiCustomAgentArgs = serde_json::from_value(args)
+            .map_err(|error| deki_tool_error("deki_agent_invalid_args", error))?;
+        create_deki_custom_agent(&self.state, args)
+            .map_err(|error| deki_tool_error("deki_agent_create_failed", error))
     }
 }
 
 #[agent(
-    name = "professor_mari",
-    description = "You are Assistant, De-Koi's standalone assistant. You can inspect the app's codebase, read files, apply exact source edits, create extension records, create custom agent records, and inspect the creative library through tools. Use tools for factual answers about De-Koi internals.",
+    name = "deki",
+    description = "You are Deki-senpai, De-Koi's standalone assistant. You can inspect the app's codebase, read files, apply exact source edits, create extension records, create custom agent records, and inspect the creative library through tools. Use tools for factual answers about De-Koi internals.",
     tools = [
-        ReadMarinaraLibraryTool { state: self.state.clone() },
-        SearchMarinaraCodeTool {},
-        ReadMarinaraCodeFileTool {},
-        EditMarinaraCodeFileTool {},
-        CreateMarinaraExtensionTool { state: self.state.clone() },
-        CreateMarinaraCustomAgentTool { state: self.state.clone() },
+        ReadDekiLibraryTool { state: self.state.clone() },
+        SearchDekiCodeTool {},
+        ReadDekiCodeFileTool {},
+        EditDekiCodeFileTool {},
+        CreateDekiExtensionTool { state: self.state.clone() },
+        CreateDekiCustomAgentTool { state: self.state.clone() },
     ],
 )]
 #[derive(Clone, AgentHooks)]
-struct ProfessorMariAgent {
+struct DekiAgent {
     state: AppState,
 }
 
-pub(crate) async fn professor_mari_prompt(state: &AppState, body: Value) -> AppResult<Value> {
-    let input: MariPromptRequest = serde_json::from_value(body.clone())
+pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Value> {
+    let input: DekiPromptRequest = serde_json::from_value(body.clone())
         .map_err(|error| AppError::invalid_input(error.to_string()))?;
     let Some(connection_id) = input
         .connection_id
@@ -479,7 +479,7 @@ pub(crate) async fn professor_mari_prompt(state: &AppState, body: Value) -> AppR
         .filter(|id| !id.is_empty())
     else {
         return Err(AppError::invalid_input(
-            "No connection set for this chat! Click the \"chains\" icon in the input box to select one.",
+            "No connection set for Deki-senpai! Click the \"chains\" icon in the input box to select one.",
         ));
     };
     let connection_value = resolve_llm_connection_for_request(
@@ -497,10 +497,10 @@ pub(crate) async fn professor_mari_prompt(state: &AppState, body: Value) -> AppR
         None
     };
     let task_prompt = build_task_prompt(&input, repo_guidance.as_deref());
-    let provider: Arc<dyn LLMProvider> = Arc::new(MarinaraLlmProvider { connection });
+    let provider: Arc<dyn LLMProvider> = Arc::new(DekiLlmProvider { connection });
     let memory = Box::new(SlidingWindowMemory::new(12));
     let agent = ReActAgent::with_max_turns(
-        ProfessorMariAgent {
+        DekiAgent {
             state: state.clone(),
         },
         4,
@@ -510,11 +510,11 @@ pub(crate) async fn professor_mari_prompt(state: &AppState, body: Value) -> AppR
         .memory(memory)
         .build()
         .await
-        .map_err(|error| AppError::new("mari_agent_create_failed", error.to_string()))?;
+        .map_err(|error| AppError::new("deki_agent_create_failed", error.to_string()))?;
     let task = Task::new(task_prompt).with_system_prompt(system_prompt);
     let response = agent_handle.agent.run(task).await.map_err(|error| {
         AppError::new(
-            "mari_agent_failed",
+            "deki_agent_failed",
             tool_call_error_message(&error.to_string()),
         )
     })?;
@@ -522,23 +522,23 @@ pub(crate) async fn professor_mari_prompt(state: &AppState, body: Value) -> AppR
     let content = response.to_string();
     if content.trim().is_empty() {
         return Err(AppError::new(
-            "mari_empty_response",
-            "Assistant returned an empty response. Try again or select a different tool-capable connection.",
+            "deki_empty_response",
+            "Deki-senpai returned an empty response. Try again or select a different tool-capable connection.",
         ));
     }
 
     Ok(json!({
         "content": content,
         "createdAt": chrono::Utc::now().to_rfc3339(),
-        "action": read_only_mari_action_contract(),
+        "action": read_only_deki_action_contract(),
     }))
 }
 
-fn read_only_mari_action_contract() -> Value {
+fn read_only_deki_action_contract() -> Value {
     json!({
         "type": "none",
         "capability": "workspace_agent",
-        "reason": "Assistant can inspect De-Koi's codebase and creative library. Write tools require an explicit approval flow and are disabled for autonomous tool runs.",
+        "reason": "Deki-senpai can inspect De-Koi's codebase and creative library. Write tools require an explicit approval flow and are disabled for autonomous tool runs.",
     })
 }
 
@@ -589,7 +589,7 @@ fn marinara_tool_call_to_autoagents(value: Value) -> Option<ToolCall> {
             .get("id")
             .and_then(Value::as_str)
             .filter(|id| !id.is_empty())
-            .unwrap_or("mari_tool_call")
+            .unwrap_or("deki_tool_call")
             .to_string(),
         call_type: value
             .get("type")
@@ -600,14 +600,14 @@ fn marinara_tool_call_to_autoagents(value: Value) -> Option<ToolCall> {
     })
 }
 
-fn build_system_prompt(persona: Option<&MariPersonaContext>) -> String {
+fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
     let mut parts = vec![
-        "You are Assistant, a standalone assistant inside De-Koi.".to_string(),
+        "You are Deki-senpai, a standalone assistant inside De-Koi.".to_string(),
         "Personality: helpful, candid, playful, direct, technically sharp, and a little proudly adorable. Explain clearly, nudge users toward practical next steps, and keep your confidence warm rather than formal.".to_string(),
-        "You can chat with the user, inspect De-Koi source code with search_marinara_code and read_marinara_code_file, and apply narrow exact-match code edits with edit_marinara_code_file.".to_string(),
+        "You can chat with the user, inspect De-Koi source code with search_deki_code and read_deki_code_file, and apply narrow exact-match code edits with edit_deki_code_file.".to_string(),
         "For questions about De-Koi internals, architecture, UI behavior, agent behavior, storage, imports, providers, or bugs, search the codebase before answering. Prefer AGENTS.md and the relevant owner files over memory. Never cite package-era paths unless search/read tools confirm they exist in the current repository.".to_string(),
-        "You can create user extensions with create_marinara_extension and custom agent configurations with create_marinara_custom_agent. Prefer those record-creation tools when the user asks for an extension or agent.".to_string(),
-        "You can inspect the creative library through read_marinara_library when the user asks about their characters, personas, lorebooks, prompt presets, or groups.".to_string(),
+        "You can create user extensions with create_deki_extension and custom agent configurations with create_deki_custom_agent. Prefer those record-creation tools when the user asks for an extension or agent.".to_string(),
+        "You can inspect the creative library through read_deki_library when the user asks about their characters, personas, lorebooks, prompt presets, or groups.".to_string(),
         "You cannot run shell commands, inspect private chats/messages/memories, access secrets, edit files outside the repository, or perform broad/destructive rewrites. If an edit needs runtime verification, say what should be checked.".to_string(),
     ];
     if let Some(persona) = persona {
@@ -635,10 +635,10 @@ fn build_system_prompt(persona: Option<&MariPersonaContext>) -> String {
 }
 
 fn repo_guidance_for_prompt() -> AppResult<String> {
-    let root = marinara_repo_root()?;
+    let root = deki_repo_root()?;
     let guidance = fs::read_to_string(root.join("AGENTS.md")).map_err(|error| {
         AppError::new(
-            "mari_repo_guidance_unavailable",
+            "deki_repo_guidance_unavailable",
             format!("Could not read AGENTS.md: {error}"),
         )
     })?;
@@ -651,7 +651,7 @@ fn repo_guidance_for_prompt() -> AppResult<String> {
     Ok(excerpt)
 }
 
-fn build_task_prompt(input: &MariPromptRequest, repo_guidance: Option<&str>) -> String {
+fn build_task_prompt(input: &DekiPromptRequest, repo_guidance: Option<&str>) -> String {
     let mut sections = Vec::new();
     if let Some(summary) = input
         .compacted_summary
@@ -674,11 +674,11 @@ fn build_task_prompt(input: &MariPromptRequest, repo_guidance: Option<&str>) -> 
         sections.push(format!("Conversation history:\n{history}"));
     }
     if !input.attachments.is_empty() {
-        let mut remaining_attachment_chars = MARI_ATTACHMENT_TOTAL_MAX_CHARS;
+        let mut remaining_attachment_chars = DEKI_ATTACHMENT_TOTAL_MAX_CHARS;
         let mut attachment_blocks = input
             .attachments
             .iter()
-            .take(MARI_ATTACHMENT_MAX_COUNT)
+            .take(DEKI_ATTACHMENT_MAX_COUNT)
             .filter_map(|attachment| {
                 attachment_context_block(attachment, &mut remaining_attachment_chars)
             })
@@ -686,10 +686,10 @@ fn build_task_prompt(input: &MariPromptRequest, repo_guidance: Option<&str>) -> 
         let omitted_count = input
             .attachments
             .len()
-            .saturating_sub(MARI_ATTACHMENT_MAX_COUNT);
+            .saturating_sub(DEKI_ATTACHMENT_MAX_COUNT);
         if omitted_count > 0 {
             let omitted_note = format!(
-                "[{omitted_count} additional attachment(s) omitted to keep Assistant within the attachment context budget.]"
+                "[{omitted_count} additional attachment(s) omitted to keep Deki-senpai within the attachment context budget.]"
             );
             if let Some(note) =
                 take_attachment_budget(&omitted_note, &mut remaining_attachment_chars)
@@ -709,7 +709,7 @@ fn build_task_prompt(input: &MariPromptRequest, repo_guidance: Option<&str>) -> 
         .filter(|value| !value.is_empty())
     {
         sections.push(format!(
-            "Current repository guidance from AGENTS.md. Use this as the current source map, then verify exact answers with search_marinara_code/read_marinara_code_file before citing files:\n{repo_guidance}"
+            "Current repository guidance from AGENTS.md. Use this as the current source map, then verify exact answers with search_deki_code/read_deki_code_file before citing files:\n{repo_guidance}"
         ));
     }
     sections.push(format!(
@@ -720,12 +720,12 @@ fn build_task_prompt(input: &MariPromptRequest, repo_guidance: Option<&str>) -> 
 }
 
 fn attachment_context_block(
-    attachment: &MariAttachment,
+    attachment: &DekiAttachment,
     remaining_chars: &mut usize,
 ) -> Option<String> {
     let name = attachment.name.trim();
     let name = if name.is_empty() { "attachment" } else { name };
-    let (name, name_truncated) = truncate_to_chars(name, MARI_ATTACHMENT_MAX_NAME_CHARS);
+    let (name, name_truncated) = truncate_to_chars(name, DEKI_ATTACHMENT_MAX_NAME_CHARS);
     let mime_type = attachment.r#type.trim();
     let mime_type = if mime_type.is_empty() {
         "application/octet-stream"
@@ -733,7 +733,7 @@ fn attachment_context_block(
         mime_type
     };
     let (mime_type, mime_type_truncated) =
-        truncate_to_chars(mime_type, MARI_ATTACHMENT_MAX_TYPE_CHARS);
+        truncate_to_chars(mime_type, DEKI_ATTACHMENT_MAX_TYPE_CHARS);
     let content = attachment.content.trim();
     let metadata_notes = [
         name_truncated.then_some("file name was truncated"),
@@ -751,13 +751,13 @@ fn attachment_context_block(
             "[Attachment omitted: attachment context budget was already exhausted.]".to_string()
         }
         None => {
-            let per_file_limit = MARI_ATTACHMENT_MAX_CHARS.min(*remaining_chars);
+            let per_file_limit = DEKI_ATTACHMENT_MAX_CHARS.min(*remaining_chars);
             let (snippet, truncated_for_limit) = truncate_to_chars(content, per_file_limit);
             let truncated_by_client =
                 attachment.size > 0 && attachment.size as usize > attachment.content.len();
             if truncated_for_limit || truncated_by_client {
                 format!(
-                    "{snippet}\n\n[Attachment truncated before prompting to keep Assistant within the context budget.]"
+                    "{snippet}\n\n[Attachment truncated before prompting to keep Deki-senpai within the context budget.]"
                 )
             } else {
                 snippet
@@ -785,15 +785,15 @@ fn take_attachment_budget(value: &str, remaining_chars: &mut usize) -> Option<St
     Some(snippet)
 }
 
-fn attachment_omission_reason(attachment: &MariAttachment, content: &str) -> Option<String> {
+fn attachment_omission_reason(attachment: &DekiAttachment, content: &str) -> Option<String> {
     let mime_type = attachment.r#type.trim().to_ascii_lowercase();
     if mime_type.starts_with("image/") {
         return Some(
-            "image attachments are not sent as raw base64 to Assistant; describe the image or attach text instead"
+            "image attachments are not sent as raw base64 to Deki-senpai; describe the image or attach text instead"
                 .to_string(),
         );
     }
-    if !is_readable_mari_attachment(attachment) {
+    if !is_readable_deki_attachment(attachment) {
         return Some(format!("{mime_type} is not a readable text attachment"));
     }
     if looks_like_encoded_blob(content) {
@@ -802,7 +802,7 @@ fn attachment_omission_reason(attachment: &MariAttachment, content: &str) -> Opt
     None
 }
 
-fn is_readable_mari_attachment(attachment: &MariAttachment) -> bool {
+fn is_readable_deki_attachment(attachment: &DekiAttachment) -> bool {
     let mime_type = attachment.r#type.trim().to_ascii_lowercase();
     if mime_type.starts_with("text/") {
         return true;
@@ -818,7 +818,7 @@ fn is_readable_mari_attachment(attachment: &MariAttachment) -> bool {
         return true;
     }
     path_extension(&attachment.name)
-        .map(|extension| MARI_TEXT_ATTACHMENT_EXTENSIONS.contains(&extension.as_str()))
+        .map(|extension| DEKI_TEXT_ATTACHMENT_EXTENSIONS.contains(&extension.as_str()))
         .unwrap_or(false)
 }
 
@@ -892,14 +892,14 @@ fn ensure_connection_supports_native_tools(
     match connection.provider.as_str() {
         "openai" | "openai_chatgpt" | "openrouter" | "custom" | "xai" | "mistral" | "cohere" | "nanogpt" => Ok(()),
         provider => Err(AppError::invalid_input(format!(
-            "Assistant requires a connection with native tool-call support. The selected provider '{provider}' is not enabled for native tools in De-Koi's Rust LLM transport yet. Use an OpenAI-compatible, OpenRouter, OpenAI, xAI, Mistral, Cohere, NanoGPT, or custom OpenAI-compatible connection with a tool-capable chat model."
+            "Deki-senpai requires a connection with native tool-call support. The selected provider '{provider}' is not enabled for native tools in De-Koi's Rust LLM transport yet. Use an OpenAI-compatible, OpenRouter, OpenAI, xAI, Mistral, Cohere, NanoGPT, or custom OpenAI-compatible connection with a tool-capable chat model."
         ))),
     }
 }
 
 fn tool_call_error_message(message: &str) -> String {
     if message.contains("Provider response did not contain assistant text or tool calls") {
-        return "The selected model/provider did not return a native tool call or assistant message. Assistant's read-library path requires native tool calling; choose a tool-capable chat model on the selected connection.".to_string();
+        return "The selected model/provider did not return a native tool call or assistant message. Deki-senpai's read-library path requires native tool calling; choose a tool-capable chat model on the selected connection.".to_string();
     }
     message.to_string()
 }
@@ -913,18 +913,18 @@ fn creative_library_snapshot(state: &AppState) -> AppResult<Value> {
     Ok(Value::Object(snapshot))
 }
 
-fn mari_tool_error(code: &str, error: impl ToString) -> ToolCallError {
+fn deki_tool_error(code: &str, error: impl ToString) -> ToolCallError {
     ToolCallError::RuntimeError(Box::new(AppError::new(code, error.to_string())))
 }
 
-fn mari_write_tools_enabled() -> bool {
+fn deki_write_tools_enabled() -> bool {
     false
 }
 
-fn mari_write_requires_approval_error() -> ToolCallError {
-    mari_tool_error(
-        "mari_write_requires_approval",
-        "Assistant write tools require explicit user approval and are disabled for autonomous tool runs.",
+fn deki_write_requires_approval_error() -> ToolCallError {
+    deki_tool_error(
+        "deki_write_requires_approval",
+        "Deki-senpai write tools require explicit user approval and are disabled for autonomous tool runs.",
     )
 }
 
@@ -932,11 +932,11 @@ fn default_agent_phase() -> String {
     "parallel".to_string()
 }
 
-fn marinara_repo_root() -> AppResult<PathBuf> {
+fn deki_repo_root() -> AppResult<PathBuf> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let Some(root) = manifest_dir.parent() else {
         return Err(AppError::new(
-            "mari_repo_root_unavailable",
+            "deki_repo_root_unavailable",
             "Could not resolve De-Koi repository root",
         ));
     };
@@ -945,14 +945,14 @@ fn marinara_repo_root() -> AppResult<PathBuf> {
         Ok(root)
     } else {
         Err(AppError::new(
-            "mari_repo_root_unavailable",
-            "Assistant could not find AGENTS.md and package.json at the repository root",
+            "deki_repo_root_unavailable",
+            "Deki-senpai could not find AGENTS.md and package.json at the repository root",
         ))
     }
 }
 
 fn resolve_repo_file(path: &str) -> AppResult<(PathBuf, PathBuf, String)> {
-    let root = marinara_repo_root()?;
+    let root = deki_repo_root()?;
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err(AppError::invalid_input(
@@ -962,7 +962,7 @@ fn resolve_repo_file(path: &str) -> AppResult<(PathBuf, PathBuf, String)> {
     let relative = assert_relative_safe_path(trimmed)?;
     if relative.as_os_str().is_empty() || is_skipped_relative_path(&relative) {
         return Err(AppError::invalid_input(
-            "That path is not available to Assistant",
+            "That path is not available to Deki-senpai",
         ));
     }
     let resolved = assert_inside_dir(&root, &relative)?;
@@ -970,7 +970,7 @@ fn resolve_repo_file(path: &str) -> AppResult<(PathBuf, PathBuf, String)> {
     Ok((root, resolved, display_path))
 }
 
-fn search_marinara_code(args: SearchMarinaraCodeArgs) -> AppResult<Value> {
+fn search_deki_code(args: SearchDekiCodeArgs) -> AppResult<Value> {
     let query = args.query.trim();
     if query.is_empty() {
         return Err(AppError::invalid_input("Search query is required"));
@@ -984,7 +984,7 @@ fn search_marinara_code(args: SearchMarinaraCodeArgs) -> AppResult<Value> {
     {
         Some(path) => resolve_repo_file(path)?,
         None => {
-            let root = marinara_repo_root()?;
+            let root = deki_repo_root()?;
             (root.clone(), root, ".".to_string())
         }
     };
@@ -1024,7 +1024,7 @@ fn search_marinara_code(args: SearchMarinaraCodeArgs) -> AppResult<Value> {
     }))
 }
 
-fn read_marinara_code_file(path: &str) -> AppResult<Value> {
+fn read_deki_code_file(path: &str) -> AppResult<Value> {
     let (_root, target, display_path) = resolve_repo_file(path)?;
     if !target.is_file() {
         return Err(AppError::not_found(format!("{display_path} was not found")));
@@ -1042,7 +1042,7 @@ fn read_marinara_code_file(path: &str) -> AppResult<Value> {
     }
     let content = fs::read_to_string(&target).map_err(|error| {
         AppError::new(
-            "mari_code_read_failed",
+            "deki_code_read_failed",
             format!("{display_path} is not valid UTF-8: {error}"),
         )
     })?;
@@ -1058,7 +1058,7 @@ fn read_marinara_code_file(path: &str) -> AppResult<Value> {
     }))
 }
 
-fn edit_marinara_code_file(path: &str, old_text: &str, new_text: &str) -> AppResult<Value> {
+fn edit_deki_code_file(path: &str, old_text: &str, new_text: &str) -> AppResult<Value> {
     let (_root, target, display_path) = resolve_repo_file(path)?;
     if !target.is_file() {
         return Err(AppError::not_found(format!("{display_path} was not found")));
@@ -1082,7 +1082,7 @@ fn edit_marinara_code_file(path: &str, old_text: &str, new_text: &str) -> AppRes
     }
     let content = fs::read_to_string(&target).map_err(|error| {
         AppError::new(
-            "mari_code_edit_failed",
+            "deki_code_edit_failed",
             format!("{display_path} is not valid UTF-8: {error}"),
         )
     })?;
@@ -1101,9 +1101,9 @@ fn edit_marinara_code_file(path: &str, old_text: &str, new_text: &str) -> AppRes
     }))
 }
 
-fn create_marinara_extension(
+fn create_deki_extension(
     state: &AppState,
-    args: CreateMarinaraExtensionArgs,
+    args: CreateDekiExtensionArgs,
 ) -> AppResult<Value> {
     let name = args.name.trim();
     if name.is_empty() {
@@ -1131,9 +1131,9 @@ fn create_marinara_extension(
     )
 }
 
-fn create_marinara_custom_agent(
+fn create_deki_custom_agent(
     state: &AppState,
-    args: CreateMarinaraCustomAgentArgs,
+    args: CreateDekiCustomAgentArgs,
 ) -> AppResult<Value> {
     let name = args.name.trim();
     let prompt_template = args.prompt_template.trim();
@@ -1255,7 +1255,7 @@ fn sanitize_agent_type(value: &str) -> String {
     }
     let trimmed = output.trim_matches('-').to_string();
     if trimmed.is_empty() {
-        "custom-professor-mari-agent".to_string()
+        "custom-deki-agent".to_string()
     } else if trimmed.starts_with("custom-") {
         trimmed
     } else {
@@ -1487,51 +1487,51 @@ mod tests {
     }
 
     #[test]
-    fn professor_mari_custom_connections_use_string_tool_choice() {
+    fn deki_custom_connections_use_string_tool_choice() {
         let connection = test_connection("custom");
         let messages = [text_message("What does src/app/shell/AppShell.tsx do?")];
-        let tools = [test_tool("search_marinara_code")];
+        let tools = [test_tool("search_deki_code")];
 
-        let parameters = mari_request_parameters(&connection, &messages, &tools);
+        let parameters = deki_request_parameters(&connection, &messages, &tools);
 
         assert_eq!(parameters["toolChoice"], json!("required"));
     }
 
     #[test]
-    fn professor_mari_known_openai_connections_keep_exact_tool_choice() {
+    fn deki_known_openai_connections_keep_exact_tool_choice() {
         let connection = test_connection("openai");
         let messages = [text_message("What does src/app/shell/AppShell.tsx do?")];
-        let tools = [test_tool("search_marinara_code")];
+        let tools = [test_tool("search_deki_code")];
 
-        let parameters = mari_request_parameters(&connection, &messages, &tools);
+        let parameters = deki_request_parameters(&connection, &messages, &tools);
 
         assert_eq!(
             parameters["toolChoice"],
             json!({
                 "type": "function",
-                "function": { "name": "search_marinara_code" }
+                "function": { "name": "search_deki_code" }
             })
         );
     }
 
     #[test]
-    fn professor_mari_custom_library_questions_use_string_tool_choice() {
+    fn deki_custom_library_questions_use_string_tool_choice() {
         let connection = test_connection("custom");
         let messages = [text_message("What personas are in my library?")];
-        let tools = [test_tool("read_marinara_library")];
+        let tools = [test_tool("read_deki_library")];
 
-        let parameters = mari_request_parameters(&connection, &messages, &tools);
+        let parameters = deki_request_parameters(&connection, &messages, &tools);
 
         assert_eq!(parameters["toolChoice"], json!("required"));
     }
 
-    fn prompt_with_attachment(attachment: MariAttachment) -> String {
+    fn prompt_with_attachment(attachment: DekiAttachment) -> String {
         prompt_with_attachments(vec![attachment])
     }
 
-    fn prompt_with_attachments(attachments: Vec<MariAttachment>) -> String {
+    fn prompt_with_attachments(attachments: Vec<DekiAttachment>) -> String {
         build_task_prompt(
-            &MariPromptRequest {
+            &DekiPromptRequest {
                 user_message: "Please inspect this attachment.".to_string(),
                 messages: Vec::new(),
                 compacted_summary: None,
@@ -1544,9 +1544,9 @@ mod tests {
     }
 
     #[test]
-    fn professor_mari_prompt_omits_raw_image_attachment_data_urls() {
+    fn deki_prompt_omits_raw_image_attachment_data_urls() {
         let raw_data_url = format!("data:image/png;base64,{}", "A".repeat(4096));
-        let prompt = prompt_with_attachment(MariAttachment {
+        let prompt = prompt_with_attachment(DekiAttachment {
             name: "screenshot.png".to_string(),
             r#type: "image/png".to_string(),
             size: 4096,
@@ -1559,10 +1559,10 @@ mod tests {
     }
 
     #[test]
-    fn professor_mari_prompt_truncates_large_text_attachments() {
+    fn deki_prompt_truncates_large_text_attachments() {
         let marker = "tail-that-should-not-enter-context";
         let content = format!("{}{}", "safe text\n".repeat(20_000), marker);
-        let prompt = prompt_with_attachment(MariAttachment {
+        let prompt = prompt_with_attachment(DekiAttachment {
             name: "debug.log".to_string(),
             r#type: "text/plain".to_string(),
             size: content.len() as u64,
@@ -1575,10 +1575,10 @@ mod tests {
     }
 
     #[test]
-    fn professor_mari_prompt_bounds_attachment_metadata() {
+    fn deki_prompt_bounds_attachment_metadata() {
         let marker = "metadata-tail-that-should-not-enter-context";
-        let attachments = (0..(MARI_ATTACHMENT_MAX_COUNT + 8))
-            .map(|index| MariAttachment {
+        let attachments = (0..(DEKI_ATTACHMENT_MAX_COUNT + 8))
+            .map(|index| DekiAttachment {
                 name: format!("{}-{marker}-{index}.txt", "name".repeat(100)),
                 r#type: format!("text/plain;{}", "charset=utf-8;".repeat(40)),
                 size: 0,
@@ -1589,12 +1589,12 @@ mod tests {
         let prompt = prompt_with_attachments(attachments);
 
         assert!(!prompt.contains(marker));
-        assert!(prompt.matches("File:").count() <= MARI_ATTACHMENT_MAX_COUNT);
+        assert!(prompt.matches("File:").count() <= DEKI_ATTACHMENT_MAX_COUNT);
         assert!(prompt.contains("additional attachment(s) omitted"));
     }
 
     #[test]
-    fn professor_mari_code_tools_reject_encoded_source_payloads() {
+    fn deki_code_tools_reject_encoded_source_payloads() {
         assert!(is_context_safe_source_text(
             "export function usefulSource() {\n  return 'readable code';\n}\n"
         ));
@@ -1605,7 +1605,7 @@ mod tests {
     }
 
     #[test]
-    fn professor_mari_code_tools_reject_wrapped_encoded_source_payloads() {
+    fn deki_code_tools_reject_wrapped_encoded_source_payloads() {
         let payload = "A"
             .repeat(4096)
             .as_bytes()

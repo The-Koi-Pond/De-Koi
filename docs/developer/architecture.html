@@ -71,7 +71,7 @@ flowchart TB
     GenCore[generation-core<br/>prompt, lorebook, regex, LLM DTOs]
     Agents[agents-runtime<br/>executor, knowledge, pipeline]
     Generation[generation<br/>generation lifecycle]
-    MariEngine[mari<br/>Professor Mari entry contract]
+    DekiEngine[deki<br/>Deki-senpai entry contract]
     EngineModes[modes<br/>chat, roleplay, game]
   end
 
@@ -115,7 +115,7 @@ flowchart TB
   Generation --> GenCore
   EngineModes --> Generation
   EngineModes --> Repositories
-  MariEngine --> Contracts
+  DekiEngine --> Contracts
   Agents --> GenCore
   GenCore --> Repositories
   Repositories --> Capabilities
@@ -499,7 +499,7 @@ flowchart TB
         <pre class="mermaid">
 flowchart TB
   Modes[modes<br/>chat, roleplay, game]
-  Mari[mari<br/>Professor Mari entry]
+  Deki[deki<br/>Deki-senpai entry]
   Generation[generation<br/>lifecycle, replay, makers, prompt review]
   Agents[agents-runtime<br/>executor, knowledge, pipeline]
   GenCore[generation-core<br/>prompt, lorebook, regex, LLM DTOs]
@@ -575,7 +575,7 @@ flowchart TB
             </tr>
             <tr>
               <td><code>mari</code></td>
-              <td>Professor Mari request/response entry contract.</td>
+              <td>Deki-senpai request/response entry contract.</td>
               <td>Rust tool execution or UI rendering.</td>
             </tr>
             <tr>
@@ -629,7 +629,7 @@ flowchart TB
                 <code>assets-api.ts</code>, <code>avatar-api.ts</code>, <code>export-api.ts</code>,
                 <code>image-generation-api.ts</code>, <code>import-api.ts</code>, <code>integration-gateway.ts</code>,
                 <code>integration-utility-api.ts</code>, <code>llm-api.ts</code>, <code>local-file-api.ts</code>,
-                <code>mari-api.ts</code>, <code>profile-api.ts</code>, <code>settings-assets-api.ts</code>,
+                <code>deki-api.ts</code>, <code>profile-api.ts</code>, <code>settings-assets-api.ts</code>,
                 <code>storage-api.ts</code>, <code>tracker-snapshot-api.ts</code>, <code>translation-api.ts</code>,
                 <code>tts-api.ts</code>, <code>remote-runtime.ts</code>, <code>tauri-client.ts</code>, and helpers.
               </td>
@@ -665,7 +665,7 @@ flowchart TB
                 <code>src-tauri/src/commands/storage.rs</code> maps public groups such as <code>agent_commands</code>,
                 <code>asset_commands</code>, <code>bot_browser_commands</code>, <code>chat_commands</code>,
                 <code>entity_commands</code>, <code>game_state_snapshot_commands</code>, <code>import_commands</code>,
-                <code>integration_commands</code>, <code>mari_commands</code>, <code>media_commands</code>, and
+                <code>integration_commands</code>, <code>deki_commands</code>, <code>media_commands</code>, and
                 <code>profile_commands</code>.
               </td>
               <td>Validate inputs, call focused implementations, and return DTOs/events.</td>

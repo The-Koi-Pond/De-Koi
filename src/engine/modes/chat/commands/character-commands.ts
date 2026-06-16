@@ -16,7 +16,7 @@
 // - <note>text</note> (durable note for connected roleplay, persists until cleared)
 // - [dm: character="CharName", message="text"] (Roleplay-only: open a direct-message conversation)
 //
-// Assistant commands (Professor Mari):
+// Assistant commands (Deki-senpai):
 // - [create_persona: name="...", description="...", personality="...", appearance="..."]
 // - [create_character: name="...", description="...", personality="...", first_message="...", scenario="...", backstory="...", appearance="...", mes_example="...", creator_notes="...", system_prompt="...", post_history_instructions="...", creator="...", character_version="...", tags="tag1, tag2", alternate_greetings="hello || hi", talkativeness=0.5, fav=true, world="...", depth_prompt="...", depth_prompt_depth=4, depth_prompt_role="system"]
 // - [update_character: name="...", description="...", personality="...", first_message="...", scenario="...", backstory="...", appearance="...", mes_example="...", creator_notes="...", system_prompt="...", post_history_instructions="...", creator="...", character_version="...", tags="tag1, tag2", alternate_greetings="hello || hi", talkativeness=0.5, fav=true, world="...", depth_prompt="...", depth_prompt_depth=4, depth_prompt_role="system"]
@@ -100,7 +100,7 @@ interface SpotifyCommand {
   artist: string;
 }
 
-// ── Assistant commands (Professor Mari) ──
+// ── Assistant commands (Deki-senpai) ──
 
 export interface CreatePersonaCommand {
   type: "create_persona";
@@ -835,7 +835,7 @@ export function parseCharacterCommands(content: string): {
     }
   }
 
-  // Parse assistant commands (Professor Mari)
+  // Parse assistant commands (Deki-senpai)
   for (const match of content.matchAll(CREATE_PERSONA_RE)) {
     const params = match[1]!;
     const cmd: CreatePersonaCommand = { type: "create_persona", name: "" };

@@ -3,7 +3,7 @@ use crate::state::AppState;
 use crate::storage_commands::{
     admin, agents, avatars, backgrounds, backup, bot_browser, characters, chat_memory, chats,
     connection_secrets, custom_tools, entity_images, exports, fonts, game_assets, generation, http,
-    images, imports, integrations, knowledge, llm, lorebook_images, managed_thumbnails, mari,
+    deki, images, imports, integrations, knowledge, llm, lorebook_images, managed_thumbnails,
     personas, profile, profile_commands, prompts, shared, sidecar, sprites, translation, updates,
 };
 use marinara_core::{AppError, AppResult};
@@ -418,11 +418,11 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             )
             .await
         }
-        "spotify_dj_mari_playlist" => {
+        "spotify_dj_deki_playlist" | "spotify_dj_mari_playlist" => {
             spotify_direct(
                 state,
                 "POST",
-                &["dj-mari-playlist"],
+                &["dj-deki-playlist"],
                 optional_value(&args, "input"),
             )
             .await
@@ -848,8 +848,8 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "local_sidecar_stop" => sidecar::stop(state).await,
         "local_sidecar_restart" => sidecar::restart(state).await,
         "local_sidecar_test_message" => sidecar::test_message(state).await,
-        "professor_mari_prompt" => {
-            mari::professor_mari_prompt(state, optional_value(&args, "request")).await
+        "deki_prompt" | "professor_mari_prompt" => {
+            deki::deki_prompt(state, optional_value(&args, "request")).await
         }
         "update_check" => updates::check_updates().await,
         "update_apply" => updates::apply_update(optional_value(&args, "input")),
@@ -1407,8 +1407,10 @@ mod tests {
                 if !trimmed.starts_with('"') || !trimmed.contains("=>") {
                     return None;
                 }
-                trimmed.split('"').nth(1).map(ToOwned::to_owned)
+                let arm_head = trimmed.split("=>").next()?;
+                Some(quoted_commands(arm_head))
             })
+            .flatten()
             .collect()
     }
 

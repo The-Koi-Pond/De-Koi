@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronUp, CircleUser, FileText, Link, Plus, Send, X } from "lucide-react";
-import { runProfessorMariEntry, type MariAttachment, type MariMessage } from "../../../../engine/mari/mari-entry";
+import { runDekiEntry, type DekiAttachment, type DekiMessage } from "../../../../engine/deki/deki-entry";
 import {
-  compactProfessorMariHistory,
-  EMPTY_MARI_COMPACTION,
-  PROFESSOR_MARI_CHAT_ID,
-  isMariResetCommand,
-  mariContextMessages,
-  type MariCompactionState,
-} from "../../../../engine/mari/mari-history";
+  compactDekiHistory,
+  EMPTY_DEKI_COMPACTION,
+  DEKI_CHAT_ID,
+  isDekiResetCommand,
+  dekiContextMessages,
+  type DekiCompactionState,
+} from "../../../../engine/deki/deki-history";
 import { llmApi } from "../../../../shared/api/llm-api";
-import { mariApi, type ProfessorMariPreferences } from "../../../../shared/api/mari-api";
+import { dekiApi, type DekiPreferences } from "../../../../shared/api/deki-api";
 import { useConnections } from "../../../catalog/connections/index";
 import { PersonaAvatarImage, usePersonaSummaries } from "../../../catalog/personas/index";
 import { ConversationMessage } from "../../../modes/conversation/message-shell";
@@ -22,22 +22,22 @@ import type { AvatarCropValue } from "../../../../shared/lib/utils";
 import { cn, parseAvatarCropJson } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 
-const MARI_AVATAR_URL = "/icon-192.png";
-const MARI_CHIBI_URL = "/logo.png";
-const MARI_CHARACTER_ID = "__professor_mari_shell__";
-const MARI_WELCOME_CONTENT =
-  "Howdy, welcome to De-Koi!\n\nThe pond is calm, and I'm here to help you find your way. Feeling a little lost? It's not a skill issue yet! Ask me anything about how the app works, or have me edit it to fit what you need. Am I not the best? 😎";
-const MARI_CONNECTION_SETUP_CONTENT =
-  "Oh, whoops! Looks like you're trying to talk to me without having a model connection set up yet. I'm afraid I need the sweet GPU juice to run. Let me take you to the Connections tab first…";
-const MARI_NO_CONNECTION_SELECTED_ERROR =
-  'No connection set for this chat! Click the "chains" icon in the input box to select one.';
-const MARI_INPUT_PLACEHOLDER = "Message @Assistant, /reset to reset the conversation and only then clear it";
-const MARI_ATTACHMENT_CLIENT_TEXT_BYTES = 64 * 1024;
-const MARI_IMAGE_ATTACHMENT_EXTENSIONS = new Set(["avif", "gif", "jpeg", "jpg", "png", "webp"]);
+const DEKI_AVATAR_URL = "/icon-192.png";
+const DEKI_CHIBI_URL = "/logo.png";
+const DEKI_CHARACTER_ID = "__deki_shell__";
+const DEKI_WELCOME_CONTENT =
+  "Howdy, welcome to De-Koi!\n\nThe pond is calm, and I'm Deki-senpai. Feeling a little lost? It's not a skill issue yet! Ask me anything about how the app works, or have me edit it to fit what you need. Am I not the best? 😎";
+const DEKI_CONNECTION_SETUP_CONTENT =
+  "Oh, whoops! Looks like you're trying to talk to Deki-senpai without having a model connection set up yet. I'm afraid I need the sweet GPU juice to run. Let me take you to the Connections tab first…";
+const DEKI_NO_CONNECTION_SELECTED_ERROR =
+  'No connection set for Deki-senpai! Click the "chains" icon in the input box to select one.';
+const DEKI_INPUT_PLACEHOLDER = "Message Deki-senpai, /reset to reset the conversation and only then clear it";
+const DEKI_ATTACHMENT_CLIENT_TEXT_BYTES = 64 * 1024;
+const DEKI_IMAGE_ATTACHMENT_EXTENSIONS = new Set(["avif", "gif", "jpeg", "jpg", "png", "webp"]);
 
-type ClientMariAttachment = MariAttachment & { id: string };
+type ClientDekiAttachment = DekiAttachment & { id: string };
 
-type MariConnection = {
+type DekiConnection = {
   id: string;
   name?: string;
   provider?: string;
@@ -45,7 +45,7 @@ type MariConnection = {
   maxContext?: unknown;
 };
 
-type MariPersona = {
+type DekiPersona = {
   id: string;
   name: string;
   avatarPath?: string | null;
@@ -64,10 +64,10 @@ function newId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function isMariImageFile(file: File) {
+function isDekiImageFile(file: File) {
   if (file.type.startsWith("image/")) return true;
   const extension = file.name.includes(".") ? file.name.split(".").pop()?.toLowerCase() : null;
-  return !!extension && MARI_IMAGE_ATTACHMENT_EXTENSIONS.has(extension);
+  return !!extension && DEKI_IMAGE_ATTACHMENT_EXTENSIONS.has(extension);
 }
 
 function formatDaySeparator(value: string) {
@@ -86,7 +86,7 @@ function getDayKey(value: string) {
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
-function parseMariAvatarCrop(value: unknown): AvatarCropValue | null {
+function parseDekiAvatarCrop(value: unknown): AvatarCropValue | null {
   if (!value) return null;
   if (typeof value === "string") return parseAvatarCropJson(value);
   if (typeof value !== "object") return null;
@@ -97,12 +97,12 @@ function parseMariAvatarCrop(value: unknown): AvatarCropValue | null {
   }
 }
 
-function toConversationMessage(message: MariMessage): Message {
+function toConversationMessage(message: DekiMessage): Message {
   return {
     id: message.id,
-    chatId: PROFESSOR_MARI_CHAT_ID,
+    chatId: DEKI_CHAT_ID,
     role: message.role,
-    characterId: message.role === "assistant" ? MARI_CHARACTER_ID : null,
+    characterId: message.role === "assistant" ? DEKI_CHARACTER_ID : null,
     content: message.content,
     activeSwipeIndex: 0,
     swipeCount: 1,
@@ -116,17 +116,17 @@ function toConversationMessage(message: MariMessage): Message {
   };
 }
 
-export function ProfessorMariSurface() {
+export function DekiSurface() {
   const { data: rawConnections } = useConnections();
   const { data: rawPersonas } = usePersonaSummaries();
   const convoGradient = useUIStore((s) => s.convoGradient);
   const theme = useUIStore((s) => s.theme);
   const openRightPanel = useUIStore((s) => s.openRightPanel);
-  const [messages, setMessages] = useState<MariMessage[]>([]);
+  const [messages, setMessages] = useState<DekiMessage[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [compaction, setCompaction] = useState<MariCompactionState>(EMPTY_MARI_COMPACTION);
+  const [compaction, setCompaction] = useState<DekiCompactionState>(EMPTY_DEKI_COMPACTION);
   const [draft, setDraft] = useState("");
-  const [attachments, setAttachments] = useState<ClientMariAttachment[]>([]);
+  const [attachments, setAttachments] = useState<ClientDekiAttachment[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null);
@@ -139,21 +139,21 @@ export function ProfessorMariSurface() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const persistedConnectionIdRef = useRef<ProfessorMariPreferences["selectedConnectionId"] | undefined>(undefined);
-  const persistedPersonaIdRef = useRef<ProfessorMariPreferences["selectedPersonaId"] | undefined>(undefined);
+  const persistedConnectionIdRef = useRef<DekiPreferences["selectedConnectionId"] | undefined>(undefined);
+  const persistedPersonaIdRef = useRef<DekiPreferences["selectedPersonaId"] | undefined>(undefined);
   const connectionSelectionTouchedRef = useRef(false);
   const personaSelectionTouchedRef = useRef(false);
   const preferencesReady = preferencesLoaded;
   const canSend = (draft.trim().length > 0 || attachments.length > 0) && !sending && historyLoaded && preferencesReady;
   const connections = useMemo(
     () =>
-      filterLanguageGenerationConnections((rawConnections ?? []) as MariConnection[]).sort((a, b) =>
+      filterLanguageGenerationConnections((rawConnections ?? []) as DekiConnection[]).sort((a, b) =>
         (a.name || a.id).localeCompare(b.name || b.id),
       ),
     [rawConnections],
   );
   const personas = useMemo(
-    () => ((rawPersonas ?? []) as MariPersona[]).slice().sort((a, b) => a.name.localeCompare(b.name)),
+    () => ((rawPersonas ?? []) as DekiPersona[]).slice().sort((a, b) => a.name.localeCompare(b.name)),
     [rawPersonas],
   );
   const selectedConnection = connections.find((connection) => connection.id === selectedConnectionId) ?? null;
@@ -172,10 +172,10 @@ export function ProfessorMariSurface() {
     () =>
       new Map([
         [
-          MARI_CHARACTER_ID,
+          DEKI_CHARACTER_ID,
           {
-            name: "Assistant",
-            avatarUrl: MARI_AVATAR_URL,
+            name: "Deki-senpai",
+            avatarUrl: DEKI_AVATAR_URL,
             conversationStatus: "online",
           },
         ],
@@ -188,14 +188,14 @@ export function ProfessorMariSurface() {
       name: selectedPersona.name,
       description: selectedPersona.description ?? undefined,
       avatarUrl: selectedPersona.avatarPath ?? undefined,
-      avatarCrop: parseMariAvatarCrop(selectedPersona.avatarCrop),
+      avatarCrop: parseDekiAvatarCrop(selectedPersona.avatarCrop),
     };
   }, [selectedPersona]);
-  const welcomeMessage = useMemo<MariMessage>(
+  const welcomeMessage = useMemo<DekiMessage>(
     () => ({
-      id: "professor-mari-welcome",
+      id: "deki-welcome",
       role: "assistant",
-      content: MARI_WELCOME_CONTENT,
+      content: DEKI_WELCOME_CONTENT,
       createdAt: new Date().toISOString(),
     }),
     [],
@@ -212,7 +212,7 @@ export function ProfessorMariSurface() {
 
   useEffect(() => {
     let active = true;
-    void mariApi.history
+    void dekiApi.history
       .get()
       .then((history) => {
         if (!active) return;
@@ -221,7 +221,7 @@ export function ProfessorMariSurface() {
       })
       .catch((error) => {
         if (!active) return;
-        setSendError(error instanceof Error ? error.message : "Assistant history could not be loaded.");
+        setSendError(error instanceof Error ? error.message : "Deki-senpai history could not be loaded.");
       })
       .finally(() => {
         if (active) setHistoryLoaded(true);
@@ -233,7 +233,7 @@ export function ProfessorMariSurface() {
 
   useEffect(() => {
     let active = true;
-    void mariApi.preferences
+    void dekiApi.preferences
       .get()
       .then((preferences) => {
         if (!active) return;
@@ -250,7 +250,7 @@ export function ProfessorMariSurface() {
         if (!active) return;
         persistedConnectionIdRef.current = null;
         persistedPersonaIdRef.current = null;
-        setSendError(error instanceof Error ? error.message : "Assistant preferences could not be loaded.");
+        setSendError(error instanceof Error ? error.message : "Deki-senpai preferences could not be loaded.");
       })
       .finally(() => {
         if (active) setPreferencesLoaded(true);
@@ -271,12 +271,12 @@ export function ProfessorMariSurface() {
     const nextPersonaId = selectedPersonaId;
     persistedConnectionIdRef.current = nextConnectionId;
     persistedPersonaIdRef.current = nextPersonaId;
-    void mariApi.preferences
+    void dekiApi.preferences
       .save({ selectedConnectionId: nextConnectionId, selectedPersonaId: nextPersonaId })
       .catch((error) => {
         persistedConnectionIdRef.current = undefined;
         persistedPersonaIdRef.current = undefined;
-        setSendError(error instanceof Error ? error.message : "Assistant preferences could not be saved.");
+        setSendError(error instanceof Error ? error.message : "Deki-senpai preferences could not be saved.");
       });
   }, [preferencesLoaded, selectedConnectionId, selectedPersonaId]);
 
@@ -310,29 +310,29 @@ export function ProfessorMariSurface() {
     const nextAttachments = await Promise.all(
       Array.from(files).map(
         (file) =>
-          new Promise<ClientMariAttachment>((resolve, reject) => {
+          new Promise<ClientDekiAttachment>((resolve, reject) => {
             const finish = (content: string) =>
               resolve({
-                id: newId("mari-file"),
+                id: newId("deki-file"),
                 name: file.name,
                 type: file.type || "application/octet-stream",
                 size: file.size,
                 content,
               });
-            if (isMariImageFile(file)) {
+            if (isDekiImageFile(file)) {
               finish("");
               return;
             }
             file
-              .slice(0, MARI_ATTACHMENT_CLIENT_TEXT_BYTES)
+              .slice(0, DEKI_ATTACHMENT_CLIENT_TEXT_BYTES)
               .text()
               .then((content) => {
-                if (file.size <= MARI_ATTACHMENT_CLIENT_TEXT_BYTES) {
+                if (file.size <= DEKI_ATTACHMENT_CLIENT_TEXT_BYTES) {
                   finish(content);
                   return;
                 }
                 finish(
-                  `${content}\n\n[Attachment truncated in the browser after ${MARI_ATTACHMENT_CLIENT_TEXT_BYTES} bytes.]`,
+                  `${content}\n\n[Attachment truncated in the browser after ${DEKI_ATTACHMENT_CLIENT_TEXT_BYTES} bytes.]`,
                 );
               })
               .catch(reject);
@@ -346,17 +346,17 @@ export function ProfessorMariSurface() {
   const send = async () => {
     const userMessage = draft.trim() || (attachments.length > 0 ? "[attachments]" : "");
     if (!userMessage || sending || !historyLoaded || !preferencesReady) return;
-    if (isMariResetCommand(userMessage)) {
+    if (isDekiResetCommand(userMessage)) {
       setDraft("");
       setAttachments([]);
       setSendError(null);
       setSending(true);
       try {
-        await mariApi.history.reset();
+        await dekiApi.history.reset();
         setMessages([]);
-        setCompaction(EMPTY_MARI_COMPACTION);
+        setCompaction(EMPTY_DEKI_COMPACTION);
       } catch (error) {
-        setSendError(error instanceof Error ? error.message : "Assistant history could not be reset.");
+        setSendError(error instanceof Error ? error.message : "Deki-senpai history could not be reset.");
       } finally {
         setSending(false);
         requestAnimationFrame(() => inputRef.current?.focus());
@@ -374,7 +374,7 @@ export function ProfessorMariSurface() {
     }
     if (!selectedConnection) {
       setConnectionSetupPromptOpen(false);
-      setSendError(MARI_NO_CONNECTION_SELECTED_ERROR);
+      setSendError(DEKI_NO_CONNECTION_SELECTED_ERROR);
       setConnectionMenuOpen(true);
       setPersonaMenuOpen(false);
       setMobileMenuOpen(false);
@@ -388,11 +388,11 @@ export function ProfessorMariSurface() {
     setSending(true);
     requestAnimationFrame(() => inputRef.current?.focus());
     try {
-      const user = await mariApi.history.appendMessage({ role: "user", content: userMessage });
+      const user = await dekiApi.history.appendMessage({ role: "user", content: userMessage });
       const messagesWithUser = [...messages, user];
       setMessages(messagesWithUser);
 
-      const compactionResult = await compactProfessorMariHistory({
+      const compactionResult = await compactDekiHistory({
         messages: messagesWithUser,
         compaction,
         connection: selectedConnection,
@@ -400,13 +400,13 @@ export function ProfessorMariSurface() {
       });
       const nextCompaction = compactionResult.compaction;
       if (compactionResult.compacted) {
-        setCompaction(await mariApi.history.saveCompaction(nextCompaction));
+        setCompaction(await dekiApi.history.saveCompaction(nextCompaction));
       }
-      const contextMessages = mariContextMessages(messagesWithUser, nextCompaction).filter(
+      const contextMessages = dekiContextMessages(messagesWithUser, nextCompaction).filter(
         (message) => message.id !== user.id,
       );
 
-      const response = await runProfessorMariEntry(
+      const response = await runDekiEntry(
         {
           userMessage,
           messages: contextMessages,
@@ -432,12 +432,12 @@ export function ProfessorMariSurface() {
             content: attachment.content,
           })),
         },
-        mariApi,
+        dekiApi,
       );
-      const assistant = await mariApi.history.appendMessage({ role: "assistant", content: response.content });
+      const assistant = await dekiApi.history.appendMessage({ role: "assistant", content: response.content });
       setMessages((current) => [...current, assistant]);
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : "Assistant failed to respond.");
+      setSendError(error instanceof Error ? error.message : "Deki-senpai failed to respond.");
       setSending(false);
       return;
     }
@@ -476,12 +476,12 @@ export function ProfessorMariSurface() {
       aria-busy={!historyLoaded || sending}
     >
       <div className="mari-messages-scroll flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="mari-professor-hero mx-auto flex w-full max-w-3xl justify-center px-4 pb-2 pt-5 sm:pt-7">
-          <ProfessorMariPixelScene active={sending || !historyLoaded} />
+        <div className="deki-hero mx-auto flex w-full max-w-3xl justify-center px-4 pb-2 pt-5 sm:pt-7">
+          <DekiPixelScene active={sending || !historyLoaded} />
         </div>
 
         <div className="mx-auto w-full max-w-3xl px-0 pb-4 pt-1">
-          {!historyLoaded && <ProfessorMariLoadingState />}
+          {!historyLoaded && <DekiLoadingState />}
           {conversationMessages.map((message, index) => {
             const previous = conversationMessages[index - 1];
             const showSeparator = !previous || getDayKey(previous.createdAt) !== getDayKey(message.createdAt);
@@ -509,7 +509,7 @@ export function ProfessorMariSurface() {
                   hideActions
                   characterMap={characterMap}
                   personaInfo={personaInfo}
-                  chatCharacterIds={[MARI_CHARACTER_ID]}
+                  chatCharacterIds={[DEKI_CHARACTER_ID]}
                   messageIndex={index + 1}
                   messageOrderIndex={index}
                 />
@@ -517,7 +517,7 @@ export function ProfessorMariSurface() {
             );
           })}
           {sending && (
-            <div className="px-4 py-2 text-xs text-[var(--muted-foreground)]">Assistant is thinking...</div>
+            <div className="px-4 py-2 text-xs text-[var(--muted-foreground)]">Deki-senpai is thinking...</div>
           )}
           {sendError && <div className="px-4 py-2 text-xs text-red-500">{sendError}</div>}
           <div ref={messagesEndRef} className="h-1" />
@@ -527,7 +527,7 @@ export function ProfessorMariSurface() {
       <div className="mari-chat-input chat-input-container relative z-10 px-3 pb-3 md:px-[12%]">
         {(connectionMenuOpen || personaMenuOpen || mobileMenuOpen) && (
           <div className="pointer-events-none absolute inset-x-3 bottom-full z-30 mb-2 md:inset-x-[12%]">
-            <MariContextMenu
+            <DekiContextMenu
               connections={connections}
               personas={personas}
               selectedConnectionId={selectedConnectionId}
@@ -541,7 +541,7 @@ export function ProfessorMariSurface() {
 
         {connectionSetupPromptOpen && (
           <div className="mx-auto mb-2 flex max-w-3xl flex-col gap-2 rounded-xl border border-sky-400/30 bg-[var(--card)] px-3 py-2.5 text-xs text-[var(--foreground)] shadow-xl shadow-sky-500/10 sm:flex-row sm:items-center sm:justify-between">
-            <p className="min-w-0 leading-relaxed text-[var(--foreground)]/85">{MARI_CONNECTION_SETUP_CONTENT}</p>
+            <p className="min-w-0 leading-relaxed text-[var(--foreground)]/85">{DEKI_CONNECTION_SETUP_CONTENT}</p>
             <button
               type="button"
               onClick={openConnectionsPanel}
@@ -686,7 +686,7 @@ export function ProfessorMariSurface() {
             rows={1}
             spellCheck
             autoCorrect="on"
-            placeholder={MARI_INPUT_PLACEHOLDER}
+            placeholder={DEKI_INPUT_PLACEHOLDER}
             className="mari-chat-input-textarea max-h-[12.5rem] min-w-0 flex-1 resize-none bg-transparent py-0 text-sm leading-normal text-foreground/90 placeholder:text-foreground/30 outline-none"
           />
 
@@ -710,7 +710,7 @@ export function ProfessorMariSurface() {
   );
 }
 
-function ProfessorMariLoadingState() {
+function DekiLoadingState() {
   return (
     <div className="flex justify-center px-4 py-6">
       <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] shadow-sm">
@@ -718,30 +718,30 @@ function ProfessorMariLoadingState() {
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400/60" />
           <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-sky-400" />
         </span>
-        Restoring Assistant...
+        Restoring Deki-senpai...
       </div>
     </div>
   );
 }
 
-function ProfessorMariPixelScene({ active }: { active: boolean }) {
+function DekiPixelScene({ active }: { active: boolean }) {
   return (
     <div
       className={cn(
-        "mari-professor-pixel-scene",
-        active ? "mari-professor-pixel-scene-active" : "mari-professor-pixel-scene-idle",
+        "deki-pixel-scene",
+        active ? "deki-pixel-scene-active" : "deki-pixel-scene-idle",
       )}
     >
-      <div className="mari-professor-pixel-glow" aria-hidden />
-      <div className="mari-professor-pixel-desk" aria-hidden />
-      <img src={MARI_CHIBI_URL} alt="Assistant" className="mari-professor-pixel-sprite" draggable={false} />
-      <div className="mari-professor-laptop" aria-hidden>
-        <div className="mari-professor-laptop-screen">
+      <div className="deki-pixel-glow" aria-hidden />
+      <div className="deki-pixel-desk" aria-hidden />
+      <img src={DEKI_CHIBI_URL} alt="Deki-senpai" className="deki-pixel-sprite" draggable={false} />
+      <div className="deki-laptop" aria-hidden>
+        <div className="deki-laptop-screen">
           <span />
           <span />
           <span />
         </div>
-        <div className="mari-professor-laptop-base">
+        <div className="deki-laptop-base">
           <i />
           <i />
           <i />
@@ -754,7 +754,7 @@ function ProfessorMariPixelScene({ active }: { active: boolean }) {
   );
 }
 
-function MariContextMenu({
+function DekiContextMenu({
   connections,
   personas,
   selectedConnectionId,
@@ -763,8 +763,8 @@ function MariContextMenu({
   onSelectConnection,
   onSelectPersona,
 }: {
-  connections: MariConnection[];
-  personas: MariPersona[];
+  connections: DekiConnection[];
+  personas: DekiPersona[];
   selectedConnectionId: string | null;
   selectedPersonaId: string | null;
   mode: "connections" | "personas" | "both";

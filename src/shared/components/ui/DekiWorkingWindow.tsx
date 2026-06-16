@@ -4,12 +4,12 @@ import { cn } from "../../lib/utils";
 
 const DOTTOR_SUPPORT_GIF = "/sprites/dottore/dottore_jumping.gif";
 
-interface ProfessorMariWorkingWindowProps {
+interface DekiWorkingWindowProps {
   visible: boolean;
   className?: string;
 }
 
-export function ProfessorMariWorkingWindow({ visible, className }: ProfessorMariWorkingWindowProps) {
+export function DekiWorkingWindow({ visible, className }: DekiWorkingWindowProps) {
   const [dismissed, setDismissed] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
 
@@ -49,7 +49,7 @@ export function ProfessorMariWorkingWindow({ visible, className }: ProfessorMari
           />
         )}
         <p className="text-xs font-medium leading-relaxed">
-          Assistant is working (and Dottore is providing moral support)…
+          Deki-senpai is working (and Dottore is providing moral support)…
         </p>
       </div>
     </div>

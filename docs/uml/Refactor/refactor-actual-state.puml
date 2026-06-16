@@ -43,7 +43,7 @@ package "React application and feature layer" {
     component "[folder]\nsrc/app\nApp shell and providers" as AppShell <<healthy>>
 
     package "src/features/shell" {
-        component "[folder]\nSettings, imports, onboarding,\nProfessor Mari, integrations" as ShellFeatures <<healthy>>
+        component "[folder]\nSettings, imports, onboarding,\nDeki-senpai, integrations" as ShellFeatures <<healthy>>
     }
 
     package "src/features/modes" {

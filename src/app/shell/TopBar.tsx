@@ -12,12 +12,12 @@ import { useTopBarActions } from "../../shared/components/mobile-shell-actions";
 import { cn } from "../../shared/lib/utils";
 
 export function TopBar({
-  professorMariOpen: _professorMariOpen = false,
-  onOpenProfessorMari: _onOpenProfessorMari,
+  dekiOpen: _dekiOpen = false,
+  onOpenDeki: _onOpenDeki,
   onGoHome,
 }: {
-  professorMariOpen?: boolean;
-  onOpenProfessorMari?: () => void;
+  dekiOpen?: boolean;
+  onOpenDeki?: () => void;
   onGoHome?: () => void;
 }) {
   const activeChatId = useChatStore((s) => s.activeChatId);

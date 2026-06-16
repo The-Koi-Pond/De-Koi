@@ -177,14 +177,14 @@
     "coverage": "core"
   },
   {
-    "id": "professor-mari",
-    "title": "Assistant",
+    "id": "deki",
+    "title": "Deki-senpai",
     "category": "Help",
-    "summary": "A dedicated assistant surface for app questions, codebase help, and guided changes separate from active chats.",
-    "keywords": ["help", "assistant", "mari", "ask", "support", "customize", "codebase"],
+    "summary": "A dedicated Deki-senpai surface for app questions, codebase help, and guided changes separate from active chats.",
+    "keywords": ["help", "assistant", "deki", "senpai", "ask", "support", "customize", "codebase"],
     "audience": "Users who want help understanding or customizing De-Koi without interrupting a chat.",
-    "where": "Assistant avatar button in the title bar or mobile top bar.",
-    "actions": [{ "type": "open-professor-mari", "label": "Open Assistant" }],
+    "where": "Deki-senpai button in the title bar or mobile top bar.",
+    "actions": [{ "type": "open-deki", "label": "Open Deki-senpai" }],
     "coverage": "core"
   },
   {

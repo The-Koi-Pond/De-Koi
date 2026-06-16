@@ -1356,7 +1356,7 @@ export async function runGenerationWithUi(
     if (!text) return;
     visibleStreamText += text;
     commitVisibleStreamBuffer();
-    useChatStore.getState().setMariPhase(chatId, "thinking");
+    useChatStore.getState().setAssistantPhase(chatId, "thinking");
   };
 
   const commitThinkingBuffer = (force = false, now = performance.now()) => {
@@ -1451,7 +1451,7 @@ export async function runGenerationWithUi(
     typewriterRemainder = 0;
     visibleStreamText = text;
     commitVisibleStreamBuffer(true);
-    if (text) useChatStore.getState().setMariPhase(chatId, "thinking");
+    if (text) useChatStore.getState().setAssistantPhase(chatId, "thinking");
     resolveAllRevealWaiters();
   };
 
@@ -1469,7 +1469,7 @@ export async function runGenerationWithUi(
       typewriterActive = false;
       visibleStreamText = received;
       commitVisibleStreamBuffer(true);
-      if (visibleStreamText) useChatStore.getState().setMariPhase(chatId, "thinking");
+      if (visibleStreamText) useChatStore.getState().setAssistantPhase(chatId, "thinking");
       resolveAllRevealWaiters();
       return;
     }
@@ -1554,7 +1554,7 @@ export async function runGenerationWithUi(
     if (!ownsChatController()) return;
     foregroundGenerationReleased = true;
     state.setAbortController(chatId, null);
-    state.setMariPhase(chatId, "idle");
+    state.setAssistantPhase(chatId, "idle");
     clearChatAvailabilityState();
     // Clear this chat's own regenerate/streaming-character ids regardless of
     // whether it's the foreground chat, so a background chat's generation
@@ -1600,7 +1600,7 @@ export async function runGenerationWithUi(
               clearChatAvailabilityState();
               const state = useChatStore.getState();
               if (state.activeChatId === chatId) state.setGenerationPhase("Thinking...");
-              state.setMariPhase(chatId, "thinking");
+              state.setAssistantPhase(chatId, "thinking");
             }
             appendThinkingText(event.data);
           }

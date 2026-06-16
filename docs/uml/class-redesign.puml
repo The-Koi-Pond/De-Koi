@@ -70,7 +70,7 @@ class SummarizationModule
     + Summarize()
 }
 
-class ProfessorMari
+class DekiSenpai
 {
 
 }
@@ -84,7 +84,7 @@ IModule <.. SanitizationModule
 IModule <-- ITextGenModule
 IModule <.. SummarizationModule
 ITextGenModule <-- IChatModule
-ProfessorMari .up.> ITextGenModule
+DekiSenpai .up.> ITextGenModule
 SanitizationModule -down-o DataImportModule
 
 @enduml

@@ -6,20 +6,20 @@ import { useUIStore } from "../../shared/stores/ui.store";
 import { cn } from "../../shared/lib/utils";
 
 export function MobileTabBar({
-  professorMariOpen,
+  dekiOpen,
   toolsSheetOpen,
   toolsSheetRef,
   trackerPanelVisible,
   onToolsSheetOpenChange,
-  onToggleProfessorMari,
+  onToggleDeki,
   onGoHome,
 }: {
-  professorMariOpen: boolean;
+  dekiOpen: boolean;
   toolsSheetOpen: boolean;
   toolsSheetRef: RefObject<HTMLDivElement | null>;
   trackerPanelVisible: boolean;
   onToolsSheetOpenChange: (open: boolean | ((open: boolean) => boolean)) => void;
-  onToggleProfessorMari: () => void;
+  onToggleDeki: () => void;
   onGoHome: () => void;
 }) {
   const activeChatId = useChatStore((s) => s.activeChatId);
@@ -47,13 +47,13 @@ export function MobileTabBar({
     if (!wasOpen) setSidebarOpen(true);
   };
 
-  const openMari = () => {
+  const openDeki = () => {
     closeAll();
     setActiveChatId(null);
-    if (professorMariOpen) {
+    if (dekiOpen) {
       onGoHome();
     } else {
-      onToggleProfessorMari();
+      onToggleDeki();
     }
   };
 
@@ -65,7 +65,7 @@ export function MobileTabBar({
 
   const isTools = rightPanelOpen || toolsSheetOpen;
   const isChats = sidebarOpen && !rightPanelOpen && !toolsSheetOpen && !trackerPanelVisible;
-  const isMari = professorMariOpen;
+  const isDeki = dekiOpen;
 
   return (
     <>
@@ -135,9 +135,9 @@ export function MobileTabBar({
 
         <TabButton
           icon={<Bot size="1.15rem" />}
-          label="Assistant"
-          active={isMari}
-          onClick={openMari}
+          label="Deki-senpai"
+          active={isDeki}
+          onClick={openDeki}
         />
 
         <TabButton
