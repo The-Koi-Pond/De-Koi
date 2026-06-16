@@ -83,7 +83,7 @@ type SpotifyAccessTokenResponse = {
   hasStreamingScope: boolean;
 };
 
-type DjMariPlaylistResponse = {
+type DjDekiPlaylistResponse = {
   success: true;
   name: string;
   playlistUrl: string | null;
@@ -140,7 +140,7 @@ const SPOTIFY_GREEN_BG_CLASS = "bg-[oklch(0.72_0.18_145)]";
 const REPEAT_TRACK_END_GRACE_MS = 15_000;
 const REPEAT_TRACK_REPLAY_COOLDOWN_MS = 8_000;
 const MANUAL_CONTROL_REPEAT_SUPPRESS_MS = 15_000;
-const DJ_MARI_PLAYLIST_READY_TOAST_MS = 20_000;
+const DJ_DEKI_PLAYLIST_READY_TOAST_MS = 20_000;
 const DOTTOR_SUPPORT_GIF = "/sprites/dottore/dottore_jumping.gif";
 const MOBILE_WIDGET_COLLAPSED_SIZE = 48;
 const MOBILE_WIDGET_EXPANDED_MAX_WIDTH = 320;
@@ -312,7 +312,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
   const previousPlaybackRef = useRef<SpotifyPlaybackState | null>(null);
   const repeatReplayRef = useRef<{ key: string; at: number } | null>(null);
   const suppressRepeatRecoveryUntilRef = useRef(0);
-  const djMariToastRef = useRef<string | number | null>(null);
+  const djDekiToastRef = useRef<string | number | null>(null);
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -548,16 +548,16 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
     },
   });
 
-  const dismissDjMariToast = useCallback(() => {
-    if (djMariToastRef.current !== null) {
-      toast.dismiss(djMariToastRef.current);
-      djMariToastRef.current = null;
+  const dismissDjDekiToast = useCallback(() => {
+    if (djDekiToastRef.current !== null) {
+      toast.dismiss(djDekiToastRef.current);
+      djDekiToastRef.current = null;
     }
   }, []);
 
-  const showDjMariToast = useCallback(() => {
-    dismissDjMariToast();
-    djMariToastRef.current = toast.custom(
+  const showDjDekiToast = useCallback(() => {
+    dismissDjDekiToast();
+    djDekiToastRef.current = toast.custom(
       (id) => (
         <div className="relative flex max-w-[22rem] items-center gap-3 rounded-xl border border-primary/35 bg-card/95 p-3 pr-9 text-card-foreground shadow-2xl backdrop-blur-xl">
           <button
@@ -579,7 +579,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
       ),
       { duration: Infinity, position: "bottom-right" },
     );
-  }, [dismissDjMariToast]);
+  }, [dismissDjDekiToast]);
 
   useEffect(() => {
     if (!queryEnabled) return;
@@ -595,18 +595,18 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
     return () => window.removeEventListener(SPOTIFY_SCENE_TRACK_CHANGE_EVENT, handleSceneTrackChange);
   }, [queryEnabled]);
 
-  const createDjMariPlaylist = useMutation({
+  const createDjDekiPlaylist = useMutation({
     mutationFn: () =>
-      spotifyApi.djMariPlaylist<DjMariPlaylistResponse>({
+      spotifyApi.djDekiPlaylist<DjDekiPlaylistResponse>({
         deviceId: mobile ? controlDeviceId : (sdkDeviceId ?? player?.device?.id ?? undefined),
       }),
-    onMutate: showDjMariToast,
+    onMutate: showDjDekiToast,
     onSuccess: (result) => {
-      dismissDjMariToast();
+      dismissDjDekiToast();
       invalidate();
       toast.success("Assistant DJ playlist is ready", {
         description: `${result.name} - ${result.trackCount} tracks`,
-        duration: DJ_MARI_PLAYLIST_READY_TOAST_MS,
+        duration: DJ_DEKI_PLAYLIST_READY_TOAST_MS,
         action: result.playlistUrl
           ? {
               label: "Open playlist",
@@ -623,7 +623,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
       }
     },
     onError: (error) => {
-      dismissDjMariToast();
+      dismissDjDekiToast();
       toast.error(error instanceof Error ? error.message : "Assistant DJ could not create the playlist.");
     },
   });
@@ -922,13 +922,13 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
           </button>
           <button
             type="button"
-            onClick={() => createDjMariPlaylist.mutate()}
-            disabled={createDjMariPlaylist.isPending}
+            onClick={() => createDjDekiPlaylist.mutate()}
+            disabled={createDjDekiPlaylist.isPending}
             className="inline-flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-[0.625rem] font-black leading-none text-[oklch(0.70_0.012_145)] transition-colors hover:text-[oklch(0.96_0.006_145)] disabled:cursor-wait disabled:opacity-80"
             title="Assistant DJ composes a playlist for you!"
             aria-label="Assistant DJ composes a playlist for you!"
           >
-            {createDjMariPlaylist.isPending ? <Loader2 size="0.8125rem" className="animate-spin" /> : "DJ"}
+            {createDjDekiPlaylist.isPending ? <Loader2 size="0.8125rem" className="animate-spin" /> : "DJ"}
           </button>
           {canTransferToApp && (
             <button
@@ -956,7 +956,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
     [
       canTransferToApp,
       cover,
-      createDjMariPlaylist,
+      createDjDekiPlaylist,
       deviceId,
       handleShufflePress,
       handlePlayPause,

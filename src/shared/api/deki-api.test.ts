@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { mariApi } from "./mari-api";
+import { dekiApi } from "./deki-api";
 import { invokeTauri } from "./tauri-client";
 
 vi.mock("./tauri-client", () => ({
@@ -8,10 +8,11 @@ vi.mock("./tauri-client", () => ({
 
 const invokeMock = vi.mocked(invokeTauri);
 
-describe("mariApi settings persistence", () => {
-  beforeEach(() => {
-    const appSettings = new Map<string, Record<string, unknown>>();
+describe("dekiApi settings persistence", () => {
+  let appSettings: Map<string, Record<string, unknown>>;
 
+  beforeEach(() => {
+    appSettings = new Map<string, Record<string, unknown>>();
     invokeMock.mockImplementation(async (command, args) => {
       const request = args as {
         entity?: string;
@@ -49,9 +50,9 @@ describe("mariApi settings persistence", () => {
     });
   });
 
-  it("updates the fixed Assistant settings row after the first save", async () => {
-    await mariApi.preferences.save({ selectedConnectionId: "conn-1", selectedPersonaId: null });
-    await mariApi.history.appendMessage({ role: "user", content: "Hello, Professor." });
+  it("updates the fixed Deki settings row after the first save", async () => {
+    await dekiApi.preferences.save({ selectedConnectionId: "conn-1", selectedPersonaId: null });
+    await dekiApi.history.appendMessage({ role: "user", content: "Hello, Deki." });
 
     const createCalls = invokeMock.mock.calls.filter(([command]) => command === "storage_create");
     const updateCalls = invokeMock.mock.calls.filter(([command]) => command === "storage_update");
@@ -60,7 +61,7 @@ describe("mariApi settings persistence", () => {
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]?.[1]).toMatchObject({
       entity: "app-settings",
-      id: "professor-mari",
+      id: "deki",
       patch: {
         value: {
           selectedConnectionId: "conn-1",
@@ -68,10 +69,47 @@ describe("mariApi settings persistence", () => {
           messages: [
             expect.objectContaining({
               role: "user",
-              content: "Hello, Professor.",
+              content: "Hello, Deki.",
             }),
           ],
         },
+      },
+    });
+  });
+
+  it("reads legacy settings once and writes the next update into the Deki row", async () => {
+    appSettings.set("professor-mari", {
+      id: "professor-mari",
+      value: {
+        selectedConnectionId: "legacy-conn",
+        selectedPersonaId: null,
+        messages: [
+          {
+            id: "legacy-message",
+            role: "user",
+            content: "Old hello",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+    });
+
+    await expect(dekiApi.preferences.get()).resolves.toEqual({
+      selectedConnectionId: "legacy-conn",
+      selectedPersonaId: null,
+    });
+
+    await dekiApi.history.appendMessage({ role: "assistant", content: "Migrated hello" });
+
+    expect(appSettings.get("deki")).toMatchObject({
+      id: "deki",
+      value: {
+        selectedConnectionId: "legacy-conn",
+        selectedPersonaId: null,
+        messages: [
+          expect.objectContaining({ id: "legacy-message", content: "Old hello" }),
+          expect.objectContaining({ role: "assistant", content: "Migrated hello" }),
+        ],
       },
     });
   });

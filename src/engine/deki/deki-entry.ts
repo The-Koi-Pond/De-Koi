@@ -1,11 +1,11 @@
-export type MariMessage = {
+export type DekiMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
   createdAt: string;
 };
 
-export type MariAttachment = {
+export type DekiAttachment = {
   id?: string;
   name: string;
   type: string;
@@ -13,7 +13,7 @@ export type MariAttachment = {
   content: string;
 };
 
-export type MariPersonaContext = {
+export type DekiPersonaContext = {
   id?: string | null;
   name?: string | null;
   comment?: string | null;
@@ -24,16 +24,16 @@ export type MariPersonaContext = {
   appearance?: string | null;
 };
 
-export type MariEntryRequest = {
+export type DekiEntryRequest = {
   userMessage: string;
-  messages: MariMessage[];
+  messages: DekiMessage[];
   compactedSummary?: string | null;
   connectionId?: string | null;
-  persona?: MariPersonaContext | null;
-  attachments?: MariAttachment[];
+  persona?: DekiPersonaContext | null;
+  attachments?: DekiAttachment[];
 };
 
-const MARI_ACTION_ENTITIES = [
+const DEKI_ACTION_ENTITIES = [
   "characters",
   "character-groups",
   "personas",
@@ -46,9 +46,9 @@ const MARI_ACTION_ENTITIES = [
   "prompt-variables",
 ] as const;
 
-export type MariActionEntity = (typeof MARI_ACTION_ENTITIES)[number];
+export type DekiActionEntity = (typeof DEKI_ACTION_ENTITIES)[number];
 
-export type MariEntryAction =
+export type DekiEntryAction =
   | {
       type: "none";
       capability: "read_only" | "workspace_agent";
@@ -56,44 +56,44 @@ export type MariEntryAction =
     }
   | {
       type: "create_record";
-      entity: MariActionEntity;
+      entity: DekiActionEntity;
       draft: Record<string, unknown>;
       label?: string;
       rationale?: string;
     }
   | {
       type: "edit_record";
-      entity: MariActionEntity;
+      entity: DekiActionEntity;
       id: string;
       patch: Record<string, unknown>;
       label?: string;
       rationale?: string;
     };
 
-const MARI_DEFAULT_ACTION_REASON =
-  "The Assistant can inspect De-Koi's codebase, create extension/custom-agent records, and apply exact code edits through approved workspace tools.";
+const DEKI_DEFAULT_ACTION_REASON =
+  "Deki-senpai can inspect De-Koi's codebase, create extension/custom-agent records, and apply exact code edits through approved workspace tools.";
 
-const MARI_DEFAULT_ACTION: MariEntryAction = {
+const DEKI_DEFAULT_ACTION: DekiEntryAction = {
   type: "none",
   capability: "workspace_agent",
-  reason: MARI_DEFAULT_ACTION_REASON,
+  reason: DEKI_DEFAULT_ACTION_REASON,
 };
 
-export type MariEntryResponse = {
+export type DekiEntryResponse = {
   content: string;
   createdAt: string;
-  action: MariEntryAction;
+  action: DekiEntryAction;
 };
 
-export type MariGatewayResponse = Omit<MariEntryResponse, "action"> & {
+export type DekiGatewayResponse = Omit<DekiEntryResponse, "action"> & {
   action?: unknown;
 };
 
-export type MariGateway = {
-  prompt(input: MariEntryRequest): Promise<MariGatewayResponse>;
+export type DekiGateway = {
+  prompt(input: DekiEntryRequest): Promise<DekiGatewayResponse>;
 };
 
-export async function runProfessorMariEntry(input: MariEntryRequest, gateway: MariGateway): Promise<MariEntryResponse> {
+export async function runDekiEntry(input: DekiEntryRequest, gateway: DekiGateway): Promise<DekiEntryResponse> {
   const response = await gateway.prompt({
     ...input,
     userMessage: input.userMessage.trim(),
@@ -106,26 +106,26 @@ export async function runProfessorMariEntry(input: MariEntryRequest, gateway: Ma
   const content = typeof response.content === "string" ? response.content : "";
   if (!content.trim()) {
     throw new Error(
-      "Assistant returned an empty response. Try again or select a different tool-capable connection.",
+      "Deki-senpai returned an empty response. Try again or select a different tool-capable connection.",
     );
   }
   return {
     ...response,
     content,
-    action: normalizeMariEntryAction(response.action),
+    action: normalizeDekiEntryAction(response.action),
   };
 }
 
-function normalizeMariEntryAction(value: unknown): MariEntryAction {
-  if (!isRecord(value)) return MARI_DEFAULT_ACTION;
+function normalizeDekiEntryAction(value: unknown): DekiEntryAction {
+  if (!isRecord(value)) return DEKI_DEFAULT_ACTION;
   if (value.type === "none" && (value.capability === "read_only" || value.capability === "workspace_agent")) {
     return {
       type: "none",
       capability: value.capability,
-      reason: typeof value.reason === "string" && value.reason.trim() ? value.reason : MARI_DEFAULT_ACTION_REASON,
+      reason: typeof value.reason === "string" && value.reason.trim() ? value.reason : DEKI_DEFAULT_ACTION_REASON,
     };
   }
-  if (value.type === "create_record" && isMariActionEntity(value.entity) && isRecord(value.draft)) {
+  if (value.type === "create_record" && isDekiActionEntity(value.entity) && isRecord(value.draft)) {
     return {
       type: "create_record",
       entity: value.entity,
@@ -136,7 +136,7 @@ function normalizeMariEntryAction(value: unknown): MariEntryAction {
   }
   if (
     value.type === "edit_record" &&
-    isMariActionEntity(value.entity) &&
+    isDekiActionEntity(value.entity) &&
     typeof value.id === "string" &&
     value.id.trim() &&
     isRecord(value.patch)
@@ -150,13 +150,13 @@ function normalizeMariEntryAction(value: unknown): MariEntryAction {
       ...(typeof value.rationale === "string" ? { rationale: value.rationale } : {}),
     };
   }
-  return MARI_DEFAULT_ACTION;
+  return DEKI_DEFAULT_ACTION;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isMariActionEntity(value: unknown): value is MariActionEntity {
-  return typeof value === "string" && MARI_ACTION_ENTITIES.includes(value as MariActionEntity);
+function isDekiActionEntity(value: unknown): value is DekiActionEntity {
+  return typeof value === "string" && DEKI_ACTION_ENTITIES.includes(value as DekiActionEntity);
 }

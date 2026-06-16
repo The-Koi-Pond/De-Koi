@@ -27,9 +27,9 @@ const SPOTIFY_PLAYBACK_CONTROL_SCOPE: &str = "user-modify-playback-state";
 const SPOTIFY_DEFAULT_REDIRECT_URI: &str = "http://127.0.0.1:8754/spotify/callback";
 const SPOTIFY_REDIRECT_URI_ENV: &str = "SPOTIFY_REDIRECT_URI";
 const AUTH_TTL_MS: u128 = 10 * 60_000;
-const DJ_MARI_MIN_TRACKS: usize = 25;
-const DJ_MARI_MAX_TRACKS: usize = 50;
-const DJ_MARI_OUTPUT_TOKENS: u64 = 8192;
+const DJ_DEKI_MIN_TRACKS: usize = 25;
+const DJ_DEKI_MAX_TRACKS: usize = 50;
+const DJ_DEKI_OUTPUT_TOKENS: u64 = 8192;
 const RECENT_CHAT_MESSAGE_LIMIT: usize = 8;
 const LIKED_SONG_EXAMPLE_LIMIT: u32 = 50;
 const SPOTIFY_MIN_TITLE_SIMILARITY: f64 = 0.7;
@@ -109,7 +109,9 @@ pub(crate) async fn spotify_call(
         ("POST", ["playlist-tracks"]) => playlist_tracks(state, body).await,
         ("POST", ["search-tracks"]) => search_tracks(state, body).await,
         ("POST", ["play-track"]) => play_track(state, body).await,
-        ("POST", ["dj-mari-playlist"]) => dj_mari_playlist(state, body).await,
+        ("POST", ["dj-deki-playlist"]) | ("POST", ["dj-mari-playlist"]) => {
+            dj_deki_playlist(state, body).await
+        }
         ("PUT", ["player", "play"]) => {
             player_control(state, route, body, "/me/player/play", "PUT").await
         }
@@ -1533,7 +1535,7 @@ async fn playlists(state: &AppState, route: &ParsedPath, body: &Value) -> AppRes
     Ok(json!({ "playlists": playlists }))
 }
 
-async fn dj_mari_playlist(state: &AppState, body: Value) -> AppResult<Value> {
+async fn dj_deki_playlist(state: &AppState, body: Value) -> AppResult<Value> {
     let route = ParsedPath {
         parts: Vec::new(),
         query: HashMap::new(),
@@ -1541,15 +1543,15 @@ async fn dj_mari_playlist(state: &AppState, body: Value) -> AppResult<Value> {
     let credentials = resolve_credentials(state, &route, &body).await?;
     let playlist_name = format!("Assistant DJ {}", today_label());
     let liked_songs = fetch_liked_song_examples(&credentials).await?;
-    let context = build_dj_mari_context(state, &playlist_name, &liked_songs)?;
-    let generated_tracks = generate_dj_mari_playlist_plan(state, &playlist_name, context).await?;
+    let context = build_dj_deki_context(state, &playlist_name, &liked_songs)?;
+    let generated_tracks = generate_dj_deki_playlist_plan(state, &playlist_name, context).await?;
     let matched_tracks =
         match_generated_tracks(&credentials, &generated_tracks, &liked_songs).await?;
-    if matched_tracks.len() < DJ_MARI_MIN_TRACKS {
+    if matched_tracks.len() < DJ_DEKI_MIN_TRACKS {
         return Err(AppError::with_details(
-            "spotify_dj_mari_match_error",
+            "spotify_dj_deki_match_error",
             format!(
-                "Assistant DJ only matched {} Spotify tracks. Need at least {DJ_MARI_MIN_TRACKS}; try again after adding more Liked Songs or using a broader model prompt.",
+                "Assistant DJ only matched {} Spotify tracks. Need at least {DJ_DEKI_MIN_TRACKS}; try again after adding more Liked Songs or using a broader model prompt.",
                 matched_tracks.len()
             ),
             json!({
@@ -1559,8 +1561,8 @@ async fn dj_mari_playlist(state: &AppState, body: Value) -> AppResult<Value> {
         ));
     }
     let playlist =
-        create_dj_mari_spotify_playlist(&credentials, &playlist_name, &matched_tracks).await?;
-    let playback = start_dj_mari_playlist_playback(
+        create_dj_deki_spotify_playlist(&credentials, &playlist_name, &matched_tracks).await?;
+    let playback = start_dj_deki_playlist_playback(
         &credentials,
         playlist
             .get("playlistUri")
@@ -1867,7 +1869,7 @@ fn most_used_character(chats: &[Value], characters: &[Value]) -> Value {
     Value::Object(object)
 }
 
-fn build_dj_mari_context(
+fn build_dj_deki_context(
     state: &AppState,
     playlist_name: &str,
     liked_songs: &[SpotifyTrack],
@@ -1899,7 +1901,7 @@ fn build_dj_mari_context(
         .map(ToOwned::to_owned);
     Ok(json!({
         "playlistName": playlist_name,
-        "desiredTrackCount": format!("{DJ_MARI_MIN_TRACKS}-{DJ_MARI_MAX_TRACKS}"),
+        "desiredTrackCount": format!("{DJ_DEKI_MIN_TRACKS}-{DJ_DEKI_MAX_TRACKS}"),
         "persona": persona.unwrap_or(Value::Null),
         "characterNames": character_profiles.iter()
             .filter_map(|character| character.get("name").and_then(Value::as_str))
@@ -1914,7 +1916,7 @@ fn build_dj_mari_context(
     }))
 }
 
-fn resolve_dj_mari_llm_connection(state: &AppState) -> AppResult<Value> {
+fn resolve_dj_deki_llm_connection(state: &AppState) -> AppResult<Value> {
     let spotify_agent = find_spotify_agent(state, None).ok();
     if let Some(connection_id) = spotify_agent
         .as_ref()
@@ -1953,12 +1955,12 @@ fn resolve_dj_mari_llm_connection(state: &AppState) -> AppResult<Value> {
         })
 }
 
-async fn generate_dj_mari_playlist_plan(
+async fn generate_dj_deki_playlist_plan(
     state: &AppState,
     playlist_name: &str,
     context: Value,
 ) -> AppResult<Vec<GeneratedTrack>> {
-    let connection = resolve_dj_mari_llm_connection(state)?;
+    let connection = resolve_dj_deki_llm_connection(state)?;
     let request = marinara_llm::LlmRequest {
         connection: super::super::llm::llm_connection_from_value(&connection)?,
         messages: vec![
@@ -1991,7 +1993,7 @@ async fn generate_dj_mari_playlist_plan(
         ],
         parameters: json!({
             "temperature": 0.75,
-            "maxTokens": DJ_MARI_OUTPUT_TOKENS
+            "maxTokens": DJ_DEKI_OUTPUT_TOKENS
         }),
         tools: Vec::new(),
     };
@@ -1999,7 +2001,7 @@ async fn generate_dj_mari_playlist_plan(
     let tracks = parse_generated_tracks(&result)?;
     if tracks.is_empty() {
         return Err(AppError::new(
-            "spotify_dj_mari_plan_error",
+            "spotify_dj_deki_plan_error",
             "Assistant DJ returned no usable tracks.",
         ));
     }
@@ -2069,7 +2071,7 @@ fn extract_balanced_json_text(text: &str, start: usize) -> Option<&str> {
 fn parse_spotify_dj_json(candidate: &str) -> AppResult<Value> {
     serde_json::from_str(candidate).map_err(|error| {
         AppError::with_details(
-            "spotify_dj_mari_parse_error",
+            "spotify_dj_deki_parse_error",
             format!("Spotify DJ returned malformed JSON: {error}. Retry with a JSON-capable model/provider."),
             json!({ "recoverable": true }),
         )
@@ -2147,7 +2149,7 @@ fn parse_generated_tracks(raw: &str) -> AppResult<Vec<GeneratedTrack>> {
                 .and_then(Value::as_str)
                 .map(|value| short_text(value, 180)),
         });
-        if out.len() >= DJ_MARI_MAX_TRACKS {
+        if out.len() >= DJ_DEKI_MAX_TRACKS {
             break;
         }
     }
@@ -2323,7 +2325,7 @@ async fn match_generated_tracks(
     let mut matched = Vec::new();
     let mut seen_uris = std::collections::HashSet::new();
     for desired in generated {
-        if matched.len() >= DJ_MARI_MAX_TRACKS {
+        if matched.len() >= DJ_DEKI_MAX_TRACKS {
             break;
         }
         if let Some(track) = search_spotify_track(credentials, desired).await? {
@@ -2338,7 +2340,7 @@ async fn match_generated_tracks(
         }
     }
     for liked in liked_fallbacks {
-        if matched.len() >= DJ_MARI_MIN_TRACKS {
+        if matched.len() >= DJ_DEKI_MIN_TRACKS {
             break;
         }
         if seen_uris.insert(liked.uri.clone()) {
@@ -2352,10 +2354,10 @@ async fn match_generated_tracks(
             });
         }
     }
-    Ok(matched.into_iter().take(DJ_MARI_MAX_TRACKS).collect())
+    Ok(matched.into_iter().take(DJ_DEKI_MAX_TRACKS).collect())
 }
 
-async fn create_dj_mari_spotify_playlist(
+async fn create_dj_deki_spotify_playlist(
     credentials: &SpotifyCredentials,
     name: &str,
     tracks: &[MatchedTrack],
@@ -2416,7 +2418,7 @@ async fn create_dj_mari_spotify_playlist(
     }))
 }
 
-async fn start_dj_mari_playlist_playback(
+async fn start_dj_deki_playlist_playback(
     credentials: &SpotifyCredentials,
     playlist_uri: &str,
     device_id: Option<&str>,
@@ -3659,7 +3661,7 @@ mod tests {
                 Err(error) => error,
             };
 
-        assert_eq!(error.code, "spotify_dj_mari_parse_error");
+        assert_eq!(error.code, "spotify_dj_deki_parse_error");
         assert!(error.message.contains("Spotify DJ returned malformed JSON"));
         assert_eq!(
             error

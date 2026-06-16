@@ -889,7 +889,7 @@ mod tests {
                 "avatarFilePath": "C:\\Marinara\\avatars\\characters\\new.png",
                 "avatarFilename": "new.png",
                 "versionSource": "agent",
-                "versionReason": "Professor Mari card update"
+                "versionReason": "Deki-senpai card update"
             }),
         )
         .expect("character should update");
@@ -914,7 +914,7 @@ mod tests {
         assert_eq!(versions[0]["avatarFilename"], "old.png");
         assert_eq!(versions[0]["version"], "1.0");
         assert_eq!(versions[0]["source"], "agent");
-        assert_eq!(versions[0]["reason"], "Professor Mari card update");
+        assert_eq!(versions[0]["reason"], "Deki-senpai card update");
     }
 
     #[test]

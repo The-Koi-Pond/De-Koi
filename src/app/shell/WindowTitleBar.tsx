@@ -35,12 +35,12 @@ function inferDesktopPlatform(): DesktopPlatform {
 }
 
 export function WindowTitleBar({
-  professorMariOpen = false,
-  onOpenProfessorMari,
+  dekiOpen = false,
+  onOpenDeki,
   onGoHome,
 }: {
-  professorMariOpen?: boolean;
-  onOpenProfessorMari?: () => void;
+  dekiOpen?: boolean;
+  onOpenDeki?: () => void;
   onGoHome?: () => void;
 }) {
   const platform = useMemo(inferDesktopPlatform, []);
@@ -135,7 +135,7 @@ export function WindowTitleBar({
     onGoHome?.();
   }, [closeAllDetails, closeRightPanel, onGoHome, setActiveChatId]);
 
-  const isHomeSurface = !professorMariOpen && !activeChatId && !hasOpenSurface;
+  const isHomeSurface = !dekiOpen && !activeChatId && !hasOpenSurface;
   const controlActions: WindowControlAction[] =
     platform === "darwin" ? ["close", "minimize", "fullscreen"] : ["minimize", "maximize", "close"];
   const controls = (
@@ -201,8 +201,8 @@ export function WindowTitleBar({
       {platform === "darwin" && controls}
       <ChatTitleControls
         className="pl-2.5 pr-0"
-        professorMariOpen={professorMariOpen}
-        onOpenProfessorMari={onOpenProfessorMari}
+        dekiOpen={dekiOpen}
+        onOpenDeki={onOpenDeki}
         onGoHome={onGoHome}
         hideHome
       />

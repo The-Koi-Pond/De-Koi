@@ -55,23 +55,23 @@ cross-lane, or otherwise needs the full baseline.
 
 For code changes, final responses must include behavior changed, primary files/modules touched, impact/dependent areas reviewed, verification, and remaining risk.
 
-## Professor Mari Codebase Agent
+## Deki-senpai Codebase Agent
 
-- Professor Mari is a codebase-research agent, not a static knowledge-base bot. For De-Koi implementation questions, she should inspect the current repository through her code search/read tools before answering.
-- When adding, moving, or deleting a durable feature area, update this section in the same change so Professor Mari's map stays current.
-- When a user asks for app customization, Professor Mari should prefer creating an extension or custom agent record before editing core source. If core source edits are needed, use narrow exact-match edits and keep the same architecture boundaries listed above.
-- Professor Mari must not read secrets, private chat transcripts, generated dependency/build output, or files outside the De-Koi repository.
+- Deki-senpai is a codebase-research agent, not a static knowledge-base bot. For De-Koi implementation questions, she should inspect the current repository through her code search/read tools before answering.
+- When adding, moving, or deleting a durable feature area, update this section in the same change so Deki-senpai's map stays current.
+- When a user asks for app customization, Deki-senpai should prefer creating an extension or custom agent record before editing core source. If core source edits are needed, use narrow exact-match edits and keep the same architecture boundaries listed above.
+- Deki-senpai must not read secrets, private chat transcripts, generated dependency/build output, or files outside the De-Koi repository.
 - User-facing feature discovery lives in `src/features/shell/discovery`; keep its registry current when adding or changing discoverable product behavior.
 
 ### Current Map
 
 - `src/app`: React bootstrap, shell layout, app providers, startup effects, top bars, sidebars, and panel composition.
-- `src/features/shell/mari`: Professor Mari's standalone assistant UI surface.
+- `src/features/shell/deki`: Deki-senpai's standalone assistant UI surface.
 - `src/features/shell/discovery`: In-app Discover guide, feature metadata registry, search/filter helpers, and discoverability action routing.
 - `src/features/shell/plugins`: Bundled opt-in core module registry, settings UI, React Query hooks, runtime contribution mounting, and the ME Notes chat notepad module.
-- `src/engine/mari`: TypeScript request/response contract for the Professor Mari entrypoint.
-- `src-tauri/src/commands/storage/mari.rs`: Privileged Professor Mari agent execution, tool definitions, codebase search/read/edit access, and extension/custom-agent creation.
-- `src/shared/api/mari-api.ts`: Focused frontend runtime wrapper for the Professor Mari command.
+- `src/engine/deki`: TypeScript request/response contract for the Deki-senpai entrypoint.
+- `src-tauri/src/commands/storage/deki.rs`: Privileged Deki-senpai agent execution, tool definitions, codebase search/read/edit access, and extension/custom-agent creation.
+- `src/shared/api/deki-api.ts`: Focused frontend runtime wrapper for the Deki-senpai command.
 - `src/shared/api/local-sidecar-api.ts`: Focused frontend runtime wrapper for Local Model sidecar status, config, runtime/model downloads, process control, and smoke tests.
 - `src/shared/api/plugin-memory-api.ts`: Focused frontend wrapper for namespaced plugin memory stored in the `plugin-memory` collection and routed through embedded or remote runtime storage.
 - `src/engine`: React-free product behavior and mode orchestration.
@@ -84,7 +84,7 @@ For code changes, final responses must include behavior changed, primary files/m
 - `src-tauri/src/commands/storage/sidecar.rs`: Thin Tauri/AppState adapter for Local Model sidecar commands and constants.
 - `src-tauri/crates/sidecar`: Local Model sidecar capability implementation, including config, curated GGUF/runtime downloader, loopback process management, synthetic `sidecar:local` connection materialization, and smoke-test helpers. The Tauri command module stays as the app-state adapter.
 - `docs/uml/Refactor`: PlantUML architecture diagrams for current refactor-era boundaries, hotspots, and decision context; consult these for architecture-sensitive changes. The `Refactor` name reflects De-Koi's origin as a Marinara Engine refactor.
-- `public/sprites/mari`: Professor Mari visual assets used by onboarding, FAQ, title controls, and the Mari shell surface.
+- `public/sprites/deki`: Deki-senpai visual assets used by onboarding, FAQ, title controls, and the Deki-senpai shell surface.
 - `.github/workflows/bunny-review.yml`, `.github/workflows/bunny-review-auto.yml`, `.github/workflows/bunny-review-command.yml`, `.github/bunny-review`: Bunny Review PR comment automation, trusted auto and slash-command dispatchers, review packet builder, CI dependencies, path rules, and model reviewer prompt.
 - `skills/frontend-design`: Repo-local frontend concept, layout, visual direction, and first-pass UI implementation workflow that pairs with Impeccable.
 - `skills/impeccable`: Repo-local frontend design, critique, polish, accessibility, responsive, and live-iteration workflow for UI craft passes.

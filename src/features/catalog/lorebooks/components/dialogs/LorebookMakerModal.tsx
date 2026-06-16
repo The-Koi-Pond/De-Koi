@@ -14,7 +14,7 @@ import {
   lorebookCategorySchema,
 } from "../../../../../engine/contracts/schemas/lorebook.schema";
 import type { Lorebook } from "../../../../../engine/contracts/types/lorebook";
-import { ProfessorMariWorkingWindow } from "../../../../../shared/components/ui/ProfessorMariWorkingWindow";
+import { DekiWorkingWindow } from "../../../../../shared/components/ui/DekiWorkingWindow";
 import { generateLorebookMaker } from "../../../../../engine/generation/makers";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
@@ -251,7 +251,7 @@ export function LorebookMakerModal({ open, onClose }: Props) {
 
   return (
     <Modal open={open} onClose={handleClose} title="✦ AI Lorebook Maker" width="max-w-lg">
-      <ProfessorMariWorkingWindow visible={streaming || saving} />
+      <DekiWorkingWindow visible={streaming || saving} />
       <div className="space-y-4">
         {/* Connection selector */}
         <div className="space-y-1.5">

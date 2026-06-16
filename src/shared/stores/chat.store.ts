@@ -56,17 +56,17 @@ interface ChatState {
   /** The chatId that the current streaming generation belongs to. */
   streamingChatId: string | null;
   /**
-   * Per-chat Mari work phase, used to restore the work-status pill when the
+   * Per-chat assistant work phase, used to restore the work-status pill when the
    * user switches chats mid-stream. The CustomEvent transport handles the
    * live transitions inside the active chat; this map is the source of truth
    * so the indicator can read the current phase on chat switch.
    *
-   * - "thinking" — Mari's reply is streaming (set on first token).
-   * - "updating" — Mari's embedded commands are executing (set on
+   * - "thinking" — Assistant reply is streaming (set on first token).
+   * - "updating" — Assistant embedded commands are executing (set on
    *   assistant_commands_start).
-   * - absent — no Mari work in progress for that chat.
+   * - absent — no assistant work in progress for that chat.
    */
-  mariPhaseByChatId: Map<string, "thinking" | "updating">;
+  assistantPhaseByChatId: Map<string, "thinking" | "updating">;
   streamBuffer: string;
   /** Per-chat stream text for active generations, so switching chats does not lose in-flight UI state. */
   streamBuffers: Map<string, string>;
@@ -133,7 +133,7 @@ interface ChatState {
   addMessage: (message: Message) => void;
   updateLastMessage: (content: string) => void;
   setStreaming: (streaming: boolean, chatId?: string) => void;
-  setMariPhase: (chatId: string, phase: "thinking" | "updating" | "idle") => void;
+  setAssistantPhase: (chatId: string, phase: "thinking" | "updating" | "idle") => void;
   setAbortController: (chatId: string, controller: AbortController | null) => void;
   stopGeneration: () => void;
   appendStreamBuffer: (text: string, chatId?: string) => void;
@@ -190,7 +190,7 @@ export const useChatStore = create<ChatState>()(
     messages: [],
     isStreaming: false,
     streamingChatId: null,
-    mariPhaseByChatId: new Map(),
+    assistantPhaseByChatId: new Map(),
     streamBuffer: "",
     streamBuffers: new Map(),
     thinkingBuffer: "",
@@ -309,19 +309,19 @@ export const useChatStore = create<ChatState>()(
         streamingChatId: streaming ? (chatId ?? null) : null,
         ...(!streaming ? { generationPhase: null } : {}),
       }),
-    setMariPhase: (chatId, phase) =>
+    setAssistantPhase: (chatId, phase) =>
       set((state) => {
-        const current = state.mariPhaseByChatId.get(chatId) ?? null;
+        const current = state.assistantPhaseByChatId.get(chatId) ?? null;
         if (phase === "idle") {
           if (current === null) return state;
-          const next = new Map(state.mariPhaseByChatId);
+          const next = new Map(state.assistantPhaseByChatId);
           next.delete(chatId);
-          return { mariPhaseByChatId: next };
+          return { assistantPhaseByChatId: next };
         }
         if (current === phase) return state;
-        const next = new Map(state.mariPhaseByChatId);
+        const next = new Map(state.assistantPhaseByChatId);
         next.set(chatId, phase);
-        return { mariPhaseByChatId: next };
+        return { assistantPhaseByChatId: next };
       }),
     setAbortController: (chatId, controller) =>
       set((state) => {
@@ -674,7 +674,7 @@ export const useChatStore = create<ChatState>()(
         messages: [],
         isStreaming: false,
         streamingChatId: null,
-        mariPhaseByChatId: new Map(),
+        assistantPhaseByChatId: new Map(),
         streamBuffer: "",
         streamBuffers: new Map(),
         thinkingBuffer: "",

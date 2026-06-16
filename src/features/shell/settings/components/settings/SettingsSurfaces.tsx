@@ -781,8 +781,8 @@ export function GeneralSettings() {
   const setSpeechToTextEnabled = useUIStore((s) => s.setSpeechToTextEnabled);
   const spotifyPlayerEnabled = useUIStore((s) => s.spotifyPlayerEnabled);
   const setSpotifyPlayerEnabled = useUIStore((s) => s.setSpotifyPlayerEnabled);
-  const chibiProfessorMariEnabled = useUIStore((s) => s.chibiProfessorMariEnabled);
-  const setChibiProfessorMariEnabled = useUIStore((s) => s.setChibiProfessorMariEnabled);
+  const chibiDekiEnabled = useUIStore((s) => s.chibiDekiEnabled);
+  const setChibiDekiEnabled = useUIStore((s) => s.setChibiDekiEnabled);
   const intuitiveSwipeNavigation = useUIStore((s) => s.intuitiveSwipeNavigation);
   const setIntuitiveSwipeNavigation = useUIStore((s) => s.setIntuitiveSwipeNavigation);
   const intuitiveSwipeRerollLatest = useUIStore((s) => s.intuitiveSwipeRerollLatest);
@@ -944,10 +944,10 @@ export function GeneralSettings() {
       />
 
       <ToggleSetting
-        label="Chibi Assistant visits"
-        checked={chibiProfessorMariEnabled}
-        onChange={setChibiProfessorMariEnabled}
-        help="Allows the rare Chibi Assistant scroll toast to appear. Turn this off to prevent the easter egg from registering while you use the app."
+        label="Chibi Deki-senpai visits"
+        checked={chibiDekiEnabled}
+        onChange={setChibiDekiEnabled}
+        help="Allows the rare Chibi Deki-senpai scroll toast to appear. Turn this off to prevent the easter egg from registering while you use the app."
       />
 
       {/* Streaming Speed */}

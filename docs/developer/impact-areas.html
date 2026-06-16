@@ -203,40 +203,40 @@ flowchart LR
           </tbody>
         </table>
 
-        <h2>Professor Mari</h2>
+        <h2>Deki-senpai</h2>
         <pre class="mermaid">
 flowchart LR
   Shell[src/app shell]
-  MariUI[features/shell/mari]
-  MariEngine[engine/mari]
-  MariApi[shared/api/mari-api]
-  MariCommand[src-tauri professor_mari_prompt]
-  MariRust[src-tauri commands/storage/mari.rs]
+  DekiUI[features/shell/deki]
+  DekiEngine[engine/deki]
+  DekiApi[shared/api/deki-api]
+  DekiCommand[src-tauri deki_prompt]
+  DekiRust[src-tauri commands/storage/deki.rs]
   LLM[src-tauri crates/llm]
   Storage[src-tauri crates/storage]
 
-  Shell --> MariUI
-  MariUI --> MariEngine
-  MariUI --> MariApi
-  MariApi --> MariCommand
-  MariCommand --> MariRust
-  MariRust --> LLM
-  MariRust --> Storage
+  Shell --> DekiUI
+  DekiUI --> DekiEngine
+  DekiUI --> DekiApi
+  DekiApi --> DekiCommand
+  DekiCommand --> DekiRust
+  DekiRust --> LLM
+  DekiRust --> Storage
         </pre>
         <table>
           <tbody>
             <tr>
               <th>Touching</th>
               <td>
-                Professor Mari shell entry, standalone chat surface, connection/persona context, attachments, read-only
+                Deki-senpai shell entry, standalone chat surface, connection/persona context, attachments, read-only
                 creative library tool, native tool calling, or Mari provider errors.
               </td>
             </tr>
             <tr>
               <th>Review</th>
               <td>
-                App shell routing, <code>features/shell/mari</code>, <code>engine/mari</code>,
-                <code>shared/api/mari-api</code>, Rust Mari command, LLM connection support, storage snapshot scope.
+                App shell routing, <code>features/shell/deki</code>, <code>engine/deki</code>,
+                <code>shared/api/deki-api</code>, Rust Deki command, LLM connection support, storage snapshot scope.
               </td>
             </tr>
             <tr>
@@ -432,8 +432,8 @@ flowchart LR
             </p>
           </div>
           <div class="panel">
-            <h3><code>engine/mari</code></h3>
-            <p>Review Professor Mari UI, Mari API wrapper, Rust command request shape, and provider/tool support.</p>
+            <h3><code>engine/deki</code></h3>
+            <p>Review Deki-senpai UI, Deki API wrapper, Rust command request shape, and provider/tool support.</p>
           </div>
           <div class="panel">
             <h3><code>src/shared/components</code></h3>

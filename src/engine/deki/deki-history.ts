@@ -1,43 +1,43 @@
 import type { LlmGateway } from "../capabilities/llm";
-import type { MariMessage } from "./mari-entry";
+import type { DekiMessage } from "./deki-entry";
 
-export const PROFESSOR_MARI_CHAT_ID = "professor-mari";
-const MARI_COMPACTION_THRESHOLD = 0.8;
+export const DEKI_CHAT_ID = "deki";
+const DEKI_COMPACTION_THRESHOLD = 0.8;
 const DEFAULT_MAX_CONTEXT = 128_000;
 const COMPACTION_TAIL_CONTEXT_SHARE = 0.25;
 const COMPACTION_TAIL_MIN_MESSAGES = 16;
 const COMPACTION_TAIL_MAX_MESSAGES = 48;
 const COMPACTION_RESPONSE_TOKENS = 2048;
 
-export type MariCompactionState = {
+export type DekiCompactionState = {
   compactedSummary: string | null;
   compactedAt: string | null;
   compactedThroughMessageId: string | null;
 };
 
-export type MariCompactionConnection = {
+export type DekiCompactionConnection = {
   id?: string | null;
   model?: string | null;
   maxContext?: unknown;
 };
 
-export const EMPTY_MARI_COMPACTION: MariCompactionState = {
+export const EMPTY_DEKI_COMPACTION: DekiCompactionState = {
   compactedSummary: null,
   compactedAt: null,
   compactedThroughMessageId: null,
 };
 
-export function isMariResetCommand(value: string): boolean {
+export function isDekiResetCommand(value: string): boolean {
   return value.trim().toLowerCase() === "/reset";
 }
 
-function estimateMariTextTokens(text: string): number {
+function estimateDekiTextTokens(text: string): number {
   const trimmed = text.trim();
   return trimmed ? Math.max(1, Math.ceil(trimmed.length / 4)) : 0;
 }
 
-function messageTokens(message: MariMessage): number {
-  return estimateMariTextTokens(message.content) + 8;
+function messageTokens(message: DekiMessage): number {
+  return estimateDekiTextTokens(message.content) + 8;
 }
 
 function readPositiveInteger(value: unknown): number | null {
@@ -46,44 +46,44 @@ function readPositiveInteger(value: unknown): number | null {
   return Math.floor(parsed);
 }
 
-function mariConnectionMaxContext(connection: MariCompactionConnection | null | undefined): number {
+function dekiConnectionMaxContext(connection: DekiCompactionConnection | null | undefined): number {
   return readPositiveInteger(connection?.maxContext) ?? DEFAULT_MAX_CONTEXT;
 }
 
-function compactedThroughIndex(messages: MariMessage[], compaction: MariCompactionState): number {
+function compactedThroughIndex(messages: DekiMessage[], compaction: DekiCompactionState): number {
   const id = compaction.compactedThroughMessageId;
   if (!id) return -1;
   return messages.findIndex((message) => message.id === id);
 }
 
-export function mariContextMessages(messages: MariMessage[], compaction: MariCompactionState): MariMessage[] {
+export function dekiContextMessages(messages: DekiMessage[], compaction: DekiCompactionState): DekiMessage[] {
   const index = compactedThroughIndex(messages, compaction);
   return index >= 0 ? messages.slice(index + 1) : messages;
 }
 
-function estimateMariContextTokens(messages: MariMessage[], compaction: MariCompactionState): number {
-  const summaryTokens = estimateMariTextTokens(compaction.compactedSummary ?? "");
+function estimateDekiContextTokens(messages: DekiMessage[], compaction: DekiCompactionState): number {
+  const summaryTokens = estimateDekiTextTokens(compaction.compactedSummary ?? "");
   return (
     summaryTokens +
-    mariContextMessages(messages, compaction).reduce((total, message) => total + messageTokens(message), 0) +
+    dekiContextMessages(messages, compaction).reduce((total, message) => total + messageTokens(message), 0) +
     512
   );
 }
 
-function shouldCompactMariHistory(
-  messages: MariMessage[],
-  compaction: MariCompactionState,
-  connection: MariCompactionConnection | null | undefined,
+function shouldCompactDekiHistory(
+  messages: DekiMessage[],
+  compaction: DekiCompactionState,
+  connection: DekiCompactionConnection | null | undefined,
 ): boolean {
-  const maxContext = mariConnectionMaxContext(connection);
-  const threshold = Math.floor(maxContext * MARI_COMPACTION_THRESHOLD);
-  if (estimateMariContextTokens(messages, compaction) < threshold) return false;
+  const maxContext = dekiConnectionMaxContext(connection);
+  const threshold = Math.floor(maxContext * DEKI_COMPACTION_THRESHOLD);
+  if (estimateDekiContextTokens(messages, compaction) < threshold) return false;
   return messages.length - compactedThroughIndex(messages, compaction) > COMPACTION_TAIL_MIN_MESSAGES + 2;
 }
 
-function selectRecentTail(messages: MariMessage[], maxContext: number): MariMessage[] {
+function selectRecentTail(messages: DekiMessage[], maxContext: number): DekiMessage[] {
   const tokenBudget = Math.max(1024, Math.floor(maxContext * COMPACTION_TAIL_CONTEXT_SHARE));
-  const tail: MariMessage[] = [];
+  const tail: DekiMessage[] = [];
   let tokens = 0;
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -109,16 +109,16 @@ function fitCompactionTranscript(value: string, maxChars: number): string {
   return `${value.slice(0, headChars)}\n\n[Transcript middle omitted during compaction input trimming.]\n\n${value.slice(-tailChars)}`;
 }
 
-function formatCompactionTranscript(messages: MariMessage[], maxContext: number): string {
+function formatCompactionTranscript(messages: DekiMessage[], maxContext: number): string {
   const transcript = messages
-    .map((message) => `${message.role === "assistant" ? "Assistant" : "User"}: ${message.content.trim()}`)
+    .map((message) => `${message.role === "assistant" ? "Deki-senpai" : "User"}: ${message.content.trim()}`)
     .filter((line) => line.trim().length > 0)
     .join("\n\n");
   const maxChars = Math.max(12_000, Math.min(96_000, Math.floor(maxContext * 2.4)));
   return fitCompactionTranscript(transcript, maxChars);
 }
 
-function normalizeCompactionSummary(value: string): string {
+function normalizeDekiCompactionSummary(value: string): string {
   return value
     .trim()
     .replace(/^```(?:markdown|md|text)?\s*/i, "")
@@ -126,22 +126,22 @@ function normalizeCompactionSummary(value: string): string {
     .trim();
 }
 
-export async function compactProfessorMariHistory({
+export async function compactDekiHistory({
   messages,
   compaction,
   connection,
   llm,
 }: {
-  messages: MariMessage[];
-  compaction: MariCompactionState;
-  connection: MariCompactionConnection;
+  messages: DekiMessage[];
+  compaction: DekiCompactionState;
+  connection: DekiCompactionConnection;
   llm: LlmGateway;
-}): Promise<{ compacted: boolean; compaction: MariCompactionState }> {
-  if (!shouldCompactMariHistory(messages, compaction, connection)) {
+}): Promise<{ compacted: boolean; compaction: DekiCompactionState }> {
+  if (!shouldCompactDekiHistory(messages, compaction, connection)) {
     return { compacted: false, compaction };
   }
 
-  const maxContext = mariConnectionMaxContext(connection);
+  const maxContext = dekiConnectionMaxContext(connection);
   const recentTail = selectRecentTail(messages, maxContext);
   const tailStartId = recentTail[0]?.id;
   const tailStartIndex = tailStartId ? messages.findIndex((message) => message.id === tailStartId) : messages.length;
@@ -157,7 +157,7 @@ export async function compactProfessorMariHistory({
     ? `Existing compact summary:\n${compaction.compactedSummary.trim()}`
     : "Existing compact summary: none";
   const transcript = formatCompactionTranscript(messagesToCompact, maxContext);
-  const summary = normalizeCompactionSummary(
+  const summary = normalizeDekiCompactionSummary(
     await llm.complete({
       connectionId: connection.id ?? null,
       model: connection.model ?? undefined,
@@ -165,10 +165,10 @@ export async function compactProfessorMariHistory({
         {
           role: "system",
           content: [
-            "You compact the Assistant's conversation history for future turns.",
+            "You compact Deki-senpai's conversation history for future turns.",
             "Preserve durable user preferences, implementation decisions, unresolved tasks, important discoveries, and the latest project state.",
             "Discard greetings, filler, repeated status updates, and details superseded by later messages.",
-            "Write concise but specific notes that the Assistant can rely on as memory. Do not answer the user.",
+            "Write concise but specific notes that Deki-senpai can rely on as memory. Do not answer the user.",
           ].join("\n"),
         },
         {

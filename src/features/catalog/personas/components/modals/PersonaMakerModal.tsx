@@ -8,7 +8,7 @@ import { useConnections } from "../../../connections/index";
 import { useCreatePersona } from "../../hooks/use-personas";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { Sparkles, Loader2, Wand2, CheckCircle, AlertCircle, ChevronDown, User, Save } from "lucide-react";
-import { ProfessorMariWorkingWindow } from "../../../../../shared/components/ui/ProfessorMariWorkingWindow";
+import { DekiWorkingWindow } from "../../../../../shared/components/ui/DekiWorkingWindow";
 import { generatePersonaMaker } from "../../../../../engine/generation/makers";
 import { llmApi } from "../../../../../shared/api/llm-api";
 
@@ -129,7 +129,7 @@ export function PersonaMakerModal({ open, onClose }: Props) {
 
   return (
     <Modal open={open} onClose={handleClose} title="✦ AI Persona Maker" width="max-w-lg">
-      <ProfessorMariWorkingWindow visible={streaming || saving} />
+      <DekiWorkingWindow visible={streaming || saving} />
       <div className="space-y-4">
         {/* Connection selector */}
         <div className="space-y-1.5">

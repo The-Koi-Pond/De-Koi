@@ -1367,14 +1367,14 @@ mod tests {
             "characters",
             json!({
                 "data": {
-                    "name": "Professor Mari",
+                    "name": "Deki-senpai",
                     "tags": ["guide"]
                 }
             }),
         )
         .expect("patch should normalize");
 
-        assert_eq!(patch["data"]["name"], "Professor Mari");
+        assert_eq!(patch["data"]["name"], "Deki-senpai");
         assert_eq!(patch["data"]["tags"], json!(["guide"]));
     }
 
@@ -1397,7 +1397,7 @@ mod tests {
                 "comment": "assistant",
                 "avatarPath": "data:image/png;base64,very-large-avatar",
                 "data": {
-                    "name": "Professor Mari",
+                    "name": "Deki-senpai",
                     "creator": "Pasta",
                     "creator_notes": "Codebase helper",
                     "tags": ["Guide"]
@@ -1521,7 +1521,7 @@ mod tests {
                 "id": "char-mari",
                 "comment": "assistant",
                 "data": {
-                    "name": "Professor Mari",
+                    "name": "Deki-senpai",
                     "description": "Codebase helper",
                     "tags": ["Guide"]
                 }
@@ -1730,7 +1730,7 @@ mod tests {
     fn character_update_patch_rejects_invalid_data_shape() {
         for invalid in [
             json!(true),
-            json!("{\"name\":\"Professor Mari\"}"),
+            json!("{\"name\":\"Deki-senpai\"}"),
             json!([]),
             Value::Null,
         ] {

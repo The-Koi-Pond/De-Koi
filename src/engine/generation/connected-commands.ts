@@ -62,6 +62,7 @@ type ImagePromptSettings = {
 };
 
 const CONVERSATION_NOTES_BUDGET_CHARS = 4000;
+const LEGACY_ASSISTANT_CONTEXT_METADATA_KEY = "mariContext";
 
 function parseData(row: JsonRecord | null | undefined): JsonRecord {
   const raw = row?.data;
@@ -1506,9 +1507,9 @@ async function executeCommand(
       const fetched = await fetchCommandContext(storage, command);
       if (!fetched || !chatId) return null;
       const metadata = parseRecord(chat.metadata);
-      const mariContext = parseRecord(metadata.mariContext);
-      mariContext[fetched.key] = fetched.content;
-      await storage.patchChatMetadata(chatId, { mariContext });
+      const assistantContext = parseRecord(metadata[LEGACY_ASSISTANT_CONTEXT_METADATA_KEY]);
+      assistantContext[fetched.key] = fetched.content;
+      await storage.patchChatMetadata(chatId, { [LEGACY_ASSISTANT_CONTEXT_METADATA_KEY]: assistantContext });
       events.push({
         type: "assistant_action",
         data: {
