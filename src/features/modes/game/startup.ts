@@ -1,5 +1,7 @@
+import { useCallback } from "react";
 import { useGameModeStore } from "./stores/game-mode.store";
 
-export function useSetGameSetupActive() {
-  return useGameModeStore((state) => state.setSetupActive);
+export function useExitGameSetupFromShell() {
+  const setSetupActive = useGameModeStore((state) => state.setSetupActive);
+  return useCallback(() => setSetupActive(false), [setSetupActive]);
 }
