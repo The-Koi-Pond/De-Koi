@@ -1407,8 +1407,10 @@ mod tests {
                 if !trimmed.starts_with('"') || !trimmed.contains("=>") {
                     return None;
                 }
-                trimmed.split('"').nth(1).map(ToOwned::to_owned)
+                let arm_head = trimmed.split("=>").next()?;
+                Some(quoted_commands(arm_head))
             })
+            .flatten()
             .collect()
     }
 
