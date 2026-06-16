@@ -489,6 +489,7 @@ fn legacy_profile_import_plan(
         validate_legacy_profile_table_array(tables, table)?;
         let mut rows = table_rows(tables, table);
         let processed_rows = rows.len();
+        super::drop_null_profile_rows(&mut rows);
         match *collection {
             "app-settings" => normalize_legacy_app_settings(&mut rows),
             "regex-scripts" => super::drop_unsafe_regex_scripts(&mut rows),
@@ -1487,6 +1488,37 @@ mod tests {
             .get("app-settings", "ui")
             .expect("ui settings lookup should not fail")
             .is_none());
+    }
+
+    #[test]
+    fn legacy_profile_import_drops_null_table_rows() {
+        let state = test_state("legacy-null-rows");
+        let mut tables = Map::new();
+        tables.insert("installed_extensions".to_string(), json!([null]));
+        tables.insert("character_groups".to_string(), json!([null]));
+        tables.insert("persona_groups".to_string(), json!([null]));
+        tables.insert("custom_tools".to_string(), json!([null]));
+        tables.insert("chat_folders".to_string(), json!([null]));
+
+        import_legacy_profile_tables_with_restored_assets(&state, &tables, 0, None, || Ok(()))
+            .expect("null placeholder rows should be dropped during legacy import");
+
+        for collection in [
+            "extensions",
+            "character-groups",
+            "persona-groups",
+            "custom-tools",
+            "chat-folders",
+        ] {
+            assert!(
+                state
+                    .storage
+                    .list(collection)
+                    .expect("collection should list")
+                    .is_empty(),
+                "{collection} should not retain null placeholder rows"
+            );
+        }
     }
 
     #[test]

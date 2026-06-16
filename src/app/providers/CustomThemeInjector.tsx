@@ -83,6 +83,7 @@ export function CustomThemeInjector() {
 
     // Inject enabled ones
     for (const ext of installedExtensions) {
+      if (!ext) continue;
       if (!ext.enabled || !ext.css) continue;
       const style = document.createElement("style");
       style.id = `${prefix}${ext.id}`;
@@ -104,6 +105,7 @@ export function CustomThemeInjector() {
     document.querySelectorAll(`[id^="${prefix}"]`).forEach((el) => el.remove());
 
     for (const ext of installedExtensions) {
+      if (!ext) continue;
       if (!ext.enabled || !extensionHasRunnableJavaScript(ext)) continue;
 
       try {

@@ -987,6 +987,7 @@ fn profile_collections_import_plan(
         }
         let mut rows = collection_value.as_array().cloned().unwrap_or_default();
         let processed_rows = rows.len();
+        drop_null_profile_rows(&mut rows);
         if collection == "prompt-overrides" {
             unsupported_prompt_overrides = normalize_profile_prompt_overrides(&mut rows);
         }
@@ -1142,6 +1143,10 @@ pub(super) fn disable_imported_extension_rows(rows: &mut [Value]) {
             object.insert("enabled".to_string(), Value::Bool(false));
         }
     }
+}
+
+pub(super) fn drop_null_profile_rows(rows: &mut Vec<Value>) {
+    rows.retain(|row| !row.is_null());
 }
 
 /// Drop regex-script rows whose `findRegex` is prone to catastrophic backtracking
@@ -1711,6 +1716,38 @@ mod tests {
             .get("characters", "char-1")
             .expect("character lookup should not fail")
             .is_some());
+    }
+
+    #[test]
+    fn native_profile_import_drops_null_collection_rows() {
+        let state = test_state("native-null-rows");
+        let mut collections = complete_empty_profile_collections();
+        collections.insert("extensions".to_string(), json!([null]));
+        collections.insert("character-groups".to_string(), json!([null]));
+
+        import_profile(
+            &state,
+            json!({
+                "type": "marinara_profile",
+                "version": 1,
+                "data": {
+                    "collections": collections,
+                    "assets": []
+                }
+            }),
+        )
+        .expect("null placeholder rows should be dropped during import");
+
+        assert!(state
+            .storage
+            .list("extensions")
+            .expect("extensions should list")
+            .is_empty());
+        assert!(state
+            .storage
+            .list("character-groups")
+            .expect("character groups should list")
+            .is_empty());
     }
 
     #[test]
