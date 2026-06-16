@@ -13,6 +13,15 @@ pub(crate) const API_KEY_MASK: &str = "••••••••";
 const SECRET_VERSION: &str = "v1";
 const MASTER_KEY_FILE: &str = "connection-master.key";
 
+fn is_masked_api_key(value: &str) -> bool {
+    value.trim() == API_KEY_MASK
+}
+
+fn has_stored_secret_value(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty() && !is_masked_api_key(value)
+}
+
 pub(crate) fn mask_connection_for_read(value: &mut Value) {
     let Some(object) = value.as_object_mut() else {
         return;
@@ -20,11 +29,11 @@ pub(crate) fn mask_connection_for_read(value: &mut Value) {
     let has_secret = object
         .get("apiKeyEncrypted")
         .and_then(Value::as_str)
-        .is_some_and(|value| !value.trim().is_empty())
+        .is_some_and(has_stored_secret_value)
         || object
             .get("apiKey")
             .and_then(Value::as_str)
-            .is_some_and(|value| !value.trim().is_empty());
+            .is_some_and(has_stored_secret_value);
     object.remove("apiKeyEncrypted");
     object.remove("apiKeyHash");
     object.remove("apiKeyMasked");
@@ -123,14 +132,18 @@ pub(crate) fn materialize_connection_for_runtime(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        let api_key = decrypt_secret(state, secret)?;
-        object.insert("apiKey".to_string(), Value::String(api_key));
-        return Ok(connection);
+        if is_masked_api_key(secret) {
+            object.remove("apiKeyEncrypted");
+        } else {
+            let api_key = decrypt_secret(state, secret)?;
+            object.insert("apiKey".to_string(), Value::String(api_key));
+            return Ok(connection);
+        }
     }
     if object
         .get("apiKey")
         .and_then(Value::as_str)
-        .is_some_and(|value| value.trim() == API_KEY_MASK)
+        .is_some_and(is_masked_api_key)
     {
         object.remove("apiKey");
         return Ok(connection);
@@ -162,6 +175,13 @@ fn normalize_connection_secret_object(
     object.remove("apiKeyMasked");
     object.remove("hasApiKey");
     object.remove("apiKeyHash");
+    if object
+        .get("apiKeyEncrypted")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !has_stored_secret_value(value))
+    {
+        object.remove("apiKeyEncrypted");
+    }
     let provider = object
         .get("provider")
         .and_then(Value::as_str)
