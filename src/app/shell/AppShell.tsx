@@ -96,6 +96,8 @@ function getMobileTrackerPanelWidthForProfile(profile: TrackerPanelSizeProfile) 
 const PANEL_RESIZE_STEP = 16;
 const NOTIFICATION_BUBBLES_EXIT_MS = 500;
 const PANEL_RESIZE_LARGE_STEP = 48;
+const SHARED_PANEL_WIDTH_MIN = Math.max(SIDEBAR_WIDTH_MIN, RIGHT_PANEL_WIDTH_MIN);
+const SHARED_PANEL_WIDTH_MAX = Math.min(SIDEBAR_WIDTH_MAX, RIGHT_PANEL_WIDTH_MAX);
 const RESIZER_HITBOX = 10;
 const TRACKER_PANEL_EDGE_OFFSET = 8;
 const TRACKER_PANEL_HUD_GAP = 6;
@@ -128,6 +130,10 @@ function setInert(element: HTMLElement | null, inert: boolean) {
   if (!element) return;
   element.toggleAttribute("inert", inert);
   (element as HTMLElement & { inert?: boolean }).inert = inert;
+}
+
+function getSharedPanelWidth(sidebarWidth: number, rightPanelWidth: number) {
+  return clampWidth(rightPanelWidth || sidebarWidth, SHARED_PANEL_WIDTH_MIN, SHARED_PANEL_WIDTH_MAX);
 }
 
 function isMobilePanelHistoryState(state: unknown, token: string) {
@@ -240,8 +246,9 @@ export function AppShell() {
   const sidebarDragWidthRef = useRef<number | null>(null);
   const rightPanelDragWidthRef = useRef<number | null>(null);
   const headerRef = useRef<HTMLElement>(null);
-  const liveSidebarWidth = sidebarDragWidth ?? sidebarWidth;
-  const liveRightPanelWidth = rightPanelDragWidth ?? rightPanelWidth;
+  const sharedPanelWidth = getSharedPanelWidth(sidebarWidth, rightPanelWidth);
+  const liveSidebarWidth = sidebarDragWidth ?? rightPanelDragWidth ?? sharedPanelWidth;
+  const liveRightPanelWidth = rightPanelDragWidth ?? sidebarDragWidth ?? sharedPanelWidth;
   const trackerPanelWidth = getTrackerPanelWidthForProfile(trackerPanelSizeProfile);
   const mobileTrackerPanelWidth = getMobileTrackerPanelWidthForProfile(trackerPanelSizeProfile);
 
@@ -271,10 +278,16 @@ export function AppShell() {
     const handleResize = () => {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        const { rightPanelOpen: rp, sidebarOpen: sb, sidebarWidth: sw, closeRightPanel: close } = useUIStore.getState();
+        const {
+          rightPanelOpen: rp,
+          sidebarOpen: sb,
+          sidebarWidth: sw,
+          rightPanelWidth: rpw,
+          closeRightPanel: close,
+        } = useUIStore.getState();
         if (!rp) return;
-        const panelWidth = useUIStore.getState().rightPanelWidth;
-        const reserved = (sb ? sw : 0) + panelWidth;
+        const panelWidth = getSharedPanelWidth(sw, rpw);
+        const reserved = (sb ? panelWidth : 0) + panelWidth;
         if (window.innerWidth - reserved < 400) close();
       });
     };
@@ -422,11 +435,12 @@ export function AppShell() {
       const originalUserSelect = document.body.style.userSelect;
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
-      sidebarDragWidthRef.current = sidebarWidth;
-      setSidebarDragWidth(sidebarWidth);
+      sidebarDragWidthRef.current = sharedPanelWidth;
+      setSidebarDragWidth(sharedPanelWidth);
+      if (rightPanelOpen) setRightPanelResizing(true);
 
       const onMove = (moveEvent: MouseEvent) => {
-        const nextWidth = clampWidth(moveEvent.clientX, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX);
+        const nextWidth = clampWidth(moveEvent.clientX, SHARED_PANEL_WIDTH_MIN, SHARED_PANEL_WIDTH_MAX);
         sidebarDragWidthRef.current = nextWidth;
         setSidebarDragWidth(nextWidth);
       };
@@ -434,9 +448,12 @@ export function AppShell() {
       const finishResize = () => {
         if (finished) return;
         finished = true;
-        setSidebarWidth(sidebarDragWidthRef.current ?? useUIStore.getState().sidebarWidth);
+        const nextWidth = sidebarDragWidthRef.current ?? sharedPanelWidth;
+        setSidebarWidth(nextWidth);
+        setRightPanelWidth(nextWidth);
         sidebarDragWidthRef.current = null;
         setSidebarDragWidth(null);
+        if (rightPanelOpen) setRightPanelResizing(false);
         document.body.style.cursor = originalCursor;
         document.body.style.userSelect = originalUserSelect;
         window.removeEventListener("mousemove", onMove);
@@ -448,7 +465,7 @@ export function AppShell() {
       window.addEventListener("mouseup", finishResize);
       window.addEventListener("blur", finishResize);
     },
-    [isMobile, setSidebarWidth, sidebarWidth],
+    [isMobile, rightPanelOpen, setRightPanelResizing, setRightPanelWidth, setSidebarWidth, sharedPanelWidth],
   );
 
   const startRightPanelResize = useCallback(
@@ -459,15 +476,15 @@ export function AppShell() {
       const originalUserSelect = document.body.style.userSelect;
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
-      rightPanelDragWidthRef.current = rightPanelWidth;
-      setRightPanelDragWidth(rightPanelWidth);
+      rightPanelDragWidthRef.current = sharedPanelWidth;
+      setRightPanelDragWidth(sharedPanelWidth);
       setRightPanelResizing(true);
 
       const onMove = (moveEvent: MouseEvent) => {
         const nextWidth = clampWidth(
           window.innerWidth - moveEvent.clientX,
-          RIGHT_PANEL_WIDTH_MIN,
-          RIGHT_PANEL_WIDTH_MAX,
+          SHARED_PANEL_WIDTH_MIN,
+          SHARED_PANEL_WIDTH_MAX,
         );
         rightPanelDragWidthRef.current = nextWidth;
         setRightPanelDragWidth(nextWidth);
@@ -476,7 +493,9 @@ export function AppShell() {
       const finishResize = () => {
         if (finished) return;
         finished = true;
-        setRightPanelWidth(rightPanelDragWidthRef.current ?? useUIStore.getState().rightPanelWidth);
+        const nextWidth = rightPanelDragWidthRef.current ?? sharedPanelWidth;
+        setSidebarWidth(nextWidth);
+        setRightPanelWidth(nextWidth);
         rightPanelDragWidthRef.current = null;
         setRightPanelDragWidth(null);
         setRightPanelResizing(false);
@@ -491,41 +510,45 @@ export function AppShell() {
       window.addEventListener("mouseup", finishResize);
       window.addEventListener("blur", finishResize);
     },
-    [isMobile, rightPanelWidth, setRightPanelWidth, setRightPanelResizing],
+    [isMobile, setRightPanelResizing, setRightPanelWidth, setSidebarWidth, sharedPanelWidth],
   );
 
   const adjustSidebarWidth = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
       const step = event.shiftKey ? PANEL_RESIZE_LARGE_STEP : PANEL_RESIZE_STEP;
-      let nextWidth = sidebarWidth;
+      let nextWidth = sharedPanelWidth;
 
-      if (event.key === "ArrowLeft") nextWidth = sidebarWidth - step;
-      else if (event.key === "ArrowRight") nextWidth = sidebarWidth + step;
-      else if (event.key === "Home") nextWidth = SIDEBAR_WIDTH_MIN;
-      else if (event.key === "End") nextWidth = SIDEBAR_WIDTH_MAX;
+      if (event.key === "ArrowLeft") nextWidth = sharedPanelWidth - step;
+      else if (event.key === "ArrowRight") nextWidth = sharedPanelWidth + step;
+      else if (event.key === "Home") nextWidth = SHARED_PANEL_WIDTH_MIN;
+      else if (event.key === "End") nextWidth = SHARED_PANEL_WIDTH_MAX;
       else return;
 
       event.preventDefault();
-      setSidebarWidth(clampWidth(nextWidth, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX));
+      const clampedWidth = clampWidth(nextWidth, SHARED_PANEL_WIDTH_MIN, SHARED_PANEL_WIDTH_MAX);
+      setSidebarWidth(clampedWidth);
+      setRightPanelWidth(clampedWidth);
     },
-    [setSidebarWidth, sidebarWidth],
+    [setRightPanelWidth, setSidebarWidth, sharedPanelWidth],
   );
 
   const adjustRightPanelWidth = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
       const step = event.shiftKey ? PANEL_RESIZE_LARGE_STEP : PANEL_RESIZE_STEP;
-      let nextWidth = rightPanelWidth;
+      let nextWidth = sharedPanelWidth;
 
-      if (event.key === "ArrowLeft") nextWidth = rightPanelWidth + step;
-      else if (event.key === "ArrowRight") nextWidth = rightPanelWidth - step;
-      else if (event.key === "Home") nextWidth = RIGHT_PANEL_WIDTH_MIN;
-      else if (event.key === "End") nextWidth = RIGHT_PANEL_WIDTH_MAX;
+      if (event.key === "ArrowLeft") nextWidth = sharedPanelWidth + step;
+      else if (event.key === "ArrowRight") nextWidth = sharedPanelWidth - step;
+      else if (event.key === "Home") nextWidth = SHARED_PANEL_WIDTH_MIN;
+      else if (event.key === "End") nextWidth = SHARED_PANEL_WIDTH_MAX;
       else return;
 
       event.preventDefault();
-      setRightPanelWidth(clampWidth(nextWidth, RIGHT_PANEL_WIDTH_MIN, RIGHT_PANEL_WIDTH_MAX));
+      const clampedWidth = clampWidth(nextWidth, SHARED_PANEL_WIDTH_MIN, SHARED_PANEL_WIDTH_MAX);
+      setSidebarWidth(clampedWidth);
+      setRightPanelWidth(clampedWidth);
     },
-    [rightPanelWidth, setRightPanelWidth],
+    [setRightPanelWidth, setSidebarWidth, sharedPanelWidth],
   );
 
   const detailView = getDetailRouteView({
@@ -1065,8 +1088,8 @@ export function AppShell() {
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize left sidebar"
-              aria-valuemin={SIDEBAR_WIDTH_MIN}
-              aria-valuemax={SIDEBAR_WIDTH_MAX}
+              aria-valuemin={SHARED_PANEL_WIDTH_MIN}
+              aria-valuemax={SHARED_PANEL_WIDTH_MAX}
               aria-valuenow={Math.round(liveSidebarWidth)}
               tabIndex={0}
               onMouseDown={startSidebarResize}
@@ -1250,8 +1273,8 @@ export function AppShell() {
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize right sidebar"
-              aria-valuemin={RIGHT_PANEL_WIDTH_MIN}
-              aria-valuemax={RIGHT_PANEL_WIDTH_MAX}
+              aria-valuemin={SHARED_PANEL_WIDTH_MIN}
+              aria-valuemax={SHARED_PANEL_WIDTH_MAX}
               aria-valuenow={Math.round(liveRightPanelWidth)}
               tabIndex={0}
               onMouseDown={startRightPanelResize}
