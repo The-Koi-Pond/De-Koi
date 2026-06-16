@@ -63,7 +63,7 @@ describe("remote managed assets", () => {
 
   it("uses object URLs for authorized remote assets and reuses the blob fetch cache", async () => {
     remoteRuntimeMock.target = { baseUrl: "http://127.0.0.1:3080", authorization: "Basic token" };
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(new Blob(["asset"]), { status: 200 }));
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response("asset", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const createObjectURL = vi.fn(() => "blob:managed-asset");
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
