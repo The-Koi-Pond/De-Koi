@@ -248,7 +248,7 @@ export type RemoteRuntimeHealthCheck =
   | { status: "unreachable"; message: string; health?: RemoteRuntimeHealthPayload }
   | { status: "not-writable"; message: string; health: RemoteRuntimeHealthPayload };
 
-function hasEmbeddedTauriRuntime(): boolean {
+export function hasEmbeddedTauriRuntime(): boolean {
   if (typeof window === "undefined") return false;
   const runtimeWindow = window as unknown as { __TAURI__?: unknown; __TAURI_INTERNALS__?: unknown };
   return Boolean(runtimeWindow.__TAURI__ || runtimeWindow.__TAURI_INTERNALS__);
