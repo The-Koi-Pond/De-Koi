@@ -1751,6 +1751,74 @@ mod tests {
     }
 
     #[test]
+    fn native_profile_import_drops_masked_connection_secret_placeholders() {
+        let state = test_state("native-masked-connection-secret");
+        let mut collections = complete_empty_profile_collections();
+        collections.insert(
+            "connections".to_string(),
+            json!([{
+                "id": "conn-1",
+                "name": "Masked Provider",
+                "provider": "custom",
+                "model": "gpt-5.5",
+                "apiKey": connection_secrets::API_KEY_MASK,
+                "apiKeyEncrypted": connection_secrets::API_KEY_MASK,
+                "hasApiKey": true
+            }]),
+        );
+
+        import_profile(
+            &state,
+            json!({
+                "type": "marinara_profile",
+                "version": 1,
+                "data": {
+                    "collections": collections,
+                    "assets": []
+                }
+            }),
+        )
+        .expect("masked connection placeholders should not fail import");
+
+        let connection = state
+            .storage
+            .get("connections", "conn-1")
+            .expect("connection lookup should not fail")
+            .expect("imported connection should exist");
+        assert!(connection.get("apiKey").is_none());
+        assert!(connection.get("apiKeyEncrypted").is_none());
+        assert!(connection.get("hasApiKey").is_none());
+
+        let runtime = connection_secrets::connection_for_runtime(&state, "conn-1")
+            .expect("runtime connection should ignore masked placeholders");
+        assert!(runtime.get("apiKey").is_none());
+    }
+
+    #[test]
+    fn runtime_connection_ignores_masked_encrypted_secret_placeholder() {
+        let state = test_state("runtime-masked-encrypted-secret");
+        state
+            .storage
+            .upsert_with_id(
+                "connections",
+                "conn-1",
+                json!({
+                    "id": "conn-1",
+                    "name": "Masked Provider",
+                    "provider": "custom",
+                    "model": "gpt-5.5",
+                    "apiKey": connection_secrets::API_KEY_MASK,
+                    "apiKeyEncrypted": connection_secrets::API_KEY_MASK
+                }),
+            )
+            .expect("connection fixture should write");
+
+        let runtime = connection_secrets::connection_for_runtime(&state, "conn-1")
+            .expect("masked encrypted placeholder should not be decrypted");
+        assert!(runtime.get("apiKey").is_none());
+    }
+
+    #[test]
     fn native_profile_import_rejects_bad_swipes_without_wiping_existing_rows() {
         let state = test_state("bad-message-swipes-no-wipe");
         state

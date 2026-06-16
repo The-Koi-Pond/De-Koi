@@ -12,7 +12,8 @@ use super::assets::{
 };
 use super::{
     finish_profile_import_assets, insert_profile_import_aliases,
-    normalize_profile_prompt_overrides, profile_import_progress_label, ProfileImportProgress,
+    normalize_profile_prompt_overrides, profile_import_progress_label, ProfileImportMode,
+    ProfileImportProgress,
 };
 use crate::state::AppState;
 use marinara_core::{AppError, AppResult};
@@ -423,7 +424,14 @@ pub(super) fn import_legacy_profile_tables_with_restored_assets_with_progress<F>
 where
     F: FnOnce() -> AppResult<()>,
 {
-    let plan = legacy_profile_import_plan(state, tables, restored_assets, staging_root, progress)?;
+    let plan = legacy_profile_import_plan(
+        state,
+        tables,
+        restored_assets,
+        staging_root,
+        ProfileImportMode::Commit,
+        progress,
+    )?;
     progress.prepare("write", "Writing profile data")?;
     state
         .storage
@@ -438,7 +446,14 @@ pub(super) fn preview_legacy_profile_tables(
     restored_assets: usize,
 ) -> AppResult<Value> {
     let mut progress = ProfileImportProgress::disabled();
-    let plan = legacy_profile_import_plan(state, tables, restored_assets, None, &mut progress)?;
+    let plan = legacy_profile_import_plan(
+        state,
+        tables,
+        restored_assets,
+        None,
+        ProfileImportMode::Preview,
+        &mut progress,
+    )?;
     Ok(json!({ "success": true, "preview": true, "imported": plan.imported }))
 }
 
@@ -452,6 +467,7 @@ fn legacy_profile_import_plan(
     tables: &Map<String, Value>,
     restored_assets: usize,
     staging_root: Option<&Path>,
+    mode: ProfileImportMode,
     progress: &mut ProfileImportProgress<'_>,
 ) -> AppResult<LegacyProfileImportPlan> {
     let mut imported = Map::new();
@@ -515,6 +531,9 @@ fn legacy_profile_import_plan(
             _ => {}
         }
         normalize_legacy_profile_json_fields(collection, &mut rows)?;
+        if *collection == "connections" {
+            rows = super::normalize_profile_connection_rows(state, rows, mode)?;
+        }
         for row in &mut rows {
             normalize_legacy_profile_asset_paths(state, staging_root, row);
         }
@@ -1159,6 +1178,7 @@ fn diagnostic_string(value: Option<&Value>) -> String {
 mod tests {
     use super::*;
     use crate::state::AppState;
+    use crate::storage_commands::connection_secrets;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_state(label: &str) -> AppState {
@@ -1975,6 +1995,40 @@ mod tests {
         assert_eq!(folder["id"], "folder-1");
         assert_eq!(folder["name"], "Provider Folder");
         assert_eq!(folder["collapsed"], true);
+    }
+
+    #[test]
+    fn legacy_connection_import_drops_masked_secret_placeholders() {
+        let state = test_state("connection-masked-secret");
+        let mut tables = Map::new();
+        tables.insert(
+            "api_connections".to_string(),
+            json!([{
+                "id": "conn-1",
+                "name": "Masked Provider",
+                "provider": "custom",
+                "model": "gpt-5.5",
+                "apiKey": connection_secrets::API_KEY_MASK,
+                "apiKeyEncrypted": connection_secrets::API_KEY_MASK,
+                "hasApiKey": true
+            }]),
+        );
+
+        import_legacy_profile_tables_with_restored_assets(&state, &tables, 0, None, || Ok(()))
+            .expect("legacy profile import should drop masked connection placeholders");
+
+        let connection = state
+            .storage
+            .get("connections", "conn-1")
+            .expect("connection lookup should not fail")
+            .expect("imported connection should be addressable by id");
+        assert!(connection.get("apiKey").is_none());
+        assert!(connection.get("apiKeyEncrypted").is_none());
+        assert!(connection.get("hasApiKey").is_none());
+
+        let runtime = connection_secrets::connection_for_runtime(&state, "conn-1")
+            .expect("runtime connection should ignore masked placeholders");
+        assert!(runtime.get("apiKey").is_none());
     }
 
     #[test]
