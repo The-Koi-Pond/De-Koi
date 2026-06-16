@@ -3,8 +3,25 @@ import { createDefaultImageStyleProfileSettings } from "../../../engine/generati
 import { migrateUiState, UI_STORE_VERSION } from "./persistence";
 
 describe("ui persistence migration", () => {
-  it("bumps the store version for conversation message style migration", () => {
-    expect(UI_STORE_VERSION).toBe(8);
+  it("bumps the store version for the Deki chibi setting migration", () => {
+    expect(UI_STORE_VERSION).toBe(9);
+  });
+
+  it("hydrates the legacy chibi assistant setting to Deki", () => {
+    const migrated = migrateUiState({
+      chibiProfessorMariEnabled: false,
+    });
+
+    expect(migrated.chibiDekiEnabled).toBe(false);
+  });
+
+  it("preserves an explicit Deki chibi setting over the legacy setting", () => {
+    const migrated = migrateUiState({
+      chibiDekiEnabled: true,
+      chibiProfessorMariEnabled: false,
+    });
+
+    expect(migrated.chibiDekiEnabled).toBe(true);
   });
 
   it("hydrates legacy tag prompt settings to the Danbooru image style profile", () => {
