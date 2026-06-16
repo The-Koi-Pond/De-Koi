@@ -38,8 +38,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       dompurify:
-        specifier: ^3.4.2
-        version: 3.4.3
+        specifier: ^3.4.10
+        version: 3.4.10
       framer-motion:
         specifier: ^12.38.0
         version: 12.38.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -1917,8 +1917,8 @@ packages:
   devtools-protocol@0.0.1608973:
     resolution: {integrity: sha512-Tpm17fxYzt+J7VrGdc1k8YdRqS3YV7se/M6KeemEqvUbq/n7At1rWVuXMxQgpWkdwSdIEKYbU//Bve+Shm4YNQ==}
 
-  dompurify@3.4.3:
-    resolution: {integrity: sha512-VVwJidIJcp1hpg2OMXML3ZVRPYSZiq4aX7qBh83BSIpOaRDqI+qxhXjjIWnpzkOXhmp0L81lnoME1mnCc9H48A==}
+  dompurify@3.4.10:
+    resolution: {integrity: sha512-0xzNv0e7oYC6yyuOGZIABPM4qtg3QxLFniDNPP4ZP90wR8Yq3zgwpRbrNiT4N3IKqDbbYFEJLV+JWEs19aZ//w==}
 
   dot-prop@5.3.0:
     resolution: {integrity: sha512-QM8q3zDe58hqUqjraQOmzZ1LIH9SWQJTlEKCH4kJ2oQvLZk7RbQXvtDM2XEq3fwkV9CCvvH4LA0AV+ogFsBM2Q==}
@@ -5344,7 +5344,7 @@ snapshots:
 
   devtools-protocol@0.0.1608973: {}
 
-  dompurify@3.4.3:
+  dompurify@3.4.10:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
