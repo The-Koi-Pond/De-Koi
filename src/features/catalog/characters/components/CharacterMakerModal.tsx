@@ -143,7 +143,6 @@ export function CharacterMakerModal({ open, onClose }: Props) {
             depth_prompt: { prompt: "", depth: 4, role: "system" },
             backstory: generated.backstory ?? "",
             appearance: generated.appearance ?? "",
-            altDescriptions: [],
             marinara: {
               aiCharacterMaker: {
                 referenceTags,

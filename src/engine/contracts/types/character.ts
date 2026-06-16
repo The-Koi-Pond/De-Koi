@@ -1,7 +1,6 @@
 // ──────────────────────────────────────────────
 // Character Card V2 Types (compatible with ST / Chub)
 // ──────────────────────────────────────────────
-import type { AltDescription } from "./persona";
 
 /** Full Character Card V2 envelope. */
 export interface CharacterCardV2 {
@@ -39,8 +38,6 @@ export interface CharacterExtensions {
   backstory: string;
   /** De-Koi extension: physical appearance description */
   appearance: string;
-  /** De-Koi: toggleable additions appended to the main character description */
-  altDescriptions?: AltDescription[];
   /** De-Koi: Name display color/gradient (CSS value, e.g. "linear-gradient(90deg, #ff6b6b, #ffd93d)" or "#ff6b6b") */
   nameColor?: string;
   /** De-Koi: Dialogue highlight color - text in quotation marks is bold + colored with this */

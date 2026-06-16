@@ -488,7 +488,7 @@ function loadPersonaContext(record: JsonRecord): GenerationPersonaContext {
   const personaStats = personaStatsContext(data.personaStats ?? record.personaStats);
   return {
     name: field(data, "name") || field(record, "name") || "User",
-    description: personaDescriptionWithActiveExtensions(data, record),
+    description: personaDescriptionWithActiveAltDescriptions(data, record),
     avatarUrl:
       rawField(data, "avatarPath") ||
       rawField(data, "avatarUrl") ||
@@ -509,15 +509,15 @@ function loadPersonaContext(record: JsonRecord): GenerationPersonaContext {
   };
 }
 
-function personaDescriptionWithActiveExtensions(data: JsonRecord, record: JsonRecord): string {
+function personaDescriptionWithActiveAltDescriptions(data: JsonRecord, record: JsonRecord): string {
   const base = field(data, "description") || field(record, "description");
-  const extensions = activeAltDescriptionTexts(
+  const extensions = activePersonaAltDescriptionTexts(
     data.altDescriptions ?? record.altDescriptions ?? parseRecord(data.extensions).altDescriptions,
   );
   return [base, ...extensions].filter(Boolean).join("\n");
 }
 
-function activeAltDescriptionTexts(value: unknown): string[] {
+function activePersonaAltDescriptionTexts(value: unknown): string[] {
   return parseArray(value)
     .map(parseRecord)
     .filter((entry) => boolish(entry.active, false))

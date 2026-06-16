@@ -408,7 +408,6 @@ describe("character connected commands", () => {
     expect(data).not.toHaveProperty("fav");
     expect(data).not.toHaveProperty("world");
     expect(data.extensions).toMatchObject({
-      altDescriptions: [],
       backstory: "Keeps city secrets",
       appearance: "Silver coat",
       fav: true,
@@ -432,7 +431,6 @@ describe("character connected commands", () => {
           name: "Mira",
           description: "old description",
           extensions: {
-            altDescriptions: [],
             backstory: "old backstory",
             appearance: "old appearance",
             fav: true,
@@ -466,7 +464,6 @@ describe("character connected commands", () => {
     expect(data).not.toHaveProperty("fav");
     expect(data).not.toHaveProperty("world");
     expect(data.extensions).toMatchObject({
-      altDescriptions: [],
       backstory: "",
       appearance: "Blue coat",
       fav: false,
@@ -493,7 +490,6 @@ describe("character connected commands", () => {
           fav: true,
           world: "Legacy Harbor",
           extensions: {
-            altDescriptions: [],
             depth_prompt: "legacy prompt",
             depth_prompt_depth: "6",
             depth_prompt_role: "assistant",
@@ -521,7 +517,6 @@ describe("character connected commands", () => {
     expect(data).not.toHaveProperty("depth_prompt_depth");
     expect(data).not.toHaveProperty("depth_prompt_role");
     expect(data.extensions).toMatchObject({
-      altDescriptions: [],
       backstory: "legacy backstory",
       appearance: "updated appearance",
       fav: true,
