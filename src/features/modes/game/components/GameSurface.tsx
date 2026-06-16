@@ -37,8 +37,6 @@ import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useAgentStore } from "../../../../shared/stores/agent.store";
 import { useGameStateStore } from "../../../runtime/world-state/index";
-import { useGameStatePatcher } from "../../../runtime/world-state/index";
-import type { GameStatePatchField, GameStatePatchValue } from "../../../runtime/world-state/types";
 import {
   deletePreparedManagedImageAttachments,
   prepareManagedImageAttachmentBatch,
@@ -71,7 +69,6 @@ import {
   useRegeneratePartyCard,
   useRemovePartyMember,
   gameKeys,
-  patchChatMetadata,
 } from "../hooks/use-game";
 import { normalizeHudWidgets } from "../lib/hud-widget-normalization";
 import {
@@ -126,10 +123,10 @@ import {
   useGameInventoryJournalController,
   type PendingInventoryUse,
 } from "../hooks/use-game-inventory-journal-controller";
+import { useGameSurfacePersistenceController } from "../hooks/use-game-surface-persistence-controller";
 import { useGameSceneController } from "../hooks/use-game-scene-controller";
 import { useGameSpotifySceneMusic } from "../hooks/use-game-spotify-scene-music";
 import { parsePartyDialogue } from "../lib/party-dialogue-parser";
-import { flushPendingGameMetadataPatches, persistGameMetadataPatch } from "../lib/game-metadata-persistence";
 import {
   addDetailedInventoryUnit,
   addInventoryUnit,
@@ -1304,17 +1301,12 @@ export function GameSurface({
     !!chatMeta.enableSpriteGeneration &&
     !!chatMeta.gameImageConnectionId &&
     canRequestGameSceneIllustration(chatMeta as Record<string, unknown>, sessionNumber, sceneTurnNumber);
-  const { patchField: patchVisibleGameStateField, flushPatch: flushVisibleGameStatePatch } = useGameStatePatcher(
-    activeChatId,
-    "game-surface",
-  );
-  const patchVisibleGameState = useCallback(
-    <K extends GameStatePatchField>(field: K, value: GameStatePatchValue[K]) => {
-      patchVisibleGameStateField(field, value);
-      return flushVisibleGameStatePatch();
-    },
-    [flushVisibleGameStatePatch, patchVisibleGameStateField],
-  );
+  const queryClient = useQueryClient();
+  const { patchVisibleGameState, persistMetadata, publishSessionChat, syncHudWidgetsToChatCache } =
+    useGameSurfacePersistenceController({
+      activeChatId,
+      currentLocation: gameSnapshot?.location,
+    });
   const chatCharacterIds = useMemo(() => getChatCharacterIds(chat.characterIds), [chat.characterIds]);
   const useSpotifyGameMusic = chatMeta.gameUseSpotifyMusic === true || chatMeta.gameEnableSpotifyDj === true;
   const { data: connectionsList } = useConnections();
@@ -1430,64 +1422,7 @@ export function GameSurface({
     }
   }, [activeChatId, metaWeather, metaTime]);
 
-  // Keep the journal in step when game state reports a new location.
-  const lastJournaledLocationRef = useRef<string | null>(null);
-  const queryClient = useQueryClient();
-  const publishSessionChat = useCallback(
-    (sessionChat: Chat | null | undefined) => {
-      if (!sessionChat?.id) return;
-      queryClient.setQueryData(chatKeys.detail(sessionChat.id), sessionChat);
-      if (useChatStore.getState().activeChatId === sessionChat.id) {
-        useChatStore.getState().setActiveChat(sessionChat);
-      }
-    },
-    [queryClient],
-  );
-  const persistMetadata = useCallback(
-    (chatId: string, patch: Record<string, unknown>) =>
-      persistGameMetadataPatch(chatId, patch, { onPersisted: publishSessionChat }),
-    [publishSessionChat],
-  );
-
-  useEffect(() => {
-    void flushPendingGameMetadataPatches(activeChatId, { onPersisted: publishSessionChat }).catch(() => {
-      /* failure is retained and reported by the persistence helper */
-    });
-  }, [activeChatId, publishSessionChat]);
-
-  useEffect(() => {
-    const loc = gameSnapshot?.location;
-    if (!loc || loc === lastJournaledLocationRef.current) return;
-    lastJournaledLocationRef.current = loc;
-    void gameApi
-      .addJournalEntry({
-        chatId: activeChatId,
-        type: "location",
-        data: { location: loc, description: `The party is at ${loc}.` },
-      })
-      .then((res) => publishSessionChat(res.sessionChat))
-      .catch(() => {});
-  }, [activeChatId, gameSnapshot?.location, publishSessionChat]);
-
   // Asset store
-  const syncHudWidgetsToChatCache = useCallback(
-    (widgets: HudWidget[]) => {
-      const detailKey = chatKeys.detail(activeChatId);
-      const patchedChat = patchChatMetadata(queryClient.getQueryData<Chat>(detailKey), { gameWidgetState: widgets });
-      if (patchedChat) {
-        queryClient.setQueryData(detailKey, patchedChat);
-      }
-
-      const chatStore = useChatStore.getState();
-      if (chatStore.activeChatId === activeChatId) {
-        const patchedActiveChat = patchChatMetadata(chatStore.activeChat as Chat | null, { gameWidgetState: widgets });
-        if (patchedActiveChat) {
-          chatStore.setActiveChat(patchedActiveChat);
-        }
-      }
-    },
-    [activeChatId, queryClient],
-  );
   const assetManifest = useGameAssetStore((s) => s.manifest);
   const currentBackground = useGameAssetStore((s) => s.currentBackground);
   const gameAssetExcludedFolders = useMemo(
