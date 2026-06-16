@@ -56,7 +56,7 @@ The Drizzle SQLite schema still defines the table and column contract. SQLite is
 | `agent_runs`               | `agentRuns`              | yes         | 11      | `id`        | `agent-runs`                                    | Legacy snake_case row shape is accepted by De-Koi repair/import paths.                                           |
 | `agent_memory`             | `agentMemory`            | yes         | 6       | `id`        | `agent-memory`                                  | Per-agent, per-chat key/value state.                                                                             |
 | `custom_tools`             | `customTools`            | yes         | 11      | `id`        | `custom-tools`                                  | Legacy script tools are preserved for review but cannot execute in De-Koi.                                       |
-| `game_state_snapshots`     | `gameStateSnapshots`     | yes         | 16      | `id`        | `game-state-snapshots`                          | Per-message/swipe tracker state.                                                                                 |
+| `game_state_snapshots`     | `gameStateSnapshots`     | yes         | 17      | `id`        | `game-state-snapshots`                          | Per-message/swipe tracker state.                                                                                 |
 | `game_checkpoints`         | `gameCheckpoints`        | yes         | 12      | `id`        | `game-checkpoints`                              | Game rollback/checkpoint rows.                                                                                   |
 | `regex_scripts`            | `regexScripts`           | yes         | 15      | `id`        | `regex-scripts`                                 | Find/replace script rows.                                                                                        |
 | `chat_images`              | `chatImages`             | yes         | 9       | `id`        | `gallery`                                       | Legacy chat images map to De-Koi shared/chat gallery rows and managed gallery files.                             |
@@ -586,6 +586,7 @@ Source: `<legacy-root>/packages/server/src/db/schema/game-state.ts`
 | `playerStats`       | `player_stats`       | text    | yes      | -       | -       | -    | -         |
 | `personaStats`      | `persona_stats`      | text    | yes      | -       | -       | -    | -         |
 | `manualOverrides`   | `manual_overrides`   | text    | yes      | -       | -       | -    | -         |
+| `fieldLocks`        | `field_locks`        | text    | yes      | -       | -       | -    | -         |
 | `committed`         | `committed`          | integer | no       | -       | `0`     | -    | -         |
 | `createdAt`         | `created_at`         | text    | no       | -       | -       | -    | -         |
 

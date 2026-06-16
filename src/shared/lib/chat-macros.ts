@@ -76,10 +76,7 @@ function parseCharacterMacroData(
     return {
       id: raw.id,
       name: getString(data.name) || "Unknown",
-      description: appendActiveAltDescriptions(
-        getString(data.description),
-        extensions?.altDescriptions ?? extensions?.descriptionExtensions,
-      ),
+      description: getString(data.description),
       personality: getString(data.personality),
       backstory: getString(extensions?.backstory),
       appearance: getString(extensions?.appearance),

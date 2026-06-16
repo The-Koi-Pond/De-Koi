@@ -63,9 +63,7 @@ export function CharacterEditorTabContent({
             avatarPreview={avatarPreview}
           />
         )}
-        {activeTab === "description" && (
-          <CharacterDescriptionTab formData={formData} updateField={updateField} updateExtension={updateExtension} />
-        )}
+        {activeTab === "description" && <CharacterDescriptionTab formData={formData} updateField={updateField} />}
         {activeTab === "personality" && (
           <CharacterTextareaTab
             title="Personality"

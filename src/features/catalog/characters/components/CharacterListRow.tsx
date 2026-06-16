@@ -76,7 +76,7 @@ export function CharacterListRow({
   const rowActionLabel = selectionMode
     ? `${isBulkSelected ? "Deselect" : "Select"} ${charName}`
     : assigningGroup
-      ? `${isInTargetGroup ? "Remove" : "Add"} ${charName} ${isInTargetGroup ? "from" : "to"} group`
+      ? `${isInTargetGroup ? "Remove" : "Move"} ${charName} ${isInTargetGroup ? "from" : "to"} folder`
       : `Open ${charName}`;
   const activateRow = () => {
     if (selectionMode) {
@@ -198,8 +198,8 @@ export function CharacterListRow({
             <span className="truncate">
               {isAssigning
                 ? isInTargetGroup
-                  ? "In group — click to remove"
-                  : "Click to add to group"
+                  ? "In folder - click to remove"
+                  : "Click to move to folder"
                 : previewMetadata}
             </span>
           </div>

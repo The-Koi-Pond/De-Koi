@@ -45,6 +45,11 @@ export function PersonaListItem({
   onPersonaDragEnd,
 }: PersonaListItemProps) {
   const isInTargetGroup = targetGroup ? targetGroup.memberIds.includes(persona.id) : false;
+  const rowActionLabel = selectionMode
+    ? `${isSelected ? "Deselect" : "Select"} ${persona.name}`
+    : targetGroup
+      ? `${isInTargetGroup ? "Remove" : "Move"} ${persona.name} ${isInTargetGroup ? "from" : "to"} folder`
+      : `Open ${persona.name}`;
   const handleRowAction = () => {
     if (selectionMode) {
       onToggleSelection(persona.id);
@@ -66,7 +71,7 @@ export function PersonaListItem({
       role="button"
       tabIndex={0}
       draggable={draggable}
-      aria-label={`Open ${persona.name}`}
+      aria-label={rowActionLabel}
       aria-current={active ? "true" : undefined}
       aria-pressed={selectionMode ? isSelected : targetGroup ? isInTargetGroup : undefined}
       className={cn(
@@ -131,8 +136,8 @@ export function PersonaListItem({
         <div className="truncate text-[0.6875rem] text-[var(--muted-foreground)]">
           {assigningToGroup
             ? isInTargetGroup
-              ? "In group — click to remove"
-              : "Click to add to group"
+              ? "In folder - click to remove"
+              : "Click to move to folder"
             : persona.description || "No description"}
         </div>
       </div>

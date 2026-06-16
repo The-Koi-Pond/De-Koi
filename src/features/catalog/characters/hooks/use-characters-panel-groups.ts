@@ -47,7 +47,7 @@ export function useCharactersPanelGroups() {
     } catch (error) {
       setNewGroupName(previousName);
       setCreatingGroup(true);
-      toast.error(error instanceof Error ? error.message : "Failed to create character group.");
+      toast.error(error instanceof Error ? error.message : "Failed to create character folder.");
     }
   }, [newGroupName, createGroup]);
 
@@ -64,30 +64,21 @@ export function useCharactersPanelGroups() {
       } catch (error) {
         setEditingGroupId(previousEditingGroupId ?? groupId);
         setEditGroupName(previousEditGroupName);
-        toast.error(error instanceof Error ? error.message : "Failed to rename character group.");
+        toast.error(error instanceof Error ? error.message : "Failed to rename character folder.");
       }
     },
     [editGroupName, editingGroupId, updateGroup],
   );
 
   const toggleGroupMember = useCallback(
-    (groupId: string, charId: string, currentMembers: string[]) => {
-      const isMember = currentMembers.includes(charId);
-      const newMembers = isMember ? currentMembers.filter((id) => id !== charId) : [...currentMembers, charId];
-      void updateGroup.mutateAsync({ id: groupId, characterIds: newMembers }).catch((error) => {
-        toast.error(error instanceof Error ? error.message : "Failed to update group membership.");
-      });
-    },
-    [updateGroup],
-  );
-
-  const moveCharacterToGroup = useCallback(
-    (targetGroupId: string | null, charId: string, sourceGroupId: string | null, groups: ParsedGroupRow[]) => {
+    (groupId: string, charId: string, groups: ParsedGroupRow[]) => {
       if (updateGroup.isPending || membershipMoveInFlightRef.current) return;
+      const targetGroup = groups.find((group) => group.id === groupId && group.isSynthetic !== true);
+      if (!targetGroup) return;
+      const targetGroupId = targetGroup.memberIds.includes(charId) ? null : groupId;
       const changes = buildGroupMembershipMoveChanges({
         groups,
         itemId: charId,
-        sourceGroupId,
         targetGroupId,
       });
 
@@ -100,10 +91,42 @@ export function useCharactersPanelGroups() {
         .catch((error) => {
           toast.error(
             error instanceof GroupMembershipRollbackError
-              ? "Failed to update group membership. Rollback also failed; refresh before retrying."
+              ? "Failed to update folder assignment. Rollback also failed; refresh before retrying."
               : error instanceof Error
                 ? error.message
-                : "Failed to update group membership.",
+                : "Failed to update folder assignment.",
+          );
+        })
+        .finally(() => {
+          membershipMoveInFlightRef.current = false;
+          setMembershipMovePending(false);
+        });
+    },
+    [updateGroup],
+  );
+
+  const moveCharacterToGroup = useCallback(
+    (targetGroupId: string | null, charId: string, groups: ParsedGroupRow[]) => {
+      if (updateGroup.isPending || membershipMoveInFlightRef.current) return;
+      const changes = buildGroupMembershipMoveChanges({
+        groups,
+        itemId: charId,
+        targetGroupId,
+      });
+
+      if (changes.length === 0) return;
+      membershipMoveInFlightRef.current = true;
+      setMembershipMovePending(true);
+      void applyGroupMembershipChangesWithRollback(changes, (change) =>
+        updateGroup.mutateAsync({ id: change.id, characterIds: change.memberIds }),
+      )
+        .catch((error) => {
+          toast.error(
+            error instanceof GroupMembershipRollbackError
+              ? "Failed to update folder assignment. Rollback also failed; refresh before retrying."
+              : error instanceof Error
+                ? error.message
+                : "Failed to update folder assignment.",
           );
         })
         .finally(() => {

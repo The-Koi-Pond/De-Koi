@@ -240,22 +240,23 @@ export function CharactersPanel() {
         clearCharacterDragState();
         return;
       }
-      moveCharacterToGroup(
-        groupId,
-        characterId,
-        draggedCharacterSource?.kind === "group" ? draggedCharacterSource.groupId : null,
-        parsedGroups,
-      );
+      moveCharacterToGroup(groupId, characterId, parsedGroups);
       clearCharacterDragState();
     },
     [
       canDropCharacterOnTarget,
       clearCharacterDragState,
       draggedCharacterId,
-      draggedCharacterSource,
       moveCharacterToGroup,
       parsedGroups,
     ],
+  );
+
+  const handleToggleGroupMember = useCallback(
+    (groupId: string, characterId: string) => {
+      toggleGroupMember(groupId, characterId, parsedGroups);
+    },
+    [parsedGroups, toggleGroupMember],
   );
 
   const handleCharacterRootDragOver = useCallback(
@@ -391,7 +392,7 @@ export function CharactersPanel() {
         onDeleteGroup={(groupId) => deleteGroup.mutate(groupId)}
         onAddGroupToChat={addGroupToChat}
         onToggleAssigningToGroup={(groupId) => toggleAssigningToGroup(groupId, exitSelectionMode)}
-        onToggleGroupMember={toggleGroupMember}
+        onToggleGroupMember={handleToggleGroupMember}
         onCharacterDragStart={handleCharacterGroupMemberDragStart}
         onCharacterDragEnd={clearCharacterDragState}
         onCharacterDragOver={handleCharacterDragOver}
@@ -421,7 +422,7 @@ export function CharactersPanel() {
         isRootDropTarget={characterDropTarget?.kind === "root"}
         onRetry={() => void refetch()}
         onToggleSelection={toggleSelection}
-        onToggleGroupMember={toggleGroupMember}
+        onToggleGroupMember={handleToggleGroupMember}
         onOpenCharacterDetail={openCharacterDetail}
         onOpenContextMenu={setContextMenu}
         onToggleChatCharacter={toggleCharacter}

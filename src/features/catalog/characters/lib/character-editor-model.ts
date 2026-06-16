@@ -2,13 +2,6 @@ import { characterDataSchema, characterExtensionsSchema } from "../../../../engi
 import type { CharacterCardVersion, CharacterData, RPGStatsConfig } from "../../../../engine/contracts/types/character";
 import { formatTextQuotes, type QuoteFormat } from "../../../../shared/lib/dialogue-quotes";
 
-export interface AltDescriptionEntry {
-  id: string;
-  label: string;
-  content: string;
-  active: boolean;
-}
-
 export const VERSION_COMPARE_FIELDS: Array<{ key: string; label: string }> = [
   { key: "name", label: "Name" },
   { key: "description", label: "Description" },
@@ -48,20 +41,8 @@ const QUOTE_FORMATTED_CHARACTER_FIELDS = new Set<keyof CharacterData>([
   "alternate_greetings",
 ]);
 
-const QUOTE_FORMATTED_EXTENSION_FIELDS = new Set(["backstory", "appearance", "altDescriptions", "depth_prompt"]);
+const QUOTE_FORMATTED_EXTENSION_FIELDS = new Set(["backstory", "appearance", "depth_prompt"]);
 const CREATOR_NOTES_STYLE_BLOCK_RE = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
-
-function formatAltDescriptions(value: unknown, quoteFormat: QuoteFormat): unknown {
-  if (!Array.isArray(value)) return value;
-  return value.map((entry) => {
-    if (!entry || typeof entry !== "object") return entry;
-    const record = entry as Record<string, unknown>;
-    return {
-      ...record,
-      content: typeof record.content === "string" ? formatTextQuotes(record.content, quoteFormat) : record.content,
-    };
-  });
-}
 
 function formatDepthPrompt(value: unknown, quoteFormat: QuoteFormat): unknown {
   if (!value || typeof value !== "object") return value;
@@ -109,31 +90,8 @@ export function formatCharacterEditorField<K extends keyof CharacterData>(
 export function formatCharacterEditorExtension(key: string, value: unknown, quoteFormat: QuoteFormat): unknown {
   if (!QUOTE_FORMATTED_EXTENSION_FIELDS.has(key)) return value;
   if (typeof value === "string") return formatTextQuotes(value, quoteFormat);
-  if (key === "altDescriptions") return formatAltDescriptions(value, quoteFormat);
   if (key === "depth_prompt") return formatDepthPrompt(value, quoteFormat);
   return value;
-}
-
-export function normalizeAltDescriptions(value: unknown): AltDescriptionEntry[] {
-  const raw = (() => {
-    if (Array.isArray(value)) return value;
-    if (typeof value !== "string" || !value.trim()) return [];
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  })();
-
-  return raw
-    .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === "object")
-    .map((entry, index) => ({
-      id: typeof entry.id === "string" && entry.id.trim() ? entry.id : `extension-${index}`,
-      label: typeof entry.label === "string" ? entry.label : "Extension",
-      content: typeof entry.content === "string" ? entry.content : "",
-      active: entry.active !== false,
-    }));
 }
 
 export function normalizeCharacterEditorData(data: CharacterData | null | undefined): CharacterData | null {

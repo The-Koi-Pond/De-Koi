@@ -200,20 +200,11 @@ export function PersonasPanel() {
 
   const toggleGroupMember = useCallback(
     (groupId: string, personaId: string, currentMembers: string[]) => {
-      const isMember = currentMembers.includes(personaId);
-      const newMembers = isMember ? currentMembers.filter((id) => id !== personaId) : [...currentMembers, personaId];
-      updatePGroup.mutate({ id: groupId, personaIds: newMembers });
-    },
-    [updatePGroup],
-  );
-
-  const movePersonaToGroup = useCallback(
-    (targetGroupId: string | null, personaId: string, sourceGroupId: string | null) => {
       if (updatePGroup.isPending || personaGroupMoveInFlightRef.current) return;
+      const targetGroupId = currentMembers.includes(personaId) ? null : groupId;
       const changes = buildGroupMembershipMoveChanges({
         groups: parsedGroups,
         itemId: personaId,
-        sourceGroupId,
         targetGroupId,
       });
 
@@ -226,10 +217,42 @@ export function PersonasPanel() {
         .catch((error) => {
           toast.error(
             error instanceof GroupMembershipRollbackError
-              ? "Failed to update persona group membership. Rollback also failed; refresh before retrying."
+              ? "Failed to update persona folder assignment. Rollback also failed; refresh before retrying."
               : error instanceof Error
                 ? error.message
-                : "Failed to update persona group membership.",
+                : "Failed to update persona folder assignment.",
+          );
+        })
+        .finally(() => {
+          personaGroupMoveInFlightRef.current = false;
+          setPersonaGroupMovePending(false);
+        });
+    },
+    [parsedGroups, updatePGroup],
+  );
+
+  const movePersonaToGroup = useCallback(
+    (targetGroupId: string | null, personaId: string) => {
+      if (updatePGroup.isPending || personaGroupMoveInFlightRef.current) return;
+      const changes = buildGroupMembershipMoveChanges({
+        groups: parsedGroups,
+        itemId: personaId,
+        targetGroupId,
+      });
+
+      if (changes.length === 0) return;
+      personaGroupMoveInFlightRef.current = true;
+      setPersonaGroupMovePending(true);
+      void applyGroupMembershipChangesWithRollback(changes, (change) =>
+        updatePGroup.mutateAsync({ id: change.id, personaIds: change.memberIds }),
+      )
+        .catch((error) => {
+          toast.error(
+            error instanceof GroupMembershipRollbackError
+              ? "Failed to update persona folder assignment. Rollback also failed; refresh before retrying."
+              : error instanceof Error
+                ? error.message
+                : "Failed to update persona folder assignment.",
           );
         })
         .finally(() => {
@@ -312,14 +335,10 @@ export function PersonasPanel() {
         clearPersonaDragState();
         return;
       }
-      movePersonaToGroup(
-        groupId,
-        personaId,
-        draggedPersonaSource?.kind === "group" ? draggedPersonaSource.groupId : null,
-      );
+      movePersonaToGroup(groupId, personaId);
       clearPersonaDragState();
     },
-    [canDropPersonaOnTarget, clearPersonaDragState, draggedPersonaId, draggedPersonaSource, movePersonaToGroup],
+    [canDropPersonaOnTarget, clearPersonaDragState, draggedPersonaId, movePersonaToGroup],
   );
 
   const handlePersonaRootDragOver = useCallback(
