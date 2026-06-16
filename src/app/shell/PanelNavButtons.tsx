@@ -49,9 +49,9 @@ const RIGHT_PANEL_BUTTONS = [
     panel: "agents" as const,
     icon: Sparkles,
     label: "Agents",
-    activeClass: "text-pink-500",
-    hoverClass: "hover:text-pink-300",
-    underlineClass: "from-pink-500 to-purple-500",
+    activeClass: "text-violet-500",
+    hoverClass: "hover:text-violet-300",
+    underlineClass: "from-violet-500 to-purple-500",
   },
   {
     panel: "personas" as const,

@@ -106,13 +106,13 @@ export function BotBrowserPanel() {
       <button
         onClick={openBotBrowser}
         className={cn(
-          "flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-medium transition-all",
+          "flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium transition-all active:scale-[0.98]",
           botBrowserOpen
-            ? "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
-            : "bg-[var(--secondary)] text-[var(--foreground)] hover:bg-[var(--accent)]",
+            ? "border-[var(--primary)]/35 bg-[var(--accent)] text-white"
+            : "border-[var(--border)] bg-[var(--card)] text-white hover:border-[var(--primary)]/35 hover:bg-[var(--accent)]",
         )}
       >
-        <Globe size="0.875rem" />
+        <Globe size="0.875rem" className="text-white" />
         Browse Online
       </button>
 
