@@ -31,7 +31,7 @@ function getRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
 
-function appendActiveAltDescriptions(description: string, altDescriptions: unknown): string {
+function appendActivePersonaAltDescriptions(description: string, altDescriptions: unknown): string {
   const parsed = Array.isArray(altDescriptions)
     ? (altDescriptions as Array<{ active?: boolean; content?: string }>)
     : [];
@@ -76,10 +76,7 @@ function parseCharacterMacroData(
     return {
       id: raw.id,
       name: getString(data.name) || "Unknown",
-      description: appendActiveAltDescriptions(
-        getString(data.description),
-        extensions?.altDescriptions ?? extensions?.descriptionExtensions,
-      ),
+      description: getString(data.description),
       personality: getString(data.personality),
       backstory: getString(extensions?.backstory),
       appearance: getString(extensions?.appearance),
@@ -99,7 +96,7 @@ function parsePersonaMacroData(raw: Record<string, unknown> | null | undefined):
   return {
     personaId: getString(raw.id),
     name: getString(raw.name) || "User",
-    description: appendActiveAltDescriptions(getString(raw.description), raw.altDescriptions),
+    description: appendActivePersonaAltDescriptions(getString(raw.description), raw.altDescriptions),
     personality: getString(raw.personality),
     backstory: getString(raw.backstory),
     appearance: getString(raw.appearance),

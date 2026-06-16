@@ -103,7 +103,7 @@ export function PersonaGroupsSection({
           >
             {groupsExpanded ? <ChevronDown size="0.75rem" /> : <ChevronRight size="0.75rem" />}
             <Users size="0.6875rem" />
-            Groups ({groups.length})
+            Folders ({groups.length})
           </button>
           <button
             onClick={() => {
@@ -111,7 +111,7 @@ export function PersonaGroupsSection({
               onGroupsExpandedChange(true);
             }}
             className="rounded-lg p-1 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--primary)]"
-            title="Create group"
+            title="Create folder"
           >
             <FolderPlus size="0.8125rem" />
           </button>
@@ -133,7 +133,7 @@ export function PersonaGroupsSection({
                       onNewGroupNameChange("");
                     }
                   }}
-                  placeholder="Group name..."
+                  placeholder="Folder name..."
                   className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]/50"
                 />
                 <button onClick={onCreateGroup} className="rounded p-0.5 text-emerald-400 hover:bg-emerald-400/10">
@@ -219,7 +219,7 @@ export function PersonaGroupsSection({
                               ? "bg-[var(--primary)]/15 text-[var(--primary)]"
                               : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
                           )}
-                          title="Assign personas"
+                          title="Move personas"
                         >
                           <UserPlus size="0.75rem" />
                         </button>
@@ -237,8 +237,8 @@ export function PersonaGroupsSection({
                           onClick={async () => {
                             if (
                               !(await showConfirmDialog({
-                                title: "Delete Group",
-                                message: `Delete group "${group.name}"?`,
+                                title: "Delete Folder",
+                                message: `Delete folder "${group.name}"?`,
                                 confirmLabel: "Delete",
                                 tone: "destructive",
                               }))
@@ -250,7 +250,7 @@ export function PersonaGroupsSection({
                             if (assigningToGroup === group.id) onAssigningToGroupChange(null);
                           }}
                           className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
-                          title="Delete group"
+                          title="Delete folder"
                         >
                           <Trash2 size="0.75rem" />
                         </button>
@@ -262,7 +262,7 @@ export function PersonaGroupsSection({
                     <div className="border-t border-[var(--border)]/50 px-2.5 py-1.5">
                       {group.memberIds.length === 0 ? (
                         <p className="py-1 text-[0.625rem] italic text-[var(--muted-foreground)]">
-                          No members — use <UserPlus size="0.5rem" className="inline" /> to assign personas
+                          Empty folder - use <UserPlus size="0.5rem" className="inline" /> to move personas here
                         </p>
                       ) : (
                         <div className="flex flex-col gap-0.5">
@@ -297,7 +297,7 @@ export function PersonaGroupsSection({
                                   <button
                                     onClick={() => onToggleGroupMember(group.id, personaId, group.memberIds)}
                                     className="rounded p-0.5 text-[var(--muted-foreground)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
-                                    title="Remove from group"
+                                    title="Remove from folder"
                                   >
                                     <UserMinus size="0.625rem" />
                                   </button>
@@ -314,7 +314,7 @@ export function PersonaGroupsSection({
             })}
 
             {groups.length === 0 && !creatingGroup && (
-              <p className="px-1 py-1 text-[0.625rem] italic text-[var(--muted-foreground)]">No groups yet</p>
+              <p className="px-1 py-1 text-[0.625rem] italic text-[var(--muted-foreground)]">No folders yet</p>
             )}
           </div>
         )}
@@ -324,7 +324,7 @@ export function PersonaGroupsSection({
         <div className="flex items-center gap-2 rounded-xl bg-[var(--primary)]/10 px-3 py-2 text-xs ring-1 ring-[var(--primary)]/30">
           <Users size="0.8125rem" className="text-[var(--primary)]" />
           <span className="flex-1">
-            Click personas to add/remove from{" "}
+            Click personas to move/remove from{" "}
             <strong>{groups.find((group) => group.id === assigningToGroup)?.name}</strong>
           </span>
           <button onClick={() => onAssigningToGroupChange(null)} className="rounded p-0.5 hover:bg-[var(--accent)]">

@@ -3,48 +3,67 @@ import { describe, expect, it } from "vitest";
 import { applyGroupMembershipChangesWithRollback, buildGroupMembershipMoveChanges } from "./group-membership-move";
 
 describe("buildGroupMembershipMoveChanges", () => {
-  it("moves a member from its source group to a real target group", () => {
+  it("moves a member from every other real group to a real target group", () => {
     const changes = buildGroupMembershipMoveChanges({
       groups: [
         { id: "source", memberIds: ["member", "other"] },
+        { id: "stale-other-source", memberIds: ["member", "third"] },
         { id: "target", memberIds: ["existing"] },
       ],
       itemId: "member",
-      sourceGroupId: "source",
       targetGroupId: "target",
     });
 
     expect(changes).toEqual([
       { id: "source", previousMemberIds: ["member", "other"], memberIds: ["other"] },
+      { id: "stale-other-source", previousMemberIds: ["member", "third"], memberIds: ["third"] },
       { id: "target", previousMemberIds: ["existing"], memberIds: ["existing", "member"] },
     ]);
   });
 
-  it("adds a list member to a group without inventing a source removal", () => {
+  it("adds a list member to a group while clearing any existing folder membership", () => {
     const changes = buildGroupMembershipMoveChanges({
-      groups: [{ id: "target", memberIds: ["existing"] }],
+      groups: [
+        { id: "other-group", memberIds: ["member", "other"] },
+        { id: "target", memberIds: ["existing"] },
+      ],
       itemId: "member",
-      sourceGroupId: null,
       targetGroupId: "target",
     });
 
     expect(changes).toEqual([
+      { id: "other-group", previousMemberIds: ["member", "other"], memberIds: ["other"] },
       { id: "target", previousMemberIds: ["existing"], memberIds: ["existing", "member"] },
     ]);
   });
 
-  it("removes only the dragged source group when dropping to root", () => {
+  it("removes every real group membership when dropping to root", () => {
     const changes = buildGroupMembershipMoveChanges({
       groups: [
         { id: "source", memberIds: ["member", "other"] },
         { id: "other-group", memberIds: ["member"] },
       ],
       itemId: "member",
-      sourceGroupId: "source",
       targetGroupId: null,
     });
 
-    expect(changes).toEqual([{ id: "source", previousMemberIds: ["member", "other"], memberIds: ["other"] }]);
+    expect(changes).toEqual([
+      { id: "source", previousMemberIds: ["member", "other"], memberIds: ["other"] },
+      { id: "other-group", previousMemberIds: ["member"], memberIds: [] },
+    ]);
+  });
+
+  it("does nothing when the target already owns the only membership", () => {
+    const changes = buildGroupMembershipMoveChanges({
+      groups: [
+        { id: "source", memberIds: ["other"] },
+        { id: "target", memberIds: ["existing", "member"] },
+      ],
+      itemId: "member",
+      targetGroupId: "target",
+    });
+
+    expect(changes).toEqual([]);
   });
 });
 

@@ -30,32 +30,24 @@ function replaceMemberIds(memberIds: string[], itemId: string, shouldInclude: bo
 export function buildGroupMembershipMoveChanges({
   groups,
   itemId,
-  sourceGroupId,
   targetGroupId,
 }: {
   groups: readonly GroupMembershipMoveGroup[];
   itemId: string;
-  sourceGroupId: string | null;
   targetGroupId: string | null;
 }): GroupMembershipMoveChange[] {
   const realGroups = groups.filter((group) => group.isSynthetic !== true);
-  const sourceGroup = sourceGroupId ? (realGroups.find((group) => group.id === sourceGroupId) ?? null) : null;
   const targetGroup = targetGroupId ? (realGroups.find((group) => group.id === targetGroupId) ?? null) : null;
   const changes: GroupMembershipMoveChange[] = [];
 
-  if (sourceGroup && sourceGroup.id !== targetGroup?.id && sourceGroup.memberIds.includes(itemId)) {
+  for (const group of realGroups) {
+    const shouldInclude = group.id === targetGroup?.id;
+    const hasMember = group.memberIds.includes(itemId);
+    if (hasMember === shouldInclude) continue;
     changes.push({
-      id: sourceGroup.id,
-      previousMemberIds: sourceGroup.memberIds,
-      memberIds: replaceMemberIds(sourceGroup.memberIds, itemId, false),
-    });
-  }
-
-  if (targetGroup && !targetGroup.memberIds.includes(itemId)) {
-    changes.push({
-      id: targetGroup.id,
-      previousMemberIds: targetGroup.memberIds,
-      memberIds: replaceMemberIds(targetGroup.memberIds, itemId, true),
+      id: group.id,
+      previousMemberIds: group.memberIds,
+      memberIds: replaceMemberIds(group.memberIds, itemId, shouldInclude),
     });
   }
 

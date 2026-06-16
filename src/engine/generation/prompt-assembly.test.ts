@@ -17,14 +17,14 @@ function macroContext(): MacroContext {
   };
 }
 
-function promptAssemblyStorage(args: { sections: JsonRecord[] }): StorageGateway {
+function promptAssemblyStorage(args: { sections: JsonRecord[]; character?: JsonRecord }): StorageGateway {
   const preset = {
     id: "preset-1",
     name: "Depth preset",
     wrapFormat: "xml",
     parameters: { strictRoleFormatting: true },
   };
-  const character = {
+  const character = args.character ?? {
     id: "char-1",
     name: "Mira",
     description: "A friend who likes music.",
@@ -169,6 +169,49 @@ describe("prompt assembly connected conversation context", () => {
 });
 
 describe("prompt assembly preset depth sections", () => {
+  it("does not append character description extensions to prompt macros", async () => {
+    const prompt = await assembleGenerationPrompt(
+      promptAssemblyStorage({
+        character: {
+          id: "char-1",
+          name: "Mira",
+          description: "A friend who likes music.",
+          tags: [],
+          extensions: {
+            altDescriptions: [{ active: true, content: "Hidden combat-state description." }],
+          },
+        },
+        sections: [
+          {
+            id: "description-macro",
+            presetId: "preset-1",
+            identifier: "descriptionMacro",
+            name: "Description Macro",
+            content: "{{description}}",
+            role: "system",
+            enabled: true,
+            sortOrder: 10,
+          },
+        ],
+      }),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          characterIds: ["char-1"],
+        },
+        storedMessages: [{ role: "user", content: "hello" }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "hello",
+      },
+    );
+
+    const promptText = prompt.messages.map((message) => message.content).join("\n");
+    expect(promptText).toContain("A friend who likes music.");
+    expect(promptText).not.toContain("Hidden combat-state description.");
+  });
+
   it("injects depth-positioned preset sections at the requested chat-history depth", async () => {
     const prompt = await assembleGenerationPrompt(
       promptAssemblyStorage({

@@ -1,6 +1,5 @@
 import type { LorebookEntryTimingState } from "../contracts/types/lorebook";
 import type { ChatMLMessage, MarkerConfig, WrapFormat } from "../contracts/types/prompt";
-import type { CharacterData } from "../contracts/types/character";
 import { BUILT_IN_AGENTS, enabledChatAgentIds } from "../contracts/types/agent";
 import {
   DEFAULT_CONVERSATION_SYSTEM_PROMPT,
@@ -8,7 +7,6 @@ import {
 } from "../contracts/constants/conversation-prompt";
 import type { ListChatMemoriesOptions, StorageGateway } from "../capabilities/storage";
 import type { VisualAssetGateway } from "../capabilities/visual-assets";
-import { getCharacterDescriptionWithExtensions } from "../generation-core/prompt/character-description-extensions";
 import { injectAtDepth } from "../generation-core/lorebooks/prompt-injector";
 import { wrapContent, wrapGroup } from "../generation-core/prompt/format-engine";
 import {
@@ -415,10 +413,7 @@ function loadCharacterContext(record: JsonRecord): GenerationCharacterContext {
   return {
     id: field(record, "id") || field(data, "id") || name,
     name,
-    description:
-      cleanPromptText(getCharacterDescriptionWithExtensions(data as unknown as CharacterData)) ||
-      field(data, "description") ||
-      field(record, "description"),
+    description: field(data, "description") || field(record, "description"),
     avatarUrl:
       rawField(data, "avatarPath") ||
       rawField(data, "avatarUrl") ||
@@ -493,7 +488,7 @@ function loadPersonaContext(record: JsonRecord): GenerationPersonaContext {
   const personaStats = personaStatsContext(data.personaStats ?? record.personaStats);
   return {
     name: field(data, "name") || field(record, "name") || "User",
-    description: personaDescriptionWithActiveExtensions(data, record),
+    description: personaDescriptionWithActiveAltDescriptions(data, record),
     avatarUrl:
       rawField(data, "avatarPath") ||
       rawField(data, "avatarUrl") ||
@@ -514,15 +509,15 @@ function loadPersonaContext(record: JsonRecord): GenerationPersonaContext {
   };
 }
 
-function personaDescriptionWithActiveExtensions(data: JsonRecord, record: JsonRecord): string {
+function personaDescriptionWithActiveAltDescriptions(data: JsonRecord, record: JsonRecord): string {
   const base = field(data, "description") || field(record, "description");
-  const extensions = activeAltDescriptionTexts(
+  const extensions = activePersonaAltDescriptionTexts(
     data.altDescriptions ?? record.altDescriptions ?? parseRecord(data.extensions).altDescriptions,
   );
   return [base, ...extensions].filter(Boolean).join("\n");
 }
 
-function activeAltDescriptionTexts(value: unknown): string[] {
+function activePersonaAltDescriptionTexts(value: unknown): string[] {
   return parseArray(value)
     .map(parseRecord)
     .filter((entry) => boolish(entry.active, false))

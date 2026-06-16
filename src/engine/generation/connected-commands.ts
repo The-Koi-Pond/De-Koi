@@ -989,7 +989,6 @@ async function applyScheduleUpdate(
 
 function characterDataFromCreate(command: CreateCharacterCommand): JsonRecord {
   const extensions: JsonRecord = {
-    altDescriptions: [],
     ...(command.talkativeness != null ? { talkativeness: command.talkativeness } : {}),
     ...(command.backstory !== undefined ? { backstory: command.backstory } : {}),
     ...(command.appearance !== undefined ? { appearance: command.appearance } : {}),

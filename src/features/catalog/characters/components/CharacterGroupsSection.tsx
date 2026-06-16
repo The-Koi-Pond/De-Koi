@@ -135,12 +135,12 @@ export function CharacterGroupsSection({
           >
             {groupsExpanded ? <ChevronDown size="0.75rem" /> : <ChevronRight size="0.75rem" />}
             <Users size="0.6875rem" />
-            Groups ({groups.length})
+            Folders ({groups.length})
           </button>
           <button
             onClick={onCreateGroupStart}
             className="rounded-lg p-1 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--primary)]"
-            title="Create group"
+            title="Create folder"
           >
             <FolderPlus size="0.8125rem" />
           </button>
@@ -159,7 +159,7 @@ export function CharacterGroupsSection({
                     if (event.key === "Enter") onCreateGroup();
                     if (event.key === "Escape") onCancelCreateGroup();
                   }}
-                  placeholder="Group name…"
+                  placeholder="Folder name..."
                   className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]/50"
                 />
                 <button
@@ -253,7 +253,7 @@ export function CharacterGroupsSection({
                               "rounded-lg p-1 transition-all hover:bg-[var(--accent)]",
                               isAssigning && "bg-[var(--primary)]/15 text-[var(--primary)]",
                             )}
-                            title={isAssigning ? "Done assigning" : "Add/remove members"}
+                            title={isAssigning ? "Done moving" : "Move characters"}
                           >
                             <Users size="0.6875rem" />
                           </button>
@@ -264,7 +264,7 @@ export function CharacterGroupsSection({
                               onEditGroupNameChange(group.name);
                             }}
                             className="rounded-lg p-1 transition-all hover:bg-[var(--accent)]"
-                            title="Rename group"
+                            title="Rename folder"
                           >
                             <Pencil size="0.6875rem" />
                           </button>
@@ -274,7 +274,7 @@ export function CharacterGroupsSection({
                               onDeleteGroup(group.id);
                             }}
                             className="rounded-lg p-1 transition-all hover:bg-[var(--destructive)]/15"
-                            title="Delete group"
+                            title="Delete folder"
                           >
                             <Trash2 size="0.6875rem" className="text-[var(--destructive)]" />
                           </button>
@@ -287,7 +287,7 @@ export function CharacterGroupsSection({
                     <div className="ml-5 flex flex-col gap-0.5 border-l border-[var(--border)]/40 pl-3 pb-2">
                       {group.memberIds.length === 0 && (
                         <div className="py-2 text-[0.625rem] text-[var(--muted-foreground)] italic">
-                          No members — click <Users size="0.625rem" className="inline" /> to add characters
+                          Empty folder - click <Users size="0.625rem" className="inline" /> to move characters here
                         </div>
                       )}
                       {group.memberIds.map((memberId) => {
@@ -357,7 +357,7 @@ export function CharacterGroupsSection({
                                   onToggleGroupMember(group.id, memberId, group.memberIds);
                                 }}
                                 className="rounded p-0.5 opacity-0 transition-all hover:bg-[var(--destructive)]/15 group-hover/member:opacity-100"
-                                title="Remove from group"
+                                title="Remove from folder"
                               >
                                 <UserMinus size="0.6875rem" className="text-[var(--destructive)]" />
                               </button>
@@ -373,7 +373,7 @@ export function CharacterGroupsSection({
 
             {groups.length === 0 && !creatingGroup && (
               <div className="py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">
-                No groups yet — click <FolderPlus size="0.625rem" className="inline" /> to create one
+                No folders yet - click <FolderPlus size="0.625rem" className="inline" /> to create one
               </div>
             )}
           </div>
@@ -384,7 +384,7 @@ export function CharacterGroupsSection({
         <div className="flex items-center gap-2 rounded-xl bg-[var(--primary)]/10 px-3 py-2 text-xs ring-1 ring-[var(--primary)]/30">
           <Users size="0.8125rem" className="text-[var(--primary)]" />
           <span className="flex-1">
-            Click characters to add/remove from{" "}
+            Click characters to move/remove from{" "}
             <strong>{groups.find((group) => group.id === assigningToGroup)?.name}</strong>
           </span>
           <button
