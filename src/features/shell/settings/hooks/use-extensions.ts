@@ -16,10 +16,19 @@ const extensionKeys = {
   list: () => [...extensionKeys.all, "list"] as const,
 };
 
+function isInstalledExtension(value: unknown): value is InstalledExtension {
+  if (!value || typeof value !== "object") return false;
+  const extension = value as Partial<InstalledExtension>;
+  return typeof extension.id === "string" && typeof extension.name === "string" && typeof extension.enabled === "boolean";
+}
+
 export function useExtensions() {
   return useQuery({
     queryKey: extensionKeys.list(),
-    queryFn: () => storageApi.list<InstalledExtension>("extensions"),
+    queryFn: async () => {
+      const rows = await storageApi.list<unknown>("extensions");
+      return rows.filter(isInstalledExtension);
+    },
     staleTime: 0,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
