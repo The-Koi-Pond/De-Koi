@@ -17,12 +17,6 @@ concurrency:
 
 jobs:
   dispatch:
-    if: >
-      github.event.pull_request.base.ref == 'main' &&
-      github.event.pull_request.draft == false &&
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
-               github.event.pull_request.author_association) &&
-      (github.event.action != 'synchronize' || vars.DE_KOI_PR_SYNC_AUTOMATION != 'off')
     runs-on: ${{ fromJSON(vars.DE_KOI_BUNNY_DISPATCH_RUNS_ON || '"ubuntu-latest"') }}
     steps:
       - name: Dispatch trusted Bunny reviewer
@@ -34,15 +28,57 @@ jobs:
           PR_IS_DRAFT: ${{ github.event.pull_request.draft }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
           PREVIOUS_BASE_REF: ${{ github.event.changes.base.ref.from }}
+          PR_SYNC_AUTOMATION: ${{ vars.DE_KOI_PR_SYNC_AUTOMATION }}
         run: |
           # This pull_request_target workflow is intentionally a dispatcher only.
           # It must not checkout, install, or execute code from the pull request.
+          trusted_actor() {
+            local login="$1"
+            local association="$2"
+            case "$association" in
+              OWNER|MEMBER|COLLABORATOR)
+                echo "Trusted PR author by association: $login ($association)."
+                return 0
+                ;;
+            esac
+
+            local permission
+            set +e
+            permission="$(gh api "repos/${{ github.repository }}/collaborators/$login/permission" --jq .permission 2>/dev/null)"
+            local rc=$?
+            set -e
+            case "$permission" in
+              admin|maintain|write)
+                echo "Trusted PR author by collaborator permission: $login ($permission)."
+                return 0
+                ;;
+            esac
+
+            echo "Skipping Bunny auto dispatch: PR author $login is not trusted. association=${association:-none} permission=${permission:-unavailable} rc=$rc"
+            return 1
+          }
+
+          echo "Bunny auto dispatch gate: action=$EVENT_ACTION base=$PR_BASE_REF draft=$PR_IS_DRAFT author=$PR_AUTHOR association=$PR_AUTHOR_ASSOCIATION sync_automation=${PR_SYNC_AUTOMATION:-unset}"
           TARGET_REF="$PR_BASE_REF"
           if [ "$TARGET_REF" != "main" ]; then
             echo "::error::Unsupported Bunny review base ref: $TARGET_REF"
             exit 1
           fi
+          if [ "$PR_IS_DRAFT" = "true" ]; then
+            echo "Skipping Bunny auto dispatch for draft pull request."
+            exit 0
+          fi
+          if [ "$EVENT_ACTION" = "synchronize" ] && [ "$PR_SYNC_AUTOMATION" = "off" ]; then
+            echo "DE_KOI_PR_SYNC_AUTOMATION=off; skipping Bunny auto dispatch for synchronize."
+            exit 0
+          fi
+          if ! trusted_actor "$PR_AUTHOR" "$PR_AUTHOR_ASSOCIATION"; then
+            exit 0
+          fi
+
           REVIEW_MODE=auto
 
           if [ "$EVENT_ACTION" = "edited" ] && [ -z "$PREVIOUS_BASE_REF" ]; then
