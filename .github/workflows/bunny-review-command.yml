@@ -14,9 +14,7 @@ jobs:
   dispatch:
     if: >
       github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/bunny-review') &&
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
-               github.event.comment.author_association)
+      startsWith(github.event.comment.body, '/bunny-review')
     runs-on: ${{ fromJSON(vars.DE_KOI_BUNNY_DISPATCH_RUNS_ON || '"ubuntu-latest"') }}
     steps:
       - name: Dispatch trusted Bunny reviewer
@@ -25,10 +23,41 @@ jobs:
           PR_NUM: ${{ github.event.issue.number }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+          COMMENT_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
         run: |
           # Keep this bootstrap deliberately inert: it only authorizes the slash command
           # and dispatches the trusted reviewer workflow on the PR base ref.
           # It must not checkout, install, or execute code from the pull request.
+          trusted_actor() {
+            local login="$1"
+            local association="$2"
+            case "$association" in
+              OWNER|MEMBER|COLLABORATOR)
+                echo "Trusted Bunny command requester by association: $login ($association)."
+                return 0
+                ;;
+            esac
+
+            local permission
+            set +e
+            permission="$(gh api "repos/${{ github.repository }}/collaborators/$login/permission" --jq .permission 2>/dev/null)"
+            local rc=$?
+            set -e
+            case "$permission" in
+              admin|maintain|write)
+                echo "Trusted Bunny command requester by collaborator permission: $login ($permission)."
+                return 0
+                ;;
+            esac
+
+            echo "Skipping Bunny command dispatch: requester $login is not trusted. association=${association:-none} permission=${permission:-unavailable} rc=$rc"
+            return 1
+          }
+
+          if ! trusted_actor "$COMMENT_AUTHOR" "$COMMENT_AUTHOR_ASSOCIATION"; then
+            exit 0
+          fi
+
           REVIEW_MODE=auto
           if [[ "$COMMENT_BODY" =~ ^/bunny-review[[:space:]]+full([[:space:]]|$) ]]; then
             REVIEW_MODE=full
