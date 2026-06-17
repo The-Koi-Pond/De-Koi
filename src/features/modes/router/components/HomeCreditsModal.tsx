@@ -1,7 +1,7 @@
 import { ExternalLink } from "lucide-react";
 
 import { Modal } from "../../../../shared/components/ui/Modal";
-import { HOME_CREDIT_LINKS, HOME_SPECIAL_THANKS } from "./homeCredits";
+import { HOME_CREDIT_LINKS } from "./homeCredits";
 
 export function HomeCreditsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
@@ -9,9 +9,9 @@ export function HomeCreditsModal({ open, onClose }: { open: boolean; onClose: ()
       <div className="space-y-5">
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-            Core Credits
+            Project Notices
           </h3>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2">
             {HOME_CREDIT_LINKS.map((item) => (
               <a
                 key={item.label}
@@ -37,10 +37,11 @@ export function HomeCreditsModal({ open, onClose }: { open: boolean; onClose: ()
 
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-            Special Thanks
+            Brand Assets
           </h3>
           <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
-            {HOME_SPECIAL_THANKS.join(", ")}.
+            The current De-Koi logo and app icon family are original project assets created by The Koi Pond team for
+            De-Koi.
           </p>
         </section>
       </div>
