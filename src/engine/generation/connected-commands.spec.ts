@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { StorageEntity, StorageGateway, StorageListOptions } from "../capabilities/storage";
 import { persistConnectedCommandTags, pruneConnectedConversationNotes } from "./connected-commands";
 import { loadCharacters } from "./prompt-assembly";
+import { parseCharacterCommands } from "../modes/chat/commands/character-commands";
 import type { JsonRecord } from "./runtime-records";
 
 function asStorageValue<T>(value: unknown): T {
@@ -186,6 +187,31 @@ describe("connected conversation notes", () => {
     ];
 
     expect(pruneConnectedConversationNotes(notes, "roleplay-1", 4).map((note) => note.id)).toEqual(["new"]);
+  });
+});
+
+describe("scene connected command parsing", () => {
+  it("accepts model scene tags with curly quotes and alternate scenario keys", () => {
+    const result = parseCharacterCommands(
+      "Visible setup.\n[scene: description=\u201cA rainy rooftop confession\u201d, background=\u201ccity.png\u201d, plan=\u201cKeep it intimate.\u201d]",
+    );
+
+    expect(result.cleanContent).toBe("Visible setup.");
+    expect(result.commands).toEqual([
+      {
+        type: "scene",
+        scenario: "A rainy rooftop confession",
+        background: "city.png",
+        plan: "Keep it intimate.",
+      },
+    ]);
+  });
+
+  it("accepts bare scene premises inside explicit scene tags", () => {
+    const result = parseCharacterCommands("Visible setup.\n[scene: A quiet shrine at dawn]");
+
+    expect(result.cleanContent).toBe("Visible setup.");
+    expect(result.commands).toEqual([{ type: "scene", scenario: "A quiet shrine at dawn" }]);
   });
 });
 
