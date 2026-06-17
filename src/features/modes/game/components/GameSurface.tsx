@@ -2831,8 +2831,8 @@ export function GameSurface({
     const msg = sceneProcessOutcome.messageToProcess;
     const assets = getScopedAssetMap();
 
-    if (useUIStore.getState().debugMode) {
-      console.debug("[scene-process] processing message", msg.id, { hasAssets: !!assets });
+    if (import.meta.env.DEV && useUIStore.getState().debugMode) {
+      console.debug("[scene-process] processing assistant message", { hasAssets: !!assets });
     }
     setNarrationDoneMsgId(null);
     setSceneAnalysisFailed(false);
@@ -3243,9 +3243,7 @@ export function GameSurface({
   }
 
   async function applySceneResult(result: SceneAnalysis, msg: { id: string }) {
-    if (useUIStore.getState().debugMode) {
-      console.debug("[scene-analysis] Result from model:", JSON.stringify(result, null, 2));
-    }
+
     setSceneAnalysisFailed(false);
     // NOTE: Game state transitions are owned exclusively by the GM model via [state: ...] tags.
     // The scene model no longer emits stateChange to avoid conflicting state flips.
@@ -3493,8 +3491,8 @@ export function GameSurface({
     const handler = (e: Event) => {
       const chatId = (e as CustomEvent).detail?.chatId;
       if (chatId !== activeChatId) return;
-      if (useUIStore.getState().debugMode) {
-        console.debug("[scene-process] generation-complete event received for chat:", chatId);
+      if (import.meta.env.DEV && useUIStore.getState().debugMode) {
+        console.debug("[scene-process] generation-complete event received");
       }
       // Wait one animation frame so React commits the new messages → ref is fresh
       scheduleSceneAssistantProcessing({
@@ -3507,8 +3505,11 @@ export function GameSurface({
         retryAlreadyProcessed: true,
         setDelay: (callback, delayMs) => setTimeout(callback, delayMs),
         onTimeout: (timeout) => {
-          if (useUIStore.getState().debugMode) {
-            console.debug("[scene-process] assistant message did not arrive after generation-complete", timeout);
+          if (import.meta.env.DEV && useUIStore.getState().debugMode) {
+            console.debug("[scene-process] assistant message did not arrive after generation-complete", {
+              attempts: timeout.attempts,
+              latestMessageHadContent: timeout.latestMessageHadContent,
+            });
           }
         },
       });
@@ -6910,10 +6911,14 @@ export function GameSurface({
       const fallbackTag = pickFallbackBackgroundTag(currentBackground, scopedAssetMap);
       const fallbackEntry = fallbackTag ? scopedAssetMap[fallbackTag] : undefined;
       if (fallbackEntry) {
-        console.warn("[bg-resolve] No asset match for background tag; using fallback:", currentBackground, fallbackTag);
+        if (import.meta.env.DEV && useUIStore.getState().debugMode) {
+          console.debug("[bg-resolve] background asset tag did not resolve; using fallback asset");
+        }
         return backgroundAssetUrl(fallbackEntry);
       }
-      console.warn("[bg-resolve] No asset match for background tag:", currentBackground);
+      if (import.meta.env.DEV && useUIStore.getState().debugMode) {
+        console.debug("[bg-resolve] background asset tag did not resolve");
+      }
     }
     return undefined;
   }, [sceneAnalysisEnabled, chatBackground, currentBackground, scopedAssetMap]);
