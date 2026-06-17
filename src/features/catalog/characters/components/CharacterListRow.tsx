@@ -1,5 +1,5 @@
 import type { DragEvent } from "react";
-import { Check, Copy, Hash, Trash2, User, X } from "lucide-react";
+import { Check, Copy, Hash, Star, Trash2, User, X } from "lucide-react";
 
 import { getCharacterTitle } from "../../../../shared/lib/character-display";
 import { cn } from "../../../../shared/lib/utils";
@@ -70,14 +70,16 @@ export function CharacterListRow({
   const charTags = getCharacterTags(character);
   const extensions = readRecord(character.parsed.extensions);
   const charNameColor = typeof extensions.nameColor === "string" ? extensions.nameColor : undefined;
+  const isFavorite = Boolean(extensions.fav);
+  const favoriteStatusLabel = isFavorite ? " (favorite)" : "";
   const avatarUrl = characterAvatarUrl(character);
   const isInTargetGroup = assigningGroup?.memberIds.includes(character.id) ?? false;
   const previewMetadata = getCharacterPreviewMetadata(character);
   const rowActionLabel = selectionMode
-    ? `${isBulkSelected ? "Deselect" : "Select"} ${charName}`
+    ? `${isBulkSelected ? "Deselect" : "Select"} ${charName}${favoriteStatusLabel}`
     : assigningGroup
-      ? `${isInTargetGroup ? "Remove" : "Move"} ${charName} ${isInTargetGroup ? "from" : "to"} folder`
-      : `Open ${charName}`;
+      ? `${isInTargetGroup ? "Remove" : "Move"} ${charName}${favoriteStatusLabel} ${isInTargetGroup ? "from" : "to"} folder`
+      : `Open ${charName}${favoriteStatusLabel}`;
   const activateRow = () => {
     if (selectionMode) {
       onToggleSelection(character.id);
@@ -157,13 +159,21 @@ export function CharacterListRow({
         ) : (
           <User size="1rem" />
         )}
+        {isFavorite && (
+          <div
+            aria-hidden="true"
+            className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--background)] text-amber-300 shadow-sm ring-1 ring-[var(--border)]"
+          >
+            <Star size="0.625rem" className="fill-current" />
+          </div>
+        )}
         {isSelected && !isAssigning && (
-          <div className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--primary)] shadow-sm">
+          <div className="absolute -left-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--primary)] shadow-sm">
             <Check size="0.5625rem" className="text-white" />
           </div>
         )}
         {isAssigning && isInTargetGroup && (
-          <div className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 shadow-sm">
+          <div className="absolute -left-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 shadow-sm">
             <Check size="0.5625rem" className="text-white" />
           </div>
         )}

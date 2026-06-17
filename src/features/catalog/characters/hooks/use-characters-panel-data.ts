@@ -46,6 +46,7 @@ export function useCharactersPanelData({
         avatarFilePath?: string | null;
         avatarFilename?: string | null;
         avatarCrop?: unknown;
+        isFavorite: boolean;
       }
     >();
     for (const character of parsedCharacters) {
@@ -57,6 +58,7 @@ export function useCharactersPanelData({
         avatarFilePath: character.avatarFilePath,
         avatarFilename: character.avatarFilename,
         avatarCrop: extensions.avatarCrop,
+        isFavorite: Boolean(extensions.fav),
       });
     }
     return map;

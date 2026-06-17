@@ -6,6 +6,7 @@ import {
   FolderPlus,
   MessageCircle,
   Pencil,
+  Star,
   Trash2,
   User,
   UserMinus,
@@ -27,6 +28,7 @@ export type CharacterGroupMemberPreview = {
   avatarFilePath?: string | null;
   avatarFilename?: string | null;
   avatarCrop?: unknown;
+  isFavorite: boolean;
 };
 
 export type CharacterGroupContextMenuRequest = {
@@ -315,22 +317,37 @@ export function CharacterGroupsSection({
                               draggedCharacterId === memberId && "opacity-55 ring-1 ring-[var(--primary)]/30",
                             )}
                           >
-                            <div className="relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-pink-400 to-rose-500 text-white">
-                              {member.avatarPath ? (
-                                <CharacterAvatarImage
-                                  src={member.avatarPath}
-                                  avatarFilePath={member.avatarFilePath}
-                                  avatarFilename={member.avatarFilename}
-                                  alt={member.name}
-                                  crop={member.avatarCrop}
-                                  thumbnailSize={128}
-                                />
-                              ) : (
-                                <User size="0.75rem" />
+                            <div className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-pink-400 to-rose-500 text-white">
+                              <div className="absolute inset-0 overflow-hidden rounded-lg">
+                                {member.avatarPath ? (
+                                  <CharacterAvatarImage
+                                    src={member.avatarPath}
+                                    avatarFilePath={member.avatarFilePath}
+                                    avatarFilename={member.avatarFilename}
+                                    alt={member.name}
+                                    crop={member.avatarCrop}
+                                    thumbnailSize={128}
+                                  />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center">
+                                    <User size="0.75rem" />
+                                  </div>
+                                )}
+                              </div>
+                              {member.isFavorite && (
+                                <div
+                                  aria-hidden="true"
+                                  className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[var(--background)] text-amber-300 shadow-sm ring-1 ring-[var(--border)]"
+                                >
+                                  <Star size="0.5625rem" className="fill-current" />
+                                </div>
                               )}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <span className="block truncate text-[0.6875rem]">{member.name}</span>
+                              <span className="block truncate text-[0.6875rem]">
+                                {member.name}
+                                {member.isFavorite && <span className="sr-only"> favorite</span>}
+                              </span>
                               {getCharacterTitle(member) && (
                                 <span className="block truncate text-[0.5625rem] italic text-[var(--muted-foreground)]">
                                   {getCharacterTitle(member)}
