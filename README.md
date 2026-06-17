@@ -19,9 +19,9 @@
 
 De-Koi is a local-first AI chat, roleplay, and game engine built as a Tauri desktop app. It combines a React interface, a TypeScript product engine, and Rust capability modules for local storage, managed assets, provider transport, integrations, and an optional hostable runtime.
 
-This repository is an active refactor branch. The app is usable from source, and public release packaging is being rebuilt around the Tauri desktop plus optional Rust runtime architecture.
-Use the `refactor` branch copy of this documentation for current development and integration work. `main` and historical `staging` branch docs may describe legacy architecture and should not be treated as authoritative for the refactor build unless a maintainer explicitly asks for that branch context.
-The refactor build keeps an explicit in-app update check in Settings > Advanced. It opens the matching release page for manual install; signed Tauri auto-install artifacts are not configured on this branch yet. See [Release Update Strategy](docs/release-update-strategy.md) for end-user install/update guidance and the stable refactor update policy.
+This repository is the active De-Koi development line. The app is usable from source, and public release packaging is being rebuilt around the Tauri desktop plus optional Rust runtime architecture.
+Use the `main` branch copy of this documentation for current development and integration work. Historical branch docs may describe legacy architecture and should not be treated as authoritative unless a maintainer explicitly asks for that branch context.
+The current build keeps an explicit in-app update check in Settings > Advanced. It opens the matching release page for manual install; signed Tauri auto-install artifacts are not configured yet. See [Release Update Strategy](docs/release-update-strategy.md) for end-user install/update guidance and the stable manual update policy.
 Token budget displays and prompt budget paths currently use deterministic estimates rather than provider-exact tokenizers. See [Token Budget Estimates](docs/token-budget-estimates.md) for the tokenizer support spike note and future requirements.
 Storage is file-backed JSON collections plus managed asset files. See [De-Koi Storage Schema](docs/database-schema.md) for the current collection catalog and [Legacy Marinara Storage Schema](docs/legacy-database-schema.md) for the generated comparison source.
 
@@ -232,4 +232,4 @@ show up without failing the command.
 
 ## Current Status
 
-This branch is focused on the refactored desktop/runtime architecture. Release docs describe the current manual install/update model, and release-build screenshots are checked in for the current web-shell setup, settings, and connections surfaces.
+Current development is focused on the refactored desktop/runtime architecture. Release docs describe the current manual install/update model, and release-build screenshots are checked in for the current web-shell setup, settings, and connections surfaces.

@@ -21,15 +21,15 @@ env:
   PREALPHA_ANDROID_APP_NAME: De-Koi Pre-Alpha
 
 jobs:
-  refactor-only:
-    name: Refactor branch guard
+  main-only:
+    name: Main branch guard
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - name: Allow only refactor branch dispatches
+      - name: Allow only main branch dispatches
         run: |
-          if [ "${GITHUB_REF_NAME}" != "refactor" ]; then
-            echo "::error::Pre-alpha platform builds are manual-only and may only run from the refactor branch. Selected branch: ${GITHUB_REF_NAME}"
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "::error::Pre-alpha platform builds are manual-only and may only run from the main branch. Selected branch: ${GITHUB_REF_NAME}"
             exit 1
           fi
           echo "Building pre-alpha artifacts from ${GITHUB_REF_NAME}."
@@ -37,7 +37,7 @@ jobs:
   create-prealpha-release:
     name: Create draft pre-release
     runs-on: ubuntu-latest
-    needs: refactor-only
+    needs: main-only
     permissions:
       contents: write
     outputs:
@@ -54,7 +54,7 @@ jobs:
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
           short_sha="${GITHUB_SHA::7}"
-          tag_name="prealpha-refactor-v${version}-run${GITHUB_RUN_NUMBER}-attempt${GITHUB_RUN_ATTEMPT}-${short_sha}"
+          tag_name="prealpha-main-v${version}-run${GITHUB_RUN_NUMBER}-attempt${GITHUB_RUN_ATTEMPT}-${short_sha}"
           release_name="De-Koi Pre-Alpha Test Build v${version} #${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
           {
             echo "version=${version}"
@@ -79,7 +79,7 @@ jobs:
             const bodyLines = [
               '# ⚠️ DE-KOI PRE-ALPHA TEST BUILD — EXPECT BREAKAGE ⚠️',
               '',
-              'This is a **manual refactor-branch test build** for team testing. It is marked as a **GitHub pre-release** and forced to **not be the latest release**.',
+              'This is a **manual main-branch test build** for team testing. It is marked as a **GitHub pre-release** and forced to **not be the latest release**.',
               '',
               '## 🚨 Read before downloading',
               '',
@@ -87,7 +87,7 @@ jobs:
               '- **Use throwaway data only.** Back up existing De-Koi data before launching this build. Do not use this for real saves, production stories, or important chats.',
               '- **Unsigned and unnotarized.** Windows SmartScreen, macOS Gatekeeper, Linux package trust warnings, and Android debug-build warnings are expected.',
               '- **No stable-update promise.** These artifacts do not publish updater metadata and should not be treated as an official update channel.',
-              '- **Built only from the `refactor` branch.** This workflow does not publish from `main` and does not replace the main branch or stable releases.',
+              '- **Built only from the `main` branch.** This workflow does not publish from other development branches, mark itself as latest, or publish stable updater metadata.',
               '- **iOS is intentionally excluded for now.** iOS needs Apple signing/provisioning/TestFlight planning before CI distribution.',
               '',
               '## Included artifacts when the workflow succeeds',
