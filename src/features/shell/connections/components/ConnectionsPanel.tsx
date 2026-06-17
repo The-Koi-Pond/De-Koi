@@ -41,6 +41,9 @@ import {
   FolderOpen,
   GripVertical,
   Pencil,
+  Settings2,
+  Sparkles,
+  ImageIcon,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { resolveEntityImageUrl } from "../../../../shared/api/local-file-api";
@@ -74,12 +77,83 @@ type ConnectionRowData = {
   imagePath?: string | null;
   imageFilename?: string | null;
   useForRandom?: string | boolean | null;
+  defaultForAgents?: string | boolean | null;
   folderId?: string | null;
 };
 
 type ConnectionDropTarget = { folderId: string | null } | null;
 
 const CONNECTION_DRAG_MIME = "application/x-de-koi-connection-id";
+
+function DefaultAgentConnectionCard({ connectionsList }: { connectionsList: ConnectionRowData[] }) {
+  const openConnectionDetail = useUIStore((s) => s.openConnectionDetail);
+  const defaultConnection =
+    connectionsList.find((conn) => conn.provider !== "image_generation" && boolish(conn.defaultForAgents, false)) ??
+    null;
+
+  return (
+    <div className="rounded-xl border border-sky-400/20 bg-gradient-to-br from-sky-400/5 to-blue-500/5 p-3">
+      <div className="flex items-center gap-2.5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-500 text-white shadow-sm">
+          <Sparkles size="1rem" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">Default for Agents</div>
+          <div className="truncate text-[0.6875rem] text-[var(--muted-foreground)]">
+            {defaultConnection
+              ? `${defaultConnection.name} • ${defaultConnection.model || "No model set"}`
+              : "No default agent connection set"}
+          </div>
+        </div>
+        {defaultConnection && (
+          <button
+            type="button"
+            onClick={() => openConnectionDetail(defaultConnection.id)}
+            className="rounded-lg p-1.5 text-sky-400 transition-all hover:bg-sky-400/15 active:scale-90"
+            title="Open default agent connection"
+          >
+            <Settings2 size="0.8125rem" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DefaultIllustratorConnectionCard({ connectionsList }: { connectionsList: ConnectionRowData[] }) {
+  const openConnectionDetail = useUIStore((s) => s.openConnectionDetail);
+  const defaultConnection =
+    connectionsList.find((conn) => conn.provider === "image_generation" && boolish(conn.defaultForAgents, false)) ??
+    null;
+
+  return (
+    <div className="rounded-xl border border-fuchsia-400/20 bg-gradient-to-br from-fuchsia-400/5 to-pink-500/5 p-3">
+      <div className="flex items-center gap-2.5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-400 to-pink-500 text-white shadow-sm">
+          <ImageIcon size="1rem" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">Default for Illustrator</div>
+          <div className="truncate text-[0.6875rem] text-[var(--muted-foreground)]">
+            {defaultConnection
+              ? `${defaultConnection.name} • ${defaultConnection.model || "Image generation"}`
+              : "No default Illustrator connection set"}
+          </div>
+        </div>
+        {defaultConnection && (
+          <button
+            type="button"
+            onClick={() => openConnectionDetail(defaultConnection.id)}
+            className="rounded-lg p-1.5 text-fuchsia-400 transition-all hover:bg-fuchsia-400/15 active:scale-90"
+            title="Open default Illustrator connection"
+          >
+            <Settings2 size="0.8125rem" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function getNextUnnamedConnectionFolderName(folders: ConnectionFolder[]): string {
   const names = new Set(folders.map((folder) => folder.name.trim().toLowerCase()).filter(Boolean));
@@ -631,6 +705,9 @@ export function ConnectionsPanel() {
 
       {/* ── Text to Speech ── */}
       <TTSConfigCard />
+
+      <DefaultAgentConnectionCard connectionsList={connectionsList} />
+      <DefaultIllustratorConnectionCard connectionsList={connectionsList} />
 
       {/* ── New folder button ── */}
       <button

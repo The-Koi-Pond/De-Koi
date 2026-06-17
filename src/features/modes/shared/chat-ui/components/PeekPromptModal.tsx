@@ -50,12 +50,26 @@ interface PeekPromptModalProps {
     previewMessages?: PeekPromptMessage[];
     parameters: unknown;
     promptPresetId?: string | null;
+    source?: "cached" | "live_preview" | "raw_messages";
+    exact?: boolean;
     generationInfo?: GenerationInfo | null;
     agentNote?: string;
     loading?: boolean;
     error?: string;
   };
   onClose: () => void;
+}
+
+function sourceLabel(data: PeekPromptModalProps["data"]): string {
+  if (data.exact) return "Exact Text Model Request";
+  if (data.source === "live_preview") return "Live Preview";
+  if (data.source === "raw_messages") return "Raw Messages";
+  return "Prompt Preview";
+}
+
+function sourceBadgeClass(data: PeekPromptModalProps["data"]): string {
+  if (data.exact) return "border-emerald-500/30 bg-emerald-500/10 text-emerald-400";
+  return "border-amber-500/30 bg-amber-500/10 text-amber-300";
 }
 
 function prettifyTag(tag: string): string {
@@ -535,8 +549,18 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="shrink-0 flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
-          <div className="flex items-center gap-3">
-            <h3 className="text-sm font-bold">Assembled Prompt</h3>
+          <div className="flex min-w-0 items-center gap-3">
+            <h3 className="shrink-0 text-sm font-bold">Assembled Prompt</h3>
+            {!isLoading && !data.error && (
+              <span
+                className={cn(
+                  "shrink-0 rounded-md border px-2 py-0.5 text-[0.5625rem] font-bold uppercase",
+                  sourceBadgeClass(data),
+                )}
+              >
+                {sourceLabel(data)}
+              </span>
+            )}
             <span className="text-[0.625rem] text-[var(--muted-foreground)]">
               {isLoading
                 ? "assembling"
@@ -605,7 +629,7 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
           )}
           {!isLoading && !data.error && data.agentNote && (
             <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[0.6875rem] text-amber-300/80">
-              ⚠ {data.agentNote}
+              Note: {data.agentNote}
             </div>
           )}
           {!isLoading &&

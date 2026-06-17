@@ -216,6 +216,8 @@ export function RegexScriptEditor() {
     [characters],
   );
   const selectedTargetIds = useMemo(() => new Set(localTargetCharacterIds), [localTargetCharacterIds]);
+  const hasCharacterScope = localTargetCharacterIds.length > 0;
+  const effectivePromptOnly = hasCharacterScope || localPromptOnly;
 
   const handleClose = useCallback(() => {
     if (dirty) {
@@ -237,7 +239,7 @@ export function RegexScriptEditor() {
       trimStrings: localTrimStrings,
       placement: localPlacement,
       flags: localFlags,
-      promptOnly: localPromptOnly,
+      promptOnly: effectivePromptOnly,
       order: localOrder,
       minDepth: localMinDepth,
       maxDepth: localMaxDepth,
@@ -270,7 +272,7 @@ export function RegexScriptEditor() {
     localPlacement,
     localTargetCharacterIds,
     localFlags,
-    localPromptOnly,
+    effectivePromptOnly,
     localOrder,
     localMinDepth,
     localMaxDepth,
@@ -308,9 +310,11 @@ export function RegexScriptEditor() {
   };
 
   const toggleTargetCharacter = (characterId: string) => {
-    setLocalTargetCharacterIds((prev) =>
-      prev.includes(characterId) ? prev.filter((id) => id !== characterId) : [...prev, characterId],
-    );
+    const nextTargetCharacterIds = localTargetCharacterIds.includes(characterId)
+      ? localTargetCharacterIds.filter((id) => id !== characterId)
+      : [...localTargetCharacterIds, characterId];
+    setLocalTargetCharacterIds(nextTargetCharacterIds);
+    if (nextTargetCharacterIds.length > 0) setLocalPromptOnly(true);
     markDirty();
   };
 
@@ -544,7 +548,7 @@ export function RegexScriptEditor() {
           <FieldGroup
             label="Character Scope"
             icon={<Users size="0.875rem" className="text-orange-400" />}
-            help="Leave global to run this regex in every chat, or choose one or more characters to match legacy scoped scripts."
+            help="Leave global to run this regex in every chat, or choose one or more characters to match legacy prompt-only scoped scripts."
           >
             <div className="space-y-2">
               <button
@@ -650,13 +654,21 @@ export function RegexScriptEditor() {
               <label className="flex items-center gap-2.5 cursor-pointer">
                 <button
                   type="button"
+                  disabled={hasCharacterScope}
+                  aria-pressed={effectivePromptOnly}
                   onClick={() => {
+                    if (hasCharacterScope) return;
                     setLocalPromptOnly((v) => !v);
                     markDirty();
                   }}
-                  className="shrink-0"
+                  className={cn("shrink-0", hasCharacterScope && "cursor-not-allowed opacity-70")}
+                  title={
+                    hasCharacterScope
+                      ? "Character-scoped regexes are prompt-only for legacy compatibility."
+                      : "Toggle Prompt Only"
+                  }
                 >
-                  {localPromptOnly ? (
+                  {effectivePromptOnly ? (
                     <ToggleRight size="1.125rem" className="text-orange-400" />
                   ) : (
                     <ToggleLeft size="1.125rem" className="text-[var(--muted-foreground)]" />
@@ -665,7 +677,9 @@ export function RegexScriptEditor() {
                 <div>
                   <div className="text-xs font-medium">Prompt Only</div>
                   <div className="text-[0.625rem] text-[var(--muted-foreground)]">
-                    Only apply in the prompt context sent to the AI, not in the displayed message.
+                    {hasCharacterScope
+                      ? "Character-scoped scripts apply only in the prompt context sent to the AI."
+                      : "Only apply in the prompt context sent to the AI, not in the displayed message."}
                   </div>
                 </div>
               </label>

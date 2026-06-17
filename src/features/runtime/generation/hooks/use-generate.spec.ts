@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { chatKeys } from "../../../catalog/chats/index";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
-import { generateAndApplyBackgroundRequest, runGenerationWithUi } from "./use-generate";
+import { generateAndApplyBackgroundRequest, isTrackerPatchRetryRequest, runGenerationWithUi } from "./use-generate";
 import type { AgentResult } from "../../../../engine/contracts/types/agent";
 import type { Chat, StreamEvent } from "../../../../engine/contracts/types/chat";
 
@@ -126,6 +126,19 @@ describe("generateAndApplyBackgroundRequest", () => {
     expect(imageGenerate).not.toHaveBeenCalled();
     expect(upload).not.toHaveBeenCalled();
     expect(applyChoice).not.toHaveBeenCalled();
+  });
+});
+
+describe("isTrackerPatchRetryRequest", () => {
+  it("only classifies retry requests for agents that should return tracker patches", () => {
+    expect(isTrackerPatchRetryRequest(["world-state", "character-tracker", "persona-stats", "custom-tracker"])).toBe(
+      true,
+    );
+    expect(isTrackerPatchRetryRequest(["background"])).toBe(false);
+    expect(isTrackerPatchRetryRequest(["expression"])).toBe(false);
+    expect(isTrackerPatchRetryRequest(["quest"])).toBe(false);
+    expect(isTrackerPatchRetryRequest(["world-state", "background"])).toBe(false);
+    expect(isTrackerPatchRetryRequest([])).toBe(false);
   });
 });
 

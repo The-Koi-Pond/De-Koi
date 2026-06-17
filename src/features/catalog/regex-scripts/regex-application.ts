@@ -30,13 +30,22 @@ function parseJsonArray<T extends string>(value: unknown, allowed?: Set<T>): T[]
   return value.filter((entry): entry is T => typeof entry === "string" && (!allowed || allowed.has(entry as T)));
 }
 
+function regexScriptPromptOnly(row: RegexScriptRow): boolean {
+  return (
+    row.promptOnly === true ||
+    row.promptOnly === "true" ||
+    row.promptOnly === "1" ||
+    regexScriptTargetCharacterIds(row).length > 0
+  );
+}
+
 function parseScript(row: RegexScriptRow): ParsedRegexScript {
   return {
     ...row,
     // Storage round-trips these as real booleans; tolerate the legacy string
     // shapes too so an enabled script actually applies on send / on display.
     enabledBool: row.enabled === true || row.enabled === "true" || row.enabled === "1",
-    promptOnlyBool: row.promptOnly === true || row.promptOnly === "true" || row.promptOnly === "1",
+    promptOnlyBool: regexScriptPromptOnly(row),
     placements: parseJsonArray(row.placement, new Set<RegexPlacement>(["ai_output", "user_input"])),
     trimList: parseJsonArray(row.trimStrings),
   };

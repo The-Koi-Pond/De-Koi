@@ -619,6 +619,7 @@ function ChatSettingsDrawerInner({
   const autonomousMessagesEnabled = isEnabledFlag(metadata.autonomousMessages, false);
   const characterExchangesEnabled = isEnabledFlag(metadata.characterExchanges, false);
   const groupSpeakerColorsEnabled = isEnabledFlag(metadata.groupSpeakerColors, false);
+  const groupSpeakerNamesInHistoryEnabled = isEnabledFlag(metadata.groupSpeakerNamesInHistory, false);
   const autoTranslateEnabled = isEnabledFlag(metadata.autoTranslate, false);
   const translateInputEnabled = isEnabledFlag(metadata.translateInput, false);
   const inputTranslateButtonVisible = isEnabledFlag(metadata.showInputTranslateButton, false);
@@ -2794,6 +2795,42 @@ function ChatSettingsDrawerInner({
                         ? "An AI agent decides which characters should respond based on the scene context."
                         : "Characters respond one by one in their listed order."}
                   </p>
+                  <button
+                    onClick={() =>
+                      updateMeta.mutate({
+                        id: chat.id,
+                        groupSpeakerNamesInHistory: !groupSpeakerNamesInHistoryEnabled,
+                      })
+                    }
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                      groupSpeakerNamesInHistoryEnabled
+                        ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                        : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                    )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[0.6875rem] font-medium">Name History Speakers</span>
+                      <p className="mt-0.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+                        {groupSpeakerNamesInHistoryEnabled
+                          ? "Past turns include character and persona names in the prompt history."
+                          : "Past turns keep their stored text without extra speaker names."}
+                      </p>
+                    </div>
+                    <div
+                      className={cn(
+                        "ml-3 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
+                        groupSpeakerNamesInHistoryEnabled ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                          groupSpeakerNamesInHistoryEnabled && "translate-x-3.5",
+                        )}
+                      />
+                    </div>
+                  </button>
                   <button
                     onClick={() =>
                       updateMeta.mutate({

@@ -37,6 +37,14 @@ function isPromptOnly(value: unknown): boolean {
   return value === true || value === "true";
 }
 
+function isScopedPromptOnly(script: RegexScriptLike): boolean {
+  return (
+    isPromptOnly(script.promptOnly) ||
+    parseTargetCharacterIds(script.targetCharacterIds).length > 0 ||
+    parseTargetCharacterIds(script.characterId).length > 0
+  );
+}
+
 function parsePlacement(value: unknown): RegexPlacement[] {
   if (Array.isArray(value)) {
     return value.filter((entry): entry is RegexPlacement => entry === "ai_output" || entry === "user_input");
@@ -103,7 +111,7 @@ function applyRegexScriptsToPromptText(
   let result = text;
   for (const script of scripts) {
     if (!isEnabled(script.enabled)) continue;
-    if (!isPromptOnly(script.promptOnly)) continue;
+    if (!isScopedPromptOnly(script)) continue;
     if (!scriptAppliesToTarget(script, options)) continue;
     if (!parsePlacement(script.placement).includes(placement)) continue;
 

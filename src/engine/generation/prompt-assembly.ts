@@ -3112,6 +3112,68 @@ function isIndividualGroupHistoryMessage(message: ChatMLMessage): boolean {
   );
 }
 
+function shouldPrefixGroupIndividualHistorySpeakers(
+  input: PromptAssemblyInput,
+  characters: GenerationCharacterContext[],
+): boolean {
+  if (input.request.impersonate === true) return false;
+  if (characters.length <= 1) return false;
+  const chatMode = readString(input.chat.mode || input.chat.chatMode, "conversation");
+  if (chatMode !== "roleplay") return false;
+  const metadata = parseRecord(input.chat.metadata);
+  return metadata.groupSpeakerNamesInHistory === true && readString(metadata.groupChatMode, "merged") === "individual";
+}
+
+function normalizedKnownSpeakerNames(
+  characters: GenerationCharacterContext[],
+  persona: GenerationPersonaContext | null,
+): string[] {
+  return Array.from(
+    new Set([
+      ...characters.map((character) => character.name.trim()).filter(Boolean),
+      ...(persona?.name.trim() ? [persona.name.trim()] : []),
+    ]),
+  );
+}
+
+function hasKnownSpeakerPrefix(content: string, speakerNames: string[]): boolean {
+  const trimmed = content.trimStart().toLowerCase();
+  return speakerNames.some((speakerName) => {
+    const normalized = speakerName.toLowerCase();
+    return trimmed.startsWith(`${normalized}:`) || trimmed.startsWith(`${normalized} :`);
+  });
+}
+
+function historySpeakerName(
+  message: ChatMLMessage,
+  characterNames: Map<string, string>,
+  persona: GenerationPersonaContext | null,
+): string | null {
+  const explicitName = readString(message.name || message.displayName).trim();
+  if (explicitName) return explicitName;
+  const characterId = readString(message.characterId).trim();
+  if (characterId) return characterNames.get(characterId) ?? null;
+  if (message.role === "user") return persona?.name.trim() || null;
+  return null;
+}
+
+function prefixGroupIndividualHistorySpeakers(
+  messages: ChatMLMessage[],
+  characters: GenerationCharacterContext[],
+  persona: GenerationPersonaContext | null,
+): ChatMLMessage[] {
+  const characterNames = characterNameLookup(characters);
+  const knownSpeakerNames = normalizedKnownSpeakerNames(characters, persona);
+  if (knownSpeakerNames.length === 0) return messages;
+
+  return messages.map((message) => {
+    if (!isIndividualGroupHistoryMessage(message)) return message;
+    const speakerName = historySpeakerName(message, characterNames, persona);
+    if (!speakerName || hasKnownSpeakerPrefix(message.content, knownSpeakerNames)) return message;
+    return { ...message, content: `${speakerName}: ${message.content}` };
+  });
+}
+
 function scopeIndividualGroupHistoryRoles(messages: ChatMLMessage[], targetCharacterId: string): ChatMLMessage[] {
   return messages.map((message) => {
     if (!isIndividualGroupHistoryMessage(message)) return message;
@@ -3808,6 +3870,9 @@ export async function assembleGenerationPrompt(
       content: collapseExcessBlankLines(stripPromptComments(message.content)).trim(),
     }))
     .filter((message) => message.content.length > 0);
+  if (shouldPrefixGroupIndividualHistorySpeakers(input, characters)) {
+    messages = prefixGroupIndividualHistorySpeakers(messages, characters, persona);
+  }
   if (individualGroupTarget) {
     messages = scopeIndividualGroupHistoryRoles(messages, individualGroupTarget);
   }

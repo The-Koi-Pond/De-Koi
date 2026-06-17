@@ -62,6 +62,24 @@ describe("applyRegexScriptsToPromptMessages", () => {
     expect(messages[0]!.content).toBe("visible");
   });
 
+  it("treats character-scoped scripts as prompt-only even when stored promptOnly is false", () => {
+    const messages = [{ role: "assistant", content: "secret" }];
+
+    applyRegexScriptsToPromptMessages(
+      messages,
+      [
+        {
+          ...baseScript,
+          promptOnly: false,
+          characterId: "char-a",
+        },
+      ],
+      { targetCharacterId: "char-a" },
+    );
+
+    expect(messages[0]!.content).toBe("visible");
+  });
+
   it("applies legacy targetCharacterIds arrays for matching targets", () => {
     const messages = [{ role: "assistant", content: "secret" }];
 
