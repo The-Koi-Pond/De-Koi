@@ -692,6 +692,35 @@ function parseNumberParam(params: string, key: string): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
+function parseUnquotedSceneParam(params: string, key: string): string | undefined {
+  const match = params.match(
+    new RegExp(`${key}\\s*=\\s*([\\s\\S]*?)(?=\\s*,?\\s*(?:scenario|description|prompt|background|plan)\\s*=|$)`, "i"),
+  );
+  const value = match?.[1]?.replace(/,\s*$/, "").trim();
+  return value || undefined;
+}
+
+function parseSceneTextParam(params: string, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const quoted = parseQuotedParam(params, key);
+    if (quoted) return quoted.trim();
+    const unquoted = parseUnquotedSceneParam(params, key);
+    if (unquoted) return unquoted;
+  }
+  return undefined;
+}
+
+function parseBareSceneScenario(params: string): string | undefined {
+  const trimmed = params.trim();
+  if (!trimmed || /^[A-Za-z_][A-Za-z0-9_]*\s*=/.test(trimmed)) return undefined;
+  const quote = trimmed[0];
+  const closeQuote = quote === "\u201c" ? "\u201d" : quote === "\u2018" ? "\u2019" : quote;
+  if ((quote === '"' || quote === "'" || quote === "\u201c" || quote === "\u2018") && trimmed.endsWith(closeQuote)) {
+    return trimmed.slice(1, -1).trim() || undefined;
+  }
+  return trimmed;
+}
+
 function applyCommonCharacterFields(
   cmd: CreateCharacterCommand | UpdateCharacterCommand,
   params: string,
@@ -800,14 +829,10 @@ export function parseCharacterCommands(content: string): {
     const params = match[1]!;
     const cmd: SceneCommand = { type: "scene", scenario: "" };
 
-    const scenarioMatch = params.match(/scenario="([^"]+)"/);
-    if (scenarioMatch) cmd.scenario = scenarioMatch[1]!;
-
-    const bgMatch = params.match(/background="([^"]+)"/);
-    if (bgMatch) cmd.background = bgMatch[1]!;
-
-    const planMatch = params.match(/plan="([^"]+)"/);
-    if (planMatch) cmd.plan = planMatch[1]!;
+    cmd.scenario =
+      parseSceneTextParam(params, ["scenario", "description", "prompt"]) ?? parseBareSceneScenario(params) ?? "";
+    cmd.background = parseSceneTextParam(params, ["background"]);
+    cmd.plan = parseSceneTextParam(params, ["plan"]);
 
     // Only add if we got a scenario
     if (cmd.scenario) commands.push(cmd);
