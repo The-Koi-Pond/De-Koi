@@ -4042,7 +4042,8 @@ export function AdvancedSettings() {
       />
       <div className="flex flex-col gap-1.5 rounded-lg p-1 transition-colors hover:bg-[var(--secondary)]/50">
         <div className="flex items-center gap-1.5">
-          <span className="text-xs">Conversation message layout</span>
+          <MessageCircle size="0.75rem" className="text-[var(--muted-foreground)]" />
+          <span className="text-xs">Chat Layout</span>
           <HelpTooltip text="Choose whether Conversation mode renders messages as linear rows or Messenger-style bubbles." />
         </div>
         <div className="grid grid-cols-2 gap-1.5">
@@ -4066,6 +4067,34 @@ export function AdvancedSettings() {
               </button>
             );
           })}
+        </div>
+        <div className="rounded-lg border border-[var(--border)]/60 bg-[var(--background)]/35 p-2.5 text-[0.6875rem]">
+          {conversationMessageStyle === "bubble" ? (
+            <div className="space-y-1.5">
+              <div className="flex justify-end">
+                <div className="mari-message-bubble texting-bubble texting-bubble-user max-w-[78%] rounded-2xl rounded-br-md px-3 py-1.5 text-xs shadow-sm">
+                  Hey, how's it going?
+                </div>
+              </div>
+              <div className="flex items-end justify-start gap-1.5">
+                <div className="h-5 w-5 shrink-0 rounded-full bg-[var(--accent)]" />
+                <div className="mari-message-bubble texting-bubble texting-bubble-other max-w-[78%] rounded-2xl rounded-bl-md px-3 py-1.5 text-xs shadow-sm">
+                  Pretty good, thanks!
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2 text-xs">
+              <div className="h-6 w-6 shrink-0 rounded-full bg-[var(--accent)]" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="font-semibold text-[var(--foreground)]">Assistant</span>
+                  <span className="text-[0.5625rem] text-[var(--muted-foreground)]">now</span>
+                </div>
+                <div className="text-[var(--muted-foreground)]">Rows with avatars, names, and inline message text.</div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
       <ToggleSetting

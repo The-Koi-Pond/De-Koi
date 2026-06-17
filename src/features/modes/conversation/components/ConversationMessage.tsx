@@ -331,7 +331,7 @@ interface ConversationMessageProps {
   isLastAssistantMessage?: boolean;
   characterMap?: CharacterMap;
   personaInfo?: PersonaInfo;
-  /** Override the edit button click (used by SplitMessageGroup) */
+  /** Override the edit button click. */
   onEditClick?: () => void;
   /** Character IDs that actually belong to this chat. Speaker-name rendering is scoped to these IDs. */
   chatCharacterIds?: string[];
