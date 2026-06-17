@@ -1,17 +1,7 @@
 // ──────────────────────────────────────────────
 // Chat: Conversation View — Discord-style composite
 // ──────────────────────────────────────────────
-import {
-  Suspense,
-  lazy,
-  useRef,
-  useEffect,
-  useLayoutEffect,
-  useCallback,
-  useMemo,
-  useState,
-
-} from "react";
+import { Suspense, lazy, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
@@ -484,11 +474,16 @@ export function ConversationView({
       try {
         const statusResult = await getConversationStatus(storageApi, chatId);
         for (const [characterId, info] of Object.entries(statusResult.statuses)) {
-          const row = await storageApi.get<{ data?: { extensions?: Record<string, unknown> } }>("characters", characterId);
+          const row = await storageApi.get<{ data?: { extensions?: Record<string, unknown> } }>(
+            "characters",
+            characterId,
+          );
           if (row?.data) {
             const extensions = row.data.extensions ?? {};
-            const currentStatus = typeof extensions.conversationStatus === "string" ? extensions.conversationStatus : "";
-            const currentActivity = typeof extensions.conversationActivity === "string" ? extensions.conversationActivity : "";
+            const currentStatus =
+              typeof extensions.conversationStatus === "string" ? extensions.conversationStatus : "";
+            const currentActivity =
+              typeof extensions.conversationActivity === "string" ? extensions.conversationActivity : "";
             if (currentStatus !== info.status || currentActivity !== info.activity) {
               await storageApi.update("characters", characterId, {
                 data: {
@@ -777,7 +772,9 @@ export function ConversationView({
         </button>
       </>,
     );
-    return () => { setRightSlot(null); };
+    return () => {
+      setRightSlot(null);
+    };
   }, [moreMenuOpen, toolsSheetOpen, setRightSlot]);
 
   // ── Build message list with day separators ──
@@ -827,7 +824,15 @@ export function ConversationView({
     const messageOffset = totalMessageCount - transcriptWindow.totalLoadedCount;
     const items: Array<
       | { type: "separator"; key: string; label: string }
-      | { type: "message"; key: string; msg: Message; isGrouped: boolean; index: number }
+      | {
+          type: "message";
+          key: string;
+          msg: Message;
+          isGrouped: boolean;
+          index: number;
+          bubbleGroupPosition: "single" | "first" | "middle" | "last";
+          originalContent?: string;
+        }
     > = [];
     let lastDay = "";
     for (let i = 0; i < visibleMessages.length; i++) {
@@ -840,29 +845,34 @@ export function ConversationView({
         lastDay = day;
       }
       const prev = i > 0 ? visibleMessages[i - 1]! : null;
+      const next = i < visibleMessages.length - 1 ? visibleMessages[i + 1]! : null;
       // Break grouping if >5 minutes apart (like Discord)
       const TIME_GAP_MS = 5 * 60 * 1000;
-      const timeTooFar = prev
-        ? new Date(msg.createdAt).getTime() - new Date(prev.createdAt).getTime() > TIME_GAP_MS
-        : false;
-      // Break grouping when persona changes between consecutive user messages
-      const personaChanged = (() => {
-        if (!prev || prev.role !== "user" || msg.role !== "user") return false;
-        const prevExtra = typeof prev.extra === "string" ? JSON.parse(prev.extra) : (prev.extra ?? {});
-        const currExtra = typeof msg.extra === "string" ? JSON.parse(msg.extra) : (msg.extra ?? {});
-        const prevId = prevExtra.personaSnapshot?.personaId;
-        const currId = currExtra.personaSnapshot?.personaId;
-        // If either message lacks a snapshot, don't break grouping.
-        if (!prevId || !currId) return false;
-        return prevId !== currId;
-      })();
-      const grouped =
-        !!prev &&
-        !timeTooFar &&
-        !personaChanged &&
-        prev.role === msg.role &&
-        prev.characterId === msg.characterId &&
-        getDayKey(prev.createdAt) === day;
+      const isGroupedWith = (current: Message, other: Message | null, currentIsAfterOther: boolean) => {
+        if (!other || isHiddenFromUser(other)) return false;
+        const currentTime = new Date(current.createdAt).getTime();
+        const otherTime = new Date(other.createdAt).getTime();
+        const timeGap = currentIsAfterOther ? currentTime - otherTime : otherTime - currentTime;
+        if (timeGap > TIME_GAP_MS) return false;
+        if (
+          current.role !== other.role ||
+          current.characterId !== other.characterId ||
+          getDayKey(other.createdAt) !== day
+        ) {
+          return false;
+        }
+        if (current.role === "user" && other.role === "user") {
+          const currentExtra = typeof current.extra === "string" ? JSON.parse(current.extra) : (current.extra ?? {});
+          const otherExtra = typeof other.extra === "string" ? JSON.parse(other.extra) : (other.extra ?? {});
+          const currentId = currentExtra.personaSnapshot?.personaId;
+          const otherId = otherExtra.personaSnapshot?.personaId;
+          if (currentId && otherId && currentId !== otherId) return false;
+        }
+        return true;
+      };
+      const grouped = isGroupedWith(msg, prev, true);
+      const nextGrouped = isGroupedWith(msg, next, false);
+      const bubbleGroupPosition = grouped ? (nextGrouped ? "middle" : "last") : nextGrouped ? "first" : "single";
 
       // Split multi-line assistant messages into separate visual rows
       // Skip splitting for messages with <speaker> tags or Name: text format
@@ -891,6 +901,8 @@ export function ConversationView({
                   },
               isGrouped: bi === 0 ? grouped : true,
               index: messageOffset + originalIndex,
+              bubbleGroupPosition,
+              originalContent: bi === 0 ? msg.content : undefined,
             });
           });
           continue;
@@ -914,6 +926,8 @@ export function ConversationView({
         msg: displayMsg,
         isGrouped: grouped,
         index: messageOffset + originalIndex,
+        bubbleGroupPosition,
+        originalContent: displayContent !== msg.content ? msg.content : undefined,
       });
     }
     return items;
@@ -1119,272 +1133,322 @@ export function ConversationView({
       style={{ ...gradientStyle, isolation: "isolate" }}
     >
       <div ref={sheetContentRef} className="flex min-h-0 flex-1 flex-col">
-      {/* ── Messages scroll area ── */}
-      <div ref={scrollRef} className="mari-messages-scroll flex-1 overflow-y-auto overflow-x-hidden">
-        {/* Desktop floating header */}
-        <div className="sticky top-0 z-10 hidden min-w-0 items-center justify-between px-4 py-2 md:flex">
-          {/* Character identity pill */}
-          {(() => {
-            const chars = chatCharIds
-              .map((id) => {
-                const character = characterMap.get(id);
-                return character ? { id, ...character } : null;
-              })
-              .filter(Boolean) as Array<{
-              id: string;
-              name: string;
-              avatarUrl: string | null;
-              avatarCrop?: AvatarCropValue | null;
-              conversationStatus?: "online" | "idle" | "dnd" | "offline";
-              conversationActivity?: string;
-            }>;
-            if (chars.length === 0) return <div />;
+        {/* ── Messages scroll area ── */}
+        <div ref={scrollRef} className="mari-messages-scroll flex-1 overflow-y-auto overflow-x-hidden">
+          {/* Desktop floating header */}
+          <div className="sticky top-0 z-10 hidden min-w-0 items-center justify-between px-4 py-2 md:flex">
+            {/* Character identity pill */}
+            {(() => {
+              const chars = chatCharIds
+                .map((id) => {
+                  const character = characterMap.get(id);
+                  return character ? { id, ...character } : null;
+                })
+                .filter(Boolean) as Array<{
+                id: string;
+                name: string;
+                avatarUrl: string | null;
+                avatarCrop?: AvatarCropValue | null;
+                conversationStatus?: "online" | "idle" | "dnd" | "offline";
+                conversationActivity?: string;
+              }>;
+              if (chars.length === 0) return <div />;
 
-            const statusColor = (s?: string) => {
-              const st = s ?? "online";
-              return st === "online"
-                ? "bg-green-500"
-                : st === "idle"
-                  ? "bg-yellow-500"
-                  : st === "dnd"
-                    ? "bg-red-500"
-                    : "bg-gray-400";
-            };
+              const statusColor = (s?: string) => {
+                const st = s ?? "online";
+                return st === "online"
+                  ? "bg-green-500"
+                  : st === "idle"
+                    ? "bg-yellow-500"
+                    : st === "dnd"
+                      ? "bg-red-500"
+                      : "bg-gray-400";
+              };
 
-            if (chars.length === 1) {
-              const c = chars[0]!;
+              if (chars.length === 1) {
+                const c = chars[0]!;
+                return (
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 rounded-lg bg-[var(--card)]/80 px-2.5 py-1.5 backdrop-blur-sm dark:bg-black/30 cursor-pointer hover:bg-[var(--card)] transition-colors"
+                    onClick={() => setTrackerPanelOpen(true)}
+                    title="View schedule"
+                    aria-label={c.name}
+                  >
+                    <div className="relative flex-shrink-0">
+                      {c.avatarUrl ? (
+                        <span className="relative block h-5 w-5 overflow-hidden rounded-full">
+                          <img
+                            src={c.avatarUrl}
+                            alt={c.name}
+                            className="h-full w-full object-cover"
+                            style={getAvatarCropStyle(c.avatarCrop)}
+                          />
+                        </span>
+                      ) : (
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-foreground/20 text-[0.5rem] font-bold text-foreground">
+                          {c.name[0]}
+                        </div>
+                      )}
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-[1.5px] ring-[var(--border)] ${statusColor(c.conversationStatus)}`}
+                      />
+                    </div>
+                    <div className="flex flex-col leading-tight">
+                      <span className="text-[0.75rem] font-medium text-foreground/90">{c.name}</span>
+                      {c.conversationActivity && (
+                        <span className="text-[0.5625rem] text-foreground/50">{c.conversationActivity}</span>
+                      )}
+                    </div>
+                  </button>
+                );
+              }
+
+              // Multiple characters — individual clickable avatars showing activity on click
               return (
-                <button
-                  type="button"
-                  className="flex items-center gap-2 rounded-lg bg-[var(--card)]/80 px-2.5 py-1.5 backdrop-blur-sm dark:bg-black/30 cursor-pointer hover:bg-[var(--card)] transition-colors"
-                  onClick={() => setTrackerPanelOpen(true)}
-                  title="View schedule"
-                  aria-label={c.name}
-                >
-                  <div className="relative flex-shrink-0">
-                    {c.avatarUrl ? (
-                      <span className="relative block h-5 w-5 overflow-hidden rounded-full">
-                        <img
-                          src={c.avatarUrl}
-                          alt={c.name}
-                          className="h-full w-full object-cover"
-                          style={getAvatarCropStyle(c.avatarCrop)}
-                        />
-                      </span>
-                    ) : (
-                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-foreground/20 text-[0.5rem] font-bold text-foreground">
-                        {c.name[0]}
-                      </div>
-                    )}
-                    <span
-                      className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-[1.5px] ring-[var(--border)] ${statusColor(c.conversationStatus)}`}
-                    />
-                  </div>
-                  <div className="flex flex-col leading-tight">
-                    <span className="text-[0.75rem] font-medium text-foreground/90">{c.name}</span>
-                    {c.conversationActivity && (
-                      <span className="text-[0.5625rem] text-foreground/50">{c.conversationActivity}</span>
-                    )}
-                  </div>
-                </button>
-              );
-            }
-
-            // Multiple characters — individual clickable avatars showing activity on click
-            return (
-              <div className="flex items-center gap-2 rounded-lg bg-[var(--card)]/80 px-2.5 py-1.5 backdrop-blur-sm dark:bg-black/30">
-                <div
-                  className="relative flex-shrink-0"
-                  style={{ width: `${Math.min(chars.length, 3) * 12 + 8}px`, height: 20 }}
-                >
-                  {chars.slice(0, 3).map((c, i) => {
-                    const isOpen = charActivityPopupId === c.id;
-                    return (
-                      <div key={c.id} className="absolute top-0" style={{ left: i * 12, zIndex: isOpen ? 10 : 3 - i }}>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setCharActivityPopupId(isOpen ? null : c.id);
-                          }}
-                          className="relative block transition-transform active:scale-90"
-                          aria-label={c.name}
+                <div className="flex items-center gap-2 rounded-lg bg-[var(--card)]/80 px-2.5 py-1.5 backdrop-blur-sm dark:bg-black/30">
+                  <div
+                    className="relative flex-shrink-0"
+                    style={{ width: `${Math.min(chars.length, 3) * 12 + 8}px`, height: 20 }}
+                  >
+                    {chars.slice(0, 3).map((c, i) => {
+                      const isOpen = charActivityPopupId === c.id;
+                      return (
+                        <div
+                          key={c.id}
+                          className="absolute top-0"
+                          style={{ left: i * 12, zIndex: isOpen ? 10 : 3 - i }}
                         >
-                          {c.avatarUrl ? (
-                            <span className="relative block h-5 w-5 overflow-hidden rounded-full ring-1 ring-[var(--border)]">
-                              <img
-                                src={c.avatarUrl}
-                                alt={c.name}
-                                className="h-full w-full object-cover"
-                                style={getAvatarCropStyle(c.avatarCrop)}
-                              />
-                            </span>
-                          ) : (
-                            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-foreground/20 text-[0.5rem] font-bold text-foreground ring-1 ring-[var(--border)]">
-                              {c.name[0]}
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setCharActivityPopupId(isOpen ? null : c.id);
+                            }}
+                            className="relative block transition-transform active:scale-90"
+                            aria-label={c.name}
+                          >
+                            {c.avatarUrl ? (
+                              <span className="relative block h-5 w-5 overflow-hidden rounded-full ring-1 ring-[var(--border)]">
+                                <img
+                                  src={c.avatarUrl}
+                                  alt={c.name}
+                                  className="h-full w-full object-cover"
+                                  style={getAvatarCropStyle(c.avatarCrop)}
+                                />
+                              </span>
+                            ) : (
+                              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-foreground/20 text-[0.5rem] font-bold text-foreground ring-1 ring-[var(--border)]">
+                                {c.name[0]}
+                              </div>
+                            )}
+                            <span
+                              className={`absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full ring-[1px] ring-[var(--border)] ${statusColor(c.conversationStatus)}`}
+                            />
+                          </button>
+                          {isOpen && (
+                            <div className="absolute left-1/2 top-full mt-1.5 z-50 min-w-[7rem] -translate-x-1/2 rounded-xl border border-[var(--border)]/60 bg-[var(--card)] px-3 py-2 shadow-lg backdrop-blur-xl">
+                              <p className="text-[0.7rem] font-semibold text-[var(--foreground)] leading-tight">
+                                {c.name}
+                              </p>
+                              {c.conversationActivity && (
+                                <p className="mt-0.5 text-[0.6rem] text-[var(--muted-foreground)]/70 leading-tight">
+                                  {c.conversationActivity}
+                                </p>
+                              )}
                             </div>
                           )}
-                          <span
-                            className={`absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full ring-[1px] ring-[var(--border)] ${statusColor(c.conversationStatus)}`}
-                          />
-                        </button>
-                        {isOpen && (
-                          <div className="absolute left-1/2 top-full mt-1.5 z-50 min-w-[7rem] -translate-x-1/2 rounded-xl border border-[var(--border)]/60 bg-[var(--card)] px-3 py-2 shadow-lg backdrop-blur-xl">
-                            <p className="text-[0.7rem] font-semibold text-[var(--foreground)] leading-tight">{c.name}</p>
-                            {c.conversationActivity && (
-                              <p className="mt-0.5 text-[0.6rem] text-[var(--muted-foreground)]/70 leading-tight">{c.conversationActivity}</p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                <span className="text-[0.75rem] font-medium text-[var(--foreground)]/90">
-                  {chars.length <= 2 ? chars.map((c) => c.name).join(" & ") : `${chars[0]!.name} + ${chars.length - 1}`}
-                </span>
-              </div>
-            );
-          })()}
-
-          {/* Desktop toolbar */}
-          <div className="flex items-center gap-1.5">
-          <ChatBranchSelector
-            activeChatId={chatId}
-            activeChatName={chatName}
-            groupId={chatGroupId}
-          />
-          <button
-            onClick={() => setSummaryOpen(true)}
-            className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
-            title="Chat Summary"
-            aria-label="Chat Summary"
-          >
-            <ScrollText size="0.875rem" />
-          </button>
-          <ActiveWorldInfoButton chatId={chatId} />
-          <button
-            onClick={onOpenGallery}
-            className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
-            title="Gallery"
-            aria-label="Gallery"
-          >
-            <ImageIcon size="0.875rem" />
-          </button>
-          <button
-            onClick={onOpenFiles}
-            className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
-            title="Chat Files"
-            aria-label="Chat Files"
-          >
-            <FolderOpen size="0.875rem" />
-          </button>
-          {onSwitchChat && (
-            <button
-              onClick={onSwitchChat}
-              className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
-              title={connectedChatName ? `Switch to ${connectedChatName}` : "Switch to connected chat"}
-            >
-              <span className="text-[0.7rem] font-medium">{connectedChatName || "Switch"}</span>
-            </button>
-          )}
-          <button
-            onClick={onOpenSettings}
-            className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
-            title="Chat Settings"
-            aria-label="Chat Settings"
-          >
-            <Settings2 size="0.875rem" />
-          </button>
-        </div>
-      </div>
-      {/* Load More */}
-        {(hasNextPage || transcriptWindow.hiddenBeforeCount > 0) && (
-          <div className="flex justify-center py-3">
-            <button
-              onClick={handleShowOlderMessages}
-              disabled={isFetchingNextPage}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] disabled:opacity-50"
-            >
-              {isFetchingNextPage ? <Loader2 size="0.75rem" className="animate-spin" /> : <ChevronUp size="0.75rem" />}
-              {transcriptWindow.hiddenBeforeCount > 0 ? "Older Messages" : "Load More"}
-            </button>
-          </div>
-        )}
-
-        {isLoading && (
-          <div className="flex flex-col items-center gap-3 py-12">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--muted-foreground)]/20 border-t-[var(--muted-foreground)]/60" />
-          </div>
-        )}
-
-        {/* Welcome message at the start of a conversation */}
-        {!isLoading && !hasNextPage && messages && messages.length === 0 && (
-          <div className="px-4 pt-2">
-            <p className="text-xs text-[var(--muted-foreground)]">
-              This is the start of your conversation with{" "}
-              <span className="font-medium text-[var(--foreground)]">
-                {(() => {
-                  const names = chatCharIds.map((id) => characterMap.get(id)?.name).filter(Boolean) as string[];
-                  if (names.length === 0) return "this group";
-                  if (names.length === 1) return names[0];
-                  return names.slice(0, -1).join(", ") + " & " + names[names.length - 1];
-                })()}
-              </span>
-              . Say hi!
-            </p>
-          </div>
-        )}
-
-        {/* Messages with day separators */}
-        {(() => {
-          const filtered = renderedItems.filter((item) => item.type !== "message" || !hiddenLineKeys.has(item.key));
-          const elements: React.ReactNode[] = [];
-          let i = 0;
-          while (i < filtered.length) {
-            const item = filtered[i]!;
-            if (item.type === "separator") {
-              elements.push(
-                <div key={item.key} className="relative my-4 flex items-center px-4">
-                  <div className="flex-1 border-t border-[var(--border)]/40" />
-                  <span className="mx-4 text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">
-                    {item.label}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <span className="text-[0.75rem] font-medium text-[var(--foreground)]/90">
+                    {chars.length <= 2
+                      ? chars.map((c) => c.name).join(" & ")
+                      : `${chars[0]!.name} + ${chars.length - 1}`}
                   </span>
-                  <div className="flex-1 border-t border-[var(--border)]/40" />
-                </div>,
+                </div>
               );
-              i++;
-              continue;
-            }
+            })()}
 
-            // Check if this starts a split assistant-message group.
-            // Older code/comments called these "line" groups, but the actual
-            // rendered keys use __blockN.
-            const isSplitStart = item.key.endsWith("__block0") || item.key.endsWith("__line0");
-            if (isSplitStart) {
-              const baseId = item.key.replace(/__(?:block|line)0$/, "");
-              const groupItems = [item];
-              let j = i + 1;
-              while (
-                j < filtered.length &&
-                filtered[j]!.type === "message" &&
-                (filtered[j]!.key.startsWith(baseId + "__block") || filtered[j]!.key.startsWith(baseId + "__line"))
-              ) {
-                groupItems.push(filtered[j]! as typeof item);
-                j++;
+            {/* Desktop toolbar */}
+            <div className="flex items-center gap-1.5">
+              <ChatBranchSelector activeChatId={chatId} activeChatName={chatName} groupId={chatGroupId} />
+              <button
+                onClick={() => setSummaryOpen(true)}
+                className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
+                title="Chat Summary"
+                aria-label="Chat Summary"
+              >
+                <ScrollText size="0.875rem" />
+              </button>
+              <ActiveWorldInfoButton chatId={chatId} />
+              <button
+                onClick={onOpenGallery}
+                className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
+                title="Gallery"
+                aria-label="Gallery"
+              >
+                <ImageIcon size="0.875rem" />
+              </button>
+              <button
+                onClick={onOpenFiles}
+                className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
+                title="Chat Files"
+                aria-label="Chat Files"
+              >
+                <FolderOpen size="0.875rem" />
+              </button>
+              {onSwitchChat && (
+                <button
+                  onClick={onSwitchChat}
+                  className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
+                  title={connectedChatName ? `Switch to ${connectedChatName}` : "Switch to connected chat"}
+                >
+                  <span className="text-[0.7rem] font-medium">{connectedChatName || "Switch"}</span>
+                </button>
+              )}
+              <button
+                onClick={onOpenSettings}
+                className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
+                title="Chat Settings"
+                aria-label="Chat Settings"
+              >
+                <Settings2 size="0.875rem" />
+              </button>
+            </div>
+          </div>
+          {/* Load More */}
+          {(hasNextPage || transcriptWindow.hiddenBeforeCount > 0) && (
+            <div className="flex justify-center py-3">
+              <button
+                onClick={handleShowOlderMessages}
+                disabled={isFetchingNextPage}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] disabled:opacity-50"
+              >
+                {isFetchingNextPage ? (
+                  <Loader2 size="0.75rem" className="animate-spin" />
+                ) : (
+                  <ChevronUp size="0.75rem" />
+                )}
+                {transcriptWindow.hiddenBeforeCount > 0 ? "Older Messages" : "Load More"}
+              </button>
+            </div>
+          )}
+
+          {isLoading && (
+            <div className="flex flex-col items-center gap-3 py-12">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--muted-foreground)]/20 border-t-[var(--muted-foreground)]/60" />
+            </div>
+          )}
+
+          {/* Welcome message at the start of a conversation */}
+          {!isLoading && !hasNextPage && messages && messages.length === 0 && (
+            <div className="px-4 pt-2">
+              <p className="text-xs text-[var(--muted-foreground)]">
+                This is the start of your conversation with{" "}
+                <span className="font-medium text-[var(--foreground)]">
+                  {(() => {
+                    const names = chatCharIds.map((id) => characterMap.get(id)?.name).filter(Boolean) as string[];
+                    if (names.length === 0) return "this group";
+                    if (names.length === 1) return names[0];
+                    return names.slice(0, -1).join(", ") + " & " + names[names.length - 1];
+                  })()}
+                </span>
+                . Say hi!
+              </p>
+            </div>
+          )}
+
+          {/* Messages with day separators */}
+          {(() => {
+            const filtered = renderedItems.filter((item) => item.type !== "message" || !hiddenLineKeys.has(item.key));
+            const elements: React.ReactNode[] = [];
+            let i = 0;
+            while (i < filtered.length) {
+              const item = filtered[i]!;
+              if (item.type === "separator") {
+                elements.push(
+                  <div key={item.key} className="relative my-4 flex items-center px-4">
+                    <div className="flex-1 border-t border-[var(--border)]/40" />
+                    <span className="mx-4 text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">
+                      {item.label}
+                    </span>
+                    <div className="flex-1 border-t border-[var(--border)]/40" />
+                  </div>,
+                );
+                i++;
+                continue;
               }
+
+              // Check if this starts a split assistant-message group.
+              // Older code/comments called these "line" groups, but the actual
+              // rendered keys use __blockN.
+              const isSplitStart = item.key.endsWith("__block0") || item.key.endsWith("__line0");
+              if (isSplitStart) {
+                const baseId = item.key.replace(/__(?:block|line)0$/, "");
+                const groupItems = [item];
+                let j = i + 1;
+                while (
+                  j < filtered.length &&
+                  filtered[j]!.type === "message" &&
+                  (filtered[j]!.key.startsWith(baseId + "__block") || filtered[j]!.key.startsWith(baseId + "__line"))
+                ) {
+                  groupItems.push(filtered[j]! as typeof item);
+                  j++;
+                }
+                elements.push(
+                  <SplitMessageGroup
+                    key={`split-${baseId}`}
+                    items={groupItems}
+                    isStreaming={isStreaming}
+                    regenerateMessageId={regenerateMessageId}
+                    streamBuffer={streamBuffer}
+                    thinkingBuffer={thinkingBuffer}
+                    lastAssistantMessageId={lastAssistantMessageId}
+                    characterMap={characterMap}
+                    personaInfo={personaInfo}
+                    chatCharacterIds={chatCharIds}
+                    onDelete={onDelete}
+                    onRegenerate={onRegenerate}
+                    onEdit={onEdit}
+                    onSetActiveSwipe={onSetActiveSwipe}
+                    onPeekPrompt={onPeekPrompt}
+                    onToggleHiddenFromAI={onToggleHiddenFromAI}
+                    onBranch={onBranch}
+                    messageStyle={conversationMessageStyle}
+                    typingLabel={typingLabelInMessage && item.msg.id === typingTargetId ? liveTypingLabel : undefined}
+                  />,
+                );
+                i = j;
+                continue;
+              }
+
+              // Regular single message
+              const { msg, isGrouped } = item;
+              const isRegenerating = isStreaming && regenerateMessageId === msg.id;
+              // During regeneration, don't pass isStreaming until content arrives — the
+              // "X is typing..." indicator inside the message body provides feedback, and the
+              // old content is cleared while waiting so the indicator shows in an empty bubble.
+              const hasStreamContent = isRegenerating && (!!streamBuffer || !!thinkingBuffer);
+              // Strip old-swipe attachments during regeneration so a previous
+              // illustration doesn't linger while new text is streaming in.
+              const displayMsg = isRegenerating
+                ? (() => {
+                    const parsed = typeof msg.extra === "string" ? JSON.parse(msg.extra) : (msg.extra ?? {});
+                    return {
+                      ...msg,
+                      content: streamBuffer || (thinkingBuffer ? "Thinking..." : ""),
+                      extra: { ...parsed, attachments: null, thinking: thinkingBuffer || parsed.thinking },
+                    };
+                  })()
+                : msg;
               elements.push(
-                <SplitMessageGroup
-                  key={`split-${baseId}`}
-                  items={groupItems}
-                  isStreaming={isStreaming}
-                  regenerateMessageId={regenerateMessageId}
-                  streamBuffer={streamBuffer}
-                  thinkingBuffer={thinkingBuffer}
-                  lastAssistantMessageId={lastAssistantMessageId}
-                  characterMap={characterMap}
-                  personaInfo={personaInfo}
-                  chatCharacterIds={chatCharIds}
+                <ConversationMessage
+                  key={item.key}
+                  message={displayMsg}
+                  isStreaming={hasStreamContent}
+                  isGrouped={isGrouped}
                   onDelete={onDelete}
                   onRegenerate={onRegenerate}
                   onEdit={onEdit}
@@ -1392,87 +1456,49 @@ export function ConversationView({
                   onPeekPrompt={onPeekPrompt}
                   onToggleHiddenFromAI={onToggleHiddenFromAI}
                   onBranch={onBranch}
+                  isLastAssistantMessage={msg.id === lastAssistantMessageId}
+                  characterMap={characterMap}
+                  personaInfo={personaInfo}
+                  chatCharacterIds={chatCharIds}
+                  messageIndex={item.index + 1}
+                  messageOrderIndex={item.index}
+                  multiSelectMode={multiSelectMode}
+                  isSelected={selectedMessageIds?.has(msg.id)}
+                  onToggleSelect={onToggleSelectMessage}
                   messageStyle={conversationMessageStyle}
-                  typingLabel={typingLabelInMessage && item.msg.id === typingTargetId ? liveTypingLabel : undefined}
+                  bubbleGroupPosition={item.bubbleGroupPosition}
+                  originalContent={!isRegenerating ? item.originalContent : undefined}
+                  typingLabel={typingLabelInMessage && msg.id === typingTargetId ? liveTypingLabel : undefined}
                 />,
               );
-              i = j;
-              continue;
+              i++;
             }
+            return elements;
+          })()}
 
-            // Regular single message
-            const { msg, isGrouped } = item;
-            const isRegenerating = isStreaming && regenerateMessageId === msg.id;
-            // During regeneration, don't pass isStreaming until content arrives — the
-            // "X is typing..." indicator inside the message body provides feedback, and the
-            // old content is cleared while waiting so the indicator shows in an empty bubble.
-            const hasStreamContent = isRegenerating && (!!streamBuffer || !!thinkingBuffer);
-            // Strip old-swipe attachments during regeneration so a previous
-            // illustration doesn't linger while new text is streaming in.
-            const displayMsg = isRegenerating
-              ? (() => {
-                  const parsed = typeof msg.extra === "string" ? JSON.parse(msg.extra) : (msg.extra ?? {});
-                  return {
-                    ...msg,
-                    content: streamBuffer || (thinkingBuffer ? "Thinking..." : ""),
-                    extra: { ...parsed, attachments: null, thinking: thinkingBuffer || parsed.thinking },
-                  };
-                })()
-              : msg;
-            elements.push(
-              <ConversationMessage
-                key={item.key}
-                message={displayMsg}
-                isStreaming={hasStreamContent}
-                isGrouped={isGrouped}
-                onDelete={onDelete}
-                onRegenerate={onRegenerate}
-                onEdit={onEdit}
-                onSetActiveSwipe={onSetActiveSwipe}
-                onPeekPrompt={onPeekPrompt}
-                onToggleHiddenFromAI={onToggleHiddenFromAI}
-                onBranch={onBranch}
-                isLastAssistantMessage={msg.id === lastAssistantMessageId}
-                characterMap={characterMap}
-                personaInfo={personaInfo}
-                chatCharacterIds={chatCharIds}
-                messageIndex={item.index + 1}
-                messageOrderIndex={item.index}
-                multiSelectMode={multiSelectMode}
-                isSelected={selectedMessageIds?.has(msg.id)}
-                onToggleSelect={onToggleSelectMessage}
-                messageStyle={conversationMessageStyle}
-                typingLabel={typingLabelInMessage && msg.id === typingTargetId ? liveTypingLabel : undefined}
-              />,
-            );
-            i++;
-          }
-          return elements;
-        })()}
+          {transcriptWindow.hiddenAfterCount > 0 && (
+            <div className="flex justify-center py-3">
+              <button
+                onClick={handleShowNewerMessages}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)]"
+              >
+                Newer Messages
+              </button>
+            </div>
+          )}
 
-        {transcriptWindow.hiddenAfterCount > 0 && (
-          <div className="flex justify-center py-3">
-            <button
-              onClick={handleShowNewerMessages}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)]"
-            >
-              Newer Messages
-            </button>
-          </div>
-        )}
+          {/* Delayed indicator (DND/idle — waiting for character to become available) */}
+          {delayedCharacterInfo && isStreaming && !streamBuffer && !thinkingBuffer && (
+            <div className="flex items-center gap-2 px-4 py-1.5 text-[0.8125rem] text-[var(--text-secondary)]">
+              <span className="italic">
+                {delayedCharacterInfo.status === "dnd"
+                  ? `${delayedCharacterInfo.name} ${delayedCharacterInfo.name.includes(",") ? "are" : "is"} busy — they'll respond when they're back`
+                  : `${delayedCharacterInfo.name} ${delayedCharacterInfo.name.includes(",") ? "are" : "is"} away — they'll respond in a moment`}
+              </span>
+            </div>
+          )}
 
-        {/* Delayed indicator (DND/idle — waiting for character to become available) */}
-        {delayedCharacterInfo && isStreaming && !streamBuffer && !thinkingBuffer && (
-          <div className="flex items-center gap-2 px-4 py-1.5 text-[0.8125rem] text-[var(--text-secondary)]">
-            <span className="italic">
-              {delayedCharacterInfo.status === "dnd"
-                ? `${delayedCharacterInfo.name} ${delayedCharacterInfo.name.includes(",") ? "are" : "is"} busy — they'll respond when they're back`
-                : `${delayedCharacterInfo.name} ${delayedCharacterInfo.name.includes(",") ? "are" : "is"} away — they'll respond in a moment`}
-            </span>
-          </div>
-        )}
-
-        {/* Typing indicator — shown when generation is actively running.
+          {/* Typing indicator — shown when generation is actively running.
             CSS-targetable per character via data-card-css. Hooks:
               .mari-typing-indicator  — the row
               .mari-typing-dots        — the bouncing dots (style `.mari-typing-dots span`)
@@ -1480,81 +1506,81 @@ export function ConversationView({
             data-typing-name carries the character name (usable as content: attr(data-typing-name)).
             In group chats, characters whose card CSS targets these hooks (exclusive mode) get
             their own row so their custom text applies in isolation; the rest share one row. */}
-        {showTypingIndicator && !typingLabelInMessage && (
-          <>
-            {/* Combined row for characters without typing-targeted CSS (shown first). When no
+          {showTypingIndicator && !typingLabelInMessage && (
+            <>
+              {/* Combined row for characters without typing-targeted CSS (shown first). When no
                 concrete participants resolve, this carries the single live typing label. */}
-            {typingPlainNames.length > 0 && (
-              <TypingIndicatorRow names={typingPlainNames} cardCssId={typingPlainCardCssId} />
-            )}
-            {/* One row per character whose card CSS targets the typing indicator (alphabetical). */}
-            {typingStyledRows.map((p) => (
-              <TypingIndicatorRow key={p.id} names={[p.name]} cardCssId={p.id} />
-            ))}
-          </>
+              {typingPlainNames.length > 0 && (
+                <TypingIndicatorRow names={typingPlainNames} cardCssId={typingPlainCardCssId} />
+              )}
+              {/* One row per character whose card CSS targets the typing indicator (alphabetical). */}
+              {typingStyledRows.map((p) => (
+                <TypingIndicatorRow key={p.id} names={[p.name]} cardCssId={p.id} />
+              ))}
+            </>
+          )}
+
+          {/* Scene banner — inline at bottom of messages (origin variant only) */}
+          {sceneInfo?.variant === "origin" && (
+            <SceneBanner variant="origin" sceneChatId={sceneInfo.sceneChatId} sceneChatName={sceneInfo.sceneChatName} />
+          )}
+
+          <div ref={messagesEndRef} className="h-1" />
+        </div>
+
+        {/* ── Autonomous message toast notification ── */}
+        {hasAutonomousMessaging && (
+          <Suspense fallback={null}>
+            <ConversationAutonomousEffects
+              key={chatId}
+              chatId={chatId}
+              messages={messages}
+              characterMap={characterMap}
+              chatMeta={chatMeta}
+            />
+          </Suspense>
         )}
 
-        {/* Scene banner — inline at bottom of messages (origin variant only) */}
-        {sceneInfo?.variant === "origin" && (
-          <SceneBanner variant="origin" sceneChatId={sceneInfo.sceneChatId} sceneChatName={sceneInfo.sceneChatName} />
-        )}
-
-        <div ref={messagesEndRef} className="h-1" />
-      </div>
-
-      {/* ── Autonomous message toast notification ── */}
-      {hasAutonomousMessaging && (
-        <Suspense fallback={null}>
-          <ConversationAutonomousEffects
-            key={chatId}
-            chatId={chatId}
-            messages={messages}
-            characterMap={characterMap}
-            chatMeta={chatMeta}
+        {/* ── End Scene bar (above input) ── */}
+        {sceneInfo?.variant === "scene" && sceneInfo.sceneChatId && onConcludeScene && (
+          <EndSceneBar
+            sceneChatId={sceneInfo.sceneChatId}
+            originChatId={sceneInfo.originChatId}
+            onConclude={onConcludeScene}
+            onAbandon={onAbandonScene}
           />
-        </Suspense>
-      )}
+        )}
 
-      {/* ── End Scene bar (above input) ── */}
-      {sceneInfo?.variant === "scene" && sceneInfo.sceneChatId && onConcludeScene && (
-        <EndSceneBar
-          sceneChatId={sceneInfo.sceneChatId}
-          originChatId={sceneInfo.originChatId}
-          onConclude={onConcludeScene}
-          onAbandon={onAbandonScene}
+        {/* ── Input area ── */}
+        <ConversationInput
+          key={chatId}
+          characterNames={activeCharacterNames}
+          groupResponseOrder={
+            activeChatCharIds.length > 1
+              ? chatMeta.groupResponseOrder === "manual"
+                ? "manual"
+                : chatMetaString(chatMeta.groupResponseOrder, "sequential")
+              : undefined
+          }
+          chatCharacters={
+            activeChatCharIds.length > 1
+              ? activeChatCharIds
+                  .filter((id) => characterMap.has(id))
+                  .map((id) => {
+                    const info = characterMap.get(id)!;
+                    return {
+                      id,
+                      name: info.name,
+                      avatarUrl: info.avatarUrl ?? null,
+                      avatarCrop: info.avatarCrop ?? null,
+                      conversationStatus: info.conversationStatus,
+                      conversationActivity: info.conversationActivity,
+                    };
+                  })
+              : undefined
+          }
+          onPeekPrompt={onPeekPrompt}
         />
-      )}
-
-      {/* ── Input area ── */}
-      <ConversationInput
-        key={chatId}
-        characterNames={activeCharacterNames}
-        groupResponseOrder={
-          activeChatCharIds.length > 1
-            ? chatMeta.groupResponseOrder === "manual"
-              ? "manual"
-              : chatMetaString(chatMeta.groupResponseOrder, "sequential")
-            : undefined
-        }
-        chatCharacters={
-          activeChatCharIds.length > 1
-            ? activeChatCharIds
-                .filter((id) => characterMap.has(id))
-                .map((id) => {
-                  const info = characterMap.get(id)!;
-                  return {
-                    id,
-                    name: info.name,
-                    avatarUrl: info.avatarUrl ?? null,
-                    avatarCrop: info.avatarCrop ?? null,
-                    conversationStatus: info.conversationStatus,
-                    conversationActivity: info.conversationActivity,
-                  };
-                })
-            : undefined
-        }
-        onPeekPrompt={onPeekPrompt}
-      />
       </div>
 
       {/* Tools top sheet */}
@@ -1653,7 +1679,11 @@ export function ConversationView({
               )}
               <button
                 type="button"
-                onClick={() => { skipSheetFocusRestoreRef.current = true; setMoreMenuOpen(false); setSummaryOpen(true); }}
+                onClick={() => {
+                  skipSheetFocusRestoreRef.current = true;
+                  setMoreMenuOpen(false);
+                  setSummaryOpen(true);
+                }}
                 className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
               >
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-sm">
@@ -1663,7 +1693,11 @@ export function ConversationView({
               </button>
               <button
                 type="button"
-                onClick={() => { skipSheetFocusRestoreRef.current = true; setMoreMenuOpen(false); setMobileWorldInfoOpen(true); }}
+                onClick={() => {
+                  skipSheetFocusRestoreRef.current = true;
+                  setMoreMenuOpen(false);
+                  setMobileWorldInfoOpen(true);
+                }}
                 className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
               >
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-500 text-white shadow-sm">
@@ -1673,7 +1707,11 @@ export function ConversationView({
               </button>
               <button
                 type="button"
-                onClick={() => { skipSheetFocusRestoreRef.current = true; setMoreMenuOpen(false); onOpenGallery(); }}
+                onClick={() => {
+                  skipSheetFocusRestoreRef.current = true;
+                  setMoreMenuOpen(false);
+                  onOpenGallery();
+                }}
                 className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
               >
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 text-white shadow-sm">
@@ -1683,7 +1721,11 @@ export function ConversationView({
               </button>
               <button
                 type="button"
-                onClick={() => { skipSheetFocusRestoreRef.current = true; setMoreMenuOpen(false); onOpenFiles(); }}
+                onClick={() => {
+                  skipSheetFocusRestoreRef.current = true;
+                  setMoreMenuOpen(false);
+                  onOpenFiles();
+                }}
                 className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
               >
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 text-white shadow-sm">
@@ -1694,7 +1736,11 @@ export function ConversationView({
               <div className="mx-5 my-1 h-px bg-[var(--border)]/30" />
               <button
                 type="button"
-                onClick={() => { skipSheetFocusRestoreRef.current = true; setMoreMenuOpen(false); onOpenSettings(); }}
+                onClick={() => {
+                  skipSheetFocusRestoreRef.current = true;
+                  setMoreMenuOpen(false);
+                  onOpenSettings();
+                }}
                 className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
               >
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-sm">
@@ -1744,7 +1790,14 @@ function SplitMessageGroup({
   messageStyle,
   typingLabel,
 }: {
-  items: Array<{ key: string; msg: Message; isGrouped: boolean; index: number }>;
+  items: Array<{
+    key: string;
+    msg: Message;
+    isGrouped: boolean;
+    index: number;
+    bubbleGroupPosition: "single" | "first" | "middle" | "last";
+    originalContent?: string;
+  }>;
   isStreaming: boolean;
   regenerateMessageId: string | null;
   streamBuffer: string;
@@ -1768,7 +1821,7 @@ function SplitMessageGroup({
   const [editValue, setEditValue] = useState("");
   const editRef = useRef<HTMLTextAreaElement>(null);
 
-  const fullContent = items.map((gi) => gi.msg.content).join("\n");
+  const fullContent = items[0]?.originalContent ?? items.map((gi) => gi.msg.content).join("\n");
   const messageId = items[0]!.msg.id;
 
   const handleStartEdit = useCallback(() => {
@@ -1827,6 +1880,7 @@ function SplitMessageGroup({
           onToggleHiddenFromAI={onToggleHiddenFromAI}
           onBranch={onBranch}
           messageStyle={messageStyle}
+          bubbleGroupPosition={firstItem.bubbleGroupPosition}
           isLastAssistantMessage={false}
           characterMap={characterMap}
           chatCharacterIds={chatCharacterIds}
@@ -1908,6 +1962,7 @@ function SplitMessageGroup({
                 onToggleHiddenFromAI={onToggleHiddenFromAI}
                 onBranch={onBranch}
                 messageStyle={messageStyle}
+                bubbleGroupPosition={firstItem.bubbleGroupPosition}
                 isLastAssistantMessage={false}
                 characterMap={characterMap}
                 chatCharacterIds={chatCharacterIds}
@@ -1938,6 +1993,7 @@ function SplitMessageGroup({
               onToggleHiddenFromAI={onToggleHiddenFromAI}
               onBranch={onBranch}
               messageStyle={messageStyle}
+              bubbleGroupPosition={firstItem.bubbleGroupPosition}
               onEditClick={handleStartEdit}
               isLastAssistantMessage={firstItem.msg.id === lastAssistantMessageId}
               characterMap={characterMap}
@@ -1970,6 +2026,7 @@ function SplitMessageGroup({
             onToggleHiddenFromAI={onToggleHiddenFromAI}
             onBranch={onBranch}
             messageStyle={messageStyle}
+            bubbleGroupPosition={firstItem.bubbleGroupPosition}
             onEditClick={handleStartEdit}
             isLastAssistantMessage={firstItem.msg.id === lastAssistantMessageId}
             characterMap={characterMap}
