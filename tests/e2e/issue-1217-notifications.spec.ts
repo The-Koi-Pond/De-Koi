@@ -8,7 +8,7 @@ test("settings shows conversation native notification opt-in", async ({ page }) 
     .evaluate((button) => {
       (button as HTMLButtonElement).click();
     });
-  await page.getByRole("button", { name: "Appearance" }).evaluate((button) => {
+  await page.getByRole("tab", { name: "Appearance" }).evaluate((button) => {
     (button as HTMLButtonElement).click();
   });
 
