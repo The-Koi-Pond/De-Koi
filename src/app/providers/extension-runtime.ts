@@ -16,7 +16,6 @@ type RunnableExtension = Pick<InstalledExtension, "id" | "name" | "js"> & { js: 
 export type ExtensionRuntimeDeps = {
   console?: ExtensionRuntimeConsole;
   createObjectUrl?: (blob: Blob) => string;
-  globalObject?: ExtensionGlobal;
   importModule?: (url: string) => Promise<unknown>;
   now?: () => number;
   random?: () => number;
@@ -68,7 +67,7 @@ export function executeCustomExtensionJavaScript(
   deps: ExtensionRuntimeDeps = {},
 ): RunningExtensionScript {
   const extensionCleanups: Array<() => void> = [];
-  const extensionGlobal = deps.globalObject ?? getExtensionGlobal();
+  const extensionGlobal = getExtensionGlobal();
   const now = deps.now ?? Date.now;
   const random = deps.random ?? Math.random;
   const logger = deps.console ?? console;
