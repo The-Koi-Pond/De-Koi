@@ -2,7 +2,7 @@
 
 Current release-build screenshots are checked into
 `docs/screenshots/release/`. Do not restore the old screenshot set unless each
-image is recaptured from the current De-Koi refactor UI.
+image is recaptured from the current De-Koi UI.
 
 The current set was captured on 2026-06-15 from the production web preview of
 `origin/main` at `001e88a9` after `pnpm build` and `pnpm preview`. The mode

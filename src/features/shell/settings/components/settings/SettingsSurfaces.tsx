@@ -3813,7 +3813,7 @@ export function AdvancedSettings() {
         <div className="flex flex-col gap-2 rounded-lg bg-[var(--secondary)]/35 p-2.5 ring-1 ring-[var(--border)]">
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium">App Updates</span>
-            <HelpTooltip text="Checks the current GitHub release source. This refactor build opens the release page for manual install because signed Tauri updater artifacts are not configured yet." />
+            <HelpTooltip text="Checks the current GitHub release source. De-Koi opens the release page for manual install because signed Tauri updater artifacts are not configured yet." />
           </div>
           <div className="flex flex-wrap gap-2">
             <button

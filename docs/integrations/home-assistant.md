@@ -111,14 +111,14 @@ Use these in automations to interact with De-Koi from Home Assistant's side.
 
 ### `marinara_engine.send_message`
 
-Send a message to a De-Koi chat through the refactor storage API.
+Send a message to a De-Koi chat through the remote runtime storage API.
 
 | Field                | Required | Description                                                                                           |
 | -------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
 | `message`            | Yes      | Message content                                                                                       |
 | `chat_id`            | No       | Target chat ID (defaults to primary chat)                                                             |
 | `role`               | No       | `user` / `assistant` / `system` / `narrator`                                                          |
-| `trigger_generation` | No       | Refactor compatibility flag; the message is stored, but generation still happens from the desktop app |
+| `trigger_generation` | No       | Compatibility flag; the message is stored, but generation still happens from the desktop app |
 
 **Example - notify the AI when someone arrives:**
 
@@ -137,7 +137,7 @@ automation:
 
 ### `marinara_engine.trigger_generation`
 
-Refactor compatibility service. If `user_message` is provided, it is stored in the target chat. The Tauri refactor does not expose the desktop generation loop through `de-koi-server`, so open the chat in the desktop app to generate the response.
+Remote runtime compatibility service. If `user_message` is provided, it is stored in the target chat. De-Koi does not expose the desktop generation loop through `de-koi-server`, so open the chat in the desktop app to generate the response.
 
 | Field          | Required | Description                               |
 | -------------- | -------- | ----------------------------------------- |
