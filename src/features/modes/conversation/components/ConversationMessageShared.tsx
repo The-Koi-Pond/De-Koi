@@ -419,6 +419,7 @@ export function MsgAction({
 }) {
   return (
     <button
+      type="button"
       onClick={(e) => {
         e.stopPropagation();
         onClick();

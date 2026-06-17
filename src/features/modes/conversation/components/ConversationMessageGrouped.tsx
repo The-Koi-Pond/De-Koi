@@ -38,6 +38,8 @@ export function ConversationMessageGrouped({ context }: { context: ConversationM
         context.isStreaming && "bg-[var(--secondary)]/20",
         context.multiSelectMode && context.isSelected && "bg-[var(--destructive)]/10",
       )}
+      data-message-id={context.message.id}
+      data-message-role={context.message.role}
       data-card-css={context.cardCssId}
       data-grouped={context.isGrouped || undefined}
       onClick={context.handleMessageClick}
@@ -170,7 +172,7 @@ export function ConversationMessageGrouped({ context }: { context: ConversationM
         translationContent={context.message.content}
         showUserThinking
       />
-      <ConversationMessageOverlays context={context} includeImageLightbox={false} />
+      <ConversationMessageOverlays context={context} />
     </div>
   );
 }

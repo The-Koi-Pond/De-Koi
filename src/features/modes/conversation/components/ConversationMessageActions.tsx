@@ -93,12 +93,14 @@ export function ConversationMessageActions({
           title="Branch from here"
         />
       )}
-      <MsgAction
-        icon={<Trash2 size="0.75rem" />}
-        onClick={() => context.onDelete?.(context.message.id)}
-        title="Delete"
-        className="hover:text-[var(--destructive)]"
-      />
+      {context.onDelete && (
+        <MsgAction
+          icon={<Trash2 size="0.75rem" />}
+          onClick={() => context.onDelete?.(context.message.id)}
+          title="Delete"
+          className="hover:text-[var(--destructive)]"
+        />
+      )}
     </div>
   );
 }
