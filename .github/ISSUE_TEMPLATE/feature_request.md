@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an improvement or new feature for the refactor branch
+about: Suggest an improvement or new feature for De-Koi
 title: "[Feature]: "
 labels: "enhancement"
 assignees: ""
@@ -31,7 +31,7 @@ assignees: ""
 - [ ] Tauri/Rust storage, assets, LLM, integrations, security, imports, or HTTP runtime
 - [ ] Docs, contributor workflow, or templates
 
-## Refactor branch considerations
+## Architecture considerations
 
 <!-- Note any architecture expectations, remote-runtime needs, or risky pressure points. -->
 <!-- Examples: avoid broadening ModeSurface/GameSurface, keep engine React-free, use shared API wrappers instead of raw Tauri calls. -->

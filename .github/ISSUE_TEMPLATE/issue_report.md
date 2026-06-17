@@ -1,6 +1,6 @@
 ---
 name: Issue report
-about: Report a bug, regression, or usability problem on the refactor branch
+about: Report a bug, regression, or usability problem in De-Koi
 title: "[Issue]: "
 labels: "bug"
 assignees: ""

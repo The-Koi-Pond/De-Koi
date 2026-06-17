@@ -54,7 +54,7 @@ jobs:
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
           short_sha="${GITHUB_SHA::7}"
-          tag_name="prealpha-main-v${version}-run${GITHUB_RUN_NUMBER}-attempt${GITHUB_RUN_ATTEMPT}-${short_sha}"
+          tag_name="prealpha-de-koi-v${version}-run${GITHUB_RUN_NUMBER}-attempt${GITHUB_RUN_ATTEMPT}-${short_sha}"
           release_name="De-Koi Pre-Alpha Test Build v${version} #${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
           {
             echo "version=${version}"
@@ -79,7 +79,7 @@ jobs:
             const bodyLines = [
               '# ⚠️ DE-KOI PRE-ALPHA TEST BUILD — EXPECT BREAKAGE ⚠️',
               '',
-              'This is a **manual main-branch test build** for team testing. It is marked as a **GitHub pre-release** and forced to **not be the latest release**.',
+              'This is a **manual De-Koi pre-alpha test build** for team testing. It is marked as a **GitHub pre-release** and forced to **not be the latest release**.',
               '',
               '## 🚨 Read before downloading',
               '',

@@ -27,7 +27,7 @@ Storage is file-backed JSON collections plus managed asset files. See [De-Koi St
 
 ## Screenshots
 
-Current release-build screenshots are checked in under [`docs/screenshots/release`](docs/screenshots/release). These captures were taken from the production web preview for the current refactor build; the mode captures show the web-shell setup path before a remote runtime and provider connection are configured.
+Current release-build screenshots are checked in under [`docs/screenshots/release`](docs/screenshots/release). These captures were taken from the production web preview for the current De-Koi build; the mode captures show the web-shell setup path before a remote runtime and provider connection are configured.
 
 | Conversation | Roleplay | Game mode |
 | --- | --- | --- |
@@ -104,7 +104,7 @@ pnpm tauri build
 
 When maintainers publish De-Koi release assets, use the GitHub Release page for that version as the source of truth. Download the artifact for your operating system, read the release notes, and keep access to the matching source commit listed by the release.
 
-Updates are manual in the current refactor architecture. The in-app update check in Settings > Advanced may open the matching GitHub Release page, but De-Koi does not silently download or install desktop updates yet. Replace the app through the platform installer or bundle you downloaded from GitHub Releases.
+Updates are manual in the current De-Koi architecture. The in-app update check in Settings > Advanced may open the matching GitHub Release page, but De-Koi does not silently download or install desktop updates yet. Replace the app through the platform installer or bundle you downloaded from GitHub Releases.
 
 Pre-alpha release assets may be unsigned or debug-signed and should be tested with throwaway data. The optional Rust runtime is an API server for supported desktop workflows; it is not a replacement for the desktop app installer and does not serve the React UI.
 
@@ -232,4 +232,4 @@ show up without failing the command.
 
 ## Current Status
 
-Current development is focused on the refactored desktop/runtime architecture. Release docs describe the current manual install/update model, and release-build screenshots are checked in for the current web-shell setup, settings, and connections surfaces.
+Current development is focused on the De-Koi desktop/runtime architecture. Release docs describe the current manual install/update model, and release-build screenshots are checked in for the current web-shell setup, settings, and connections surfaces.

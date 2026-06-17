@@ -9,7 +9,7 @@ Closes #
 
 ## Why this change
 
-<!-- What user problem, bug, refactor goal, or maintenance need does this solve? -->
+<!-- What user problem, bug, architecture goal, or maintenance need does this solve? -->
 
 -
 
@@ -19,7 +19,7 @@ Closes #
 
 -
 
-## Refactor impact
+## Architecture impact
 
 Primary owner:
 
@@ -67,7 +67,7 @@ insufficient, and why this test is narrow.
 Check exactly one:
 
 - [ ] Updated `src/features/shell/discovery/` because this PR adds or materially changes a user-discoverable feature, workflow, setting, mode, panel, import path, agent, media capability, or advanced tool.
-- [ ] N/A because this PR is only a bugfix, refactor, test, docs, internal wiring, visual polish, copy edit, or compatibility fix and does not add a new thing users need to find.
+- [ ] N/A because this PR is only a bugfix, architecture cleanup, test, docs, internal wiring, visual polish, copy edit, or compatibility fix and does not add a new thing users need to find.
 
 Reason:
 
