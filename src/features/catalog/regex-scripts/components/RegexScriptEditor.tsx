@@ -33,6 +33,7 @@ import type { RegexPlacement } from "../../../../engine/contracts/types/regex";
 import { resolveMacros, type MacroContext } from "../../../../engine/shared/macros/macro-engine";
 import { applyRegexScriptReplacement } from "../../../../engine/shared/regex/regex-script-application";
 import { useCharacterSummaries } from "../../characters/index";
+import { nextRegexScriptTargetCharacterIds, savedRegexScriptPromptOnly } from "../lib/regex-script-editor-state";
 import { regexScriptTargetCharacterIds } from "../lib/regex-script-filter";
 
 // ═══════════════════════════════════════════════
@@ -217,7 +218,7 @@ export function RegexScriptEditor() {
   );
   const selectedTargetIds = useMemo(() => new Set(localTargetCharacterIds), [localTargetCharacterIds]);
   const hasCharacterScope = localTargetCharacterIds.length > 0;
-  const effectivePromptOnly = hasCharacterScope || localPromptOnly;
+  const effectivePromptOnly = savedRegexScriptPromptOnly(localTargetCharacterIds, localPromptOnly);
 
   const handleClose = useCallback(() => {
     if (dirty) {
@@ -310,11 +311,8 @@ export function RegexScriptEditor() {
   };
 
   const toggleTargetCharacter = (characterId: string) => {
-    const nextTargetCharacterIds = localTargetCharacterIds.includes(characterId)
-      ? localTargetCharacterIds.filter((id) => id !== characterId)
-      : [...localTargetCharacterIds, characterId];
+    const nextTargetCharacterIds = nextRegexScriptTargetCharacterIds(localTargetCharacterIds, characterId);
     setLocalTargetCharacterIds(nextTargetCharacterIds);
-    if (nextTargetCharacterIds.length > 0) setLocalPromptOnly(true);
     markDirty();
   };
 
