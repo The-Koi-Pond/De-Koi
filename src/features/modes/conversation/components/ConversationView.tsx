@@ -19,6 +19,14 @@ import { ConversationMessage } from "./ConversationMessage";
 import { ConversationInput } from "./ConversationInput";
 import { SceneBanner, EndSceneBar } from "../../shared/scene-ui";
 import {
+  EMPTY_STREAMING_BUBBLE_DRAFT,
+  bubbleRegenerationBackingSignature,
+  hasBubbleRegenerationBackingChanged,
+  shouldRenderBubbleRegenerationDraft,
+  updateStreamingBubbleDraft,
+  type StreamingBubbleDraftState,
+} from "../lib/conversation-streaming-draft";
+import {
   ChatBranchSelector,
   type ChatBranchSelectorHandle,
   getTranscriptRenderWindow,
@@ -1019,36 +1027,40 @@ export function ConversationView({
     isStreaming && conversationMessageStyle === "bubble" && !delayedCharacterInfo
       ? `${chatId}:${regenerateMessageId ?? "new"}:${liveStreamCharacterId ?? "assistant"}`
       : null;
-  const [streamingBubbleDraft, setStreamingBubbleDraft] = useState<{ key: string; text: string; source: string }>({
-    key: "",
-    text: "",
-    source: "",
-  });
+  const regenerationBackingSignature = useMemo(() => {
+    if (!regenerateMessageId) return "";
+    return bubbleRegenerationBackingSignature(messages?.find((message) => message.id === regenerateMessageId));
+  }, [messages, regenerateMessageId]);
+  const [streamingBubbleDraft, setStreamingBubbleDraft] = useState<StreamingBubbleDraftState>(
+    EMPTY_STREAMING_BUBBLE_DRAFT,
+  );
 
   useEffect(() => {
-    if (!streamingDraftKey) {
-      setStreamingBubbleDraft((current) =>
-        current.key || current.text || current.source ? { key: "", text: "", source: "" } : current,
-      );
-      return;
-    }
-
     const nextPreview = buildStreamingBubblePreview(streamBuffer, liveStreamCharacterId);
-    setStreamingBubbleDraft((current) => {
-      if (current.key !== streamingDraftKey) return { key: streamingDraftKey, text: nextPreview, source: streamBuffer };
-
-      const sourceWasReplaced = !!current.source && !streamBuffer.startsWith(current.source);
-      if (sourceWasReplaced || nextPreview.length > current.text.length) {
-        return { key: streamingDraftKey, text: nextPreview, source: streamBuffer };
-      }
-      if (current.source !== streamBuffer) return { ...current, source: streamBuffer };
-      return current;
-    });
-  }, [buildStreamingBubblePreview, liveStreamCharacterId, streamBuffer, streamingDraftKey]);
+    setStreamingBubbleDraft((current) =>
+      updateStreamingBubbleDraft(current, {
+        key: streamingDraftKey,
+        preview: nextPreview,
+        streamBuffer,
+        backingSignature: regenerateMessageId ? regenerationBackingSignature : "",
+      }),
+    );
+  }, [
+    buildStreamingBubblePreview,
+    liveStreamCharacterId,
+    regenerateMessageId,
+    regenerationBackingSignature,
+    streamBuffer,
+    streamingDraftKey,
+  ]);
 
   const streamingBubblePreview =
     streamingDraftKey && streamingBubbleDraft.key === streamingDraftKey ? streamingBubbleDraft.text : "";
   const liveStreamContentParts = streamingBubblePreview ? [streamingBubblePreview] : undefined;
+  const bubbleRegenerationBackingChanged =
+    streamingDraftKey && streamingBubbleDraft.key === streamingDraftKey
+      ? hasBubbleRegenerationBackingChanged(streamingBubbleDraft, regenerationBackingSignature)
+      : false;
 
   // ── Staggered reveal for split assistant lines ──
   // When a new multi-line assistant message arrives, show lines one by one
@@ -1522,7 +1534,7 @@ export function ConversationView({
                     regenerateMessageId={regenerateMessageId}
                     streamBuffer={streamBuffer}
                     thinkingBuffer={thinkingBuffer}
-                    isStreamWindingDown={isStreamWindingDown}
+                    bubbleRegenerationBackingChanged={bubbleRegenerationBackingChanged}
                     liveStreamContentParts={liveStreamContentParts}
                     lastAssistantMessageId={lastAssistantMessageId}
                     characterMap={characterMap}
@@ -1565,7 +1577,10 @@ export function ConversationView({
                     })()
                   : msg;
               const regenerationDraftMessage =
-                isBubbleRegenerating && !isStreamWindingDown
+                shouldRenderBubbleRegenerationDraft({
+                  isBubbleRegenerating,
+                  backingMessageChanged: bubbleRegenerationBackingChanged,
+                })
                   ? ({
                       ...msg,
                       id: `__conversation_regeneration_stream__${msg.id}`,
@@ -1964,7 +1979,7 @@ function SplitMessageGroup({
   regenerateMessageId,
   streamBuffer,
   thinkingBuffer,
-  isStreamWindingDown,
+  bubbleRegenerationBackingChanged,
   liveStreamContentParts,
   lastAssistantMessageId,
   characterMap,
@@ -1992,7 +2007,7 @@ function SplitMessageGroup({
   regenerateMessageId: string | null;
   streamBuffer: string;
   thinkingBuffer: string;
-  isStreamWindingDown: boolean;
+  bubbleRegenerationBackingChanged: boolean;
   liveStreamContentParts?: string[];
   lastAssistantMessageId: string | undefined | null;
   characterMap: CharacterMap;
@@ -2198,7 +2213,10 @@ function SplitMessageGroup({
           );
         }
         const regenerationDraftMessage =
-          isBubbleRegen && !isStreamWindingDown
+          shouldRenderBubbleRegenerationDraft({
+            isBubbleRegenerating: isBubbleRegen,
+            backingMessageChanged: bubbleRegenerationBackingChanged,
+          })
             ? ({
                 ...firstItem.msg,
                 id: `__conversation_regeneration_stream__${firstItem.msg.id}`,
