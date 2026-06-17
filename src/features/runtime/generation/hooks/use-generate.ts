@@ -1321,6 +1321,8 @@ export async function runGenerationWithUi(
   let typewriterActive = false;
   let lastTypewriterPaintAt = 0;
   let typewriterRemainder = 0;
+  const canInspectPageFocus = typeof document !== "undefined";
+  const canListenForWindowBlur = typeof window !== "undefined";
   const revealWaiters = new Set<() => void>();
   const pendingAgentResultEffects: unknown[] = [];
   let agentResultEffectsDrainScheduled = false;
@@ -1359,6 +1361,9 @@ export async function runGenerationWithUi(
     useChatStore.getState().setAssistantPhase(chatId, "thinking");
   };
 
+  const shouldFlushTypewriterForBackground = () =>
+    canInspectPageFocus && (document.visibilityState !== "visible" || !document.hasFocus());
+
   const commitThinkingBuffer = (force = false, now = performance.now()) => {
     if (thinkingText === committedThinkingText) return;
     if (
@@ -1388,6 +1393,10 @@ export async function runGenerationWithUi(
 
   const revealNextStreamSlice = (now = performance.now()) => {
     typewriterFrame = null;
+    if (shouldFlushTypewriterForBackground()) {
+      flushBackgroundedVisibleStreamText();
+      return;
+    }
     if (pendingReveal.length === 0) {
       typewriterActive = false;
       lastTypewriterPaintAt = 0;
@@ -1433,9 +1442,27 @@ export async function runGenerationWithUi(
 
   const scheduleStreamReveal = () => {
     if (typewriterActive || pendingReveal.length === 0) return;
+    if (shouldFlushTypewriterForBackground()) {
+      flushBackgroundedVisibleStreamText();
+      return;
+    }
     typewriterActive = true;
     typewriterFrame = window.requestAnimationFrame(revealNextStreamSlice);
   };
+
+  function flushBackgroundedVisibleStreamText() {
+    if (!shouldFlushTypewriterForBackground()) return;
+    if (pendingReveal.length === 0 && !typewriterActive) return;
+    cancelTypewriterFrame();
+    const text = pendingReveal;
+    pendingReveal = "";
+    typewriterActive = false;
+    lastTypewriterPaintAt = 0;
+    typewriterRemainder = 0;
+    appendVisibleStreamText(text);
+    commitVisibleStreamBuffer(true);
+    resolveAllRevealWaiters();
+  }
 
   const enqueueVisibleStreamText = (text: string) => {
     if (!text || !useUIStore.getState().enableStreaming) return;
@@ -1580,6 +1607,12 @@ export async function runGenerationWithUi(
   };
 
   controller.signal.addEventListener("abort", stopGenerationUi, { once: true });
+  if (canInspectPageFocus) {
+    document.addEventListener("visibilitychange", flushBackgroundedVisibleStreamText);
+  }
+  if (canListenForWindowBlur) {
+    window.addEventListener("blur", flushBackgroundedVisibleStreamText);
+  }
 
   try {
     insertOptimisticUserMessage(queryClient, args);
@@ -1814,6 +1847,12 @@ export async function runGenerationWithUi(
     throw error;
   } finally {
     controller.signal.removeEventListener("abort", stopGenerationUi);
+    if (canInspectPageFocus) {
+      document.removeEventListener("visibilitychange", flushBackgroundedVisibleStreamText);
+    }
+    if (canListenForWindowBlur) {
+      window.removeEventListener("blur", flushBackgroundedVisibleStreamText);
+    }
     const wasAborted = controller.signal.aborted;
     stopGenerationUi();
     scheduleChatQueryRefresh(queryClient, chatId);

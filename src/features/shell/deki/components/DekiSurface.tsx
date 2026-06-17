@@ -507,6 +507,8 @@ export function DekiSurface() {
                   isStreaming={false}
                   isGrouped={isGrouped}
                   hideActions
+                  hideUserAvatar
+                  plainUserMessages
                   characterMap={characterMap}
                   personaInfo={personaInfo}
                   chatCharacterIds={[DEKI_CHARACTER_ID]}
@@ -726,12 +728,7 @@ function DekiLoadingState() {
 
 function DekiPixelScene({ active }: { active: boolean }) {
   return (
-    <div
-      className={cn(
-        "deki-pixel-scene",
-        active ? "deki-pixel-scene-active" : "deki-pixel-scene-idle",
-      )}
-    >
+    <div className={cn("deki-pixel-scene", active ? "deki-pixel-scene-active" : "deki-pixel-scene-idle")}>
       <div className="deki-pixel-glow" aria-hidden />
       <div className="deki-pixel-desk" aria-hidden />
       <img src={DEKI_CHIBI_URL} alt="Deki-senpai" className="deki-pixel-sprite" draggable={false} />

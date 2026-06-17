@@ -317,7 +317,9 @@ interface ConversationMessageProps {
   isStreaming?: boolean;
   isGrouped?: boolean;
   hideActions?: boolean;
+  hideUserAvatar?: boolean;
   noHoverGroup?: boolean;
+  plainUserMessages?: boolean;
   forceShowActions?: boolean;
   onDelete?: (messageId: string) => void;
   onRegenerate?: (messageId: string) => void;
@@ -352,7 +354,9 @@ export const ConversationMessage = memo(function ConversationMessage({
   isStreaming,
   isGrouped,
   hideActions,
+  hideUserAvatar,
   noHoverGroup,
+  plainUserMessages,
   forceShowActions,
   onDelete,
   onRegenerate,
@@ -410,6 +414,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
   const isBubbleStyle = messageStyle === "bubble";
+  const isPlainUserMessage = isUser && plainUserMessages === true;
 
   // Parse extra early so we can access persona snapshot
   const extra = useMemo(() => {
@@ -426,6 +431,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   const isHiddenExpanded =
     isHiddenFromAI && (!collapseHiddenMessages || manuallyExpandedHidden || editing || isStreaming === true);
   const isHiddenCollapsed = isHiddenFromAI && collapseHiddenMessages && !isHiddenExpanded;
+  const shouldHideUserAvatar = isUser && hideUserAvatar === true;
   const hiddenFromAIHeader = isHiddenFromAI ? (
     <HiddenFromAIConversationButton
       canCollapse={collapseHiddenMessages}
@@ -469,45 +475,59 @@ export const ConversationMessage = memo(function ConversationMessage({
   // For user messages, prefer per-message persona snapshot (stored when message was sent)
   // to preserve the correct persona name/avatar even after switching personas.
   // Fall back to the current personaInfo prop for older messages without snapshots.
-  const msgPersona = isUser && extra.personaSnapshot ? extra.personaSnapshot : null;
+  const msgPersona = isUser && !isPlainUserMessage && extra.personaSnapshot ? extra.personaSnapshot : null;
   const avatarUrl = isUser
-    ? msgPersona
-      ? (msgPersona.avatarUrl ?? null)
-      : (personaInfo?.avatarUrl ?? null)
+    ? isPlainUserMessage
+      ? null
+      : msgPersona
+        ? (msgPersona.avatarUrl ?? null)
+        : (personaInfo?.avatarUrl ?? null)
     : (charInfo?.avatarUrl ?? null);
   const avatarFilePath = isUser
-    ? msgPersona
-      ? (msgPersona.avatarFilePath ?? null)
-      : (personaInfo?.avatarFilePath ?? null)
+    ? isPlainUserMessage
+      ? null
+      : msgPersona
+        ? (msgPersona.avatarFilePath ?? null)
+        : (personaInfo?.avatarFilePath ?? null)
     : (charInfo?.avatarFilePath ?? null);
   const avatarFilename = isUser
-    ? msgPersona
-      ? (msgPersona.avatarFilename ?? null)
-      : (personaInfo?.avatarFilename ?? null)
+    ? isPlainUserMessage
+      ? null
+      : msgPersona
+        ? (msgPersona.avatarFilename ?? null)
+        : (personaInfo?.avatarFilename ?? null)
     : (charInfo?.avatarFilename ?? null);
   const personaAvatarCrop = isUser
-    ? msgPersona
-      ? parseAvatarCropJson(msgPersona.avatarCrop)
-      : (personaInfo?.avatarCrop ?? null)
+    ? isPlainUserMessage
+      ? null
+      : msgPersona
+        ? parseAvatarCropJson(msgPersona.avatarCrop)
+        : (personaInfo?.avatarCrop ?? null)
     : null;
   const avatarCropStyle = isUser ? getAvatarCropStyle(personaAvatarCrop) : getAvatarCropStyle(charInfo?.avatarCrop);
   const displayName = isUser
-    ? (msgPersona?.name ?? personaInfo?.name ?? "You")
+    ? isPlainUserMessage
+      ? "You"
+      : (msgPersona?.name ?? personaInfo?.name ?? "You")
     : (primaryCharInfo?.name ?? "Assistant");
-  const nameColor = isUser ? (msgPersona?.nameColor ?? personaInfo?.nameColor) : charInfo?.nameColor;
+  const nameColor = isUser
+    ? isPlainUserMessage
+      ? undefined
+      : (msgPersona?.nameColor ?? personaInfo?.nameColor)
+    : charInfo?.nameColor;
   // Conversation-mode avatar override (Default / Hide / Emoji / Sprite / Gallery). User messages are never overridden.
   const conversationAvatar = resolveConversationAvatar(isUser ? null : charInfo, avatarUrl);
   const renderedContent = useMemo(
     () =>
       resolveMessageMacros(message.content, {
-        userName: msgPersona?.name ?? personaInfo?.name ?? "You",
+        userName: displayName,
         persona: {
-          name: msgPersona?.name ?? personaInfo?.name ?? "You",
-          description: msgPersona?.description ?? personaInfo?.description,
-          personality: msgPersona?.personality ?? personaInfo?.personality,
-          backstory: msgPersona?.backstory ?? personaInfo?.backstory,
-          appearance: msgPersona?.appearance ?? personaInfo?.appearance,
-          scenario: msgPersona?.scenario ?? personaInfo?.scenario,
+          name: displayName,
+          description: isPlainUserMessage ? undefined : (msgPersona?.description ?? personaInfo?.description),
+          personality: isPlainUserMessage ? undefined : (msgPersona?.personality ?? personaInfo?.personality),
+          backstory: isPlainUserMessage ? undefined : (msgPersona?.backstory ?? personaInfo?.backstory),
+          appearance: isPlainUserMessage ? undefined : (msgPersona?.appearance ?? personaInfo?.appearance),
+          scenario: isPlainUserMessage ? undefined : (msgPersona?.scenario ?? personaInfo?.scenario),
         },
         primaryCharacter: primaryCharInfo ?? { name: displayName },
         characters: scopedCharacterMap
@@ -518,6 +538,7 @@ export const ConversationMessage = memo(function ConversationMessage({
       }),
     [
       displayName,
+      isPlainUserMessage,
       message.content,
       msgPersona?.appearance,
       msgPersona?.backstory,
@@ -1157,7 +1178,13 @@ export const ConversationMessage = memo(function ConversationMessage({
       )}
 
       {/* Avatar column — fixed 40px width */}
-      <div className={cn("mari-message-avatar flex-shrink-0", isBubbleStyle ? "w-8 self-end" : "w-10")}>
+      <div
+        className={cn(
+          "mari-message-avatar flex-shrink-0",
+          isBubbleStyle ? "w-8 self-end" : "w-10",
+          shouldHideUserAvatar && "hidden",
+        )}
+      >
         {!isGrouped && !conversationAvatar.hide && (
           <>
             <div
