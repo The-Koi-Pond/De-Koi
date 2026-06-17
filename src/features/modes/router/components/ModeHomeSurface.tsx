@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { BookOpen, HelpCircle, MessageSquare, Theater } from "lucide-react";
+import { BookOpen, HelpCircle, List, MessageSquare, Theater } from "lucide-react";
 import { APP_VERSION } from "../../../../engine/contracts/constants/defaults";
 import { useConnections } from "../../../catalog/connections/index";
 import { useCreateChat } from "../../../catalog/chats/index";
@@ -9,6 +9,8 @@ import { filterLanguageGenerationConnections } from "../../../../shared/lib/conn
 import { cn } from "../../../../shared/lib/utils";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { HomeCreditsModal } from "./HomeCreditsModal";
+import { HOME_CREDIT_LINKS } from "./homeCredits";
 import { RecentChats } from "./RecentChats";
 
 type QuickStartMode = "conversation" | "roleplay" | "game";
@@ -37,6 +39,7 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
   const createChat = useCreateChat();
   const applyUserStarredChatPreset = useApplyUserStarredChatPreset();
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
+  const [creditsOpen, setCreditsOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -88,6 +91,7 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
 
   return (
     <>
+      <HomeCreditsModal open={creditsOpen} onClose={() => setCreditsOpen(false)} />
       <div
         data-component="ChatArea.EmptyState"
         className="koi-pond-surface flex min-w-0 flex-1 flex-col items-center overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-6"
@@ -179,41 +183,21 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
 
           <div className="flex w-full max-w-2xl flex-col items-center gap-2">
             <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 text-center text-[0.625rem] leading-tight text-[var(--muted-foreground)]/55 sm:text-xs">
-              <span>
-                Created by{" "}
-                <a
-                  href="https://spicymarinara.github.io/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-[var(--muted-foreground)]/30 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-                >
-                  Marinara
-                </a>
-              </span>
-              <span>
-                Partnered with{" "}
-                <a
-                  href="https://linkapi.ai/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-[var(--muted-foreground)]/30 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-                >
-                  LinkAPI
-                </a>
-              </span>
-              <span>
-                Art and logo by{" "}
-                <a
-                  href="https://huntercolliex.carrd.co/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-[var(--muted-foreground)]/30 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-                >
-                  Huntercolliex
-                </a>
-              </span>
+              {HOME_CREDIT_LINKS.map((item) => (
+                <span key={item.label}>
+                  {item.footerPrefix}{" "}
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline decoration-[var(--muted-foreground)]/30 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
+                  >
+                    {item.label}
+                  </a>
+                </span>
+              ))}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-center gap-2">
               <a
                 href="https://discord.com/invite/KdAkTg94ME"
                 target="_blank"
@@ -236,15 +220,15 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
                 </svg>
                 Support
               </a>
+              <button
+                type="button"
+                onClick={() => setCreditsOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/60 px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
+              >
+                <List size="0.875rem" />
+                Credits
+              </button>
             </div>
-
-            <p className="max-w-[42rem] px-1 text-center text-[0.625rem] leading-snug text-[var(--muted-foreground)]/40 sm:max-w-[46rem]">
-              Special thanks to Deci, Xel, Jorge, Cha1latte, Javedz678, Teuku, Shadota, Romu, Mm14141, MagicGoddess,
-              John, Pwildani, Romu, Felor, MuniMuni, Guybrush01, Joshellis625, LukaTheHero, Coxde, JorgeLTE, Seele The
-              Seal King, Loungemeister, Kale, Tabris, GREGOR OVECH, Coins, Tacoman, Jorge, Promansis, Kitsumiro, Sheep,
-              Pod042, Prolix, PlutoMayhem, Mezzeh, Kuc0, Exalted, Yang Best Girl, MidnightSleeper, Geechan,
-              TheLonelyDevil, Artus, and you!
-            </p>
 
             <button
               onClick={() => useUIStore.getState().setHasCompletedOnboarding(false)}

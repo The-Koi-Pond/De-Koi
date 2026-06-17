@@ -11,6 +11,8 @@ const MARINARA_PRESET_AUTHOR: &str = "De-Koi";
 const LEGACY_MARINARA_PRESET_AUTHOR: &str = "Marinara";
 const LEGACY_DEKI_CHARACTER_ID: &str = "__professor_mari__";
 const LEGACY_CLEANUP_MAX_COLLECTION_BYTES: u64 = 4 * 1024 * 1024;
+const OUTPUT_FORMAT_SECTION_ID: &str = "YX9D0XS7-4_Xx0s9MVPZE";
+const OUTPUT_FORMAT_SECTION_IDENTIFIER: &str = "section_1772657928072";
 const BUNDLED_MARINARA_PRESET_JSON: &str =
     include_str!("../resources/default-data/db/default-preset.json");
 
@@ -55,6 +57,53 @@ fn seed_marinara_preset(storage: &FileStorage, db_root: &Path) -> AppResult<()> 
     seed_related_prompt_rows_if_missing(storage, "prompt-groups", data.get("groups"))?;
     seed_related_prompt_rows_if_missing(storage, "prompt-sections", data.get("sections"))?;
     seed_related_prompt_rows_if_missing(storage, "prompt-variables", data.get("choiceBlocks"))?;
+    patch_legacy_output_format_prompt_section(storage, &data)?;
+    Ok(())
+}
+
+fn bundled_output_format_content(data: &Value) -> Option<&str> {
+    data.get("sections")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|row| {
+            row.get("id").and_then(Value::as_str) == Some(OUTPUT_FORMAT_SECTION_ID)
+                && row.get("identifier").and_then(Value::as_str)
+                    == Some(OUTPUT_FORMAT_SECTION_IDENTIFIER)
+        })?
+        .get("content")
+        .and_then(Value::as_str)
+}
+
+fn legacy_output_format_content(current: &str) -> String {
+    current
+        .replace(
+            "EXAMPLE: \"Are you even listening?\"",
+            "EXAMPLE: \"Are you a gooner?\"",
+        )
+        .replace("BAD: \"Listening?\"", "BAD: \"Gooner?\"")
+}
+
+fn patch_legacy_output_format_prompt_section(storage: &FileStorage, data: &Value) -> AppResult<()> {
+    let Some(current_content) = bundled_output_format_content(data) else {
+        return Ok(());
+    };
+    let legacy_content = legacy_output_format_content(current_content);
+    let Some(existing) = storage.get("prompt-sections", OUTPUT_FORMAT_SECTION_ID)? else {
+        return Ok(());
+    };
+    let is_bundled_output_format_section = existing.get("presetId").and_then(Value::as_str)
+        == Some(MARINARA_PRESET_ID)
+        && existing.get("identifier").and_then(Value::as_str)
+            == Some(OUTPUT_FORMAT_SECTION_IDENTIFIER);
+    if is_bundled_output_format_section
+        && existing.get("content").and_then(Value::as_str) == Some(legacy_content.as_str())
+    {
+        storage.patch(
+            "prompt-sections",
+            OUTPUT_FORMAT_SECTION_ID,
+            json!({ "content": current_content }),
+        )?;
+    }
     Ok(())
 }
 
@@ -371,5 +420,68 @@ mod tests {
         assert!(sections.iter().any(|section| {
             section.get("presetId").and_then(Value::as_str) == Some(MARINARA_PRESET_ID)
         }));
+    }
+
+    #[test]
+    fn patches_stock_legacy_output_format_prompt_section() {
+        let (storage, root) = temp_storage();
+        let envelope: Value = serde_json::from_str(BUNDLED_MARINARA_PRESET_JSON)
+            .expect("bundled preset should parse");
+        let data = envelope
+            .get("data")
+            .expect("bundled preset data should exist");
+        let current_content =
+            bundled_output_format_content(data).expect("output format section should exist");
+        let legacy_content = legacy_output_format_content(current_content);
+
+        storage
+            .create(
+                "prompt-sections",
+                json!({
+                    "id": OUTPUT_FORMAT_SECTION_ID,
+                    "presetId": MARINARA_PRESET_ID,
+                    "identifier": OUTPUT_FORMAT_SECTION_IDENTIFIER,
+                    "name": "Output Format",
+                    "content": legacy_content
+                }),
+            )
+            .expect("legacy prompt section should insert");
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        let patched = storage
+            .get("prompt-sections", OUTPUT_FORMAT_SECTION_ID)
+            .expect("prompt section lookup should succeed")
+            .expect("prompt section should exist");
+        assert_eq!(patched["content"], current_content);
+    }
+
+    #[test]
+    fn preserves_user_edited_output_format_prompt_section() {
+        let (storage, root) = temp_storage();
+        let custom_content = "User customized output format";
+
+        storage
+            .create(
+                "prompt-sections",
+                json!({
+                    "id": OUTPUT_FORMAT_SECTION_ID,
+                    "presetId": MARINARA_PRESET_ID,
+                    "identifier": OUTPUT_FORMAT_SECTION_IDENTIFIER,
+                    "name": "Output Format",
+                    "content": custom_content
+                }),
+            )
+            .expect("custom prompt section should insert");
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        let preserved = storage
+            .get("prompt-sections", OUTPUT_FORMAT_SECTION_ID)
+            .expect("prompt section lookup should succeed")
+            .expect("prompt section should exist");
+        assert_eq!(preserved["content"], custom_content);
     }
 }

@@ -47,18 +47,29 @@ export function RecentChats() {
     return map;
   }, [recentCharacters]);
 
-  if (!recentChats || recentChats.length === 0) return null;
+  if (!recentChats) return null;
 
   return (
     <div className="flex w-full flex-col gap-1.5 px-3 pt-3">
       <p className="text-center text-[0.625rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]/50">
         Recent
       </p>
-      <div className="flex w-full flex-col gap-1.5 sm:flex-row">
-        {recentChats.map((chat) => (
-          <RecentChatCard key={chat.id} chat={chat} charLookup={charLookup} onClick={() => setActiveChatId(chat.id)} />
-        ))}
-      </div>
+      {recentChats.length === 0 ? (
+        <p className="rounded-lg border border-[var(--border)]/45 bg-[var(--card)]/45 px-3 py-1.5 text-center text-xs text-[var(--muted-foreground)]/70">
+          No chats yet
+        </p>
+      ) : (
+        <div className="flex w-full flex-col gap-1.5 sm:flex-row">
+          {recentChats.map((chat) => (
+            <RecentChatCard
+              key={chat.id}
+              chat={chat}
+              charLookup={charLookup}
+              onClick={() => setActiveChatId(chat.id)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
