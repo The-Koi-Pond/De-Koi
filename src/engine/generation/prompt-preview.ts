@@ -8,6 +8,7 @@ import { generationInfoFromVisibleParameters, providerVisibleLlmParameters } fro
 import { boolish, isRecord, parseRecord, readNumber, readString, type JsonRecord } from "./runtime-records";
 
 type PromptPreviewChoices = Record<string, string | string[]>;
+type PromptPreviewSource = "cached" | "live_preview" | "raw_messages";
 
 export interface PromptPreviewInput {
   chatId: string;
@@ -25,6 +26,8 @@ export interface PromptPreviewResult {
   parameters: Partial<GenerationParameters> | Record<string, unknown>;
   promptPresetId: string | null;
   messageCount: number;
+  source: PromptPreviewSource;
+  exact: boolean;
   generationInfo: {
     model?: string;
     provider?: string;
@@ -46,6 +49,7 @@ export interface PromptPreviewResult {
     durationMs?: number | null;
     finishReason?: string | null;
   } | null;
+  agentNote?: string;
 }
 
 function promptPreviewMessageLoadOptions(chat: Record<string, unknown>): ChatMessageListOptions {
@@ -148,6 +152,8 @@ export async function previewGenerationPrompt(
     parameters: visibleParameters,
     promptPresetId: assembly.promptPresetId,
     messageCount: assembly.messages.length,
+    source: "live_preview",
+    exact: false,
     generationInfo: {
       model: generationInfo.model,
       provider: generationInfo.provider,
@@ -169,5 +175,6 @@ export async function previewGenerationPrompt(
       durationMs: null,
       finishReason: null,
     },
+    agentNote: "No saved model request was available, so this is a live best-effort preview assembled without sending.",
   };
 }

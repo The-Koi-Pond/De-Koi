@@ -39,12 +39,18 @@ const baseScript = {
 };
 
 describe("applyRuntimeRegexScripts", () => {
-  it("applies multi-target scripts for a matching response character", async () => {
+  it("applies unscoped display scripts", async () => {
+    const storage = storageWithRegexScripts([baseScript]);
+
+    await expect(applyRuntimeRegexScripts(storage, "ai_output", "secret")).resolves.toBe("visible");
+  });
+
+  it("treats multi-target scripts as prompt-only and skips displayed response rewrites", async () => {
     const storage = storageWithRegexScripts([{ ...baseScript, targetCharacterIds: ["char-a", "char-c"] }]);
 
     await expect(
       applyRuntimeRegexScripts(storage, "ai_output", "secret", { targetCharacterId: "char-c" }),
-    ).resolves.toBe("visible");
+    ).resolves.toBe("secret");
   });
 
   it("skips multi-target scripts for unrelated response characters", async () => {
@@ -55,11 +61,11 @@ describe("applyRuntimeRegexScripts", () => {
     ).resolves.toBe("secret");
   });
 
-  it("keeps single characterId scoped rows compatible", async () => {
+  it("treats single characterId scoped rows as prompt-only and skips displayed response rewrites", async () => {
     const storage = storageWithRegexScripts([{ ...baseScript, characterId: "char-a" }]);
 
     await expect(
       applyRuntimeRegexScripts(storage, "ai_output", "secret", { targetCharacterId: "char-a" }),
-    ).resolves.toBe("visible");
+    ).resolves.toBe("secret");
   });
 });
