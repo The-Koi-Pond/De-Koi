@@ -19,7 +19,6 @@ function messageExtraPatchStorage(
   rows: Record<string, Record<string, unknown>>,
   options: {
     failPatchCall?: number | number[];
-    failUpdateCall?: number | number[];
     beforePatchChatMessageExtra?: (
       messageId: string,
       state: Map<
@@ -29,6 +28,7 @@ function messageExtraPatchStorage(
           extra: Record<string, unknown>;
         }
       >,
+      call: number,
     ) => void;
   } = {},
 ) {
@@ -39,15 +39,7 @@ function messageExtraPatchStorage(
         ? []
         : [options.failPatchCall],
   );
-  const failUpdateCalls = new Set(
-    Array.isArray(options.failUpdateCall)
-      ? options.failUpdateCall
-      : options.failUpdateCall === undefined
-        ? []
-        : [options.failUpdateCall],
-  );
   let patchCalls = 0;
-  let updateCalls = 0;
   const state = new Map(
     Object.entries(rows).map(([id, extra]) => [
       id,
@@ -66,7 +58,7 @@ function messageExtraPatchStorage(
       },
       async patchChatMessageExtra<T = unknown>(messageId: string, patch: Record<string, unknown>): Promise<T> {
         patchCalls += 1;
-        options.beforePatchChatMessageExtra?.(messageId, state);
+        options.beforePatchChatMessageExtra?.(messageId, state, patchCalls);
         if (failPatchCalls.has(patchCalls)) throw new Error("patch failed");
         const row = state.get(messageId);
         if (!row) throw new Error(`missing ${messageId}`);
@@ -74,16 +66,6 @@ function messageExtraPatchStorage(
         const updated = { id: row.id, extra };
         state.set(messageId, updated);
         return { id: updated.id, extra: { ...updated.extra } } as T;
-      },
-      async updateChatMessage<T = unknown>(messageId: string, patch: Record<string, unknown>): Promise<T> {
-        updateCalls += 1;
-        if (failUpdateCalls.has(updateCalls)) throw new Error("rollback failed");
-        const row = state.get(messageId);
-        if (!row) throw new Error(`missing ${messageId}`);
-        const extra = { ...((patch.extra as Record<string, unknown> | undefined) ?? {}) };
-        const updated = { id: row.id, extra };
-        state.set(messageId, updated);
-        return updated as T;
       },
     },
   };
@@ -228,7 +210,7 @@ describe("patchMessageExtrasForGeneration", () => {
         "assistant-1": { spriteExpressions: { "char-1": "neutral" } },
         "user-1": { spriteExpressions: { "persona-1": "neutral" } },
       },
-      { failPatchCall: 2, failUpdateCall: 1 },
+      { failPatchCall: [2, 3] },
     );
 
     await expect(
@@ -239,6 +221,60 @@ describe("patchMessageExtrasForGeneration", () => {
     ).rejects.toThrow("Message extra patch failed and rollback did not fully restore state");
 
     expect(state.get("assistant-1")?.extra).toEqual({ spriteExpressions: { "char-1": "happy" } });
+    expect(state.get("user-1")?.extra).toEqual({ spriteExpressions: { "persona-1": "neutral" } });
+  });
+
+  it("preserves unrelated message extra keys added before rollback", async () => {
+    const { state, storage } = messageExtraPatchStorage(
+      {
+        "assistant-1": { spriteExpressions: { "char-1": "neutral" } },
+        "user-1": { spriteExpressions: { "persona-1": "neutral" } },
+      },
+      {
+        failPatchCall: 2,
+        beforePatchChatMessageExtra: (messageId, rows, call) => {
+          if (call !== 3 || messageId !== "assistant-1") return;
+          const row = rows.get(messageId);
+          if (!row) return;
+          rows.set(messageId, { ...row, extra: { ...row.extra, freshDuringRollback: "kept" } });
+        },
+      },
+    );
+
+    await expect(
+      patchMessageExtrasForGeneration(storage, [
+        { messageId: "assistant-1", patch: { spriteExpressions: { "char-1": "happy" } } },
+        { messageId: "user-1", patch: { spriteExpressions: { "persona-1": "shy" } } },
+      ]),
+    ).rejects.toThrow("patch failed");
+
+    expect(state.get("assistant-1")?.extra).toEqual({
+      spriteExpressions: { "char-1": "neutral" },
+      freshDuringRollback: "kept",
+    });
+    expect(state.get("user-1")?.extra).toEqual({ spriteExpressions: { "persona-1": "neutral" } });
+  });
+
+  it("surfaces unrecovered state when rollback would need to delete a newly added extra key", async () => {
+    const { state, storage } = messageExtraPatchStorage(
+      {
+        "assistant-1": { stable: "kept" },
+        "user-1": { spriteExpressions: { "persona-1": "neutral" } },
+      },
+      { failPatchCall: 2 },
+    );
+
+    await expect(
+      patchMessageExtrasForGeneration(storage, [
+        { messageId: "assistant-1", patch: { spriteExpressions: { "char-1": "happy" } } },
+        { messageId: "user-1", patch: { spriteExpressions: { "persona-1": "shy" } } },
+      ]),
+    ).rejects.toThrow("Message extra patch failed and rollback did not fully restore state");
+
+    expect(state.get("assistant-1")?.extra).toEqual({
+      stable: "kept",
+      spriteExpressions: { "char-1": "happy" },
+    });
     expect(state.get("user-1")?.extra).toEqual({ spriteExpressions: { "persona-1": "neutral" } });
   });
 

@@ -2563,7 +2563,7 @@ function mergeMessageExtraPatches(patches: MessageExtraPatchForGeneration[]): Me
 }
 
 export async function patchMessageExtrasForGeneration(
-  storage: Pick<StorageGateway, "getChatMessage" | "patchChatMessageExtra" | "updateChatMessage">,
+  storage: Pick<StorageGateway, "getChatMessage" | "patchChatMessageExtra">,
   patches: MessageExtraPatchForGeneration[],
 ): Promise<unknown[]> {
   const mergedPatches = mergeMessageExtraPatches(patches);
@@ -2597,17 +2597,23 @@ export async function patchMessageExtrasForGeneration(
     for (let index = applied.length - 1; index >= 0; index -= 1) {
       const { messageId, originalValues } = applied[index]!;
       try {
-        const current = await storage.getChatMessage<JsonRecord>(messageId, { fields: ["extra"] });
-        if (!current) throw new Error(`Message ${messageId} was not found during rollback`);
-        const restoredExtra = { ...parseRecord(current.extra) };
+        const rollbackPatch: Record<string, unknown> = {};
+        const missingKeys: string[] = [];
         for (const [key, original] of originalValues) {
           if (original.hadKey) {
-            restoredExtra[key] = original.value;
+            rollbackPatch[key] = original.value;
           } else {
-            delete restoredExtra[key];
+            missingKeys.push(key);
           }
         }
-        await storage.updateChatMessage(messageId, { extra: restoredExtra });
+        if (Object.keys(rollbackPatch).length > 0) {
+          await storage.patchChatMessageExtra(messageId, rollbackPatch);
+        }
+        if (missingKeys.length > 0) {
+          throw new Error(
+            `Message ${messageId} rollback cannot delete newly added extra key(s): ${missingKeys.join(", ")}`,
+          );
+        }
       } catch (rollbackError) {
         rollbackErrors.push(rollbackError);
       }
