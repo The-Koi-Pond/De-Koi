@@ -78,6 +78,25 @@ function expressionAvatarLookupKey(ownerKey: string): string | null {
   return getSpriteOwnerKind(ownerKey) === "persona" ? makeSpriteOwnerKey("persona", ownerId) : ownerId;
 }
 
+export function expressionAvatarOwnerKeysForRoleplay(args: {
+  chatCharIds: readonly string[];
+  personaId?: string | null;
+  spriteOverlayOwnerKeys: readonly string[];
+}): string[] {
+  const configuredKeys = [
+    ...args.chatCharIds,
+    ...(args.personaId ? [makeSpriteOwnerKey("persona", args.personaId)] : []),
+    ...args.spriteOverlayOwnerKeys,
+  ];
+  return Array.from(
+    new Set(
+      configuredKeys
+        .map((ownerKey) => (typeof ownerKey === "string" ? expressionAvatarLookupKey(ownerKey) : null))
+        .filter((ownerKey): ownerKey is string => !!ownerKey),
+    ),
+  );
+}
+
 export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" }: RoleplayModeRouteProps) {
   const messagesPerPage = useUIStore((state) => state.messagesPerPage);
   const centerCompact = useUIStore((state) => state.centerCompact);
@@ -226,20 +245,11 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
     return Array.from(ownerKeysByIdentity.values());
   }, [data.chat?.personaId, data.chatCharIds, spriteState.spriteCharacterIds]);
   const expressionAvatarOwnerKeys = useMemo(() => {
-    const configuredKeys =
-      spriteOverlayOwnerKeys.length > 0
-        ? spriteOverlayOwnerKeys
-        : [
-            ...data.chatCharIds,
-            ...(data.personaInfo?.id ? [makeSpriteOwnerKey("persona", data.personaInfo.id)] : []),
-          ];
-    return Array.from(
-      new Set(
-        configuredKeys
-          .map((ownerKey) => (typeof ownerKey === "string" ? expressionAvatarLookupKey(ownerKey) : null))
-          .filter((ownerKey): ownerKey is string => !!ownerKey),
-      ),
-    );
+    return expressionAvatarOwnerKeysForRoleplay({
+      chatCharIds: data.chatCharIds,
+      personaId: data.personaInfo?.id,
+      spriteOverlayOwnerKeys,
+    });
   }, [data.chatCharIds, data.personaInfo?.id, spriteOverlayOwnerKeys]);
   const expressionAvatarSpriteData = useQueries({
     queries: expressionAvatarOwnerKeys.map((ownerKey) => {

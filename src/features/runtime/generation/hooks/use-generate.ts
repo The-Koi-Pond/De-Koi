@@ -2087,6 +2087,11 @@ export function useGenerate() {
         for (const event of events) {
           if (event.type === "agent_warning") {
             showAgentWarningToast(event.data, shownAgentWarningKeys);
+          } else if (event.type === "message" || event.type === "assistant_message" || event.type === "user_message") {
+            if (event.data && typeof event.data === "object") {
+              upsertCachedMessage(queryClient, chatId, event.data);
+              scheduleChatQueryRefresh(queryClient, chatId);
+            }
           } else if (event.type === "illustration") {
             toast("Illustration generated.");
             // The chat-query refresh is fired unconditionally after this loop;
