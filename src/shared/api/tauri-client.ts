@@ -8,7 +8,15 @@ function normalize(error: unknown): ApiError {
     const record = error as Record<string, unknown>;
     const code = typeof record.code === "string" ? record.code : "";
     const status =
-      code === "not_found" ? 404 : code === "invalid_input" ? 400 : code === "connection_in_use" ? 409 : 500;
+      code === "not_found"
+        ? 404
+        : code === "invalid_input"
+          ? 400
+          : code === "connection_in_use"
+            ? 409
+            : code === "sprite_generation_timeout"
+              ? 504
+              : 500;
     const message = typeof record.message === "string" ? record.message : "Tauri command failed";
     return new ApiError(message, status, record);
   }

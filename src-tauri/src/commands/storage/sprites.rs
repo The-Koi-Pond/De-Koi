@@ -29,6 +29,7 @@ const SPRITE_EXPRESSION_SHEET_PROMPT_KEY: &str = "sprite.expressionSheet";
 const SPRITE_FULL_BODY_SINGLE_PROMPT_KEY: &str = "sprite.fullBodySingle";
 const SPRITE_FULL_BODY_SHEET_PROMPT_KEY: &str = "sprite.fullBodySheet";
 const SPRITE_FULL_BODY_EXPRESSION_SHEET_PROMPT_KEY: &str = "sprite.fullBodyExpressionSheet";
+const SPRITE_GENERATION_DEFAULT_TIMEOUT_MS: u64 = 300_000;
 const BACKGROUNDREMOVER_DEFAULT_TIMEOUT_MS: u64 = 10 * 60 * 1000;
 const BACKGROUNDREMOVER_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -247,7 +248,11 @@ pub(crate) async fn generate_sprite_sheet_preview(
         .unwrap_or_else(|| {
             registered_sprite_prompt(state, plan.prompt_key, plan.prompt.clone(), &plan, None)
         });
-    let negative_prompt = negative_prompt_for_review_item(&image_options, prompt_override.as_ref());
+    let prompt = sprite_sheet_layout_prompt(prompt, &plan);
+    let negative_prompt = sprite_sheet_layout_negative_prompt(
+        negative_prompt_for_review_item(&image_options, prompt_override.as_ref()),
+        &plan,
+    );
     Ok(json!({
         "items": [{
             "id": prompt_id,
@@ -266,6 +271,21 @@ pub(crate) async fn generate_sprite_sheet_preview(
 }
 
 pub(crate) async fn generate_sprite_sheet(state: &AppState, body: Value) -> AppResult<Value> {
+    let timeout = sprite_generation_timeout_for_request(state, &body)
+        .unwrap_or_else(|_| sprite_generation_timeout());
+    match tokio::time::timeout(timeout, generate_sprite_sheet_inner(state, body)).await {
+        Ok(result) => result,
+        Err(_) => Err(AppError::new(
+            "sprite_generation_timeout",
+            format!(
+                "Sprite generation timed out after {} seconds",
+                timeout.as_secs()
+            ),
+        )),
+    }
+}
+
+async fn generate_sprite_sheet_inner(state: &AppState, body: Value) -> AppResult<Value> {
     validate_sprite_generation_body(state, &body)?;
     let connection_id = required_string(&body, "connectionId")?;
     let connection = connection_secrets::connection_for_runtime(state, connection_id)?;
@@ -365,6 +385,8 @@ pub(crate) async fn generate_sprite_sheet(state: &AppState, body: Value) -> AppR
         });
     let request_options =
         image_options_for_prompt_override(&image_options, prompt_override.as_ref());
+    let prompt = sprite_sheet_layout_prompt(prompt, &plan);
+    let request_options = sprite_sheet_layout_options(request_options, &plan);
     let (sheet_base64, _mime_type) = generate_image_with_options(
         &connection,
         &format!("{prompt}{reference_note}"),
@@ -811,8 +833,10 @@ fn build_sprite_plan(body: &Value, connection: Option<&Value>) -> SpritePlan {
         sprite_type != "full-body" && expressions.len() == 1 && cols == 1 && rows == 1;
     let single_full_body =
         sprite_type == "full-body" && expressions.len() == 1 && cols == 1 && rows == 1;
-    let generate_individually =
-        sprite_type != "full-body" && !single_portrait && is_openai_gpt_image_model(model);
+    let generate_individually = sprite_type != "full-body"
+        && !single_portrait
+        && is_openai_gpt_image_model(model)
+        && !is_gpt_image_2_model(model);
     let (sheet_width, sheet_height, cell_width, cell_height) =
         resolve_canvas(cols, rows, &sprite_type, model);
     let (prompt_key, prompt) = if full_body_expression_mode {
@@ -915,7 +939,9 @@ fn resolve_canvas(cols: u32, rows: u32, sprite_type: &str, model: &str) -> (u32,
     let cell_height = if sprite_type == "full-body" { 768 } else { 512 };
     let requested_width = cols * cell_width;
     let requested_height = rows * cell_height;
-    if is_openai_gpt_image_model(model) {
+    if is_openai_gpt_image_model(model)
+        && (sprite_type == "full-body" || !is_gpt_image_2_model(model))
+    {
         let ratio = requested_width as f64 / requested_height.max(1) as f64;
         let (sheet_width, sheet_height) = if ratio > 1.12 {
             (1536, 1024)
@@ -932,6 +958,72 @@ fn resolve_canvas(cols: u32, rows: u32, sprite_type: &str, model: &str) -> (u32,
         );
     }
     (requested_width, requested_height, cell_width, cell_height)
+}
+
+fn sprite_sheet_layout_prompt(prompt: String, plan: &SpritePlan) -> String {
+    if plan.should_generate_individually() {
+        return prompt;
+    }
+    let total_cells = plan.cols * plan.rows;
+    let expression_list = plan
+        .expressions
+        .iter()
+        .map(|expression| format_sprite_label_for_prompt(expression))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let wrong_nine_cell_guard = if total_cells == 9 {
+        String::new()
+    } else {
+        " Do not return a 3x3 grid, 9 cells, or fewer cells than requested.".to_string()
+    };
+    let layout_contract = [
+        format!(
+            "MANDATORY SPRITE SHEET LAYOUT: return one {}x{}px image containing exactly {total_cells} separate cells in a strict {} columns by {} rows grid.",
+            plan.sheet_width, plan.sheet_height, plan.cols, plan.rows
+        ),
+        format!(
+            "Each cell is exactly {}x{}px; vertical grid cuts are every {}px and horizontal grid cuts are every {}px.",
+            plan.cell_width, plan.cell_height, plan.cell_width, plan.cell_height
+        ),
+        format!(
+            "Fill every cell. The first {} cells, read left-to-right then top-to-bottom, must be: {expression_list}.",
+            plan.expressions.len()
+        ),
+        format!(
+            "No missing cells, no extra cells, no merged cells, no blank cells, no uneven grid, and no one-large-image composition.{wrong_nine_cell_guard}"
+        ),
+    ]
+    .join(" ");
+    format!("{prompt}\n\n{layout_contract}")
+}
+
+fn sprite_sheet_layout_negative_prompt(
+    negative_prompt: Option<String>,
+    plan: &SpritePlan,
+) -> Option<String> {
+    if plan.should_generate_individually() {
+        return negative_prompt;
+    }
+    let total_cells = plan.cols * plan.rows;
+    let mut parts = Vec::new();
+    if let Some(value) = negative_prompt.filter(|value| !value.trim().is_empty()) {
+        parts.push(value);
+    }
+    parts.push(format!(
+        "missing cells, fewer than {total_cells} cells, extra cells, merged cells, blank cells, uneven grid, one large image spanning cells"
+    ));
+    if total_cells != 9 {
+        parts.push("3x3 grid, 9 cells".to_string());
+    }
+    Some(parts.join(", "))
+}
+
+fn sprite_sheet_layout_options(
+    mut options: ImageGenerationOptions,
+    plan: &SpritePlan,
+) -> ImageGenerationOptions {
+    options.negative_prompt = sprite_sheet_layout_negative_prompt(options.negative_prompt, plan);
+    options
 }
 
 fn format_sprite_label_for_prompt(label: &str) -> String {
@@ -1145,12 +1237,15 @@ fn transparent_prompt(prompt: String, body: &Value, model: &str) -> String {
         .replace("plain white background", replacement)
         .replace("white studio background", replacement)
         .replace("white background", replacement);
-    if updated == prompt && !updated.to_ascii_lowercase().contains("no background") {
+    let lower = updated.to_ascii_lowercase();
+    let has_transparent_instruction = lower.contains("no background")
+        || lower.contains("transparent background")
+        || lower.contains("transparent png")
+        || lower.contains("png format");
+    if updated == prompt && !has_transparent_instruction {
         updated.push_str(", ");
         updated.push_str(replacement);
-    } else if cleanup_friendly
-        && !updated.to_ascii_lowercase().contains("flat pure white")
-        && updated.to_ascii_lowercase().contains("no background")
+    } else if cleanup_friendly && !lower.contains("flat pure white") && has_transparent_instruction
     {
         updated.push_str(". If transparent output is unsupported, use a perfectly flat pure white #ffffff background with no shadows, gradients, scenery, floor line, or texture behind the character");
     }
@@ -2176,6 +2271,28 @@ fn backgroundremover_timeout() -> Duration {
         .unwrap_or_else(|| Duration::from_millis(BACKGROUNDREMOVER_DEFAULT_TIMEOUT_MS))
 }
 
+fn sprite_generation_timeout() -> Duration {
+    env::var("SPRITE_GENERATION_TIMEOUT_MS")
+        .or_else(|_| env::var("IMAGE_GEN_TIMEOUT_MS"))
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .map(Duration::from_millis)
+        .unwrap_or_else(|| Duration::from_millis(SPRITE_GENERATION_DEFAULT_TIMEOUT_MS))
+}
+
+fn sprite_generation_timeout_for_request(state: &AppState, body: &Value) -> AppResult<Duration> {
+    let connection_id = required_string(body, "connectionId")?;
+    let connection = connection_secrets::connection_for_runtime(state, connection_id)?;
+    let plan = build_sprite_plan(body, Some(&connection));
+    let sequential_calls = if plan.should_generate_individually() {
+        plan.expressions.len().max(1) as u32
+    } else {
+        1
+    };
+    Ok(sprite_generation_timeout().saturating_mul(sequential_calls))
+}
+
 fn preferred_background_removal_engine() -> String {
     let raw = env::var("SPRITE_BACKGROUND_REMOVAL_ENGINE")
         .or_else(|_| env::var("BACKGROUND_REMOVAL_ENGINE"))
@@ -2833,6 +2950,17 @@ mod sprite_prompt_override_tests {
                 }),
             )
             .expect("gpt image connection should write");
+        state
+            .storage
+            .upsert_with_id(
+                "connections",
+                "image-conn-gpt2",
+                json!({
+                    "provider": "image_generation",
+                    "model": "gpt-image-2"
+                }),
+            )
+            .expect("gpt image 2 connection should write");
         (state, root)
     }
 
@@ -2964,24 +3092,92 @@ mod sprite_prompt_override_tests {
                 .expect("prompt override should write");
         }
 
-        assert_eq!(
-            preview_prompt(
-                &state,
-                base_body("expressions", vec!["neutral", "happy"], 2, 1)
-            )
-            .await,
-            "LEGACY neutral, happy 2 512x512"
+        assert!(preview_prompt(
+            &state,
+            base_body("expressions", vec!["neutral", "happy"], 2, 1)
+        )
+        .await
+        .starts_with("LEGACY neutral, happy 2 512x512\n\nMANDATORY SPRITE SHEET LAYOUT"));
+        assert!(
+            preview_prompt(&state, base_body("full-body", vec!["idle"], 1, 1))
+                .await
+                .starts_with("LEGACY idle\n\nMANDATORY SPRITE SHEET LAYOUT")
         );
-        assert_eq!(
-            preview_prompt(&state, base_body("full-body", vec!["idle"], 1, 1)).await,
-            "LEGACY idle"
-        );
-        assert_eq!(
-            preview_prompt(&state, base_body("full-body", vec!["idle", "attack"], 2, 1)).await,
-            "LEGACY idle, attack 2 2 512x768"
+        assert!(
+            preview_prompt(&state, base_body("full-body", vec!["idle", "attack"], 2, 1))
+                .await
+                .starts_with("LEGACY idle, attack 2 2 512x768\n\nMANDATORY SPRITE SHEET LAYOUT")
         );
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn gpt_image_2_expression_sheet_keeps_sheet_plan_and_layout_contract() {
+        let (state, root) = test_state("gpt-image-2-sheet");
+        let mut body = base_body("expressions", vec!["neutral", "happy"], 2, 1);
+        body.as_object_mut()
+            .expect("body should be object")
+            .insert("connectionId".to_string(), json!("image-conn-gpt2"));
+
+        let item = preview_item(&state, body).await;
+
+        assert_eq!(item.get("width").and_then(Value::as_u64), Some(1024));
+        assert_eq!(item.get("height").and_then(Value::as_u64), Some(512));
+        assert!(item
+            .get("prompt")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .contains("MANDATORY SPRITE SHEET LAYOUT"));
+        let negative_prompt = item
+            .get("negativePrompt")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(negative_prompt.contains("missing cells"));
+        assert!(negative_prompt.contains("3x3 grid"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sprite_generation_timeout_scales_for_sequential_expression_calls() {
+        let (state, root) = test_state("sequential-timeout");
+        let mut gpt_body = base_body("expressions", vec!["neutral", "happy"], 2, 1);
+        gpt_body
+            .as_object_mut()
+            .expect("body should be object")
+            .insert("connectionId".to_string(), json!("image-conn-gpt"));
+        let mut gpt2_body = base_body("expressions", vec!["neutral", "happy"], 2, 1);
+        gpt2_body
+            .as_object_mut()
+            .expect("body should be object")
+            .insert("connectionId".to_string(), json!("image-conn-gpt2"));
+        let base = sprite_generation_timeout();
+
+        assert_eq!(
+            sprite_generation_timeout_for_request(&state, &gpt_body)
+                .expect("timeout should resolve"),
+            base.saturating_mul(2)
+        );
+        assert_eq!(
+            sprite_generation_timeout_for_request(&state, &gpt2_body)
+                .expect("timeout should resolve"),
+            base
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn transparent_prompt_recognizes_existing_transparent_instructions() {
+        let prompt = transparent_prompt(
+            "single character sprite, transparent png".to_string(),
+            &json!({ "nativeTransparentPng": true }),
+            "gpt-image-2",
+        );
+
+        assert!(!prompt.contains("transparent png, no background"));
+        assert!(prompt.contains("flat pure white"));
     }
 
     #[tokio::test]
@@ -2993,10 +3189,11 @@ mod sprite_prompt_override_tests {
             .insert("negativePrompt".to_string(), json!("bad anatomy"));
 
         let item = preview_item(&state, body.clone()).await;
-        assert_eq!(
-            item.get("negativePrompt").and_then(Value::as_str),
-            Some("bad anatomy")
-        );
+        let negative_prompt = item
+            .get("negativePrompt")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(negative_prompt.starts_with("bad anatomy, missing cells"));
 
         let prompt_id = sprite_prompt_review_id("sheet", "expressions", "2x1-neutral,happy");
         body.as_object_mut().expect("body should be object").insert(
@@ -3004,24 +3201,27 @@ mod sprite_prompt_override_tests {
             json!([{ "id": prompt_id, "prompt": "EDITED PROMPT", "negativePrompt": "edited negative" }]),
         );
         let item = preview_item(&state, body.clone()).await;
-        assert_eq!(
-            item.get("prompt").and_then(Value::as_str),
-            Some("EDITED PROMPT")
-        );
-        assert_eq!(
-            item.get("negativePrompt").and_then(Value::as_str),
-            Some("edited negative")
-        );
+        assert!(item
+            .get("prompt")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .starts_with("EDITED PROMPT\n\nMANDATORY SPRITE SHEET LAYOUT"));
+        let negative_prompt = item
+            .get("negativePrompt")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(negative_prompt.starts_with("edited negative, missing cells"));
 
         body.as_object_mut().expect("body should be object").insert(
             "promptOverrides".to_string(),
             json!([{ "id": prompt_id, "prompt": "EDITED PROMPT", "negativePrompt": "" }]),
         );
         let item = preview_item(&state, body).await;
-        assert!(item
+        let negative_prompt = item
             .get("negativePrompt")
-            .expect("negativePrompt field should be present")
-            .is_null());
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(negative_prompt.starts_with("missing cells"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -3135,7 +3335,7 @@ mod sprite_prompt_override_tests {
 
         let prompt = preview_prompt(&state, body).await;
 
-        assert_eq!(prompt, "TRANSIENT PROMPT");
+        assert!(prompt.starts_with("TRANSIENT PROMPT\n\nMANDATORY SPRITE SHEET LAYOUT"));
 
         let mut body = base_body("expressions", vec!["neutral", "happy"], 2, 1);
         let prompt_id = sprite_prompt_review_id("expression", "expressions", "neutral");
