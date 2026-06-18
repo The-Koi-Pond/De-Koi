@@ -389,7 +389,7 @@ export function RoleplayHUDActionsMenu({
               className="flex w-full items-center gap-2 px-3 py-2 text-[0.625rem] font-medium text-amber-300 transition-colors hover:bg-amber-500/10 disabled:opacity-50"
             >
               <AlertTriangle size="0.6875rem" className={isGenerationBusy ? "animate-pulse" : ""} />
-              {isAgentProcessing ? "Retrying..." : `Retry Failed Agents (${failedAgentTypes?.length ?? 0})`}
+              {isGenerationBusy ? "Busy..." : `Retry Failed Agents (${failedAgentTypes?.length ?? 0})`}
             </button>
           )}
         </div>

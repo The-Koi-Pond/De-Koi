@@ -185,6 +185,7 @@ export function DekiSurface() {
   const personaInfo: PersonaInfo | undefined = useMemo(() => {
     if (!selectedPersona) return undefined;
     return {
+      id: selectedPersona.id,
       name: selectedPersona.name,
       description: selectedPersona.description ?? undefined,
       avatarUrl: selectedPersona.avatarPath ?? undefined,

@@ -143,6 +143,7 @@ function buildPersonaInfo(persona: PersonaRow | null | undefined): PersonaInfo |
   }
 
   return {
+    id: persona.id,
     name: persona.name,
     description,
     personality: persona.personality || undefined,
