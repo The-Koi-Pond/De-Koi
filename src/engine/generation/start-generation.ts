@@ -2563,40 +2563,65 @@ function mergeMessageExtraPatches(patches: MessageExtraPatchForGeneration[]): Me
 }
 
 export async function patchMessageExtrasForGeneration(
-  storage: Pick<StorageGateway, "getChatMessage" | "updateChatMessage">,
+  storage: Pick<StorageGateway, "getChatMessage" | "patchChatMessageExtra" | "updateChatMessage">,
   patches: MessageExtraPatchForGeneration[],
 ): Promise<unknown[]> {
   const mergedPatches = mergeMessageExtraPatches(patches);
   if (mergedPatches.length === 0) return [];
 
-  const originalExtras = new Map<string, JsonRecord>();
-  for (const patch of mergedPatches) {
-    const current = await storage.getChatMessage<JsonRecord>(patch.messageId, { fields: ["extra"] });
-    if (!current) throw new Error(`Message ${patch.messageId} was not found`);
-    originalExtras.set(patch.messageId, parseRecord(current.extra));
-  }
-
-  const applied: string[] = [];
+  const applied: Array<{
+    messageId: string;
+    originalValues: Map<string, { hadKey: boolean; value: unknown }>;
+  }> = [];
   const updatedRows: unknown[] = [];
   try {
     for (const patch of mergedPatches) {
-      const originalExtra = originalExtras.get(patch.messageId) ?? {};
-      updatedRows.push(
-        await storage.updateChatMessage(patch.messageId, {
-          extra: { ...originalExtra, ...patch.patch },
-        }),
-      );
-      applied.push(patch.messageId);
+      const current = await storage.getChatMessage<JsonRecord>(patch.messageId, { fields: ["extra"] });
+      if (!current) throw new Error(`Message ${patch.messageId} was not found`);
+
+      const currentExtra = parseRecord(current.extra);
+      const originalValues = new Map<string, { hadKey: boolean; value: unknown }>();
+      for (const key of Object.keys(patch.patch)) {
+        originalValues.set(key, {
+          hadKey: Object.prototype.hasOwnProperty.call(currentExtra, key),
+          value: currentExtra[key],
+        });
+      }
+
+      updatedRows.push(await storage.patchChatMessageExtra(patch.messageId, patch.patch));
+      applied.push({ messageId: patch.messageId, originalValues });
     }
     return updatedRows;
   } catch (error) {
+    const rollbackErrors: unknown[] = [];
     for (let index = applied.length - 1; index >= 0; index -= 1) {
-      const messageId = applied[index]!;
+      const { messageId, originalValues } = applied[index]!;
       try {
-        await storage.updateChatMessage(messageId, { extra: originalExtras.get(messageId) ?? {} });
+        const current = await storage.getChatMessage<JsonRecord>(messageId, { fields: ["extra"] });
+        if (!current) throw new Error(`Message ${messageId} was not found during rollback`);
+        const restoredExtra = { ...parseRecord(current.extra) };
+        for (const [key, original] of originalValues) {
+          if (original.hadKey) {
+            restoredExtra[key] = original.value;
+          } else {
+            delete restoredExtra[key];
+          }
+        }
+        await storage.updateChatMessage(messageId, { extra: restoredExtra });
       } catch (rollbackError) {
-        console.warn("[generation] failed to roll back message extra patch", rollbackError);
+        rollbackErrors.push(rollbackError);
       }
+    }
+    if (rollbackErrors.length > 0) {
+      const rollbackFailure = new Error(
+        "Message extra patch failed and rollback did not fully restore state",
+      ) as Error & {
+        cause?: unknown;
+        rollbackErrors?: unknown[];
+      };
+      rollbackFailure.cause = error;
+      rollbackFailure.rollbackErrors = rollbackErrors;
+      throw rollbackFailure;
     }
     throw error;
   }

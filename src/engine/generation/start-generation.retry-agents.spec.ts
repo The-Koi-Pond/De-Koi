@@ -17,8 +17,36 @@ const expressionResult = (expressions: Array<{ characterId: string; expression: 
 
 function messageExtraPatchStorage(
   rows: Record<string, Record<string, unknown>>,
-  options: { failUpdateCall?: number } = {},
+  options: {
+    failPatchCall?: number | number[];
+    failUpdateCall?: number | number[];
+    beforePatchChatMessageExtra?: (
+      messageId: string,
+      state: Map<
+        string,
+        {
+          id: string;
+          extra: Record<string, unknown>;
+        }
+      >,
+    ) => void;
+  } = {},
 ) {
+  const failPatchCalls = new Set(
+    Array.isArray(options.failPatchCall)
+      ? options.failPatchCall
+      : options.failPatchCall === undefined
+        ? []
+        : [options.failPatchCall],
+  );
+  const failUpdateCalls = new Set(
+    Array.isArray(options.failUpdateCall)
+      ? options.failUpdateCall
+      : options.failUpdateCall === undefined
+        ? []
+        : [options.failUpdateCall],
+  );
+  let patchCalls = 0;
   let updateCalls = 0;
   const state = new Map(
     Object.entries(rows).map(([id, extra]) => [
@@ -36,9 +64,20 @@ function messageExtraPatchStorage(
         const row = state.get(messageId);
         return row ? ({ id: row.id, extra: { ...row.extra } } as T) : null;
       },
+      async patchChatMessageExtra<T = unknown>(messageId: string, patch: Record<string, unknown>): Promise<T> {
+        patchCalls += 1;
+        options.beforePatchChatMessageExtra?.(messageId, state);
+        if (failPatchCalls.has(patchCalls)) throw new Error("patch failed");
+        const row = state.get(messageId);
+        if (!row) throw new Error(`missing ${messageId}`);
+        const extra = { ...row.extra, ...patch };
+        const updated = { id: row.id, extra };
+        state.set(messageId, updated);
+        return { id: updated.id, extra: { ...updated.extra } } as T;
+      },
       async updateChatMessage<T = unknown>(messageId: string, patch: Record<string, unknown>): Promise<T> {
         updateCalls += 1;
-        if (options.failUpdateCall === updateCalls) throw new Error("patch failed");
+        if (failUpdateCalls.has(updateCalls)) throw new Error("rollback failed");
         const row = state.get(messageId);
         if (!row) throw new Error(`missing ${messageId}`);
         const extra = { ...((patch.extra as Record<string, unknown> | undefined) ?? {}) };
@@ -169,7 +208,7 @@ describe("patchMessageExtrasForGeneration", () => {
         "assistant-1": { spriteExpressions: { "char-1": "neutral" } },
         "user-1": { spriteExpressions: { "persona-1": "neutral" } },
       },
-      { failUpdateCall: 2 },
+      { failPatchCall: 2 },
     );
 
     await expect(
@@ -181,5 +220,54 @@ describe("patchMessageExtrasForGeneration", () => {
 
     expect(state.get("assistant-1")?.extra).toEqual({ spriteExpressions: { "char-1": "neutral" } });
     expect(state.get("user-1")?.extra).toEqual({ spriteExpressions: { "persona-1": "neutral" } });
+  });
+
+  it("surfaces rollback failures after a split message extra patch fails", async () => {
+    const { state, storage } = messageExtraPatchStorage(
+      {
+        "assistant-1": { spriteExpressions: { "char-1": "neutral" } },
+        "user-1": { spriteExpressions: { "persona-1": "neutral" } },
+      },
+      { failPatchCall: 2, failUpdateCall: 1 },
+    );
+
+    await expect(
+      patchMessageExtrasForGeneration(storage, [
+        { messageId: "assistant-1", patch: { spriteExpressions: { "char-1": "happy" } } },
+        { messageId: "user-1", patch: { spriteExpressions: { "persona-1": "shy" } } },
+      ]),
+    ).rejects.toThrow("Message extra patch failed and rollback did not fully restore state");
+
+    expect(state.get("assistant-1")?.extra).toEqual({ spriteExpressions: { "char-1": "happy" } });
+    expect(state.get("user-1")?.extra).toEqual({ spriteExpressions: { "persona-1": "neutral" } });
+  });
+
+  it("preserves unrelated message extra keys added before the committed patch", async () => {
+    const { state, storage } = messageExtraPatchStorage(
+      {
+        "assistant-1": {
+          spriteExpressions: { "char-1": "neutral" },
+          stable: "kept",
+        },
+      },
+      {
+        beforePatchChatMessageExtra: (messageId, rows) => {
+          if (messageId !== "assistant-1") return;
+          const row = rows.get(messageId);
+          if (!row || row.extra.fresh === "interleaved") return;
+          rows.set(messageId, { ...row, extra: { ...row.extra, fresh: "interleaved" } });
+        },
+      },
+    );
+
+    await patchMessageExtrasForGeneration(storage, [
+      { messageId: "assistant-1", patch: { spriteExpressions: { "char-1": "happy" } } },
+    ]);
+
+    expect(state.get("assistant-1")?.extra).toEqual({
+      spriteExpressions: { "char-1": "happy" },
+      stable: "kept",
+      fresh: "interleaved",
+    });
   });
 });
