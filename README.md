@@ -136,6 +136,13 @@ Non-loopback clients fail closed unless you configure access control. Use `BASIC
 Set `CORS_ORIGINS` or `CSRF_TRUSTED_ORIGINS` when the desktop client origin is not one of the
 runtime defaults. Use exact origins; `CORS_ORIGINS=*` does not grant browser-origin trust for
 mutating API requests.
+If a web shell or reverse proxy serves De-Koi at multiple URLs, include every browser URL users
+open, including friendly hostnames and Tailscale/LAN IP origins. For example:
+
+```env
+CORS_ORIGINS=http://100.64.240.39:7860,http://pi:7860
+CSRF_TRUSTED_ORIGINS=http://100.64.240.39:7860,http://pi:7860
+```
 
 Remote API JSON and upload-style requests use an explicit 256 MiB request body limit. This matches
 the legacy server-level upload policy for `/api/invoke` and dedicated JSON API routes such as bulk
@@ -165,7 +172,9 @@ the host port to `127.0.0.1:8787` and enables the Docker bridge auth bypass so a
 host browser can reach the container through the mapped local port. For LAN or
 reverse-proxy access, intentionally change the bind address and configure
 `BASIC_AUTH_USER`/`BASIC_AUTH_PASS`, `IP_ALLOWLIST`, or another explicit remote
-access opt-in. When a reverse proxy fronts the runtime, also set
+access opt-in. Compose passes through `CORS_ORIGINS` and `CSRF_TRUSTED_ORIGINS`
+from the shell or `.env` file so hostnames used by a web shell can be trusted
+without editing the Compose file. When a reverse proxy fronts the runtime, also set
 `TRUSTED_PROXIES` to the proxy's IP or CIDR so auth decisions use the
 forwarded client address instead of the proxy's local connection; the proxy
 must send that address via `X-Forwarded-For` or `X-Real-IP` (RFC 7239

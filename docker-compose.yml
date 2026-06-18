@@ -15,6 +15,8 @@ services:
       # use API-key auth or a credentials file in CLAUDE_CONFIG_DIR.
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       CLAUDE_CONFIG_DIR: ${CLAUDE_CONFIG_DIR:-/data/claude-config}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
       BYPASS_AUTH_DOCKER: "true"
     ports:
       - "127.0.0.1:8787:8787"
