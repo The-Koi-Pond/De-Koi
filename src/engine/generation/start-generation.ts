@@ -614,6 +614,9 @@ type IllustrationImageSettings = {
   useAvatarReferences: boolean;
 };
 
+export const ILLUSTRATOR_TEXT_NEGATIVE_PROMPT =
+  "dialogue boxes, speech bubbles, word balloons, captions, narration boxes, text boxes, manga sound effect text, SFX lettering, readable text, letters, subtitles, watermark, logo, signature";
+
 type IllustrationReferenceSubject = {
   id: string;
   name: string;
@@ -662,6 +665,21 @@ function combinedPromptParts(parts: string[]): string {
     result.push(text);
   }
   return result.join(", ");
+}
+
+export function buildIllustrationNegativePrompt(args: {
+  itemNegativePrompt?: unknown;
+  agentNegativePrompt?: unknown;
+  chatIllustrationNegativePrompt?: unknown;
+  chatSelfieNegativePrompt?: unknown;
+}): string {
+  return combinedPromptParts([
+    readString(args.itemNegativePrompt).trim(),
+    readString(args.agentNegativePrompt).trim(),
+    readString(args.chatIllustrationNegativePrompt).trim(),
+    readString(args.chatSelfieNegativePrompt).trim(),
+    ILLUSTRATOR_TEXT_NEGATIVE_PROMPT,
+  ]);
 }
 
 function usableReferenceImage(value: unknown): string {
@@ -777,12 +795,12 @@ async function illustrationImageSettings(args: {
     connectionId,
     positivePrompt:
       readString(settings.imagePositivePrompt).trim() || readString(meta.illustrationPositivePrompt).trim(),
-    negativePrompt: combinedPromptParts([
-      args.item.negativePrompt,
-      readString(settings.imageNegativePrompt).trim(),
-      readString(meta.illustrationNegativePrompt).trim(),
-      readString(meta.selfieNegativePrompt).trim(),
-    ]),
+    negativePrompt: buildIllustrationNegativePrompt({
+      itemNegativePrompt: args.item.negativePrompt,
+      agentNegativePrompt: settings.imageNegativePrompt,
+      chatIllustrationNegativePrompt: meta.illustrationNegativePrompt,
+      chatSelfieNegativePrompt: meta.selfieNegativePrompt,
+    }),
     useAvatarReferences: illustratorAvatarReferencesEnabled(settings, meta),
   };
 }
@@ -2441,6 +2459,94 @@ function requiredSpriteExpressionTargetIdsForMessage(message: unknown): string[]
   return [];
 }
 
+type SpriteExpressionMessagePatch = {
+  messageId: string;
+  spriteExpressions: Record<string, string>;
+};
+
+function messageRole(message: unknown): string {
+  return isRecord(message) ? readString(message.role).trim() : "";
+}
+
+function existingSpriteExpressionMap(message: unknown): Record<string, string> {
+  const expressions = parseRecord(parseRecord(isRecord(message) ? message.extra : null).spriteExpressions);
+  const normalized: Record<string, string> = {};
+  for (const [key, value] of Object.entries(expressions)) {
+    const expression = readString(value).trim();
+    if (key.trim() && expression) normalized[key.trim()] = expression;
+  }
+  return normalized;
+}
+
+function mergeSpriteExpressionMap(
+  existing: Record<string, string>,
+  next: Record<string, string>,
+): Record<string, string> {
+  return { ...existing, ...next };
+}
+
+function lastUserMessageBeforeTarget(messages: JsonRecord[], target: JsonRecord | null): JsonRecord | null {
+  const index = messageIndex(messages, target);
+  const start = index >= 0 ? index - 1 : messages.length - 1;
+  for (let i = start; i >= 0; i -= 1) {
+    const message = messages[i]!;
+    if (messageRole(message) === "user" && readString(message.id).trim()) return message;
+  }
+  return null;
+}
+
+export function spriteExpressionPatchesForTarget(args: {
+  chat: JsonRecord;
+  messages: JsonRecord[];
+  target: JsonRecord | null;
+  results: AgentResult[];
+  availableSprites: AvailableSpriteCharacter[];
+}): SpriteExpressionMessagePatch[] {
+  const targetId = readString(args.target?.id).trim();
+  if (!targetId) return [];
+
+  const spriteExpressions = spriteExpressionsFromAgentResults(
+    args.results,
+    args.availableSprites,
+    requiredSpriteExpressionTargetIdsForMessage(args.target),
+  );
+  if (!spriteExpressions || Object.keys(spriteExpressions).length === 0) return [];
+
+  const personaId = readString(args.chat.personaId).trim();
+  const targetRole = messageRole(args.target);
+  const targetExpressions: Record<string, string> = {};
+  const personaExpressions: Record<string, string> = {};
+
+  for (const [ownerId, expression] of Object.entries(spriteExpressions)) {
+    if (personaId && ownerId === personaId && targetRole !== "user") {
+      personaExpressions[ownerId] = expression;
+    } else {
+      targetExpressions[ownerId] = expression;
+    }
+  }
+
+  const patches: SpriteExpressionMessagePatch[] = [];
+  if (Object.keys(targetExpressions).length > 0) {
+    patches.push({
+      messageId: targetId,
+      spriteExpressions: mergeSpriteExpressionMap(existingSpriteExpressionMap(args.target), targetExpressions),
+    });
+  }
+
+  if (Object.keys(personaExpressions).length > 0) {
+    const personaTarget = targetRole === "user" ? args.target : lastUserMessageBeforeTarget(args.messages, args.target);
+    const personaMessageId = readString(personaTarget?.id).trim();
+    if (personaMessageId) {
+      patches.push({
+        messageId: personaMessageId,
+        spriteExpressions: mergeSpriteExpressionMap(existingSpriteExpressionMap(personaTarget), personaExpressions),
+      });
+    }
+  }
+
+  return patches;
+}
+
 function assertVisibleGeneratedContent(content: string, attachments?: JsonRecord[]): void {
   if (content.trim() || (attachments?.length ?? 0) > 0) return;
   throw new Error(
@@ -2906,13 +3012,16 @@ function savedMessageAttachments(saved: unknown): JsonRecord[] {
 
 async function patchSavedMessageAgentExtra(args: {
   storage: StorageGateway;
+  chat: JsonRecord;
+  storedMessages: JsonRecord[];
   saved: unknown;
   results: AgentResult[];
   contextInjections?: AgentInjectionOverride[] | null;
-  spriteExpressions?: Record<string, string> | null;
+  availableSprites: AvailableSpriteCharacter[];
 }): Promise<unknown | null> {
   const id = messageId(args.saved);
   if (!id) return null;
+  const target = isRecord(args.saved) ? args.saved : null;
   const existingExtra = savedMessageExtra(args.saved);
   const extraPatch = agentExtraFromResults({
     results: args.results,
@@ -2920,11 +3029,23 @@ async function patchSavedMessageAgentExtra(args: {
     existingExtra,
     mergeContextInjectionUpdates: true,
   });
-  if (args.spriteExpressions && Object.keys(args.spriteExpressions).length > 0) {
-    extraPatch.spriteExpressions = args.spriteExpressions;
+  const spriteExpressionPatches = spriteExpressionPatchesForTarget({
+    chat: args.chat,
+    messages: args.storedMessages,
+    target,
+    results: args.results,
+    availableSprites: args.availableSprites,
+  });
+  const targetSpritePatch = spriteExpressionPatches.find((patch) => patch.messageId === id);
+  if (targetSpritePatch) {
+    extraPatch.spriteExpressions = targetSpritePatch.spriteExpressions;
   }
-  if (Object.keys(extraPatch).length === 0) return null;
-  return args.storage.patchChatMessageExtra(id, extraPatch);
+  const patched = Object.keys(extraPatch).length > 0 ? await args.storage.patchChatMessageExtra(id, extraPatch) : null;
+  for (const patch of spriteExpressionPatches) {
+    if (patch.messageId === id) continue;
+    await args.storage.patchChatMessageExtra(patch.messageId, { spriteExpressions: patch.spriteExpressions });
+  }
+  return patched;
 }
 
 async function appendSavedMessageAttachments(args: {
@@ -2941,6 +3062,8 @@ async function appendSavedMessageAttachments(args: {
 
 async function persistAgentMessageExtraForTarget(
   storage: StorageGateway,
+  chat: JsonRecord,
+  storedMessages: JsonRecord[],
   target: JsonRecord | null,
   results: AgentResult[],
   contextInjections: AgentInjectionOverride[] | null,
@@ -2954,16 +3077,25 @@ async function persistAgentMessageExtraForTarget(
     existingExtra: target?.extra,
     mergeContextInjectionUpdates: true,
   });
-  const spriteExpressions = spriteExpressionsFromAgentResults(
+
+  const spriteExpressionPatches = spriteExpressionPatchesForTarget({
+    chat,
+    messages: storedMessages,
+    target,
     results,
     availableSprites,
-    requiredSpriteExpressionTargetIdsForMessage(target),
-  );
-  if (spriteExpressions && Object.keys(spriteExpressions).length > 0) {
-    extraPatch.spriteExpressions = spriteExpressions;
+  });
+  const targetSpritePatch = spriteExpressionPatches.find((patch) => patch.messageId === messageId);
+  if (targetSpritePatch) {
+    extraPatch.spriteExpressions = targetSpritePatch.spriteExpressions;
   }
-  if (Object.keys(extraPatch).length === 0) return;
-  await storage.patchChatMessageExtra(messageId, extraPatch);
+  if (Object.keys(extraPatch).length > 0) {
+    await storage.patchChatMessageExtra(messageId, extraPatch);
+  }
+  for (const patch of spriteExpressionPatches) {
+    if (patch.messageId === messageId) continue;
+    await storage.patchChatMessageExtra(patch.messageId, { spriteExpressions: patch.spriteExpressions });
+  }
 }
 
 function targetAssistantMessage(messages: JsonRecord[], options: Record<string, unknown> = {}): JsonRecord | null {
@@ -3222,6 +3354,8 @@ async function runGenerationAgentsForTarget(args: {
   });
   await persistAgentMessageExtraForTarget(
     deps.storage,
+    chatForAgents,
+    storedMessages,
     target,
     finalResults,
     runtime.preInjections,
@@ -3974,18 +4108,15 @@ export async function* startGeneration(
       }
       agentEvents.length = 0;
       const allAgentResults = uniqueAgentResults([...preSaveAgentResults, ...emittedAgentResults]);
-      const spriteExpressions = spriteExpressionsFromAgentResults(
-        allAgentResults,
-        runtime?.availableSprites ?? [],
-        requiredSpriteExpressionTargetIdsForMessage(latestSaved),
-      );
       if (saved) {
         const patched = await patchSavedMessageAgentExtra({
           storage: deps.storage,
+          chat: chatForGeneration,
+          storedMessages,
           saved: latestSaved,
           results: allAgentResults,
           contextInjections: runtime?.preInjections ?? null,
-          spriteExpressions,
+          availableSprites: runtime?.availableSprites ?? [],
         });
         if (patched) {
           latestSaved = patched;

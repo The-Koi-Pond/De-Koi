@@ -109,8 +109,9 @@ Transition guide:
 - none: instant swap (neutral reset, very minor change).
 Instructions:
 1. ONLY include sprite owners listed in <available_sprites>. If a character or persona is not listed there, do NOT include them.
-2. The characterId MUST be the exact ID string from the parentheses, e.g. if the entry says "Dottore (abc123): happy, sad" then characterId must be "abc123". Never invent, reuse, or copy a different ID from chat history.
-3. When a character's emotion is ambiguous, pick the closest listed available expression or group key rather than guessing a generic one.`,
+2. Treat the latest assistant message as the authority. Use older context, lore, and persona data only for continuity; do not choose the user's persona just because they exist in context unless the latest assistant message visibly or emotionally depicts them.
+3. The characterId MUST be the exact ID string from the parentheses, e.g. if the entry says "Dottore (abc123): happy, sad" then characterId must be "abc123". Never invent, reuse, or copy a different ID from chat history.
+4. When a character's emotion is ambiguous, pick the closest listed available expression or group key rather than guessing a generic one.`,
 
   /* ────────────────────────────────────────── */
   "echo-chamber": `Simulate a live streaming-service chat full of anonymous viewers reacting to the roleplay on screen. Generate a batch of short messages from fictional viewers commenting on the current response.
@@ -195,6 +196,7 @@ IMPORTANT: The player may have at most 3 active (non-completed) quests at a time
 
   /* ────────────────────────────────────────── */
   illustrator: `After key narrative moments, generate a detailed image prompt for an image generation service (Stable Diffusion, DALL-E, etc.).
+The latest generated message is provided in <assistant_response>. Anchor your shouldGenerate decision and image prompt to that latest assistant turn. Use recent context only for continuity; do not illustrate an older scene just because it appears in context.
 Only generate a prompt when the scene is visually significant:
 1. A new important location is described in detail.
 2. A dramatic action scene occurs.
@@ -215,13 +217,14 @@ Output format:
 Prompt quality rules:
 1. Be specific about composition, lighting, mood, and camera angle.
 2. First identify which active characters/persona are actually visible in the image. Put only those names in "characters"; omit absent, off-screen, merely mentioned, or background-only names.
-3. In the "prompt", describe the exact scene-specific appearance of each visible character: face, hair, eye color and eye shape, build, skin tone, current outfit, expression, pose, injuries, props, and distinguishing visible features. Use the recent scene and main response for current clothing and condition. If Dottore is wearing a suit in this scene, describe the suit; do not fall back to his default outfit.
+3. In the "prompt", describe the exact scene-specific appearance of each visible character: face, hair length, hair style, hair color, eye color and eye shape, build, skin tone or carnation, current clothing, expression, pose, injuries, props, and distinguishing visible features. Use the recent scene and main response for current clothing and condition. If Dottore is wearing a suit in this scene, describe the suit; do not fall back to his default outfit.
 4. Do not paste full character/persona descriptions, personality, backstory, scenario, or relationship prose into the prompt. Only include visual details that belong in this exact image.
 5. If attached reference images are provided, inspect them and transfer concrete visible identity traits into the prompt, especially eye color, hair color/style, face shape, body proportions, skin tone, scars, markings, and distinctive accessories.
 6. Mention in the prompt that provided/attached character references should be consulted for identity, facial likeness, hair, proportions, and distinctive features, while the prompt's current-scene outfit/details should take priority over reference clothing when they differ.
-7. Describe the environment and atmosphere with enough detail that an artist could paint it.
-8. Use art-style keywords for quality (e.g., "detailed", "dramatic lighting", "cinematic", "depth of field").
-9. Do not include generic meta-instructions like "make it look good"; write a concrete image prompt only.`,
+7. Do not request dialogue text, captions, narration boxes, speech bubbles, word balloons, manga SFX, signs, subtitles, UI text, logos, or watermarks in the prompt or generated image.
+8. Describe the environment and atmosphere with enough detail that an artist could paint it.
+9. Use art-style keywords for quality (e.g., "detailed", "dramatic lighting", "cinematic", "depth of field").
+10. Do not include generic meta-instructions like "make it look good"; write a concrete image prompt only.`,
 
   /* ────────────────────────────────────────── */
   "lorebook-keeper": `Analyze the narrative for new lore, character details, locations, or world-building information worth recording for future reference.

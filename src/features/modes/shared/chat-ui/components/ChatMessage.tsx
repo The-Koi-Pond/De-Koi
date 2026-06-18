@@ -1483,8 +1483,16 @@ export const ChatMessage = memo(function ChatMessage({
       ? (msgPersona.avatarUrl ?? null)
       : (personaInfo?.avatarUrl ?? null)
     : (charInfo?.avatarUrl ?? null);
+  const personaExpressionId =
+    isUser && typeof msgPersona?.personaId === "string" && msgPersona.personaId.trim()
+      ? msgPersona.personaId.trim()
+      : personaInfo?.id;
   const expressionAvatarUrl =
-    !isUser && message.characterId ? (expressionAvatarResolver?.(message, message.characterId) ?? null) : null;
+    isUser && personaExpressionId
+      ? (expressionAvatarResolver?.(message, `persona:${personaExpressionId}`) ?? null)
+      : !isUser && message.characterId
+        ? (expressionAvatarResolver?.(message, message.characterId) ?? null)
+        : null;
   const avatarUrl = expressionAvatarUrl ?? baseAvatarUrl;
   const avatarFilePath = expressionAvatarUrl
     ? null

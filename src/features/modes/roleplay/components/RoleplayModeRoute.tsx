@@ -25,12 +25,13 @@ import { useAgentInjectionReview } from "../hooks/use-agent-injection-review";
 import { useRoleplayTranscriptScroll } from "../hooks/use-roleplay-transcript-scroll";
 import { useScene } from "../hooks/use-scene";
 import {
-  getCharacterIdFromSpriteOwnerKey,
   getSpriteOwnerId,
   getSpriteOwnerKind,
+  makeSpriteOwnerKey,
 } from "../../../runtime/visuals/sprite-owner-keys";
 import {
   getSpriteExpressionForCharacter,
+  getSpriteExpressionForOwnerKey,
   normalizeSpriteExpressionMap,
 } from "../../../runtime/visuals/sprite-expression-lookup";
 import { AgentInjectionReviewModal } from "./AgentInjectionReviewModal";
@@ -69,6 +70,12 @@ function resolveExpressionAvatarSpriteUrl(sprites: Map<string, string> | undefin
 
 function combineSpriteQueryData(results: Array<{ data: SpriteInfo[] | undefined }>): Array<SpriteInfo[] | undefined> {
   return results.map((query) => query.data);
+}
+
+function expressionAvatarLookupKey(ownerKey: string): string | null {
+  const ownerId = getSpriteOwnerId(ownerKey).trim();
+  if (!ownerId) return null;
+  return getSpriteOwnerKind(ownerKey) === "persona" ? makeSpriteOwnerKey("persona", ownerId) : ownerId;
 }
 
 export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" }: RoleplayModeRouteProps) {
@@ -200,7 +207,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
     isRoleplay &&
     data.chatMeta.expressionAvatarsEnabled === true &&
     expressionAgentEnabled &&
-    data.chatCharIds.length > 0;
+    (data.chatCharIds.length > 0 || !!data.personaInfo?.id);
   const spriteOverlayOwnerKeys = useMemo(() => {
     const activePersonaId = data.chat?.personaId ?? null;
     const chatCharIdSet = new Set(data.chatCharIds);
@@ -218,29 +225,40 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
     }
     return Array.from(ownerKeysByIdentity.values());
   }, [data.chat?.personaId, data.chatCharIds, spriteState.spriteCharacterIds]);
-  const expressionAvatarCharacterIds = useMemo(() => {
-    const configuredIds =
+  const expressionAvatarOwnerKeys = useMemo(() => {
+    const configuredKeys =
       spriteOverlayOwnerKeys.length > 0
         ? spriteOverlayOwnerKeys
-            .map((ownerKey) => getCharacterIdFromSpriteOwnerKey(ownerKey))
-            .filter((id): id is string => !!id && data.chatCharIds.includes(id))
-        : data.chatCharIds;
-    return Array.from(new Set(configuredIds.filter((id) => typeof id === "string" && id.trim())));
-  }, [data.chatCharIds, spriteOverlayOwnerKeys]);
+        : [
+            ...data.chatCharIds,
+            ...(data.personaInfo?.id ? [makeSpriteOwnerKey("persona", data.personaInfo.id)] : []),
+          ];
+    return Array.from(
+      new Set(
+        configuredKeys
+          .map((ownerKey) => (typeof ownerKey === "string" ? expressionAvatarLookupKey(ownerKey) : null))
+          .filter((ownerKey): ownerKey is string => !!ownerKey),
+      ),
+    );
+  }, [data.chatCharIds, data.personaInfo?.id, spriteOverlayOwnerKeys]);
   const expressionAvatarSpriteData = useQueries({
-    queries: expressionAvatarCharacterIds.map((characterId) => ({
-      queryKey: spriteKeys.list(characterId),
-      queryFn: () => spriteApi.list<SpriteInfo[]>(characterId),
-      enabled: expressionAvatarsEnabled,
-      staleTime: 5 * 60_000,
-    })),
+    queries: expressionAvatarOwnerKeys.map((ownerKey) => {
+      const ownerKind = getSpriteOwnerKind(ownerKey);
+      const ownerId = getSpriteOwnerId(ownerKey);
+      return {
+        queryKey: spriteKeys.list(ownerId, ownerKind),
+        queryFn: () => spriteApi.list<SpriteInfo[]>(ownerId, { ownerType: ownerKind }),
+        enabled: expressionAvatarsEnabled,
+        staleTime: 5 * 60_000,
+      };
+    }),
     combine: combineSpriteQueryData,
   });
   const expressionAvatarSpriteMap = useMemo(() => {
     const map = new Map<string, Map<string, string>>();
     if (!expressionAvatarsEnabled) return map;
-    for (let index = 0; index < expressionAvatarCharacterIds.length; index += 1) {
-      const characterId = expressionAvatarCharacterIds[index]!;
+    for (let index = 0; index < expressionAvatarOwnerKeys.length; index += 1) {
+      const ownerKey = expressionAvatarOwnerKeys[index]!;
       const sprites = expressionAvatarSpriteData[index];
       if (!Array.isArray(sprites) || sprites.length === 0) continue;
       const byExpression = new Map<string, string>();
@@ -249,23 +267,35 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         if (!expression || expression.startsWith("full_")) continue;
         byExpression.set(expression, sprite.url);
       }
-      if (byExpression.size > 0) map.set(characterId, byExpression);
+      if (byExpression.size > 0) map.set(ownerKey, byExpression);
     }
     return map;
-  }, [expressionAvatarCharacterIds, expressionAvatarSpriteData, expressionAvatarsEnabled]);
+  }, [expressionAvatarOwnerKeys, expressionAvatarSpriteData, expressionAvatarsEnabled]);
   const expressionAvatarResolver = useMemo<ExpressionAvatarResolver | undefined>(() => {
     if (!expressionAvatarsEnabled) return undefined;
-    return (message: MessageWithSwipes, characterId: string) => {
+    return (message: MessageWithSwipes, ownerKeyOrCharacterId: string) => {
       const extra = parseMessageExtraRecord(message.extra);
       const expressions = normalizeSpriteExpressionMap(extra.spriteExpressions);
-      const characterName = data.characterMap.get(characterId)?.name;
+      const ownerKind = getSpriteOwnerKind(ownerKeyOrCharacterId);
+      const ownerId = getSpriteOwnerId(ownerKeyOrCharacterId);
+      const ownerKey = ownerKind === "persona" ? makeSpriteOwnerKey("persona", ownerId) : ownerId;
+      const displayName = ownerKind === "persona" ? data.personaInfo?.name : data.characterMap.get(ownerId)?.name;
       const expression =
-        getSpriteExpressionForCharacter(expressions, characterId, characterName) ??
-        getSpriteExpressionForCharacter(spriteState.spriteExpressions, characterId, characterName);
+        ownerKind === "persona"
+          ? (getSpriteExpressionForOwnerKey(expressions, ownerKeyOrCharacterId, displayName) ??
+            getSpriteExpressionForOwnerKey(spriteState.spriteExpressions, ownerKeyOrCharacterId, displayName))
+          : (getSpriteExpressionForCharacter(expressions, ownerId, displayName) ??
+            getSpriteExpressionForCharacter(spriteState.spriteExpressions, ownerId, displayName));
       if (!expression) return null;
-      return resolveExpressionAvatarSpriteUrl(expressionAvatarSpriteMap.get(characterId), expression);
+      return resolveExpressionAvatarSpriteUrl(expressionAvatarSpriteMap.get(ownerKey), expression);
     };
-  }, [data.characterMap, expressionAvatarSpriteMap, expressionAvatarsEnabled, spriteState.spriteExpressions]);
+  }, [
+    data.characterMap,
+    data.personaInfo?.name,
+    expressionAvatarSpriteMap,
+    expressionAvatarsEnabled,
+    spriteState.spriteExpressions,
+  ]);
 
   const handleCloneSceneFromHere = useCallback(
     (messageId: string) => {
