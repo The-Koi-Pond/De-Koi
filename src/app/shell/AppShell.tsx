@@ -25,6 +25,7 @@ import { useIdleDetection } from "../../shared/hooks/use-idle-detection";
 import { ImagePromptReviewHost } from "../../shared/components/ui/ImagePromptReviewHost";
 import { cn } from "../../shared/lib/utils";
 import { parseChatMetadata } from "../../shared/lib/chat-display";
+import { watchVisualViewportHeightVar } from "../../shared/lib/visual-viewport";
 import { getDetailRouteView } from "./detail-route-registry";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
@@ -785,6 +786,10 @@ export function AppShell() {
     : null;
   const activeMobileOverlayPanel = activeMobilePanel;
 
+  useLayoutEffect(() => {
+    return watchVisualViewportHeightVar(document.documentElement, window);
+  }, []);
+
   const closeActiveMobilePanel = useCallback(() => {
     if (activeMobilePanel === "right") closeRightPanel();
     else if (activeMobilePanel === "tracker") setTrackerPanelOpen(false);
@@ -1007,13 +1012,13 @@ export function AppShell() {
 
   return (
     <TopBarActionsProvider>
-    <div
-      data-component="AppShell"
-      className={cn(
-        "mari-app fixed inset-0 flex flex-col overflow-hidden bg-[var(--background)] max-md:pt-[env(safe-area-inset-top)]",
-        showAmbientDecor && "retro-scanlines noise-bg geometric-grid",
-      )}
-    >
+      <div
+        data-component="AppShell"
+        className={cn(
+          "mari-app fixed left-0 right-0 top-0 flex h-[var(--mari-visual-viewport-height,100dvh)] flex-col overflow-hidden bg-[var(--background)] max-md:pt-[env(safe-area-inset-top)]",
+          showAmbientDecor && "retro-scanlines noise-bg geometric-grid",
+        )}
+      >
       {/* Y2K decorative stars */}
       {showAmbientDecor && (
         <>
