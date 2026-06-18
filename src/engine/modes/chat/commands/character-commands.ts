@@ -321,6 +321,7 @@ const SCHEDULE_UPDATE_RE = new RegExp(`\\[schedule_update:\\s*(${QUOTED_PARAM_BL
 const CROSS_POST_RE = /\[cross_post:\s*target="([^"]+)"\]/gi;
 const SELFIE_RE = /\[selfie(?::\s*(?:context="([^"]*)"|"([^"]*)"|([^\]\r\n"]+)))?\]/gi;
 const MEMORY_RE = /\[memory:\s*target="([^"]+)"\s*,\s*summary="([^"]+)"\]/gi;
+const BARE_MEMORY_RE = new RegExp(`\\[memory:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const SCENE_RE = new RegExp(`\\[scene:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const SPOTIFY_RE = new RegExp(`\\[spotify:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const DIRECT_MESSAGE_RE = new RegExp(`\\[dm:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
@@ -399,6 +400,52 @@ function parseQuotedParam(params: string, key: string, allowEmpty = false): stri
   const value = decodeQuotedParamValue(rawValue);
   if (!allowEmpty && value.length === 0) return undefined;
   return value;
+}
+
+function stripMatchingQuotes(value: string): string {
+  const trimmed = value.trim();
+  const openingQuote = trimmed[0] ?? "";
+  const closingQuote = QUOTE_PAIRS[openingQuote];
+  if (!closingQuote || !trimmed.endsWith(closingQuote)) return trimmed;
+  return trimmed.slice(1, -1).trim();
+}
+
+function parseLeadingQuotedValue(value: string): string | undefined {
+  const openingQuote = value.trimStart()[0] ?? "";
+  const closingQuote = QUOTE_PAIRS[openingQuote];
+  if (!closingQuote) return undefined;
+
+  let rawValue = "";
+  let index = value.indexOf(openingQuote) + openingQuote.length;
+  while (index < value.length) {
+    const char = value[index] ?? "";
+    const nextChar = value[index + 1];
+
+    if (char === "\\" && nextChar !== undefined) {
+      rawValue += char + nextChar;
+      index += 2;
+      continue;
+    }
+    if (char === closingQuote) return decodeQuotedParamValue(rawValue);
+
+    rawValue += char;
+    index += 1;
+  }
+
+  return undefined;
+}
+
+function parseBareMemoryCommand(params: string): MemoryCommand | null {
+  if (/^\s*target\s*=/i.test(params)) return null;
+
+  const commaIndex = params.indexOf(",");
+  if (commaIndex < 0) return null;
+
+  const target = stripMatchingQuotes(params.slice(0, commaIndex));
+  const summary = parseLeadingQuotedValue(params.slice(commaIndex + 1));
+  if (!target || !summary) return null;
+
+  return { type: "memory", target, summary };
 }
 
 function parseStringList(value: string | undefined): string[] | undefined {
@@ -824,6 +871,11 @@ export function parseCharacterCommands(content: string): {
     commands.push({ type: "memory", target: match[1]!, summary: match[2]! });
   }
 
+  for (const match of content.matchAll(BARE_MEMORY_RE)) {
+    const command = parseBareMemoryCommand(match[1]!);
+    if (command) commands.push(command);
+  }
+
   // Parse scene commands
   for (const match of content.matchAll(SCENE_RE)) {
     const params = match[1]!;
@@ -984,6 +1036,7 @@ export function parseCharacterCommands(content: string): {
     .replace(CROSS_POST_RE, "")
     .replace(SELFIE_RE, "")
     .replace(MEMORY_RE, "")
+    .replace(BARE_MEMORY_RE, "")
     .replace(SCENE_RE, "")
     .replace(SPOTIFY_RE, "")
     .replace(INFLUENCE_RE, "")
