@@ -725,6 +725,43 @@ describe("persistConnectedCommandTags", () => {
     expect(characterContext?.memories?.join("\n")).not.toContain("Malformed date memory.");
   });
 
+  it("accepts bare target memory commands without leaking hidden command text", async () => {
+    const chats: JsonRecord[] = [
+      {
+        id: "chat-1",
+        name: "Mira conversation",
+        mode: "conversation",
+        characterIds: ["char-1"],
+        memories: [],
+        notes: [],
+        metadata: {},
+      },
+    ];
+    const characters: JsonRecord[] = [{ id: "char-1", name: "Mira", data: { name: "Mira", extensions: {} } }];
+    const storage = commandStorage({
+      chats,
+      characters,
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chats[0]!,
+      '[memory: Mira, "Mira remembers Charlotte is protective of Victor."]She keeps an eye on him.',
+    );
+
+    expect(result.displayContent).toBe("She keeps an eye on him.");
+    expect(result.executedCommands).toEqual(["memory"]);
+    expect(chats[0]?.memories).toHaveLength(1);
+    expect((chats[0]?.memories as JsonRecord[])[0]).toMatchObject({
+      content: "Memory for Mira: Mira remembers Charlotte is protective of Victor.",
+      target: "Mira",
+      targetCharacterName: "Mira",
+      targetCharacterId: "char-1",
+    });
+  });
+
   it("does not leave duplicate character memories when a command memory write is retried", async () => {
     const chats: JsonRecord[] = [
       {
