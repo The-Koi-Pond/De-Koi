@@ -25,9 +25,14 @@ const IMAGE_PROVIDER_ERROR_MAX_BYTES: usize = 256 * 1024;
 const IMAGE_PROVIDER_JSON_ENVELOPE_MAX_BYTES: usize = 48 * 1024 * 1024;
 const IMAGE_PROVIDER_RAW_IMAGE_MAX_BYTES: usize = 32 * 1024 * 1024;
 const IMAGE_PROVIDER_LOCAL_URLS_ENABLED_FLAG: &str = "IMAGE_PROVIDER_LOCAL_URLS_ENABLED";
+const IMAGE_GENERATION_TIMEOUT_SECS: u64 = 300;
 const RUNPOD_COMFYUI_MAX_REFERENCE_IMAGES: usize = 4;
 const COMFYUI_PLACEHOLDER_REFERENCE_BASE64: &str =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+const OPENAI_GPT_IMAGE_2_MIN_PIXELS: u64 = 1024 * 1024;
+const OPENAI_GPT_IMAGE_2_MAX_PIXELS: u64 = 3840 * 2160;
+const OPENAI_GPT_IMAGE_2_MAX_ASPECT_RATIO: f64 = 3.0;
+const OPENAI_GPT_IMAGE_2_SIZE_MULTIPLE: u64 = 16;
 
 #[derive(Clone, Debug)]
 pub(crate) struct ImageGenerationOptions {
@@ -883,11 +888,12 @@ async fn generate_openai_compatible_image(
 
     let base = connection_base_url(connection, source);
     let model = connection_model(connection, "gpt-image-1");
-    let client = http_client(180)?;
+    let client = http_client(IMAGE_GENERATION_TIMEOUT_SECS)?;
     let uses_gpt_image_api = is_openai_gpt_image_model(&model);
+    let prompt = openai_text_prompt(prompt, options.negative_prompt.as_deref());
     if uses_gpt_image_api && !options.reference_images.is_empty() {
         let mut form = reqwest::multipart::Form::new()
-            .text("prompt", prompt.to_string())
+            .text("prompt", prompt.clone())
             .text("n", "1")
             .text("size", openai_image_size(&model, width, height))
             .text("output_format", "png");
@@ -931,7 +937,7 @@ async fn generate_openai_compatible_image(
 
     let mut payload = Map::new();
     payload.insert("model".to_string(), Value::String(model.clone()));
-    payload.insert("prompt".to_string(), Value::String(prompt.to_string()));
+    payload.insert("prompt".to_string(), Value::String(prompt));
     payload.insert("n".to_string(), json!(1));
     payload.insert(
         "size".to_string(),
@@ -984,12 +990,89 @@ pub(crate) fn is_openai_gpt_image_model(model: &str) -> bool {
         || lower.starts_with("gpt-image-2-")
 }
 
+fn is_openai_gpt_image_2_model(model: &str) -> bool {
+    let lower = model.trim().to_ascii_lowercase();
+    lower == "gpt-image-2" || lower.starts_with("gpt-image-2-")
+}
+
 fn supports_openai_transparent_background(model: &str) -> bool {
     let lower = model.trim().to_ascii_lowercase();
     lower == "gpt-image-1"
         || lower.starts_with("gpt-image-1-")
         || lower == "gpt-image-1.5"
         || lower.starts_with("gpt-image-1.5-")
+}
+
+fn round_up_to_multiple(value: f64, multiple: u64) -> u64 {
+    ((value / multiple as f64).ceil() as u64) * multiple
+}
+
+fn round_down_to_multiple(value: f64, multiple: u64) -> u64 {
+    (((value / multiple as f64).floor() as u64) * multiple).max(multiple)
+}
+
+fn openai_gpt_image_2_size(width: u64, height: u64) -> String {
+    let mut width = width.max(1) as f64;
+    let mut height = height.max(1) as f64;
+    let ratio = width / height.max(1.0);
+    if ratio > OPENAI_GPT_IMAGE_2_MAX_ASPECT_RATIO {
+        width = height * OPENAI_GPT_IMAGE_2_MAX_ASPECT_RATIO;
+    } else if ratio < 1.0 / OPENAI_GPT_IMAGE_2_MAX_ASPECT_RATIO {
+        height = width * OPENAI_GPT_IMAGE_2_MAX_ASPECT_RATIO;
+    }
+
+    let pixels = width * height;
+    if pixels < OPENAI_GPT_IMAGE_2_MIN_PIXELS as f64 {
+        let scale = (OPENAI_GPT_IMAGE_2_MIN_PIXELS as f64 / pixels.max(1.0)).sqrt();
+        width *= scale;
+        height *= scale;
+    }
+    if width * height > OPENAI_GPT_IMAGE_2_MAX_PIXELS as f64 {
+        let scale = (OPENAI_GPT_IMAGE_2_MAX_PIXELS as f64 / (width * height)).sqrt();
+        width *= scale;
+        height *= scale;
+    }
+
+    let mut scaled_width = round_up_to_multiple(width, OPENAI_GPT_IMAGE_2_SIZE_MULTIPLE);
+    let mut scaled_height = round_up_to_multiple(height, OPENAI_GPT_IMAGE_2_SIZE_MULTIPLE);
+
+    if scaled_width > scaled_height.saturating_mul(3) {
+        scaled_width = round_down_to_multiple(
+            scaled_height.saturating_mul(3) as f64,
+            OPENAI_GPT_IMAGE_2_SIZE_MULTIPLE,
+        );
+    } else if scaled_height > scaled_width.saturating_mul(3) {
+        scaled_height = round_down_to_multiple(
+            scaled_width.saturating_mul(3) as f64,
+            OPENAI_GPT_IMAGE_2_SIZE_MULTIPLE,
+        );
+    }
+
+    if scaled_width.saturating_mul(scaled_height) > OPENAI_GPT_IMAGE_2_MAX_PIXELS {
+        let scale = (OPENAI_GPT_IMAGE_2_MAX_PIXELS as f64
+            / scaled_width.saturating_mul(scaled_height) as f64)
+            .sqrt();
+        scaled_width = round_down_to_multiple(
+            scaled_width as f64 * scale,
+            OPENAI_GPT_IMAGE_2_SIZE_MULTIPLE,
+        );
+        scaled_height = round_down_to_multiple(
+            scaled_height as f64 * scale,
+            OPENAI_GPT_IMAGE_2_SIZE_MULTIPLE,
+        );
+    }
+
+    format!("{scaled_width}x{scaled_height}")
+}
+
+fn openai_text_prompt(prompt: &str, negative_prompt: Option<&str>) -> String {
+    let prompt = prompt.trim();
+    let negative_prompt = negative_prompt.map(str::trim).unwrap_or("");
+    if negative_prompt.is_empty() {
+        prompt.to_string()
+    } else {
+        format!("{prompt}\n\nDo not include: {negative_prompt}.")
+    }
 }
 
 fn openai_image_size(model: &str, width: u64, height: u64) -> String {
@@ -1011,6 +1094,9 @@ fn openai_image_size(model: &str, width: u64, height: u64) -> String {
         } else {
             "1024x1024".to_string()
         };
+    }
+    if is_openai_gpt_image_2_model(model) {
+        return openai_gpt_image_2_size(width, height);
     }
     if is_openai_gpt_image_model(model) {
         return if ratio > 1.12 {
@@ -1063,7 +1149,7 @@ async fn generate_xai(
 ) -> AppResult<(String, String)> {
     let base = connection_base_url(connection, "xai");
     let model = connection_model(connection, "grok-2-image");
-    let client = http_client(180)?;
+    let client = http_client(IMAGE_GENERATION_TIMEOUT_SECS)?;
     let payload = json!({
         "model": model,
         "prompt": prompt,
@@ -1201,7 +1287,7 @@ async fn generate_nanogpt_image(
         _ => {}
     }
 
-    let client = http_client(180)?;
+    let client = http_client(IMAGE_GENERATION_TIMEOUT_SECS)?;
     let response = bearer(
         client
             .post(nanogpt_images_url(&base))
@@ -1247,7 +1333,7 @@ async fn generate_together_image(
             Value::String(negative.to_string()),
         );
     }
-    let client = http_client(180)?;
+    let client = http_client(IMAGE_GENERATION_TIMEOUT_SECS)?;
     let response = bearer(
         client
             .post(format!("{base}/images/generations"))
@@ -1273,7 +1359,7 @@ async fn generate_chat_image(
     let source = image_source(connection);
     let base = connection_base_url(connection, &source);
     let model = connection_model(connection, "google/gemini-2.5-flash-image");
-    let client = http_client(180)?;
+    let client = http_client(IMAGE_GENERATION_TIMEOUT_SECS)?;
     let prompt = match options
         .negative_prompt
         .as_deref()
@@ -1798,7 +1884,7 @@ async fn upload_comfy_reference_image(base: &str, reference: &str) -> AppResult<
     let form = reqwest::multipart::Form::new()
         .part("image", part)
         .text("overwrite", "true");
-    let response = http_client(180)?
+    let response = http_client(IMAGE_GENERATION_TIMEOUT_SECS)?
         .post(format!("{}/upload/image", base.trim_end_matches('/')))
         .multipart(form)
         .send()
@@ -1878,7 +1964,7 @@ async fn generate_stability(
             .text("mode", "image-to-image".to_string());
     }
     let response = bearer(
-        http_client(180)?
+        http_client(IMAGE_GENERATION_TIMEOUT_SECS)?
             .post(stability_url(&base, &endpoint))
             .header(reqwest::header::ACCEPT, "image/*")
             .multipart(form),
@@ -1921,7 +2007,7 @@ async fn generate_stability_v1(
         "samples": 1,
         "steps": 30
     });
-    let client = http_client(180)?;
+    let client = http_client(IMAGE_GENERATION_TIMEOUT_SECS)?;
     let response = bearer(
         client
             .post(stability_url(
@@ -2117,7 +2203,7 @@ async fn generate_automatic1111(
     }
     let endpoint = if use_img2img { "img2img" } else { "txt2img" };
     let response = bearer(
-        http_client(180)?
+        http_client(IMAGE_GENERATION_TIMEOUT_SECS)?
             .post(automatic1111_sdapi_url(&base, endpoint))
             .json(&payload),
         &connection_api_key(connection),
@@ -3146,6 +3232,51 @@ mod tests {
         (format!("http://{address}"), handle)
     }
 
+    async fn serve_openai_image_response() -> (String, tokio::task::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test image server should bind");
+        let address = listener
+            .local_addr()
+            .expect("test image server address should be readable");
+        let handle = tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("test image server should accept one request");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            loop {
+                let read = stream
+                    .read(&mut buffer)
+                    .await
+                    .expect("test image server should read request");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+                if let Some(header_end) = find_header_end(&request) {
+                    let headers = String::from_utf8_lossy(&request[..header_end]);
+                    let expected_len = header_end + 4 + content_length(&headers);
+                    if request.len() >= expected_len {
+                        break;
+                    }
+                }
+            }
+            let body = r#"{"data":[{"b64_json":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("test image server should write response");
+            String::from_utf8_lossy(&request).to_string()
+        });
+        (format!("http://{address}"), handle)
+    }
+
     async fn serve_single_png_response() -> (String, tokio::task::JoinHandle<String>) {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -3525,6 +3656,72 @@ mod tests {
             .message
             .contains(IMAGE_PROVIDER_LOCAL_URLS_ENABLED_FLAG));
         assert!(!error.message.contains("sk-test-secret"));
+    }
+
+    #[test]
+    fn openai_text_prompt_embeds_negative_prompt_for_image_api() {
+        assert_eq!(
+            openai_text_prompt("  A dramatic portrait  ", Some(" text, watermark ")),
+            "A dramatic portrait\n\nDo not include: text, watermark."
+        );
+        assert_eq!(
+            openai_text_prompt("  A dramatic portrait  ", Some("   ")),
+            "A dramatic portrait"
+        );
+    }
+
+    #[test]
+    fn openai_gpt_image_2_size_scales_small_requests_to_minimum_canvas() {
+        assert_eq!(openai_image_size("gpt-image-2", 1024, 1024), "1024x1024");
+        assert_eq!(openai_image_size("gpt-image-2", 1024, 576), "1376x768");
+        assert_eq!(openai_image_size("gpt-image-2", 1536, 1024), "1536x1024");
+        assert_eq!(openai_image_size("gpt-image-2", 3072, 512), "1776x592");
+        assert_eq!(openai_image_size("gpt-image-2", 512, 3072), "592x1776");
+        assert_eq!(openai_image_size("gpt-image-1", 1024, 576), "1536x1024");
+    }
+
+    #[tokio::test]
+    async fn openai_generation_payload_uses_negative_prompt_and_gpt_image_2_size() {
+        let (base_url, request_handle) = serve_openai_image_response().await;
+        let connection = json!({
+            "provider": "image_generation",
+            "imageGenerationSource": "openai",
+            "baseUrl": base_url,
+            "model": "gpt-image-2"
+        });
+
+        let result = generate_openai_compatible_image(
+            &connection,
+            "openai",
+            "A dramatic scene",
+            1024,
+            576,
+            &ImageGenerationOptions {
+                negative_prompt: Some("text, watermark".to_string()),
+                ..ImageGenerationOptions::default()
+            },
+        )
+        .await
+        .expect("OpenAI-compatible image response should parse");
+
+        assert_eq!(result.1, "image/png");
+        let request = request_handle
+            .await
+            .expect("test image server should return captured request");
+        assert!(request.starts_with("POST /v1/images/generations "));
+        let body = request
+            .split_once("\r\n\r\n")
+            .map(|(_, body)| body)
+            .expect("request should contain a JSON body");
+        let payload: Value = serde_json::from_str(body).expect("request body should be JSON");
+
+        assert_eq!(
+            payload["prompt"],
+            json!("A dramatic scene\n\nDo not include: text, watermark.")
+        );
+        assert_eq!(payload["size"], json!("1376x768"));
+        assert_eq!(payload["output_format"], json!("png"));
+        assert!(payload.get("negative_prompt").is_none());
     }
 
     #[tokio::test]

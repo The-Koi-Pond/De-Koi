@@ -1609,6 +1609,7 @@ fn http_status_for_app_error(error: &AppError) -> StatusCode {
         "sidecar_inference_busy" => StatusCode::CONFLICT,
         "admin_access_invalid" => StatusCode::UNAUTHORIZED,
         "admin_access_required" => StatusCode::FORBIDDEN,
+        "sprite_generation_timeout" => StatusCode::GATEWAY_TIMEOUT,
         "custom_tool_script_unsupported" => StatusCode::UNPROCESSABLE_ENTITY,
         "embedding_network_error" | "embedding_provider_error" | "embedding_response_error" => {
             StatusCode::BAD_GATEWAY

@@ -29,6 +29,7 @@ const SPRITE_EXPRESSION_SHEET_PROMPT_KEY: &str = "sprite.expressionSheet";
 const SPRITE_FULL_BODY_SINGLE_PROMPT_KEY: &str = "sprite.fullBodySingle";
 const SPRITE_FULL_BODY_SHEET_PROMPT_KEY: &str = "sprite.fullBodySheet";
 const SPRITE_FULL_BODY_EXPRESSION_SHEET_PROMPT_KEY: &str = "sprite.fullBodyExpressionSheet";
+const SPRITE_GENERATION_DEFAULT_TIMEOUT_MS: u64 = 300_000;
 const BACKGROUNDREMOVER_DEFAULT_TIMEOUT_MS: u64 = 10 * 60 * 1000;
 const BACKGROUNDREMOVER_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -58,6 +59,12 @@ struct SpriteCleanupRestorePoint {
     id: String,
     created_millis: u128,
     path: PathBuf,
+}
+
+#[derive(Clone, Copy)]
+struct SpriteGenerationDeadline {
+    started: Instant,
+    timeout: Duration,
 }
 
 enum BackgroundRemoverProcessOutput {
@@ -247,7 +254,11 @@ pub(crate) async fn generate_sprite_sheet_preview(
         .unwrap_or_else(|| {
             registered_sprite_prompt(state, plan.prompt_key, plan.prompt.clone(), &plan, None)
         });
-    let negative_prompt = negative_prompt_for_review_item(&image_options, prompt_override.as_ref());
+    let prompt = sprite_sheet_layout_prompt(prompt, &plan);
+    let negative_prompt = sprite_sheet_layout_negative_prompt(
+        negative_prompt_for_review_item(&image_options, prompt_override.as_ref()),
+        &plan,
+    );
     Ok(json!({
         "items": [{
             "id": prompt_id,
@@ -266,6 +277,25 @@ pub(crate) async fn generate_sprite_sheet_preview(
 }
 
 pub(crate) async fn generate_sprite_sheet(state: &AppState, body: Value) -> AppResult<Value> {
+    let timeout = sprite_generation_timeout_for_request(state, &body)
+        .unwrap_or_else(|_| sprite_generation_timeout());
+    let deadline = SpriteGenerationDeadline::new(timeout);
+    match tokio::time::timeout(
+        deadline.remaining()?,
+        generate_sprite_sheet_inner(state, body, deadline),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(sprite_generation_timeout_error(timeout)),
+    }
+}
+
+async fn generate_sprite_sheet_inner(
+    state: &AppState,
+    body: Value,
+    deadline: SpriteGenerationDeadline,
+) -> AppResult<Value> {
     validate_sprite_generation_body(state, &body)?;
     let connection_id = required_string(&body, "connectionId")?;
     let connection = connection_secrets::connection_for_runtime(state, connection_id)?;
@@ -320,12 +350,14 @@ pub(crate) async fn generate_sprite_sheet(state: &AppState, body: Value) -> AppR
                         .unwrap_or(false)
                     {
                         general_purpose::STANDARD.encode(
-                            cleanup_image_base64(
+                            cleanup_image_base64_for_generation(
                                 state,
-                                &base64,
+                                base64,
                                 cleanup_strength(&body),
-                                &cleanup_engine(&body),
-                            )?
+                                cleanup_engine(&body),
+                                deadline,
+                            )
+                            .await?
                             .bytes,
                         )
                     } else {
@@ -365,6 +397,8 @@ pub(crate) async fn generate_sprite_sheet(state: &AppState, body: Value) -> AppR
         });
     let request_options =
         image_options_for_prompt_override(&image_options, prompt_override.as_ref());
+    let prompt = sprite_sheet_layout_prompt(prompt, &plan);
+    let request_options = sprite_sheet_layout_options(request_options, &plan);
     let (sheet_base64, _mime_type) = generate_image_with_options(
         &connection,
         &format!("{prompt}{reference_note}"),
@@ -379,12 +413,14 @@ pub(crate) async fn generate_sprite_sheet(state: &AppState, body: Value) -> AppR
         .unwrap_or(false)
     {
         general_purpose::STANDARD.encode(
-            cleanup_image_base64(
+            cleanup_image_base64_for_generation(
                 state,
-                &sheet_base64,
+                sheet_base64,
                 cleanup_strength(&body),
-                &cleanup_engine(&body),
-            )?
+                cleanup_engine(&body),
+                deadline,
+            )
+            .await?
             .bytes,
         )
     } else {
@@ -811,8 +847,10 @@ fn build_sprite_plan(body: &Value, connection: Option<&Value>) -> SpritePlan {
         sprite_type != "full-body" && expressions.len() == 1 && cols == 1 && rows == 1;
     let single_full_body =
         sprite_type == "full-body" && expressions.len() == 1 && cols == 1 && rows == 1;
-    let generate_individually =
-        sprite_type != "full-body" && !single_portrait && is_openai_gpt_image_model(model);
+    let generate_individually = sprite_type != "full-body"
+        && !single_portrait
+        && is_openai_gpt_image_model(model)
+        && !is_gpt_image_2_model(model);
     let (sheet_width, sheet_height, cell_width, cell_height) =
         resolve_canvas(cols, rows, &sprite_type, model);
     let (prompt_key, prompt) = if full_body_expression_mode {
@@ -915,7 +953,9 @@ fn resolve_canvas(cols: u32, rows: u32, sprite_type: &str, model: &str) -> (u32,
     let cell_height = if sprite_type == "full-body" { 768 } else { 512 };
     let requested_width = cols * cell_width;
     let requested_height = rows * cell_height;
-    if is_openai_gpt_image_model(model) {
+    if is_openai_gpt_image_model(model)
+        && (sprite_type == "full-body" || !is_gpt_image_2_model(model))
+    {
         let ratio = requested_width as f64 / requested_height.max(1) as f64;
         let (sheet_width, sheet_height) = if ratio > 1.12 {
             (1536, 1024)
@@ -932,6 +972,72 @@ fn resolve_canvas(cols: u32, rows: u32, sprite_type: &str, model: &str) -> (u32,
         );
     }
     (requested_width, requested_height, cell_width, cell_height)
+}
+
+fn sprite_sheet_layout_prompt(prompt: String, plan: &SpritePlan) -> String {
+    if plan.should_generate_individually() {
+        return prompt;
+    }
+    let total_cells = plan.cols * plan.rows;
+    let expression_list = plan
+        .expressions
+        .iter()
+        .map(|expression| format_sprite_label_for_prompt(expression))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let wrong_nine_cell_guard = if total_cells == 9 {
+        String::new()
+    } else {
+        " Do not return a 3x3 grid, 9 cells, or fewer cells than requested.".to_string()
+    };
+    let layout_contract = [
+        format!(
+            "MANDATORY SPRITE SHEET LAYOUT: return one {}x{}px image containing exactly {total_cells} separate cells in a strict {} columns by {} rows grid.",
+            plan.sheet_width, plan.sheet_height, plan.cols, plan.rows
+        ),
+        format!(
+            "Each cell is exactly {}x{}px; vertical grid cuts are every {}px and horizontal grid cuts are every {}px.",
+            plan.cell_width, plan.cell_height, plan.cell_width, plan.cell_height
+        ),
+        format!(
+            "Fill every cell. The first {} cells, read left-to-right then top-to-bottom, must be: {expression_list}.",
+            plan.expressions.len()
+        ),
+        format!(
+            "No missing cells, no extra cells, no merged cells, no blank cells, no uneven grid, and no one-large-image composition.{wrong_nine_cell_guard}"
+        ),
+    ]
+    .join(" ");
+    format!("{prompt}\n\n{layout_contract}")
+}
+
+fn sprite_sheet_layout_negative_prompt(
+    negative_prompt: Option<String>,
+    plan: &SpritePlan,
+) -> Option<String> {
+    if plan.should_generate_individually() {
+        return negative_prompt;
+    }
+    let total_cells = plan.cols * plan.rows;
+    let mut parts = Vec::new();
+    if let Some(value) = negative_prompt.filter(|value| !value.trim().is_empty()) {
+        parts.push(value);
+    }
+    parts.push(format!(
+        "missing cells, fewer than {total_cells} cells, extra cells, merged cells, blank cells, uneven grid, one large image spanning cells"
+    ));
+    if total_cells != 9 {
+        parts.push("3x3 grid, 9 cells".to_string());
+    }
+    Some(parts.join(", "))
+}
+
+fn sprite_sheet_layout_options(
+    mut options: ImageGenerationOptions,
+    plan: &SpritePlan,
+) -> ImageGenerationOptions {
+    options.negative_prompt = sprite_sheet_layout_negative_prompt(options.negative_prompt, plan);
+    options
 }
 
 fn format_sprite_label_for_prompt(label: &str) -> String {
@@ -1145,12 +1251,15 @@ fn transparent_prompt(prompt: String, body: &Value, model: &str) -> String {
         .replace("plain white background", replacement)
         .replace("white studio background", replacement)
         .replace("white background", replacement);
-    if updated == prompt && !updated.to_ascii_lowercase().contains("no background") {
+    let lower = updated.to_ascii_lowercase();
+    let has_transparent_instruction = lower.contains("no background")
+        || lower.contains("transparent background")
+        || lower.contains("transparent png")
+        || lower.contains("png format");
+    if updated == prompt && !has_transparent_instruction {
         updated.push_str(", ");
         updated.push_str(replacement);
-    } else if cleanup_friendly
-        && !updated.to_ascii_lowercase().contains("flat pure white")
-        && updated.to_ascii_lowercase().contains("no background")
+    } else if cleanup_friendly && !lower.contains("flat pure white") && has_transparent_instruction
     {
         updated.push_str(". If transparent output is unsupported, use a perfectly flat pure white #ffffff background with no shadows, gradients, scenery, floor line, or texture behind the character");
     }
@@ -1262,10 +1371,63 @@ fn cleanup_image_base64(
     strength: u8,
     requested_engine: &str,
 ) -> AppResult<SpriteCleanupOutput> {
+    cleanup_image_base64_with_timeout(state, value, strength, requested_engine, None)
+}
+
+async fn cleanup_image_base64_for_generation(
+    state: &AppState,
+    value: String,
+    strength: u8,
+    requested_engine: String,
+    deadline: SpriteGenerationDeadline,
+) -> AppResult<SpriteCleanupOutput> {
+    let remaining = deadline.remaining()?;
+    let state = state.clone();
+    let handle = tokio::task::spawn_blocking(move || {
+        let cleanup_timeout = deadline.remaining()?;
+        cleanup_image_base64_with_timeout(
+            &state,
+            &value,
+            strength,
+            &requested_engine,
+            Some(cleanup_timeout),
+        )
+    });
+
+    match tokio::time::timeout(remaining, handle).await {
+        Ok(joined) => match joined.map_err(|error| {
+            AppError::new(
+                "sprite_cleanup_failed",
+                format!("Sprite cleanup task failed: {error}"),
+            )
+        })? {
+            Ok(output) => Ok(output),
+            Err(error) if error.code == "backgroundremover_timeout" => {
+                Err(sprite_generation_timeout_error(deadline.timeout()))
+            }
+            Err(error) => Err(error),
+        },
+        Err(_) => Err(sprite_generation_timeout_error(deadline.timeout())),
+    }
+}
+
+fn cleanup_image_base64_with_timeout(
+    state: &AppState,
+    value: &str,
+    strength: u8,
+    requested_engine: &str,
+    backgroundremover_timeout_override: Option<Duration>,
+) -> AppResult<SpriteCleanupOutput> {
     let bytes = general_purpose::STANDARD
         .decode(extract_base64_image_data(value))
         .map_err(|error| AppError::invalid_input(format!("Invalid base64 image: {error}")))?;
-    cleanup_image_bytes(state, &bytes, strength, requested_engine)
+    cleanup_image_bytes_with_timeout(
+        state,
+        &bytes,
+        strength,
+        requested_engine,
+        backgroundremover_timeout_override,
+    )
 }
 
 fn cleanup_image_bytes(
@@ -1274,11 +1436,25 @@ fn cleanup_image_bytes(
     strength: u8,
     requested_engine: &str,
 ) -> AppResult<SpriteCleanupOutput> {
+    cleanup_image_bytes_with_timeout(state, bytes, strength, requested_engine, None)
+}
+
+fn cleanup_image_bytes_with_timeout(
+    state: &AppState,
+    bytes: &[u8],
+    strength: u8,
+    requested_engine: &str,
+    backgroundremover_timeout_override: Option<Duration>,
+) -> AppResult<SpriteCleanupOutput> {
+    #[cfg(test)]
+    sprite_cleanup_test_delay();
+
     if requested_engine != "builtin" {
         if let Some(bytes) = try_remove_background_with_backgroundremover(
             state,
             bytes,
             requested_engine == "backgroundremover",
+            backgroundremover_timeout_override,
         )? {
             return Ok(SpriteCleanupOutput {
                 bytes,
@@ -2167,6 +2343,17 @@ fn env_bool(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
+fn sprite_cleanup_test_delay() {
+    if let Ok(value) = env::var("SPRITE_CLEANUP_TEST_DELAY_MS") {
+        if let Ok(delay_ms) = value.trim().parse::<u64>() {
+            if delay_ms > 0 {
+                thread::sleep(Duration::from_millis(delay_ms));
+            }
+        }
+    }
+}
+
 fn backgroundremover_timeout() -> Duration {
     env::var("BACKGROUNDREMOVER_TIMEOUT_MS")
         .ok()
@@ -2174,6 +2361,60 @@ fn backgroundremover_timeout() -> Duration {
         .filter(|value| *value > 0)
         .map(Duration::from_millis)
         .unwrap_or_else(|| Duration::from_millis(BACKGROUNDREMOVER_DEFAULT_TIMEOUT_MS))
+}
+
+fn sprite_generation_timeout() -> Duration {
+    env::var("SPRITE_GENERATION_TIMEOUT_MS")
+        .or_else(|_| env::var("IMAGE_GEN_TIMEOUT_MS"))
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .map(Duration::from_millis)
+        .unwrap_or_else(|| Duration::from_millis(SPRITE_GENERATION_DEFAULT_TIMEOUT_MS))
+}
+
+impl SpriteGenerationDeadline {
+    fn new(timeout: Duration) -> Self {
+        Self {
+            started: Instant::now(),
+            timeout,
+        }
+    }
+
+    fn timeout(self) -> Duration {
+        self.timeout
+    }
+
+    fn remaining(self) -> AppResult<Duration> {
+        let remaining = self.timeout.saturating_sub(self.started.elapsed());
+        if remaining.is_zero() {
+            Err(sprite_generation_timeout_error(self.timeout))
+        } else {
+            Ok(remaining)
+        }
+    }
+}
+
+fn sprite_generation_timeout_error(timeout: Duration) -> AppError {
+    AppError::new(
+        "sprite_generation_timeout",
+        format!(
+            "Sprite generation timed out after {} seconds",
+            timeout.as_secs()
+        ),
+    )
+}
+
+fn sprite_generation_timeout_for_request(state: &AppState, body: &Value) -> AppResult<Duration> {
+    let connection_id = required_string(body, "connectionId")?;
+    let connection = connection_secrets::connection_for_runtime(state, connection_id)?;
+    let plan = build_sprite_plan(body, Some(&connection));
+    let sequential_calls = if plan.should_generate_individually() {
+        plan.expressions.len().max(1) as u32
+    } else {
+        1
+    };
+    Ok(sprite_generation_timeout().saturating_mul(sequential_calls))
 }
 
 fn preferred_background_removal_engine() -> String {
@@ -2444,6 +2685,7 @@ fn cleanup_engine_status(state: &AppState) -> Value {
 
 fn backgroundremover_process_output(
     mut process: Command,
+    timeout: Duration,
 ) -> std::io::Result<BackgroundRemoverProcessOutput> {
     let capture_dir = BackgroundRemoverCaptureDir::create()?;
     let stdout_path = capture_dir.path().join("stdout.log");
@@ -2451,7 +2693,6 @@ fn backgroundremover_process_output(
     process.stdout(Stdio::from(fs::File::create(&stdout_path)?));
     process.stderr(Stdio::from(fs::File::create(&stderr_path)?));
     configure_backgroundremover_process_tree(&mut process);
-    let timeout = backgroundremover_timeout();
     let started = Instant::now();
     let mut child = process.spawn()?;
     loop {
@@ -2610,6 +2851,7 @@ fn run_backgroundremover_once(
     args: &[String],
     model_dir: &Path,
     output_path: &Path,
+    timeout: Duration,
 ) -> Result<Option<Vec<u8>>, BackgroundRemoverFailure> {
     let (u2net_home, u2net_path, u2netp_path) = backgroundremover_model_env_paths(model_dir);
     let mut process = Command::new(&command.command);
@@ -2626,7 +2868,7 @@ fn run_backgroundremover_once(
         process.creation_flags(0x08000000);
     }
 
-    match backgroundremover_process_output(process) {
+    match backgroundremover_process_output(process, timeout) {
         Ok(BackgroundRemoverProcessOutput::Completed(output))
             if output.status.success() && output_path.exists() =>
         {
@@ -2652,7 +2894,7 @@ fn run_backgroundremover_once(
             code: "backgroundremover_timeout",
             message: format!(
                 "backgroundremover timed out after {} ms",
-                backgroundremover_timeout().as_millis()
+                timeout.as_millis()
             ),
         }),
         Err(error) => Err(BackgroundRemoverFailure {
@@ -2666,6 +2908,7 @@ fn try_remove_background_with_backgroundremover(
     state: &AppState,
     input: &[u8],
     required: bool,
+    timeout_override: Option<Duration>,
 ) -> AppResult<Option<Vec<u8>>> {
     let engine = preferred_background_removal_engine();
     let disabled = env_bool("BACKGROUNDREMOVER_DISABLED");
@@ -2708,8 +2951,22 @@ fn try_remove_background_with_backgroundremover(
 
     let mut backgroundremover_bytes = None;
     let mut last_failure = None;
+    let cleanup_started = Instant::now();
     for attempt in 0..2 {
-        match run_backgroundremover_once(&command, &args, &model_dir, &output_path) {
+        let process_timeout = if let Some(timeout) = timeout_override {
+            let remaining = timeout.saturating_sub(cleanup_started.elapsed());
+            if remaining.is_zero() {
+                return Err(AppError::new(
+                    "backgroundremover_timeout",
+                    "backgroundremover timed out before it could start",
+                ));
+            }
+            remaining
+        } else {
+            backgroundremover_timeout()
+        };
+        match run_backgroundremover_once(&command, &args, &model_dir, &output_path, process_timeout)
+        {
             Ok(bytes) => {
                 backgroundremover_bytes = bytes;
                 last_failure = None;
@@ -2805,6 +3062,8 @@ mod sprite_decode_guard_tests {
 mod sprite_prompt_override_tests {
     use super::*;
     use std::fs;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     fn test_state(label: &str) -> (AppState, PathBuf) {
         let root = env::temp_dir().join(format!("marinara-sprite-prompt-{label}-{}", now_millis()));
@@ -2833,6 +3092,17 @@ mod sprite_prompt_override_tests {
                 }),
             )
             .expect("gpt image connection should write");
+        state
+            .storage
+            .upsert_with_id(
+                "connections",
+                "image-conn-gpt2",
+                json!({
+                    "provider": "image_generation",
+                    "model": "gpt-image-2"
+                }),
+            )
+            .expect("gpt image 2 connection should write");
         (state, root)
     }
 
@@ -2864,6 +3134,87 @@ mod sprite_prompt_override_tests {
             "rows": rows,
             "spriteType": sprite_type
         })
+    }
+
+    fn test_png_base64(width: u32, height: u32) -> String {
+        let image = RgbaImage::from_pixel(width, height, Rgba([255, 255, 255, 255]));
+        let mut bytes = Vec::new();
+        image
+            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+            .expect("test image should encode");
+        general_purpose::STANDARD.encode(bytes)
+    }
+
+    fn find_header_end(bytes: &[u8]) -> Option<usize> {
+        bytes.windows(4).position(|window| window == b"\r\n\r\n")
+    }
+
+    fn content_length(headers: &str) -> usize {
+        headers
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                if name.eq_ignore_ascii_case("content-length") {
+                    value.trim().parse::<usize>().ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0)
+    }
+
+    async fn serve_openai_sprite_image_response() -> (String, tokio::task::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test image server should bind");
+        let address = listener
+            .local_addr()
+            .expect("test image server address should be readable");
+        let image = test_png_base64(32, 32);
+        let handle = tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("test image server should accept one request");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            loop {
+                let read = stream
+                    .read(&mut buffer)
+                    .await
+                    .expect("test image server should read request");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+                if let Some(header_end) = find_header_end(&request) {
+                    let headers = String::from_utf8_lossy(&request[..header_end]);
+                    let expected_len = header_end + 4 + content_length(&headers);
+                    if request.len() >= expected_len {
+                        break;
+                    }
+                }
+            }
+            let body = format!(r#"{{"data":[{{"b64_json":"{image}"}}]}}"#);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("test image server should write response");
+            String::from_utf8_lossy(&request).to_string()
+        });
+        (format!("http://{address}"), handle)
+    }
+
+    fn restore_env_var(name: &str, old_value: Option<std::ffi::OsString>) {
+        if let Some(value) = old_value {
+            env::set_var(name, value);
+        } else {
+            env::remove_var(name);
+        }
     }
 
     #[tokio::test]
@@ -2964,24 +3315,190 @@ mod sprite_prompt_override_tests {
                 .expect("prompt override should write");
         }
 
-        assert_eq!(
-            preview_prompt(
-                &state,
-                base_body("expressions", vec!["neutral", "happy"], 2, 1)
-            )
-            .await,
-            "LEGACY neutral, happy 2 512x512"
+        assert!(preview_prompt(
+            &state,
+            base_body("expressions", vec!["neutral", "happy"], 2, 1)
+        )
+        .await
+        .starts_with("LEGACY neutral, happy 2 512x512\n\nMANDATORY SPRITE SHEET LAYOUT"));
+        assert!(
+            preview_prompt(&state, base_body("full-body", vec!["idle"], 1, 1))
+                .await
+                .starts_with("LEGACY idle\n\nMANDATORY SPRITE SHEET LAYOUT")
         );
-        assert_eq!(
-            preview_prompt(&state, base_body("full-body", vec!["idle"], 1, 1)).await,
-            "LEGACY idle"
-        );
-        assert_eq!(
-            preview_prompt(&state, base_body("full-body", vec!["idle", "attack"], 2, 1)).await,
-            "LEGACY idle, attack 2 2 512x768"
+        assert!(
+            preview_prompt(&state, base_body("full-body", vec!["idle", "attack"], 2, 1))
+                .await
+                .starts_with("LEGACY idle, attack 2 2 512x768\n\nMANDATORY SPRITE SHEET LAYOUT")
         );
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn gpt_image_2_expression_sheet_keeps_sheet_plan_and_layout_contract() {
+        let (state, root) = test_state("gpt-image-2-sheet");
+        let mut body = base_body("expressions", vec!["neutral", "happy"], 2, 1);
+        body.as_object_mut()
+            .expect("body should be object")
+            .insert("connectionId".to_string(), json!("image-conn-gpt2"));
+
+        let item = preview_item(&state, body).await;
+
+        assert_eq!(item.get("width").and_then(Value::as_u64), Some(1024));
+        assert_eq!(item.get("height").and_then(Value::as_u64), Some(512));
+        assert!(item
+            .get("prompt")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .contains("MANDATORY SPRITE SHEET LAYOUT"));
+        let negative_prompt = item
+            .get("negativePrompt")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(negative_prompt.contains("missing cells"));
+        assert!(negative_prompt.contains("3x3 grid"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sprite_generation_timeout_scales_for_sequential_expression_calls() {
+        let (state, root) = test_state("sequential-timeout");
+        let mut gpt_body = base_body("expressions", vec!["neutral", "happy"], 2, 1);
+        gpt_body
+            .as_object_mut()
+            .expect("body should be object")
+            .insert("connectionId".to_string(), json!("image-conn-gpt"));
+        let mut gpt2_body = base_body("expressions", vec!["neutral", "happy"], 2, 1);
+        gpt2_body
+            .as_object_mut()
+            .expect("body should be object")
+            .insert("connectionId".to_string(), json!("image-conn-gpt2"));
+        let base = sprite_generation_timeout();
+
+        assert_eq!(
+            sprite_generation_timeout_for_request(&state, &gpt_body)
+                .expect("timeout should resolve"),
+            base.saturating_mul(2)
+        );
+        assert_eq!(
+            sprite_generation_timeout_for_request(&state, &gpt2_body)
+                .expect("timeout should resolve"),
+            base
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn sprite_sheet_cleanup_obeys_generation_timeout() {
+        let old_local_urls = env::var_os("IMAGE_PROVIDER_LOCAL_URLS_ENABLED");
+        let old_delay = env::var_os("SPRITE_CLEANUP_TEST_DELAY_MS");
+        env::set_var("IMAGE_PROVIDER_LOCAL_URLS_ENABLED", "1");
+        env::set_var("SPRITE_CLEANUP_TEST_DELAY_MS", "500");
+
+        let (state, root) = test_state("sheet-cleanup-timeout");
+        let (base_url, request_handle) = serve_openai_sprite_image_response().await;
+        state
+            .storage
+            .upsert_with_id(
+                "connections",
+                "image-conn-gpt2",
+                json!({
+                    "provider": "image_generation",
+                    "imageGenerationSource": "openai",
+                    "baseUrl": base_url,
+                    "model": "gpt-image-2"
+                }),
+            )
+            .expect("gpt image 2 connection should write");
+        let mut body = base_body("expressions", vec!["neutral", "happy"], 2, 1);
+        body.as_object_mut()
+            .expect("body should be object")
+            .extend([
+                ("connectionId".to_string(), json!("image-conn-gpt2")),
+                ("noBackground".to_string(), json!(true)),
+            ]);
+
+        let error = generate_sprite_sheet_inner(
+            &state,
+            body,
+            SpriteGenerationDeadline::new(Duration::from_millis(50)),
+        )
+        .await
+        .expect_err("slow sheet cleanup should hit sprite generation timeout");
+
+        assert_eq!(error.code, "sprite_generation_timeout");
+        assert!(request_handle
+            .await
+            .expect("test server should return captured request")
+            .starts_with("POST /v1/images/generations "));
+
+        restore_env_var("IMAGE_PROVIDER_LOCAL_URLS_ENABLED", old_local_urls);
+        restore_env_var("SPRITE_CLEANUP_TEST_DELAY_MS", old_delay);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn individual_expression_cleanup_obeys_generation_timeout() {
+        let old_local_urls = env::var_os("IMAGE_PROVIDER_LOCAL_URLS_ENABLED");
+        let old_delay = env::var_os("SPRITE_CLEANUP_TEST_DELAY_MS");
+        env::set_var("IMAGE_PROVIDER_LOCAL_URLS_ENABLED", "1");
+        env::set_var("SPRITE_CLEANUP_TEST_DELAY_MS", "500");
+
+        let (state, root) = test_state("individual-cleanup-timeout");
+        let (base_url, request_handle) = serve_openai_sprite_image_response().await;
+        state
+            .storage
+            .upsert_with_id(
+                "connections",
+                "image-conn-gpt",
+                json!({
+                    "provider": "image_generation",
+                    "imageGenerationSource": "openai",
+                    "baseUrl": base_url,
+                    "model": "gpt-image-1"
+                }),
+            )
+            .expect("gpt image connection should write");
+        let mut body = base_body("expressions", vec!["neutral", "happy"], 2, 1);
+        body.as_object_mut()
+            .expect("body should be object")
+            .extend([
+                ("connectionId".to_string(), json!("image-conn-gpt")),
+                ("noBackground".to_string(), json!(true)),
+            ]);
+
+        let error = generate_sprite_sheet_inner(
+            &state,
+            body,
+            SpriteGenerationDeadline::new(Duration::from_millis(50)),
+        )
+        .await
+        .expect_err("slow individual cleanup should hit sprite generation timeout");
+
+        assert_eq!(error.code, "sprite_generation_timeout");
+        assert!(request_handle
+            .await
+            .expect("test server should return captured request")
+            .starts_with("POST /v1/images/generations "));
+
+        restore_env_var("IMAGE_PROVIDER_LOCAL_URLS_ENABLED", old_local_urls);
+        restore_env_var("SPRITE_CLEANUP_TEST_DELAY_MS", old_delay);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn transparent_prompt_recognizes_existing_transparent_instructions() {
+        let prompt = transparent_prompt(
+            "single character sprite, transparent png".to_string(),
+            &json!({ "nativeTransparentPng": true }),
+            "gpt-image-2",
+        );
+
+        assert!(!prompt.contains("transparent png, no background"));
+        assert!(prompt.contains("flat pure white"));
     }
 
     #[tokio::test]
@@ -2993,10 +3510,11 @@ mod sprite_prompt_override_tests {
             .insert("negativePrompt".to_string(), json!("bad anatomy"));
 
         let item = preview_item(&state, body.clone()).await;
-        assert_eq!(
-            item.get("negativePrompt").and_then(Value::as_str),
-            Some("bad anatomy")
-        );
+        let negative_prompt = item
+            .get("negativePrompt")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(negative_prompt.starts_with("bad anatomy, missing cells"));
 
         let prompt_id = sprite_prompt_review_id("sheet", "expressions", "2x1-neutral,happy");
         body.as_object_mut().expect("body should be object").insert(
@@ -3004,24 +3522,27 @@ mod sprite_prompt_override_tests {
             json!([{ "id": prompt_id, "prompt": "EDITED PROMPT", "negativePrompt": "edited negative" }]),
         );
         let item = preview_item(&state, body.clone()).await;
-        assert_eq!(
-            item.get("prompt").and_then(Value::as_str),
-            Some("EDITED PROMPT")
-        );
-        assert_eq!(
-            item.get("negativePrompt").and_then(Value::as_str),
-            Some("edited negative")
-        );
+        assert!(item
+            .get("prompt")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .starts_with("EDITED PROMPT\n\nMANDATORY SPRITE SHEET LAYOUT"));
+        let negative_prompt = item
+            .get("negativePrompt")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(negative_prompt.starts_with("edited negative, missing cells"));
 
         body.as_object_mut().expect("body should be object").insert(
             "promptOverrides".to_string(),
             json!([{ "id": prompt_id, "prompt": "EDITED PROMPT", "negativePrompt": "" }]),
         );
         let item = preview_item(&state, body).await;
-        assert!(item
+        let negative_prompt = item
             .get("negativePrompt")
-            .expect("negativePrompt field should be present")
-            .is_null());
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(negative_prompt.starts_with("missing cells"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -3135,7 +3656,7 @@ mod sprite_prompt_override_tests {
 
         let prompt = preview_prompt(&state, body).await;
 
-        assert_eq!(prompt, "TRANSIENT PROMPT");
+        assert!(prompt.starts_with("TRANSIENT PROMPT\n\nMANDATORY SPRITE SHEET LAYOUT"));
 
         let mut body = base_body("expressions", vec!["neutral", "happy"], 2, 1);
         let prompt_id = sprite_prompt_review_id("expression", "expressions", "neutral");
@@ -3826,7 +4347,8 @@ mod background_remover_runtime_tests {
             command
         };
         let started = Instant::now();
-        let output = backgroundremover_process_output(command).expect("process should spawn");
+        let output = backgroundremover_process_output(command, backgroundremover_timeout())
+            .expect("process should spawn");
 
         assert!(matches!(output, BackgroundRemoverProcessOutput::TimedOut));
         assert!(started.elapsed() < Duration::from_secs(2));
@@ -3858,7 +4380,8 @@ mod background_remover_runtime_tests {
             command
         };
         let started = Instant::now();
-        let output = backgroundremover_process_output(command).expect("process should spawn");
+        let output = backgroundremover_process_output(command, backgroundremover_timeout())
+            .expect("process should spawn");
 
         assert!(matches!(output, BackgroundRemoverProcessOutput::TimedOut));
         assert!(started.elapsed() < Duration::from_secs(2));
@@ -3897,7 +4420,8 @@ mod background_remover_runtime_tests {
         };
         command.env("MARINARA_BGREM_MARKER", &marker_path);
 
-        let output = backgroundremover_process_output(command).expect("process should spawn");
+        let output = backgroundremover_process_output(command, backgroundremover_timeout())
+            .expect("process should spawn");
 
         assert!(matches!(output, BackgroundRemoverProcessOutput::TimedOut));
         thread::sleep(Duration::from_secs(3));
@@ -3936,7 +4460,8 @@ mod background_remover_runtime_tests {
             ]);
             command
         };
-        let output = backgroundremover_process_output(command).expect("process should spawn");
+        let output = backgroundremover_process_output(command, backgroundremover_timeout())
+            .expect("process should spawn");
 
         match output {
             BackgroundRemoverProcessOutput::Completed(output) => {
@@ -3985,7 +4510,7 @@ mod background_remover_runtime_tests {
             command
         };
 
-        let error = match backgroundremover_process_output(command) {
+        let error = match backgroundremover_process_output(command, backgroundremover_timeout()) {
             Ok(_) => panic!("forced capture read failure should return an error"),
             Err(error) => error,
         };
@@ -4131,8 +4656,9 @@ mod background_remover_runtime_tests {
         env::set_var("TEMP", &temp_root);
         env::set_var("TMPDIR", &temp_root);
 
-        let error = try_remove_background_with_backgroundremover(&state, &encode_test_png(), true)
-            .expect_err("forced cache-clear failure should return an error");
+        let error =
+            try_remove_background_with_backgroundremover(&state, &encode_test_png(), true, None)
+                .expect_err("forced cache-clear failure should return an error");
 
         assert_eq!(error.code, "backgroundremover_cache_clear_failed");
         let leaked_work_dirs = fs::read_dir(&temp_root)
@@ -4222,7 +4748,7 @@ mod background_remover_runtime_tests {
         env::set_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR", "1");
 
         let result =
-            try_remove_background_with_backgroundremover(&state, &encode_test_png(), false)
+            try_remove_background_with_backgroundremover(&state, &encode_test_png(), false, None)
                 .expect("optional cache-clear failure should fall back");
 
         assert!(
