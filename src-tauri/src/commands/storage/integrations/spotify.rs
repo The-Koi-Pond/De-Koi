@@ -98,6 +98,15 @@ struct SpotifyPlayRequest {
     requested_context_uri: Option<String>,
 }
 
+struct SpotifyPlaybackVerification<'a> {
+    initial_device_id: Option<&'a str>,
+    target_device_id: Option<&'a str>,
+    expected_track_uri: Option<&'a str>,
+    expected_context_uri: Option<&'a str>,
+    expected_uris: &'a [String],
+    require_first_uri: bool,
+}
+
 static SPOTIFY_TRACK_INDEX_CACHE: OnceLock<
     Mutex<std::collections::HashMap<String, SpotifyTrackIndexCacheEntry>>,
 > = OnceLock::new();
@@ -2844,40 +2853,42 @@ async fn spotify_set_repeat_direct_with_retries(
 async fn verify_or_nudge_spotify_playback(
     credentials: &SpotifyCredentials,
     payload: &Value,
-    initial_device_id: Option<&str>,
-    target_device_id: Option<&str>,
-    expected_track_uri: Option<&str>,
-    expected_context_uri: Option<&str>,
-    expected_uris: &[String],
-    require_first_uri: bool,
+    verification: SpotifyPlaybackVerification<'_>,
 ) -> AppResult<Option<SpotifyPlaybackSnapshot>> {
-    let mut current =
-        wait_for_spotify_playback(credentials, expected_track_uri, expected_context_uri).await?;
+    let mut current = wait_for_spotify_playback(
+        credentials,
+        verification.expected_track_uri,
+        verification.expected_context_uri,
+    )
+    .await?;
     if spotify_playback_matches(
         current.as_ref(),
-        expected_uris,
-        expected_context_uri,
-        require_first_uri,
+        verification.expected_uris,
+        verification.expected_context_uri,
+        verification.require_first_uri,
     ) {
         return Ok(current);
     }
 
-    let Some(target_device_id) = target_device_id else {
+    let Some(target_device_id) = verification.target_device_id else {
         return Ok(current);
     };
 
-    if initial_device_id != Some(target_device_id) {
+    if verification.initial_device_id != Some(target_device_id) {
         let retry =
             request_spotify_playback(credentials, Some(target_device_id), payload.clone()).await?;
         if spotify_response_ok(&retry) {
-            current =
-                wait_for_spotify_playback(credentials, expected_track_uri, expected_context_uri)
-                    .await?;
+            current = wait_for_spotify_playback(
+                credentials,
+                verification.expected_track_uri,
+                verification.expected_context_uri,
+            )
+            .await?;
             if spotify_playback_matches(
                 current.as_ref(),
-                expected_uris,
-                expected_context_uri,
-                require_first_uri,
+                verification.expected_uris,
+                verification.expected_context_uri,
+                verification.require_first_uri,
             ) {
                 return Ok(current);
             }
@@ -2892,9 +2903,12 @@ async fn verify_or_nudge_spotify_playback(
         let retry =
             request_spotify_playback(credentials, Some(target_device_id), payload.clone()).await?;
         if spotify_response_ok(&retry) {
-            current =
-                wait_for_spotify_playback(credentials, expected_track_uri, expected_context_uri)
-                    .await?;
+            current = wait_for_spotify_playback(
+                credentials,
+                verification.expected_track_uri,
+                verification.expected_context_uri,
+            )
+            .await?;
         }
     }
 
@@ -2957,11 +2971,16 @@ async fn agent_spotify_play_control(
     require_spotify_scope(&credentials, SPOTIFY_PLAYBACK_CONTROL_SCOPE)?;
     let play_request = spotify_play_request_from_body(&body)
         .ok_or_else(|| AppError::invalid_input("uri, uris, or contextUri is required"))?;
+    let requested_device_id = body
+        .get("deviceId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned);
     let before_playback = fetch_spotify_playback_snapshot(&credentials).await?;
     let before_device_id = before_playback
         .as_ref()
         .and_then(|snapshot| snapshot.device_id.clone());
-    let fallback_device = if before_device_id.is_some() {
+    let fallback_device = if requested_device_id.is_some() || before_device_id.is_some() {
         None
     } else {
         spotify_active_device(&credentials).await?
@@ -2978,12 +2997,22 @@ async fn agent_spotify_play_control(
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .map(ToOwned::to_owned);
-    let target_device_id = before_device_id.clone().or(fallback_device_id);
+    let target_device_id = requested_device_id
+        .clone()
+        .or_else(|| before_device_id.clone())
+        .or(fallback_device_id);
     let target_device_name = before_playback
         .as_ref()
+        .filter(|snapshot| {
+            target_device_id
+                .as_deref()
+                .is_some_and(|target_id| snapshot.device_id.as_deref() == Some(target_id))
+        })
         .and_then(|snapshot| snapshot.device_name.clone())
         .or(fallback_device_name);
-    let play_device_id = if before_device_id.is_some() {
+    let play_device_id = if requested_device_id.is_some() {
+        requested_device_id.as_deref()
+    } else if before_device_id.is_some() {
         None
     } else {
         target_device_id.as_deref()
@@ -3024,12 +3053,14 @@ async fn agent_spotify_play_control(
     let mut current = verify_or_nudge_spotify_playback(
         &credentials,
         &play_request.payload,
-        play_device_id,
-        Some(target_device_id_value),
-        if single_track_uri { first_uri } else { None },
-        expected_context_uri,
-        &play_request.requested_uris,
-        require_first_uri,
+        SpotifyPlaybackVerification {
+            initial_device_id: play_device_id,
+            target_device_id: Some(target_device_id_value),
+            expected_track_uri: if single_track_uri { first_uri } else { None },
+            expected_context_uri,
+            expected_uris: &play_request.requested_uris,
+            require_first_uri,
+        },
     )
     .await?;
 
@@ -3049,12 +3080,14 @@ async fn agent_spotify_play_control(
         current = verify_or_nudge_spotify_playback(
             &credentials,
             &play_request.payload,
-            repeat_device_id,
-            Some(target_device_id_value),
-            first_uri,
-            expected_context_uri,
-            &play_request.requested_uris,
-            true,
+            SpotifyPlaybackVerification {
+                initial_device_id: repeat_device_id,
+                target_device_id: Some(target_device_id_value),
+                expected_track_uri: first_uri,
+                expected_context_uri,
+                expected_uris: &play_request.requested_uris,
+                require_first_uri: true,
+            },
         )
         .await?;
     }

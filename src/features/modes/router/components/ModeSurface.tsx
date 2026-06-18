@@ -66,9 +66,9 @@ export function ModeSurface({ homeDiscoverySurface = null }: { homeDiscoverySurf
   }, [activeChatId, chatError, setActiveChatId]);
 
   useEffect(() => {
-    if (!activeChatId || !chatSummaries || cachedChat || chat || isChatLoading || isChatFetching) return;
+    if (!activeChatId || !chatSummaries || chatError || cachedChat || chat || isChatLoading || isChatFetching) return;
     setActiveChatId(null);
-  }, [activeChatId, cachedChat, chat, chatSummaries, isChatFetching, isChatLoading, setActiveChatId]);
+  }, [activeChatId, cachedChat, chat, chatError, chatSummaries, isChatFetching, isChatLoading, setActiveChatId]);
 
   if (!activeChatId) return <ModeHomeSurface discoverySurface={homeDiscoverySurface} />;
 
