@@ -1,6 +1,6 @@
 use super::{
     avatars, characters, connection_secrets, entity_images, exports, generation, images, llm,
-    lorebook_images, personas, shared, sidecar, sprites,
+    lorebook_images, media_uploads, personas, shared, sidecar, sprites,
 };
 use crate::state::AppState;
 use marinara_core::AppError;
@@ -162,6 +162,11 @@ pub fn chat_gallery_upload(
     body: Value,
 ) -> Result<Value, AppError> {
     shared::upload_gallery_image(&state, "gallery", "chatId", &chat_id, body)
+}
+
+#[tauri::command]
+pub fn gallery_file_path(state: State<'_, AppState>, filename: String) -> Result<Value, AppError> {
+    media_uploads::gallery_file_path(&state, &filename)
 }
 
 #[tauri::command]

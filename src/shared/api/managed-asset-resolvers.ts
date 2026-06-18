@@ -46,6 +46,13 @@ function galleryRemoteManagedPath(
   return filename?.trim() || filenameFromPath(absolutePath);
 }
 
+function galleryLocalFilename(
+  filename: string | null | undefined,
+  absolutePath: string | null | undefined,
+): string | null {
+  return filename?.trim() || filenameFromPath(absolutePath);
+}
+
 export async function resolveGameAssetFileUrl(path: string): Promise<string> {
   const remoteUrl = await remoteManagedAssetResolvableUrl("game", path);
   if (remoteUrl) return remoteUrl;
@@ -81,7 +88,10 @@ export async function resolveGalleryFileUrl(
 ): Promise<string | null> {
   const remoteUrl = await remoteManagedAssetResolvableUrl("gallery", galleryRemoteManagedPath(filename, absolutePath));
   if (remoteUrl) return remoteUrl;
-  return absolutePath && isAbsoluteFilesystemPath(absolutePath) ? filePathToAssetUrl(absolutePath) : null;
+  const localFilename = galleryLocalFilename(filename, absolutePath);
+  if (!localFilename) return null;
+  const response = await invokeTauri<PathResponse>("gallery_file_path", { filename: localFilename });
+  return filePathToAssetUrl(response.path ?? "");
 }
 
 export function galleryThumbnailPath(filename: string | null | undefined, absolutePath?: string | null): string | null {

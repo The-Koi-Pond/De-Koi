@@ -10,13 +10,20 @@ const remoteRuntimeMock = vi.hoisted(() => ({
   })),
   remoteRuntimeTarget: vi.fn(() => remoteRuntimeMock.target),
 }));
+const tauriClientMock = vi.hoisted(() => ({
+  invokeTauri: vi.fn(),
+}));
 
 vi.mock("./remote-runtime", () => ({
   remoteHeaders: remoteRuntimeMock.remoteHeaders,
   remoteRuntimeTarget: remoteRuntimeMock.remoteRuntimeTarget,
 }));
+vi.mock("./tauri-client", () => ({
+  invokeTauri: tauriClientMock.invokeTauri,
+}));
 
 import { gameAssetUrl, remoteManagedAssetPath, userBackgroundUrl } from "./managed-asset-paths";
+import { resolveGalleryFileUrl } from "./managed-asset-resolvers";
 import { managedAssetThumbnailRemotePath } from "./managed-asset-thumbnails";
 import {
   invalidateRemoteManagedAssetObjectUrls,
@@ -40,6 +47,32 @@ describe("managed asset paths", () => {
     expect(managedAssetThumbnailRemotePath("gallery", " folder \\ ./ child image.png ", 256)).toBe(
       "gallery/256/folder/child image.png",
     );
+  });
+});
+
+describe("managed asset resolvers", () => {
+  afterEach(() => {
+    tauriClientMock.invokeTauri.mockReset();
+    vi.restoreAllMocks();
+    remoteRuntimeMock.target = null;
+  });
+
+  it("resolves embedded gallery files through a checked filename command", async () => {
+    tauriClientMock.invokeTauri.mockResolvedValue({ path: "C:\\De-KoiData\\gallery\\scene.png" });
+
+    await expect(resolveGalleryFileUrl(null, "C:\\outside\\scene.png")).resolves.toBe(
+      "C:\\De-KoiData\\gallery\\scene.png",
+    );
+
+    expect(tauriClientMock.invokeTauri).toHaveBeenCalledWith("gallery_file_path", { filename: "scene.png" });
+  });
+
+  it("does not convert arbitrary absolute gallery paths when the checked path is rejected", async () => {
+    tauriClientMock.invokeTauri.mockRejectedValue(new Error("Gallery asset was not found"));
+
+    await expect(resolveGalleryFileUrl(null, "C:\\outside\\secret.png")).rejects.toThrow("Gallery asset was not found");
+
+    expect(tauriClientMock.invokeTauri).toHaveBeenCalledWith("gallery_file_path", { filename: "secret.png" });
   });
 });
 

@@ -1171,6 +1171,7 @@ mod tests {
     const NON_REMOTE_COMMANDS: &[&str] = &[
         "fonts_open_folder",
         "background_file_path",
+        "gallery_file_path",
         "game_assets_file_path",
         "game_assets_open_folder",
         "import_st_bulk_run_events",
@@ -2347,6 +2348,7 @@ mod tests {
                 "game_assets_file_path",
                 json!({ "path": "folder/asset.png" }),
             ),
+            ("gallery_file_path", json!({ "filename": "gallery.png" })),
             (
                 "lorebook_image_file_path",
                 json!({ "filename": "image.png" }),
