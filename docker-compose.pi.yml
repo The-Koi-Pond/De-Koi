@@ -15,8 +15,6 @@ services:
       BASIC_AUTH_PASS: ${BASIC_AUTH_PASS:-}
       IP_ALLOWLIST: ${IP_ALLOWLIST:-}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
-      ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK: "true"
-      BYPASS_AUTH_DOCKER: "true"
     expose:
       - "8787"
     volumes:

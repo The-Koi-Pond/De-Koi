@@ -32,13 +32,20 @@ assertContains("docker/nginx/pi-web.conf", nginx, "proxy_pass http://de-koi-serv
 assertContains("docker/nginx/pi-web.conf", nginx, "try_files $uri $uri/ /index.html;");
 
 const compose = read("docker-compose.pi.yml");
+const trustedLanCompose = read("docker-compose.pi.trusted-lan.yml");
 assertContains("docker-compose.pi.yml", compose, "ghcr.io/the-koi-pond/de-koi-server:prealpha");
 assertContains("docker-compose.pi.yml", compose, "ghcr.io/the-koi-pond/de-koi-web:prealpha");
 assertContains("docker-compose.pi.yml", compose, '"7860:80"');
 assertNotContains("docker-compose.pi.yml", compose, '"8787:8787"');
 assertNotMatch("docker-compose.pi.yml", compose, /ADMIN_SECRET:\s*["'][^$]/);
-assertContains("docker-compose.pi.yml", compose, 'ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK: "true"');
-assertContains("docker-compose.pi.yml", compose, 'BYPASS_AUTH_DOCKER: "true"');
+assertNotContains("docker-compose.pi.yml", compose, 'ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK: "true"');
+assertNotContains("docker-compose.pi.yml", compose, 'BYPASS_AUTH_DOCKER: "true"');
+assertContains(
+  "docker-compose.pi.trusted-lan.yml",
+  trustedLanCompose,
+  'ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK: "true"',
+);
+assertContains("docker-compose.pi.trusted-lan.yml", trustedLanCompose, 'BYPASS_AUTH_DOCKER: "true"');
 
 const workflow = read(".github/workflows/pi-container-images.yml");
 assertContains(".github/workflows/pi-container-images.yml", workflow, "packages: write");
