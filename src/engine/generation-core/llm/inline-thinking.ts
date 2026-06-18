@@ -2,6 +2,7 @@ const THINKING_TAG_NAMES = ["thinking", "thoughts", "thought", "reasoning", "rea
 const THINKING_TAG_PATTERN = THINKING_TAG_NAMES.join("|");
 const OPEN_THINKING_TAG_RE = new RegExp(`^<\\s*(${THINKING_TAG_PATTERN})\\b[^>]*>`, "i");
 const CLOSE_THINKING_TAG_RE = new RegExp(`^<\\s*\\/\\s*(${THINKING_TAG_PATTERN})\\s*>`, "i");
+const BRACKET_COLON_THINKING_TAG_RE = new RegExp(`^\\[\\s*(${THINKING_TAG_PATTERN})\\s*:\\s*([^\\]]*)\\]`, "i");
 
 export type InlineThinkingPart = { type: "content" | "thinking"; text: string };
 export interface CustomThinkingTagPair {
@@ -59,12 +60,31 @@ function possibleTagPrefix(buffer: string, closing: boolean): boolean {
   return THINKING_TAG_NAMES.some((tag) => tag.startsWith(normalized));
 }
 
+function possibleBracketThinkingPrefix(buffer: string): boolean {
+  if (!buffer.startsWith("[") || buffer.includes("]")) return false;
+  const body = buffer.slice(1).replace(/^\s+/, "").toLowerCase();
+  if (!body) return true;
+  const colonIndex = body.indexOf(":");
+  const tagText = (colonIndex >= 0 ? body.slice(0, colonIndex) : body).trim();
+  if (!/^[\w-]*$/.test(tagText)) return false;
+  if (colonIndex >= 0) return THINKING_TAG_NAMES.some((tag) => tag === tagText);
+  return THINKING_TAG_NAMES.some((tag) => tag.startsWith(tagText));
+}
+
 function possibleExactPrefix(buffer: string, values: readonly string[]): boolean {
   return values.some((value) => buffer.length < value.length && value.startsWith(buffer));
 }
 
 function findOpeningCustomTag(buffer: string, tags: readonly CustomThinkingTagPair[]): CustomThinkingTagPair | null {
   return tags.find((tag) => buffer.startsWith(tag.open)) ?? null;
+}
+
+function firstInlineThinkingControlIndex(buffer: string): number {
+  const tagIndex = buffer.indexOf("<");
+  const bracketIndex = buffer.indexOf("[");
+  if (tagIndex < 0) return bracketIndex;
+  if (bracketIndex < 0) return tagIndex;
+  return Math.min(tagIndex, bracketIndex);
 }
 
 export function createInlineThinkingStreamParser(options: InlineThinkingStreamParserOptions = {}) {
@@ -79,7 +99,7 @@ export function createInlineThinkingStreamParser(options: InlineThinkingStreamPa
 
     while (buffer.length > 0) {
       if (!inThinking) {
-        const tagIndex = buffer.indexOf("<");
+        const tagIndex = firstInlineThinkingControlIndex(buffer);
         if (tagIndex < 0) {
           parts.push({ type: "content", text: buffer });
           buffer = "";
@@ -88,6 +108,20 @@ export function createInlineThinkingStreamParser(options: InlineThinkingStreamPa
         if (tagIndex > 0) {
           parts.push({ type: "content", text: buffer.slice(0, tagIndex) });
           buffer = buffer.slice(tagIndex);
+          continue;
+        }
+
+        if (buffer.startsWith("[")) {
+          const bracketThinking = buffer.match(BRACKET_COLON_THINKING_TAG_RE);
+          if (bracketThinking) {
+            const text = bracketThinking[2]?.trim() ?? "";
+            if (text) parts.push({ type: "thinking", text });
+            buffer = buffer.slice(bracketThinking[0].length);
+            continue;
+          }
+          if (!final && possibleBracketThinkingPrefix(buffer)) break;
+          parts.push({ type: "content", text: buffer[0]! });
+          buffer = buffer.slice(1);
           continue;
         }
 
