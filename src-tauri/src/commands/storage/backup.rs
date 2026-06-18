@@ -1,4 +1,4 @@
-use super::{connection_secrets, profile};
+use super::{connection_secrets, custom_tools, profile};
 use crate::state::AppState;
 use base64::{engine::general_purpose, Engine as _};
 use marinara_core::{now_millis, AppError, AppResult};
@@ -105,9 +105,15 @@ fn copy_backup_file(source_path: &Path, target_path: &Path) -> AppResult<()> {
             target_path,
             masked_connections_collection_bytes(source_path)?,
         )?;
-    } else if is_connections_sidecar_file(source_path) {
-        // Durability sidecars (.bak / .corrupted-* / .tmp-*) duplicate raw
-        // apiKeyEncrypted material; keep them out of portable backups.
+    } else if is_custom_tools_collection_file(source_path) {
+        fs::write(
+            target_path,
+            redacted_custom_tools_collection_bytes(source_path)?,
+        )?;
+    } else if is_connections_sidecar_file(source_path) || is_custom_tools_sidecar_file(source_path)
+    {
+        // Durability sidecars (.bak / .corrupted-* / .tmp-*) can duplicate raw
+        // credential material; keep them out of portable backups.
     } else {
         fs::copy(source_path, target_path)?;
     }
@@ -123,6 +129,26 @@ fn is_connections_collection_file(path: &Path) -> bool {
             == Some("collections")
 }
 
+fn is_custom_tools_collection_file(path: &Path) -> bool {
+    path.file_name().and_then(|value| value.to_str()) == Some("custom-tools.json")
+        && path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|value| value.to_str())
+            == Some("collections")
+        && path
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .and_then(|value| value.to_str())
+            == Some("data")
+}
+
+fn is_backup_profile_json_file(path: &Path, backup_root: &Path) -> bool {
+    path.file_name().and_then(|value| value.to_str()) == Some("marinara-profile.json")
+        && path.parent() == Some(backup_root)
+}
+
 fn is_connections_sidecar_file(path: &Path) -> bool {
     let collections = path.parent();
     path.file_name()
@@ -135,6 +161,22 @@ fn is_connections_sidecar_file(path: &Path) -> bool {
         // Scope strictly to the real `data/collections` store; an unrelated
         // managed file like `knowledge-sources/collections/connections.json.notes`
         // must not be dropped from the backup or zip.
+        && collections
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .and_then(|value| value.to_str())
+            == Some("data")
+}
+
+fn is_custom_tools_sidecar_file(path: &Path) -> bool {
+    let collections = path.parent();
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .is_some_and(|name| name.starts_with("custom-tools.json."))
+        && collections
+            .and_then(Path::file_name)
+            .and_then(|value| value.to_str())
+            == Some("collections")
         && collections
             .and_then(Path::parent)
             .and_then(Path::file_name)
@@ -252,12 +294,18 @@ fn zip_dir_contents(
             if metadata.is_dir() {
                 stack.push((path, zip_entry));
             } else if metadata.is_file() {
-                if is_connections_sidecar_file(&path) {
+                if is_connections_sidecar_file(&path) || is_custom_tools_sidecar_file(&path) {
                     continue;
                 }
                 zip.start_file(&zip_entry, options).map_err(zip_error)?;
-                if is_connections_collection_file(&path) {
+                if is_backup_profile_json_file(&path, source) {
+                    let bytes = redacted_profile_json_bytes(&path)?;
+                    zip.write_all(&bytes).map_err(zip_io_error)?;
+                } else if is_connections_collection_file(&path) {
                     let bytes = masked_connections_collection_bytes(&path)?;
+                    zip.write_all(&bytes).map_err(zip_io_error)?;
+                } else if is_custom_tools_collection_file(&path) {
+                    let bytes = redacted_custom_tools_collection_bytes(&path)?;
                     zip.write_all(&bytes).map_err(zip_io_error)?;
                 } else {
                     let mut file = fs::File::open(path)?;
@@ -284,6 +332,48 @@ fn masked_connections_collection_bytes(path: &Path) -> AppResult<Vec<u8>> {
         }
         _ => {}
     }
+    Ok(serde_json::to_vec_pretty(&value)?)
+}
+
+fn redacted_profile_json_bytes(path: &Path) -> AppResult<Vec<u8>> {
+    let mut value: Value = serde_json::from_slice(&fs::read(path)?)?;
+    redact_profile_custom_tool_webhook_urls(&mut value);
+    Ok(serde_json::to_vec_pretty(&value)?)
+}
+
+fn redact_profile_custom_tool_webhook_urls(value: &mut Value) {
+    if let Some(collections) = value
+        .get_mut("data")
+        .and_then(Value::as_object_mut)
+        .and_then(|data| data.get_mut("collections"))
+        .and_then(Value::as_object_mut)
+    {
+        for key in ["custom-tools", "custom_tools"] {
+            if let Some(tools) = collections.get_mut(key) {
+                custom_tools::redact_custom_tool_webhook_urls(tools);
+            }
+        }
+    }
+
+    if let Some(tables) = value
+        .get_mut("data")
+        .and_then(Value::as_object_mut)
+        .and_then(|data| data.get_mut("fileStorage"))
+        .and_then(Value::as_object_mut)
+        .and_then(|file_storage| file_storage.get_mut("tables"))
+        .and_then(Value::as_object_mut)
+    {
+        for key in ["custom_tools", "custom-tools"] {
+            if let Some(tools) = tables.get_mut(key) {
+                custom_tools::redact_custom_tool_webhook_urls(tools);
+            }
+        }
+    }
+}
+
+fn redacted_custom_tools_collection_bytes(path: &Path) -> AppResult<Vec<u8>> {
+    let mut value: Value = serde_json::from_slice(&fs::read(path)?)?;
+    custom_tools::redact_custom_tool_webhook_urls(&mut value);
     Ok(serde_json::to_vec_pretty(&value)?)
 }
 
@@ -614,6 +704,128 @@ mod tests {
     }
 
     #[test]
+    fn backups_redact_custom_tool_webhook_urls() {
+        let state = test_state("custom-tool-webhook-redaction");
+        state
+            .storage
+            .create("custom-tools", custom_tool_fixture())
+            .expect("custom tool should write");
+        state.storage.flush().expect("storage should flush");
+        let source_collections_dir = state.data_dir.join("data/collections");
+        fs::write(
+            source_collections_dir.join("custom-tools.json.bak"),
+            serde_json::to_vec_pretty(&json!([custom_tool_fixture()]))
+                .expect("custom-tools sidecar fixture should serialize"),
+        )
+        .expect("custom-tools sidecar fixture should write");
+
+        let created = create_backup(&state).expect("managed backup should be created");
+        let name = created["backupName"].as_str().expect("backup name");
+        let backup_dir = state.data_dir.join("backups").join(name);
+
+        let profile_json: Value = serde_json::from_slice(
+            &fs::read(backup_dir.join("marinara-profile.json")).expect("profile json should read"),
+        )
+        .expect("profile json should parse");
+        assert_custom_tool_webhook_redacted(&profile_json["data"]["collections"]["custom-tools"]);
+
+        let collection_json: Value = serde_json::from_slice(
+            &fs::read(backup_dir.join("data/collections/custom-tools.json"))
+                .expect("custom-tools collection should read"),
+        )
+        .expect("custom-tools collection should parse");
+        assert_custom_tool_webhook_redacted(&collection_json);
+        assert!(!backup_dir
+            .join("data/collections/custom-tools.json.bak")
+            .exists());
+
+        let downloaded = download_backup(&state, Some(name)).expect("backup should download");
+        let bytes = general_purpose::STANDARD
+            .decode(downloaded["base64"].as_str().expect("zip base64"))
+            .expect("zip should decode");
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("zip should open");
+        let mut archived_collection = String::new();
+        archive
+            .by_name(&format!("{name}/data/collections/custom-tools.json"))
+            .expect("custom-tools collection should be present")
+            .read_to_string(&mut archived_collection)
+            .expect("custom-tools collection should read");
+        assert!(!archived_collection.contains("live/token"));
+        let archived_collection_json: Value =
+            serde_json::from_str(&archived_collection).expect("custom-tools JSON should parse");
+        assert_custom_tool_webhook_redacted(&archived_collection_json);
+        for index in 0..archive.len() {
+            let entry = archive.by_index(index).expect("zip entry should read");
+            assert!(!entry.name().contains("custom-tools.json."));
+        }
+    }
+
+    #[test]
+    fn existing_backup_download_redacts_custom_tool_webhook_urls_and_skips_sidecars() {
+        let state = test_state("existing-custom-tool-webhook-redaction");
+        let name = "marinara-backup-existing-custom-tools";
+        let backup_dir = state.data_dir.join("backups").join(name);
+        let collections_dir = backup_dir.join("data/collections");
+        fs::create_dir_all(&collections_dir).expect("collections dir should be created");
+        fs::write(
+            backup_dir.join("marinara-profile.json"),
+            serde_json::to_vec_pretty(&profile_with_custom_tool_fixture())
+                .expect("profile fixture should serialize"),
+        )
+        .expect("profile fixture should write");
+        fs::write(
+            collections_dir.join("custom-tools.json"),
+            serde_json::to_vec_pretty(&json!([custom_tool_fixture()]))
+                .expect("custom tools fixture should serialize"),
+        )
+        .expect("custom-tools fixture should write");
+        fs::write(
+            collections_dir.join("custom-tools.json.bak"),
+            serde_json::to_vec_pretty(&json!([custom_tool_fixture()]))
+                .expect("custom-tools sidecar fixture should serialize"),
+        )
+        .expect("custom-tools sidecar fixture should write");
+        fs::write(
+            collections_dir.join("custom-tools.json.corrupted-123"),
+            serde_json::to_vec_pretty(&json!([custom_tool_fixture()]))
+                .expect("custom-tools corrupted fixture should serialize"),
+        )
+        .expect("custom-tools corrupted fixture should write");
+
+        let downloaded =
+            download_backup(&state, Some(name)).expect("existing backup should download");
+        let bytes = general_purpose::STANDARD
+            .decode(downloaded["base64"].as_str().expect("zip base64"))
+            .expect("zip should decode");
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("zip should open");
+        let mut profile_json = String::new();
+        archive
+            .by_name(&format!("{name}/marinara-profile.json"))
+            .expect("profile JSON should be present")
+            .read_to_string(&mut profile_json)
+            .expect("profile JSON should read");
+        let mut custom_tools_json = String::new();
+        archive
+            .by_name(&format!("{name}/data/collections/custom-tools.json"))
+            .expect("custom-tools collection should be present")
+            .read_to_string(&mut custom_tools_json)
+            .expect("custom-tools collection should read");
+
+        assert!(!profile_json.contains("live/token"));
+        assert!(!custom_tools_json.contains("live/token"));
+        let profile_value: Value =
+            serde_json::from_str(&profile_json).expect("profile JSON should parse");
+        assert_custom_tool_webhook_redacted(&profile_value["data"]["collections"]["custom-tools"]);
+        let collection_value: Value =
+            serde_json::from_str(&custom_tools_json).expect("custom-tools JSON should parse");
+        assert_custom_tool_webhook_redacted(&collection_value);
+        for index in 0..archive.len() {
+            let entry = archive.by_index(index).expect("zip entry should read");
+            assert!(!entry.name().contains("custom-tools.json."));
+        }
+    }
+
+    #[test]
     fn backups_keep_unrelated_connections_lookalike_files() {
         let state = test_state("connections-lookalike");
         // A managed file that merely shares the basename pattern but lives
@@ -625,6 +837,11 @@ mod tests {
             b"not a secret sidecar",
         )
         .expect("lookalike fixture should write");
+        fs::write(
+            lookalike_dir.join("custom-tools.json.notes"),
+            b"not a custom tool sidecar",
+        )
+        .expect("custom tools lookalike fixture should write");
 
         let created = create_backup(&state).expect("managed backup should be created");
         let name = created["backupName"].as_str().expect("backup name");
@@ -633,9 +850,18 @@ mod tests {
             .join("backups")
             .join(name)
             .join("knowledge-sources/collections/connections.json.notes");
+        let custom_tools_lookalike = state
+            .data_dir
+            .join("backups")
+            .join(name)
+            .join("knowledge-sources/collections/custom-tools.json.notes");
         assert!(
             backup_lookalike.exists(),
             "unrelated lookalike must survive the fresh backup"
+        );
+        assert!(
+            custom_tools_lookalike.exists(),
+            "unrelated custom-tools lookalike must survive the fresh backup"
         );
 
         let downloaded = download_backup(&state, Some(name)).expect("backup should download");
@@ -644,6 +870,7 @@ mod tests {
             .expect("zip should decode");
         let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("zip should open");
         let mut lookalike_archived = false;
+        let mut custom_tools_lookalike_archived = false;
         for index in 0..archive.len() {
             let entry = archive.by_index(index).expect("zip entry should read");
             if entry
@@ -652,11 +879,57 @@ mod tests {
             {
                 lookalike_archived = true;
             }
+            if entry
+                .name()
+                .ends_with("knowledge-sources/collections/custom-tools.json.notes")
+            {
+                custom_tools_lookalike_archived = true;
+            }
         }
         assert!(
             lookalike_archived,
             "unrelated lookalike must survive the downloaded zip"
         );
+        assert!(
+            custom_tools_lookalike_archived,
+            "unrelated custom-tools lookalike must survive the downloaded zip"
+        );
+    }
+
+    fn profile_with_custom_tool_fixture() -> Value {
+        json!({
+            "type": "marinara_profile",
+            "version": 1,
+            "runtime": "tauri",
+            "data": {
+                "collections": {
+                    "custom-tools": [custom_tool_fixture()]
+                },
+                "assets": []
+            }
+        })
+    }
+
+    fn custom_tool_fixture() -> Value {
+        json!({
+            "id": "tool-1",
+            "name": "Webhook Tool",
+            "executionType": "webhook",
+            "webhookUrl": "https://discord.com/api/webhooks/live/token",
+            "staticResult": "safe static result",
+            "scriptBody": "return input;",
+            "enabled": true
+        })
+    }
+
+    fn assert_custom_tool_webhook_redacted(collection: &Value) {
+        let tool = collection
+            .as_array()
+            .and_then(|rows| rows.first())
+            .expect("custom tool should be exported");
+        assert_eq!(tool.get("webhookUrl"), Some(&Value::Null));
+        assert_eq!(tool["staticResult"], "safe static result");
+        assert_eq!(tool["scriptBody"], "return input;");
     }
 
     #[test]
