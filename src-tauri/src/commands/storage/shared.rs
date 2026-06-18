@@ -2441,6 +2441,65 @@ mod tests {
     }
 
     #[test]
+    fn decode_uploaded_file_value_with_limit_rejects_declared_oversized_upload() {
+        let result = decode_uploaded_file_value_with_limit(
+            &json!({
+                "name": "huge.charx",
+                "type": "application/zip",
+                "size": 6,
+                "base64": ""
+            }),
+            5,
+            "too large",
+        );
+
+        let Err(error) = result else {
+            panic!("declared oversized upload should fail before decode");
+        };
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(error.message, "too large");
+    }
+
+    #[test]
+    fn decode_uploaded_file_value_with_limit_rejects_base64_above_limit_before_decode() {
+        let result = decode_uploaded_file_value_with_limit(
+            &json!({
+                "name": "huge.charx",
+                "type": "application/zip",
+                "size": 0,
+                "base64": "AAAAAAAA"
+            }),
+            3,
+            "too large",
+        );
+
+        let Err(error) = result else {
+            panic!("oversized base64 upload should fail before decode");
+        };
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(error.message, "too large");
+    }
+
+    #[test]
+    fn decode_uploaded_file_value_with_limit_rejects_decoded_bytes_above_limit() {
+        let result = decode_uploaded_file_value_with_limit(
+            &json!({
+                "name": "huge.charx",
+                "type": "application/zip",
+                "base64": general_purpose::STANDARD.encode(b"12345")
+            }),
+            4,
+            "too large",
+        );
+
+        let Err(error) = result else {
+            panic!("decoded oversized upload should fail");
+        };
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(error.message, "too large");
+    }
+
+    #[test]
     fn decode_uploaded_image_file_rejects_non_image_content_type() {
         let result = decode_uploaded_image_file(&json!({
             "file": {
@@ -3019,6 +3078,30 @@ pub(crate) fn decode_uploaded_file_value(file: &Value) -> AppResult<UploadedFile
     })
 }
 
+pub(crate) fn decode_uploaded_file_value_with_limit(
+    file: &Value,
+    max_bytes: usize,
+    too_large_message: &str,
+) -> AppResult<UploadedFile> {
+    if let Some(size) = file.get("size").and_then(Value::as_u64) {
+        if size > max_bytes as u64 {
+            return Err(AppError::invalid_input(too_large_message));
+        }
+    }
+    if file
+        .get("base64")
+        .and_then(Value::as_str)
+        .is_some_and(|base64| base64.len() > max_bytes.div_ceil(3) * 4)
+    {
+        return Err(AppError::invalid_input(too_large_message));
+    }
+    let uploaded = decode_uploaded_file_value(file)?;
+    if uploaded.bytes.len() > max_bytes {
+        return Err(AppError::invalid_input(too_large_message));
+    }
+    Ok(uploaded)
+}
+
 pub(crate) fn decode_uploaded_file(body: &Value) -> AppResult<(String, String, Vec<u8>)> {
     let file = body
         .get("file")
@@ -3076,13 +3159,24 @@ pub(crate) fn decode_uploaded_image_file(body: &Value) -> AppResult<UploadedFile
     Ok(uploaded)
 }
 
-pub(crate) fn decode_uploaded_files(body: &Value, field: &str) -> AppResult<Vec<UploadedFile>> {
+pub(crate) fn decode_uploaded_files_with_limit(
+    body: &Value,
+    field: &str,
+    max_bytes: usize,
+    too_large_message: &str,
+) -> AppResult<Vec<UploadedFile>> {
     let Some(value) = body.get(field) else {
         return Ok(Vec::new());
     };
     match value {
-        Value::Array(items) => items.iter().map(decode_uploaded_file_value).collect(),
-        Value::Object(_) => decode_uploaded_file_value(value).map(|file| vec![file]),
+        Value::Array(items) => items
+            .iter()
+            .map(|file| decode_uploaded_file_value_with_limit(file, max_bytes, too_large_message))
+            .collect(),
+        Value::Object(_) => {
+            decode_uploaded_file_value_with_limit(value, max_bytes, too_large_message)
+                .map(|file| vec![file])
+        }
         _ => Err(AppError::invalid_input(format!(
             "{field} must contain uploaded file objects"
         ))),

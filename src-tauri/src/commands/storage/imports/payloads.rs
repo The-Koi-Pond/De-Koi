@@ -5,6 +5,12 @@ use std::io::{Cursor, Read};
 const MAX_CHARX_CARD_JSON_BYTES: usize = 5 * 1024 * 1024;
 /// Decompressed-size cap for an embedded .charx image/icon asset.
 const MAX_CHARX_ASSET_BYTES: usize = 50 * 1024 * 1024;
+/// Maximum number of ZIP entries accepted in a .charx package.
+const MAX_CHARX_ENTRIES: usize = 512;
+/// Declared decompressed-size cap for any single .charx ZIP entry.
+const MAX_CHARX_ENTRY_DECLARED_BYTES: u64 = 64 * 1024 * 1024;
+/// Declared decompressed-size cap for the whole .charx package.
+const MAX_CHARX_TOTAL_DECLARED_BYTES: u64 = 256 * 1024 * 1024;
 
 fn parse_chara_text(text: &str) -> Option<Value> {
     let trimmed = text.trim();
@@ -111,7 +117,11 @@ pub(super) fn read_zip_entry_with_limit(
             let mut limited = file.take((limit as u64).saturating_add(1));
             limited.read_to_end(&mut contents)?;
             if contents.len() > limit {
-                return Err(zip_entry_too_large_error(name, contents.len() as u64, limit));
+                return Err(zip_entry_too_large_error(
+                    name,
+                    contents.len() as u64,
+                    limit,
+                ));
             }
             Ok(Some(contents))
         }
@@ -127,6 +137,55 @@ fn zip_entry_too_large_error(name: &str, size: u64, limit: usize) -> AppError {
     AppError::invalid_input(format!(
         "ZIP entry {name} is too large ({size} bytes; limit is {limit} bytes)"
     ))
+}
+
+fn validate_zip_package_limits(
+    bytes: &[u8],
+    label: &str,
+    max_entries: usize,
+    max_entry_bytes: u64,
+    max_total_bytes: u64,
+) -> AppResult<()> {
+    let cursor = Cursor::new(bytes);
+    let mut zip_reader = zip::ZipArchive::new(cursor)
+        .map_err(|error| AppError::invalid_input(format!("Could not read ZIP package: {error}")))?;
+    let entry_count = zip_reader.len();
+    if entry_count > max_entries {
+        return Err(AppError::invalid_input(format!(
+            "{label} has too many entries ({entry_count}; limit is {max_entries})"
+        )));
+    }
+
+    let mut total_declared_bytes = 0u64;
+    for index in 0..entry_count {
+        let file = zip_reader.by_index(index).map_err(|error| {
+            AppError::invalid_input(format!("Could not read zip entry: {error}"))
+        })?;
+        let declared_size = file.size();
+        if declared_size > max_entry_bytes {
+            return Err(AppError::invalid_input(format!(
+                "{label} has an entry that is too large ({declared_size} bytes; limit is {max_entry_bytes} bytes)"
+            )));
+        }
+        total_declared_bytes = total_declared_bytes.saturating_add(declared_size);
+        if total_declared_bytes > max_total_bytes {
+            return Err(AppError::invalid_input(format!(
+                "{label} decompresses to too much data ({total_declared_bytes} bytes; limit is {max_total_bytes} bytes)"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_charx_zip_package_limits(bytes: &[u8]) -> AppResult<()> {
+    validate_zip_package_limits(
+        bytes,
+        ".charx file",
+        MAX_CHARX_ENTRIES,
+        MAX_CHARX_ENTRY_DECLARED_BYTES,
+        MAX_CHARX_TOTAL_DECLARED_BYTES,
+    )
 }
 
 pub(super) fn read_zip_entry_names(bytes: &[u8]) -> AppResult<Vec<String>> {
@@ -203,7 +262,9 @@ fn resolve_charx_asset(bytes: &[u8], uri: &str, ext: Option<&str>) -> AppResult<
 }
 
 fn extract_charx(bytes: &[u8]) -> AppResult<Value> {
-    let Some(card_bytes) = read_zip_entry_with_limit(bytes, "card.json", MAX_CHARX_CARD_JSON_BYTES)?
+    validate_charx_zip_package_limits(bytes)?;
+    let Some(card_bytes) =
+        read_zip_entry_with_limit(bytes, "card.json", MAX_CHARX_CARD_JSON_BYTES)?
     else {
         return Err(AppError::invalid_input(
             "Invalid .charx file: missing card.json at root.",
@@ -239,7 +300,8 @@ fn extract_charx(bytes: &[u8]) -> AppResult<Value> {
             "assets/icon/images/main.webp",
             "assets/icon/images/main.jpg",
         ] {
-            if let Some(asset) = read_zip_entry_with_limit(bytes, fallback, MAX_CHARX_ASSET_BYTES)? {
+            if let Some(asset) = read_zip_entry_with_limit(bytes, fallback, MAX_CHARX_ASSET_BYTES)?
+            {
                 let mime = image_mime_from_path(fallback);
                 avatar = Some(format!(
                     "data:{mime};base64,{}",
@@ -372,13 +434,74 @@ mod tests {
     use zip::write::SimpleFileOptions;
     use zip::CompressionMethod;
 
-    fn zip_with(name: &str, data: &[u8], method: CompressionMethod) -> Vec<u8> {
+    fn zip_with_entries(entries: &[(&str, &[u8])], method: CompressionMethod) -> Vec<u8> {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
-        writer
-            .start_file(name, SimpleFileOptions::default().compression_method(method))
-            .expect("start zip entry");
-        writer.write_all(data).expect("write zip entry");
+        for (name, data) in entries {
+            writer
+                .start_file(
+                    *name,
+                    SimpleFileOptions::default().compression_method(method),
+                )
+                .expect("start zip entry");
+            writer.write_all(data).expect("write zip entry");
+        }
         writer.finish().expect("finish zip").into_inner()
+    }
+
+    fn zip_with(name: &str, data: &[u8], method: CompressionMethod) -> Vec<u8> {
+        zip_with_entries(&[(name, data)], method)
+    }
+
+    fn zip_with_empty_entries(entry_count: usize) -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for index in 0..entry_count {
+            writer
+                .start_file(
+                    format!("entry-{index}.txt"),
+                    SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
+                )
+                .expect("start zip entry");
+        }
+        writer.finish().expect("finish zip").into_inner()
+    }
+
+    #[test]
+    fn validate_charx_zip_package_limits_rejects_too_many_entries() {
+        let zip = zip_with_empty_entries(MAX_CHARX_ENTRIES + 1);
+        let error = validate_charx_zip_package_limits(&zip)
+            .expect_err("entry count above the .charx cap must be rejected");
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("too many entries"));
+    }
+
+    #[test]
+    fn validate_zip_package_limits_accepts_within_limits() {
+        let zip = zip_with_entries(
+            &[("a.txt", b"one".as_ref()), ("b.txt", b"two".as_ref())],
+            CompressionMethod::Stored,
+        );
+        validate_zip_package_limits(&zip, "test ZIP", 2, 3, 6).expect("package within limits");
+    }
+
+    #[test]
+    fn validate_zip_package_limits_rejects_oversized_entry() {
+        let zip = zip_with("big.bin", b"12345", CompressionMethod::Stored);
+        let error = validate_zip_package_limits(&zip, "test ZIP", 10, 4, 100)
+            .expect_err("declared entry size above the cap must be rejected");
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("entry that is too large"));
+    }
+
+    #[test]
+    fn validate_zip_package_limits_rejects_oversized_total() {
+        let zip = zip_with_entries(
+            &[("a.txt", b"12345".as_ref()), ("b.txt", b"67890".as_ref())],
+            CompressionMethod::Stored,
+        );
+        let error = validate_zip_package_limits(&zip, "test ZIP", 10, 5, 9)
+            .expect_err("declared total size above the cap must be rejected");
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("decompresses to too much data"));
     }
 
     #[test]
@@ -401,7 +524,8 @@ mod tests {
     #[test]
     fn read_zip_entry_reads_full_entry_without_a_cap() {
         let zip = zip_with("data.json", b"{\"ok\":true}", CompressionMethod::Deflated);
-        let result = read_zip_entry_with_limit(&zip, "data.json", usize::MAX).expect("uncapped read");
+        let result =
+            read_zip_entry_with_limit(&zip, "data.json", usize::MAX).expect("uncapped read");
         assert_eq!(result.as_deref(), Some(&b"{\"ok\":true}"[..]));
     }
 
