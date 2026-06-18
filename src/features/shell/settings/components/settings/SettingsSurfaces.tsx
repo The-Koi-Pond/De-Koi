@@ -33,6 +33,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { gameAssetsApi } from "../../../../../shared/api/assets-api";
 import { openExternalUrl } from "../../../../../shared/api/external-link-api";
 import { importApi } from "../../../../../shared/api/import-api";
+import { CHARACTER_IMPORT_SIZE_ERROR, MAX_CHARACTER_IMPORT_UPLOAD_BYTES } from "../../../../../shared/api/file-payload";
 import {
   backupApi,
   profileApi,
@@ -3377,6 +3378,9 @@ function ImportButton({
       // "auto" mode: send binary files (PNG) as multipart, JSON files as JSON body
       const effectiveMode = mode === "auto" ? (file.name.toLowerCase().endsWith(".json") ? "json" : "file") : mode;
       if (endpoint === "/import/st-character") {
+        if (file.size > MAX_CHARACTER_IMPORT_UPLOAD_BYTES) {
+          throw new Error(CHARACTER_IMPORT_SIZE_ERROR);
+        }
         const previews = await inspectCharacterFilesForEmbeddedLorebooks([file]);
         const preview = previews[0];
         if (preview) {
@@ -3424,8 +3428,10 @@ function ImportButton({
       } else {
         toast.error(`Import failed: ${data.error ?? "Unknown error"}`);
       }
-    } catch {
-      toast.error("Import failed.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message === CHARACTER_IMPORT_SIZE_ERROR ? error.message : "Import failed.",
+      );
     }
     e.target.value = "";
   };

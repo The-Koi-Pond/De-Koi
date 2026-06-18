@@ -1,5 +1,6 @@
 import { CHARACTER_IMPORT_UNSUPPORTED_FILE_MESSAGE, isSupportedCharacterImportFilename } from "./import-drop";
 import type { ImportResultRow } from "./character-import-model";
+import { CHARACTER_IMPORT_SIZE_ERROR, MAX_CHARACTER_IMPORT_UPLOAD_BYTES } from "../../../../shared/api/file-payload";
 
 type MarinaraImportPayload = {
   file: File;
@@ -27,6 +28,14 @@ export async function classifyCharacterImportFiles(files: File[]): Promise<Class
 
   for (const file of files) {
     const lower = file.name.toLowerCase();
+    if (file.size > MAX_CHARACTER_IMPORT_UPLOAD_BYTES) {
+      results.push({
+        filename: file.name,
+        success: false,
+        message: CHARACTER_IMPORT_SIZE_ERROR,
+      });
+      continue;
+    }
     if (lower.endsWith(".png") || lower.endsWith(".charx")) {
       stCharacterFiles.push(file);
       continue;

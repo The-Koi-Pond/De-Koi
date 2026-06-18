@@ -37,6 +37,8 @@ use timestamps::{apply_timestamp_overrides, timestamp_overrides_from_value};
 
 pub(crate) use lorebook_normalization::{lorebook_entries, normalize_lorebook_entry};
 
+const MAX_CHARACTER_IMPORT_UPLOAD_BYTES: usize = 75 * 1024 * 1024;
+const CHARACTER_IMPORT_UPLOAD_TOO_LARGE: &str = "Character imports must be 75 MB or smaller";
 fn create_lorebook_from_payload(
     state: &AppState,
     payload: &Value,
@@ -329,9 +331,11 @@ fn imported_avatar_reference_in_folder(
 
 pub(crate) fn import_st_character(state: &AppState, body: Value) -> AppResult<Value> {
     let payload = if body.get("file").is_some() {
-        let uploaded = decode_uploaded_file_value(
+        let uploaded = decode_uploaded_file_value_with_limit(
             body.get("file")
                 .ok_or_else(|| AppError::invalid_input("file is required"))?,
+            MAX_CHARACTER_IMPORT_UPLOAD_BYTES,
+            CHARACTER_IMPORT_UPLOAD_TOO_LARGE,
         )?;
         parse_character_file(&uploaded.name, &uploaded.bytes)?
     } else {
@@ -341,7 +345,12 @@ pub(crate) fn import_st_character(state: &AppState, body: Value) -> AppResult<Va
 }
 
 fn import_st_character_batch(state: &AppState, body: Value) -> AppResult<Value> {
-    let files = decode_uploaded_files(&body, "files")?;
+    let files = decode_uploaded_files_with_limit(
+        &body,
+        "files",
+        MAX_CHARACTER_IMPORT_UPLOAD_BYTES,
+        CHARACTER_IMPORT_UPLOAD_TOO_LARGE,
+    )?;
     if files.is_empty() {
         return Ok(json!({ "success": false, "error": "No files uploaded", "results": [] }));
     }
@@ -400,7 +409,12 @@ fn import_st_character_batch(state: &AppState, body: Value) -> AppResult<Value> 
 }
 
 fn inspect_st_character_batch(body: Value) -> AppResult<Value> {
-    let files = decode_uploaded_files(&body, "files")?;
+    let files = decode_uploaded_files_with_limit(
+        &body,
+        "files",
+        MAX_CHARACTER_IMPORT_UPLOAD_BYTES,
+        CHARACTER_IMPORT_UPLOAD_TOO_LARGE,
+    )?;
     if files.is_empty() {
         return Ok(json!({ "success": false, "error": "No files uploaded", "results": [] }));
     }
