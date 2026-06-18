@@ -2772,17 +2772,17 @@ function insertBeforeLastUser(messages: ChatMLMessage[], blocks: ChatMLMessage[]
   messages.splice(insertAt >= 0 ? insertAt : messages.length, 0, ...blocks);
 }
 
-function insertAfterLastHistoryUser(messages: ChatMLMessage[], block: ChatMLMessage): void {
+function trackerContextInsertIndex(messages: ChatMLMessage[]): number {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.contextKind === "history" && message.role === "user") {
-      messages.splice(index + 1, 0, block);
-      return;
-    }
+    if (messages[index]?.contextKind === "history") return index;
   }
 
-  const lastHistoryIndex = messages.map((message) => message.contextKind).lastIndexOf("history");
-  messages.splice(lastHistoryIndex >= 0 ? lastHistoryIndex + 1 : messages.length, 0, block);
+  const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user");
+  return lastUserIndex >= 0 ? lastUserIndex : messages.length;
+}
+
+function insertTrackerContext(messages: ChatMLMessage[], block: ChatMLMessage): void {
+  messages.splice(trackerContextInsertIndex(messages), 0, block);
 }
 
 function normalizeRole(value: unknown): "system" | "user" | "assistant" {
@@ -3794,7 +3794,7 @@ export async function assembleGenerationPrompt(
 
   const trackerStateBlock = committedTrackerStatePromptMessage(input, wrapFormat);
   if (trackerStateBlock) {
-    insertAfterLastHistoryUser(messages, trackerStateBlock);
+    insertTrackerContext(messages, trackerStateBlock);
   }
 
   if (chatMode === "game") {

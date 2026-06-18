@@ -368,4 +368,38 @@ describe("prompt assembly preset depth sections", () => {
     expect(prompt.messages.some((message) => message.content.includes("empty depth section"))).toBe(false);
     expect(prompt.messages.some((message) => message.contextKind === "prompt")).toBe(true);
   });
+
+  it("keeps committed tracker context before the latest history message in strict-role prompts", async () => {
+    const prompt = await assembleGenerationPrompt(
+      promptAssemblyStorage({ sections: [] }),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          characterIds: ["char-1"],
+          metadata: {
+            activeAgentIds: ["world-state"],
+          },
+          gameState: {
+            location: "Library",
+            weather: "Rain",
+          },
+        },
+        storedMessages: [
+          { role: "user", content: "Where are we?" },
+          { role: "assistant", content: "You step inside." },
+          { role: "user", content: "What do I see?" },
+        ],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "What do I see?",
+      },
+    );
+
+    const providerPrompt = prompt.messages.map((message) => message.content).join("\n\n");
+    expect(providerPrompt).toContain("Trackers:\n<world_state>");
+    expect(providerPrompt.indexOf("Trackers:\n<world_state>")).toBeLessThan(
+      providerPrompt.indexOf("[History]\nWhat do I see?"),
+    );
+  });
 });
