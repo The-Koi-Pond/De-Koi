@@ -1465,6 +1465,40 @@ mod tests {
     }
 
     #[test]
+    fn upload_gallery_image_does_not_use_parent_id_as_path_segment() {
+        let root = temp_root("gallery-upload-parent-id-path");
+        let state = AppState::from_data_dir(&root.0, Vec::new()).expect("state should initialize");
+        let escaped_dir = state.data_dir.join("escaped-gallery");
+        let uploaded = upload_gallery_image(
+            &state,
+            "gallery",
+            "chatId",
+            "../escaped-gallery",
+            json!({
+                "file": {
+                    "name": "upload.png",
+                    "type": "image/png",
+                    "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lTmZsgAAAABJRU5ErkJggg=="
+                }
+            }),
+        )
+        .expect("gallery upload should be stored");
+
+        let filename = uploaded
+            .get("filename")
+            .and_then(Value::as_str)
+            .expect("managed filename should be present");
+        assert!(
+            state.data_dir.join("gallery").join(filename).exists(),
+            "upload should write only to the managed gallery root"
+        );
+        assert!(
+            !escaped_dir.exists(),
+            "parent ids must not create directories outside the managed gallery root"
+        );
+    }
+
+    #[test]
     fn upload_gallery_image_removes_managed_file_when_row_create_fails() {
         let root = temp_root("gallery-upload-managed-file-rollback");
         let state = AppState::from_data_dir(&root.0, Vec::new()).expect("state should initialize");

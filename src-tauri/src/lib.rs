@@ -256,6 +256,7 @@ pub fn run() {
             storage_commands::media_commands::persona_gallery_upload,
             storage_commands::media_commands::global_gallery_upload,
             storage_commands::media_commands::chat_gallery_upload,
+            storage_commands::media_commands::gallery_file_path,
             storage_commands::media_commands::connection_test,
             storage_commands::media_commands::connection_test_message,
             storage_commands::media_commands::connection_test_image,

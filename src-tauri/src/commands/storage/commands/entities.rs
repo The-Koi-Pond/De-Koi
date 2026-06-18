@@ -3668,6 +3668,44 @@ mod tests {
     }
 
     #[test]
+    fn deleting_gallery_row_does_not_unlink_poisoned_file_path_outside_gallery_root() {
+        let state = test_state("gallery-delete-poisoned-path");
+        let outside_dir = state.data_dir.join("outside-gallery-delete");
+        std::fs::create_dir_all(&outside_dir).expect("outside dir should be created");
+        let outside_path = outside_dir.join("outside.png");
+        std::fs::write(&outside_path, b"outside").expect("outside image should be written");
+        let outside_path_string = outside_path.to_string_lossy().to_string();
+        state
+            .storage
+            .create(
+                "gallery",
+                json!({
+                    "id": "gallery-image",
+                    "chatId": "chat-1",
+                    "filePath": outside_path_string,
+                    "filename": "outside.png",
+                    "url": "tauri-api:/gallery/outside.png"
+                }),
+            )
+            .expect("gallery row should be created");
+
+        delete_entity(&state, "gallery", "gallery-image", false).expect("delete should succeed");
+
+        assert!(
+            outside_path.exists(),
+            "gallery cleanup must not remove files outside the managed gallery root"
+        );
+        assert!(
+            state
+                .storage
+                .get("gallery", "gallery-image")
+                .expect("gallery should be readable")
+                .is_none(),
+            "poisoned gallery rows should still be deleted"
+        );
+    }
+
+    #[test]
     fn deleting_character_version_removes_owned_avatar_copy() {
         assert!(cleanup_registered(
             "character-versions",
