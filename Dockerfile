@@ -2,6 +2,9 @@
 
 FROM rust:1-bookworm AS builder
 
+ARG DE_KOI_SOURCE_COMMIT=unknown
+ENV DE_KOI_SOURCE_COMMIT=${DE_KOI_SOURCE_COMMIT}
+
 WORKDIR /app
 
 # The server binary is Rust-only at runtime, but it currently lives in the Tauri
@@ -32,9 +35,14 @@ RUN cargo build --manifest-path src-tauri/Cargo.toml --release --bin de-koi-serv
 
 FROM debian:bookworm-slim AS runtime
 
+ARG DE_KOI_IMAGE_VERSION=prealpha
+ARG DE_KOI_SOURCE_COMMIT=unknown
+
 LABEL org.opencontainers.image.title="De-Koi Server"
 LABEL org.opencontainers.image.source="https://github.com/The-Koi-Pond/De-Koi"
 LABEL org.opencontainers.image.licenses="AGPL-3.0-or-later"
+LABEL org.opencontainers.image.version="${DE_KOI_IMAGE_VERSION}"
+LABEL org.opencontainers.image.revision="${DE_KOI_SOURCE_COMMIT}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
