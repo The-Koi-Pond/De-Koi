@@ -1,0 +1,6 @@
+services:
+  de-koi-server:
+    environment:
+      # Opt-in only: use this override for trusted home LAN/Tailscale pre-alpha installs.
+      ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK: "true"
+      BYPASS_AUTH_DOCKER: "true"

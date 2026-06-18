@@ -187,6 +187,70 @@ bridge gateway as its TCP peer rather than the proxy's loopback address, so
 inbound `X-Forwarded-For`/`X-Real-IP` header so a client cannot spoof an address
 inside `TRUSTED_PROXIES` or a bypass range.
 
+## Raspberry Pi Pre-Alpha Web Shell
+
+Raspberry Pi users should use the prebuilt Pi container images instead of
+building De-Koi from source on the Pi. The images are published for ARM64 and
+keep updates to image pulls plus a short container recreate, avoiding local
+Rust release builds and frontend builds on Pi hardware.
+
+Start the Pi web shell:
+
+```sh
+docker compose -f docker-compose.pi.yml up -d
+```
+
+Update it:
+
+```sh
+docker compose -f docker-compose.pi.yml pull
+docker compose -f docker-compose.pi.yml up -d
+curl -I http://127.0.0.1:7860/
+```
+
+Or run the helper script from the repository root:
+
+```sh
+sh scripts/pi-update.sh
+```
+
+The Pi compose file exposes only the web container on port `7860`. The Rust
+runtime stays private on the Docker network, and nginx proxies same-origin
+requests for `/health` and `/api/` to `de-koi-server:8787`.
+
+The default Pi compose file does not grant unauthenticated runtime access. For
+hardened access, set `BASIC_AUTH_USER` and `BASIC_AUTH_PASS`, or use
+`IP_ALLOWLIST`. Set `ADMIN_SECRET` when you need protected administrative
+operations from a non-loopback browser session.
+
+For trusted home LAN or Tailscale pre-alpha installs, opt in to the LAN-trust
+override explicitly:
+
+```sh
+docker compose -f docker-compose.pi.yml -f docker-compose.pi.trusted-lan.yml up -d
+```
+
+Update an opt-in LAN-trust install with the same file list:
+
+```sh
+docker compose -f docker-compose.pi.yml -f docker-compose.pi.trusted-lan.yml pull
+docker compose -f docker-compose.pi.yml -f docker-compose.pi.trusted-lan.yml up -d
+curl -I http://127.0.0.1:7860/
+```
+
+Browser origins for `http://pi:7860` and `http://pi.local:7860` are trusted by
+default. If you open De-Koi through a LAN IP, Tailscale IP, or another hostname,
+add exact origins in a `.env` file:
+
+```env
+CORS_ORIGINS=http://pi:7860,http://pi.local:7860,http://192.168.1.231:7860,http://100.64.240.39:7860
+CSRF_TRUSTED_ORIGINS=http://pi:7860,http://pi.local:7860,http://192.168.1.231:7860,http://100.64.240.39:7860
+```
+
+Source builds remain available for contributors and custom patches, but they are
+developer workflows. A local Pi source build can take 30-40+ minutes when the
+Rust runtime has to compile in release mode.
+
 ## Developer Docs
 
 Open the static docs directly:
