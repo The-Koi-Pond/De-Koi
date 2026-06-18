@@ -396,6 +396,27 @@ function scheduleChatQueryRefresh(queryClient: QueryClient, chatId: string): voi
   scheduledChatRefreshTimers.set(chatId, timer);
 }
 
+export function handleSceneCreatedGenerationEvent(queryClient: QueryClient, originChatId: string, rawData: unknown): void {
+  const data = parseMaybeRecord(rawData);
+  const sceneChatId = readString(data.chatId).trim();
+  const sceneChatName = readString(data.chatName).trim();
+  const message = sceneChatName ? `Scene created: ${sceneChatName}` : "Scene created.";
+
+  if (sceneChatId) {
+    toast(message, {
+      action: {
+        label: "Go to Scene",
+        onClick: () => useChatStore.getState().setActiveChatId(sceneChatId),
+      },
+    });
+    scheduleChatQueryRefresh(queryClient, sceneChatId);
+  } else {
+    toast(message);
+  }
+
+  scheduleChatQueryRefresh(queryClient, originChatId);
+}
+
 async function chatForNotification(queryClient: QueryClient, chatId: string): Promise<Chat | null> {
   const cached = queryClient.getQueryData<Chat>(chatKeys.detail(chatId));
   if (cached) return cached;
@@ -1853,11 +1874,7 @@ export async function runGenerationWithUi(
           break;
         }
         case "scene_created": {
-          const data = parseMaybeRecord(event.data);
-          const sceneChatId = readString(data.chatId).trim();
-          if (sceneChatId) useChatStore.getState().setActiveChatId(sceneChatId);
-          toast("Scene created.");
-          scheduleChatQueryRefresh(queryClient, sceneChatId || chatId);
+          handleSceneCreatedGenerationEvent(queryClient, chatId, event.data);
           break;
         }
         case "done":

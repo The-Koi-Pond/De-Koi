@@ -3,11 +3,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { chatKeys } from "../../../catalog/chats/index";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
-import { generateAndApplyBackgroundRequest, isTrackerPatchRetryRequest, runGenerationWithUi } from "./use-generate";
+import {
+  generateAndApplyBackgroundRequest,
+  handleSceneCreatedGenerationEvent,
+  isTrackerPatchRetryRequest,
+  runGenerationWithUi,
+} from "./use-generate";
 import type { AgentResult } from "../../../../engine/contracts/types/agent";
 import type { Chat, StreamEvent } from "../../../../engine/contracts/types/chat";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   useChatStore.getState().reset();
   useUIStore.getState().setEnableStreaming(true);
@@ -143,6 +149,27 @@ describe("isTrackerPatchRetryRequest", () => {
 });
 
 describe("runGenerationWithUi", () => {
+  it("keeps the origin conversation active when a character-created scene is ready", () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    useChatStore.getState().setActiveChatId("conversation-1");
+
+    handleSceneCreatedGenerationEvent(queryClient, "conversation-1", {
+      chatId: "scene-1",
+      chatName: "Moonlit Library",
+      originChatId: "conversation-1",
+    });
+
+    expect(useChatStore.getState().activeChatId).toBe("conversation-1");
+
+    vi.advanceTimersByTime(75);
+
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: chatKeys.messages("conversation-1") });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: chatKeys.messages("scene-1") });
+    queryClient.clear();
+  });
+
   it("flushes pending typewriter text when the page loses focus", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const chatId = "chat-background-flush";
