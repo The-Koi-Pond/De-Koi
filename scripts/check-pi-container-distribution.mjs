@@ -25,6 +25,7 @@ function assertNotMatch(label, text, pattern) {
 const webDockerfile = read("Dockerfile.web");
 const nginx = read("docker/nginx/pi-web.conf");
 assertContains("Dockerfile.web", webDockerfile, "pnpm build");
+assertContains("Dockerfile.web", webDockerfile, "COPY patches ./patches");
 assertContains("Dockerfile.web", webDockerfile, "COPY docker/nginx/pi-web.conf /etc/nginx/conf.d/default.conf");
 assertContains("Dockerfile.web", webDockerfile, "COPY --from=builder /app/dist /usr/share/nginx/html");
 assertContains("docker/nginx/pi-web.conf", nginx, "proxy_pass http://de-koi-server:8787/health;");
