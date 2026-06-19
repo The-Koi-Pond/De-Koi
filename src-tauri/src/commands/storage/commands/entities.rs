@@ -1995,6 +1995,57 @@ mod tests {
     }
 
     #[test]
+    fn lorebook_entry_create_and_update_clamp_role() {
+        let state = test_state("lorebook-entry-role-clamp");
+        create_lorebook(&state, "book");
+
+        let created = storage_create_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            json!({
+                "id": "entry-invalid-role",
+                "lorebookId": "book",
+                "name": "Invalid Role",
+                "content": "invalid",
+                "role": "tool"
+            }),
+        )
+        .expect("entry create should clamp invalid role");
+        assert_eq!(created["role"], "system");
+
+        let numeric = storage_update_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            "entry-invalid-role".to_string(),
+            json!({ "role": 2 }),
+        )
+        .expect("entry update should accept numeric assistant role");
+        assert_eq!(numeric["role"], "assistant");
+
+        let invalid = storage_update_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            "entry-invalid-role".to_string(),
+            json!({ "role": " narrator " }),
+        )
+        .expect("entry update should clamp invalid role");
+        assert_eq!(invalid["role"], "system");
+
+        let defaulted = storage_create_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            json!({
+                "id": "entry-default-role",
+                "lorebookId": "book",
+                "name": "Default Role",
+                "content": "default"
+            }),
+        )
+        .expect("entry create should default missing role");
+        assert_eq!(defaulted["role"], "system");
+    }
+
+    #[test]
     fn lorebook_entry_searchable_patch_clears_stored_embedding() {
         for (label, patch) in [
             ("name", json!({ "name": "Fresh name" })),
