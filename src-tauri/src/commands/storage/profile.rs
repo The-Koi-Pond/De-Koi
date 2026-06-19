@@ -2835,6 +2835,21 @@ mod tests {
                 }),
             )
             .expect("custom tool should write");
+        state
+            .storage
+            .create(
+                "custom-tools",
+                json!({
+                    "id": "tool-legacy",
+                    "name": "Legacy Webhook Tool",
+                    "executionType": "webhook",
+                    "webhook_url": "https://discord.com/api/webhooks/live/token",
+                    "staticResult": "safe legacy static result",
+                    "scriptBody": "return legacy_input;",
+                    "enabled": true
+                }),
+            )
+            .expect("legacy custom tool should write");
 
         let snapshot = profile_snapshot(&state).expect("profile snapshot should export");
         assert_custom_tool_webhook_redacted(&snapshot);
@@ -3283,12 +3298,30 @@ mod tests {
     }
 
     fn assert_custom_tool_webhook_redacted(snapshot: &Value) {
-        let tool = snapshot["data"]["collections"]["custom-tools"]
+        let tools = snapshot["data"]["collections"]["custom-tools"]
             .as_array()
-            .and_then(|rows| rows.first())
-            .expect("custom tool should be exported");
-        assert_eq!(tool.get("webhookUrl"), Some(&Value::Null));
-        assert_eq!(tool["staticResult"], "safe static result");
-        assert_eq!(tool["scriptBody"], "return input;");
+            .expect("custom tools should be exported as an array");
+        assert!(
+            !snapshot.to_string().contains("live/token"),
+            "profile snapshot must not contain the live webhook token"
+        );
+        assert!(
+            tools.iter().any(|tool| tool["staticResult"] == "safe static result"),
+            "camelCase fixture should keep non-secret fields"
+        );
+        assert!(
+            tools
+                .iter()
+                .any(|tool| tool["staticResult"] == "safe legacy static result"),
+            "legacy fixture should keep non-secret fields"
+        );
+        for tool in tools {
+            if tool.get("webhookUrl").is_some() {
+                assert_eq!(tool.get("webhookUrl"), Some(&Value::Null));
+            }
+            if tool.get("webhook_url").is_some() {
+                assert_eq!(tool.get("webhook_url"), Some(&Value::Null));
+            }
+        }
     }
 }

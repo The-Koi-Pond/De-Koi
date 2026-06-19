@@ -38,9 +38,23 @@ fn redact_custom_tool_webhook_url(value: &mut Value) {
     let Some(object) = value.as_object_mut() else {
         return;
     };
-    if object.contains_key("webhookUrl") {
-        object.insert("webhookUrl".to_string(), Value::Null);
+    let keys = object
+        .keys()
+        .filter(|key| is_custom_tool_webhook_url_key(key))
+        .cloned()
+        .collect::<Vec<_>>();
+    for key in keys {
+        object.insert(key, Value::Null);
     }
+}
+
+fn is_custom_tool_webhook_url_key(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(|character| character.to_lowercase())
+        .collect::<String>();
+    normalized == "webhookurl"
 }
 
 pub(crate) async fn execute_custom_tool(state: &AppState, body: Value) -> AppResult<Value> {

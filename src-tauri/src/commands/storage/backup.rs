@@ -710,11 +710,18 @@ mod tests {
             .storage
             .create("custom-tools", custom_tool_fixture())
             .expect("custom tool should write");
+        state
+            .storage
+            .create("custom-tools", legacy_custom_tool_fixture())
+            .expect("legacy custom tool should write");
         state.storage.flush().expect("storage should flush");
         let source_collections_dir = state.data_dir.join("data/collections");
         fs::write(
             source_collections_dir.join("custom-tools.json.bak"),
-            serde_json::to_vec_pretty(&json!([custom_tool_fixture()]))
+            serde_json::to_vec_pretty(&json!([
+                custom_tool_fixture(),
+                legacy_custom_tool_fixture()
+            ]))
                 .expect("custom-tools sidecar fixture should serialize"),
         )
         .expect("custom-tools sidecar fixture should write");
@@ -775,19 +782,28 @@ mod tests {
         .expect("profile fixture should write");
         fs::write(
             collections_dir.join("custom-tools.json"),
-            serde_json::to_vec_pretty(&json!([custom_tool_fixture()]))
+            serde_json::to_vec_pretty(&json!([
+                custom_tool_fixture(),
+                legacy_custom_tool_fixture()
+            ]))
                 .expect("custom tools fixture should serialize"),
         )
         .expect("custom-tools fixture should write");
         fs::write(
             collections_dir.join("custom-tools.json.bak"),
-            serde_json::to_vec_pretty(&json!([custom_tool_fixture()]))
+            serde_json::to_vec_pretty(&json!([
+                custom_tool_fixture(),
+                legacy_custom_tool_fixture()
+            ]))
                 .expect("custom-tools sidecar fixture should serialize"),
         )
         .expect("custom-tools sidecar fixture should write");
         fs::write(
             collections_dir.join("custom-tools.json.corrupted-123"),
-            serde_json::to_vec_pretty(&json!([custom_tool_fixture()]))
+            serde_json::to_vec_pretty(&json!([
+                custom_tool_fixture(),
+                legacy_custom_tool_fixture()
+            ]))
                 .expect("custom-tools corrupted fixture should serialize"),
         )
         .expect("custom-tools corrupted fixture should write");
@@ -816,6 +832,9 @@ mod tests {
         let profile_value: Value =
             serde_json::from_str(&profile_json).expect("profile JSON should parse");
         assert_custom_tool_webhook_redacted(&profile_value["data"]["collections"]["custom-tools"]);
+        assert_custom_tool_webhook_redacted(
+            &profile_value["data"]["fileStorage"]["tables"]["custom_tools"],
+        );
         let collection_value: Value =
             serde_json::from_str(&custom_tools_json).expect("custom-tools JSON should parse");
         assert_custom_tool_webhook_redacted(&collection_value);
@@ -905,6 +924,11 @@ mod tests {
                 "collections": {
                     "custom-tools": [custom_tool_fixture()]
                 },
+                "fileStorage": {
+                    "tables": {
+                        "custom_tools": [legacy_custom_tool_fixture()]
+                    }
+                },
                 "assets": []
             }
         })
@@ -922,14 +946,48 @@ mod tests {
         })
     }
 
+    fn legacy_custom_tool_fixture() -> Value {
+        json!({
+            "id": "tool-legacy",
+            "name": "Legacy Webhook Tool",
+            "executionType": "webhook",
+            "webhook_url": "https://discord.com/api/webhooks/live/token",
+            "staticResult": "safe legacy static result",
+            "scriptBody": "return legacy_input;",
+            "enabled": true
+        })
+    }
+
     fn assert_custom_tool_webhook_redacted(collection: &Value) {
-        let tool = collection
+        let tools = collection
             .as_array()
-            .and_then(|rows| rows.first())
-            .expect("custom tool should be exported");
-        assert_eq!(tool.get("webhookUrl"), Some(&Value::Null));
-        assert_eq!(tool["staticResult"], "safe static result");
-        assert_eq!(tool["scriptBody"], "return input;");
+            .expect("custom tools should be exported as an array");
+        assert!(
+            !collection.to_string().contains("live/token"),
+            "custom tool export must not contain the live webhook token"
+        );
+        if tools.iter().any(|tool| tool["id"] == "tool-1") {
+            assert!(
+                tools.iter().any(|tool| tool["staticResult"] == "safe static result"),
+                "camelCase fixture should keep non-secret fields"
+            );
+        }
+        if tools.iter().any(|tool| tool["id"] == "tool-legacy") {
+            assert!(
+                tools
+                    .iter()
+                    .any(|tool| tool["staticResult"] == "safe legacy static result"),
+                "legacy fixture should keep non-secret fields"
+            );
+        }
+        for tool in tools {
+            if tool.get("webhookUrl").is_some() {
+                assert_eq!(tool.get("webhookUrl"), Some(&Value::Null));
+            }
+            if tool.get("webhook_url").is_some() {
+                assert_eq!(tool.get("webhook_url"), Some(&Value::Null));
+            }
+        }
     }
 
     #[test]
