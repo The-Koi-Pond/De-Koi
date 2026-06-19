@@ -33,6 +33,52 @@ import {
   type ConversationMessageRenderContext,
 } from "./ConversationMessageShared";
 
+function areStringArraysEqual(prev?: string[], next?: string[]) {
+  if (prev === next) return true;
+  if (!prev || !next || prev.length !== next.length) return false;
+  for (let index = 0; index < prev.length; index += 1) {
+    if (prev[index] !== next[index]) return false;
+  }
+  return true;
+}
+
+function areConversationMessagePropsEqual(prev: ConversationMessageProps, next: ConversationMessageProps) {
+  return (
+    prev.message === next.message &&
+    prev.isStreaming === next.isStreaming &&
+    prev.isGrouped === next.isGrouped &&
+    prev.hideActions === next.hideActions &&
+    prev.hideUserAvatar === next.hideUserAvatar &&
+    prev.noHoverGroup === next.noHoverGroup &&
+    prev.plainUserMessages === next.plainUserMessages &&
+    prev.forceShowActions === next.forceShowActions &&
+    prev.onDelete === next.onDelete &&
+    prev.onRegenerate === next.onRegenerate &&
+    prev.onEdit === next.onEdit &&
+    prev.onSetActiveSwipe === next.onSetActiveSwipe &&
+    prev.onPeekPrompt === next.onPeekPrompt &&
+    prev.onToggleHiddenFromAI === next.onToggleHiddenFromAI &&
+    prev.onBranch === next.onBranch &&
+    prev.isLastAssistantMessage === next.isLastAssistantMessage &&
+    prev.characterMap === next.characterMap &&
+    prev.personaInfo === next.personaInfo &&
+    prev.onEditClick === next.onEditClick &&
+    areStringArraysEqual(prev.chatCharacterIds, next.chatCharacterIds) &&
+    prev.messageIndex === next.messageIndex &&
+    prev.messageOrderIndex === next.messageOrderIndex &&
+    prev.multiSelectMode === next.multiSelectMode &&
+    prev.isSelected === next.isSelected &&
+    prev.onToggleSelect === next.onToggleSelect &&
+    prev.suppressCardCss === next.suppressCardCss &&
+    prev.messageStyle === next.messageStyle &&
+    areStringArraysEqual(prev.contentParts, next.contentParts) &&
+    prev.visiblePartCount === next.visiblePartCount &&
+    prev.bubbleGroupPosition === next.bubbleGroupPosition &&
+    prev.originalContent === next.originalContent &&
+    prev.typingLabel === next.typingLabel
+  );
+}
+
 export const ConversationMessage = memo(function ConversationMessage({
   message,
   isStreaming,
@@ -549,4 +595,4 @@ export const ConversationMessage = memo(function ConversationMessage({
   if (groupedSegments && !editing && !isUser && !isBubbleStyle) return <ConversationMessageGrouped context={context} />;
   if (isBubbleStyle) return <ConversationMessageBubble context={context} />;
   return <ConversationMessageLine context={context} />;
-});
+}, areConversationMessagePropsEqual);
