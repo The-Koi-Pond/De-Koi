@@ -14,6 +14,49 @@ pub(crate) fn custom_tool_capabilities() -> Value {
     })
 }
 
+pub(crate) fn custom_tools_for_export(state: &AppState) -> AppResult<Vec<Value>> {
+    let mut tools = state.storage.list("custom-tools")?;
+    for tool in &mut tools {
+        redact_custom_tool_webhook_url(tool);
+    }
+    Ok(tools)
+}
+
+pub(crate) fn redact_custom_tool_webhook_urls(value: &mut Value) {
+    match value {
+        Value::Array(rows) => {
+            for row in rows {
+                redact_custom_tool_webhook_url(row);
+            }
+        }
+        Value::Object(_) => redact_custom_tool_webhook_url(value),
+        _ => {}
+    }
+}
+
+fn redact_custom_tool_webhook_url(value: &mut Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    let keys = object
+        .keys()
+        .filter(|key| is_custom_tool_webhook_url_key(key))
+        .cloned()
+        .collect::<Vec<_>>();
+    for key in keys {
+        object.insert(key, Value::Null);
+    }
+}
+
+fn is_custom_tool_webhook_url_key(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(|character| character.to_lowercase())
+        .collect::<String>();
+    normalized == "webhookurl"
+}
+
 pub(crate) async fn execute_custom_tool(state: &AppState, body: Value) -> AppResult<Value> {
     let tool_name = required_string(&body, "toolName")?;
     let arguments = body.get("arguments").cloned().unwrap_or_else(|| json!({}));

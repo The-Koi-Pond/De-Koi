@@ -1495,6 +1495,8 @@ fn profile_collections(state: &AppState) -> AppResult<Map<String, Value>> {
     for collection in contracts::profile_collections() {
         let rows = if collection == "connections" {
             connection_secrets::connections_for_export(state)?
+        } else if collection == "custom-tools" {
+            custom_tools::custom_tools_for_export(state)?
         } else {
             state.storage.list(collection)?
         };
@@ -2816,6 +2818,48 @@ mod tests {
     }
 
     #[test]
+    fn profile_exports_redact_custom_tool_webhook_urls() {
+        let state = test_state("custom-tool-webhook-export");
+        state
+            .storage
+            .create(
+                "custom-tools",
+                json!({
+                    "id": "tool-1",
+                    "name": "Webhook Tool",
+                    "executionType": "webhook",
+                    "webhookUrl": "https://discord.com/api/webhooks/live/token",
+                    "staticResult": "safe static result",
+                    "scriptBody": "return input;",
+                    "enabled": true
+                }),
+            )
+            .expect("custom tool should write");
+        state
+            .storage
+            .create(
+                "custom-tools",
+                json!({
+                    "id": "tool-legacy",
+                    "name": "Legacy Webhook Tool",
+                    "executionType": "webhook",
+                    "webhook_url": "https://discord.com/api/webhooks/live/token",
+                    "staticResult": "safe legacy static result",
+                    "scriptBody": "return legacy_input;",
+                    "enabled": true
+                }),
+            )
+            .expect("legacy custom tool should write");
+
+        let snapshot = profile_snapshot(&state).expect("profile snapshot should export");
+        assert_custom_tool_webhook_redacted(&snapshot);
+
+        let backup_snapshot =
+            profile_backup_snapshot(&state).expect("profile backup snapshot should export");
+        assert_custom_tool_webhook_redacted(&backup_snapshot);
+    }
+
+    #[test]
     fn profile_export_supports_compatible_and_zip_formats() {
         let state = test_state("profile-export-formats");
         state
@@ -3251,5 +3295,33 @@ mod tests {
             .expect("imported ui settings should be addressable by id");
         assert_eq!(ui["id"], "ui");
         assert_eq!(ui["value"]["theme"], "imported");
+    }
+
+    fn assert_custom_tool_webhook_redacted(snapshot: &Value) {
+        let tools = snapshot["data"]["collections"]["custom-tools"]
+            .as_array()
+            .expect("custom tools should be exported as an array");
+        assert!(
+            !snapshot.to_string().contains("live/token"),
+            "profile snapshot must not contain the live webhook token"
+        );
+        assert!(
+            tools.iter().any(|tool| tool["staticResult"] == "safe static result"),
+            "camelCase fixture should keep non-secret fields"
+        );
+        assert!(
+            tools
+                .iter()
+                .any(|tool| tool["staticResult"] == "safe legacy static result"),
+            "legacy fixture should keep non-secret fields"
+        );
+        for tool in tools {
+            if tool.get("webhookUrl").is_some() {
+                assert_eq!(tool.get("webhookUrl"), Some(&Value::Null));
+            }
+            if tool.get("webhook_url").is_some() {
+                assert_eq!(tool.get("webhook_url"), Some(&Value::Null));
+            }
+        }
     }
 }
