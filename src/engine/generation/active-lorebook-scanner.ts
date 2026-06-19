@@ -493,7 +493,7 @@ function normalizeLorebookEntriesForActivation(
   folders: JsonRecord[],
 ): LorebookEntry[] {
   const disabledFolderIds = collectEffectivelyDisabledFolderIds(folders);
-  const defaultScanDepth = nonNegativeInteger(lorebook.scanDepth, 0);
+  const defaultScanDepth = lorebook.scanDepth == null ? null : nonNegativeInteger(lorebook.scanDepth, 0);
   const excludeFromVectorization = boolish(lorebook.excludeFromVectorization, false);
   return rows
     .map((row) => normalizeLorebookEntry(excludeFromVectorization ? { ...row, excludeFromVectorization: true } : row))
@@ -983,6 +983,7 @@ async function loadActivatedLore(input: ActiveLorebookScannerInput): Promise<Loa
     embeddingRequest,
   );
   const options: ScanOptions = {
+    scanDepth: LIMITS.LOREBOOK_DEFAULT_SCAN_DEPTH,
     activeCharacterIds,
     activeCharacterTags,
     generationTriggers,
