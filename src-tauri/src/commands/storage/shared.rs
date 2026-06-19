@@ -976,6 +976,12 @@ fn normalize_typed_json_fields_with_prompt_default_mode(
     if collection == "prompts" {
         normalize_prompt_default_alias(object, prompt_default_mode)?;
     }
+    if collection == "lorebook-entries" {
+        normalize_lorebook_entry_role_field(
+            object,
+            prompt_default_mode == PromptDefaultAliasMode::RepairLegacyConflicts,
+        );
+    }
     if collection == "messages" {
         normalize_message_text_fields(object);
         compact_message_swipe_fields_for_storage(object);
@@ -1328,6 +1334,32 @@ pub(crate) fn with_entity_defaults(collection: &str, body: Value) -> AppResult<V
     }
     normalize_typed_json_fields(collection, &mut object)?;
     Ok(Value::Object(object))
+}
+
+pub(crate) fn normalize_lorebook_entry_role(value: Option<&Value>) -> &'static str {
+    let raw = match value {
+        Some(Value::String(raw)) => raw.trim().to_ascii_lowercase(),
+        Some(Value::Number(raw)) => raw.as_i64().unwrap_or(0).to_string(),
+        _ => String::new(),
+    };
+    match raw.as_str() {
+        "1" | "user" => "user",
+        "2" | "assistant" => "assistant",
+        _ => "system",
+    }
+}
+
+pub(crate) fn normalize_lorebook_entry_role_field(
+    object: &mut Map<String, Value>,
+    default_missing: bool,
+) {
+    if !default_missing && !object.contains_key("role") {
+        return;
+    }
+    object.insert(
+        "role".to_string(),
+        Value::String(normalize_lorebook_entry_role(object.get("role")).to_string()),
+    );
 }
 
 pub(crate) fn with_message_create_defaults(body: Value) -> AppResult<Value> {
@@ -2728,6 +2760,31 @@ mod tests {
         assert_eq!(object["relationships"], Value::Null);
         assert_eq!(object["dynamicState"], Value::Null);
         assert_eq!(object["schedule"], Value::Null);
+    }
+
+    #[test]
+    fn normalize_typed_lorebook_entry_clamps_role_without_defaulting_patch() {
+        let Value::Object(mut object) = json!({
+            "role": " assistant "
+        }) else {
+            unreachable!("json! object literal");
+        };
+
+        normalize_typed_json_fields("lorebook-entries", &mut object)
+            .expect("present role should normalize at the storage boundary");
+
+        assert_eq!(object["role"], json!("assistant"));
+
+        let Value::Object(mut patch_without_role) = json!({
+            "name": "Only a title patch"
+        }) else {
+            unreachable!("json! object literal");
+        };
+
+        normalize_typed_json_fields("lorebook-entries", &mut patch_without_role)
+            .expect("patch without role should normalize without defaulting role");
+
+        assert!(patch_without_role.get("role").is_none());
     }
 
     #[test]

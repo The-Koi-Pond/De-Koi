@@ -72,6 +72,7 @@ pub(super) fn normalize_lorebook_entry_for_create(value: Value) -> Result<Value,
     let mut object = ensure_object(value)?;
     normalize_lorebook_id_object(&mut object)?;
     normalize_lorebook_entry_folder_id_object(&mut object)?;
+    shared::normalize_lorebook_entry_role_field(&mut object, true);
     Ok(Value::Object(object))
 }
 
@@ -85,6 +86,7 @@ pub(super) fn normalize_lorebook_entry_for_update(
     let mut object = ensure_object(patch)?;
     normalize_lorebook_id_object(&mut object)?;
     normalize_lorebook_entry_folder_id_object(&mut object)?;
+    shared::normalize_lorebook_entry_role_field(&mut object, false);
     Ok(Value::Object(object))
 }
 
