@@ -108,6 +108,10 @@ Updates are manual in the current De-Koi architecture. The in-app update check i
 
 Pre-alpha release assets may be unsigned or debug-signed and should be tested with throwaway data. The optional Rust runtime is an API server for supported desktop workflows; it is not a replacement for the desktop app installer and does not serve the React UI.
 
+Raspberry Pi users should use the [Pi fast install and update guide](docs/pi.md)
+to pull prebuilt ARM64 images. Normal Pi updates should be image pulls, not
+local Rust or frontend builds.
+
 Maintainers should use the [Release Readiness Checklist](docs/release-readiness-checklist.md) before publishing release notes or user-facing install pages.
 
 ## Remote Runtime
@@ -194,7 +198,15 @@ building De-Koi from source on the Pi. The images are published for ARM64 and
 keep updates to image pulls plus a short container recreate, avoiding local
 Rust release builds and frontend builds on Pi hardware.
 
-Start the Pi web shell:
+For the shortest copy-paste path, see the [Pi fast install and update guide](docs/pi.md).
+
+Start or update a trusted home LAN/Tailscale Pi from the repository root:
+
+```sh
+sh scripts/pi-update.sh --trusted-lan
+```
+
+Start the hardened default Pi web shell:
 
 ```sh
 docker compose -f docker-compose.pi.yml up -d
