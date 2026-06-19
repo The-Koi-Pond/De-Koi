@@ -36,17 +36,14 @@ fn optional_value(args: &Map<String, Value>, key: &str) -> Value {
     args.get(key).cloned().unwrap_or(Value::Null)
 }
 
-pub async fn tracker_snapshot_latest(
-    state: &AppState,
-    args: &Map<String, Value>,
-) -> AppResult<Value> {
+pub fn tracker_snapshot_latest(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     Ok(
         game_state_snapshots::latest_tracker_snapshot(state, required_string(args, "chatId")?)?
             .unwrap_or(Value::Null),
     )
 }
 
-pub async fn tracker_snapshot_get(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+pub fn tracker_snapshot_get(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     Ok(game_state_snapshots::tracker_snapshot_for_target(
         state,
         required_string(args, "chatId")?,
@@ -56,10 +53,7 @@ pub async fn tracker_snapshot_get(state: &AppState, args: &Map<String, Value>) -
     .unwrap_or(Value::Null))
 }
 
-pub async fn tracker_snapshot_save(
-    state: &AppState,
-    args: &Map<String, Value>,
-) -> AppResult<Value> {
+pub fn tracker_snapshot_save(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     game_state_snapshots::save_tracker_snapshot(
         state,
         required_string(args, "chatId")?,
