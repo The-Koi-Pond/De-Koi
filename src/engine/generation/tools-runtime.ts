@@ -61,6 +61,7 @@ interface ToolDeps {
 }
 
 const chatMetadataQueues = new Map<string, Promise<void>>();
+const SPOTIFY_RECENT_TRACK_HISTORY_LIMIT = 24;
 
 export function normalizeToolCall(value: unknown): LLMToolCall | null {
   if (!isRecord(value)) return null;
@@ -164,6 +165,79 @@ function stringArrayArg(args: JsonRecord, key: string): string[] {
   return value.map((item) => readString(item).trim()).filter(Boolean);
 }
 
+function normalizeSpotifyPlayableUri(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const uri = value.trim();
+  const suffixedTrack = uri.match(/^spotify:track:([A-Za-z0-9]{22})_candidate$/);
+  if (suffixedTrack) return `spotify:track:${suffixedTrack[1]}`;
+  return /^spotify:[a-z]+:[A-Za-z0-9]+$/i.test(uri) ? uri : null;
+}
+
+function normalizeSpotifyTrackUri(value: unknown): string | null {
+  const uri = normalizeSpotifyPlayableUri(value);
+  return uri?.startsWith("spotify:track:") ? uri : null;
+}
+
+function normalizeSpotifyTrackHistory(value: unknown, limit = SPOTIFY_RECENT_TRACK_HISTORY_LIMIT): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const entry of value) {
+    const uri = normalizeSpotifyTrackUri(entry);
+    if (!uri || seen.has(uri)) continue;
+    seen.add(uri);
+    normalized.push(uri);
+    if (normalized.length >= limit) break;
+  }
+  return normalized;
+}
+
+function spotifyPlaybackAppliedTrackUris(result: unknown, fallbackTrackUris: string[]): string[] {
+  if (!isRecord(result) || result.success === false || result.applied !== true) return [];
+  const responseSources = [result.queued, result.uris].filter(Array.isArray);
+  if (responseSources.length === 0) return fallbackTrackUris;
+  return uniqueStrings(responseSources.flatMap((source) => normalizeSpotifyTrackHistory(source)));
+}
+
+function appendSpotifyTrackHistory(history: unknown, uris: unknown[]): string[] {
+  const next: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of uris) {
+    const uri = normalizeSpotifyTrackUri(entry);
+    if (!uri || seen.has(uri)) continue;
+    seen.add(uri);
+    next.push(uri);
+  }
+  for (const uri of normalizeSpotifyTrackHistory(history)) {
+    if (seen.has(uri)) continue;
+    seen.add(uri);
+    next.push(uri);
+    if (next.length >= SPOTIFY_RECENT_TRACK_HISTORY_LIMIT) break;
+  }
+  return next.slice(0, SPOTIFY_RECENT_TRACK_HISTORY_LIMIT);
+}
+
+function getSpotifyRecentTrackUris(metadata?: JsonRecord): string[] {
+  if (!metadata) return [];
+  const seen = new Set<string>();
+  const recent: string[] = [];
+  for (const source of [metadata.spotifyRecentTracks, metadata.gameRecentSpotifyTracks]) {
+    for (const uri of normalizeSpotifyTrackHistory(source)) {
+      if (seen.has(uri)) continue;
+      seen.add(uri);
+      recent.push(uri);
+      if (recent.length >= SPOTIFY_RECENT_TRACK_HISTORY_LIMIT) return recent;
+    }
+  }
+  return recent;
+}
+
+function getSpotifyRecentTrackMetadataKey(metadata: JsonRecord): "spotifyRecentTracks" | "gameRecentSpotifyTracks" {
+  return metadata.gameUseSpotifyMusic === true || typeof metadata.gameSpotifySourceType === "string"
+    ? "gameRecentSpotifyTracks"
+    : "spotifyRecentTracks";
+}
+
 function uniqueStrings(values: string[]): string[] {
   const seen = new Set<string>();
   return values.filter((value) => {
@@ -235,6 +309,26 @@ async function updateChatMetadata(
     input.chat.metadata = metadata;
     return metadata;
   });
+}
+
+async function rememberSpotifyPlayedTracks(
+  storage: StorageGateway,
+  input: ToolRuntimeInput,
+  uris: unknown[],
+): Promise<void> {
+  const trackUris = uris.map(normalizeSpotifyTrackUri).filter((uri): uri is string => Boolean(uri));
+  if (trackUris.length === 0) return;
+  try {
+    await updateChatMetadata(storage, input, (current) => {
+      const key = getSpotifyRecentTrackMetadataKey(current);
+      return {
+        ...current,
+        [key]: appendSpotifyTrackHistory(current[key], trackUris),
+      };
+    });
+  } catch (error) {
+    console.warn("[tools-runtime] Failed to persist Spotify recent tracks", { error });
+  }
 }
 
 async function withChatMetadataQueue<T>(chatId: string, task: () => Promise<T>): Promise<T> {
@@ -483,6 +577,7 @@ export async function executeBuiltInTool(
     case "spotify_get_playlist_tracks": {
       const playlistId = stringArg(args, "playlistId");
       if (!playlistId) toolError("playlistId is required.");
+      const recentTrackUris = getSpotifyRecentTrackUris(parseRecord(input.chat.metadata));
       const body: JsonRecord = {
         agentId: spotifyAgentId(agent),
         playlistId,
@@ -490,27 +585,41 @@ export async function executeBuiltInTool(
         mood: stringArg(args, "mood"),
         limit: Math.max(1, Math.min(80, Math.trunc(numberArg(args, "candidateLimit", numberArg(args, "limit", 50))))),
       };
+      if (recentTrackUris.length > 0) {
+        body.recentTrackUris = recentTrackUris;
+      }
       const offset = numberArg(args, "offset", Number.NaN);
       if (Number.isFinite(offset)) body.offset = Math.max(0, Math.trunc(offset));
       return integrations.spotify.playlistTracks(body);
     }
-    case "spotify_search":
-      return integrations.spotify.searchTracks({
+    case "spotify_search": {
+      const recentTrackUris = getSpotifyRecentTrackUris(parseRecord(input.chat.metadata));
+      const body: JsonRecord = {
         agentId: spotifyAgentId(agent),
         query: stringArg(args, "query"),
         limit: Math.max(1, Math.min(50, Math.trunc(numberArg(args, "limit", 10)))),
-      });
+      };
+      if (recentTrackUris.length > 0) {
+        body.recentTrackUris = recentTrackUris;
+      }
+      return integrations.spotify.searchTracks(body);
+    }
     case "spotify_play": {
-      const uri = stringArg(args, "uri");
-      const uris = stringArrayArg(args, "uris");
-      if (!uri && uris.length === 0) toolError("uri or uris is required.");
+      const rawUris = stringArrayArg(args, "uris");
+      const uris = rawUris.map(normalizeSpotifyPlayableUri).filter((uri): uri is string => Boolean(uri));
+      const singleUri = normalizeSpotifyPlayableUri(args.uri);
+      if (singleUri && !uris.includes(singleUri)) uris.unshift(singleUri);
+      if (uris.length === 0) toolError("uri or uris must be a valid Spotify URI.");
       const body: JsonRecord = { agentId: spotifyAgentId(agent) };
-      if (uris.length > 0) body.uris = uris;
-      else if (uri.startsWith("spotify:track:")) body.uri = uri;
-      else body.contextUri = uri;
+      const trackUris = uris.filter((candidate) => candidate.startsWith("spotify:track:"));
+      if (trackUris.length > 0) body.uris = trackUris;
+      else body.contextUri = uris[0];
       const chatMode = readString(input.chat.mode || input.chat.chatMode).trim();
       if (chatMode === "game") body.repeatAfterPlay = "track";
-      return integrations.spotify.play(body);
+      const result = await integrations.spotify.play(body);
+      const playedTrackUris = spotifyPlaybackAppliedTrackUris(result, trackUris);
+      await rememberSpotifyPlayedTracks(storage, input, playedTrackUris);
+      return result;
     }
     case "spotify_set_volume":
       return integrations.spotify.volume({
