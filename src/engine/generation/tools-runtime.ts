@@ -526,17 +526,9 @@ function lorebookContentHasAppendBlock(existingContent: string, content: string)
     .some((block) => block === normalizedContent);
 }
 
-function agentEnabledToolNames(agent: JsonRecord): string[] {
-  const settings = parseRecord(agent.settings);
-  const enabledTools = settings.enabledTools;
-  if (!Array.isArray(enabledTools)) return [];
-  return enabledTools.map((entry) => readString(entry).trim()).filter(Boolean);
-}
-
 function resolveAgentWritableLorebookId(agent: JsonRecord): string | null {
   const settings = parseRecord(agent.settings);
-  const lorebookWriteEnabled =
-    boolish(settings.lorebookWriteEnabled, false) || agentEnabledToolNames(agent).includes(LOREBOOK_WRITE_TOOL_NAME);
+  const lorebookWriteEnabled = boolish(settings.lorebookWriteEnabled, false);
   if (!lorebookWriteEnabled) return null;
 
   for (const key of ["writableLorebookId", "targetLorebookId"]) {
@@ -880,7 +872,7 @@ function chatActiveToolIdsFor(chat: JsonRecord): Set<string> {
 // Main-path public API
 // ──────────────────────────────────────────────
 
-const AGENT_ONLY_TOOL_NAMES = new Set([
+export const AGENT_ONLY_TOOL_NAMES = new Set([
   LOREBOOK_WRITE_TOOL_NAME,
   "read_chat_summary",
   "append_chat_summary",
