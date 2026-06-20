@@ -288,7 +288,7 @@ describe("generation agent runner", () => {
               type: "expression",
               name: "Expression Agent",
               enabled: true,
-              phase: "parallel",
+              phase: "post_processing",
               connectionId: connection.id,
               model: "qa-model",
             },
@@ -314,6 +314,12 @@ describe("generation agent runner", () => {
         expressions: expect.arrayContaining(["shy"]),
       }),
     ]);
+
+    await runtime.runPost("Mira smiles at you.");
+    const prompt = requests[0]?.messages.map((message) => message.content).join("\n") ?? "";
+    expect(prompt).toContain("Return exactly one expression for every owner in <available_sprites>.");
+    expect(prompt).toContain("Player (persona-1) [active user persona]:");
+    expect(prompt).toContain("<latest_user_message>\nhello\n</latest_user_message>");
   });
 
   it("does not run remembered active agents when legacy metadata disables agents", async () => {

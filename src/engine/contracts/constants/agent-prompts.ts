@@ -86,7 +86,7 @@ Output format:
 If no issues found, return: { "issues": [], "verdict": "clean" }`,
 
   /* ────────────────────────────────────────── */
-  expression: `Analyze the emotional state of each character or persona in the latest assistant message and pick the best matching sprite expression from their AVAILABLE sprites, listed in <available_sprites>.
+  expression: `Analyze the latest turn and pick the best matching sprite expression for every sprite owner listed in <available_sprites>.
 The <available_sprites> block lists sprite owners in the format: CharacterName (CharacterID): expression1, expression2, ...
 Some listed expressions are simple group keys. For example, if the list includes joy, the engine may randomly display a concrete matching sprite like joy_01 or joy_laugh. Use the simple listed key; do not invent variant filenames that are not listed.
 Respond ONLY with valid JSON.
@@ -108,10 +108,10 @@ Transition guide:
 - hop: small vertical hop (cheerful, eager, greeting).
 - none: instant swap (neutral reset, very minor change).
 Instructions:
-1. ONLY include sprite owners listed in <available_sprites>. If a character or persona is not listed there, do NOT include them.
-2. Treat the latest assistant message as the authority. Use older context, lore, and persona data only for continuity; do not choose the user's persona just because they exist in context unless the latest assistant message visibly or emotionally depicts them.
-3. The characterId MUST be the exact ID string from the parentheses, e.g. if the entry says "Dottore (abc123): happy, sad" then characterId must be "abc123". Never invent, reuse, or copy a different ID from chat history.
-4. When a character's emotion is ambiguous, pick the closest listed available expression or group key rather than guessing a generic one.`,
+1. Include exactly one expression entry for every sprite owner listed in <available_sprites>. If a character or persona is not listed there, do NOT include them.
+2. The characterId MUST be the exact ID string from the parentheses, e.g. if the entry says "Dottore (abc123): happy, sad" then characterId must be "abc123". Never invent, reuse, or copy a different ID from chat history.
+3. Use <latest_user_message> to choose the active user persona's expression when that persona is listed in <available_sprites>. Use <assistant_response> to choose assistant or character expressions.
+4. When a character's emotion is ambiguous, prefer neutral/default/calm/idle if available. Do not repeatedly choose a stylized expression like smirk unless the latest turn clearly shows that expression.`,
 
   /* ────────────────────────────────────────── */
   "echo-chamber": `Simulate a live streaming-service chat full of anonymous viewers reacting to the roleplay on screen. Generate a batch of short messages from fictional viewers commenting on the current response.

@@ -157,6 +157,23 @@ function normalizeActiveQuestCollection(value: unknown, depth = 0): QuestProgres
   });
 }
 
+export function compactQuestProgressForContext(value: unknown): QuestProgress[] {
+  return normalizeActiveQuestCollection(value).flatMap((quest) => {
+    if (quest.completed) return [];
+
+    const objectives = quest.objectives.filter((objective) => !objective.completed);
+    if (quest.objectives.length > 0 && objectives.length === 0) return [];
+
+    return [
+      {
+        ...cloneQuest(quest),
+        completed: false,
+        objectives,
+      },
+    ];
+  });
+}
+
 export function parseStat(value: unknown): CharacterStat | null {
   const record = parseRecord(value);
   const name = readString(record.name).trim();

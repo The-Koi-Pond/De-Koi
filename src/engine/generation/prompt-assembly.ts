@@ -28,6 +28,7 @@ import { normalizeChatSummaryMetadata } from "../shared/text/chat-summary-entrie
 import { collapseExcessBlankLines } from "../shared/text/newlines";
 import { cleanPromptText, stripPromptComments } from "../shared/text/prompt-comments";
 import { formatZonedDate, formatZonedTime, getZonedWeekdayName, normalizeUserTimeZone } from "../shared/time/timezone";
+import { compactQuestProgressForContext } from "../shared/game-state/player-stats";
 import type {
   GameActiveState,
   GameCampaignPlan,
@@ -1517,7 +1518,9 @@ function trackerPromptSections(state: JsonRecord, activeIds: Set<string>): Track
   }
 
   if (activeIds.has("quest")) {
-    sections.push(trackerSection("quest_tracker", "Quest Tracker", playerStats.activeQuests));
+    sections.push(
+      trackerSection("quest_tracker", "Quest Tracker", compactQuestProgressForContext(playerStats.activeQuests)),
+    );
   }
 
   if (activeIds.has("custom-tracker")) {
@@ -2772,9 +2775,85 @@ function insertBeforeLastUser(messages: ChatMLMessage[], blocks: ChatMLMessage[]
   messages.splice(insertAt >= 0 ? insertAt : messages.length, 0, ...blocks);
 }
 
+function isLastMessagePromptBlock(content: unknown): boolean {
+  if (typeof content !== "string") return false;
+  return /<\/?last_message>/i.test(content) || /(?:^|\n)\s*#{2,6}\s+Last Message\s*(?:\n|$)/i.test(content);
+}
+
+function stripBoundaryLastMessageWrapper(content: string): string {
+  return content
+    .replace(/<last_message>\s*\n?([\s\S]*?)\n?\s*<\/last_message>/gi, (_match, inner: string) => inner.trim())
+    .replace(/^\s*<last_message>\s*\n?/i, "")
+    .replace(/\n?\s*<\/last_message>\s*$/i, "")
+    .replace(/(?:^|\n)\s*#{2,6}\s+Last Message\s*(?=\n|$)/gi, "\n")
+    .trim();
+}
+
+function hasBoundaryChatHistoryClose(content: string): boolean {
+  return /\n?\s*<\/chat_history>\s*$/i.test(content);
+}
+
+function stripBoundaryChatHistoryClose(content: string): string {
+  return content.replace(/\n?\s*<\/chat_history>\s*$/i, "").trimEnd();
+}
+
+function appendBoundaryChatHistoryClose(content: string): string {
+  return `${content.trimEnd()}\n</chat_history>`;
+}
+
+function dedupeLastMessageWrappers(messages: ChatMLMessage[]): void {
+  const lastMessageIndexes: number[] = [];
+  for (let index = 0; index < messages.length; index += 1) {
+    if (isLastMessagePromptBlock(messages[index]?.content)) {
+      lastMessageIndexes.push(index);
+    }
+  }
+  if (lastMessageIndexes.length <= 1) return;
+
+  const keepIndex = lastMessageIndexes[lastMessageIndexes.length - 1]!;
+  for (const index of lastMessageIndexes) {
+    if (index === keepIndex) continue;
+    let content = stripBoundaryLastMessageWrapper(messages[index]!.content);
+    const previousMessage = messages[index - 1];
+    if (previousMessage && hasBoundaryChatHistoryClose(previousMessage.content)) {
+      messages[index - 1] = {
+        ...previousMessage,
+        content: stripBoundaryChatHistoryClose(previousMessage.content),
+      };
+      content = appendBoundaryChatHistoryClose(content);
+    }
+    messages[index] = {
+      ...messages[index]!,
+      content,
+    };
+  }
+}
+
 function trackerContextInsertIndex(messages: ChatMLMessage[]): number {
+  let latestHistoryIndex = -1;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index]?.contextKind === "history") return index;
+    if (messages[index]?.contextKind === "history") {
+      latestHistoryIndex = index;
+      break;
+    }
+  }
+
+  let latestLastMessageBlockIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (isLastMessagePromptBlock(messages[index]?.content)) {
+      latestLastMessageBlockIndex = index;
+      break;
+    }
+  }
+
+  if (latestLastMessageBlockIndex >= 0 && latestLastMessageBlockIndex > latestHistoryIndex) {
+    return latestLastMessageBlockIndex;
+  }
+  if (latestHistoryIndex >= 0) {
+    return latestHistoryIndex;
+  }
+  if (latestLastMessageBlockIndex >= 0) {
+    return latestLastMessageBlockIndex;
   }
 
   const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user");
@@ -2782,6 +2861,7 @@ function trackerContextInsertIndex(messages: ChatMLMessage[]): number {
 }
 
 function insertTrackerContext(messages: ChatMLMessage[], block: ChatMLMessage): void {
+  dedupeLastMessageWrappers(messages);
   messages.splice(trackerContextInsertIndex(messages), 0, block);
 }
 
