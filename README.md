@@ -45,7 +45,7 @@ Current release-build screenshots are checked in under [`docs/screenshots/releas
 - **Creative library management** for chats, characters, personas, lorebooks, prompt presets, chat presets, provider connections, agents, gallery items, and knowledge sources.
 - **Prompt and generation tooling** for presets, lorebooks, regex processing, context building, streaming generation, retries, branches, summaries, and agent-assisted workflows.
 - **Provider connections** for OpenAI, Anthropic, Google, Google Vertex, Mistral, Cohere, OpenRouter, NanoGPT, xAI, Claude subscription mode, OpenAI-compatible custom endpoints, and image-generation backends.
-- **Professor Mari** as a standalone assistant surface with access to selected app context and read-only creative-library tools.
+- **Deki-Senpai** as a standalone assistant surface with access to selected app context and read-only creative-library tools.
 - **Local-first data** backed by Rust storage and asset capabilities.
 
 ## Architecture
