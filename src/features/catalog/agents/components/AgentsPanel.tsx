@@ -17,11 +17,13 @@ import {
   Puzzle,
   ToggleLeft,
   ToggleRight,
+  Download,
 } from "lucide-react";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
   agentEnabledFlag,
   useAgentConfigs,
+  useCreateAgent,
   useDeleteAgent,
   useSetAgentEnabledByType,
   useUploadAgentImage,
@@ -32,11 +34,39 @@ import { BUILT_IN_AGENTS, type AgentCategory } from "../../../../engine/contract
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { resolveEntityImageUrl } from "../../../../shared/api/local-file-api";
 import { cn } from "../../../../shared/lib/utils";
+import { commitAgentImportBatch, type AgentImportBatchResult, type StagedAgentImportPayload } from "../lib/agent-import-batch";
+import { normalizeAgentImportPayloads } from "../lib/agent-import-export";
+
+function formatImportFailureDescription(failures: string[]): string {
+  const visible = failures.slice(0, 4);
+  const hidden = failures.length - visible.length;
+  return hidden > 0
+    ? `${visible.join("\n")}\n${hidden} more failed. Full details are shown in the panel.`
+    : visible.join("\n");
+}
+
+function formatImportBatchDetails(result: AgentImportBatchResult): string[] {
+  return result.outcomes.map((outcome) => {
+    switch (outcome.status) {
+      case "imported":
+        return `${outcome.fileName} / ${outcome.name}: imported (${outcome.id})`;
+      case "failed":
+        return `${outcome.fileName} / ${outcome.name}: failed: ${outcome.message}`;
+      case "rolled_back":
+        return `${outcome.fileName} / ${outcome.name}: rolled back after batch failure (${outcome.id})`;
+      case "rollback_failed":
+        return `${outcome.fileName} / ${outcome.name}: kept after rollback failed (${outcome.id}): ${outcome.message}`;
+      case "not_attempted":
+        return `${outcome.fileName} / ${outcome.name}: ${outcome.message}`;
+    }
+  });
+}
 
 export function AgentsPanel() {
   const [search, setSearch] = useState("");
   const { data: agentConfigs, isLoading } = useAgentConfigs();
   const { data: customTools } = useCustomTools();
+  const createAgent = useCreateAgent();
   const deleteAgent = useDeleteAgent();
   const deleteTool = useDeleteCustomTool();
   const setAgentEnabled = useSetAgentEnabledByType();
@@ -44,7 +74,9 @@ export function AgentsPanel() {
   const openAgentDetail = useUIStore((s) => s.openAgentDetail);
   const openToolDetail = useUIStore((s) => s.openToolDetail);
   const agentImageInputRef = useRef<HTMLInputElement>(null);
+  const agentImportInputRef = useRef<HTMLInputElement>(null);
   const agentImageTargetRef = useRef<{ id?: string; agentType?: string } | null>(null);
+  const [importFailureDetails, setImportFailureDetails] = useState<string[]>([]);
 
   const agentConfigRows = useMemo(() => (agentConfigs ?? []) as AgentConfigRow[], [agentConfigs]);
   const agentConfigByType = useMemo(() => {
@@ -114,6 +146,91 @@ export function AgentsPanel() {
     openAgentDetail("__new__");
   };
 
+  const handleImportAgents = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files ?? []);
+      event.target.value = "";
+      if (!files.length) return;
+      setImportFailureDetails([]);
+
+      const failures: string[] = [];
+      let stagedPayloads: StagedAgentImportPayload[] = [];
+      const usedTypes = new Set(agentConfigRows.map((agent) => agent.type).filter(Boolean));
+      for (const file of files) {
+        try {
+          const json = JSON.parse(await file.text());
+          const payloads = normalizeAgentImportPayloads(json, usedTypes);
+          stagedPayloads.push(...payloads.map((payload) => ({ fileName: file.name, payload })));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to import agent";
+          failures.push(`${file.name}: ${message}`);
+        }
+      }
+
+      const stagedTypeOwners = new Map<string, StagedAgentImportPayload>();
+      const uniqueStagedPayloads: StagedAgentImportPayload[] = [];
+      for (const staged of stagedPayloads) {
+        const existing = stagedTypeOwners.get(staged.payload.type);
+        if (existing) {
+          failures.push(
+            `${staged.fileName} / ${staged.payload.name}: duplicate agent type "${staged.payload.type}" also appears in ${existing.fileName} / ${existing.payload.name}`,
+          );
+        } else {
+          stagedTypeOwners.set(staged.payload.type, staged);
+          uniqueStagedPayloads.push(staged);
+        }
+      }
+      stagedPayloads = uniqueStagedPayloads;
+
+      // Every selected file has been scanned; this return only fires when
+      // there is no valid payload left to commit.
+      if (stagedPayloads.length === 0) {
+        setImportFailureDetails(failures);
+        toast.error(`${failures.length} agent import file${failures.length === 1 ? "" : "s"} failed`, {
+          description: formatImportFailureDescription(failures),
+        });
+        return;
+      }
+
+      const result = await commitAgentImportBatch(
+        stagedPayloads,
+        (payload) => createAgent.mutateAsync(payload) as Promise<{ id?: unknown }>,
+        (id) => deleteAgent.mutateAsync(id),
+      );
+
+      const batchDetails = formatImportBatchDetails(result);
+      const detailLines = [...failures, ...batchDetails];
+      const failedCount = failures.length + result.failures.length;
+      if (failedCount > 0) {
+        setImportFailureDetails(detailLines);
+        const keptAfterRollback = result.kept.length;
+        if (keptAfterRollback > 0) {
+          toast.warning(
+            `Agent import completed with issues: ${result.imported} imported, ${keptAfterRollback} kept after rollback failed`,
+            {
+              description: formatImportFailureDescription(detailLines),
+            },
+          );
+        } else if (result.imported > 0) {
+          toast.warning(`Agent import partially completed: ${result.imported} imported`, {
+            description: formatImportFailureDescription(detailLines),
+          });
+        } else {
+          toast.error(`${failedCount} agent import${failedCount === 1 ? "" : "s"} failed`, {
+            description: formatImportFailureDescription(detailLines),
+          });
+        }
+        return;
+      }
+
+      if (result.imported > 0) {
+        setImportFailureDetails([]);
+        toast.success(`Imported ${result.imported} agent${result.imported === 1 ? "" : "s"}`);
+      }
+    },
+    [agentConfigRows, createAgent, deleteAgent],
+  );
+
   const handlePickAgentImage = useCallback((target: { id?: string; agentType?: string }) => {
     agentImageTargetRef.current = target;
     if (agentImageInputRef.current) {
@@ -171,6 +288,14 @@ export function AgentsPanel() {
         className="hidden"
         onChange={handleAgentImageSelected}
       />
+      <input
+        ref={agentImportInputRef}
+        type="file"
+        accept=".json,.marinara-agent.json,application/json"
+        multiple
+        className="hidden"
+        onChange={handleImportAgents}
+      />
 
       <div className="mb-2 flex items-center gap-2">
         <div className="relative min-w-0 flex-1">
@@ -188,6 +313,15 @@ export function AgentsPanel() {
         </div>
         <button
           type="button"
+          onClick={() => agentImportInputRef.current?.click()}
+          disabled={createAgent.isPending}
+          className="flex h-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:border-amber-400/50 hover:bg-[var(--accent)] disabled:cursor-wait disabled:opacity-60"
+          title="Import custom agent"
+        >
+          <Download size="0.8125rem" />
+        </button>
+        <button
+          type="button"
           onClick={handleCreateAgent}
           className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-purple-500 to-violet-500 px-2.5 text-xs font-medium text-white shadow-sm transition-opacity hover:opacity-90"
           title="Create custom agent"
@@ -196,6 +330,28 @@ export function AgentsPanel() {
           <span>New</span>
         </button>
       </div>
+
+      {importFailureDetails.length > 0 && (
+        <div className="mb-2 rounded-lg border border-red-500/25 bg-red-500/10 p-2.5 text-xs text-red-100">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium">
+              {importFailureDetails.length} import failure{importFailureDetails.length === 1 ? "" : "s"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setImportFailureDetails([])}
+              className="shrink-0 rounded-md px-2 py-1 text-[0.625rem] font-medium text-red-100/70 transition-colors hover:bg-red-500/15 hover:text-red-100"
+            >
+              Dismiss
+            </button>
+          </div>
+          <div className="mt-2 max-h-40 space-y-1 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[0.625rem] leading-relaxed text-red-100/85">
+            {importFailureDetails.map((failure, index) => (
+              <div key={`${index}-${failure}`}>{failure}</div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {isLoading && <div className="py-4 text-center text-xs text-[var(--muted-foreground)]">Loading...</div>}
 
@@ -263,18 +419,6 @@ export function AgentsPanel() {
                 enabled,
                 onToggle: (nextEnabled) => setAgentEnabled.mutate({ agentType: agent.type, enabled: nextEnabled }),
                 onImagePick: () => handlePickAgentImage({ id: agent.id }),
-                onDelete: async () => {
-                  if (
-                    await showConfirmDialog({
-                      title: "Delete Agent",
-                      message: `Delete "${agent.name}"?`,
-                      confirmLabel: "Delete",
-                      tone: "destructive",
-                    })
-                  ) {
-                    deleteAgent.mutate(agent.id);
-                  }
-                },
                 openAgentDetail,
               });
             })
@@ -367,7 +511,6 @@ type AgentPanelRow = {
   enabled: boolean;
   onToggle: (enabled: boolean) => void;
   onImagePick: () => void;
-  onDelete?: () => void | Promise<void>;
 };
 
 function renderAgentCard({
@@ -382,7 +525,6 @@ function renderAgentCard({
   enabled,
   onToggle,
   onImagePick,
-  onDelete,
   openAgentDetail,
 }: AgentPanelRow & {
   openAgentDetail: (id: string) => void;
@@ -397,7 +539,7 @@ function renderAgentCard({
     >
       <AgentImageButton imagePath={imagePath} imageFilename={imageFilename} onImagePick={onImagePick} />
       <button
-        className={cn("min-w-0 flex-1 text-left", onDelete ? "pr-28" : "pr-20")}
+        className="min-w-0 flex-1 pr-20 text-left"
         onClick={() => openAgentDetail(custom ? id : type)}
       >
         <div className="truncate text-xs font-medium font-mono">{name}</div>
@@ -431,18 +573,6 @@ function renderAgentCard({
         >
           <Pencil size="0.8125rem" />
         </button>
-        {onDelete && (
-          <button
-            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--destructive)]"
-            title="Delete agent"
-            onClick={(event) => {
-              event.stopPropagation();
-              void onDelete();
-            }}
-          >
-            <Trash2 size="0.8125rem" />
-          </button>
-        )}
       </div>
     </div>
   );

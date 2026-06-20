@@ -105,6 +105,8 @@ pub mod import_commands;
 pub mod integration_commands;
 #[path = "storage/commands/deki.rs"]
 pub mod deki_commands;
+#[path = "storage/commands/local_files.rs"]
+pub mod local_file_commands;
 #[path = "storage/commands/media.rs"]
 pub mod media_commands;
 #[path = "storage/commands/profile.rs"]
