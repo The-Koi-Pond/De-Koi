@@ -396,7 +396,11 @@ function scheduleChatQueryRefresh(queryClient: QueryClient, chatId: string): voi
   scheduledChatRefreshTimers.set(chatId, timer);
 }
 
-export function handleSceneCreatedGenerationEvent(queryClient: QueryClient, originChatId: string, rawData: unknown): void {
+export function handleSceneCreatedGenerationEvent(
+  queryClient: QueryClient,
+  originChatId: string,
+  rawData: unknown,
+): void {
   const data = parseMaybeRecord(rawData);
   const sceneChatId = readString(data.chatId).trim();
   const sceneChatName = readString(data.chatName).trim();
@@ -1373,7 +1377,6 @@ export async function runGenerationWithUi(
   let lastTypewriterPaintAt = 0;
   let typewriterRemainder = 0;
   const canInspectPageFocus = typeof document !== "undefined";
-  const canListenForWindowBlur = typeof window !== "undefined";
   const revealWaiters = new Set<() => void>();
   const pendingAgentResultEffects: unknown[] = [];
   let agentResultEffectsDrainScheduled = false;
@@ -1412,8 +1415,7 @@ export async function runGenerationWithUi(
     useChatStore.getState().setAssistantPhase(chatId, "thinking");
   };
 
-  const shouldFlushTypewriterForBackground = () =>
-    canInspectPageFocus && (document.visibilityState !== "visible" || !document.hasFocus());
+  const shouldFlushTypewriterForBackground = () => canInspectPageFocus && document.visibilityState !== "visible";
 
   const commitThinkingBuffer = (force = false, now = performance.now()) => {
     if (thinkingText === committedThinkingText) return;
@@ -1661,9 +1663,6 @@ export async function runGenerationWithUi(
   if (canInspectPageFocus) {
     document.addEventListener("visibilitychange", flushBackgroundedVisibleStreamText);
   }
-  if (canListenForWindowBlur) {
-    window.addEventListener("blur", flushBackgroundedVisibleStreamText);
-  }
 
   try {
     insertOptimisticUserMessage(queryClient, args);
@@ -1896,9 +1895,6 @@ export async function runGenerationWithUi(
     controller.signal.removeEventListener("abort", stopGenerationUi);
     if (canInspectPageFocus) {
       document.removeEventListener("visibilitychange", flushBackgroundedVisibleStreamText);
-    }
-    if (canListenForWindowBlur) {
-      window.removeEventListener("blur", flushBackgroundedVisibleStreamText);
     }
     const wasAborted = controller.signal.aborted;
     stopGenerationUi();

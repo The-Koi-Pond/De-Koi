@@ -170,7 +170,7 @@ describe("runGenerationWithUi", () => {
     queryClient.clear();
   });
 
-  it("flushes pending typewriter text when the page loses focus", async () => {
+  it("flushes pending typewriter text when the page becomes hidden", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const chatId = "chat-background-flush";
     queryClient.setQueryData(chatKeys.detail(chatId), {
@@ -185,7 +185,6 @@ describe("runGenerationWithUi", () => {
     const requestAnimationFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
     const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
     const visibilityState = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
-    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
     let releaseStream: (() => void) | undefined;
 
     async function* stream(): AsyncGenerator<StreamEvent> {
@@ -207,7 +206,6 @@ describe("runGenerationWithUi", () => {
     expect(useChatStore.getState().streamBuffer).toBe("");
 
     visibilityState.mockReturnValue("hidden");
-    hasFocus.mockReturnValue(false);
     document.dispatchEvent(new Event("visibilitychange"));
 
     expect(useChatStore.getState().streamBuffer).toBe("hello");
@@ -215,6 +213,52 @@ describe("runGenerationWithUi", () => {
     releaseStream?.();
     await run;
     expect(cancelAnimationFrame).toHaveBeenCalledWith(1);
+    queryClient.clear();
+  });
+
+  it("keeps typewriter pacing when the window blurs but the page remains visible", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-window-blur";
+    queryClient.setQueryData(chatKeys.detail(chatId), {
+      id: chatId,
+      mode: "conversation",
+      metadata: {},
+    } as Chat);
+    useChatStore.getState().setActiveChatId(chatId);
+    useUIStore.getState().setEnableStreaming(true);
+    useUIStore.getState().setStreamingSpeed(1);
+
+    const requestAnimationFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    const visibilityState = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    let releaseStream: (() => void) | undefined;
+
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      yield { type: "token", data: "hello" } as StreamEvent;
+      await new Promise<void>((resolve) => {
+        releaseStream = resolve;
+      });
+    }
+
+    const run = runGenerationWithUi(queryClient, { chatId }, stream);
+    for (let i = 0; i < 10 && requestAnimationFrame.mock.calls.length === 0; i += 1) {
+      await Promise.resolve();
+    }
+    for (let i = 0; i < 10 && !releaseStream; i += 1) {
+      await Promise.resolve();
+    }
+
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new Event("blur"));
+
+    expect(useChatStore.getState().streamBuffer).toBe("");
+    expect(cancelAnimationFrame).not.toHaveBeenCalledWith(1);
+    visibilityState.mockReturnValue("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    releaseStream?.();
+    await run;
     queryClient.clear();
   });
 });
