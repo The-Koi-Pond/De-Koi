@@ -4,8 +4,10 @@
 // ──────────────────────────────────────────────
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
+import { saveTextFileToUserSelectedLocation } from "../../../../shared/api/save-text-file-api";
 import {
   agentEnabledFlag,
   agentCreditLabel,
@@ -93,19 +95,7 @@ import {
   LOREBOOK_WRITE_TOOL_NAME,
   normalizeAgentLorebookWriterEditorState,
 } from "../lib/agent-lorebook-writer-settings";
-
-function createCustomAgentType(name: string): string {
-  const slug =
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "") || "agent";
-  const suffix =
-    globalThis.crypto && "randomUUID" in globalThis.crypto
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  return `custom-${slug}-${suffix}`;
-}
+import { agentExportFilename, buildAgentExportEnvelope, createCustomAgentType } from "../lib/agent-import-export";
 
 const SPOTIFY_NATIVE_REDIRECT_URI = "http://127.0.0.1:8754/spotify/callback";
 const SPOTIFY_OAUTH_SETTING_KEYS = [
@@ -299,6 +289,7 @@ export function AgentEditor() {
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // Populate from DB config or built-in defaults
   useEffect(() => {
@@ -728,6 +719,31 @@ export function AgentEditor() {
     closeAgentDetail();
   };
 
+  const handleExport = async () => {
+    if (!dbConfig || exporting) return;
+    const contents = `${JSON.stringify(buildAgentExportEnvelope(dbConfig), null, 2)}\n`;
+    const filename = agentExportFilename(dbConfig);
+    setExporting(true);
+    try {
+      const result = await saveTextFileToUserSelectedLocation({
+        filename,
+        content: contents,
+        title: "Export Agent",
+        mimeType: "application/json",
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (result === "saved") {
+        toast.success("Agent exported.");
+      } else if (result === "downloaded") {
+        toast.success("Agent export downloaded.");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to export agent.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const effectivePhase =
     (isCustomAgent || isNewCustomAgent) && localResultType === "text_rewrite" ? "post_processing" : localPhase;
   const showTurnDataAccess = (isCustomAgent || isNewCustomAgent) && effectivePhase === "post_processing";
@@ -776,6 +792,16 @@ export function AgentEditor() {
               className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/15 active:scale-[0.98]"
             >
               <Trash2 size="0.8125rem" /> <span className="max-md:hidden">Delete</span>
+            </button>
+          )}
+          {isCustomAgent && dbConfig && (
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="flex items-center gap-1.5 rounded-full bg-[var(--secondary)] px-4 py-2 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] shadow-sm transition-all hover:bg-[var(--accent)] active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
+            >
+              {exporting ? <Loader2 size="0.8125rem" className="animate-spin" /> : <Upload size="0.8125rem" />}{" "}
+              <span className="max-md:hidden">Export</span>
             </button>
           )}
           <button

@@ -23,7 +23,7 @@ function normalize(error: unknown): ApiError {
   return new ApiError(String(error ?? "Tauri command failed"), 500, error);
 }
 
-function hasEmbeddedTauriIpc(): boolean {
+export function hasEmbeddedTauriIpc(): boolean {
   return (
     typeof window !== "undefined" &&
     Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)

@@ -113,7 +113,7 @@
     "id": "agents",
     "title": "Agents",
     "category": "Agents",
-    "summary": "Optional helpers and custom functions that can be enabled or disabled globally, track world state, review or write lorebooks, guide prose, create images, run custom behavior, and enrich generation.",
+    "summary": "Optional helpers and custom functions that can be enabled or disabled globally, imported, exported, track world state, review or write lorebooks, guide prose, create images, run custom behavior, and enrich generation.",
     "keywords": [
       "agent",
       "automation",
@@ -122,6 +122,8 @@
       "avoid repetition",
       "lorebook keeper",
       "custom agent",
+      "import agent",
+      "export agent",
       "enable agent",
       "disable agent",
       "tools",
