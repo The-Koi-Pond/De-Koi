@@ -443,7 +443,7 @@ fn decoded_profile_json_assets(
     let mut warnings = Vec::new();
     for (index, asset) in assets.iter().enumerate() {
         let path = profile_asset_manifest_path(asset, index)?;
-        if is_legacy_cleanup_backup_asset_path(path) {
+        if should_skip_profile_asset_manifest_path(path) {
             continue;
         }
         let relative = safe_profile_asset_path(path)?;
@@ -596,7 +596,7 @@ fn decoded_profile_zip_assets(
     let mut warnings = Vec::new();
     for (index, asset) in assets.iter().enumerate() {
         let path = profile_asset_manifest_path(asset, index)?;
-        if is_legacy_cleanup_backup_asset_path(path) {
+        if should_skip_profile_asset_manifest_path(path) {
             continue;
         }
         let relative = safe_profile_asset_path(path)?;
@@ -1179,6 +1179,26 @@ fn is_legacy_cleanup_backup_asset_path(value: &str) -> bool {
         && parts.contains(&".cleanup-backups")
 }
 
+fn should_skip_profile_asset_manifest_path(value: &str) -> bool {
+    is_legacy_cleanup_backup_asset_path(value) || is_game_asset_marker_path(value)
+}
+
+fn is_game_asset_marker_path(value: &str) -> bool {
+    let normalized = normalize_profile_path(value);
+    let parts = normalized.split('/').collect::<Vec<_>>();
+    if parts
+        .iter()
+        .any(|segment| segment.is_empty() || *segment == "..")
+    {
+        return false;
+    }
+    if parts.first().copied() != Some("game-assets") {
+        return false;
+    }
+    (parts.len() == 2 && parts.get(1).copied() == Some(".default-assets-seeded.sha256"))
+        || (parts.len() >= 2 && parts.last().copied() == Some(".native"))
+}
+
 pub(super) fn safe_profile_asset_path(value: &str) -> AppResult<PathBuf> {
     let normalized = normalize_profile_path(value);
     let path = Path::new(&normalized);
@@ -1559,6 +1579,90 @@ mod tests {
             }
             ProfileAssetSource::Bytes(_) => panic!("zip manifest should resolve to an entry"),
         }
+    }
+
+    #[test]
+    fn game_asset_marker_paths_do_not_reject_profile_assets() {
+        let assets = json!([
+            {
+                "path": "game-assets/.default-assets-seeded.sha256",
+                "base64": general_purpose::STANDARD.encode(b"seed marker"),
+            },
+            {
+                "path": "game-assets/.native",
+                "base64": general_purpose::STANDARD.encode(b"native marker"),
+            },
+            {
+                "path": "game-assets/music/dialogue/.native",
+                "base64": general_purpose::STANDARD.encode(b"nested native marker"),
+            },
+            {
+                "path": "game-assets/music/dialogue/theme.mp3",
+                "base64": general_purpose::STANDARD.encode(b"theme"),
+            }
+        ]);
+
+        let (decoded, warnings) = decoded_profile_json_assets(Some(&assets), false)
+            .expect("game asset marker files should be skipped, not reject the profile");
+
+        assert!(warnings.is_empty());
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(
+            decoded[0].0,
+            PathBuf::from("game-assets/music/dialogue/theme.mp3")
+        );
+        assert_eq!(decoded[0].1, b"theme");
+    }
+
+    #[test]
+    fn game_asset_marker_zip_paths_do_not_reject_profile_assets() {
+        let assets = json!([
+            {
+                "path": "game-assets/.default-assets-seeded.sha256",
+            },
+            {
+                "path": "game-assets/.native",
+            },
+            {
+                "path": "game-assets/music/dialogue/.native",
+            },
+            {
+                "path": "game-assets/music/dialogue/theme.mp3",
+            }
+        ]);
+        let names = vec!["game-assets/music/dialogue/theme.mp3".to_string()];
+
+        let (decoded, warnings) = decoded_profile_zip_assets(Some(&assets), &names, "")
+            .expect("game asset marker files should be skipped, not reject the profile zip");
+
+        assert!(warnings.is_empty());
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(
+            decoded[0].relative,
+            PathBuf::from("game-assets/music/dialogue/theme.mp3")
+        );
+        match &decoded[0].source {
+            ProfileAssetSource::ZipEntry(entry) => {
+                assert_eq!(entry, "game-assets/music/dialogue/theme.mp3");
+            }
+            ProfileAssetSource::Bytes(_) => panic!("zip manifest should resolve to an entry"),
+        }
+    }
+
+    #[test]
+    fn arbitrary_hidden_profile_asset_paths_still_reject() {
+        let assets = json!([
+            {
+                "path": "game-assets/.unexpected/hidden.png",
+                "base64": general_purpose::STANDARD.encode(b"hidden"),
+            }
+        ]);
+
+        let error = decoded_profile_json_assets(Some(&assets), false)
+            .expect_err("arbitrary hidden paths should still reject");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("Invalid profile asset path"));
     }
 
     #[test]
