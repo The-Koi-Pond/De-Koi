@@ -3,11 +3,13 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_AGENT_PROMPTS } from "./agent-prompts";
 
 describe("default agent prompts", () => {
-  it("anchors sprite expression selection to the latest assistant message", () => {
+  it("anchors sprite expression selection to the latest turn source", () => {
     const prompt = DEFAULT_AGENT_PROMPTS.expression;
 
-    expect(prompt).toContain("Treat the latest assistant message as the authority");
-    expect(prompt).toContain("do not choose the user's persona just because they exist in context");
+    expect(prompt).toContain("Analyze the latest turn");
+    expect(prompt).toContain("Include exactly one expression entry for every sprite owner listed");
+    expect(prompt).toContain("Use <latest_user_message> to choose the active user persona's expression");
+    expect(prompt).toContain("Use <assistant_response> to choose assistant or character expressions");
   });
 
   it("keeps Illustrator prompts anchored to the latest scene and text-free images", () => {
