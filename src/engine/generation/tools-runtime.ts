@@ -60,7 +60,13 @@ interface ToolDeps {
   integrations: IntegrationGateway;
 }
 
+export const LOREBOOK_WRITE_TOOL_NAME = "save_lorebook_entry";
+
 const chatMetadataQueues = new Map<string, Promise<void>>();
+const MAX_LOREBOOK_ENTRY_CONTENT_BYTES = 64 * 1024;
+const MAX_LOREBOOK_ENTRY_DESCRIPTION_BYTES = 4 * 1024;
+const MAX_LOREBOOK_ENTRY_NAME_LENGTH = 160;
+const MAX_LOREBOOK_ENTRY_KEYS = 24;
 const SPOTIFY_RECENT_TRACK_HISTORY_LIMIT = 24;
 
 export function normalizeToolCall(value: unknown): LLMToolCall | null {
@@ -248,6 +254,26 @@ function uniqueStrings(values: string[]): string[] {
     seen.add(trimmed);
     return true;
   });
+}
+
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
+function trimToUtf8Bytes(value: string, maxBytes: number): string {
+  if (utf8ByteLength(value) <= maxBytes) return value;
+  const chars = Array.from(value);
+  let lo = 0;
+  let hi = chars.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (utf8ByteLength(chars.slice(0, mid).join("")) <= maxBytes) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return chars.slice(0, lo).join("");
 }
 
 function toolError(message: string): never {
@@ -448,6 +474,182 @@ async function searchLorebookTool(storage: StorageGateway, input: ToolRuntimeInp
   return { query, entries: scored };
 }
 
+type LorebookWriteMode = "create" | "replace" | "append";
+
+function normalizeLorebookEntryName(value: unknown): string {
+  return readString(value).trim().slice(0, MAX_LOREBOOK_ENTRY_NAME_LENGTH);
+}
+
+function normalizeLorebookEntryContent(value: unknown): string {
+  return trimToUtf8Bytes(readString(value).trim(), MAX_LOREBOOK_ENTRY_CONTENT_BYTES);
+}
+
+function normalizeLorebookEntryDescription(value: unknown): string | undefined {
+  const description = readString(value).trim();
+  return description ? trimToUtf8Bytes(description, MAX_LOREBOOK_ENTRY_DESCRIPTION_BYTES) : undefined;
+}
+
+function normalizeLorebookEntryKeys(value: unknown, fallbackName: string): string[] {
+  const raw = Array.isArray(value) ? value : [];
+  const keys = uniqueStrings(
+    raw
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+      .filter(Boolean)
+      .slice(0, MAX_LOREBOOK_ENTRY_KEYS),
+  );
+  return keys.length > 0 ? keys : fallbackName ? [fallbackName] : [];
+}
+
+function normalizeLorebookWriteMode(value: unknown): LorebookWriteMode {
+  return value === "create" || value === "append" || value === "replace" ? value : "replace";
+}
+
+function normalizeLorebookEntryMatchKey(value: unknown): string {
+  return readString(value).trim().toLowerCase();
+}
+
+function normalizeLorebookAppendBlock(value: string): string {
+  return value
+    .replace(/\r\n/g, "\n")
+    .trim()
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+function lorebookContentHasAppendBlock(existingContent: string, content: string): boolean {
+  const normalizedContent = normalizeLorebookAppendBlock(content);
+  if (!normalizedContent) return false;
+  return existingContent
+    .split(/\n\s*\n+/)
+    .map(normalizeLorebookAppendBlock)
+    .filter(Boolean)
+    .some((block) => block === normalizedContent);
+}
+
+function agentEnabledToolNames(agent: JsonRecord): string[] {
+  const settings = parseRecord(agent.settings);
+  const enabledTools = settings.enabledTools;
+  if (!Array.isArray(enabledTools)) return [];
+  return enabledTools.map((entry) => readString(entry).trim()).filter(Boolean);
+}
+
+function resolveAgentWritableLorebookId(agent: JsonRecord): string | null {
+  const settings = parseRecord(agent.settings);
+  const lorebookWriteEnabled =
+    boolish(settings.lorebookWriteEnabled, false) || agentEnabledToolNames(agent).includes(LOREBOOK_WRITE_TOOL_NAME);
+  if (!lorebookWriteEnabled) return null;
+
+  for (const key of ["writableLorebookId", "targetLorebookId"]) {
+    const value = readString(settings[key]).trim();
+    if (value) return value;
+  }
+
+  const writableIds = settings.writableLorebookIds;
+  if (Array.isArray(writableIds)) {
+    const first = writableIds.map((value) => readString(value).trim()).find(Boolean);
+    if (first) return first;
+  }
+
+  return null;
+}
+
+async function saveLorebookEntryTool(storage: StorageGateway, agent: JsonRecord, args: JsonRecord) {
+  const writableLorebookId = resolveAgentWritableLorebookId(agent);
+  if (!writableLorebookId) {
+    return { success: false, error: "Lorebook writing is not available in this context." };
+  }
+
+  const name = normalizeLorebookEntryName(args.name);
+  if (!name) return { success: false, error: "save_lorebook_entry requires a non-empty name" };
+
+  const content = normalizeLorebookEntryContent(args.content);
+  if (!content) return { success: false, error: "save_lorebook_entry requires non-empty content" };
+
+  const targetLorebook = await storage.get<JsonRecord>("lorebooks", writableLorebookId);
+  if (!targetLorebook) {
+    return { success: false, error: "Selected lorebook is no longer available.", lorebookId: writableLorebookId };
+  }
+
+  const description = normalizeLorebookEntryDescription(args.description);
+  const tag = stringArg(args, "tag").slice(0, 80) || undefined;
+  const keys = normalizeLorebookEntryKeys(args.keys, name);
+  const mode = normalizeLorebookWriteMode(args.mode);
+  const existingEntries = await storage.list<JsonRecord>("lorebook-entries", {
+    filters: { lorebookId: writableLorebookId },
+  });
+  const matchKey = normalizeLorebookEntryMatchKey(name);
+  const existing = existingEntries.find((entry) => normalizeLorebookEntryMatchKey(entry.name) === matchKey);
+  const sourceAgentId = readString(agent.id).trim() || null;
+
+  if (existing && mode === "create") {
+    return {
+      success: false,
+      applied: false,
+      error: "A lorebook entry with this name already exists.",
+      lorebookId: writableLorebookId,
+      entryId: readString(existing.id).trim() || null,
+      name,
+    };
+  }
+
+  if (!existing) {
+    const created = await storage.create<JsonRecord>("lorebook-entries", {
+      lorebookId: writableLorebookId,
+      name,
+      content,
+      description: description ?? "",
+      keys,
+      tag: tag ?? "",
+      enabled: true,
+      constant: false,
+      selective: false,
+      position: 0,
+      depth: 4,
+      role: "system",
+    });
+    return {
+      success: true,
+      applied: true,
+      action: "created",
+      lorebookId: writableLorebookId,
+      lorebookName: readString(targetLorebook.name),
+      entryId: readString(created.id).trim() || null,
+      name,
+      sourceAgentId,
+    };
+  }
+
+  const existingContent = readString(existing.content);
+  const rawNextContent =
+    mode === "append" && existingContent.trim()
+      ? lorebookContentHasAppendBlock(existingContent, content)
+        ? existingContent
+        : `${existingContent.trim()}\n\n${content}`
+      : content;
+  const nextContent = trimToUtf8Bytes(rawNextContent, MAX_LOREBOOK_ENTRY_CONTENT_BYTES);
+  const existingKeys = Array.isArray(existing.keys)
+    ? existing.keys.map((key) => readString(key).trim()).filter(Boolean)
+    : [];
+  const patch: JsonRecord = {
+    content: nextContent,
+    description: description ?? readString(existing.description),
+    keys: uniqueStrings([...existingKeys, ...keys]),
+  };
+  if (tag !== undefined) patch.tag = tag;
+
+  const updated = await storage.update<JsonRecord>("lorebook-entries", readString(existing.id), patch);
+  return {
+    success: true,
+    applied: true,
+    action: mode === "append" ? "appended" : "replaced",
+    lorebookId: writableLorebookId,
+    lorebookName: readString(targetLorebook.name),
+    entryId: readString(updated.id).trim() || readString(existing.id).trim() || null,
+    name,
+    sourceAgentId,
+  };
+}
+
 export async function executeBuiltInTool(
   deps: ToolDeps,
   input: ToolRuntimeInput,
@@ -519,6 +721,8 @@ export async function executeBuiltInTool(
     }
     case "search_lorebook":
       return searchLorebookTool(storage, input, args);
+    case LOREBOOK_WRITE_TOOL_NAME:
+      return saveLorebookEntryTool(storage, agent, args);
     case "read_chat_summary":
       return { summary: (input.chatSummary ?? readString(parseRecord(input.chat.metadata).summary)) || null };
     case "append_chat_summary": {
@@ -677,6 +881,7 @@ function chatActiveToolIdsFor(chat: JsonRecord): Set<string> {
 // ──────────────────────────────────────────────
 
 const AGENT_ONLY_TOOL_NAMES = new Set([
+  LOREBOOK_WRITE_TOOL_NAME,
   "read_chat_summary",
   "append_chat_summary",
   "read_chat_variable",
@@ -711,8 +916,8 @@ export interface MainToolDefinitions {
  * `chat.metadata.activeToolIds` and never branches on `chat.mode`.
  *
  * Filtering rules:
- *  - Agent-only tools (`read_chat_summary`, `append_chat_summary`,
- *    `read_chat_variable`, `write_chat_variable`) are excluded from the main
+ *  - Agent-only tools (`save_lorebook_entry`, `read_chat_summary`,
+ *    `append_chat_summary`, `read_chat_variable`, `write_chat_variable`) are excluded from the main
  *    path; they remain exposed to agents via `buildAgentToolContext`.
  *  - Spotify tools are excluded unless `includeSpotify: true` is requested
  *    (default `false` — see design §4).
