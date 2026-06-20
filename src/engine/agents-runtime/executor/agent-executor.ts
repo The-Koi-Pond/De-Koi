@@ -1020,7 +1020,7 @@ function formatAgentParseError(config: Pick<AgentExecConfig, "name">, error: str
   return `${config.name} returned malformed JSON: ${error}`;
 }
 
-function shouldRunAgentIndividually(config: Pick<AgentExecConfig, "type">): boolean {
+export function shouldRunAgentIndividually(config: Pick<AgentExecConfig, "type">): boolean {
   // These agents either need compact prompts or carry large private extras that
   // must not be merged into unrelated batched agent requests.
   return (
