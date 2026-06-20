@@ -17,7 +17,7 @@ function macroContext(): MacroContext {
   };
 }
 
-function promptAssemblyStorage(args: { sections: JsonRecord[]; character?: JsonRecord }): StorageGateway {
+function promptAssemblyStorage(args: { sections: JsonRecord[]; character?: JsonRecord; groups?: JsonRecord[] }): StorageGateway {
   const preset = {
     id: "preset-1",
     name: "Depth preset",
@@ -40,7 +40,7 @@ function promptAssemblyStorage(args: { sections: JsonRecord[]; character?: JsonR
           args.sections.filter((section) => !presetId || String(section.presetId) === presetId),
         );
       }
-      if (entity === "prompt-groups") return [];
+      if (entity === "prompt-groups") return asStorageValue<T[]>(args.groups ?? []);
       if (entity === "prompt-variables") return [];
       if (entity === "personas") return [];
       if (entity === "regex-scripts") return [];
@@ -112,7 +112,7 @@ function promptAssemblyStorage(args: { sections: JsonRecord[]; character?: JsonR
       return asStorageValue<T>({
         preset,
         sections: args.sections,
-        groups: [],
+        groups: args.groups ?? [],
         choiceBlocks: [],
       });
     },
@@ -401,5 +401,261 @@ describe("prompt assembly preset depth sections", () => {
     expect(providerPrompt.indexOf("Trackers:\n<world_state>")).toBeLessThan(
       providerPrompt.indexOf("[History]\nWhat do I see?"),
     );
+  });
+
+  it("keeps committed tracker context after history and before a later last-message block", async () => {
+    const prompt = await assembleGenerationPrompt(
+      promptAssemblyStorage({
+        sections: [
+          {
+            id: "setup",
+            presetId: "preset-1",
+            identifier: "setup",
+            name: "Setup",
+            content: "Follow the current scene.",
+            role: "system",
+            enabled: true,
+            sortOrder: 10,
+          },
+          {
+            id: "chat-history",
+            presetId: "preset-1",
+            identifier: "chatHistory",
+            name: "Chat History",
+            content: "",
+            role: "system",
+            enabled: true,
+            sortOrder: 20,
+            markerConfig: { type: "chat_history" },
+          },
+          {
+            id: "last-message",
+            presetId: "preset-1",
+            identifier: "lastMessage",
+            name: "Last Message",
+            content: "Assistant final beat.",
+            role: "system",
+            enabled: true,
+            sortOrder: 30,
+          },
+        ],
+      }),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          characterIds: ["char-1"],
+          metadata: {
+            activeAgentIds: ["world-state"],
+          },
+          gameState: {
+            location: "Library",
+            weather: "Rain",
+          },
+        },
+        storedMessages: [
+          { role: "user", content: "Where are we?" },
+          { role: "assistant", content: "You step inside." },
+          { role: "user", content: "What do I see?" },
+        ],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "What do I see?",
+      },
+    );
+
+    const providerPrompt = prompt.messages.map((message) => message.content).join("\n\n");
+    const historyIndex = providerPrompt.indexOf("[History]\nWhat do I see?");
+    const trackerIndex = providerPrompt.indexOf("Trackers:\n<world_state>");
+    const lastMessageIndex = providerPrompt.indexOf("<last_message>");
+
+    expect(historyIndex).toBeGreaterThanOrEqual(0);
+    expect(trackerIndex).toBeGreaterThan(historyIndex);
+    expect(trackerIndex).toBeLessThan(lastMessageIndex);
+  });
+
+  it("dedupes older last-message prompt wrappers before injecting tracker context", async () => {
+    const prompt = await assembleGenerationPrompt(
+      promptAssemblyStorage({
+        sections: [
+          {
+            id: "old-last-message",
+            presetId: "preset-1",
+            identifier: "oldLastMessage",
+            name: "Last Message",
+            content: "Stale last-message block.",
+            role: "system",
+            enabled: true,
+            sortOrder: 10,
+          },
+          {
+            id: "chat-history",
+            presetId: "preset-1",
+            identifier: "chatHistory",
+            name: "Chat History",
+            content: "",
+            role: "system",
+            enabled: true,
+            sortOrder: 20,
+            markerConfig: { type: "chat_history" },
+          },
+          {
+            id: "current-last-message",
+            presetId: "preset-1",
+            identifier: "currentLastMessage",
+            name: "Last Message",
+            content: "Current last-message block.",
+            role: "system",
+            enabled: true,
+            sortOrder: 30,
+          },
+        ],
+      }),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          characterIds: ["char-1"],
+          metadata: {
+            activeAgentIds: ["world-state"],
+          },
+          gameState: {
+            location: "Library",
+          },
+        },
+        storedMessages: [{ role: "user", content: "What do I see?" }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "What do I see?",
+      },
+    );
+
+    const providerPrompt = prompt.messages.map((message) => message.content).join("\n\n");
+
+    expect(providerPrompt).toContain("Stale last-message block.");
+    expect(providerPrompt).toContain("<last_message>\n    Current last-message block.");
+    expect(providerPrompt.match(/<last_message>/g)).toHaveLength(1);
+  });
+
+  it("dedupes older last-message wrappers inside grouped preset sections", async () => {
+    const prompt = await assembleGenerationPrompt(
+      promptAssemblyStorage({
+        groups: [
+          {
+            id: "group-1",
+            presetId: "preset-1",
+            name: "Context Group",
+            enabled: true,
+          },
+        ],
+        sections: [
+          {
+            id: "old-last-message",
+            presetId: "preset-1",
+            identifier: "oldLastMessage",
+            name: "Last Message",
+            content: "Grouped stale last-message block.",
+            role: "system",
+            enabled: true,
+            sortOrder: 10,
+            groupId: "group-1",
+          },
+          {
+            id: "chat-history",
+            presetId: "preset-1",
+            identifier: "chatHistory",
+            name: "Chat History",
+            content: "",
+            role: "system",
+            enabled: true,
+            sortOrder: 20,
+            markerConfig: { type: "chat_history" },
+          },
+          {
+            id: "current-last-message",
+            presetId: "preset-1",
+            identifier: "currentLastMessage",
+            name: "Last Message",
+            content: "Current last-message block.",
+            role: "system",
+            enabled: true,
+            sortOrder: 30,
+          },
+        ],
+      }),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          characterIds: ["char-1"],
+          metadata: {
+            activeAgentIds: ["world-state"],
+          },
+          gameState: {
+            location: "Library",
+          },
+        },
+        storedMessages: [{ role: "user", content: "What do I see?" }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "What do I see?",
+      },
+    );
+
+    const providerPrompt = prompt.messages.map((message) => message.content).join("\n\n");
+
+    expect(providerPrompt).toContain("Grouped stale last-message block.");
+    expect(providerPrompt).toContain("<last_message>\n    Current last-message block.");
+    expect(providerPrompt.match(/<last_message>/g)).toHaveLength(1);
+  });
+
+  it("keeps all-done active quest identity in quest tracker prompt context", async () => {
+    const prompt = await assembleGenerationPrompt(
+      promptAssemblyStorage({ sections: [] }),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "game",
+          characterIds: ["char-1"],
+          metadata: {
+            activeAgentIds: ["quest"],
+          },
+          gameState: {
+            playerStats: {
+              status: "Ready to report back.",
+              stats: [],
+              attributes: null,
+              skills: {},
+              inventory: [],
+              activeQuests: [
+                {
+                  questEntryId: "river-shrine",
+                  name: "Restore the River Shrine",
+                  currentStage: 2,
+                  objectives: [{ objectiveId: "done", text: "Repair the sluice gate", completed: true }],
+                  rewards: ["Village renown"],
+                  notes: "The elder is waiting for confirmation.",
+                  completed: false,
+                },
+              ],
+            },
+          },
+        },
+        storedMessages: [
+          { role: "user", content: "I fixed the sluice gate." },
+          { role: "assistant", content: "The restored water rushes through the shrine." },
+        ],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "I fixed the sluice gate.",
+      },
+    );
+
+    const providerPrompt = prompt.messages.map((message) => message.content).join("\n\n");
+
+    expect(providerPrompt).toContain("<quest_tracker>");
+    expect(providerPrompt).toContain("Restore the River Shrine");
+    expect(providerPrompt).toContain("Village renown");
+    expect(providerPrompt).not.toContain("Repair the sluice gate");
   });
 });

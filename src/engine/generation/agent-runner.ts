@@ -1605,6 +1605,8 @@ async function buildAgentContext(
   const secretPlotMemory = secretPlotAgent ? await loadAgentMemory(deps.storage, secretPlotAgent.id, chatId) : null;
   const secretPlotState = secretPlotMemory ? secretPlotStateFromMemory(secretPlotMemory) : null;
   if (secretPlotState) memory._secretPlotState = secretPlotState;
+  const personaId = readString(input.chat.personaId).trim();
+  if (personaId) memory._personaId = personaId;
   memory._spotifyDjConstraints = buildSpotifyDjConstraints(chatMode, chatMeta, {
     manualRetry: input.spotifyDjManualRetry === true,
     forceFreshPick: input.spotifyDjForceFreshPick === true,
