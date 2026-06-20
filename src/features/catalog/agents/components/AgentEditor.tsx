@@ -111,6 +111,10 @@ const SPOTIFY_OAUTH_SETTING_KEYS = [
   "spotifyExpiresAt",
   "spotifyScope",
 ] as const;
+const GENERIC_AGENT_TOOL_PICKER_HIDDEN_NAMES = new Set(["save_lorebook_entry"]);
+const VISIBLE_BUILT_IN_AGENT_TOOLS = BUILT_IN_TOOLS.filter(
+  (tool) => !GENERIC_AGENT_TOOL_PICKER_HIDDEN_NAMES.has(tool.name),
+);
 
 // Fallback before status loads; Rust may return an env-configured redirect URI.
 function getDisplayedSpotifyRedirectUri(): string {
@@ -264,8 +268,7 @@ export function AgentEditor() {
   const [localSourceFileIds, setLocalSourceFileIds] = useState<string[]>([]);
   const [localAutoGenerateAvatars, setLocalAutoGenerateAvatars] = useState(false);
   const [localAutoGenerateBackgrounds, setLocalAutoGenerateBackgrounds] = useState(false);
-  const [localAvatarReferenceMode, setLocalAvatarReferenceMode] =
-    useState<IllustratorAvatarReferenceMode>("inherit");
+  const [localAvatarReferenceMode, setLocalAvatarReferenceMode] = useState<IllustratorAvatarReferenceMode>("inherit");
   const [localImagePositivePrompt, setLocalImagePositivePrompt] = useState("");
   const [localImageNegativePrompt, setLocalImageNegativePrompt] = useState("");
   const [spotifyStatus, setSpotifyStatus] = useState<{
@@ -2175,7 +2178,7 @@ export function AgentEditor() {
               during generation.
             </p>
             <div className="space-y-2">
-              {BUILT_IN_TOOLS.map((tool: ToolDefinition) => (
+              {VISIBLE_BUILT_IN_AGENT_TOOLS.map((tool: ToolDefinition) => (
                 <ToolCard
                   key={tool.name}
                   tool={tool}

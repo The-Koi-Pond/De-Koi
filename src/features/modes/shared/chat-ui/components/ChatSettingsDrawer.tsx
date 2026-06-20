@@ -209,6 +209,7 @@ const SPOTIFY_SOURCE_OPTIONS: Array<{ id: SpotifySourceType; label: string; desc
 ];
 
 const GAME_SPOTIFY_SOURCE_OPTIONS = SPOTIFY_SOURCE_OPTIONS;
+const GENERIC_CHAT_TOOL_PICKER_HIDDEN_NAMES = new Set(["save_lorebook_entry"]);
 
 function normalizeSpotifySourceType(value: unknown): SpotifySourceType {
   return value === "playlist" || value === "artist" || value === "any" ? value : "liked";
@@ -783,6 +784,7 @@ function ChatSettingsDrawerInner({
   const availableTools = useMemo(() => {
     const tools: Array<{ id: string; name: string; description: string }> = [];
     for (const t of BUILT_IN_TOOLS) {
+      if (GENERIC_CHAT_TOOL_PICKER_HIDDEN_NAMES.has(t.name)) continue;
       tools.push({ id: t.name, name: t.name, description: t.description });
     }
     if (customTools) {
