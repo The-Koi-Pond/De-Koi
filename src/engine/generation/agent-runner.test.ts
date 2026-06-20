@@ -658,4 +658,49 @@ describe("generation agent runner", () => {
       "search_lorebook",
     ]);
   });
+
+  it("does not expose the writer tool when saved writer settings are disabled", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
+    const input = activeAgentRuntimeInput(connection, {
+      activeAgentIds: ["writer-agent"],
+    });
+    input.chat.metadata = {
+      activeAgentIds: ["writer-agent"],
+      enableTools: true,
+      activeToolIds: ["search_lorebook", LOREBOOK_WRITE_TOOL_NAME],
+    };
+    input.bypassCustomAgentActivation = true;
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "writer-agent",
+              type: "custom-writer",
+              name: "Writer Agent",
+              enabled: true,
+              phase: "post_processing",
+              promptTemplate: "Use available tools when useful.",
+              connectionId: connection.id,
+              model: "qa-model",
+              settings: {
+                enabledTools: ["search_lorebook"],
+                lorebookWriteEnabled: false,
+              },
+            },
+          ],
+          [connection],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+
+    await runtime.runPost("main response");
+
+    expect(requests[0]?.tools?.map((tool) => tool.name)).toEqual(["search_lorebook"]);
+  });
 });

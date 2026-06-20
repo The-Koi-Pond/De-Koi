@@ -88,6 +88,11 @@ import {
   serializeIllustratorAvatarReferenceSettings,
   type IllustratorAvatarReferenceMode,
 } from "../../../../engine/generation/illustrator-settings";
+import {
+  buildAgentLorebookWriterSaveState,
+  LOREBOOK_WRITE_TOOL_NAME,
+  normalizeAgentLorebookWriterEditorState,
+} from "../lib/agent-lorebook-writer-settings";
 
 function createCustomAgentType(name: string): string {
   const slug =
@@ -111,7 +116,6 @@ const SPOTIFY_OAUTH_SETTING_KEYS = [
   "spotifyExpiresAt",
   "spotifyScope",
 ] as const;
-const LOREBOOK_WRITE_TOOL_NAME = "save_lorebook_entry";
 const GENERIC_AGENT_TOOL_PICKER_HIDDEN_NAMES = new Set([LOREBOOK_WRITE_TOOL_NAME]);
 const VISIBLE_BUILT_IN_AGENT_TOOLS = BUILT_IN_TOOLS.filter(
   (tool) => !GENERIC_AGENT_TOOL_PICKER_HIDDEN_NAMES.has(tool.name),
@@ -204,28 +208,6 @@ function readBooleanSetting(value: unknown, fallback: boolean): boolean {
     if (["false", "0", "no", "off"].includes(normalized)) return false;
   }
   return fallback;
-}
-
-function readStringSetting(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function readStringListSetting(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => readStringSetting(entry))
-    .filter((entry) => entry.length > 0);
-}
-
-function readEnabledToolsSetting(settings: Record<string, unknown>, fallback: string[]): string[] {
-  if (!Array.isArray(settings.enabledTools)) return fallback;
-  return readStringListSetting(settings.enabledTools);
-}
-
-function readWritableLorebookIdSetting(settings: Record<string, unknown>): string {
-  const directId = readStringSetting(settings.writableLorebookId) || readStringSetting(settings.targetLorebookId);
-  if (directId) return directId;
-  return readStringListSetting(settings.writableLorebookIds)[0] ?? "";
 }
 
 // ═══════════════════════════════════════════════
@@ -345,12 +327,10 @@ export function AgentEditor() {
       setLocalInjectAsSection(
         (settings.injectAsSection as boolean | undefined) ?? defaultSettings.injectAsSection === true,
       );
-      const enabledTools = readEnabledToolsSetting(settings, DEFAULT_AGENT_TOOLS[dbConfig.type] ?? []);
-      setLocalEnabledTools(enabledTools);
-      setLocalLorebookWriteEnabled(
-        readBooleanSetting(settings.lorebookWriteEnabled, false) || enabledTools.includes(LOREBOOK_WRITE_TOOL_NAME),
-      );
-      setLocalWritableLorebookId(readWritableLorebookIdSetting(settings));
+      const writerState = normalizeAgentLorebookWriterEditorState(settings, DEFAULT_AGENT_TOOLS[dbConfig.type] ?? []);
+      setLocalEnabledTools(writerState.enabledTools);
+      setLocalLorebookWriteEnabled(writerState.lorebookWriteEnabled);
+      setLocalWritableLorebookId(writerState.writableLorebookId);
       setLocalSpotifyClientId(settings.spotifyClientId ?? "");
       setLocalSourceLorebookIds(settings.sourceLorebookIds ?? []);
       setLocalUseChatActiveLorebooks(
@@ -566,8 +546,14 @@ export function AgentEditor() {
       localActivationScanDepth === ""
         ? DEFAULT_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH
         : normalizeCustomAgentActivationScanDepth(localActivationScanDepth);
-    const writableLorebookId = localWritableLorebookId.trim();
-    const lorebookWriterEnabled = isEditingCustomAgent && localLorebookWriteEnabled;
+    const writerSaveState = buildAgentLorebookWriterSaveState({
+      enabledTools: localEnabledTools,
+      isEditingCustomAgent,
+      lorebookWriteEnabled: localLorebookWriteEnabled,
+      writableLorebookId: localWritableLorebookId,
+    });
+    const writableLorebookId = writerSaveState.writableLorebookId;
+    const lorebookWriterEnabled = writerSaveState.lorebookWriterEnabled;
 
     if (lorebookWriterEnabled && !writableLorebookId) {
       setSaveError("Select a target lorebook before enabling lorebook writing for this agent.");
@@ -581,13 +567,6 @@ export function AgentEditor() {
       setSaveError("Select an available target lorebook before enabling lorebook writing for this agent.");
       return false;
     }
-
-    const normalizedEnabledTools = Array.from(
-      new Set(localEnabledTools.map((tool) => tool.trim()).filter((tool) => tool.length > 0)),
-    );
-    const effectiveEnabledTools = lorebookWriterEnabled
-      ? Array.from(new Set([...normalizedEnabledTools, LOREBOOK_WRITE_TOOL_NAME]))
-      : normalizedEnabledTools.filter((tool) => tool !== LOREBOOK_WRITE_TOOL_NAME);
 
     // Preserve OAuth fields the form doesn't expose. The native update replaces
     // `settings` wholesale, so anything we omit here would be wiped — and the
@@ -622,14 +601,8 @@ export function AgentEditor() {
         ...(localMaxTokens !== "" ? { maxTokens: clampAgentMaxTokens(localMaxTokens) } : {}),
         ...(localRunInterval !== "" ? { runInterval: Number(localRunInterval) } : {}),
         ...(localInjectAsSection ? { injectAsSection: true } : {}),
-        enabledTools: effectiveEnabledTools,
-        ...(lorebookWriterEnabled
-          ? {
-              lorebookWriteEnabled: true,
-              writableLorebookId,
-              writableLorebookIds: [writableLorebookId],
-            }
-          : {}),
+        enabledTools: writerSaveState.enabledTools,
+        ...writerSaveState.writerSettings,
         ...(localSpotifyClientId ? { spotifyClientId: localSpotifyClientId } : {}),
         ...(isKnowledgeRetrievalAgent || isKnowledgeRouterAgent
           ? { useChatActiveLorebooks: localUseChatActiveLorebooks }
@@ -1079,7 +1052,11 @@ export function AgentEditor() {
                 disabled={!localLorebookWriteEnabled && lorebooksLoaded && lorebookOptions.length === 0}
                 onClick={() => {
                   if (!localLorebookWriteEnabled && lorebooksLoaded && lorebookOptions.length === 0) return;
-                  setLocalLorebookWriteEnabled((value) => !value);
+                  const nextEnabled = !localLorebookWriteEnabled;
+                  setLocalLorebookWriteEnabled(nextEnabled);
+                  if (!nextEnabled) {
+                    setLocalEnabledTools((tools) => tools.filter((tool) => tool !== LOREBOOK_WRITE_TOOL_NAME));
+                  }
                   markDirty();
                 }}
                 className={cn(
