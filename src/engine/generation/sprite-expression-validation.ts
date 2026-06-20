@@ -16,6 +16,11 @@ export interface SpriteExpressionEntry {
   transition?: unknown;
 }
 
+export interface SpriteExpressionCompletionOptions {
+  defaultSourceText?: string;
+  sourceTextByCharacterId?: ReadonlyMap<string, string>;
+}
+
 interface ExpressionValidationWarning {
   message: string;
 }
@@ -183,13 +188,119 @@ function resolveExpression(expression: string, availableExpressions: string[]): 
 }
 
 function fallbackExpression(expressions: string[]): string | null {
-  const normalizedFallbacks = new Set(["neutral", "default", "idle", "fullneutral", "fulldefault", "fullidle"]);
+  const normalizedFallbacks = new Set([
+    "neutral",
+    "default",
+    "normal",
+    "calm",
+    "idle",
+    "fullneutral",
+    "fulldefault",
+    "fullnormal",
+    "fullcalm",
+    "fullidle",
+  ]);
   return (
     expressions.find((entry) => normalizedFallbacks.has(normalizeExpressionToken(entry))) ??
-    expressions.find((entry) => /^full[_-]?(?:neutral|default|idle)$/i.test(entry.trim())) ??
+    expressions.find((entry) => /^full[_-]?(?:neutral|default|normal|calm|idle)$/i.test(entry.trim())) ??
     expressions[0] ??
     null
   );
+}
+
+function resolveInferredExpression(expression: string, availableExpressions: string[]): string | null {
+  const trimmed = expression.trim();
+  if (!trimmed) return null;
+
+  const lower = trimmed.toLowerCase();
+  const exact = availableExpressions.find((entry) => entry.toLowerCase() === lower);
+  if (exact) return exact;
+
+  const normalized = normalizeExpressionToken(trimmed);
+  const normalizedExact = availableExpressions.find((entry) => normalizeExpressionToken(entry) === normalized);
+  if (normalizedExact) return normalizedExact;
+
+  return availableExpressions.find((entry) => getExpressionPrefixVariant(entry, trimmed)) ?? null;
+}
+
+function splitSourceSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?…。！？])\s+|[\r\n]+/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function splitSourceClauses(text: string): string[] {
+  return text
+    .split(/\b(?:while|whilst|whereas|but|though|although|however|meanwhile)\b|[;:]/iu)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function includesCharacterAlias(text: string, character: AvailableSpriteCharacter): boolean {
+  const normalizedText = normalizeLookupToken(text);
+  if (!normalizedText) return false;
+  return normalizeNameAliases(character.characterName).some((alias) => alias && normalizedText.includes(alias));
+}
+
+function characterScopedSourceText(character: AvailableSpriteCharacter, sourceText: string): string {
+  const text = sourceText.trim();
+  if (!text) return "";
+
+  const namedSentence = splitSourceSentences(text).find((sentence) => includesCharacterAlias(sentence, character));
+  if (!namedSentence) return text;
+
+  return splitSourceClauses(namedSentence).find((clause) => includesCharacterAlias(clause, character)) ?? namedSentence;
+}
+
+function inferExpressionCandidatesFromText(text: string): string[] {
+  const lower = text.toLowerCase();
+  const candidates: string[] = [];
+
+  const add = (...values: string[]) => {
+    for (const value of values) {
+      if (!candidates.includes(value)) candidates.push(value);
+    }
+  };
+
+  if (/\b(blush|blushes|blushing|fluster|flustered|embarrass|embarrassed|shy|bashful)\b/.test(lower)) {
+    add("blush", "embarrassed", "shy", "flustered");
+  }
+  if (/\b(angry|anger|rage|furious|annoyed|irritated|frustrated|glare|glares|scowl|scowls)\b/.test(lower)) {
+    add("angry", "annoyed", "irritated");
+  }
+  if (/\b(sad|cry|cries|crying|tears|sorrow|grief|hurt|heartbroken|melancholy)\b/.test(lower)) {
+    add("sad", "crying", "melancholy");
+  }
+  if (/\b(happy|smile|smiles|smiling|grin|grins|grinning|laugh|laughs|laughing|joy|excited|delighted)\b/.test(lower)) {
+    add("happy", "smile", "joy", "excited");
+  }
+  if (/\b(surprised|surprise|shock|shocked|gasp|startled|stunned)\b/.test(lower)) {
+    add("surprised", "shocked", "startled");
+  }
+  if (/\b(scared|afraid|fear|fearful|terrified|panic|panicked|nervous|anxious)\b/.test(lower)) {
+    add("scared", "afraid", "nervous", "anxious");
+  }
+  if (/\b(disgust|disgusted|gross|repulsed|repulsing)\b/.test(lower)) {
+    add("disgusted", "disgust");
+  }
+  if (/\b(think|thinking|consider|considering|wonder|wondering|hmm|thoughtful|ponder)\b/.test(lower)) {
+    add("thinking", "thoughtful", "ponder");
+  }
+
+  add("neutral", "default", "normal", "calm", "idle");
+  return candidates;
+}
+
+function pickFallbackExpression(character: AvailableSpriteCharacter, sourceText: string): string | null {
+  const scopedSourceText = characterScopedSourceText(character, sourceText);
+  if (scopedSourceText) {
+    for (const candidate of inferExpressionCandidatesFromText(scopedSourceText)) {
+      const resolved = resolveInferredExpression(candidate, character.expressions);
+      if (resolved) return resolved;
+    }
+  }
+  return fallbackExpression(character.expressions);
 }
 
 function validateSpriteExpressionEntries<T extends SpriteExpressionEntry>(
@@ -257,6 +368,7 @@ export function completeRequiredSpriteExpressionEntries<T extends SpriteExpressi
   expressions: T[] | undefined,
   availableSprites: AvailableSpriteCharacter[] | undefined,
   requiredCharacterIds: readonly unknown[] | undefined,
+  options: SpriteExpressionCompletionOptions = {},
 ): ExpressionValidationResult<SpriteExpressionEntry> {
   const validation = validateSpriteExpressionEntries(expressions, availableSprites);
   if (!Array.isArray(availableSprites) || !Array.isArray(requiredCharacterIds)) {
@@ -275,15 +387,19 @@ export function completeRequiredSpriteExpressionEntries<T extends SpriteExpressi
     if (!characterId || seen.has(characterId)) continue;
     const character = availableSprites.find((sprite) => sprite.characterId === characterId);
     if (!character) continue;
-    const expression = fallbackExpression(character.expressions);
+    const sourceText = options.sourceTextByCharacterId?.get(characterId) ?? options.defaultSourceText ?? "";
+    const expression = pickFallbackExpression(character, sourceText);
     if (!expression) continue;
     completed.push({
       characterId: character.characterId,
       characterName: character.characterName,
       expression,
-      transition: "none",
+      transition: "crossfade",
     });
     seen.add(character.characterId);
+    validation.warnings.push({
+      message: `Expression agent omitted ${character.characterName} - filled missing required expression "${expression}"`,
+    });
   }
 
   return { expressions: completed, warnings: validation.warnings };
