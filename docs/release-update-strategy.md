@@ -44,6 +44,12 @@ or `pnpm tauri build`. Source builds are developer workflows, not a substitute
 for a release artifact that includes user-facing notes, screenshots, license
 metadata, and exact source identification.
 
+Source users who intentionally want to track current `main` can use
+`.\start-main.cmd` on Windows. That launcher updates the git checkout to
+`origin/main`, rebuilds the local Tauri executable when needed, and starts the
+desktop app. It is a source workflow, not a stable release installer or signed
+auto-update channel.
+
 ## End-User Update Guidance
 
 Updates are manual in the current refactor build.
@@ -66,6 +72,8 @@ the user completed that platform installer or replacement step.
 - The app update UI should describe updates as manual installs.
 - `update_check` may compare the current version against GitHub Releases.
 - `update_apply` should open the release page or return a manual-update result.
+- `start-main.cmd` may update source checkouts to `origin/main`; release builds
+  must not present that source workflow as a silent desktop installer update.
 - Pre-alpha builds must not publish or advertise updater metadata.
 - Failed update handoff recovery is to download the latest release manually from
   GitHub Releases.
