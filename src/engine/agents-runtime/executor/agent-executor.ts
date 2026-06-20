@@ -1050,7 +1050,8 @@ function formatAgentParseError(config: Pick<AgentExecConfig, "name">, error: str
 
 export function shouldRunAgentIndividually(config: Pick<AgentExecConfig, "type">): boolean {
   // These agents either need compact prompts or carry large private extras that
-  // must not be merged into unrelated batched agent requests.
+  // must not be merged into unrelated batched agent requests. Quest agents also
+  // compact quest progress, so they stay isolated from non-quest prompt context.
   return (
     config.type === "expression" ||
     config.type === "echo-chamber" ||
