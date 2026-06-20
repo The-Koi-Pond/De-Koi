@@ -70,10 +70,9 @@ function readStringList(value: unknown): string[] | undefined {
   return entries.length ? entries : undefined;
 }
 
-function questMetadataFromRecord(record: Record<string, unknown>): Pick<
-  NormalizedQuestUpdate,
-  "description" | "rewards" | "notes"
-> {
+function questMetadataFromRecord(
+  record: Record<string, unknown>,
+): Pick<NormalizedQuestUpdate, "description" | "rewards" | "notes"> {
   const description = readString(record.description).trim();
   const rewards = readStringList(record.rewards);
   const notes = readString(record.notes).trim();
@@ -162,7 +161,6 @@ export function compactQuestProgressForContext(value: unknown): QuestProgress[] 
     if (quest.completed) return [];
 
     const objectives = quest.objectives.filter((objective) => !objective.completed);
-    if (quest.objectives.length > 0 && objectives.length === 0) return [];
 
     return [
       {

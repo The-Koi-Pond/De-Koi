@@ -608,4 +608,54 @@ describe("prompt assembly preset depth sections", () => {
     expect(providerPrompt).toContain("<last_message>\n    Current last-message block.");
     expect(providerPrompt.match(/<last_message>/g)).toHaveLength(1);
   });
+
+  it("keeps all-done active quest identity in quest tracker prompt context", async () => {
+    const prompt = await assembleGenerationPrompt(
+      promptAssemblyStorage({ sections: [] }),
+      {
+        chat: {
+          id: "chat-1",
+          mode: "game",
+          characterIds: ["char-1"],
+          metadata: {
+            activeAgentIds: ["quest"],
+          },
+          gameState: {
+            playerStats: {
+              status: "Ready to report back.",
+              stats: [],
+              attributes: null,
+              skills: {},
+              inventory: [],
+              activeQuests: [
+                {
+                  questEntryId: "river-shrine",
+                  name: "Restore the River Shrine",
+                  currentStage: 2,
+                  objectives: [{ objectiveId: "done", text: "Repair the sluice gate", completed: true }],
+                  rewards: ["Village renown"],
+                  notes: "The elder is waiting for confirmation.",
+                  completed: false,
+                },
+              ],
+            },
+          },
+        },
+        storedMessages: [
+          { role: "user", content: "I fixed the sluice gate." },
+          { role: "assistant", content: "The restored water rushes through the shrine." },
+        ],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "I fixed the sluice gate.",
+      },
+    );
+
+    const providerPrompt = prompt.messages.map((message) => message.content).join("\n\n");
+
+    expect(providerPrompt).toContain("<quest_tracker>");
+    expect(providerPrompt).toContain("Restore the River Shrine");
+    expect(providerPrompt).toContain("Village renown");
+    expect(providerPrompt).not.toContain("Repair the sluice gate");
+  });
 });

@@ -163,6 +163,13 @@ describe("compactQuestProgressForContext", () => {
         objectives: [{ objectiveId: "open", text: "Repair the sluice gate", completed: false }],
         completed: false,
       },
+      {
+        questEntryId: "all-done",
+        name: "All Objectives Done",
+        currentStage: 1,
+        objectives: [],
+        completed: false,
+      },
     ]);
   });
 });
