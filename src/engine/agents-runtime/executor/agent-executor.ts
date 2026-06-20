@@ -1055,6 +1055,7 @@ export function shouldRunAgentIndividually(config: Pick<AgentExecConfig, "type">
     config.type === "expression" ||
     config.type === "echo-chamber" ||
     config.type === ILLUSTRATOR_AGENT_TYPE ||
+    config.type === "quest" ||
     config.type === "lorebook-keeper" ||
     config.type === "spotify"
   );
