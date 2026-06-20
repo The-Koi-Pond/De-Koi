@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultImageStyleProfileSettings } from "../../../engine/generation/image-style-profiles";
-import { migrateUiState, UI_STORE_VERSION } from "./persistence";
+import type { UIState } from "./model";
+import { migrateUiState, partializeUiState, UI_STORE_VERSION } from "./persistence";
 
 describe("ui persistence migration", () => {
   it("bumps the store version for the Deki chibi setting migration", () => {
@@ -67,5 +68,17 @@ describe("ui persistence migration", () => {
     });
 
     expect(migrated.conversationMessageStyle).toBe("classic");
+  });
+
+  it("persists the Echo Chamber open state with its placement settings", () => {
+    const partialized = partializeUiState({
+      echoChamberOpen: true,
+      echoChamberSide: "top-left",
+      echoChamberDismissedChatIds: { "chat-1": true },
+    } as unknown as UIState);
+
+    expect(partialized.echoChamberOpen).toBe(true);
+    expect(partialized.echoChamberSide).toBe("top-left");
+    expect(partialized.echoChamberDismissedChatIds).toEqual({ "chat-1": true });
   });
 });
