@@ -47,6 +47,7 @@ import { parseChatMetadata } from "../../../../../shared/lib/chat-display";
 import { formatTextQuotes } from "../../../../../shared/lib/dialogue-quotes";
 import { isSendShortcut } from "../../../../../shared/lib/send-shortcuts";
 import { applyTextareaQuoteFormat } from "../../../../../shared/lib/textarea-quotes";
+import { requestChatScrollToBottom } from "../../../../../shared/lib/chat-scroll-events";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../../../../shared/lib/utils";
 import { blobToDataUrl } from "../../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../../shared/lib/chat-attachment-images";
@@ -686,6 +687,7 @@ export const ChatInput = memo(function ChatInput({
           });
           invalidateGalleryImagesForManagedAttachments(qc, activeChatId, managedAttachments);
         }
+        requestChatScrollToBottom({ chatId: submittingChatId, behavior: "auto" });
       } catch (error) {
         let rollbackFailed = false;
         if (preparedManagedAttachments?.createdGalleryIds.length) {

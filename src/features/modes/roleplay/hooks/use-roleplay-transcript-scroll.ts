@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useChatStore } from "../../../../shared/stores/chat.store";
+import { CHAT_SCROLL_TO_BOTTOM_EVENT, type ChatScrollToBottomDetail } from "../../../../shared/lib/chat-scroll-events";
 import {
   isNearTranscriptBottom,
   preserveTranscriptScrollAfterPrepend,
@@ -43,6 +44,7 @@ export function useRoleplayTranscriptScroll({
   const userScrolledAwayRef = useRef(false);
   const lastScrollTopRef = useRef(0);
   const userScrolledAtRef = useRef(0);
+  const forcedBottomScrollRef = useRef<{ requestedAt: number; behavior: ScrollBehavior } | null>(null);
   const openedAtBottomChatIdRef = useRef<string | null>(null);
   const streamBuffer = useChatStore((state) => state.streamBuffers.get(activeChatId) ?? state.streamBuffer);
   const thinkingBuffer = useChatStore((state) => state.thinkingBuffers.get(activeChatId) ?? state.thinkingBuffer);
@@ -86,11 +88,47 @@ export function useRoleplayTranscriptScroll({
     if (!isStreaming) userScrolledAwayRef.current = false;
   }, [isStreaming]);
 
+  const scrollToMessagesBottom = useCallback((behavior: ScrollBehavior = "auto") => {
+    const element = scrollRef.current;
+    if (!element) return;
+    if (behavior === "smooth") {
+      element.scrollTo({ top: element.scrollHeight, behavior });
+      lastScrollTopRef.current = element.scrollTop;
+      return;
+    }
+    lastScrollTopRef.current = scrollTranscriptToBottom(element);
+  }, []);
+
+  const scheduleScrollToMessagesBottom = useCallback(
+    (behavior: ScrollBehavior = "auto") => {
+      scrollToMessagesBottom(behavior);
+      requestAnimationFrame(() => {
+        scrollToMessagesBottom(behavior);
+        requestAnimationFrame(() => scrollToMessagesBottom(behavior));
+      });
+    },
+    [scrollToMessagesBottom],
+  );
+
+  useEffect(() => {
+    const handleScrollRequest = (event: Event) => {
+      const detail = (event as CustomEvent<ChatScrollToBottomDetail>).detail;
+      if (!detail?.chatId || detail.chatId !== activeChatId) return;
+      const behavior = detail.behavior ?? "auto";
+      forcedBottomScrollRef.current = { requestedAt: Date.now(), behavior };
+      userScrolledAwayRef.current = false;
+      isNearBottomRef.current = true;
+      scheduleScrollToMessagesBottom(behavior);
+    };
+
+    window.addEventListener(CHAT_SCROLL_TO_BOTTOM_EVENT, handleScrollRequest);
+    return () => window.removeEventListener(CHAT_SCROLL_TO_BOTTOM_EVENT, handleScrollRequest);
+  }, [activeChatId, scheduleScrollToMessagesBottom]);
+
   const newestMsgId = messages?.[messages.length - 1]?.id;
   const newestMsgSwipeIndex = messages?.[messages.length - 1]?.activeSwipeIndex;
   const newestMsgRole = messages?.[messages.length - 1]?.role;
   const isOptimistic = newestMsgId?.startsWith("__optimistic_");
-  const forceScrollToNewest = isOptimistic || (isStreaming && newestMsgRole === "user");
   useLayoutEffect(() => {
     if (openedAtBottomChatIdRef.current === activeChatId || !messages?.length || isLoadingMoreRef.current) return;
     const element = scrollRef.current;
@@ -107,10 +145,18 @@ export function useRoleplayTranscriptScroll({
 
   useLayoutEffect(() => {
     if (isLoadingMoreRef.current) return;
+    const forcedBottomScroll = forcedBottomScrollRef.current;
+    const hasFreshForcedBottomScroll = !!forcedBottomScroll && Date.now() - forcedBottomScroll.requestedAt < 5000;
+    if (forcedBottomScroll && !hasFreshForcedBottomScroll) {
+      forcedBottomScrollRef.current = null;
+    }
+    const forceScrollToNewest = isOptimistic || (isStreaming && newestMsgRole === "user") || hasFreshForcedBottomScroll;
     if (forceScrollToNewest || (isNearBottomRef.current && !userScrolledAwayRef.current)) {
+      const behavior = forcedBottomScroll?.behavior ?? "auto";
+      forcedBottomScrollRef.current = null;
       const element = scrollRef.current;
       if (!element) return;
-      lastScrollTopRef.current = scrollTranscriptToBottom(element);
+      scrollToMessagesBottom(behavior);
       isNearBottomRef.current = true;
       userScrolledAwayRef.current = false;
       const frame = requestAnimationFrame(() => {
@@ -123,7 +169,16 @@ export function useRoleplayTranscriptScroll({
       });
       return () => cancelAnimationFrame(frame);
     }
-  }, [newestMsgId, newestMsgSwipeIndex, streamBuffer, thinkingBuffer, isStreaming, forceScrollToNewest]);
+  }, [
+    newestMsgId,
+    newestMsgSwipeIndex,
+    streamBuffer,
+    thinkingBuffer,
+    isStreaming,
+    isOptimistic,
+    newestMsgRole,
+    scrollToMessagesBottom,
+  ]);
 
   useLayoutEffect(() => {
     if (isLoadingMoreRef.current && scrollRef.current && !isFetchingNextPage) {

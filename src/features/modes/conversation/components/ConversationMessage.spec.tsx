@@ -190,4 +190,34 @@ describe("ConversationMessage memo subscriptions", () => {
 
     expect(onEdit).toHaveBeenCalledWith("message-edit", "\u201cworld\u201d");
   });
+
+  it("formats rendered conversation text with the quote preference", () => {
+    const renderedMessage: Message = {
+      ...message,
+      id: "message-render",
+      content: '"hello"',
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+
+    act(() => {
+      useUIStore.getState().setQuoteFormat("typographic");
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={renderedMessage}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container!.textContent).toContain("\u201chello\u201d");
+  });
 });

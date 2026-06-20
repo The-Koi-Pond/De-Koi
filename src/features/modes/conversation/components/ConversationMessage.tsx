@@ -282,14 +282,16 @@ export const ConversationMessage = memo(function ConversationMessage({
     ],
   );
   const renderedContent = useMemo(
-    () => resolveMessageMacros(message.content, macroContext),
-    [macroContext, message.content],
+    () => formatTextQuotes(resolveMessageMacros(message.content, macroContext), quoteFormat),
+    [macroContext, message.content, quoteFormat],
   );
   const renderedContentParts = useMemo(() => {
     if (!contentParts?.length) return null;
     const count = Math.max(1, Math.min(visiblePartCount ?? contentParts.length, contentParts.length));
-    return contentParts.slice(0, count).map((part) => resolveMessageMacros(part, macroContext));
-  }, [contentParts, macroContext, visiblePartCount]);
+    return contentParts
+      .slice(0, count)
+      .map((part) => formatTextQuotes(resolveMessageMacros(part, macroContext), quoteFormat));
+  }, [contentParts, macroContext, quoteFormat, visiblePartCount]);
 
   const qc = useQueryClient();
   const handleRemoveAttachment = useCallback(

@@ -19,6 +19,7 @@ import {
 import { createAgentRuntimeDebug, type AgentRuntimeDebugEntry } from "../debug.js";
 import { stripAvatarPathsReplacer } from "../strip-avatar-paths";
 import { worldStatePatchFromAgentData } from "../../generation/world-state-agent-result";
+import { compactQuestProgressForContext } from "../../shared/game-state/player-stats";
 
 const MAX_AGENT_CONTEXT_MESSAGES = 200;
 const EXPRESSION_AGENT_RECENT_CONTEXT_MESSAGES = 2;
@@ -137,6 +138,32 @@ function agentTemperature(config: Pick<AgentExecConfig, "settings">): number | u
 function batchAgentTemperature(configs: Array<Pick<AgentExecConfig, "settings">>): number | undefined {
   const temperatures = configs.map(agentTemperature).filter((value): value is number => typeof value === "number");
   return temperatures.length > 0 ? Math.min(...temperatures) : undefined;
+}
+
+function shouldCompactQuestContext(agentTypes: readonly string[]): boolean {
+  return agentTypes.includes("quest");
+}
+
+function compactQuestPlayerStatsForAgentContext(playerStats: unknown, agentTypes: readonly string[]): unknown {
+  if (!shouldCompactQuestContext(agentTypes) || !isJsonRecord(playerStats) || playerStats.activeQuests === undefined) {
+    return playerStats;
+  }
+
+  return {
+    ...playerStats,
+    activeQuests: compactQuestProgressForContext(playerStats.activeQuests),
+  };
+}
+
+function compactQuestGameStateForAgentContext(gameState: unknown, agentTypes: readonly string[]): unknown {
+  if (!shouldCompactQuestContext(agentTypes) || !isJsonRecord(gameState) || !isJsonRecord(gameState.playerStats)) {
+    return gameState;
+  }
+
+  return {
+    ...gameState,
+    playerStats: compactQuestPlayerStatsForAgentContext(gameState.playerStats, agentTypes),
+  };
 }
 
 function buildChatCompleteOptions(options: ChatCompleteOptions): ChatCompleteOptions {
@@ -690,6 +717,7 @@ export async function executeAgentBatch(
     // Batch uses the max contextSize among its members
     const batchContextSize = Math.max(...configs.map((c) => normalizeAgentContextSize(c.settings.contextSize)));
     const messages = buildAgentMessages(systemPrompt, context, "__batch__", batchContextSize, {
+      contextAgentTypes: configs.map((config) => config.type),
       finalInstruction: buildBatchFinalInstruction(configs),
     });
 
@@ -1021,12 +1049,14 @@ function formatAgentParseError(config: Pick<AgentExecConfig, "name">, error: str
 }
 
 export function shouldRunAgentIndividually(config: Pick<AgentExecConfig, "type">): boolean {
-  // These agents either need compact prompts or carry large private extras that
-  // must not be merged into unrelated batched agent requests.
+  // These agents need compact prompts, private extras, or per-type context shaping
+  // that must not be shared with unrelated batched agent requests. Quest prompts
+  // compact quest progress, while non-quest prompts keep full quest state.
   return (
     config.type === "expression" ||
     config.type === "echo-chamber" ||
     config.type === ILLUSTRATOR_AGENT_TYPE ||
+    config.type === "quest" ||
     config.type === "lorebook-keeper" ||
     config.type === "spotify"
   );
@@ -1417,7 +1447,7 @@ function buildAgentMessages(
   context: AgentContext,
   agentType: string,
   contextSize = 5,
-  options: { finalInstruction?: string } = {},
+  options: { contextAgentTypes?: readonly string[]; finalInstruction?: string } = {},
 ): ChatMessage[] {
   // ── 1. System message — already contains <role>, <lore>, <agents>, and extras ──
   const messages: ChatMessage[] = [{ role: "system", content: systemPrompt }];
@@ -1425,6 +1455,7 @@ function buildAgentMessages(
   // ── 2. Chat history as proper multi-turn messages ──
   // Slice to this agent's own contextSize (the shared pool may be larger)
   const recent = context.recentMessages.slice(-contextSize);
+  const contextAgentTypes = options.contextAgentTypes ?? [agentType];
   // Text-output agents (director, prose-guardian) evaluate pacing/writing
   // quality and do NOT need raw committed tracker JSON. Including it makes
   // the input look like `[assistant] roleplay + <committed_tracker_state>{...}`
@@ -1462,7 +1493,9 @@ function buildAgentMessages(
         }
         if (gs.presentCharacters?.length) trackerSummary.presentCharacters = gs.presentCharacters;
         if (gs.recentEvents?.length) trackerSummary.recentEvents = gs.recentEvents;
-        if (gs.playerStats) trackerSummary.playerStats = gs.playerStats;
+        if (gs.playerStats) {
+          trackerSummary.playerStats = compactQuestPlayerStatsForAgentContext(gs.playerStats, contextAgentTypes);
+        }
         if (gs.personaStats?.length) trackerSummary.personaStats = gs.personaStats;
         if (Object.keys(trackerSummary).length > 0) {
           content += `\n\n<committed_tracker_state>\n${JSON.stringify(trackerSummary, stripAvatarPathsReplacer)}\n</committed_tracker_state>`;
@@ -1638,7 +1671,9 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
 
   if (context.gameState) {
     parts.push(`<current_game_state>`);
-    parts.push(JSON.stringify(context.gameState, stripAvatarPathsReplacer));
+    parts.push(
+      JSON.stringify(compactQuestGameStateForAgentContext(context.gameState, agentTypes), stripAvatarPathsReplacer),
+    );
     parts.push(`</current_game_state>`);
   }
 
