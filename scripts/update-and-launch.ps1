@@ -188,12 +188,17 @@ try {
   }
 
   $beforeCommit = Get-GitOutput @("rev-parse", "HEAD")
+  $currentBranch = Get-CurrentGitBranch
   $trackedChanges = Get-GitOutput @("status", "--porcelain", "--untracked-files=no")
   $stashed = $false
 
   try {
     if (-not $NoUpdate) {
       if ($trackedChanges) {
+        if ($currentBranch -ne $Branch) {
+          throw "Tracked local changes exist on this checkout. Commit or stash them before switching to $Remote/$Branch for a clean main-channel build."
+        }
+
         if ($NoAutoStash) {
           throw "Tracked local changes exist. Commit, stash, or rerun without -NoAutoStash to let the launcher temporarily stash and reapply them."
         }
@@ -208,7 +213,6 @@ try {
       Invoke-Git @("fetch", "--prune", $Remote, "+refs/heads/${Branch}:refs/remotes/${Remote}/${Branch}") | Out-Null
       Invoke-Git @("rev-parse", "--verify", "${Remote}/${Branch}^{commit}") -Capture | Out-Null
 
-      $currentBranch = Get-CurrentGitBranch
       if ($currentBranch -eq $Branch) {
         Write-Step "Fast-forwarding $Branch to $Remote/$Branch."
         Invoke-Git @("merge", "--ff-only", "$Remote/$Branch") | Out-Null
@@ -233,7 +237,7 @@ try {
     $needsBuild = $false
   }
 
-  if ($needsBuild -and (Test-DeKoiRunning)) {
+  if ($needsBuild -and -not $DryRun -and (Test-DeKoiRunning)) {
     throw "De-Koi is already running. Close it before rebuilding from main."
   }
 
@@ -250,15 +254,15 @@ try {
   }
 
   if (-not $NoLaunch) {
-    if (-not (Test-Path $ReleaseExe)) {
-      throw "Release executable is missing: $ReleaseExe"
-    }
-
-    if (Test-DeKoiRunning) {
-      Write-Step "De-Koi is already running."
-    } elseif ($DryRun) {
+    if ($DryRun) {
       Write-Step "DRY RUN: launch $ReleaseExe"
+    } elseif (Test-DeKoiRunning) {
+      Write-Step "De-Koi is already running."
     } else {
+      if (-not (Test-Path $ReleaseExe)) {
+        throw "Release executable is missing: $ReleaseExe"
+      }
+
       Write-Step "Launching De-Koi."
       Start-Process -FilePath $ReleaseExe -WorkingDirectory (Split-Path $ReleaseExe)
     }
