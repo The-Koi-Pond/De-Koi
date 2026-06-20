@@ -6,6 +6,7 @@ export type StagedAgentImportPayload = {
 };
 
 export type AgentImportBatchResult = {
+  atomic: boolean;
   imported: number;
   failures: string[];
   created: Array<{ fileName: string; name: string; id: string }>;
@@ -63,7 +64,7 @@ function resultFromOutcomes(outcomes: AgentImportBatchOutcome[]): AgentImportBat
     )
     .map(({ fileName, name, id }) => ({ fileName, name, id }));
   const failures = outcomes.map(outcomeFailure).filter((failure): failure is string => Boolean(failure));
-  return { imported: created.length, failures, created, kept, rolledBack, outcomes };
+  return { atomic: kept.length === 0, imported: created.length, failures, created, kept, rolledBack, outcomes };
 }
 
 export async function commitAgentImportBatch(

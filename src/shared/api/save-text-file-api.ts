@@ -1,6 +1,6 @@
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { triggerDownload } from "./download-payload";
-import { invokeTauri } from "./tauri-client";
+import { hasEmbeddedTauriIpc, invokeTauri } from "./tauri-client";
 
 type BrowserSaveFilePicker = (options?: {
   suggestedName?: string;
@@ -41,8 +41,7 @@ function browserFilePickerTypes(filters: Array<{ name: string; extensions: strin
 }
 
 export function canUseEmbeddedNativeTextFileSave(): boolean {
-  if (typeof window === "undefined") return false;
-  return Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+  return hasEmbeddedTauriIpc();
 }
 
 async function saveTextFileWithEmbeddedNativeDialog({

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   saveDialog: vi.fn(),
   triggerDownload: vi.fn(),
   invokeTauri: vi.fn(),
+  hasEmbeddedTauriIpc: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -15,6 +16,7 @@ vi.mock("./download-payload", () => ({
 }));
 
 vi.mock("./tauri-client", () => ({
+  hasEmbeddedTauriIpc: mocks.hasEmbeddedTauriIpc,
   invokeTauri: mocks.invokeTauri,
 }));
 
@@ -24,6 +26,8 @@ describe("saveTextFileToUserSelectedLocation", () => {
     mocks.saveDialog.mockReset();
     mocks.triggerDownload.mockReset();
     mocks.invokeTauri.mockReset();
+    mocks.hasEmbeddedTauriIpc.mockReset();
+    mocks.hasEmbeddedTauriIpc.mockReturnValue(false);
     delete (window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker;
     delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
     delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
@@ -114,7 +118,7 @@ describe("saveTextFileToUserSelectedLocation", () => {
   });
 
   it("surfaces native dialog errors in embedded Tauri instead of falling back", async () => {
-    (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {};
+    mocks.hasEmbeddedTauriIpc.mockReturnValue(true);
     mocks.saveDialog.mockRejectedValue(new Error("dialog denied"));
 
     const { saveTextFileToUserSelectedLocation } = await import("./save-text-file-api");
@@ -127,7 +131,7 @@ describe("saveTextFileToUserSelectedLocation", () => {
   });
 
   it("writes through Tauri only after an embedded native path is selected", async () => {
-    (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {};
+    mocks.hasEmbeddedTauriIpc.mockReturnValue(true);
     mocks.saveDialog.mockResolvedValue("C:\\exports\\agent.json");
     mocks.invokeTauri.mockResolvedValue({ saved: true });
 
@@ -154,6 +158,22 @@ describe("saveTextFileToUserSelectedLocation", () => {
 
   it("does not take the native save path from a broad Tauri marker without IPC", async () => {
     (window as unknown as { __TAURI__: unknown }).__TAURI__ = {};
+
+    const { canUseEmbeddedNativeTextFileSave, saveTextFileToUserSelectedLocation } = await import(
+      "./save-text-file-api"
+    );
+    const result = await saveTextFileToUserSelectedLocation({ filename: "agent.json", content: "{}" });
+
+    expect(canUseEmbeddedNativeTextFileSave()).toBe(false);
+    expect(result).toBe("downloaded");
+    expect(mocks.saveDialog).not.toHaveBeenCalled();
+    expect(mocks.invokeTauri).not.toHaveBeenCalled();
+    expect(mocks.triggerDownload).toHaveBeenCalledWith({ blob: expect.any(Blob), filename: "agent.json" });
+  });
+
+  it("does not take the native save path from a broad Tauri internals marker without IPC", async () => {
+    (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {};
+    mocks.hasEmbeddedTauriIpc.mockReturnValue(false);
 
     const { canUseEmbeddedNativeTextFileSave, saveTextFileToUserSelectedLocation } = await import(
       "./save-text-file-api"

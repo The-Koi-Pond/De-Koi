@@ -2,6 +2,7 @@
 // Panel: Agents & Tools
 // ──────────────────────────────────────────────
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Camera,
@@ -22,6 +23,7 @@ import {
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
   agentEnabledFlag,
+  agentKeys,
   useAgentConfigs,
   useCreateAgent,
   useDeleteAgent,
@@ -63,6 +65,7 @@ function formatImportBatchDetails(result: AgentImportBatchResult): string[] {
 }
 
 export function AgentsPanel() {
+  const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const { data: agentConfigs, isLoading } = useAgentConfigs();
   const { data: customTools } = useCustomTools();
@@ -204,9 +207,10 @@ export function AgentsPanel() {
       if (failedCount > 0) {
         setImportFailureDetails(detailLines);
         const keptAfterRollback = result.kept.length;
-        if (keptAfterRollback > 0) {
-          toast.warning(
-            `Agent import completed with issues: ${result.imported} imported, ${keptAfterRollback} kept after rollback failed`,
+        if (!result.atomic) {
+          await qc.invalidateQueries({ queryKey: agentKeys.all });
+          toast.error(
+            `Agent import requires cleanup: ${keptAfterRollback} kept after rollback failed`,
             {
               description: formatImportFailureDescription(detailLines),
             },
@@ -228,7 +232,7 @@ export function AgentsPanel() {
         toast.success(`Imported ${result.imported} agent${result.imported === 1 ? "" : "s"}`);
       }
     },
-    [agentConfigRows, createAgent, deleteAgent],
+    [agentConfigRows, createAgent, deleteAgent, qc],
   );
 
   const handlePickAgentImage = useCallback((target: { id?: string; agentType?: string }) => {

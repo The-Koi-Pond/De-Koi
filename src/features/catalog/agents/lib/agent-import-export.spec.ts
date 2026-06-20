@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_FOLDER_EXPORT_KIND,
   AGENT_MANIFEST_KIND,
+  agentExportFilename,
   buildAgentExportEnvelope,
   normalizeAgentImportPayload,
   normalizeAgentImportPayloads,
@@ -59,6 +60,15 @@ describe("agent import/export", () => {
         },
       ],
     });
+  });
+
+  it("suggests distinct export filenames for same-name agents", () => {
+    expect(agentExportFilename(agentRow({ id: "agent-1", type: "custom-plotter-abc", name: "Plotter" }))).toBe(
+      "plotter-custom-plotter-abc.json",
+    );
+    expect(agentExportFilename(agentRow({ id: "agent-2", type: "custom-plotter-def", name: "Plotter" }))).toBe(
+      "plotter-custom-plotter-def.json",
+    );
   });
 
   it("imports an agent folder export as a new custom agent payload", () => {
@@ -124,6 +134,18 @@ describe("agent import/export", () => {
       promptTemplate: "Find the next beat.",
       settings: { resultType: "text_rewrite", maxTokens: 256 },
     });
+  });
+
+  it("exports only payloads that the import normalizer accepts", () => {
+    const envelope = buildAgentExportEnvelope(agentRow(), "2026-06-20T12:00:00.000Z");
+
+    expect(() => normalizeAgentImportPayload(envelope)).not.toThrow();
+  });
+
+  it("rejects non-custom rows instead of exporting files the importer will reject", () => {
+    expect(() =>
+      buildAgentExportEnvelope(agentRow({ type: "secret_plot", name: "Secret Plot" }), "2026-06-20T12:00:00.000Z"),
+    ).toThrow('Only custom agent types can be exported. Received "secret_plot".');
   });
 
   it("imports the M.E. agent folder shape without emptying fields", () => {

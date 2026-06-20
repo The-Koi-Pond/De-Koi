@@ -91,7 +91,9 @@ export function createCustomAgentType(name: string): string {
 }
 
 export function agentExportFilename(agent: Pick<AgentConfigRow, "name" | "type">): string {
-  return `${slugifyAgentName(agent.name || agent.type)}.json`;
+  const nameSlug = slugifyAgentName(agent.name || "agent");
+  const typeSlug = slugifyAgentName(agent.type || "custom-agent");
+  return `${nameSlug}-${typeSlug}.json`;
 }
 
 function buildAgentConfig(agent: AgentConfigRow): CreateAgentConfigInput {
@@ -113,7 +115,11 @@ function buildAgentConfig(agent: AgentConfigRow): CreateAgentConfigInput {
 
 export function buildAgentExportEnvelope(agent: AgentConfigRow, exportedAt = new Date().toISOString()): AgentFolderExport {
   const config = buildAgentConfig(agent);
-  const type = readString(config.type) || createCustomAgentType(agent.name || agent.type);
+  const type = readCustomAgentType(config.type);
+  if (!type) {
+    throw new Error(`Only custom agent types can be exported. Received "${config.type}".`);
+  }
+  normalizeAgentConfig(config, new Set());
   return {
     kind: AGENT_FOLDER_EXPORT_KIND,
     version: AGENT_EXPORT_VERSION,

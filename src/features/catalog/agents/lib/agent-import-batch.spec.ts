@@ -30,6 +30,7 @@ describe("agent import batch commit", () => {
     const result = await commitAgentImportBatch([staged("first"), staged("second")], createAgent, deleteAgent);
 
     expect(result).toEqual({
+      atomic: true,
       imported: 0,
       failures: [
         "second.json / second: duplicate type",
@@ -55,6 +56,7 @@ describe("agent import batch commit", () => {
     const result = await commitAgentImportBatch([staged("first"), staged("second")], createAgent, deleteAgent);
 
     expect(result).toEqual({
+      atomic: false,
       imported: 0,
       failures: [
         "first.json / first: rollback failed for agent-1: delete denied",
@@ -87,6 +89,7 @@ describe("agent import batch commit", () => {
     );
 
     expect(result).toEqual({
+      atomic: true,
       imported: 0,
       failures: [
         "first.json / first: duplicate type",
