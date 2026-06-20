@@ -443,7 +443,7 @@ fn decoded_profile_json_assets(
     let mut warnings = Vec::new();
     for (index, asset) in assets.iter().enumerate() {
         let path = profile_asset_manifest_path(asset, index)?;
-        if should_skip_profile_asset_manifest_path(path) {
+        if is_legacy_cleanup_backup_or_game_marker_asset_path(path) {
             continue;
         }
         let relative = safe_profile_asset_path(path)?;
@@ -596,7 +596,7 @@ fn decoded_profile_zip_assets(
     let mut warnings = Vec::new();
     for (index, asset) in assets.iter().enumerate() {
         let path = profile_asset_manifest_path(asset, index)?;
-        if should_skip_profile_asset_manifest_path(path) {
+        if is_legacy_cleanup_backup_or_game_marker_asset_path(path) {
             continue;
         }
         let relative = safe_profile_asset_path(path)?;
@@ -1179,7 +1179,7 @@ fn is_legacy_cleanup_backup_asset_path(value: &str) -> bool {
         && parts.contains(&".cleanup-backups")
 }
 
-fn should_skip_profile_asset_manifest_path(value: &str) -> bool {
+fn is_legacy_cleanup_backup_or_game_marker_asset_path(value: &str) -> bool {
     is_legacy_cleanup_backup_asset_path(value) || is_game_asset_marker_path(value)
 }
 
