@@ -251,6 +251,26 @@ describe("Spotify tool runtime", () => {
     });
   });
 
+  it("does not remember tracks when Spotify play is only pending verification", async () => {
+    const chat = { id: "chat-1", mode: "roleplay", metadata: { spotifyRecentTracks: [OLD_URI] } };
+    const integrations = spotifyIntegrations({
+      async play<T = unknown>() {
+        return asValue<T>({ success: true, applied: true, playbackPending: true, uris: [FRESH_URI] });
+      },
+    });
+
+    await executeBuiltInTool(
+      { storage: storageFor(chat), integrations },
+      runtimeInput(chat),
+      { id: "agent-1" },
+      toolCall("spotify_play", { uri: FRESH_URI }),
+    );
+
+    expect(chat.metadata).toMatchObject({
+      spotifyRecentTracks: [OLD_URI],
+    });
+  });
+
   it("stores game Spotify plays in the game recent-track bucket", async () => {
     const chat = {
       id: "chat-1",

@@ -193,7 +193,9 @@ function normalizeSpotifyTrackHistory(value: unknown, limit = SPOTIFY_RECENT_TRA
 }
 
 function spotifyPlaybackAppliedTrackUris(result: unknown, fallbackTrackUris: string[]): string[] {
-  if (!isRecord(result) || result.success === false || result.applied !== true) return [];
+  if (!isRecord(result) || result.success === false || result.applied !== true || result.playbackPending === true) {
+    return [];
+  }
   const responseSources = [result.queued, result.uris].filter(Array.isArray);
   if (responseSources.length === 0) return fallbackTrackUris;
   return uniqueStrings(responseSources.flatMap((source) => normalizeSpotifyTrackHistory(source)));
