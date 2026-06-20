@@ -508,6 +508,24 @@ function normalizeLorebookEntryMatchKey(value: unknown): string {
   return readString(value).trim().toLowerCase();
 }
 
+function normalizeLorebookAppendBlock(value: string): string {
+  return value
+    .replace(/\r\n/g, "\n")
+    .trim()
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+function lorebookContentHasAppendBlock(existingContent: string, content: string): boolean {
+  const normalizedContent = normalizeLorebookAppendBlock(content);
+  if (!normalizedContent) return false;
+  return existingContent
+    .split(/\n\s*\n+/)
+    .map(normalizeLorebookAppendBlock)
+    .filter(Boolean)
+    .some((block) => block === normalizedContent);
+}
+
 function agentEnabledToolNames(agent: JsonRecord): string[] {
   const settings = parseRecord(agent.settings);
   const enabledTools = settings.enabledTools;
@@ -559,10 +577,22 @@ async function saveLorebookEntryTool(storage: StorageGateway, agent: JsonRecord,
   const existingEntries = await storage.list<JsonRecord>("lorebook-entries", {
     filters: { lorebookId: writableLorebookId },
   });
-  const existing = existingEntries.find((entry) => normalizeLorebookEntryMatchKey(entry.name) === name.toLowerCase());
+  const matchKey = normalizeLorebookEntryMatchKey(name);
+  const existing = existingEntries.find((entry) => normalizeLorebookEntryMatchKey(entry.name) === matchKey);
   const sourceAgentId = readString(agent.id).trim() || null;
 
-  if (!existing || mode === "create") {
+  if (existing && mode === "create") {
+    return {
+      success: false,
+      applied: false,
+      error: "A lorebook entry with this name already exists.",
+      lorebookId: writableLorebookId,
+      entryId: readString(existing.id).trim() || null,
+      name,
+    };
+  }
+
+  if (!existing) {
     const created = await storage.create<JsonRecord>("lorebook-entries", {
       lorebookId: writableLorebookId,
       name,
@@ -592,7 +622,7 @@ async function saveLorebookEntryTool(storage: StorageGateway, agent: JsonRecord,
   const existingContent = readString(existing.content);
   const rawNextContent =
     mode === "append" && existingContent.trim()
-      ? existingContent.includes(content)
+      ? lorebookContentHasAppendBlock(existingContent, content)
         ? existingContent
         : `${existingContent.trim()}\n\n${content}`
       : content;
@@ -604,7 +634,6 @@ async function saveLorebookEntryTool(storage: StorageGateway, agent: JsonRecord,
     content: nextContent,
     description: description ?? readString(existing.description),
     keys: uniqueStrings([...existingKeys, ...keys]),
-    enabled: true,
   };
   if (tag !== undefined) patch.tag = tag;
 

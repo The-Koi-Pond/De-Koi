@@ -234,7 +234,45 @@ describe("lorebook writer tool runtime", () => {
     expect(lorebookEntries).toHaveLength(1);
   });
 
-  it("replaces matching entries by name and preserves existing keys", async () => {
+  it("rejects create mode when a matching entry already exists", async () => {
+    const creates: Array<{ entity: StorageEntity; value: JsonRecord }> = [];
+    const storage = storageFor({
+      lorebooks: [{ id: "book-1", name: "World Guide" }],
+      lorebookEntries: [
+        {
+          id: "entry-1",
+          lorebookId: "book-1",
+          name: "Moon Gate",
+          content: "Old content.",
+          keys: [],
+        },
+      ],
+      creates,
+    });
+
+    const result = await executeBuiltInTool(
+      { storage, integrations: integrations() },
+      runtimeInput(),
+      writableAgent(),
+      toolCall(LOREBOOK_WRITE_TOOL_NAME, {
+        name: "moon gate",
+        content: "New content.",
+        mode: "create",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      applied: false,
+      error: "A lorebook entry with this name already exists.",
+      lorebookId: "book-1",
+      entryId: "entry-1",
+      name: "moon gate",
+    });
+    expect(creates).toEqual([]);
+  });
+
+  it("replaces matching entries by name and preserves existing keys and enabled state", async () => {
     const updates: Array<{ entity: StorageEntity; id: string; patch: JsonRecord }> = [];
     const lorebookEntries: JsonRecord[] = [
       {
@@ -245,6 +283,7 @@ describe("lorebook writer tool runtime", () => {
         description: "Old description",
         keys: ["old-key"],
         tag: "old-tag",
+        enabled: false,
       },
     ];
     const storage = storageFor({
@@ -273,7 +312,6 @@ describe("lorebook writer tool runtime", () => {
           content: "New content.",
           description: "Old description",
           keys: ["old-key", "new-key"],
-          enabled: true,
         },
       },
     ]);
@@ -281,6 +319,7 @@ describe("lorebook writer tool runtime", () => {
       content: "New content.",
       description: "Old description",
       keys: ["old-key", "new-key"],
+      enabled: false,
     });
   });
 
@@ -326,6 +365,69 @@ describe("lorebook writer tool runtime", () => {
     );
 
     expect(updates[1]?.patch.content).toBe("First note.\n\nSecond note.");
+  });
+
+  it("appends substring-overlap content that is not an exact note block", async () => {
+    const updates: Array<{ entity: StorageEntity; id: string; patch: JsonRecord }> = [];
+    const storage = storageFor({
+      lorebooks: [{ id: "book-1", name: "World Guide" }],
+      lorebookEntries: [
+        {
+          id: "entry-1",
+          lorebookId: "book-1",
+          name: "Moon Gate",
+          content: "The Moon Gate opens under the old observatory.",
+          keys: [],
+        },
+      ],
+      updates,
+    });
+
+    await executeBuiltInTool(
+      { storage, integrations: integrations() },
+      runtimeInput(),
+      writableAgent(),
+      toolCall(LOREBOOK_WRITE_TOOL_NAME, {
+        name: "Moon Gate",
+        content: "Moon Gate",
+        mode: "append",
+      }),
+    );
+
+    expect(updates[0]?.patch.content).toBe("The Moon Gate opens under the old observatory.\n\nMoon Gate");
+  });
+
+  it("preserves disabled state when appending to a matched entry", async () => {
+    const updates: Array<{ entity: StorageEntity; id: string; patch: JsonRecord }> = [];
+    const lorebookEntries: JsonRecord[] = [
+      {
+        id: "entry-1",
+        lorebookId: "book-1",
+        name: "Moon Gate",
+        content: "First note.",
+        keys: [],
+        enabled: false,
+      },
+    ];
+    const storage = storageFor({
+      lorebooks: [{ id: "book-1", name: "World Guide" }],
+      lorebookEntries,
+      updates,
+    });
+
+    await executeBuiltInTool(
+      { storage, integrations: integrations() },
+      runtimeInput(),
+      writableAgent(),
+      toolCall(LOREBOOK_WRITE_TOOL_NAME, {
+        name: "Moon Gate",
+        content: "Second note.",
+        mode: "append",
+      }),
+    );
+
+    expect(updates[0]?.patch).not.toHaveProperty("enabled");
+    expect(lorebookEntries[0]?.enabled).toBe(false);
   });
 
   it("caps final appended content to the lorebook entry content limit", async () => {
