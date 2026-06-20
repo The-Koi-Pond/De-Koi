@@ -1,14 +1,14 @@
 # Release Update Strategy
 
-De-Koi refactor desktop builds use a manual GitHub Releases install and update
+De-Koi desktop builds use a manual GitHub Releases install and update
 handoff.
 
 The in-app update check may tell the user that a newer release exists and open
 the matching GitHub Release page, but the app must not silently download or
-install desktop updates. Stable refactor releases keep this manual-release
-behavior until maintainers explicitly add signed Tauri updater support.
+install desktop updates. De-Koi releases keep this manual-release behavior until
+maintainers explicitly add signed Tauri updater support.
 
-This policy matches the current refactor architecture:
+This policy matches the current De-Koi architecture:
 
 - the user-facing app is the Tauri desktop bundle;
 - the React UI is bundled into the desktop webview for production builds;
@@ -52,7 +52,7 @@ auto-update channel.
 
 ## End-User Update Guidance
 
-Updates are manual in the current refactor build.
+Updates are manual in the current De-Koi build.
 
 1. In De-Koi, open Settings > Advanced and run the update check.
 2. If a newer version is available, open the matching GitHub Release page.

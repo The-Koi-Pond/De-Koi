@@ -1,4 +1,9 @@
-import { formDataToJson, CHAT_IMPORT_SIZE_ERROR, type FilePayloadOptions } from "./file-payload";
+import {
+  formDataToJson,
+  CHARACTER_IMPORT_SIZE_ERROR,
+  CHAT_IMPORT_SIZE_ERROR,
+  type FilePayloadOptions,
+} from "./file-payload";
 import { MAX_FILE_SIZES } from "../../engine/contracts/constants/defaults";
 import { Channel } from "@tauri-apps/api/core";
 import { invokeTauri } from "./tauri-client";
@@ -17,6 +22,11 @@ export interface ImportFilePayload {
 const CHAT_IMPORT_LIMIT: FilePayloadOptions = {
   maxBytes: MAX_FILE_SIZES.CHAT_JSONL,
   tooLargeMessage: CHAT_IMPORT_SIZE_ERROR,
+};
+
+const CHARACTER_IMPORT_LIMIT: FilePayloadOptions = {
+  maxBytes: MAX_FILE_SIZES.CHARACTER_IMPORT,
+  tooLargeMessage: CHARACTER_IMPORT_SIZE_ERROR,
 };
 
 const IMPORT_MANAGED_ASSET_KINDS: RemoteManagedAssetKind[] = [
@@ -78,12 +88,14 @@ export const importApi = {
     ]),
   stCharacterFile: async <T>(payload: ImportFilePayload) =>
     invalidateRemoteManagedAssetObjectUrlsAfter(
-      invokeTauri<T>("import_st_character", { body: await filePayload(payload) }),
+      invokeTauri<T>("import_st_character", { body: await filePayload(payload, CHARACTER_IMPORT_LIMIT) }),
       ["avatar", "avatar-thumbnail", "gallery", "sprite"],
     ),
   stCharacterBatch: async <T>(payload: ImportFilePayload | File[] | FormData) => {
     const body =
-      Array.isArray(payload) || payload instanceof FormData ? await filesPayload(payload) : await filePayload(payload);
+      Array.isArray(payload) || payload instanceof FormData
+        ? await filesPayload(payload, CHARACTER_IMPORT_LIMIT)
+        : await filePayload(payload, CHARACTER_IMPORT_LIMIT);
     return invalidateRemoteManagedAssetObjectUrlsAfter(invokeTauri<T>("import_st_character_batch", { body }), [
       "avatar",
       "avatar-thumbnail",
@@ -92,7 +104,7 @@ export const importApi = {
     ]);
   },
   stCharacterInspect: async <T>(payload: File[] | FormData) =>
-    invokeTauri<T>("import_st_character_inspect", { body: await filesPayload(payload) }),
+    invokeTauri<T>("import_st_character_inspect", { body: await filesPayload(payload, CHARACTER_IMPORT_LIMIT) }),
   stChat: async <T>(file: File) =>
     invalidateRemoteManagedAssetObjectUrlsAfter(
       invokeTauri<T>("import_st_chat", { body: await filePayload(file, CHAT_IMPORT_LIMIT) }),

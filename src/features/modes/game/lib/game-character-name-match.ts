@@ -24,7 +24,8 @@ function normalizeCharacterName(name: string): string {
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    // Preserve letters, numbers, and combining marks from non-Latin scripts.
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
     .trim();
 }
 

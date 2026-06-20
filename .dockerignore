@@ -1,5 +1,8 @@
 .git
 .github
+.codex
+.headroom
+.worktrees
 .vscode
 .idea
 node_modules
@@ -7,6 +10,8 @@ dist
 dist-ssr
 logs
 *.log
+scratch
+worktrees
 src-tauri/target
 target
 src-tauri/.tauri
@@ -16,3 +21,4 @@ src-tauri/gen/android/**/.cxx
 src-tauri/gen/android/**/.externalNativeBuild
 src-tauri/gen/android/app/src/main/assets
 .docker-marinara-data
+.docker-de-koi-data

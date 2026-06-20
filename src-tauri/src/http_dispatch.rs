@@ -2,8 +2,8 @@ use crate::http_storage_dispatch;
 use crate::state::AppState;
 use crate::storage_commands::{
     admin, agents, avatars, backgrounds, backup, bot_browser, characters, chat_memory, chats,
-    connection_secrets, custom_tools, entity_images, exports, fonts, game_assets, generation, http,
-    images, imports, integrations, knowledge, llm, lorebook_images, managed_thumbnails, mari,
+    connection_secrets, custom_tools, deki, entity_images, exports, fonts, game_assets, generation,
+    http, images, imports, integrations, knowledge, llm, lorebook_images, managed_thumbnails,
     personas, profile, profile_commands, prompts, shared, sidecar, sprites, translation, updates,
 };
 use marinara_core::{AppError, AppResult};
@@ -73,6 +73,18 @@ fn optional_u32_strict(args: &Map<String, Value>, key: &str) -> AppResult<Option
     u32::try_from(value)
         .map(Some)
         .map_err(|_| AppError::invalid_input(format!("{key} is too large")))
+}
+
+async fn dispatch_blocking_http_storage(
+    state: &AppState,
+    args: &Map<String, Value>,
+    operation: impl FnOnce(&AppState, &Map<String, Value>) -> AppResult<Value> + Send + 'static,
+) -> AppResult<Value> {
+    let state = state.clone();
+    let args = args.clone();
+    tauri::async_runtime::spawn_blocking(move || operation(&state, &args))
+        .await
+        .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
 fn required_string_vec(args: &Map<String, Value>, key: &str) -> AppResult<Vec<String>> {
@@ -418,11 +430,11 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             )
             .await
         }
-        "spotify_dj_mari_playlist" => {
+        "spotify_dj_deki_playlist" | "spotify_dj_mari_playlist" => {
             spotify_direct(
                 state,
                 "POST",
-                &["dj-mari-playlist"],
+                &["dj-deki-playlist"],
                 optional_value(&args, "input"),
             )
             .await
@@ -540,82 +552,202 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             custom_tools::execute_custom_tool(state, optional_value(&args, "body")).await
         }
         "custom_tool_capabilities" => Ok(custom_tools::custom_tool_capabilities()),
-        "agent_patch_by_type" => agents::patch_agent_type(
-            state,
-            required_string(&args, "agentType")?,
-            optional_value(&args, "patch"),
-        ),
+        "agent_patch_by_type" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                agents::patch_agent_type(
+                    state,
+                    required_string(args, "agentType")?,
+                    optional_value(args, "patch"),
+                )
+            })
+            .await
+        }
         "agent_toggle_by_type" => {
-            agents::toggle_agent_type(state, required_string(&args, "agentType")?)
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                agents::toggle_agent_type(state, required_string(args, "agentType")?)
+            })
+            .await
         }
-        "agent_cadence_status" => agents::agent_cadence_status(
-            state,
-            required_string(&args, "agentType")?,
-            required_string(&args, "chatId")?,
-        ),
-        "storage_list" => http_storage_dispatch::storage_list(state, &args),
+        "agent_cadence_status" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                agents::agent_cadence_status(
+                    state,
+                    required_string(args, "agentType")?,
+                    required_string(args, "chatId")?,
+                )
+            })
+            .await
+        }
+        "storage_list" => {
+            dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_list).await
+        }
         "lorebook_entries_list_by_lorebook_ids" => {
-            http_storage_dispatch::lorebook_entries_list_by_lorebook_ids(state, &args)
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::lorebook_entries_list_by_lorebook_ids,
+            )
+            .await
         }
-        "storage_get" => http_storage_dispatch::storage_get(state, &args),
-        "storage_create" => http_storage_dispatch::storage_create(state, &args),
-        "storage_update" => http_storage_dispatch::storage_update(state, &args),
-        "storage_delete" => http_storage_dispatch::storage_delete(state, &args),
-        "storage_duplicate" => http_storage_dispatch::storage_duplicate(state, &args),
+        "storage_get" => {
+            dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_get).await
+        }
+        "storage_create" => {
+            dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_create)
+                .await
+        }
+        "storage_update" => {
+            dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_update)
+                .await
+        }
+        "storage_delete" => {
+            dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_delete)
+                .await
+        }
+        "storage_duplicate" => {
+            dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_duplicate)
+                .await
+        }
         "connection_folder_reorder" => {
-            http_storage_dispatch::connection_folder_reorder(state, &args)
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::connection_folder_reorder,
+            )
+            .await
         }
-        "lorebook_folder_reorder" => http_storage_dispatch::lorebook_folder_reorder(state, &args),
-        "connection_move" => http_storage_dispatch::connection_move(state, &args),
-        "chat_message_add_swipe" => http_storage_dispatch::chat_message_add_swipe(state, &args),
+        "lorebook_folder_reorder" => {
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::lorebook_folder_reorder,
+            )
+            .await
+        }
+        "connection_move" => {
+            dispatch_blocking_http_storage(state, &args, http_storage_dispatch::connection_move)
+                .await
+        }
+        "chat_message_add_swipe" => {
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::chat_message_add_swipe,
+            )
+            .await
+        }
         "chat_message_update_content_if_unchanged" => {
-            http_storage_dispatch::chat_message_update_content_if_unchanged(state, &args)
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::chat_message_update_content_if_unchanged,
+            )
+            .await
         }
         "chat_message_set_active_swipe" => {
-            http_storage_dispatch::chat_message_set_active_swipe(state, &args)
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::chat_message_set_active_swipe,
+            )
+            .await
         }
         "chat_message_delete_swipe" => {
-            http_storage_dispatch::chat_message_delete_swipe(state, &args)
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::chat_message_delete_swipe,
+            )
+            .await
         }
         "chat_evict_prompt_snapshots" => {
-            http_storage_dispatch::chat_evict_prompt_snapshots(state, &args)
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::chat_evict_prompt_snapshots,
+            )
+            .await
         }
         "chat_autonomous_unread_mark" => {
-            http_storage_dispatch::chat_autonomous_unread_mark(state, &args)
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::chat_autonomous_unread_mark,
+            )
+            .await
         }
         "chat_autonomous_unread_clear" => {
-            http_storage_dispatch::chat_autonomous_unread_clear(state, &args)
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::chat_autonomous_unread_clear,
+            )
+            .await
         }
         "tracker_snapshot_latest" => {
-            http_storage_dispatch::tracker_snapshot_latest(state, &args).await
-        }
-        "tracker_snapshot_get" => http_storage_dispatch::tracker_snapshot_get(state, &args).await,
-        "tracker_snapshot_save" => http_storage_dispatch::tracker_snapshot_save(state, &args).await,
-        "chat_memories_list" => {
-            let exclude_recent_message_ids = optional_string_vec(&args, "excludeRecentMessageIds")?;
-            let exclude_recent_start_at = optional_string(&args, "excludeRecentStartAt");
-            chat_memory::list_chat_memories_excluding_recent(
+            dispatch_blocking_http_storage(
                 state,
-                required_string(&args, "chatId")?,
-                optional_u32_strict(&args, "limit")?.map(|value| value as usize),
-                optional_string(&args, "order").as_deref(),
-                &exclude_recent_message_ids,
-                exclude_recent_start_at.as_deref(),
+                &args,
+                http_storage_dispatch::tracker_snapshot_latest,
             )
+            .await
         }
-        "chat_memory_delete" => chat_memory::delete_chat_memory(
-            state,
-            required_string(&args, "chatId")?,
-            required_string(&args, "memoryId")?,
-        ),
+        "tracker_snapshot_get" => {
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::tracker_snapshot_get,
+            )
+            .await
+        }
+        "tracker_snapshot_save" => {
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::tracker_snapshot_save,
+            )
+            .await
+        }
+        "chat_memories_list" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                let exclude_recent_message_ids =
+                    optional_string_vec(args, "excludeRecentMessageIds")?;
+                let exclude_recent_start_at = optional_string(args, "excludeRecentStartAt");
+                chat_memory::list_chat_memories_excluding_recent(
+                    state,
+                    required_string(args, "chatId")?,
+                    optional_u32_strict(args, "limit")?.map(|value| value as usize),
+                    optional_string(args, "order").as_deref(),
+                    &exclude_recent_message_ids,
+                    exclude_recent_start_at.as_deref(),
+                )
+            })
+            .await
+        }
+        "chat_memory_delete" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chat_memory::delete_chat_memory(
+                    state,
+                    required_string(args, "chatId")?,
+                    required_string(args, "memoryId")?,
+                )
+            })
+            .await
+        }
         "chat_memories_clear" => {
-            chat_memory::clear_chat_memories(state, required_string(&args, "chatId")?)
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chat_memory::clear_chat_memories(state, required_string(args, "chatId")?)
+            })
+            .await
         }
         "chat_memories_refresh" => {
             chat_memory::refresh_chat_memories(state, required_string(&args, "chatId")?).await
         }
         "chat_memories_export" => {
-            chat_memory::export_chat_memories(state, required_string(&args, "chatId")?)
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chat_memory::export_chat_memories(state, required_string(args, "chatId")?)
+            })
+            .await
         }
         "chat_memories_import" => {
             chat_memory::import_chat_memories(
@@ -626,79 +758,148 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             )
             .await
         }
-        "chat_notes_list" => chats::list_chat_notes(state, required_string(&args, "chatId")?),
-        "chat_note_delete" => chats::delete_chat_note(
-            state,
-            required_string(&args, "chatId")?,
-            required_string(&args, "noteId")?,
-        ),
-        "chat_notes_clear" => chats::clear_chat_notes(state, required_string(&args, "chatId")?),
-        "chat_group_delete" => {
-            let state = state.clone();
-            let group_id = required_string(&args, "groupId")?.to_string();
-            tauri::async_runtime::spawn_blocking(move || {
-                chats::delete_chat_group(&state, &group_id)
+        "chat_notes_list" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chats::list_chat_notes(state, required_string(args, "chatId")?)
             })
             .await
-            .map_err(|error| AppError::new("task_join_error", error.to_string()))?
         }
-        "chat_messages_bulk_delete" => chats::bulk_delete_messages(
-            state,
-            required_string(&args, "chatId")?,
-            json!({ "messageIds": required_string_vec(&args, "messageIds")? }),
-        ),
-        "chat_message_count" => Ok(json!({
-            "count": state
-                .storage
-                .count_messages_for_chat(required_string(&args, "chatId")?)?
-        })),
-        "chat_branch" => chats::branch_chat(
-            state,
-            required_string(&args, "chatId")?,
-            json!({ "upToMessageId": optional_value(&args, "upToMessageId") }),
-        ),
-        "chat_message_swipes" => chats::message_swipes(
-            state,
-            "GET",
-            required_string(&args, "chatId")?,
-            required_string(&args, "messageId")?,
-            Value::Null,
-        ),
-        "chat_connect" => http_storage_dispatch::chat_connect(state, &args),
-        "chat_disconnect" => http_storage_dispatch::chat_disconnect(state, &args),
-        "admin_expunge_command" => admin::admin_expunge(
-            state,
-            json!({ "confirm": true, "scopes": required_string_vec(&args, "scopes")? }),
-        ),
+        "chat_note_delete" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chats::delete_chat_note(
+                    state,
+                    required_string(args, "chatId")?,
+                    required_string(args, "noteId")?,
+                )
+            })
+            .await
+        }
+        "chat_notes_clear" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chats::clear_chat_notes(state, required_string(args, "chatId")?)
+            })
+            .await
+        }
+        "chat_group_delete" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chats::delete_chat_group(state, required_string(args, "groupId")?)
+            })
+            .await
+        }
+        "chat_messages_bulk_delete" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chats::bulk_delete_messages(
+                    state,
+                    required_string(args, "chatId")?,
+                    json!({ "messageIds": required_string_vec(args, "messageIds")? }),
+                )
+            })
+            .await
+        }
+        "chat_message_count" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                Ok(json!({
+                    "count": state
+                        .storage
+                        .count_messages_for_chat(required_string(args, "chatId")?)?
+                }))
+            })
+            .await
+        }
+        "chat_branch" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chats::branch_chat(
+                    state,
+                    required_string(args, "chatId")?,
+                    json!({ "upToMessageId": optional_value(args, "upToMessageId") }),
+                )
+            })
+            .await
+        }
+        "chat_message_swipes" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                chats::message_swipes(
+                    state,
+                    "GET",
+                    required_string(args, "chatId")?,
+                    required_string(args, "messageId")?,
+                    Value::Null,
+                )
+            })
+            .await
+        }
+        "chat_connect" => {
+            dispatch_blocking_http_storage(state, &args, http_storage_dispatch::chat_connect).await
+        }
+        "chat_disconnect" => {
+            dispatch_blocking_http_storage(state, &args, http_storage_dispatch::chat_disconnect)
+                .await
+        }
+        "admin_expunge_command" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                admin::admin_expunge(
+                    state,
+                    json!({ "confirm": true, "scopes": required_string_vec(args, "scopes")? }),
+                )
+            })
+            .await
+        }
         "admin_clear_all_command" => {
-            admin::admin_clear_all(state, json!({ "confirm": optional_bool(&args, "confirm") }))
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                admin::admin_clear_all(state, json!({ "confirm": optional_bool(args, "confirm") }))
+            })
+            .await
         }
-        "agent_memory_get" => agents::agent_memory(
-            state,
-            "GET",
-            required_string(&args, "agentType")?,
-            required_string(&args, "chatId")?,
-            Value::Null,
-        ),
-        "agent_memory_patch" => agents::agent_memory(
-            state,
-            "PATCH",
-            required_string(&args, "agentType")?,
-            required_string(&args, "chatId")?,
-            json!({ "patch": optional_value(&args, "patch") }),
-        ),
-        "agent_memory_clear" => agents::agent_memory(
-            state,
-            "DELETE",
-            required_string(&args, "agentType")?,
-            required_string(&args, "chatId")?,
-            Value::Null,
-        ),
+        "agent_memory_get" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                agents::agent_memory(
+                    state,
+                    "GET",
+                    required_string(args, "agentType")?,
+                    required_string(args, "chatId")?,
+                    Value::Null,
+                )
+            })
+            .await
+        }
+        "agent_memory_patch" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                agents::agent_memory(
+                    state,
+                    "PATCH",
+                    required_string(args, "agentType")?,
+                    required_string(args, "chatId")?,
+                    json!({ "patch": optional_value(args, "patch") }),
+                )
+            })
+            .await
+        }
+        "agent_memory_clear" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                agents::agent_memory(
+                    state,
+                    "DELETE",
+                    required_string(args, "agentType")?,
+                    required_string(args, "chatId")?,
+                    Value::Null,
+                )
+            })
+            .await
+        }
         "agent_runs_clear_for_chat" => {
-            agents::clear_agent_runs_and_memory_for_chat(state, required_string(&args, "chatId")?)
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                agents::clear_agent_runs_and_memory_for_chat(
+                    state,
+                    required_string(args, "chatId")?,
+                )
+            })
+            .await
         }
         "agent_echo_messages_clear" => {
-            agents::echo_messages(state, "DELETE", required_string(&args, "chatId")?)
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                agents::echo_messages(state, "DELETE", required_string(args, "chatId")?)
+            })
+            .await
         }
         "connection_test" => connection_test(state, &args).await,
         "connection_test_message" => connection_test_message(state, &args).await,
@@ -707,7 +908,9 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             connection_diagnose_claude_subscription(state, &args).await
         }
         "connection_models" => connection_models(state, &args).await,
-        "connection_save_default_parameters" => connection_save_default_parameters(state, &args),
+        "connection_save_default_parameters" => {
+            dispatch_blocking_http_storage(state, &args, connection_save_default_parameters).await
+        }
         "character_gallery_upload" => character_gallery_upload(state, &args),
         "persona_gallery_upload" => persona_gallery_upload(state, &args),
         "global_gallery_upload" => global_gallery_upload(state, &args),
@@ -848,8 +1051,8 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "local_sidecar_stop" => sidecar::stop(state).await,
         "local_sidecar_restart" => sidecar::restart(state).await,
         "local_sidecar_test_message" => sidecar::test_message(state).await,
-        "professor_mari_prompt" => {
-            mari::professor_mari_prompt(state, optional_value(&args, "request")).await
+        "deki_prompt" | "professor_mari_prompt" => {
+            deki::deki_prompt(state, optional_value(&args, "request")).await
         }
         "update_check" => updates::check_updates().await,
         "update_apply" => updates::apply_update(optional_value(&args, "input")),
@@ -1171,6 +1374,7 @@ mod tests {
     const NON_REMOTE_COMMANDS: &[&str] = &[
         "fonts_open_folder",
         "background_file_path",
+        "gallery_file_path",
         "game_assets_file_path",
         "game_assets_open_folder",
         "import_st_bulk_run_events",
@@ -1182,6 +1386,54 @@ mod tests {
         "profile_import_file",
         "profile_import_file_events",
         "profile_import_upload",
+    ];
+
+    const BLOCKING_STORAGE_REMOTE_COMMANDS: &[&str] = &[
+        "admin_clear_all_command",
+        "admin_expunge_command",
+        "agent_cadence_status",
+        "agent_echo_messages_clear",
+        "agent_memory_clear",
+        "agent_memory_get",
+        "agent_memory_patch",
+        "agent_patch_by_type",
+        "agent_runs_clear_for_chat",
+        "agent_toggle_by_type",
+        "chat_autonomous_unread_clear",
+        "chat_autonomous_unread_mark",
+        "chat_branch",
+        "chat_connect",
+        "chat_disconnect",
+        "chat_evict_prompt_snapshots",
+        "chat_group_delete",
+        "chat_memories_clear",
+        "chat_memories_export",
+        "chat_memories_list",
+        "chat_memory_delete",
+        "chat_message_add_swipe",
+        "chat_message_count",
+        "chat_message_delete_swipe",
+        "chat_message_set_active_swipe",
+        "chat_message_swipes",
+        "chat_message_update_content_if_unchanged",
+        "chat_messages_bulk_delete",
+        "chat_note_delete",
+        "chat_notes_clear",
+        "chat_notes_list",
+        "connection_folder_reorder",
+        "connection_move",
+        "connection_save_default_parameters",
+        "lorebook_entries_list_by_lorebook_ids",
+        "lorebook_folder_reorder",
+        "storage_create",
+        "storage_delete",
+        "storage_duplicate",
+        "storage_get",
+        "storage_list",
+        "storage_update",
+        "tracker_snapshot_get",
+        "tracker_snapshot_latest",
+        "tracker_snapshot_save",
     ];
 
     fn test_state(label: &str) -> AppState {
@@ -1407,9 +1659,27 @@ mod tests {
                 if !trimmed.starts_with('"') || !trimmed.contains("=>") {
                     return None;
                 }
-                trimmed.split('"').nth(1).map(ToOwned::to_owned)
+                let arm_head = trimmed.split("=>").next()?;
+                Some(quoted_commands(arm_head))
             })
+            .flatten()
             .collect()
+    }
+
+    fn dispatch_match_source() -> &'static str {
+        include_str!("http_dispatch.rs")
+            .split("match command {")
+            .nth(1)
+            .and_then(|rest| rest.split("_ => Err").next())
+            .expect("http dispatch match should be parseable")
+    }
+
+    fn dispatch_arm_source<'a>(source: &'a str, command: &str) -> Option<&'a str> {
+        source.split("\n        \"").skip(1).find(|arm| {
+            arm.split('"')
+                .next()
+                .is_some_and(|arm_command| arm_command == command)
+        })
     }
 
     fn desktop_commands() -> BTreeSet<String> {
@@ -1594,16 +1864,34 @@ mod tests {
             .expect("remote command allowlist should be parseable");
         let remote_allowlist = quoted_commands(remote_allowlist_source);
 
-        let dispatch_source = include_str!("http_dispatch.rs");
-        let dispatch_match_source = dispatch_source
-            .split("match command {")
-            .nth(1)
-            .and_then(|rest| rest.split("_ => Err").next())
-            .expect("http dispatch match should be parseable");
+        let dispatch_match_source = dispatch_match_source();
         let dispatch_commands = dispatch_arm_commands(dispatch_match_source);
 
         assert_eq!(remote_allowlist, expected_remote);
         assert_eq!(dispatch_commands, remote_allowlist);
+    }
+
+    #[test]
+    fn remote_storage_dispatch_uses_blocking_worker() {
+        let dispatch_match_source = dispatch_match_source();
+        for command in BLOCKING_STORAGE_REMOTE_COMMANDS {
+            let arm = dispatch_arm_source(dispatch_match_source, command)
+                .unwrap_or_else(|| panic!("{command} should be present in http dispatch"));
+            assert!(
+                arm.contains("dispatch_blocking_http_storage"),
+                "{command} should dispatch through the blocking storage worker"
+            );
+        }
+        for arm in dispatch_match_source.split("\n        \"").skip(1) {
+            let command = arm.split('"').next().unwrap_or("<unknown>");
+            if !arm.contains("http_storage_dispatch::") {
+                continue;
+            }
+            assert!(
+                arm.contains("dispatch_blocking_http_storage"),
+                "{command} should dispatch through the blocking storage worker"
+            );
+        }
     }
 
     #[tokio::test]
@@ -2345,6 +2633,7 @@ mod tests {
                 "game_assets_file_path",
                 json!({ "path": "folder/asset.png" }),
             ),
+            ("gallery_file_path", json!({ "filename": "gallery.png" })),
             (
                 "lorebook_image_file_path",
                 json!({ "filename": "image.png" }),

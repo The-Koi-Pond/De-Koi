@@ -22,7 +22,7 @@ export const DISCOVERY_CORE_SURFACE_IDS = [
   "settings",
   "imports",
   "bot-browser",
-  "professor-mari",
+  "deki",
 ] as const;
 
 const DISCOVERY_PANEL_TARGETS = [
@@ -70,7 +70,7 @@ function validateDiscoveryAction(action: unknown, entryId: string, index: number
       if (!hasText(tab)) errors.push(`${path}.tab must be non-empty.`);
       break;
     case "replay-onboarding":
-    case "open-professor-mari":
+    case "open-deki":
     case "go-home":
       break;
     default:

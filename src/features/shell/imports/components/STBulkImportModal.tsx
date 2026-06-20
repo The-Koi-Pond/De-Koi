@@ -1,8 +1,7 @@
 // ──────────────────────────────────────────────
 // Modal: SillyTavern Bulk Import
 // ──────────────────────────────────────────────
-import { useState, useCallback } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { useState, type ReactNode } from "react";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import {
   FolderSearch,
@@ -23,372 +22,54 @@ import {
   Folder,
   Check,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "../../../../shared/lib/utils";
-import { ApiError } from "../../../../shared/api/api-errors";
-import { importApi } from "../../../../shared/api/import-api";
-import { remoteRuntimeTarget } from "../../../../shared/api/remote-runtime";
-import { invalidateCharacterCollectionQueries } from "../../../catalog/characters/index";
-import { invalidatePersonaCollectionQueries } from "../../../catalog/personas/index";
-import { chatKeys } from "../../../catalog/chats/index";
-import { lorebookKeys } from "../../../catalog/lorebooks/index";
-import { presetKeys } from "../../../catalog/presets/index";
+import { useSTBulkImportController } from "../hooks/use-st-bulk-import-controller";
+import {
+  formatSTBulkModifiedAt,
+  ST_BULK_TAG_IMPORT_OPTIONS,
+  type STBulkScanItemBase,
+} from "../lib/st-bulk-import-model";
 
 interface Props {
   open: boolean;
   onClose: () => void;
 }
 
-interface ScanItemBase {
-  id: string;
-  path: string;
-  name: string;
-  modifiedAt: string | null;
-}
-
-interface ScanResult {
-  success: boolean;
-  error?: string;
-  dataDir?: string;
-  characters: Array<ScanItemBase & { format: string }>;
-  chats: Array<ScanItemBase & { characterName: string; folderName: string }>;
-  groupChats: Array<ScanItemBase & { groupName: string; members: string[] }>;
-  presets: Array<ScanItemBase & { isBuiltin?: boolean }>;
-  lorebooks: ScanItemBase[];
-  backgrounds: ScanItemBase[];
-  personas: Array<ScanItemBase & { description: string }>;
-}
-
-interface ImportResult {
-  success: boolean;
-  error?: string;
-  imported: {
-    characters: number;
-    chats: number;
-    groupChats: number;
-    presets: number;
-    lorebooks: number;
-    backgrounds: number;
-    personas: number;
-  };
-  errors: string[];
-}
-
-interface ImportProgress {
-  category: string;
-  item: string;
-  current: number;
-  total: number;
-  imported: ImportResult["imported"];
-}
-
-type Phase = "input" | "scanning" | "preview" | "importing" | "done";
-type CategoryKey = "characters" | "chats" | "groupChats" | "presets" | "lorebooks" | "backgrounds" | "personas";
-type SelectionState = Record<CategoryKey, string[]>;
-type TagImportMode = "all" | "none" | "existing";
-
-const TAG_IMPORT_OPTIONS: Array<{ value: TagImportMode; label: string; description: string }> = [
-  { value: "all", label: "All tags", description: "Keep source tags." },
-  { value: "none", label: "No tags", description: "Skip source tags." },
-  { value: "existing", label: "Existing only", description: "Keep tags already in De-Koi." },
-];
-
-function describeImportError(error: unknown, fallback: string): string {
-  if (error instanceof ApiError) {
-    return `${fallback}: ${error.message}`;
-  }
-  return error instanceof Error ? `${fallback}: ${error.message}` : fallback;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-function normalizeImportResult(value: unknown): ImportResult | null {
-  const record = asRecord(value);
-  if (!record) return null;
-  const imported = asRecord(record.imported);
-  if (!imported) return null;
-  return {
-    success: record.success !== false,
-    error: typeof record.error === "string" ? record.error : undefined,
-    imported: {
-      characters: Number(imported.characters ?? 0),
-      chats: Number(imported.chats ?? 0),
-      groupChats: Number(imported.groupChats ?? 0),
-      presets: Number(imported.presets ?? 0),
-      lorebooks: Number(imported.lorebooks ?? 0),
-      backgrounds: Number(imported.backgrounds ?? 0),
-      personas: Number(imported.personas ?? 0),
-    },
-    errors: Array.isArray(record.errors) ? record.errors.map(String) : [],
-  };
-}
-
-function normalizeImportProgress(value: unknown): ImportProgress | null {
-  const record = asRecord(value);
-  const result = normalizeImportResult({ success: true, imported: record?.imported ?? {} });
-  if (!record || !result) return null;
-  return {
-    category: typeof record.category === "string" ? record.category : "Importing",
-    item: typeof record.item === "string" ? record.item : "",
-    current: Number(record.current ?? 0),
-    total: Number(record.total ?? 0),
-    imported: result.imported,
-  };
-}
-
-function hasImported(imported: ImportResult["imported"], category: keyof ImportResult["imported"]): boolean {
-  return Number(imported[category] ?? 0) > 0;
-}
-
-function buildInitialSelection(scan: ScanResult): SelectionState {
-  return {
-    characters: scan.characters.map((item) => item.id),
-    chats: scan.chats.map((item) => item.id),
-    groupChats: scan.groupChats.map((item) => item.id),
-    presets: scan.presets.filter((item) => !item.isBuiltin).map((item) => item.id),
-    lorebooks: scan.lorebooks.map((item) => item.id),
-    backgrounds: scan.backgrounds.map((item) => item.id),
-    personas: scan.personas.map((item) => item.id),
-  };
-}
-
-function formatModifiedAt(value: string | null) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
 export function STBulkImportModal({ open, onClose }: Props) {
-  const [folderPath, setFolderPath] = useState("");
-  const [folderToken, setFolderToken] = useState<string | null>(null);
-  const [phase, setPhase] = useState<Phase>("input");
-  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
-  const [selection, setSelection] = useState<SelectionState>({
-    characters: [],
-    chats: [],
-    groupChats: [],
-    presets: [],
-    lorebooks: [],
-    backgrounds: [],
-    personas: [],
-  });
-  const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [progress, setProgress] = useState<ImportProgress | null>(null);
-  const [error, setError] = useState("");
-  const [characterTagImportMode, setCharacterTagImportMode] = useState<TagImportMode>("all");
-  const qc = useQueryClient();
+  const controller = useSTBulkImportController();
+  const {
+    folderPath,
+    phase,
+    scanResult,
+    selection,
+    importResult,
+    progress,
+    error,
+    characterTagImportMode,
+    picking,
+    showFolderBrowser,
+    browserPath,
+    browserFolders,
+    browserLoading,
+    builtinPresetCount,
+    selectedCount,
+    hasAnySelected,
+    setFolderPath,
+    setCharacterTagImportMode,
+    reset,
+    scan,
+    browse,
+    loadDirectory,
+    selectBrowserFolder,
+    updateCategorySelection,
+    toggleCategoryItem,
+    importSelected,
+  } = controller;
 
-  const reset = useCallback(() => {
-    setPhase("input");
-    setScanResult(null);
-    setFolderToken(null);
-    setSelection({
-      characters: [],
-      chats: [],
-      groupChats: [],
-      presets: [],
-      lorebooks: [],
-      backgrounds: [],
-      personas: [],
-    });
-    setImportResult(null);
-    setProgress(null);
-    setError("");
-    setCharacterTagImportMode("all");
-  }, []);
-
-  const handleClose = useCallback(() => {
+  const handleClose = () => {
     reset();
     onClose();
-  }, [reset, onClose]);
-
-  const handleScan = useCallback(async () => {
-    if (!folderPath.trim()) return;
-    setPhase("scanning");
-    setError("");
-
-    try {
-      const data = await importApi.stBulkScan<ScanResult>({ folderPath: folderPath.trim(), folderToken });
-      if (data?.success) {
-        setScanResult(data);
-        setSelection(buildInitialSelection(data));
-        setPhase("preview");
-      } else {
-        setError(`Scan failed${data?.error ? `: ${data.error}` : ""}`);
-        setPhase("input");
-      }
-    } catch (err) {
-      setError(describeImportError(err, "Scan failed"));
-      setPhase("input");
-    }
-  }, [folderPath, folderToken]);
-
-  const [picking, setPicking] = useState(false);
-  const [showFolderBrowser, setShowFolderBrowser] = useState(false);
-  const [browserPath, setBrowserPath] = useState("");
-  const [browserFolders, setBrowserFolders] = useState<string[]>([]);
-  const [browserLoading, setBrowserLoading] = useState(false);
-
-  const loadDirectory = useCallback(async (dirPath?: string) => {
-    setBrowserLoading(true);
-    try {
-      const data = await importApi.listDirectory<{
-        success: boolean;
-        path?: string;
-        folderToken?: string;
-        folders?: string[];
-        error?: string;
-      }>(dirPath || "");
-      if (!data?.success || !data.path) {
-        setBrowserFolders([]);
-        setFolderToken(null);
-        setError(`Unable to list directories${data?.error ? `: ${data.error}` : ""}`);
-        return;
-      }
-      setBrowserPath(data.path);
-      setFolderToken(data.folderToken ?? null);
-      setBrowserFolders(data.folders ?? []);
-    } catch (err) {
-      setBrowserFolders([]);
-      setFolderToken(null);
-      setError(describeImportError(err, "Unable to list directories"));
-    } finally {
-      setBrowserLoading(false);
-    }
-  }, []);
-
-  const handleBrowse = useCallback(async () => {
-    setPicking(true);
-    setError("");
-    let remoteConfigured = false;
-    try {
-      remoteConfigured = Boolean(remoteRuntimeTarget());
-    } catch (err) {
-      setError(describeImportError(err, "Unable to open remote folder browser"));
-      setPicking(false);
-      return;
-    }
-    if (remoteConfigured) {
-      setShowFolderBrowser(true);
-      await loadDirectory(folderPath || undefined);
-      setPicking(false);
-      return;
-    }
-    try {
-      const selected = await openDialog({ directory: true, multiple: false });
-      if (typeof selected === "string" && selected.trim()) {
-        const data = await importApi.listDirectory<{
-          success: boolean;
-          path?: string;
-          folderToken?: string;
-          folders?: string[];
-          error?: string;
-        }>(selected, { pickerSelected: true });
-        if (!data?.success || !data.path) {
-          setError(`Unable to list directories${data?.error ? `: ${data.error}` : ""}`);
-          setShowFolderBrowser(true);
-          setPicking(false);
-          loadDirectory(folderPath || undefined);
-          return;
-        }
-        setFolderPath(data.path);
-        setFolderToken(data.folderToken ?? null);
-        setBrowserPath(data.path);
-        setBrowserFolders(data.folders ?? []);
-        setPicking(false);
-        return;
-      }
-    } catch (err) {
-      setError(describeImportError(err, "Unable to open folder picker"));
-    }
-    setPicking(false);
-    setShowFolderBrowser(true);
-    loadDirectory(folderPath || undefined);
-  }, [folderPath, loadDirectory]);
-
-  const updateCategorySelection = useCallback((category: CategoryKey, nextIds: string[]) => {
-    setSelection((prev) => ({ ...prev, [category]: nextIds }));
-  }, []);
-
-  const toggleCategoryItem = useCallback((category: CategoryKey, itemId: string, checked: boolean) => {
-    setSelection((prev) => {
-      const existing = new Set(prev[category]);
-      if (checked) existing.add(itemId);
-      else existing.delete(itemId);
-      return { ...prev, [category]: [...existing] };
-    });
-  }, []);
-
-  const handleImport = useCallback(async () => {
-    if (!folderPath.trim()) return;
-    setPhase("importing");
-    setProgress(null);
-    setError("");
-
-    try {
-      const payload = {
-        folderPath: folderPath.trim(),
-        folderToken,
-        options: { ...selection, characterTagImportMode },
-      };
-      let data: ImportResult | null = null;
-      for await (const event of importApi.stBulkRunEvents(payload)) {
-        if (event.type === "progress") {
-          const nextProgress = normalizeImportProgress(event.data);
-          if (nextProgress) setProgress(nextProgress);
-          continue;
-        }
-        if (event.type === "done") {
-          data = normalizeImportResult(event.data);
-          continue;
-        }
-        if (event.type === "error") {
-          const errorData = asRecord(event.data);
-          throw new Error(typeof errorData?.error === "string" ? errorData.error : "Import failed");
-        }
-      }
-      data ??= await importApi.stBulkRun<ImportResult>(payload);
-      if (data.success) {
-        setImportResult(data);
-        setPhase("done");
-        if (hasImported(data.imported, "characters")) {
-          invalidateCharacterCollectionQueries(qc);
-        }
-        if (hasImported(data.imported, "chats") || hasImported(data.imported, "groupChats")) {
-          qc.invalidateQueries({ queryKey: chatKeys.list() });
-        }
-        if (hasImported(data.imported, "lorebooks")) {
-          qc.invalidateQueries({ queryKey: lorebookKeys.all });
-        }
-        if (hasImported(data.imported, "presets")) {
-          qc.invalidateQueries({ queryKey: presetKeys.all });
-        }
-        if (hasImported(data.imported, "personas")) {
-          invalidatePersonaCollectionQueries(qc);
-        }
-        if (hasImported(data.imported, "backgrounds")) {
-          qc.invalidateQueries({ queryKey: ["backgrounds"] });
-          qc.invalidateQueries({ queryKey: ["background-tags"] });
-        }
-      } else {
-        setError(`Import failed${data.error ? `: ${data.error}` : ""}`);
-        setPhase("preview");
-      }
-    } catch (err) {
-      setError(describeImportError(err, "Import failed"));
-      setPhase("preview");
-    }
-  }, [characterTagImportMode, folderPath, folderToken, qc, selection]);
-
-  const hasAnySelected = Object.values(selection).some((ids) => ids.length > 0);
-  const builtinPresetCount = scanResult?.presets.filter((item) => item.isBuiltin).length ?? 0;
+  };
 
   return (
     <Modal open={open} onClose={handleClose} title="Import from SillyTavern" width="max-w-3xl">
@@ -406,19 +87,16 @@ export function STBulkImportModal({ open, onClose }: Props) {
                 <input
                   type="text"
                   value={folderPath}
-                  onChange={(e) => {
-                    setFolderPath(e.target.value);
-                    setFolderToken(null);
-                  }}
+                  onChange={(e) => setFolderPath(e.target.value)}
                   placeholder="/path/to/SillyTavern"
                   disabled={phase === "scanning"}
                   className="flex-1 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-transparent placeholder:text-[var(--muted-foreground)]/50 focus:ring-[var(--primary)]"
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") handleScan();
+                    if (e.key === "Enter") scan();
                   }}
                 />
                 <button
-                  onClick={handleBrowse}
+                  onClick={browse}
                   disabled={phase === "scanning" || picking}
                   className="flex items-center justify-center gap-1 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium transition-all hover:bg-[var(--secondary)] active:scale-95 disabled:opacity-50"
                   title="Browse for folder"
@@ -449,10 +127,7 @@ export function STBulkImportModal({ open, onClose }: Props) {
                     {browserPath || "/"}
                   </span>
                   <button
-                    onClick={() => {
-                      setFolderPath(browserPath);
-                      setShowFolderBrowser(false);
-                    }}
+                    onClick={selectBrowserFolder}
                     className="rounded-lg bg-[var(--primary)] px-2.5 py-1 text-[0.625rem] font-medium text-[var(--primary-foreground)] transition-all hover:opacity-90 active:scale-95"
                   >
                     Select This Folder
@@ -486,7 +161,7 @@ export function STBulkImportModal({ open, onClose }: Props) {
             )}
 
             <button
-              onClick={handleScan}
+              onClick={scan}
               disabled={!folderPath.trim() || phase === "scanning"}
               className={cn(
                 "flex items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-medium transition-all",
@@ -541,9 +216,7 @@ export function STBulkImportModal({ open, onClose }: Props) {
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-medium">Choose exactly what to import</span>
-                <span className="text-[0.6875rem] text-[var(--muted-foreground)]">
-                  {Object.values(selection).reduce((sum, ids) => sum + ids.length, 0)} selected
-                </span>
+                <span className="text-[0.6875rem] text-[var(--muted-foreground)]">{selectedCount} selected</span>
               </div>
 
               <SelectableImportCategory
@@ -560,7 +233,7 @@ export function STBulkImportModal({ open, onClose }: Props) {
                 }
                 onSelectNone={() => updateCategorySelection("characters", [])}
                 renderDetails={(item) => {
-                  const modified = formatModifiedAt(item.modifiedAt);
+                  const modified = formatSTBulkModifiedAt(item.modifiedAt);
                   return (
                     <span>
                       {item.format.toUpperCase()}
@@ -577,7 +250,7 @@ export function STBulkImportModal({ open, onClose }: Props) {
                     Choose how source-site tags are applied to imported characters.
                   </p>
                   <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                    {TAG_IMPORT_OPTIONS.map((option) => (
+                    {ST_BULK_TAG_IMPORT_OPTIONS.map((option) => (
                       <label
                         key={option.value}
                         className={`cursor-pointer rounded-lg border px-3 py-2 transition-colors ${
@@ -619,7 +292,7 @@ export function STBulkImportModal({ open, onClose }: Props) {
                 onSelectNone={() => updateCategorySelection("chats", [])}
                 getItemLabel={(item) => item.name || item.characterName}
                 renderDetails={(item) => {
-                  const modified = formatModifiedAt(item.modifiedAt);
+                  const modified = formatSTBulkModifiedAt(item.modifiedAt);
                   return (
                     <span>
                       Folder: {item.folderName} · fileName: {item.name} · characterName: {item.characterName}
@@ -644,7 +317,7 @@ export function STBulkImportModal({ open, onClose }: Props) {
                 onSelectNone={() => updateCategorySelection("groupChats", [])}
                 getItemLabel={(item) => item.groupName || item.name}
                 renderDetails={(item) => {
-                  const modified = formatModifiedAt(item.modifiedAt);
+                  const modified = formatSTBulkModifiedAt(item.modifiedAt);
                   return (
                     <span>
                       {item.members.length > 0 ? item.members.join(", ") : "No linked members"}
@@ -668,7 +341,7 @@ export function STBulkImportModal({ open, onClose }: Props) {
                 }
                 onSelectNone={() => updateCategorySelection("presets", [])}
                 renderDetails={(item) => {
-                  const modified = formatModifiedAt(item.modifiedAt);
+                  const modified = formatSTBulkModifiedAt(item.modifiedAt);
                   return (
                     <span>
                       {item.isBuiltin ? "Detected built-in preset" : "Custom or user preset"}
@@ -699,7 +372,7 @@ export function STBulkImportModal({ open, onClose }: Props) {
                 }
                 onSelectNone={() => updateCategorySelection("lorebooks", [])}
                 renderDetails={(item) => {
-                  const modified = formatModifiedAt(item.modifiedAt);
+                  const modified = formatSTBulkModifiedAt(item.modifiedAt);
                   return modified ? <span>Modified {modified}</span> : null;
                 }}
               />
@@ -718,7 +391,7 @@ export function STBulkImportModal({ open, onClose }: Props) {
                 }
                 onSelectNone={() => updateCategorySelection("backgrounds", [])}
                 renderDetails={(item) => {
-                  const modified = formatModifiedAt(item.modifiedAt);
+                  const modified = formatSTBulkModifiedAt(item.modifiedAt);
                   return modified ? <span>Modified {modified}</span> : null;
                 }}
               />
@@ -737,7 +410,7 @@ export function STBulkImportModal({ open, onClose }: Props) {
                 }
                 onSelectNone={() => updateCategorySelection("personas", [])}
                 renderDetails={(item) => {
-                  const modified = formatModifiedAt(item.modifiedAt);
+                  const modified = formatSTBulkModifiedAt(item.modifiedAt);
                   const description = item.description?.trim();
                   return (
                     <span>
@@ -764,7 +437,7 @@ export function STBulkImportModal({ open, onClose }: Props) {
                 Back
               </button>
               <button
-                onClick={handleImport}
+                onClick={importSelected}
                 disabled={!hasAnySelected}
                 className={cn(
                   "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all active:scale-95",
@@ -893,7 +566,7 @@ export function STBulkImportModal({ open, onClose }: Props) {
   );
 }
 
-function SelectableImportCategory<T extends ScanItemBase>({
+function SelectableImportCategory<T extends STBulkScanItemBase>({
   icon,
   label,
   items,
@@ -905,7 +578,7 @@ function SelectableImportCategory<T extends ScanItemBase>({
   renderDetails,
   renderBadge,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   items: T[];
   selectedIds: string[];
@@ -913,8 +586,8 @@ function SelectableImportCategory<T extends ScanItemBase>({
   onSelectAll: () => void;
   onSelectNone: () => void;
   getItemLabel?: (item: T) => string;
-  renderDetails?: (item: T) => React.ReactNode;
-  renderBadge?: (item: T) => React.ReactNode;
+  renderDetails?: (item: T) => ReactNode;
+  renderBadge?: (item: T) => ReactNode;
 }) {
   const [expanded, setExpanded] = useState(items.length <= 8 && items.length > 0);
   const selectedSet = new Set(selectedIds);
@@ -1008,7 +681,7 @@ function SelectableImportCategory<T extends ScanItemBase>({
   );
 }
 
-function StatCard({ icon, label, count }: { icon: React.ReactNode; label: string; count: number }) {
+function StatCard({ icon, label, count }: { icon: ReactNode; label: string; count: number }) {
   return (
     <div className="flex items-center gap-2 rounded-lg bg-[var(--secondary)] p-2.5">
       <span className="text-[var(--primary)]">{icon}</span>

@@ -80,7 +80,9 @@ function importedRegexPlacement(row: Record<string, unknown>): Array<"ai_output"
   if (!Array.isArray(row.placement)) return ["ai_output"];
   const mapped = row.placement
     .map((placement) => (typeof placement === "number" ? ST_PLACEMENT_MAP[placement] : placement))
-    .filter((placement): placement is "ai_output" | "user_input" => placement === "ai_output" || placement === "user_input");
+    .filter(
+      (placement): placement is "ai_output" | "user_input" => placement === "ai_output" || placement === "user_input",
+    );
   return mapped.length > 0 ? mapped : ["ai_output"];
 }
 
@@ -108,7 +110,7 @@ function toRegexScriptPayload(row: Record<string, unknown>): CreateRegexScriptIn
     trimStrings: row.trimStrings ?? [],
     placement: importedRegexPlacement(row),
     flags: delimitedFlags ?? (typeof row.flags === "string" ? row.flags : "gi"),
-    promptOnly: row.promptOnly ?? false,
+    promptOnly: targetCharacterIds.length > 0 || boolish(row.promptOnly, false),
     order: row.order ?? 0,
     minDepth: row.minDepth ?? null,
     maxDepth: row.maxDepth ?? null,
@@ -130,6 +132,7 @@ export function parseRegexScriptImportPayloads(parsed: unknown): CreateRegexScri
 }
 
 function regexScriptImportSignature(script: RegexScriptImportComparable): string {
+  const targetCharacterIds = regexScriptTargetCharacterIds(script);
   return JSON.stringify({
     name: script.name ?? "",
     enabled: boolish(script.enabled, true),
@@ -138,11 +141,11 @@ function regexScriptImportSignature(script: RegexScriptImportComparable): string
     trimStrings: normalizedStringArray(script.trimStrings),
     placement: normalizedPlacement(script.placement),
     flags: script.flags ?? "gi",
-    promptOnly: boolish(script.promptOnly, false),
+    promptOnly: targetCharacterIds.length > 0 || boolish(script.promptOnly, false),
     order: script.order ?? 0,
     minDepth: script.minDepth ?? null,
     maxDepth: script.maxDepth ?? null,
-    targetCharacterIds: regexScriptTargetCharacterIds(script),
+    targetCharacterIds,
   });
 }
 

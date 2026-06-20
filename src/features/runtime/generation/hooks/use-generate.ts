@@ -98,8 +98,10 @@ const AGENT_DEBUG_FLUSH_DELAY_MS = 80;
 const AGENT_DEBUG_FLUSH_CHUNK_SIZE = 8;
 const AGENT_DEBUG_FLUSH_CONTINUE_DELAY_MS = 16;
 const MANUAL_WORLD_STATE_FIELDS = ["date", "time", "location", "weather", "temperature"] as const;
+const TRACKER_PATCH_AGENT_IDS = new Set(["world-state", "character-tracker", "persona-stats", "custom-tracker"]);
 const scheduledChatRefreshTimers = new Map<string, number>();
 const queuedAgentDebugEntries: Array<Omit<AgentDebugEntry, "timestamp"> & { timestamp?: number }> = [];
+const activeGenerateLocks = new Set<string>();
 let agentDebugFlushTimer: number | null = null;
 
 function eventCharacters(event: StreamEvent): string[] {
@@ -392,6 +394,27 @@ function scheduleChatQueryRefresh(queryClient: QueryClient, chatId: string): voi
     ]).catch((error) => console.warn("[generation] chat cache refresh failed", error));
   }, 75);
   scheduledChatRefreshTimers.set(chatId, timer);
+}
+
+export function handleSceneCreatedGenerationEvent(queryClient: QueryClient, originChatId: string, rawData: unknown): void {
+  const data = parseMaybeRecord(rawData);
+  const sceneChatId = readString(data.chatId).trim();
+  const sceneChatName = readString(data.chatName).trim();
+  const message = sceneChatName ? `Scene created: ${sceneChatName}` : "Scene created.";
+
+  if (sceneChatId) {
+    toast(message, {
+      action: {
+        label: "Go to Scene",
+        onClick: () => useChatStore.getState().setActiveChatId(sceneChatId),
+      },
+    });
+    scheduleChatQueryRefresh(queryClient, sceneChatId);
+  } else {
+    toast(message);
+  }
+
+  scheduleChatQueryRefresh(queryClient, originChatId);
 }
 
 async function chatForNotification(queryClient: QueryClient, chatId: string): Promise<Chat | null> {
@@ -800,6 +823,23 @@ function isTrackerStyleAgentResult(result: AgentResult): boolean {
     result.type === "persona_stats_update" ||
     result.type === "custom_tracker_update"
   );
+}
+
+export function isTrackerPatchRetryRequest(agentTypes: string[] | undefined): boolean {
+  const requested = (agentTypes ?? []).map((type) => type.trim()).filter(Boolean);
+  return requested.length > 0 && requested.every((type) => TRACKER_PATCH_AGENT_IDS.has(type));
+}
+
+function retryReturnedTrackerPatch(queryClient: QueryClient, chatId: string, results: unknown[]): boolean {
+  const store = useGameStateStore.getState();
+  const previous = store.current?.chatId === chatId ? store.current : createEmptyGameState(chatId);
+  const persona = cachedPersonaSnapshot(queryClient, chatId);
+  return results.some((rawResult) => {
+    const result = parseAgentResult(rawResult);
+    if (!result || !result.success || !isTrackerStyleAgentResult(result)) return false;
+    const patch = gameStatePatchFromAgentResult(result, chatId, persona, previous);
+    return !!patch && Object.keys(patch).length > 0;
+  });
 }
 
 function shouldCacheLiveAgentResult(result: AgentResult, options: AgentResultEffectOptions): boolean {
@@ -1288,23 +1328,34 @@ export async function runGenerationWithUi(
   const { onUserMessageAccepted, ...streamArgs } = args;
   const regenerateMessageId = readString(args.regenerateMessageId).trim() || null;
   const requestedCharacterId = readString(args.forCharacterId).trim() || null;
-  await assertChatCanGenerate(queryClient, chatId);
-  const chatStore = useChatStore.getState();
-  if (chatStore.abortControllers.has(chatId)) {
+  if (activeGenerateLocks.has(chatId)) {
     console.warn("[generation] Generation already in progress for chat", chatId);
     return false;
   }
+  activeGenerateLocks.add(chatId);
+  let controller: AbortController | null = null;
+  try {
+    await assertChatCanGenerate(queryClient, chatId);
+    const chatStore = useChatStore.getState();
+    if (chatStore.abortControllers.has(chatId)) {
+      console.warn("[generation] Generation already in progress for chat", chatId);
+      return false;
+    }
 
-  const controller = new AbortController();
-  chatStore.setAbortController(chatId, controller);
-  chatStore.setStreaming(true, chatId);
-  chatStore.setRegenerateMessageId(regenerateMessageId, chatId);
-  chatStore.setStreamingCharacterId(requestedCharacterId, chatId);
-  chatStore.setGenerationPhase("Starting generation...");
-  chatStore.setStreamBuffer("", chatId);
-  chatStore.setThinkingBuffer("", chatId);
-  useAgentStore.getState().clearFailedAgentTypes();
-  useAgentStore.getState().setProcessing(true);
+    controller = new AbortController();
+    chatStore.setAbortController(chatId, controller);
+    chatStore.setStreaming(true, chatId);
+    chatStore.setRegenerateMessageId(regenerateMessageId, chatId);
+    chatStore.setStreamingCharacterId(requestedCharacterId, chatId);
+    chatStore.setGenerationPhase("Starting generation...");
+    chatStore.setStreamBuffer("", chatId);
+    chatStore.setThinkingBuffer("", chatId);
+    useAgentStore.getState().clearFailedAgentTypes();
+    useAgentStore.getState().setProcessing(true);
+  } finally {
+    activeGenerateLocks.delete(chatId);
+  }
+  if (!controller) return false;
 
   let received = "";
   let receivedAnyContent = false;
@@ -1321,6 +1372,8 @@ export async function runGenerationWithUi(
   let typewriterActive = false;
   let lastTypewriterPaintAt = 0;
   let typewriterRemainder = 0;
+  const canInspectPageFocus = typeof document !== "undefined";
+  const canListenForWindowBlur = typeof window !== "undefined";
   const revealWaiters = new Set<() => void>();
   const pendingAgentResultEffects: unknown[] = [];
   let agentResultEffectsDrainScheduled = false;
@@ -1356,8 +1409,11 @@ export async function runGenerationWithUi(
     if (!text) return;
     visibleStreamText += text;
     commitVisibleStreamBuffer();
-    useChatStore.getState().setMariPhase(chatId, "thinking");
+    useChatStore.getState().setAssistantPhase(chatId, "thinking");
   };
+
+  const shouldFlushTypewriterForBackground = () =>
+    canInspectPageFocus && (document.visibilityState !== "visible" || !document.hasFocus());
 
   const commitThinkingBuffer = (force = false, now = performance.now()) => {
     if (thinkingText === committedThinkingText) return;
@@ -1388,6 +1444,10 @@ export async function runGenerationWithUi(
 
   const revealNextStreamSlice = (now = performance.now()) => {
     typewriterFrame = null;
+    if (shouldFlushTypewriterForBackground()) {
+      flushBackgroundedVisibleStreamText();
+      return;
+    }
     if (pendingReveal.length === 0) {
       typewriterActive = false;
       lastTypewriterPaintAt = 0;
@@ -1433,9 +1493,27 @@ export async function runGenerationWithUi(
 
   const scheduleStreamReveal = () => {
     if (typewriterActive || pendingReveal.length === 0) return;
+    if (shouldFlushTypewriterForBackground()) {
+      flushBackgroundedVisibleStreamText();
+      return;
+    }
     typewriterActive = true;
     typewriterFrame = window.requestAnimationFrame(revealNextStreamSlice);
   };
+
+  function flushBackgroundedVisibleStreamText() {
+    if (!shouldFlushTypewriterForBackground()) return;
+    if (pendingReveal.length === 0 && !typewriterActive) return;
+    cancelTypewriterFrame();
+    const text = pendingReveal;
+    pendingReveal = "";
+    typewriterActive = false;
+    lastTypewriterPaintAt = 0;
+    typewriterRemainder = 0;
+    appendVisibleStreamText(text);
+    commitVisibleStreamBuffer(true);
+    resolveAllRevealWaiters();
+  }
 
   const enqueueVisibleStreamText = (text: string) => {
     if (!text || !useUIStore.getState().enableStreaming) return;
@@ -1451,7 +1529,7 @@ export async function runGenerationWithUi(
     typewriterRemainder = 0;
     visibleStreamText = text;
     commitVisibleStreamBuffer(true);
-    if (text) useChatStore.getState().setMariPhase(chatId, "thinking");
+    if (text) useChatStore.getState().setAssistantPhase(chatId, "thinking");
     resolveAllRevealWaiters();
   };
 
@@ -1469,7 +1547,7 @@ export async function runGenerationWithUi(
       typewriterActive = false;
       visibleStreamText = received;
       commitVisibleStreamBuffer(true);
-      if (visibleStreamText) useChatStore.getState().setMariPhase(chatId, "thinking");
+      if (visibleStreamText) useChatStore.getState().setAssistantPhase(chatId, "thinking");
       resolveAllRevealWaiters();
       return;
     }
@@ -1554,7 +1632,7 @@ export async function runGenerationWithUi(
     if (!ownsChatController()) return;
     foregroundGenerationReleased = true;
     state.setAbortController(chatId, null);
-    state.setMariPhase(chatId, "idle");
+    state.setAssistantPhase(chatId, "idle");
     clearChatAvailabilityState();
     // Clear this chat's own regenerate/streaming-character ids regardless of
     // whether it's the foreground chat, so a background chat's generation
@@ -1580,6 +1658,12 @@ export async function runGenerationWithUi(
   };
 
   controller.signal.addEventListener("abort", stopGenerationUi, { once: true });
+  if (canInspectPageFocus) {
+    document.addEventListener("visibilitychange", flushBackgroundedVisibleStreamText);
+  }
+  if (canListenForWindowBlur) {
+    window.addEventListener("blur", flushBackgroundedVisibleStreamText);
+  }
 
   try {
     insertOptimisticUserMessage(queryClient, args);
@@ -1600,7 +1684,7 @@ export async function runGenerationWithUi(
               clearChatAvailabilityState();
               const state = useChatStore.getState();
               if (state.activeChatId === chatId) state.setGenerationPhase("Thinking...");
-              state.setMariPhase(chatId, "thinking");
+              state.setAssistantPhase(chatId, "thinking");
             }
             appendThinkingText(event.data);
           }
@@ -1790,11 +1874,7 @@ export async function runGenerationWithUi(
           break;
         }
         case "scene_created": {
-          const data = parseMaybeRecord(event.data);
-          const sceneChatId = readString(data.chatId).trim();
-          if (sceneChatId) useChatStore.getState().setActiveChatId(sceneChatId);
-          toast("Scene created.");
-          scheduleChatQueryRefresh(queryClient, sceneChatId || chatId);
+          handleSceneCreatedGenerationEvent(queryClient, chatId, event.data);
           break;
         }
         case "done":
@@ -1814,6 +1894,12 @@ export async function runGenerationWithUi(
     throw error;
   } finally {
     controller.signal.removeEventListener("abort", stopGenerationUi);
+    if (canInspectPageFocus) {
+      document.removeEventListener("visibilitychange", flushBackgroundedVisibleStreamText);
+    }
+    if (canListenForWindowBlur) {
+      window.removeEventListener("blur", flushBackgroundedVisibleStreamText);
+    }
     const wasAborted = controller.signal.aborted;
     stopGenerationUi();
     scheduleChatQueryRefresh(queryClient, chatId);
@@ -1989,9 +2075,23 @@ export function useGenerate() {
         if (failedRetries.length > 0) {
           toast.error(formatAgentFailuresToast(failedRetries), { duration: 10_000 });
         }
+        if (results.length === 0) {
+          toast.warning("No agents ran for this retry.", { duration: 8_000 });
+        } else if (
+          failedRetries.length === 0 &&
+          isTrackerPatchRetryRequest(agentTypes) &&
+          !retryReturnedTrackerPatch(queryClient, chatId, results)
+        ) {
+          toast.warning("Tracker retry finished, but no tracker changes were returned.", { duration: 8_000 });
+        }
         for (const event of events) {
           if (event.type === "agent_warning") {
             showAgentWarningToast(event.data, shownAgentWarningKeys);
+          } else if (event.type === "message" || event.type === "assistant_message" || event.type === "user_message") {
+            if (event.data && typeof event.data === "object") {
+              upsertCachedMessage(queryClient, chatId, event.data);
+              scheduleChatQueryRefresh(queryClient, chatId);
+            }
           } else if (event.type === "illustration") {
             toast("Illustration generated.");
             // The chat-query refresh is fired unconditionally after this loop;

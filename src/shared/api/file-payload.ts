@@ -16,6 +16,8 @@ function formatUploadSize(bytes: number) {
 export const MAX_IMAGE_UPLOAD_BYTES = MAX_FILE_SIZES.IMAGE_UPLOAD;
 export const IMAGE_UPLOAD_SIZE_ERROR = `Image uploads must be ${formatUploadSize(MAX_IMAGE_UPLOAD_BYTES)} or smaller`;
 
+export const MAX_CHARACTER_IMPORT_UPLOAD_BYTES = MAX_FILE_SIZES.CHARACTER_IMPORT;
+export const CHARACTER_IMPORT_SIZE_ERROR = `Character imports must be ${formatUploadSize(MAX_CHARACTER_IMPORT_UPLOAD_BYTES)} or smaller`;
 export const CHAT_IMPORT_SIZE_ERROR = `Chat imports must be ${formatUploadSize(MAX_FILE_SIZES.CHAT_JSONL)} or smaller`;
 export const GAME_ASSET_SIZE_ERROR = `Game assets must be ${formatUploadSize(MAX_FILE_SIZES.GAME_ASSET)} or smaller`;
 export const MAX_KNOWLEDGE_SOURCE_UPLOAD_BYTES = MAX_FILE_SIZES.KNOWLEDGE_SOURCE;

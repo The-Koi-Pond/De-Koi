@@ -1393,7 +1393,11 @@ async function loadAgentAvailableSprites(
   );
 
   const personaId = readString(input.chat.personaId).trim();
-  if (personaId && input.persona && (!selectedSprites.restrict || selectedSprites.personaIds.has(personaId))) {
+  const includePersonaSprite =
+    !selectedSprites.restrict ||
+    selectedSprites.personaIds.has(personaId) ||
+    chatMeta.expressionAvatarsEnabled === true;
+  if (personaId && input.persona && includePersonaSprite) {
     const sprites = await visuals.listSprites(personaId, "persona").catch(() => []);
     const spritePersona = buildAvailableSpriteCharacterFromAssets(
       personaId,
@@ -1601,6 +1605,8 @@ async function buildAgentContext(
   const secretPlotMemory = secretPlotAgent ? await loadAgentMemory(deps.storage, secretPlotAgent.id, chatId) : null;
   const secretPlotState = secretPlotMemory ? secretPlotStateFromMemory(secretPlotMemory) : null;
   if (secretPlotState) memory._secretPlotState = secretPlotState;
+  const personaId = readString(input.chat.personaId).trim();
+  if (personaId) memory._personaId = personaId;
   memory._spotifyDjConstraints = buildSpotifyDjConstraints(chatMode, chatMeta, {
     manualRetry: input.spotifyDjManualRetry === true,
     forceFreshPick: input.spotifyDjForceFreshPick === true,

@@ -68,6 +68,7 @@ const REMOTE_COMMANDS = new Set([
   "spotify_playlist_tracks",
   "spotify_search_tracks",
   "spotify_play_track",
+  "spotify_dj_deki_playlist",
   "spotify_dj_mari_playlist",
   "spotify_player_play",
   "spotify_player_pause",
@@ -194,6 +195,7 @@ const REMOTE_COMMANDS = new Set([
   "local_sidecar_stop",
   "local_sidecar_restart",
   "local_sidecar_test_message",
+  "deki_prompt",
   "professor_mari_prompt",
   "update_check",
   "update_apply",
@@ -246,7 +248,7 @@ export type RemoteRuntimeHealthCheck =
   | { status: "unreachable"; message: string; health?: RemoteRuntimeHealthPayload }
   | { status: "not-writable"; message: string; health: RemoteRuntimeHealthPayload };
 
-function hasEmbeddedTauriRuntime(): boolean {
+export function hasEmbeddedTauriRuntime(): boolean {
   if (typeof window === "undefined") return false;
   const runtimeWindow = window as unknown as { __TAURI__?: unknown; __TAURI_INTERNALS__?: unknown };
   return Boolean(runtimeWindow.__TAURI__ || runtimeWindow.__TAURI_INTERNALS__);

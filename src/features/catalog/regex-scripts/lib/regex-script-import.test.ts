@@ -22,6 +22,7 @@ describe("parseRegexScriptImportPayloads", () => {
     expect(payload?.targetCharacterIds).toEqual(["char-a", "char-b"]);
     expect(payload?.findRegex).toBe("secret");
     expect(payload?.flags).toBe("gi");
+    expect(payload?.promptOnly).toBe(true);
     expect(
       filterRegexScriptsByCharacterIds([{ id: "script", ...payload }], ["char-b"]).map((script) => script.id),
     ).toEqual(["script"]);
@@ -37,6 +38,7 @@ describe("parseRegexScriptImportPayloads", () => {
 
     expect(payload?.characterId).toBe("char-a");
     expect(payload?.targetCharacterIds).toEqual(["char-a"]);
+    expect(payload?.promptOnly).toBe(true);
   });
 
   it("validates every accepted row before callers start writing", () => {

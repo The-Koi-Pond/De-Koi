@@ -447,11 +447,20 @@ function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function normalizeSpotifyTrackUri(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const uri = value.trim();
+  const suffixedTrack = uri.match(/^spotify:track:([A-Za-z0-9]{22})_candidate$/);
+  if (suffixedTrack) return `spotify:track:${suffixedTrack[1]}`;
+  return /^spotify:track:[A-Za-z0-9]{22}$/i.test(uri) ? uri : null;
+}
+
 function spotifyTrackUrisFromAgentData(data: unknown): string[] {
   if (!isJsonRecord(data) || data.action !== "play") return [];
   const rawUris = Array.isArray(data.trackUris) ? data.trackUris : [];
   return rawUris
-    .filter((uri): uri is string => typeof uri === "string" && uri.startsWith("spotify:track:"))
+    .map(normalizeSpotifyTrackUri)
+    .filter((uri): uri is string => Boolean(uri))
     .slice(0, 5);
 }
 
@@ -1156,8 +1165,12 @@ function findLatestAssistantMessage(context: AgentContext): { index: number; con
   return null;
 }
 
-function findLatestUserMessage(context: AgentContext): { index: number; content: string } | null {
-  for (let index = context.recentMessages.length - 1; index >= 0; index--) {
+function findLatestUserMessage(
+  context: AgentContext,
+  beforeIndex = context.recentMessages.length,
+): { index: number; content: string } | null {
+  const startIndex = Math.min(context.recentMessages.length, beforeIndex) - 1;
+  for (let index = startIndex; index >= 0; index--) {
     const message = context.recentMessages[index]!;
     if (message.role === "user" && message.content.trim()) {
       return { index, content: message.content };
@@ -1299,6 +1312,9 @@ function buildExpressionAgentMessages(template: string, context: AgentContext): 
   const systemParts: string[] = [];
   systemParts.push(`<role>`);
   systemParts.push(`You are a specialized expression-selection agent. Keep the request compact and return only JSON.`);
+  systemParts.push(
+    `Return exactly one expression for every owner in <available_sprites>. Use <latest_user_message> for the active user persona and <assistant_response> for assistant or character expressions.`,
+  );
   systemParts.push(`</role>`);
   systemParts.push(``);
   systemParts.push(`<agents>`);
@@ -1315,6 +1331,7 @@ function buildExpressionAgentMessages(template: string, context: AgentContext): 
   const latestAssistant = findLatestAssistantMessage(context);
   const responseText = context.mainResponse?.trim() || latestAssistant?.content || "";
   const contextEndIndex = context.mainResponse?.trim() ? context.recentMessages.length : (latestAssistant?.index ?? 0);
+  const latestUser = findLatestUserMessage(context, contextEndIndex);
   const recentContext = context.recentMessages
     .slice(0, contextEndIndex)
     .slice(-EXPRESSION_AGENT_RECENT_CONTEXT_MESSAGES)
@@ -1331,11 +1348,20 @@ function buildExpressionAgentMessages(template: string, context: AgentContext): 
     userParts.push(``);
   }
 
+  if (latestUser) {
+    userParts.push(`<latest_user_message>`);
+    userParts.push(truncateAgentText(latestUser.content, EXPRESSION_AGENT_CONTEXT_CHAR_LIMIT));
+    userParts.push(`</latest_user_message>`);
+    userParts.push(``);
+  }
+
   userParts.push(`<assistant_response>`);
   userParts.push(truncateAgentText(responseText, EXPRESSION_AGENT_RESPONSE_CHAR_LIMIT));
   userParts.push(`</assistant_response>`);
   userParts.push(``);
-  userParts.push(`Now return the requested format.`);
+  userParts.push(
+    `Now return the requested format with exactly one expression entry for every owner listed in <available_sprites>.`,
+  );
 
   return [
     { role: "system", content: systemParts.join("\n"), contextKind: "prompt" },
@@ -1561,10 +1587,12 @@ function buildAvailableSpritesBlock(context: AgentContext): string {
     expressions: string[];
     expressionChoices?: string[];
   }>;
+  const personaId = typeof context.memory._personaId === "string" ? context.memory._personaId : "";
   const parts: string[] = [`<available_sprites>`];
   for (const char of sprites) {
     const choices = char.expressionChoices?.length ? char.expressionChoices : char.expressions;
-    parts.push(`${char.characterName} (${char.characterId}): ${choices.join(", ")}`);
+    const label = char.characterId === personaId ? " [active user persona]" : "";
+    parts.push(`${char.characterName} (${char.characterId})${label}: ${choices.join(", ")}`);
   }
   parts.push(`</available_sprites>`);
   return parts.join("\n");

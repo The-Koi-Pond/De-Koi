@@ -29,7 +29,8 @@
     "check:rust:nextest": "cargo nextest run --manifest-path src-tauri/Cargo.toml --workspace",
     "check:rust:deny": "cargo deny --manifest-path src-tauri/Cargo.toml check --config deny.toml",
     "check:rust:deps": "cargo machete src-tauri",
-    "check:docs": "node scripts/check-docs.mjs && pnpm check:bunny-review",
+    "check:docs": "node scripts/check-docs.mjs && pnpm check:pi-containers && pnpm check:bunny-review",
+    "check:pi-containers": "node scripts/check-pi-container-distribution.mjs",
     "check:bunny-review": "node .github/bunny-review/run_guidance_check.mjs --self-test && node .github/bunny-review/run_guidance_check.mjs",
     "check:storage-contracts": "node scripts/check-storage-contracts.mjs",
     "check:discovery": "node scripts/check-discovery-metadata.mjs",
@@ -60,7 +61,7 @@
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-opener": "^2",
     "clsx": "^2.1.1",
-    "dompurify": "^3.4.2",
+    "dompurify": "^3.4.10",
     "framer-motion": "^12.38.0",
     "lucide-react": "^0.513.0",
     "react": "^19.2.5",
@@ -100,9 +101,14 @@
   },
   "pnpm": {
     "overrides": {
+      "@babel/core": "7.29.7",
       "esbuild": "0.28.1",
+      "js-yaml": "4.2.0",
       "tmp": "^0.2.6",
       "uuid": "^11.1.1"
+    },
+    "patchedDependencies": {
+      "@lhci/utils@0.15.1": "patches/@lhci__utils@0.15.1.patch"
     }
   },
   "size-limit": [

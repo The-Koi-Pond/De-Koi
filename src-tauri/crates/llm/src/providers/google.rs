@@ -365,8 +365,9 @@ pub(crate) fn google_system_instruction(request: &LlmRequest) -> Option<Value> {
 
 pub(crate) fn google_generation_config(request: &LlmRequest) -> Value {
     let is_gemini_3 = is_gemini_3_model(&request.connection.model);
+    let max_output_tokens = request_max_tokens(request, 1024);
     let mut generation_config = json!({
-        "maxOutputTokens": request_max_tokens(request, 1024),
+        "maxOutputTokens": max_output_tokens,
     });
     if !is_gemini_3 {
         generation_config["temperature"] = json!(temperature(&request.parameters).unwrap_or(0.7));
@@ -391,9 +392,11 @@ pub(crate) fn google_generation_config(request: &LlmRequest) -> Value {
     ) {
         generation_config["presencePenalty"] = json!(presence_penalty);
     }
-    if let Some(thinking_config) =
-        google_thinking_config(&request.connection.model, &request.parameters)
-    {
+    if let Some(thinking_config) = google_thinking_config(
+        &request.connection.model,
+        &request.parameters,
+        max_output_tokens,
+    ) {
         generation_config["thinkingConfig"] = thinking_config;
     }
     if let Some(stop) = stop_sequences(&request.parameters) {

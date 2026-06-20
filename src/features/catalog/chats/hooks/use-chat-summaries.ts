@@ -39,6 +39,12 @@ export type ChatListItem = Pick<Chat, ChatSummaryField> & {
   metadata: Partial<Pick<Chat["metadata"], ChatSummaryMetadataField>>;
 };
 
+const CHAT_SUMMARY_WAKEUP_REFETCH_INTERVAL_MS = 5_000;
+
+function chatSummaryWakeupRefetchInterval(error: unknown): number | false {
+  return shouldRetryApiQuery(0, error, { maxRetries: 1 }) ? CHAT_SUMMARY_WAKEUP_REFETCH_INTERVAL_MS : false;
+}
+
 export function useChatSummaries() {
   return useQuery({
     queryKey: chatKeys.summaries(),
@@ -48,9 +54,11 @@ export function useChatSummaries() {
         fieldSelections: { metadata: [...CHAT_SUMMARY_METADATA_FIELDS] },
       }),
     staleTime: 10_000,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
     refetchOnReconnect: true,
+    refetchInterval: (query) =>
+      query.state.status === "error" ? chatSummaryWakeupRefetchInterval(query.state.error) : false,
     retry: (failureCount, error) => shouldRetryApiQuery(failureCount, error, { maxRetries: 10 }),
     retryDelay: (attempt, error) => apiQueryRetryDelay(attempt, error, { baseDelayMs: 750, maxDelayMs: 5_000 }),
   });
@@ -68,9 +76,11 @@ export function useRecentChatSummaries(limit = 3) {
         limit,
       }),
     staleTime: 10_000,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
     refetchOnReconnect: true,
+    refetchInterval: (query) =>
+      query.state.status === "error" ? chatSummaryWakeupRefetchInterval(query.state.error) : false,
     retry: (failureCount, error) => shouldRetryApiQuery(failureCount, error, { maxRetries: 10 }),
     retryDelay: (attempt, error) => apiQueryRetryDelay(attempt, error, { baseDelayMs: 750, maxDelayMs: 5_000 }),
   });

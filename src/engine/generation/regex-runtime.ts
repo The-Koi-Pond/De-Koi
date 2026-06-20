@@ -28,6 +28,10 @@ function scriptTargetCharacterIds(script: JsonRecord): string[] {
   return characterId ? [characterId] : [];
 }
 
+function scriptPromptOnly(script: JsonRecord): boolean {
+  return boolish(script.promptOnly, false) || scriptTargetCharacterIds(script).length > 0;
+}
+
 function scriptAppliesToScope(script: JsonRecord, options?: RuntimeRegexScopeOptions): boolean {
   const targetIds = scriptTargetCharacterIds(script);
   if (targetIds.length === 0) return true;
@@ -50,7 +54,7 @@ export async function applyRuntimeRegexScripts(
 
   for (const script of scripts) {
     if (!boolish(script.enabled, true)) continue;
-    if (boolish(script.promptOnly, false)) continue;
+    if (scriptPromptOnly(script)) continue;
     if (!scriptAppliesToScope(script, options)) continue;
     if (!placements(script.placement).includes(placement)) continue;
 

@@ -170,6 +170,7 @@ export function AvatarGenerationModal({
                       <option key={connection.id} value={connection.id}>
                         {connection.name}
                         {connection.model ? ` - ${connection.model}` : ""}
+                        {isDefaultImageGenerationConnection(connection) ? " (Default)" : ""}
                       </option>
                     ))}
                   </select>

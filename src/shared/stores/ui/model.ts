@@ -55,8 +55,8 @@ export const CONVERSATION_MESSAGE_STYLE_OPTIONS: Array<{
   label: string;
   description: string;
 }> = [
-  { id: "classic", label: "Linear", description: "Rows with avatars, names, and inline message text." },
-  { id: "bubble", label: "Bubbles", description: "Messenger-style left and right message bubbles." },
+  { id: "classic", label: "Linear", description: "Chat-style rows" },
+  { id: "bubble", label: "Bubbles", description: "Messenger-style bubbles" },
 ];
 
 interface GameSetupLearnedOptions {
@@ -424,7 +424,7 @@ export interface UIState {
   /** When true, show the global Spotify mini player in the app chrome. */
   spotifyPlayerEnabled: boolean;
   /** When true, allow the rare Chibi Assistant scroll toast to register. */
-  chibiProfessorMariEnabled: boolean;
+  chibiDekiEnabled: boolean;
   /** Optional remote Rust runtime URL. Blank uses the embedded Tauri backend. */
   remoteRuntimeUrl: string;
   /** Mobile Spotify widget collapsed state. */
@@ -654,7 +654,7 @@ export interface UIState {
   setTrimIncompleteModelOutput: (v: boolean) => void;
   setSpeechToTextEnabled: (v: boolean) => void;
   setSpotifyPlayerEnabled: (v: boolean) => void;
-  setChibiProfessorMariEnabled: (v: boolean) => void;
+  setChibiDekiEnabled: (v: boolean) => void;
   setRemoteRuntimeUrl: (v: string) => void;
   setSpotifyMobileWidgetCollapsed: (v: boolean) => void;
   setSpotifyMobileWidgetPosition: (position: FloatingWidgetPosition) => void;

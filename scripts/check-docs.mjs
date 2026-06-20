@@ -145,6 +145,18 @@ const guidanceByPath = new Map(
 );
 const forbiddenGuidance = [
   {
+    snippet: "This repository is an active refactor branch.",
+    reason: "main is the active De-Koi development line",
+  },
+  {
+    snippet: "Use the `refactor` branch copy of this documentation",
+    reason: "current development docs should point at main",
+  },
+  {
+    snippet: "Pre-Alpha Platform Builds</strong> from GitHub Actions on the\n          <code>refactor</code> branch",
+    reason: "manual pre-alpha platform builds now dispatch from main",
+  },
+  {
     snippet: "Engine --> API",
     reason: "engine code must receive capability ports instead of importing shared API adapters",
   },

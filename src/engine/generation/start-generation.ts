@@ -100,6 +100,7 @@ import {
 import {
   completeRequiredSpriteExpressionEntries,
   type AvailableSpriteCharacter,
+  type SpriteExpressionCompletionOptions,
   type SpriteExpressionEntry,
 } from "./sprite-expression-validation";
 import {
@@ -614,6 +615,9 @@ type IllustrationImageSettings = {
   useAvatarReferences: boolean;
 };
 
+export const ILLUSTRATOR_TEXT_NEGATIVE_PROMPT =
+  "dialogue boxes, speech bubbles, word balloons, captions, narration boxes, text boxes, manga sound effect text, SFX lettering, readable text, letters, subtitles, watermark, logo, signature";
+
 type IllustrationReferenceSubject = {
   id: string;
   name: string;
@@ -662,6 +666,21 @@ function combinedPromptParts(parts: string[]): string {
     result.push(text);
   }
   return result.join(", ");
+}
+
+export function buildIllustrationNegativePrompt(args: {
+  itemNegativePrompt?: unknown;
+  agentNegativePrompt?: unknown;
+  chatIllustrationNegativePrompt?: unknown;
+  chatSelfieNegativePrompt?: unknown;
+}): string {
+  return combinedPromptParts([
+    readString(args.itemNegativePrompt).trim(),
+    readString(args.agentNegativePrompt).trim(),
+    readString(args.chatIllustrationNegativePrompt).trim(),
+    readString(args.chatSelfieNegativePrompt).trim(),
+    ILLUSTRATOR_TEXT_NEGATIVE_PROMPT,
+  ]);
 }
 
 function usableReferenceImage(value: unknown): string {
@@ -777,12 +796,12 @@ async function illustrationImageSettings(args: {
     connectionId,
     positivePrompt:
       readString(settings.imagePositivePrompt).trim() || readString(meta.illustrationPositivePrompt).trim(),
-    negativePrompt: combinedPromptParts([
-      args.item.negativePrompt,
-      readString(settings.imageNegativePrompt).trim(),
-      readString(meta.illustrationNegativePrompt).trim(),
-      readString(meta.selfieNegativePrompt).trim(),
-    ]),
+    negativePrompt: buildIllustrationNegativePrompt({
+      itemNegativePrompt: args.item.negativePrompt,
+      agentNegativePrompt: settings.imageNegativePrompt,
+      chatIllustrationNegativePrompt: meta.illustrationNegativePrompt,
+      chatSelfieNegativePrompt: meta.selfieNegativePrompt,
+    }),
     useAvatarReferences: illustratorAvatarReferencesEnabled(settings, meta),
   };
 }
@@ -2393,6 +2412,7 @@ function spriteExpressionsFromAgentResults(
   results: AgentResult[],
   availableSprites: AvailableSpriteCharacter[] | undefined,
   requiredCharacterIds: readonly unknown[] = [],
+  completionOptions: SpriteExpressionCompletionOptions = {},
 ): Record<string, string> | null {
   const entries: SpriteExpressionEntry[] = [];
   const hasAvailableSprites = Array.isArray(availableSprites) && availableSprites.length > 0;
@@ -2414,7 +2434,12 @@ function spriteExpressionsFromAgentResults(
 
   if (!hasAvailableSprites) return null;
 
-  const validation = completeRequiredSpriteExpressionEntries(entries, availableSprites, requiredCharacterIds);
+  const validation = completeRequiredSpriteExpressionEntries(
+    entries,
+    availableSprites,
+    requiredCharacterIds,
+    completionOptions,
+  );
   for (const entry of validation.expressions) {
     const expression = readString(entry.expression).trim();
     const characterId = readString(entry.characterId).trim();
@@ -2429,16 +2454,248 @@ function requiredSpriteExpressionTargetIds(chat: JsonRecord, input: StartGenerat
   return targetId ? [targetId] : [];
 }
 
-function requiredSpriteExpressionTargetIdsForMessage(message: unknown): string[] {
+function expressionAvatarsEnabled(chat: JsonRecord): boolean {
+  return parseRecord(chat.metadata).expressionAvatarsEnabled === true;
+}
+
+function uniqueRequiredSpriteExpressionTargetIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const rawId of ids) {
+    const id = rawId.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    unique.push(id);
+  }
+  return unique;
+}
+
+function requiredSpriteExpressionTargetIdsForMessage(message: unknown, chat?: JsonRecord): string[] {
   if (!isRecord(message)) return [];
   const role = readString(message.role).trim();
   const characterId = readString(message.characterId).trim();
   if (role !== "user" && characterId) return [characterId];
   if (role === "user") {
-    const personaId = readString(parseRecord(parseRecord(message.extra).personaSnapshot).personaId).trim();
+    const personaId =
+      readString(parseRecord(parseRecord(message.extra).personaSnapshot).personaId).trim() ||
+      readString(chat?.personaId).trim();
     if (personaId) return [personaId];
   }
   return [];
+}
+
+type SpriteExpressionMessagePatch = {
+  messageId: string;
+  spriteExpressions: Record<string, string>;
+};
+
+type MessageExtraPatchForGeneration = {
+  messageId: string;
+  patch: Record<string, unknown>;
+};
+
+function messageRole(message: unknown): string {
+  return isRecord(message) ? readString(message.role).trim() : "";
+}
+
+function existingSpriteExpressionMap(message: unknown): Record<string, string> {
+  const expressions = parseRecord(parseRecord(isRecord(message) ? message.extra : null).spriteExpressions);
+  const normalized: Record<string, string> = {};
+  for (const [key, value] of Object.entries(expressions)) {
+    const expression = readString(value).trim();
+    if (key.trim() && expression) normalized[key.trim()] = expression;
+  }
+  return normalized;
+}
+
+function mergeSpriteExpressionMap(
+  existing: Record<string, string>,
+  next: Record<string, string>,
+): Record<string, string> {
+  return { ...existing, ...next };
+}
+
+function lastUserMessageBeforeTarget(messages: JsonRecord[], target: JsonRecord | null): JsonRecord | null {
+  const index = messageIndex(messages, target);
+  const start = index >= 0 ? index - 1 : messages.length - 1;
+  for (let i = start; i >= 0; i -= 1) {
+    const message = messages[i]!;
+    if (messageRole(message) === "user" && readString(message.id).trim()) return message;
+  }
+  return null;
+}
+
+function messageContent(message: unknown): string {
+  return isRecord(message) ? readString(message.content) : "";
+}
+
+function requiredSpriteExpressionTargetIdsForTarget(
+  chat: JsonRecord,
+  messages: JsonRecord[],
+  target: JsonRecord | null,
+): string[] {
+  const ids = requiredSpriteExpressionTargetIdsForMessage(target, chat);
+  const personaId = readString(chat.personaId).trim();
+  if (personaId && expressionAvatarsEnabled(chat) && messageRole(target) !== "user") {
+    const personaTarget = lastUserMessageBeforeTarget(messages, target);
+    if (readString(personaTarget?.id).trim()) ids.push(personaId);
+  }
+  return uniqueRequiredSpriteExpressionTargetIds(ids);
+}
+
+function spriteExpressionCompletionOptionsForTarget(
+  chat: JsonRecord,
+  messages: JsonRecord[],
+  target: JsonRecord | null,
+): SpriteExpressionCompletionOptions {
+  const personaId = readString(chat.personaId).trim();
+  const targetRole = messageRole(target);
+  const targetText = messageContent(target);
+  const personaSource =
+    targetRole === "user" ? targetText : messageContent(lastUserMessageBeforeTarget(messages, target));
+  const sourceTextByCharacterId = new Map<string, string>();
+  if (personaId && personaSource.trim()) {
+    sourceTextByCharacterId.set(personaId, personaSource);
+  }
+  return {
+    defaultSourceText: targetText,
+    sourceTextByCharacterId,
+    personaCharacterIds: personaId ? new Set([personaId]) : undefined,
+  };
+}
+
+export function spriteExpressionPatchesForTarget(args: {
+  chat: JsonRecord;
+  messages: JsonRecord[];
+  target: JsonRecord | null;
+  results: AgentResult[];
+  availableSprites: AvailableSpriteCharacter[];
+}): SpriteExpressionMessagePatch[] {
+  const targetId = readString(args.target?.id).trim();
+  if (!targetId) return [];
+
+  const spriteExpressions = spriteExpressionsFromAgentResults(
+    args.results,
+    args.availableSprites,
+    requiredSpriteExpressionTargetIdsForTarget(args.chat, args.messages, args.target),
+    spriteExpressionCompletionOptionsForTarget(args.chat, args.messages, args.target),
+  );
+  if (!spriteExpressions || Object.keys(spriteExpressions).length === 0) return [];
+
+  const personaId = readString(args.chat.personaId).trim();
+  const targetRole = messageRole(args.target);
+  const targetExpressions: Record<string, string> = {};
+  const personaExpressions: Record<string, string> = {};
+
+  for (const [ownerId, expression] of Object.entries(spriteExpressions)) {
+    if (personaId && ownerId === personaId && targetRole !== "user") {
+      personaExpressions[ownerId] = expression;
+    } else {
+      targetExpressions[ownerId] = expression;
+    }
+  }
+
+  const patches: SpriteExpressionMessagePatch[] = [];
+  if (Object.keys(targetExpressions).length > 0) {
+    patches.push({
+      messageId: targetId,
+      spriteExpressions: mergeSpriteExpressionMap(existingSpriteExpressionMap(args.target), targetExpressions),
+    });
+  }
+
+  if (Object.keys(personaExpressions).length > 0) {
+    const personaTarget = targetRole === "user" ? args.target : lastUserMessageBeforeTarget(args.messages, args.target);
+    const personaMessageId = readString(personaTarget?.id).trim();
+    if (personaMessageId) {
+      patches.push({
+        messageId: personaMessageId,
+        spriteExpressions: mergeSpriteExpressionMap(existingSpriteExpressionMap(personaTarget), personaExpressions),
+      });
+    }
+  }
+
+  return patches;
+}
+
+function mergeMessageExtraPatches(patches: MessageExtraPatchForGeneration[]): MessageExtraPatchForGeneration[] {
+  const merged = new Map<string, Record<string, unknown>>();
+  for (const patch of patches) {
+    const messageId = patch.messageId.trim();
+    if (!messageId || Object.keys(patch.patch).length === 0) continue;
+    merged.set(messageId, { ...(merged.get(messageId) ?? {}), ...patch.patch });
+  }
+  return Array.from(merged.entries()).map(([messageId, patch]) => ({ messageId, patch }));
+}
+
+export async function patchMessageExtrasForGeneration(
+  storage: Pick<StorageGateway, "getChatMessage" | "patchChatMessageExtra">,
+  patches: MessageExtraPatchForGeneration[],
+): Promise<unknown[]> {
+  const mergedPatches = mergeMessageExtraPatches(patches);
+  if (mergedPatches.length === 0) return [];
+
+  const applied: Array<{
+    messageId: string;
+    originalValues: Map<string, { hadKey: boolean; value: unknown }>;
+  }> = [];
+  const updatedRows: unknown[] = [];
+  try {
+    for (const patch of mergedPatches) {
+      const current = await storage.getChatMessage<JsonRecord>(patch.messageId, { fields: ["extra"] });
+      if (!current) throw new Error(`Message ${patch.messageId} was not found`);
+
+      const currentExtra = parseRecord(current.extra);
+      const originalValues = new Map<string, { hadKey: boolean; value: unknown }>();
+      for (const key of Object.keys(patch.patch)) {
+        originalValues.set(key, {
+          hadKey: Object.prototype.hasOwnProperty.call(currentExtra, key),
+          value: currentExtra[key],
+        });
+      }
+
+      updatedRows.push(await storage.patchChatMessageExtra(patch.messageId, patch.patch));
+      applied.push({ messageId: patch.messageId, originalValues });
+    }
+    return updatedRows;
+  } catch (error) {
+    const rollbackErrors: unknown[] = [];
+    for (let index = applied.length - 1; index >= 0; index -= 1) {
+      const { messageId, originalValues } = applied[index]!;
+      try {
+        const rollbackPatch: Record<string, unknown> = {};
+        const missingKeys: string[] = [];
+        for (const [key, original] of originalValues) {
+          if (original.hadKey) {
+            rollbackPatch[key] = original.value;
+          } else {
+            missingKeys.push(key);
+          }
+        }
+        if (Object.keys(rollbackPatch).length > 0) {
+          await storage.patchChatMessageExtra(messageId, rollbackPatch);
+        }
+        if (missingKeys.length > 0) {
+          throw new Error(
+            `Message ${messageId} rollback cannot delete newly added extra key(s): ${missingKeys.join(", ")}`,
+          );
+        }
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    if (rollbackErrors.length > 0) {
+      const rollbackFailure = new Error(
+        "Message extra patch failed and rollback did not fully restore state",
+      ) as Error & {
+        cause?: unknown;
+        rollbackErrors?: unknown[];
+      };
+      rollbackFailure.cause = error;
+      rollbackFailure.rollbackErrors = rollbackErrors;
+      throw rollbackFailure;
+    }
+    throw error;
+  }
 }
 
 function assertVisibleGeneratedContent(content: string, attachments?: JsonRecord[]): void {
@@ -2906,13 +3163,16 @@ function savedMessageAttachments(saved: unknown): JsonRecord[] {
 
 async function patchSavedMessageAgentExtra(args: {
   storage: StorageGateway;
+  chat: JsonRecord;
+  storedMessages: JsonRecord[];
   saved: unknown;
   results: AgentResult[];
   contextInjections?: AgentInjectionOverride[] | null;
-  spriteExpressions?: Record<string, string> | null;
-}): Promise<unknown | null> {
+  availableSprites: AvailableSpriteCharacter[];
+}): Promise<unknown[]> {
   const id = messageId(args.saved);
-  if (!id) return null;
+  if (!id) return [];
+  const target = isRecord(args.saved) ? args.saved : null;
   const existingExtra = savedMessageExtra(args.saved);
   const extraPatch = agentExtraFromResults({
     results: args.results,
@@ -2920,11 +3180,26 @@ async function patchSavedMessageAgentExtra(args: {
     existingExtra,
     mergeContextInjectionUpdates: true,
   });
-  if (args.spriteExpressions && Object.keys(args.spriteExpressions).length > 0) {
-    extraPatch.spriteExpressions = args.spriteExpressions;
+  const spriteExpressionPatches = spriteExpressionPatchesForTarget({
+    chat: args.chat,
+    messages: args.storedMessages,
+    target,
+    results: args.results,
+    availableSprites: args.availableSprites,
+  });
+  const targetSpritePatch = spriteExpressionPatches.find((patch) => patch.messageId === id);
+  if (targetSpritePatch) {
+    extraPatch.spriteExpressions = targetSpritePatch.spriteExpressions;
   }
-  if (Object.keys(extraPatch).length === 0) return null;
-  return args.storage.patchChatMessageExtra(id, extraPatch);
+  const messageExtraPatches: MessageExtraPatchForGeneration[] = [];
+  if (Object.keys(extraPatch).length > 0) {
+    messageExtraPatches.push({ messageId: id, patch: extraPatch });
+  }
+  for (const patch of spriteExpressionPatches) {
+    if (patch.messageId === id) continue;
+    messageExtraPatches.push({ messageId: patch.messageId, patch: { spriteExpressions: patch.spriteExpressions } });
+  }
+  return patchMessageExtrasForGeneration(args.storage, messageExtraPatches);
 }
 
 async function appendSavedMessageAttachments(args: {
@@ -2941,29 +3216,42 @@ async function appendSavedMessageAttachments(args: {
 
 async function persistAgentMessageExtraForTarget(
   storage: StorageGateway,
+  chat: JsonRecord,
+  storedMessages: JsonRecord[],
   target: JsonRecord | null,
   results: AgentResult[],
   contextInjections: AgentInjectionOverride[] | null,
   availableSprites: AvailableSpriteCharacter[],
-): Promise<void> {
+): Promise<unknown[]> {
   const messageId = readString(target?.id).trim();
-  if (!messageId) return;
+  if (!messageId) return [];
   const extraPatch = agentExtraFromResults({
     results,
     contextInjections,
     existingExtra: target?.extra,
     mergeContextInjectionUpdates: true,
   });
-  const spriteExpressions = spriteExpressionsFromAgentResults(
+
+  const spriteExpressionPatches = spriteExpressionPatchesForTarget({
+    chat,
+    messages: storedMessages,
+    target,
     results,
     availableSprites,
-    requiredSpriteExpressionTargetIdsForMessage(target),
-  );
-  if (spriteExpressions && Object.keys(spriteExpressions).length > 0) {
-    extraPatch.spriteExpressions = spriteExpressions;
+  });
+  const targetSpritePatch = spriteExpressionPatches.find((patch) => patch.messageId === messageId);
+  if (targetSpritePatch) {
+    extraPatch.spriteExpressions = targetSpritePatch.spriteExpressions;
   }
-  if (Object.keys(extraPatch).length === 0) return;
-  await storage.patchChatMessageExtra(messageId, extraPatch);
+  const messageExtraPatches: MessageExtraPatchForGeneration[] = [];
+  if (Object.keys(extraPatch).length > 0) {
+    messageExtraPatches.push({ messageId, patch: extraPatch });
+  }
+  for (const patch of spriteExpressionPatches) {
+    if (patch.messageId === messageId) continue;
+    messageExtraPatches.push({ messageId: patch.messageId, patch: { spriteExpressions: patch.spriteExpressions } });
+  }
+  return patchMessageExtrasForGeneration(storage, messageExtraPatches);
 }
 
 function targetAssistantMessage(messages: JsonRecord[], options: Record<string, unknown> = {}): JsonRecord | null {
@@ -3220,8 +3508,10 @@ async function runGenerationAgentsForTarget(args: {
     baseline: targetSnapshot ?? retryBaseline,
     signal,
   });
-  await persistAgentMessageExtraForTarget(
+  const patchedMessages = await persistAgentMessageExtraForTarget(
     deps.storage,
+    chatForAgents,
+    storedMessages,
     target,
     finalResults,
     runtime.preInjections,
@@ -3244,6 +3534,9 @@ async function runGenerationAgentsForTarget(args: {
   await persistAgentResults(deps.storage, chatId, target ? readString(target.id) || null : null, finalResults);
 
   const events: GenerationEvent[] = runtime.agentWarnings.map((warning) => ({ type: "agent_warning", data: warning }));
+  for (const patched of patchedMessages) {
+    events.push({ type: "message", data: savedGenerationEventData(patched) });
+  }
   const hasIllustrationRequest = finalResults.some((result) => illustratorPromptData(result) !== null);
   if (target && hasIllustrationRequest) {
     const illustration = await generateIllustrationAttachments({
@@ -3877,12 +4170,17 @@ export async function* startGeneration(
     let content = streamedContent;
 
     const preSaveAgentResults = isUserMessageRegeneration ? [] : uniqueAgentResults(runtime?.preResults ?? []);
+    const preSavePersonaId = readString(chat.personaId).trim();
     const preSaveSpriteExpressions = isUserMessageRegeneration
       ? null
       : spriteExpressionsFromAgentResults(
           preSaveAgentResults,
           runtime?.availableSprites ?? [],
           requiredSpriteExpressionTargetIds(chat, input),
+          {
+            defaultSourceText: content,
+            personaCharacterIds: preSavePersonaId ? new Set([preSavePersonaId]) : undefined,
+          },
         );
     content = await applyRuntimeRegexScripts(deps.storage, "ai_output", content, {
       chatCharacterIds: activeCharacterIds(chat),
@@ -3974,22 +4272,24 @@ export async function* startGeneration(
       }
       agentEvents.length = 0;
       const allAgentResults = uniqueAgentResults([...preSaveAgentResults, ...emittedAgentResults]);
-      const spriteExpressions = spriteExpressionsFromAgentResults(
-        allAgentResults,
-        runtime?.availableSprites ?? [],
-        requiredSpriteExpressionTargetIdsForMessage(latestSaved),
-      );
       if (saved) {
-        const patched = await patchSavedMessageAgentExtra({
+        const patchedMessages = await patchSavedMessageAgentExtra({
           storage: deps.storage,
+          chat: chatForGeneration,
+          storedMessages,
           saved: latestSaved,
           results: allAgentResults,
           contextInjections: runtime?.preInjections ?? null,
-          spriteExpressions,
+          availableSprites: runtime?.availableSprites ?? [],
         });
-        if (patched) {
-          latestSaved = patched;
-          yield { type: savedGenerationEventType(input, regenerationTarget), data: savedGenerationEventData(patched) };
+        for (const patched of patchedMessages) {
+          const patchedMessageId = messageId(patched);
+          if (patchedMessageId && patchedMessageId === messageId(latestSaved)) {
+            latestSaved = patched;
+            yield { type: savedGenerationEventType(input, regenerationTarget), data: savedGenerationEventData(patched) };
+          } else {
+            yield { type: "message", data: savedGenerationEventData(patched) };
+          }
         }
       }
 

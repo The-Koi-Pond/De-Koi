@@ -27,9 +27,9 @@ const SPOTIFY_PLAYBACK_CONTROL_SCOPE: &str = "user-modify-playback-state";
 const SPOTIFY_DEFAULT_REDIRECT_URI: &str = "http://127.0.0.1:8754/spotify/callback";
 const SPOTIFY_REDIRECT_URI_ENV: &str = "SPOTIFY_REDIRECT_URI";
 const AUTH_TTL_MS: u128 = 10 * 60_000;
-const DJ_MARI_MIN_TRACKS: usize = 25;
-const DJ_MARI_MAX_TRACKS: usize = 50;
-const DJ_MARI_OUTPUT_TOKENS: u64 = 8192;
+const DJ_DEKI_MIN_TRACKS: usize = 25;
+const DJ_DEKI_MAX_TRACKS: usize = 50;
+const DJ_DEKI_OUTPUT_TOKENS: u64 = 8192;
 const RECENT_CHAT_MESSAGE_LIMIT: usize = 8;
 const LIKED_SONG_EXAMPLE_LIMIT: u32 = 50;
 const SPOTIFY_MIN_TITLE_SIMILARITY: f64 = 0.7;
@@ -40,6 +40,11 @@ const SPOTIFY_REFRESH_TOKEN_ENCRYPTED_KEY: &str = "spotifyRefreshTokenEncrypted"
 const SPOTIFY_TRACK_INDEX_TTL_MS: u128 = 20 * 60_000;
 const SPOTIFY_TRACK_INDEX_CACHE_MAX: usize = 24;
 const SPOTIFY_TRACK_INDEX_MAX_TRACKS: u32 = 2_500;
+const SPOTIFY_RECENT_TRACK_PROMPT_LIMIT: usize = 12;
+const SPOTIFY_PLAYBACK_SETTLE_MS: u64 = 650;
+const SPOTIFY_PLAYBACK_VERIFY_DELAYS_MS: [u64; 5] =
+    [0, SPOTIFY_PLAYBACK_SETTLE_MS, 900, 1_500, 2_500];
+const SPOTIFY_REPEAT_RETRY_DELAYS_MS: [u64; 3] = [0, 450, 900];
 
 #[derive(Clone)]
 struct SpotifyTrack {
@@ -73,6 +78,34 @@ struct SpotifyTrackIndexCacheEntry {
     fetched_at: u128,
     expires_at: u128,
     truncated: bool,
+}
+
+#[derive(Clone)]
+struct SpotifyPlaybackSnapshot {
+    is_playing: bool,
+    track_uri: Option<String>,
+    context_uri: Option<String>,
+    repeat_state: String,
+    device_id: Option<String>,
+    device_name: Option<String>,
+    device: Value,
+    display: Value,
+}
+
+struct SpotifyPlayRequest {
+    payload: Value,
+    requested_uris: Vec<String>,
+    requested_uris_json: Value,
+    requested_context_uri: Option<String>,
+}
+
+struct SpotifyPlaybackVerification<'a> {
+    initial_device_id: Option<&'a str>,
+    target_device_id: Option<&'a str>,
+    expected_track_uri: Option<&'a str>,
+    expected_context_uri: Option<&'a str>,
+    expected_uris: &'a [String],
+    require_first_uri: bool,
 }
 
 static SPOTIFY_TRACK_INDEX_CACHE: OnceLock<
@@ -109,7 +142,9 @@ pub(crate) async fn spotify_call(
         ("POST", ["playlist-tracks"]) => playlist_tracks(state, body).await,
         ("POST", ["search-tracks"]) => search_tracks(state, body).await,
         ("POST", ["play-track"]) => play_track(state, body).await,
-        ("POST", ["dj-mari-playlist"]) => dj_mari_playlist(state, body).await,
+        ("POST", ["dj-deki-playlist"]) | ("POST", ["dj-mari-playlist"]) => {
+            dj_deki_playlist(state, body).await
+        }
         ("PUT", ["player", "play"]) => {
             player_control(state, route, body, "/me/player/play", "PUT").await
         }
@@ -554,19 +589,111 @@ fn sample_spotify_tracks_evenly(tracks: &[Value], count: usize, seed: &str) -> V
     selected
 }
 
+fn sample_spotify_tracks_with_recent_avoidance(
+    tracks: &[Value],
+    count: usize,
+    seed: &str,
+    recent_track_uris: &std::collections::HashSet<&str>,
+) -> Vec<Value> {
+    if tracks.len() <= count {
+        if recent_track_uris.is_empty() {
+            return tracks.to_vec();
+        }
+        let mut fresh_tracks = tracks
+            .iter()
+            .filter(|track| {
+                !recent_track_uris.contains(spotify_candidate_field(track, "uri").as_str())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let recent_tracks = tracks
+            .iter()
+            .filter(|track| {
+                recent_track_uris.contains(spotify_candidate_field(track, "uri").as_str())
+            })
+            .cloned();
+        fresh_tracks.extend(recent_tracks);
+        return fresh_tracks;
+    }
+
+    if recent_track_uris.is_empty() {
+        return sample_spotify_tracks_evenly(tracks, count, seed);
+    }
+
+    let fresh_tracks = tracks
+        .iter()
+        .filter(|track| !recent_track_uris.contains(spotify_candidate_field(track, "uri").as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let recent_tracks = tracks
+        .iter()
+        .filter(|track| recent_track_uris.contains(spotify_candidate_field(track, "uri").as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut selected = sample_spotify_tracks_evenly(
+        if fresh_tracks.is_empty() {
+            tracks
+        } else {
+            &fresh_tracks
+        },
+        count.min(if fresh_tracks.is_empty() {
+            tracks.len()
+        } else {
+            fresh_tracks.len()
+        }),
+        seed,
+    );
+    if selected.len() < count && !recent_tracks.is_empty() {
+        let mut seen = selected
+            .iter()
+            .map(|track| spotify_candidate_field(track, "uri"))
+            .collect::<std::collections::HashSet<_>>();
+        for track in sample_spotify_tracks_evenly(
+            &recent_tracks,
+            count - selected.len(),
+            &format!("{seed}:recent"),
+        ) {
+            let uri = spotify_candidate_field(&track, "uri");
+            if seen.insert(uri) {
+                selected.push(track);
+            }
+        }
+    }
+    selected
+}
+
 fn select_spotify_track_candidates(
     tracks: &[Value],
     query: &str,
     limit: usize,
     playlist_id: &str,
-) -> (Vec<Value>, &'static str, Vec<String>) {
+    recent: &[String],
+) -> (Vec<Value>, String, Vec<String>, usize) {
     let phrase = normalize_spotify_text(query);
     let tokens = spotify_candidate_tokens(query);
+    let recent_track_uris = recent
+        .iter()
+        .map(|uri| uri.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let recent_avoided_count = tracks
+        .iter()
+        .filter(|track| recent_track_uris.contains(spotify_candidate_field(track, "uri").as_str()))
+        .count();
     if tokens.is_empty() {
         return (
-            sample_spotify_tracks_evenly(tracks, limit, &format!("{playlist_id}:balanced")),
-            "balanced_sample",
+            sample_spotify_tracks_with_recent_avoidance(
+                tracks,
+                limit,
+                &format!("{playlist_id}:balanced"),
+                &recent_track_uris,
+            ),
+            if recent_avoided_count > 0 {
+                "balanced_sample_recent_aware".to_string()
+            } else {
+                "balanced_sample".to_string()
+            },
             tokens,
+            recent_avoided_count,
         );
     }
 
@@ -585,6 +712,7 @@ fn select_spotify_track_candidates(
         .collect::<Vec<_>>();
     let mut selected = strong
         .iter()
+        .filter(|track| !recent_track_uris.contains(spotify_candidate_field(track, "uri").as_str()))
         .take((limit as f64 * 0.8).floor() as usize)
         .cloned()
         .collect::<Vec<_>>();
@@ -599,10 +727,11 @@ fn select_spotify_track_candidates(
             .map(|(track, _)| track.clone())
             .filter(|track| !seen.contains(&spotify_candidate_field(track, "uri")))
             .collect::<Vec<_>>();
-        for track in sample_spotify_tracks_evenly(
+        for track in sample_spotify_tracks_with_recent_avoidance(
             &fallback_source,
             reserve,
             &format!("{playlist_id}:{phrase}:fallback"),
+            &recent_track_uris,
         ) {
             let uri = spotify_candidate_field(&track, "uri");
             if seen.insert(uri) {
@@ -613,12 +742,19 @@ fn select_spotify_track_candidates(
 
     (
         selected.into_iter().take(limit).collect(),
-        if strong.is_empty() {
-            "balanced_sample"
+        if recent_avoided_count > 0 {
+            if strong.is_empty() {
+                "balanced_sample_recent_aware".to_string()
+            } else {
+                "scored_candidates_recent_aware".to_string()
+            }
+        } else if strong.is_empty() {
+            "balanced_sample".to_string()
         } else {
-            "scored_candidates"
+            "scored_candidates".to_string()
         },
         tokens,
+        recent_avoided_count,
     )
 }
 
@@ -731,29 +867,15 @@ async fn spotify_indexed_candidate_response(
     recent: &[String],
 ) -> AppResult<Value> {
     let (index, cache_status) = fetch_spotify_track_index(credentials, playlist_id).await?;
-    let recent = recent
-        .iter()
-        .map(|uri| uri.as_str())
-        .collect::<std::collections::HashSet<_>>();
-    let filtered = index
-        .tracks
-        .iter()
-        .filter(|track| {
-            track
-                .get("uri")
-                .and_then(Value::as_str)
-                .is_some_and(|uri| !recent.contains(uri))
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    let source_tracks = if filtered.is_empty() {
-        index.tracks.as_slice()
-    } else {
-        filtered.as_slice()
-    };
     let candidate_limit = limit.clamp(1, 80) as usize;
-    let (tracks, candidate_mode, matched_tokens) =
-        select_spotify_track_candidates(source_tracks, &query, candidate_limit, playlist_id);
+    let (tracks, candidate_mode, matched_tokens, recent_avoided_count) =
+        select_spotify_track_candidates(
+            &index.tracks,
+            &query,
+            candidate_limit,
+            playlist_id,
+            recent,
+        );
     let count = tracks.len();
 
     Ok(json!({
@@ -769,8 +891,14 @@ async fn spotify_indexed_candidate_response(
         "source": source,
         "query": if query.trim().is_empty() { Value::Null } else { Value::String(query) },
         "matchedTokens": matched_tokens,
+        "recentTrackUris": recent
+            .iter()
+            .take(SPOTIFY_RECENT_TRACK_PROMPT_LIMIT)
+            .cloned()
+            .collect::<Vec<_>>(),
+        "recentAvoidedCount": recent_avoided_count,
         "truncated": index.truncated,
-        "hint": "Spotify source was indexed and only scored candidates were returned. Pick from this shortlist; do not manually page unless you need raw browsing."
+        "hint": "Spotify source was indexed and only scored candidates were returned. Recently played tracks are suppressed when alternatives exist; avoid recentTrackUris unless no fitting non-recent candidate appears. Pick from this shortlist; do not manually page unless you need raw browsing."
     }))
 }
 
@@ -992,14 +1120,29 @@ async fn spotify_available_device(
         .collect::<Vec<_>>();
     let selected = candidates
         .iter()
-        .find(|device| {
-            device
-                .get("is_active")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-        })
+        .find(|device| spotify_device_is_active(device))
         .or_else(|| candidates.first());
     Ok(selected.cloned())
+}
+
+async fn spotify_active_device(credentials: &SpotifyCredentials) -> AppResult<Option<Value>> {
+    let response = spotify_api(credentials, "/me/player/devices", "GET", None).await?;
+    if !(200..300).contains(&response.status) {
+        return Ok(None);
+    }
+    let devices = response
+        .json
+        .get("devices")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    Ok(select_spotify_active_device(devices))
+}
+
+fn select_spotify_active_device(devices: Vec<Value>) -> Option<Value> {
+    devices
+        .into_iter()
+        .find(|device| spotify_device_is_usable(device, false) && spotify_device_is_active(device))
 }
 
 fn spotify_device_is_usable(device: &Value, mobile_device_only: bool) -> bool {
@@ -1014,6 +1157,13 @@ fn spotify_device_is_usable(device: &Value, mobile_device_only: bool) -> bool {
     let is_mobile =
         is_personal_mobile_spotify_device_type(device.get("type").and_then(Value::as_str));
     has_id && !is_restricted && (!mobile_device_only || is_mobile)
+}
+
+fn spotify_device_is_active(device: &Value) -> bool {
+    device
+        .get("is_active")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn is_personal_mobile_spotify_device_type(device_type: Option<&str>) -> bool {
@@ -1395,14 +1545,14 @@ async fn player(state: &AppState, route: &ParsedPath, body: &Value) -> AppResult
     let credentials = resolve_credentials(state, route, body).await?;
     let response = spotify_api(&credentials, "/me/player", "GET", None).await?;
     if response.status == 204 {
-        let device = spotify_available_device(&credentials, false)
+        let device = spotify_active_device(&credentials)
             .await?
             .map(map_spotify_device)
             .unwrap_or(Value::Null);
         let note = if device.is_null() {
             "No active Spotify playback. Open Spotify on a device, then call spotify_play with a fitting track."
         } else {
-            "No active Spotify playback, but a Spotify device is available. Call spotify_play with a fitting track."
+            "No active Spotify playback, but the current active Spotify device can be targeted by spotify_play."
         };
         return Ok(json!({
             "connected": true,
@@ -1533,7 +1683,7 @@ async fn playlists(state: &AppState, route: &ParsedPath, body: &Value) -> AppRes
     Ok(json!({ "playlists": playlists }))
 }
 
-async fn dj_mari_playlist(state: &AppState, body: Value) -> AppResult<Value> {
+async fn dj_deki_playlist(state: &AppState, body: Value) -> AppResult<Value> {
     let route = ParsedPath {
         parts: Vec::new(),
         query: HashMap::new(),
@@ -1541,15 +1691,15 @@ async fn dj_mari_playlist(state: &AppState, body: Value) -> AppResult<Value> {
     let credentials = resolve_credentials(state, &route, &body).await?;
     let playlist_name = format!("Assistant DJ {}", today_label());
     let liked_songs = fetch_liked_song_examples(&credentials).await?;
-    let context = build_dj_mari_context(state, &playlist_name, &liked_songs)?;
-    let generated_tracks = generate_dj_mari_playlist_plan(state, &playlist_name, context).await?;
+    let context = build_dj_deki_context(state, &playlist_name, &liked_songs)?;
+    let generated_tracks = generate_dj_deki_playlist_plan(state, &playlist_name, context).await?;
     let matched_tracks =
         match_generated_tracks(&credentials, &generated_tracks, &liked_songs).await?;
-    if matched_tracks.len() < DJ_MARI_MIN_TRACKS {
+    if matched_tracks.len() < DJ_DEKI_MIN_TRACKS {
         return Err(AppError::with_details(
-            "spotify_dj_mari_match_error",
+            "spotify_dj_deki_match_error",
             format!(
-                "Assistant DJ only matched {} Spotify tracks. Need at least {DJ_MARI_MIN_TRACKS}; try again after adding more Liked Songs or using a broader model prompt.",
+                "Assistant DJ only matched {} Spotify tracks. Need at least {DJ_DEKI_MIN_TRACKS}; try again after adding more Liked Songs or using a broader model prompt.",
                 matched_tracks.len()
             ),
             json!({
@@ -1559,8 +1709,8 @@ async fn dj_mari_playlist(state: &AppState, body: Value) -> AppResult<Value> {
         ));
     }
     let playlist =
-        create_dj_mari_spotify_playlist(&credentials, &playlist_name, &matched_tracks).await?;
-    let playback = start_dj_mari_playlist_playback(
+        create_dj_deki_spotify_playlist(&credentials, &playlist_name, &matched_tracks).await?;
+    let playback = start_dj_deki_playlist_playback(
         &credentials,
         playlist
             .get("playlistUri")
@@ -1867,7 +2017,7 @@ fn most_used_character(chats: &[Value], characters: &[Value]) -> Value {
     Value::Object(object)
 }
 
-fn build_dj_mari_context(
+fn build_dj_deki_context(
     state: &AppState,
     playlist_name: &str,
     liked_songs: &[SpotifyTrack],
@@ -1899,7 +2049,7 @@ fn build_dj_mari_context(
         .map(ToOwned::to_owned);
     Ok(json!({
         "playlistName": playlist_name,
-        "desiredTrackCount": format!("{DJ_MARI_MIN_TRACKS}-{DJ_MARI_MAX_TRACKS}"),
+        "desiredTrackCount": format!("{DJ_DEKI_MIN_TRACKS}-{DJ_DEKI_MAX_TRACKS}"),
         "persona": persona.unwrap_or(Value::Null),
         "characterNames": character_profiles.iter()
             .filter_map(|character| character.get("name").and_then(Value::as_str))
@@ -1914,7 +2064,7 @@ fn build_dj_mari_context(
     }))
 }
 
-fn resolve_dj_mari_llm_connection(state: &AppState) -> AppResult<Value> {
+fn resolve_dj_deki_llm_connection(state: &AppState) -> AppResult<Value> {
     let spotify_agent = find_spotify_agent(state, None).ok();
     if let Some(connection_id) = spotify_agent
         .as_ref()
@@ -1953,12 +2103,12 @@ fn resolve_dj_mari_llm_connection(state: &AppState) -> AppResult<Value> {
         })
 }
 
-async fn generate_dj_mari_playlist_plan(
+async fn generate_dj_deki_playlist_plan(
     state: &AppState,
     playlist_name: &str,
     context: Value,
 ) -> AppResult<Vec<GeneratedTrack>> {
-    let connection = resolve_dj_mari_llm_connection(state)?;
+    let connection = resolve_dj_deki_llm_connection(state)?;
     let request = marinara_llm::LlmRequest {
         connection: super::super::llm::llm_connection_from_value(&connection)?,
         messages: vec![
@@ -1991,7 +2141,7 @@ async fn generate_dj_mari_playlist_plan(
         ],
         parameters: json!({
             "temperature": 0.75,
-            "maxTokens": DJ_MARI_OUTPUT_TOKENS
+            "maxTokens": DJ_DEKI_OUTPUT_TOKENS
         }),
         tools: Vec::new(),
     };
@@ -1999,7 +2149,7 @@ async fn generate_dj_mari_playlist_plan(
     let tracks = parse_generated_tracks(&result)?;
     if tracks.is_empty() {
         return Err(AppError::new(
-            "spotify_dj_mari_plan_error",
+            "spotify_dj_deki_plan_error",
             "Assistant DJ returned no usable tracks.",
         ));
     }
@@ -2069,7 +2219,7 @@ fn extract_balanced_json_text(text: &str, start: usize) -> Option<&str> {
 fn parse_spotify_dj_json(candidate: &str) -> AppResult<Value> {
     serde_json::from_str(candidate).map_err(|error| {
         AppError::with_details(
-            "spotify_dj_mari_parse_error",
+            "spotify_dj_deki_parse_error",
             format!("Spotify DJ returned malformed JSON: {error}. Retry with a JSON-capable model/provider."),
             json!({ "recoverable": true }),
         )
@@ -2147,7 +2297,7 @@ fn parse_generated_tracks(raw: &str) -> AppResult<Vec<GeneratedTrack>> {
                 .and_then(Value::as_str)
                 .map(|value| short_text(value, 180)),
         });
-        if out.len() >= DJ_MARI_MAX_TRACKS {
+        if out.len() >= DJ_DEKI_MAX_TRACKS {
             break;
         }
     }
@@ -2323,7 +2473,7 @@ async fn match_generated_tracks(
     let mut matched = Vec::new();
     let mut seen_uris = std::collections::HashSet::new();
     for desired in generated {
-        if matched.len() >= DJ_MARI_MAX_TRACKS {
+        if matched.len() >= DJ_DEKI_MAX_TRACKS {
             break;
         }
         if let Some(track) = search_spotify_track(credentials, desired).await? {
@@ -2338,7 +2488,7 @@ async fn match_generated_tracks(
         }
     }
     for liked in liked_fallbacks {
-        if matched.len() >= DJ_MARI_MIN_TRACKS {
+        if matched.len() >= DJ_DEKI_MIN_TRACKS {
             break;
         }
         if seen_uris.insert(liked.uri.clone()) {
@@ -2352,10 +2502,10 @@ async fn match_generated_tracks(
             });
         }
     }
-    Ok(matched.into_iter().take(DJ_MARI_MAX_TRACKS).collect())
+    Ok(matched.into_iter().take(DJ_DEKI_MAX_TRACKS).collect())
 }
 
-async fn create_dj_mari_spotify_playlist(
+async fn create_dj_deki_spotify_playlist(
     credentials: &SpotifyCredentials,
     name: &str,
     tracks: &[MatchedTrack],
@@ -2416,7 +2566,7 @@ async fn create_dj_mari_spotify_playlist(
     }))
 }
 
-async fn start_dj_mari_playlist_playback(
+async fn start_dj_deki_playlist_playback(
     credentials: &SpotifyCredentials,
     playlist_uri: &str,
     device_id: Option<&str>,
@@ -2533,6 +2683,365 @@ fn spotify_error_message(body: &str, fallback: &str) -> String {
     body.chars().take(300).collect()
 }
 
+fn spotify_play_request_from_body(body: &Value) -> Option<SpotifyPlayRequest> {
+    let mut object = Map::new();
+    let mut requested_uris = Vec::new();
+    let mut requested_context_uri = None;
+
+    if let Some(context_uri) = body
+        .get("contextUri")
+        .and_then(Value::as_str)
+        .filter(|value| value.starts_with("spotify:"))
+    {
+        object.insert(
+            "context_uri".to_string(),
+            Value::String(context_uri.to_string()),
+        );
+        requested_context_uri = Some(context_uri.to_string());
+    } else if let Some(uris) = body.get("uris").and_then(Value::as_array) {
+        requested_uris = uris
+            .iter()
+            .filter_map(Value::as_str)
+            .filter(|uri| uri.starts_with("spotify:"))
+            .map(ToOwned::to_owned)
+            .collect();
+        if !requested_uris.is_empty() {
+            object.insert(
+                "uris".to_string(),
+                Value::Array(
+                    requested_uris
+                        .iter()
+                        .map(|uri| Value::String(uri.clone()))
+                        .collect(),
+                ),
+            );
+            object.insert("position_ms".to_string(), json!(0));
+        }
+    } else if let Some(uri) = body
+        .get("uri")
+        .and_then(Value::as_str)
+        .filter(|value| value.starts_with("spotify:"))
+    {
+        requested_uris.push(uri.to_string());
+        object.insert("uris".to_string(), json!([uri]));
+        object.insert("position_ms".to_string(), json!(0));
+    }
+
+    if object.is_empty() {
+        return None;
+    }
+
+    let requested_uris_json = if requested_uris.is_empty() {
+        Value::Null
+    } else {
+        Value::Array(
+            requested_uris
+                .iter()
+                .map(|uri| Value::String(uri.clone()))
+                .collect(),
+        )
+    };
+
+    Some(SpotifyPlayRequest {
+        payload: Value::Object(object),
+        requested_uris,
+        requested_uris_json,
+        requested_context_uri,
+    })
+}
+
+fn spotify_requested_repeat(body: &Value) -> Option<&str> {
+    body.get("repeatAfterPlay")
+        .and_then(Value::as_str)
+        .filter(|repeat| matches!(*repeat, "track" | "context" | "off"))
+}
+
+fn normalize_spotify_repeat_state(value: Option<&str>) -> String {
+    match value.unwrap_or("off") {
+        "track" => "track",
+        "context" => "context",
+        _ => "off",
+    }
+    .to_string()
+}
+
+fn spotify_playback_display(data: &Value) -> Value {
+    let item = data.get("item").cloned().unwrap_or(Value::Null);
+    let name = item.get("name").and_then(Value::as_str).unwrap_or("");
+    if name.is_empty() {
+        return Value::Null;
+    }
+    let artists = item
+        .get("artists")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|artist| artist.get("name").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+    if artists.is_empty() {
+        Value::String(name.to_string())
+    } else {
+        Value::String(format!("{name} - {artists}"))
+    }
+}
+
+fn spotify_playback_snapshot_from_json(data: &Value) -> SpotifyPlaybackSnapshot {
+    let item = data.get("item").cloned().unwrap_or(Value::Null);
+    let device = data.get("device").cloned().unwrap_or(Value::Null);
+    SpotifyPlaybackSnapshot {
+        is_playing: data
+            .get("is_playing")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        track_uri: item
+            .get("uri")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(ToOwned::to_owned),
+        context_uri: data
+            .get("context")
+            .and_then(|context| context.get("uri"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(ToOwned::to_owned),
+        repeat_state: normalize_spotify_repeat_state(
+            data.get("repeat_state").and_then(Value::as_str),
+        ),
+        device_id: device
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(ToOwned::to_owned),
+        device_name: device
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(ToOwned::to_owned),
+        device: map_spotify_device(device),
+        display: spotify_playback_display(data),
+    }
+}
+
+async fn fetch_spotify_playback_snapshot(
+    credentials: &SpotifyCredentials,
+) -> AppResult<Option<SpotifyPlaybackSnapshot>> {
+    let response = spotify_api(credentials, "/me/player", "GET", None).await?;
+    if response.status == 204 || !(200..300).contains(&response.status) {
+        return Ok(None);
+    }
+    Ok(Some(spotify_playback_snapshot_from_json(&response.json)))
+}
+
+fn spotify_playback_matches(
+    snapshot: Option<&SpotifyPlaybackSnapshot>,
+    expected_uris: &[String],
+    expected_context_uri: Option<&str>,
+    require_first_uri: bool,
+) -> bool {
+    let Some(snapshot) = snapshot else {
+        return false;
+    };
+    if !snapshot.is_playing {
+        return false;
+    }
+    if let Some(expected_context_uri) = expected_context_uri {
+        return snapshot.context_uri.as_deref() == Some(expected_context_uri);
+    }
+    if expected_uris.is_empty() {
+        return true;
+    }
+    let Some(track_uri) = snapshot.track_uri.as_deref() else {
+        return false;
+    };
+    if require_first_uri {
+        return expected_uris
+            .first()
+            .is_some_and(|expected| expected == track_uri);
+    }
+    expected_uris.iter().any(|expected| expected == track_uri)
+}
+
+async fn wait_for_spotify_playback(
+    credentials: &SpotifyCredentials,
+    expected_track_uri: Option<&str>,
+    expected_context_uri: Option<&str>,
+) -> AppResult<Option<SpotifyPlaybackSnapshot>> {
+    let mut latest = None;
+    for delay in SPOTIFY_PLAYBACK_VERIFY_DELAYS_MS {
+        if delay > 0 {
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+        }
+        latest = fetch_spotify_playback_snapshot(credentials).await?;
+        if let Some(snapshot) = latest.as_ref() {
+            if let Some(expected_context_uri) = expected_context_uri {
+                if snapshot.is_playing
+                    && snapshot.context_uri.as_deref() == Some(expected_context_uri)
+                {
+                    return Ok(latest);
+                }
+            } else if let Some(expected_track_uri) = expected_track_uri {
+                if snapshot.is_playing && snapshot.track_uri.as_deref() == Some(expected_track_uri)
+                {
+                    return Ok(latest);
+                }
+            } else if snapshot.is_playing {
+                return Ok(latest);
+            }
+        }
+    }
+    Ok(latest)
+}
+
+async fn request_spotify_playback(
+    credentials: &SpotifyCredentials,
+    device_id: Option<&str>,
+    payload: Value,
+) -> AppResult<SpotifyResponse> {
+    let path = spotify_control_path("/me/player/play", device_id);
+    spotify_api(credentials, &path, "PUT", Some(payload)).await
+}
+
+async fn transfer_spotify_playback_to_device(
+    credentials: &SpotifyCredentials,
+    device_id: &str,
+) -> AppResult<bool> {
+    let response = spotify_api(
+        credentials,
+        "/me/player",
+        "PUT",
+        Some(json!({ "device_ids": [device_id], "play": true })),
+    )
+    .await?;
+    Ok(spotify_response_ok(&response))
+}
+
+async fn spotify_set_repeat_direct_with_retries(
+    credentials: &SpotifyCredentials,
+    repeat: &str,
+    device_id: Option<&str>,
+    attempts: usize,
+) -> AppResult<Option<Value>> {
+    let attempts = attempts.max(1);
+    for attempt in 0..attempts {
+        let delay = SPOTIFY_REPEAT_RETRY_DELAYS_MS
+            .get(attempt.min(SPOTIFY_REPEAT_RETRY_DELAYS_MS.len() - 1))
+            .copied()
+            .unwrap_or(0);
+        if delay > 0 {
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+        }
+        let base = format!("/me/player/repeat?state={repeat}");
+        let path = spotify_control_path(&base, device_id);
+        let response = spotify_api(credentials, &path, "PUT", None).await?;
+        if spotify_response_ok(&response) {
+            return Ok(Some(Value::String(repeat.to_string())));
+        }
+    }
+    Ok(None)
+}
+
+async fn verify_or_nudge_spotify_playback(
+    credentials: &SpotifyCredentials,
+    payload: &Value,
+    verification: SpotifyPlaybackVerification<'_>,
+) -> AppResult<Option<SpotifyPlaybackSnapshot>> {
+    let mut current = wait_for_spotify_playback(
+        credentials,
+        verification.expected_track_uri,
+        verification.expected_context_uri,
+    )
+    .await?;
+    if spotify_playback_matches(
+        current.as_ref(),
+        verification.expected_uris,
+        verification.expected_context_uri,
+        verification.require_first_uri,
+    ) {
+        return Ok(current);
+    }
+
+    let Some(target_device_id) = verification.target_device_id else {
+        return Ok(current);
+    };
+
+    if verification.initial_device_id != Some(target_device_id) {
+        let retry =
+            request_spotify_playback(credentials, Some(target_device_id), payload.clone()).await?;
+        if spotify_response_ok(&retry) {
+            current = wait_for_spotify_playback(
+                credentials,
+                verification.expected_track_uri,
+                verification.expected_context_uri,
+            )
+            .await?;
+            if spotify_playback_matches(
+                current.as_ref(),
+                verification.expected_uris,
+                verification.expected_context_uri,
+                verification.require_first_uri,
+            ) {
+                return Ok(current);
+            }
+        }
+    }
+
+    let transferred = transfer_spotify_playback_to_device(credentials, target_device_id)
+        .await
+        .unwrap_or(false);
+    if transferred {
+        tokio::time::sleep(Duration::from_millis(SPOTIFY_PLAYBACK_SETTLE_MS)).await;
+        let retry =
+            request_spotify_playback(credentials, Some(target_device_id), payload.clone()).await?;
+        if spotify_response_ok(&retry) {
+            current = wait_for_spotify_playback(
+                credentials,
+                verification.expected_track_uri,
+                verification.expected_context_uri,
+            )
+            .await?;
+        }
+    }
+
+    Ok(current)
+}
+
+fn spotify_playback_not_started_error(
+    target_device_name: Option<&str>,
+    current: Option<&SpotifyPlaybackSnapshot>,
+    expected_uris: &[String],
+    expected_context_uri: Option<&str>,
+) -> AppError {
+    let device_name = current
+        .and_then(|snapshot| snapshot.device_name.as_deref())
+        .or(target_device_name);
+    let suffix = device_name
+        .map(|name| format!(" on {name}"))
+        .unwrap_or_default();
+    AppError::with_details(
+        "spotify_playback_not_started",
+        format!(
+            "Spotify accepted the play request, but playback did not start{suffix}. Open Spotify on the target device, then try again."
+        ),
+        json!({
+            "currentUri": current
+                .and_then(|snapshot| snapshot.track_uri.clone())
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+            "currentContextUri": current
+                .and_then(|snapshot| snapshot.context_uri.clone())
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+            "device": device_name,
+            "uris": expected_uris,
+            "contextUri": expected_context_uri
+        }),
+    )
+}
+
 fn matched_track_json(track: &MatchedTrack) -> Value {
     json!({
         "uri": track.track.uri,
@@ -2547,6 +3056,169 @@ fn matched_track_json(track: &MatchedTrack) -> Value {
     })
 }
 
+async fn agent_spotify_play_control(
+    state: &AppState,
+    route: &ParsedPath,
+    body: Value,
+) -> AppResult<Value> {
+    let credentials = resolve_credentials(state, route, &body).await?;
+    require_spotify_scope(&credentials, SPOTIFY_PLAYBACK_CONTROL_SCOPE)?;
+    let play_request = spotify_play_request_from_body(&body)
+        .ok_or_else(|| AppError::invalid_input("uri, uris, or contextUri is required"))?;
+    let requested_device_id = body
+        .get("deviceId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned);
+    let before_playback = fetch_spotify_playback_snapshot(&credentials).await?;
+    let before_device_id = before_playback
+        .as_ref()
+        .and_then(|snapshot| snapshot.device_id.clone());
+    let fallback_device = if requested_device_id.is_some() || before_device_id.is_some() {
+        None
+    } else {
+        spotify_active_device(&credentials).await?
+    };
+    let fallback_device_id = fallback_device
+        .as_ref()
+        .and_then(|device| device.get("id"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned);
+    let fallback_device_name = fallback_device
+        .as_ref()
+        .and_then(|device| device.get("name"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned);
+    let target_device_id = requested_device_id
+        .clone()
+        .or_else(|| before_device_id.clone())
+        .or(fallback_device_id);
+    let target_device_name = before_playback
+        .as_ref()
+        .filter(|snapshot| {
+            target_device_id
+                .as_deref()
+                .is_some_and(|target_id| snapshot.device_id.as_deref() == Some(target_id))
+        })
+        .and_then(|snapshot| snapshot.device_name.clone())
+        .or(fallback_device_name);
+    let play_device_id = if requested_device_id.is_some() {
+        requested_device_id.as_deref()
+    } else if before_device_id.is_some() {
+        None
+    } else {
+        target_device_id.as_deref()
+    };
+    let Some(target_device_id_value) = target_device_id.as_deref() else {
+        return Err(AppError::new(
+            "spotify_no_active_device",
+            "No active Spotify device is available. Open Spotify on the device you want to use, then try again.",
+        ));
+    };
+
+    let requested_repeat = spotify_requested_repeat(&body);
+    let first_uri = play_request.requested_uris.first().map(String::as_str);
+    let expected_context_uri = play_request.requested_context_uri.as_deref();
+    let single_track_uri = play_request.requested_uris.len() == 1
+        && first_uri.is_some_and(|uri| uri.starts_with("spotify:track:"));
+    if single_track_uri && requested_repeat == Some("track") {
+        let _ =
+            spotify_set_repeat_direct_with_retries(&credentials, "off", play_device_id, 1).await;
+    }
+
+    let play_response =
+        request_spotify_playback(&credentials, play_device_id, play_request.payload.clone())
+            .await?;
+    if !spotify_response_ok(&play_response) {
+        return Err(spotify_control_error(&play_response, "Spotify play failed"));
+    }
+    if single_track_uri {
+        tokio::time::sleep(Duration::from_millis(SPOTIFY_PLAYBACK_SETTLE_MS)).await;
+    }
+
+    let mut repeat_state = if let Some(repeat) = requested_repeat {
+        spotify_set_repeat_direct_with_retries(&credentials, repeat, play_device_id, 3).await?
+    } else {
+        None
+    };
+    let require_first_uri = single_track_uri;
+    let mut current = verify_or_nudge_spotify_playback(
+        &credentials,
+        &play_request.payload,
+        SpotifyPlaybackVerification {
+            initial_device_id: play_device_id,
+            target_device_id: Some(target_device_id_value),
+            expected_track_uri: if single_track_uri { first_uri } else { None },
+            expected_context_uri,
+            expected_uris: &play_request.requested_uris,
+            require_first_uri,
+        },
+    )
+    .await?;
+
+    if single_track_uri
+        && requested_repeat == Some("track")
+        && current
+            .as_ref()
+            .is_none_or(|snapshot| snapshot.repeat_state != "track")
+    {
+        let repeat_device_id = current
+            .as_ref()
+            .and_then(|snapshot| snapshot.device_id.as_deref())
+            .or(play_device_id);
+        repeat_state =
+            spotify_set_repeat_direct_with_retries(&credentials, "track", repeat_device_id, 3)
+                .await?;
+        current = verify_or_nudge_spotify_playback(
+            &credentials,
+            &play_request.payload,
+            SpotifyPlaybackVerification {
+                initial_device_id: repeat_device_id,
+                target_device_id: Some(target_device_id_value),
+                expected_track_uri: first_uri,
+                expected_context_uri,
+                expected_uris: &play_request.requested_uris,
+                require_first_uri: true,
+            },
+        )
+        .await?;
+    }
+
+    if !spotify_playback_matches(
+        current.as_ref(),
+        &play_request.requested_uris,
+        expected_context_uri,
+        require_first_uri,
+    ) {
+        return Err(spotify_playback_not_started_error(
+            target_device_name.as_deref(),
+            current.as_ref(),
+            &play_request.requested_uris,
+            expected_context_uri,
+        ));
+    }
+
+    let current = current.as_ref();
+    Ok(json!({
+        "success": true,
+        "applied": true,
+        "uris": play_request.requested_uris_json.clone(),
+        "contextUri": play_request.requested_context_uri,
+        "currentUri": current
+            .and_then(|snapshot| snapshot.track_uri.clone())
+            .map(Value::String)
+            .unwrap_or(Value::Null),
+        "repeatState": repeat_state
+            .or_else(|| current.map(|snapshot| Value::String(snapshot.repeat_state.clone())))
+            .unwrap_or(Value::Null),
+        "device": current.map(|snapshot| snapshot.device.clone()).unwrap_or(Value::Null),
+        "display": current.map(|snapshot| snapshot.display.clone()).unwrap_or(Value::Null),
+        "queued": play_request.requested_uris_json
+    }))
+}
+
 async fn player_control(
     state: &AppState,
     route: &ParsedPath,
@@ -2554,6 +3226,15 @@ async fn player_control(
     path: &str,
     method: &str,
 ) -> AppResult<Value> {
+    if path.ends_with("/play")
+        && body
+            .get("agentId")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    {
+        return agent_spotify_play_control(state, route, body).await;
+    }
+
     let credentials = resolve_credentials(state, route, &body).await?;
     require_spotify_scope(&credentials, SPOTIFY_PLAYBACK_CONTROL_SCOPE)?;
     let device_id = body.get("deviceId").and_then(Value::as_str);
@@ -3503,6 +4184,30 @@ mod tests {
     }
 
     #[test]
+    fn spotify_candidates_prefer_fresh_tracks_over_recent_matches() {
+        let recent_uri = "spotify:track:recent";
+        let fresh_uri = "spotify:track:fresh";
+        let tracks = vec![
+            json!({ "uri": recent_uri, "name": "Battle anthem", "artist": "Recent" }),
+            json!({ "uri": fresh_uri, "name": "Battle anthem", "artist": "Fresh" }),
+        ];
+        let recent = vec![recent_uri.to_string()];
+
+        let (candidates, mode, _, recent_avoided_count) =
+            select_spotify_track_candidates(&tracks, "battle", 1, "liked", &recent);
+
+        assert_eq!(recent_avoided_count, 1);
+        assert_eq!(mode, "scored_candidates_recent_aware");
+        assert_eq!(
+            candidates
+                .first()
+                .and_then(|track| track.get("uri"))
+                .and_then(Value::as_str),
+            Some(fresh_uri)
+        );
+    }
+
+    #[test]
     fn spotify_device_retry_is_limited_to_device_failures() {
         let stale_device = SpotifyResponse {
             status: 404,
@@ -3527,6 +4232,151 @@ mod tests {
             json: json!({}),
         };
         assert!(!spotify_should_retry_device(&auth_error, Some("device")));
+    }
+
+    #[test]
+    fn spotify_active_device_selection_does_not_fall_back_to_inactive_devices() {
+        let selected = select_spotify_active_device(vec![
+            json!({
+                "id": "inactive",
+                "name": "Inactive speaker",
+                "is_active": false,
+                "is_restricted": false
+            }),
+            json!({
+                "id": "restricted",
+                "name": "Restricted speaker",
+                "is_active": true,
+                "is_restricted": true
+            }),
+            json!({
+                "id": "active",
+                "name": "Active speaker",
+                "is_active": true,
+                "is_restricted": false
+            }),
+        ])
+        .expect("active unrestricted device should be selected");
+
+        assert_eq!(selected.get("id").and_then(Value::as_str), Some("active"));
+        assert!(select_spotify_active_device(vec![json!({
+            "id": "inactive",
+            "name": "Inactive speaker",
+            "is_active": false,
+            "is_restricted": false
+        })])
+        .is_none());
+    }
+
+    #[test]
+    fn spotify_playback_match_requires_playing_expected_uri() {
+        let mut snapshot = SpotifyPlaybackSnapshot {
+            is_playing: true,
+            track_uri: Some("spotify:track:one".to_string()),
+            context_uri: None,
+            repeat_state: "off".to_string(),
+            device_id: Some("device".to_string()),
+            device_name: Some("Device".to_string()),
+            device: Value::Null,
+            display: Value::Null,
+        };
+        let expected = vec![
+            "spotify:track:one".to_string(),
+            "spotify:track:two".to_string(),
+        ];
+
+        assert!(spotify_playback_matches(
+            Some(&snapshot),
+            &expected,
+            None,
+            false
+        ));
+        assert!(spotify_playback_matches(
+            Some(&snapshot),
+            &expected,
+            None,
+            true
+        ));
+        snapshot.track_uri = Some("spotify:track:two".to_string());
+        assert!(spotify_playback_matches(
+            Some(&snapshot),
+            &expected,
+            None,
+            false
+        ));
+        assert!(!spotify_playback_matches(
+            Some(&snapshot),
+            &expected,
+            None,
+            true
+        ));
+        snapshot.is_playing = false;
+        assert!(!spotify_playback_matches(
+            Some(&snapshot),
+            &expected,
+            None,
+            false
+        ));
+    }
+
+    #[test]
+    fn spotify_playback_match_requires_expected_context_uri() {
+        let mut snapshot = SpotifyPlaybackSnapshot {
+            is_playing: true,
+            track_uri: Some("spotify:track:old".to_string()),
+            context_uri: Some("spotify:playlist:old".to_string()),
+            repeat_state: "off".to_string(),
+            device_id: Some("device".to_string()),
+            device_name: Some("Device".to_string()),
+            device: Value::Null,
+            display: Value::Null,
+        };
+        let expected_uris = Vec::new();
+
+        assert!(!spotify_playback_matches(
+            Some(&snapshot),
+            &expected_uris,
+            Some("spotify:playlist:new"),
+            false,
+        ));
+        snapshot.context_uri = Some("spotify:playlist:new".to_string());
+        assert!(spotify_playback_matches(
+            Some(&snapshot),
+            &expected_uris,
+            Some("spotify:playlist:new"),
+            false,
+        ));
+        snapshot.is_playing = false;
+        assert!(!spotify_playback_matches(
+            Some(&snapshot),
+            &expected_uris,
+            Some("spotify:playlist:new"),
+            false,
+        ));
+    }
+
+    #[test]
+    fn spotify_playback_snapshot_reads_context_uri() {
+        let snapshot = spotify_playback_snapshot_from_json(&json!({
+            "is_playing": true,
+            "repeat_state": "context",
+            "context": { "uri": "spotify:playlist:scene" },
+            "item": {
+                "uri": "spotify:track:one",
+                "name": "Track One"
+            },
+            "device": {
+                "id": "device",
+                "name": "Device",
+                "is_active": true,
+                "is_restricted": false
+            }
+        }));
+
+        assert_eq!(
+            snapshot.context_uri.as_deref(),
+            Some("spotify:playlist:scene")
+        );
     }
 
     #[test]
@@ -3659,7 +4509,7 @@ mod tests {
                 Err(error) => error,
             };
 
-        assert_eq!(error.code, "spotify_dj_mari_parse_error");
+        assert_eq!(error.code, "spotify_dj_deki_parse_error");
         assert!(error.message.contains("Spotify DJ returned malformed JSON"));
         assert_eq!(
             error

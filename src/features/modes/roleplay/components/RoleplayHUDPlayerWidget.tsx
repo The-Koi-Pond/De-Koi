@@ -19,6 +19,7 @@ export function CombinedPlayerWidget({
   layout = "top",
   showPersona,
   showCharacters,
+  showInventory,
   showQuests,
   showCustomTracker,
   personaStats,
@@ -39,6 +40,7 @@ export function CombinedPlayerWidget({
   layout?: HudPosition;
   showPersona: boolean;
   showCharacters: boolean;
+  showInventory: boolean;
   showQuests: boolean;
   showCustomTracker: boolean;
   personaStats: CharacterStat[];
@@ -80,6 +82,7 @@ export function CombinedPlayerWidget({
           <CombinedPlayerPanel
             showPersona={showPersona}
             showCharacters={showCharacters}
+            showInventory={showInventory}
             showQuests={showQuests}
             showCustomTracker={showCustomTracker}
             personaStats={personaStats}

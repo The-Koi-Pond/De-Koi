@@ -175,6 +175,8 @@ export interface ChatMetadata {
   groupChatMode?: GroupChatMode;
   /** Group individual mode: color dialogues with speaker tags */
   groupSpeakerColors?: boolean;
+  /** Group individual mode: prefix prompt history turns with speaker names. */
+  groupSpeakerNamesInHistory?: boolean;
   /** Group individual mode response order: "sequential" or "smart" (agent-decided) */
   groupResponseOrder?: GroupResponseOrder;
   /** Character IDs attached to this chat but muted/excluded from generation. */
@@ -244,6 +246,8 @@ export interface ChatMetadata {
   spotifyPlaylistName?: string | null;
   /** Spotify artist name used when spotifySourceType is "artist". */
   spotifyArtist?: string | null;
+  /** Recently selected Spotify track URIs for roleplay/conversation Spotify DJ de-duplication. */
+  spotifyRecentTracks?: string[];
   /** Durable count of autonomous messages the user has not viewed yet. */
   autonomousUnreadCount?: number;
   /** Character IDs that contributed to the current autonomous unread state. */

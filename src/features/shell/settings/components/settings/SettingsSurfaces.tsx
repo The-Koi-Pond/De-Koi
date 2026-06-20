@@ -33,6 +33,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { gameAssetsApi } from "../../../../../shared/api/assets-api";
 import { openExternalUrl } from "../../../../../shared/api/external-link-api";
 import { importApi } from "../../../../../shared/api/import-api";
+import { CHARACTER_IMPORT_SIZE_ERROR, MAX_CHARACTER_IMPORT_UPLOAD_BYTES } from "../../../../../shared/api/file-payload";
 import {
   backupApi,
   profileApi,
@@ -781,8 +782,8 @@ export function GeneralSettings() {
   const setSpeechToTextEnabled = useUIStore((s) => s.setSpeechToTextEnabled);
   const spotifyPlayerEnabled = useUIStore((s) => s.spotifyPlayerEnabled);
   const setSpotifyPlayerEnabled = useUIStore((s) => s.setSpotifyPlayerEnabled);
-  const chibiProfessorMariEnabled = useUIStore((s) => s.chibiProfessorMariEnabled);
-  const setChibiProfessorMariEnabled = useUIStore((s) => s.setChibiProfessorMariEnabled);
+  const chibiDekiEnabled = useUIStore((s) => s.chibiDekiEnabled);
+  const setChibiDekiEnabled = useUIStore((s) => s.setChibiDekiEnabled);
   const intuitiveSwipeNavigation = useUIStore((s) => s.intuitiveSwipeNavigation);
   const setIntuitiveSwipeNavigation = useUIStore((s) => s.setIntuitiveSwipeNavigation);
   const intuitiveSwipeRerollLatest = useUIStore((s) => s.intuitiveSwipeRerollLatest);
@@ -944,10 +945,10 @@ export function GeneralSettings() {
       />
 
       <ToggleSetting
-        label="Chibi Assistant visits"
-        checked={chibiProfessorMariEnabled}
-        onChange={setChibiProfessorMariEnabled}
-        help="Allows the rare Chibi Assistant scroll toast to appear. Turn this off to prevent the easter egg from registering while you use the app."
+        label="Chibi Deki-senpai visits"
+        checked={chibiDekiEnabled}
+        onChange={setChibiDekiEnabled}
+        help="Allows the rare Chibi Deki-senpai scroll toast to appear. Turn this off to prevent the easter egg from registering while you use the app."
       />
 
       {/* Streaming Speed */}
@@ -3377,6 +3378,9 @@ function ImportButton({
       // "auto" mode: send binary files (PNG) as multipart, JSON files as JSON body
       const effectiveMode = mode === "auto" ? (file.name.toLowerCase().endsWith(".json") ? "json" : "file") : mode;
       if (endpoint === "/import/st-character") {
+        if (file.size > MAX_CHARACTER_IMPORT_UPLOAD_BYTES) {
+          throw new Error(CHARACTER_IMPORT_SIZE_ERROR);
+        }
         const previews = await inspectCharacterFilesForEmbeddedLorebooks([file]);
         const preview = previews[0];
         if (preview) {
@@ -3424,8 +3428,10 @@ function ImportButton({
       } else {
         toast.error(`Import failed: ${data.error ?? "Unknown error"}`);
       }
-    } catch {
-      toast.error("Import failed.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message === CHARACTER_IMPORT_SIZE_ERROR ? error.message : "Import failed.",
+      );
     }
     e.target.value = "";
   };
@@ -3813,7 +3819,7 @@ export function AdvancedSettings() {
         <div className="flex flex-col gap-2 rounded-lg bg-[var(--secondary)]/35 p-2.5 ring-1 ring-[var(--border)]">
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium">App Updates</span>
-            <HelpTooltip text="Checks the current GitHub release source. This refactor build opens the release page for manual install because signed Tauri updater artifacts are not configured yet." />
+            <HelpTooltip text="Checks the current GitHub release source. De-Koi opens the release page for manual install because signed Tauri updater artifacts are not configured yet." />
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -4042,7 +4048,8 @@ export function AdvancedSettings() {
       />
       <div className="flex flex-col gap-1.5 rounded-lg p-1 transition-colors hover:bg-[var(--secondary)]/50">
         <div className="flex items-center gap-1.5">
-          <span className="text-xs">Conversation message layout</span>
+          <MessageCircle size="0.75rem" className="text-[var(--muted-foreground)]" />
+          <span className="text-xs">Chat Layout</span>
           <HelpTooltip text="Choose whether Conversation mode renders messages as linear rows or Messenger-style bubbles." />
         </div>
         <div className="grid grid-cols-2 gap-1.5">
@@ -4066,6 +4073,34 @@ export function AdvancedSettings() {
               </button>
             );
           })}
+        </div>
+        <div className="rounded-lg border border-[var(--border)]/60 bg-[var(--background)]/35 p-2.5 text-[0.6875rem]">
+          {conversationMessageStyle === "bubble" ? (
+            <div className="space-y-1.5">
+              <div className="flex justify-end">
+                <div className="mari-message-bubble texting-bubble texting-bubble-user max-w-[78%] rounded-2xl rounded-br-md px-3 py-1.5 text-xs shadow-sm">
+                  Hey, how's it going?
+                </div>
+              </div>
+              <div className="flex items-end justify-start gap-1.5">
+                <div className="h-5 w-5 shrink-0 rounded-full bg-[var(--accent)]" />
+                <div className="mari-message-bubble texting-bubble texting-bubble-other max-w-[78%] rounded-2xl rounded-bl-md px-3 py-1.5 text-xs shadow-sm">
+                  Pretty good, thanks!
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2 text-xs">
+              <div className="h-6 w-6 shrink-0 rounded-full bg-[var(--accent)]" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="font-semibold text-[var(--foreground)]">Assistant</span>
+                  <span className="text-[0.5625rem] text-[var(--muted-foreground)]">now</span>
+                </div>
+                <div className="text-[var(--muted-foreground)]">Rows with avatars, names, and inline message text.</div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
       <ToggleSetting

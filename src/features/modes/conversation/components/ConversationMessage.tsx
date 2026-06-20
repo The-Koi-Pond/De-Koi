@@ -1,350 +1,82 @@
-// ──────────────────────────────────────────────
-// Chat: Discord-style conversation message
-// ──────────────────────────────────────────────
-import { useState, useCallback, useRef, useEffect, memo, useMemo, type CSSProperties, type ReactNode } from "react";
-import { createPortal } from "react-dom";
-import {
-  Pencil,
-  Trash2,
-  Copy,
-  RefreshCw,
-  Eye,
-  EyeOff,
-  ChevronRight,
-  ScrollText,
-  Brain,
-  X,
-  User,
-  Languages,
-  Timer,
-  GitBranch,
-} from "lucide-react";
+import { useState, useCallback, useRef, useEffect, memo, useMemo, type CSSProperties } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import type { Message, MessageExtra } from "../../../../engine/contracts/types/chat";
-import type { ConversationAvatarOverride } from "../../../../engine/contracts/types/character";
-import { useUIStore, type ConversationMessageStyle } from "../../../../shared/stores/ui.store";
-import { cn, copyToClipboard, getAvatarCropStyle, parseAvatarCropJson } from "../../../../shared/lib/utils";
-import { applyInlineMarkdown, renderMarkdownBlocks } from "../../../../shared/lib/markdown";
+import type { Message } from "../../../../engine/contracts/types/chat";
+import { useUIStore } from "../../../../shared/stores/ui.store";
+import { copyToClipboard, getAvatarCropStyle, parseAvatarCropJson } from "../../../../shared/lib/utils";
 import { chatKeys } from "../../../catalog/chats/index";
 import { resolveMessageMacros } from "../../../../shared/lib/chat-macros";
 import { useTranslate } from "../../../../shared/hooks/use-translate";
 import { storageApi } from "../../../../shared/api/storage-api";
-import type { CharacterMap, MessageSelectionToggle, PeekPromptOptions, PersonaInfo } from "../../shared/chat-ui/types";
 import {
-  GenerationReplayDetailsModal,
   hasGenerationReplayDetails,
-  isImageMessageAttachment,
-  MessageAttachmentImagePreview,
   messageAttachmentsFromExtra,
   readStoredThinking,
-  ResolvedAvatarImage,
   resolvePromptSnapshotFromExtra,
 } from "../../shared/chat-ui/index";
-import { ImagePromptPanel } from "../../shared/chat-ui/index";
-import { SwipeJumpControl } from "../../shared/chat-ui/index";
+import { ConversationMessageBubble } from "./ConversationMessageBubble";
+import { ConversationMessageGrouped } from "./ConversationMessageGrouped";
+import { ConversationMessageLine } from "./ConversationMessageLine";
+import {
+  ConversationMessageSystem,
+  EMPTY_MESSAGE_EXTRA,
+  HiddenFromAIConversationButton,
+  MESSAGE_EDIT_GESTURE_IGNORE_SELECTOR,
+  formatGenerationDuration,
+  groupConsecutiveSegments,
+  parseNamePrefixFormat,
+  parseSpeakerTags,
+  readGenerationDurationMs,
+  resolveConversationAvatar,
+  type ConversationCharacterInfo,
+  type ConversationMessageExtra,
+  type ConversationMessageProps,
+  type ConversationMessageRenderContext,
+} from "./ConversationMessageShared";
 
-/** Build style object for name color (supports gradients). */
-function nameColorStyle(color?: string): CSSProperties | undefined {
-  if (!color) return undefined;
-  if (color.includes("gradient(")) {
-    return {
-      backgroundImage: color,
-      backgroundRepeat: "no-repeat",
-      backgroundSize: "100% 100%",
-      WebkitBackgroundClip: "text",
-      WebkitTextFillColor: "transparent",
-      backgroundClip: "text",
-      color: "transparent",
-      display: "inline-block",
-    };
+function areStringArraysEqual(prev?: string[], next?: string[]) {
+  if (prev === next) return true;
+  if (!prev || !next || prev.length !== next.length) return false;
+  for (let index = 0; index < prev.length; index += 1) {
+    if (prev[index] !== next[index]) return false;
   }
-  return { color };
+  return true;
 }
 
-/** Regex to detect a message that is just an image/GIF URL */
-const IMAGE_URL_RE = /^https?:\/\/\S+\.(?:gif|png|jpe?g|webp)(?:\?[^\s]*)?$/i;
-const MESSAGE_EDIT_GESTURE_IGNORE_SELECTOR =
-  "button, a, textarea, input, select, label, [role='button'], [contenteditable='true'], .mari-message-actions";
-type ConversationMessageExtra = Partial<MessageExtra> & { hiddenFromAI?: unknown; hiddenFromAi?: unknown };
-const EMPTY_MESSAGE_EXTRA: ConversationMessageExtra = {};
-
-function formatGenerationDuration(durationMs: number): string {
-  const totalSeconds = Math.max(0, durationMs / 1000);
-  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)}s`;
-  const roundedSeconds = Math.round(totalSeconds);
-  const minutes = Math.floor(roundedSeconds / 60);
-  const seconds = roundedSeconds % 60;
-  return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
-}
-
-function readGenerationDurationMs(generationInfo: unknown): number | null {
-  if (!generationInfo || typeof generationInfo !== "object") return null;
-  const record = generationInfo as { duration?: unknown; durationMs?: unknown };
-  if (typeof record.durationMs === "number" && record.durationMs > 0) return record.durationMs;
-  if (typeof record.duration === "number" && record.duration > 0) return record.duration * 1000;
-  return null;
-}
-
-/**
- * Resolve a character's Conversation-mode avatar override into a renderable form.
- * `fallbackUrl` is the character's normal avatar (used for "default", or as a fallback
- * when a sprite/gallery reference couldn't be resolved).
- */
-function resolveConversationAvatar(
-  info: { conversationAvatar?: ConversationAvatarOverride; conversationAvatarSrc?: string | null } | null | undefined,
-  fallbackUrl: string | null,
-): { hide: boolean; emoji: string | null; url: string | null; isOverride: boolean } {
-  const override = info?.conversationAvatar;
-  if (!override || override.mode === "default") {
-    return { hide: false, emoji: null, url: fallbackUrl, isOverride: false };
-  }
-  if (override.mode === "hide") return { hide: true, emoji: null, url: null, isOverride: true };
-  if (override.mode === "emoji") {
-    return { hide: false, emoji: override.value?.trim() || null, url: null, isOverride: true };
-  }
-  // "sprite" | "gallery": prefer the resolved src; fall back to the real avatar if unresolved.
-  const resolved = info?.conversationAvatarSrc ?? null;
-  return { hide: false, emoji: null, url: resolved ?? fallbackUrl, isOverride: !!resolved };
-}
-
-function HiddenFromAIConversationButton({
-  canCollapse,
-  isExpanded,
-  onToggle,
-}: {
-  canCollapse: boolean;
-  isExpanded: boolean;
-  onToggle: () => void;
-}) {
-  const className = "inline-flex items-center gap-1 rounded px-1 py-0.5 text-[0.625rem] font-medium text-amber-500/80";
-  if (!canCollapse) {
-    return (
-      <span className={className} title="Hidden from AI">
-        <EyeOff size="0.7rem" />
-      </span>
-    );
-  }
+function areConversationMessagePropsEqual(prev: ConversationMessageProps, next: ConversationMessageProps) {
   return (
-    <button
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        onToggle();
-      }}
-      className={`${className} transition-colors hover:bg-amber-500/10 hover:text-amber-400`}
-      title={isExpanded ? "Collapse hidden from AI message" : "Expand hidden from AI message"}
-      aria-label={isExpanded ? "Collapse hidden from AI message" : "Expand hidden from AI message"}
-    >
-      <ChevronRight size="0.7rem" className={cn("transition-transform", isExpanded && "rotate-90")} />
-      <EyeOff size="0.7rem" />
-    </button>
+    prev.message === next.message &&
+    prev.isStreaming === next.isStreaming &&
+    prev.isGrouped === next.isGrouped &&
+    prev.hideActions === next.hideActions &&
+    prev.hideUserAvatar === next.hideUserAvatar &&
+    prev.noHoverGroup === next.noHoverGroup &&
+    prev.plainUserMessages === next.plainUserMessages &&
+    prev.forceShowActions === next.forceShowActions &&
+    prev.onDelete === next.onDelete &&
+    prev.onRegenerate === next.onRegenerate &&
+    prev.onEdit === next.onEdit &&
+    prev.onSetActiveSwipe === next.onSetActiveSwipe &&
+    prev.onPeekPrompt === next.onPeekPrompt &&
+    prev.onToggleHiddenFromAI === next.onToggleHiddenFromAI &&
+    prev.onBranch === next.onBranch &&
+    prev.isLastAssistantMessage === next.isLastAssistantMessage &&
+    prev.characterMap === next.characterMap &&
+    prev.personaInfo === next.personaInfo &&
+    prev.onEditClick === next.onEditClick &&
+    areStringArraysEqual(prev.chatCharacterIds, next.chatCharacterIds) &&
+    prev.messageIndex === next.messageIndex &&
+    prev.messageOrderIndex === next.messageOrderIndex &&
+    prev.multiSelectMode === next.multiSelectMode &&
+    prev.isSelected === next.isSelected &&
+    prev.onToggleSelect === next.onToggleSelect &&
+    prev.suppressCardCss === next.suppressCardCss &&
+    prev.messageStyle === next.messageStyle &&
+    areStringArraysEqual(prev.contentParts, next.contentParts) &&
+    prev.visiblePartCount === next.visiblePartCount &&
+    prev.bubbleGroupPosition === next.bubbleGroupPosition &&
+    prev.originalContent === next.originalContent &&
+    prev.typingLabel === next.typingLabel
   );
-}
-
-/** Highlight @mentions in a list of ReactNodes. Scans string nodes for @CharacterName and wraps matches in a styled span. */
-function highlightMentions(nodes: ReactNode[], names: string[], keyPrefix: string): ReactNode[] {
-  if (names.length === 0) return nodes;
-  // Sort longest-first so "Mary Jane" matches before "Mary"
-  const sorted = [...names].sort((a, b) => b.length - a.length);
-  const pattern = new RegExp(
-    `(@(?:${sorted.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")}))(\\b|(?=[^\\w])|$)`,
-    "gi",
-  );
-  let key = 0;
-  return nodes.flatMap((node) => {
-    if (typeof node !== "string") return [node];
-    const parts: ReactNode[] = [];
-    let lastIdx = 0;
-    let m: RegExpExecArray | null;
-    pattern.lastIndex = 0;
-    while ((m = pattern.exec(node)) !== null) {
-      if (m.index > lastIdx) parts.push(node.slice(lastIdx, m.index));
-      parts.push(
-        <span
-          key={`${keyPrefix}at${key++}`}
-          className="mention-highlight rounded-[3px] bg-[var(--primary)]/15 px-px text-[var(--primary)] font-medium hover:bg-[var(--primary)]/25 cursor-default"
-        >
-          {m[1]}
-        </span>,
-      );
-      lastIdx = m.index + m[1]!.length;
-      // Don't consume the boundary character
-      pattern.lastIndex = lastIdx;
-    }
-    if (lastIdx < node.length) parts.push(node.slice(lastIdx));
-    return parts.length > 0 ? parts : [node];
-  });
-}
-
-/** Renders message content, showing image URLs as inline images */
-export const MessageContent = memo(function MessageContent({
-  content,
-  mentionNames,
-  onImageOpen,
-}: {
-  content: string;
-  mentionNames?: string[];
-  onImageOpen: (url: string) => void;
-}) {
-  const trimmed = content.trim();
-  const isImage = IMAGE_URL_RE.test(trimmed);
-
-  // Parse the markdown once per unique content/mentions set. ConversationView
-  // re-renders on every ~45ms stream commit while a message is generating, so
-  // without this memo every mounted message would re-run renderMarkdownBlocks on
-  // each commit — the streaming render storm (#2304). Memoizing the component plus
-  // the parse keeps re-parsing confined to messages whose content actually changed.
-  const rendered = useMemo(() => {
-    if (isImage) return null;
-    // Collapse runs of 3+ blank lines into a double newline (preserve paragraph breaks)
-    const compacted = content.replace(/\n{3,}/g, "\n\n");
-    // Use shared block-level renderer with mention support
-    const renderInline = mentionNames?.length
-      ? (text: string, kp: string) => highlightMentions(applyInlineMarkdown(text, kp), mentionNames, kp)
-      : applyInlineMarkdown;
-    return renderMarkdownBlocks(compacted, renderInline);
-  }, [content, isImage, mentionNames]);
-
-  if (isImage) {
-    return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onImageOpen(trimmed);
-        }}
-        className="block cursor-zoom-in rounded-lg text-left"
-        title="Open image"
-      >
-        <img src={trimmed} alt="GIF" className="max-h-48 max-w-full sm:max-w-xs rounded-lg" loading="lazy" />
-      </button>
-    );
-  }
-
-  return <>{rendered}</>;
-});
-
-/** Parse <speaker="Name">text</speaker> tags into segments */
-interface SpeakerSegment {
-  speaker: string | null; // null = narration / non-attributed text
-  text: string;
-}
-function parseSpeakerTags(content: string, knownNames: Set<string>): SpeakerSegment[] | null {
-  const regex = /<speaker="([^"]*)">([\s\S]*?)<\/speaker>/g;
-  let match: RegExpExecArray | null;
-  const segments: SpeakerSegment[] = [];
-  let lastIndex = 0;
-  let foundTag = false;
-  while ((match = regex.exec(content)) !== null) {
-    foundTag = true;
-    const speakerName = match[1]!.trim();
-    const knownSpeaker = knownNames.has(speakerName.toLowerCase());
-    // Text before this tag
-    if (match.index > lastIndex) {
-      const before = content.slice(lastIndex, match.index).trim();
-      if (before) segments.push({ speaker: null, text: before });
-    }
-    segments.push({ speaker: knownSpeaker ? speakerName : null, text: match[2]!.trim() });
-    lastIndex = regex.lastIndex;
-  }
-  // Trailing text
-  if (lastIndex < content.length) {
-    const after = content.slice(lastIndex).trim();
-    if (after) segments.push({ speaker: null, text: after });
-  }
-  return foundTag ? segments : null;
-}
-
-/** Parse "Name: text" format into segments. Requires known character names to avoid false positives. */
-function parseNamePrefixFormat(content: string, knownNames: Set<string>): SpeakerSegment[] | null {
-  if (!knownNames.size) return null;
-  const lines = content.split("\n");
-  const segments: SpeakerSegment[] = [];
-  let currentSpeaker: string | null = null;
-  let currentLines: string[] = [];
-  let found = false;
-
-  for (const line of lines) {
-    // Check if the line starts with "KnownName: "
-    const colonIdx = line.indexOf(": ");
-    if (colonIdx > 0) {
-      const potentialName = line.slice(0, colonIdx).trim();
-      if (knownNames.has(potentialName.toLowerCase())) {
-        // Save previous segment
-        if (currentLines.length > 0) {
-          segments.push({ speaker: currentSpeaker, text: currentLines.join("\n") });
-        }
-        currentSpeaker = potentialName;
-        currentLines = [line.slice(colonIdx + 2)];
-        found = true;
-        continue;
-      }
-    }
-    // Continuation line for the current speaker
-    currentLines.push(line);
-  }
-  if (currentLines.length > 0) {
-    segments.push({ speaker: currentSpeaker, text: currentLines.join("\n") });
-  }
-  if (!found) return null;
-  // Filter out empty segments
-  return segments.filter((s) => s.text.trim());
-}
-
-/** Group consecutive same-speaker segments so the header only shows once. */
-interface GroupedSegment {
-  speaker: string | null;
-  lines: string[]; // each segment's text joined
-}
-function groupConsecutiveSegments(segments: SpeakerSegment[]): GroupedSegment[] {
-  const groups: GroupedSegment[] = [];
-  for (const seg of segments) {
-    const last = groups[groups.length - 1];
-    const trimmed = seg.text.replace(/^\n+|\n+$/g, "");
-    if (last && last.speaker && seg.speaker && last.speaker.toLowerCase() === seg.speaker.toLowerCase()) {
-      last.lines.push(trimmed);
-    } else {
-      groups.push({ speaker: seg.speaker, lines: [trimmed] });
-    }
-  }
-  return groups;
-}
-
-type ConversationMessageData = Omit<Message, "extra"> & { extra: ConversationMessageExtra | string };
-
-interface ConversationMessageProps {
-  message: ConversationMessageData;
-  isStreaming?: boolean;
-  isGrouped?: boolean;
-  hideActions?: boolean;
-  noHoverGroup?: boolean;
-  forceShowActions?: boolean;
-  onDelete?: (messageId: string) => void;
-  onRegenerate?: (messageId: string) => void;
-  onEdit?: (messageId: string, content: string) => void | Promise<void>;
-  onSetActiveSwipe?: (messageId: string, index: number) => void;
-  onPeekPrompt?: (options?: PeekPromptOptions) => void;
-  onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
-  onBranch?: (messageId: string) => void;
-  isLastAssistantMessage?: boolean;
-  characterMap?: CharacterMap;
-  personaInfo?: PersonaInfo;
-  /** Override the edit button click (used by SplitMessageGroup) */
-  onEditClick?: () => void;
-  /** Character IDs that actually belong to this chat. Speaker-name rendering is scoped to these IDs. */
-  chatCharacterIds?: string[];
-  /** 1-based ordinal position in the message list. Shown under avatar when actions or message numbers are visible. */
-  messageIndex?: number;
-  messageOrderIndex?: number;
-  multiSelectMode?: boolean;
-  isSelected?: boolean;
-  onToggleSelect?: (toggle: MessageSelectionToggle) => void;
-  /** When true, omit the data-card-css hook so the message renders vanilla (used while editing). */
-  suppressCardCss?: boolean;
-  /** Conversation message layout selected in UI settings. */
-  messageStyle?: ConversationMessageStyle;
-  /** When set and the body is empty, shows "X is typing..." inside the message body (CSS hooks: .mari-typing-*). */
-  typingLabel?: string;
 }
 
 export const ConversationMessage = memo(function ConversationMessage({
@@ -352,7 +84,9 @@ export const ConversationMessage = memo(function ConversationMessage({
   isStreaming,
   isGrouped,
   hideActions,
+  hideUserAvatar,
   noHoverGroup,
+  plainUserMessages,
   forceShowActions,
   onDelete,
   onRegenerate,
@@ -372,10 +106,13 @@ export const ConversationMessage = memo(function ConversationMessage({
   onToggleSelect,
   suppressCardCss,
   messageStyle = "classic",
+  contentParts,
+  visiblePartCount,
+  bubbleGroupPosition = "single",
+  originalContent,
   typingLabel,
 }: ConversationMessageProps) {
   const [editing, setEditing] = useState(false);
-  // Drop the card-CSS hook while editing (or when asked to) so the edit view renders vanilla.
   const cardCssId = editing || suppressCardCss ? undefined : (message.characterId ?? undefined);
   const [editValue, setEditValue] = useState(message.content);
   const [editSaving, setEditSaving] = useState(false);
@@ -386,23 +123,21 @@ export const ConversationMessage = memo(function ConversationMessage({
   const [showGenerationReplay, setShowGenerationReplay] = useState(false);
   const [manuallyExpandedHidden, setManuallyExpandedHidden] = useState(false);
   const [imageLightbox, setImageLightbox] = useState<{ url: string; prompt?: string | null } | null>(null);
-  // Stable callback so the memoized MessageContent doesn't re-render (and re-parse) on every render.
-  const openImageLightbox = useCallback((url: string) => setImageLightbox({ url }), []);
+  const openImageLightbox = useCallback((url: string, prompt?: string | null) => setImageLightbox({ url, prompt }), []);
   const editRef = useRef<HTMLTextAreaElement>(null);
   const lastMessageTapAtRef = useRef(0);
+
   const guideGenerations = useUIStore((s) => s.guideGenerations);
   const chatFontSize = useUIStore((s) => s.chatFontSize);
   const showMessageNumbers = useUIStore((s) => s.showMessageNumbers);
   const collapseHiddenMessages = useUIStore((s) => s.summaryPopoverSettings.collapseHiddenMessages);
   const editMessagesOnDoubleClick = useUIStore((s) => s.editMessagesOnDoubleClick);
   const messageTextStyle = useMemo<CSSProperties>(() => ({ fontSize: `${chatFontSize}px` }), [chatFontSize]);
-  const isGuided = guideGenerations;
-  const regenerateButtonTitle = isGuided ? "Regenerate (guided)" : "Regenerate";
-  const regenerateGuidedClass = isGuided
+  const regenerateButtonTitle = guideGenerations ? "Regenerate (guided)" : "Regenerate";
+  const regenerateGuidedClass = guideGenerations
     ? "text-[var(--primary)] bg-[var(--primary)]/15 ring-1 ring-[var(--primary)]/30 hover:text-[var(--primary)] hover:bg-[var(--primary)]/20"
     : undefined;
 
-  // Translation
   const { translate, translations, translating } = useTranslate();
   const translatedText = translations[message.id];
   const isTranslating = !!translating[message.id];
@@ -410,8 +145,8 @@ export const ConversationMessage = memo(function ConversationMessage({
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
   const isBubbleStyle = messageStyle === "bubble";
+  const isPlainUserMessage = isUser && plainUserMessages === true;
 
-  // Parse extra early so we can access persona snapshot
   const extra = useMemo(() => {
     if (!message.extra) return EMPTY_MESSAGE_EXTRA;
     return typeof message.extra === "string" ? (JSON.parse(message.extra) as ConversationMessageExtra) : message.extra;
@@ -426,6 +161,9 @@ export const ConversationMessage = memo(function ConversationMessage({
   const isHiddenExpanded =
     isHiddenFromAI && (!collapseHiddenMessages || manuallyExpandedHidden || editing || isStreaming === true);
   const isHiddenCollapsed = isHiddenFromAI && collapseHiddenMessages && !isHiddenExpanded;
+  const shouldHideUserAvatarGraphic = (isUser && hideUserAvatar === true) || (isBubbleStyle && isUser);
+  const shouldShowMessageNumber = (showActions || forceShowActions || showMessageNumbers) && messageIndex != null;
+  const shouldHideAvatarColumn = shouldHideUserAvatarGraphic && !shouldShowMessageNumber;
   const hiddenFromAIHeader = isHiddenFromAI ? (
     <HiddenFromAIConversationButton
       canCollapse={collapseHiddenMessages}
@@ -433,8 +171,6 @@ export const ConversationMessage = memo(function ConversationMessage({
       onToggle={() => setManuallyExpandedHidden((value) => !value)}
     />
   ) : null;
-  // canRegenerate lets assistant messages retry; isUser messages need generationReplay
-  // metadata from hasGenerationReplayDetails, such as /impersonate.
   const canRegenerate = !isUser || generationReplay !== null;
 
   useEffect(() => {
@@ -456,7 +192,6 @@ export const ConversationMessage = memo(function ConversationMessage({
     return new Map(Array.from(characterMap).filter(([id]) => allowedIds.has(id)));
   }, [characterMap, chatCharacterIds]);
 
-  // Character info
   const charInfo = message.characterId && scopedCharacterMap ? scopedCharacterMap.get(message.characterId) : null;
   const primaryCharInfo =
     charInfo ??
@@ -466,59 +201,68 @@ export const ConversationMessage = memo(function ConversationMessage({
         ) ?? null)
       : null);
 
-  // For user messages, prefer per-message persona snapshot (stored when message was sent)
-  // to preserve the correct persona name/avatar even after switching personas.
-  // Fall back to the current personaInfo prop for older messages without snapshots.
-  const msgPersona = isUser && extra.personaSnapshot ? extra.personaSnapshot : null;
+  const msgPersona = isUser && !isPlainUserMessage && extra.personaSnapshot ? extra.personaSnapshot : null;
   const avatarUrl = isUser
-    ? msgPersona
-      ? (msgPersona.avatarUrl ?? null)
-      : (personaInfo?.avatarUrl ?? null)
+    ? isPlainUserMessage
+      ? null
+      : msgPersona
+        ? (msgPersona.avatarUrl ?? null)
+        : (personaInfo?.avatarUrl ?? null)
     : (charInfo?.avatarUrl ?? null);
   const avatarFilePath = isUser
-    ? msgPersona
-      ? (msgPersona.avatarFilePath ?? null)
-      : (personaInfo?.avatarFilePath ?? null)
+    ? isPlainUserMessage
+      ? null
+      : msgPersona
+        ? (msgPersona.avatarFilePath ?? null)
+        : (personaInfo?.avatarFilePath ?? null)
     : (charInfo?.avatarFilePath ?? null);
   const avatarFilename = isUser
-    ? msgPersona
-      ? (msgPersona.avatarFilename ?? null)
-      : (personaInfo?.avatarFilename ?? null)
+    ? isPlainUserMessage
+      ? null
+      : msgPersona
+        ? (msgPersona.avatarFilename ?? null)
+        : (personaInfo?.avatarFilename ?? null)
     : (charInfo?.avatarFilename ?? null);
   const personaAvatarCrop = isUser
-    ? msgPersona
-      ? parseAvatarCropJson(msgPersona.avatarCrop)
-      : (personaInfo?.avatarCrop ?? null)
+    ? isPlainUserMessage
+      ? null
+      : msgPersona
+        ? parseAvatarCropJson(msgPersona.avatarCrop)
+        : (personaInfo?.avatarCrop ?? null)
     : null;
   const avatarCropStyle = isUser ? getAvatarCropStyle(personaAvatarCrop) : getAvatarCropStyle(charInfo?.avatarCrop);
   const displayName = isUser
-    ? (msgPersona?.name ?? personaInfo?.name ?? "You")
+    ? isPlainUserMessage
+      ? "You"
+      : (msgPersona?.name ?? personaInfo?.name ?? "You")
     : (primaryCharInfo?.name ?? "Assistant");
-  const nameColor = isUser ? (msgPersona?.nameColor ?? personaInfo?.nameColor) : charInfo?.nameColor;
-  // Conversation-mode avatar override (Default / Hide / Emoji / Sprite / Gallery). User messages are never overridden.
+  const nameColor = isUser
+    ? isPlainUserMessage
+      ? undefined
+      : (msgPersona?.nameColor ?? personaInfo?.nameColor)
+    : charInfo?.nameColor;
   const conversationAvatar = resolveConversationAvatar(isUser ? null : charInfo, avatarUrl);
-  const renderedContent = useMemo(
-    () =>
-      resolveMessageMacros(message.content, {
-        userName: msgPersona?.name ?? personaInfo?.name ?? "You",
-        persona: {
-          name: msgPersona?.name ?? personaInfo?.name ?? "You",
-          description: msgPersona?.description ?? personaInfo?.description,
-          personality: msgPersona?.personality ?? personaInfo?.personality,
-          backstory: msgPersona?.backstory ?? personaInfo?.backstory,
-          appearance: msgPersona?.appearance ?? personaInfo?.appearance,
-          scenario: msgPersona?.scenario ?? personaInfo?.scenario,
-        },
-        primaryCharacter: primaryCharInfo ?? { name: displayName },
-        characters: scopedCharacterMap
-          ? Array.from(scopedCharacterMap.values())
-          : displayName
-            ? [{ name: displayName }]
-            : [],
-      }),
+  const macroContext = useMemo(
+    () => ({
+      userName: displayName,
+      persona: {
+        name: displayName,
+        description: isPlainUserMessage ? undefined : (msgPersona?.description ?? personaInfo?.description),
+        personality: isPlainUserMessage ? undefined : (msgPersona?.personality ?? personaInfo?.personality),
+        backstory: isPlainUserMessage ? undefined : (msgPersona?.backstory ?? personaInfo?.backstory),
+        appearance: isPlainUserMessage ? undefined : (msgPersona?.appearance ?? personaInfo?.appearance),
+        scenario: isPlainUserMessage ? undefined : (msgPersona?.scenario ?? personaInfo?.scenario),
+      },
+      primaryCharacter: primaryCharInfo ?? { name: displayName },
+      characters: scopedCharacterMap
+        ? Array.from(scopedCharacterMap.values())
+        : displayName
+          ? [{ name: displayName }]
+          : [],
+    }),
     [
       displayName,
-      message.content,
+      isPlainUserMessage,
       msgPersona?.appearance,
       msgPersona?.backstory,
       msgPersona?.description,
@@ -535,13 +279,20 @@ export const ConversationMessage = memo(function ConversationMessage({
       scopedCharacterMap,
     ],
   );
+  const renderedContent = useMemo(
+    () => resolveMessageMacros(message.content, macroContext),
+    [macroContext, message.content],
+  );
+  const renderedContentParts = useMemo(() => {
+    if (!contentParts?.length) return null;
+    const count = Math.max(1, Math.min(visiblePartCount ?? contentParts.length, contentParts.length));
+    return contentParts.slice(0, count).map((part) => resolveMessageMacros(part, macroContext));
+  }, [contentParts, macroContext, visiblePartCount]);
 
-  // Remove an attachment from this message (keeps it in gallery)
   const qc = useQueryClient();
   const handleRemoveAttachment = useCallback(
     async (index: number) => {
       const updated = attachments.filter((_, i) => i !== index);
-      // Optimistic: update the infinite query cache immediately so the image disappears
       const msgKey = chatKeys.messages(message.chatId);
       qc.setQueryData<InfiniteData<Message[]>>(msgKey, (old) => {
         if (!old) return old;
@@ -556,34 +307,25 @@ export const ConversationMessage = memo(function ConversationMessage({
           ),
         };
       });
-      await storageApi.patchChatMessageExtra(message.id, {
-        attachments: updated,
-      });
+      await storageApi.patchChatMessageExtra(message.id, { attachments: updated });
       qc.invalidateQueries({ queryKey: msgKey });
     },
     [attachments, message.chatId, message.id, qc],
   );
 
-  // Build name→character lookup for speaker tag resolution.
-  // When multiple characters share the same name, prefer the one assigned to this message.
   const charByName = useMemo(() => {
     if (!scopedCharacterMap) return null;
-    const map = new Map<string, NonNullable<ReturnType<CharacterMap["get"]>>>();
+    const map = new Map<string, ConversationCharacterInfo>();
     for (const [id, v] of scopedCharacterMap) {
       if (v) {
         const key = v.name.toLowerCase();
-        // If the message's own characterId matches this entry, always prefer it
-        if (id === message.characterId) {
-          map.set(key, v);
-        } else if (!map.has(key)) {
-          map.set(key, v);
-        }
+        if (id === message.characterId) map.set(key, v);
+        else if (!map.has(key)) map.set(key, v);
       }
     }
     return map;
   }, [scopedCharacterMap, message.characterId]);
 
-  // Collect character names for @mention highlighting
   const mentionNames = useMemo(() => {
     if (!scopedCharacterMap) return [] as string[];
     const names: string[] = [];
@@ -593,36 +335,28 @@ export const ConversationMessage = memo(function ConversationMessage({
     return names;
   }, [scopedCharacterMap]);
 
-  // Parse speaker tags or Name: text format for group merged-mode messages
   const groupedSegments = useMemo(() => {
     if (isUser || !renderedContent) return null;
     const knownNames = charByName ? new Set(charByName.keys()) : new Set<string>();
-    // Try <speaker> tags first (backward compat)
     const speakerSegs = parseSpeakerTags(renderedContent, knownNames);
     if (speakerSegs) return groupConsecutiveSegments(speakerSegs);
-    // Try Name: text format
     const nameSegs = parseNamePrefixFormat(renderedContent, knownNames);
     if (nameSegs) return groupConsecutiveSegments(nameSegs);
     return null;
   }, [isUser, renderedContent, charByName]);
 
-  // Staggered reveal for multi-speaker grouped messages.
-  // On first render (history load), show all segments immediately.
-  // When content changes (new message arrival), reveal one by one.
   const segmentCount = groupedSegments?.length ?? 0;
   const prevContentRef = useRef(renderedContent);
   const initialRenderRef = useRef(true);
   const [visibleSegments, setVisibleSegments] = useState(segmentCount);
 
   useEffect(() => {
-    // On initial mount, show everything (history messages)
     if (initialRenderRef.current) {
       initialRenderRef.current = false;
       setVisibleSegments(segmentCount);
       prevContentRef.current = renderedContent;
       return;
     }
-    // Content changed — new message or regeneration
     if (renderedContent !== prevContentRef.current && segmentCount > 1) {
       prevContentRef.current = renderedContent;
       setVisibleSegments(1);
@@ -632,12 +366,9 @@ export const ConversationMessage = memo(function ConversationMessage({
         setVisibleSegments(count);
       };
       const timers: ReturnType<typeof setTimeout>[] = [];
-      for (let i = 1; i < segmentCount; i++) {
-        timers.push(setTimeout(reveal, i * 1500));
-      }
+      for (let i = 1; i < segmentCount; i++) timers.push(setTimeout(reveal, i * 1500));
       return () => timers.forEach(clearTimeout);
     }
-    // Segment count changed without content change (shouldn't happen, but be safe)
     setVisibleSegments(segmentCount);
     prevContentRef.current = renderedContent;
   }, [renderedContent, segmentCount]);
@@ -650,8 +381,20 @@ export const ConversationMessage = memo(function ConversationMessage({
     : "Response generation time";
   const swipeCount = message.swipeCount ?? 0;
   const hasSwipes = swipeCount > 1;
+  const editSourceContent = originalContent ?? message.content;
+  const hasRenderedContent = renderedContentParts ? renderedContentParts.length > 0 : renderedContent.length > 0;
+  const bubbleCornerClass = isUser
+    ? bubbleGroupPosition === "middle"
+      ? "rounded-2xl rounded-r-md"
+      : bubbleGroupPosition === "last"
+        ? "rounded-2xl rounded-tr-md rounded-br-md"
+        : "rounded-2xl rounded-br-md"
+    : bubbleGroupPosition === "middle"
+      ? "rounded-2xl rounded-l-md"
+      : bubbleGroupPosition === "last"
+        ? "rounded-2xl rounded-tl-md rounded-bl-md"
+        : "rounded-2xl rounded-bl-md";
 
-  // Actions
   const handleCopy = useCallback(() => {
     copyToClipboard(renderedContent);
     setCopied(true);
@@ -662,7 +405,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     setEditError(null);
     setEditSaving(false);
     setEditing(true);
-    setEditValue(message.content);
+    setEditValue(editSourceContent);
     requestAnimationFrame(() => {
       const el = editRef.current;
       if (el) {
@@ -671,7 +414,7 @@ export const ConversationMessage = memo(function ConversationMessage({
         el.focus();
       }
     });
-  }, [message.content]);
+  }, [editSourceContent]);
 
   const startEditingFromMessageGesture = useCallback(
     (event: React.MouseEvent) => {
@@ -743,844 +486,113 @@ export const ConversationMessage = memo(function ConversationMessage({
     setEditSaving(true);
     setEditError(null);
     try {
-      if (val !== message.content) {
-        await onEdit?.(message.id, val);
-      }
+      if (val !== editSourceContent) await onEdit?.(message.id, val);
       setEditing(false);
     } catch (error) {
       setEditError(error instanceof Error ? error.message : "Could not save edit.");
     } finally {
       setEditSaving(false);
     }
-  }, [editSaving, message.content, message.id, onEdit]);
+  }, [editSaving, editSourceContent, message.id, onEdit]);
 
-  // System messages — minimal display
-  if (isSystem) {
-    return (
-      <div
-        className={cn(
-          "group flex justify-center py-1",
-          multiSelectMode && isSelected && "rounded-lg bg-[var(--destructive)]/10",
-        )}
-        onClick={handleMessageClick}
-        onDoubleClick={handleMessageDoubleClick}
-      >
-        <div className="relative">
-          {!multiSelectMode && onDelete && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(message.id);
-              }}
-              className={cn(
-                "absolute -right-1 -top-1 rounded-md p-1 text-[var(--muted-foreground)]/30 opacity-0 transition-all hover:bg-red-500/20 hover:text-red-400 group-hover:opacity-100",
-                showActions && "opacity-100",
-              )}
-              title="Delete"
-            >
-              <Trash2 size="0.75rem" />
-            </button>
-          )}
-          <span className="rounded-full bg-[var(--secondary)] px-3 py-1 text-[0.6875rem] text-[var(--muted-foreground)]">
-            {message.content}
-          </span>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Render: grouped multi-speaker message (merged group chat) ──
-  if (groupedSegments && !editing && !isUser) {
-    if (isHiddenCollapsed) {
-      return (
-        <div
-          className={cn(
-            "relative px-4 py-0.5 transition-colors hover:bg-[var(--secondary)]/30",
-            !noHoverGroup && "group",
-            isGrouped ? "mt-0" : "mt-3",
-          )}
-          data-message-id={message.id}
-          data-message-role={message.role}
-        >
-          <div className="ml-14 flex items-center gap-2 py-1">{hiddenFromAIHeader}</div>
-        </div>
-      );
-    }
-    return (
-      <div
-        className={cn(
-          "relative px-4 py-0.5 transition-colors hover:bg-[var(--secondary)]/30",
-          !noHoverGroup && "group",
-          isGrouped ? "mt-0" : "mt-3",
-          isStreaming && "bg-[var(--secondary)]/20",
-          multiSelectMode && isSelected && "bg-[var(--destructive)]/10",
-        )}
-        data-card-css={cardCssId}
-        data-grouped={isGrouped || undefined}
-        onClick={handleMessageClick}
-        onDoubleClick={handleMessageDoubleClick}
-      >
-        {/* Multi-select checkbox */}
-        {multiSelectMode && (
-          <div className="absolute left-1 top-1/2 -translate-y-1/2 z-10">
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={isSelected}
-              aria-label={isSelected ? "Deselect message" : "Select message"}
-              className={cn(
-                "h-5 w-5 rounded border-2 flex items-center justify-center transition-colors cursor-pointer",
-                isSelected
-                  ? "border-[var(--destructive)] bg-[var(--destructive)]"
-                  : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)]",
-              )}
-            >
-              {isSelected && <span className="text-white text-xs font-bold">✓</span>}
-            </button>
-          </div>
-        )}
-        {/* Render each grouped speaker as a mini-message row (staggered reveal) */}
-        {groupedSegments.slice(0, visibleSegments).map((grp, i) => {
-          const segChar = grp.speaker && charByName ? charByName.get(grp.speaker.toLowerCase()) : null;
-          const segAvatar = segChar?.avatarUrl ?? null;
-          const segAvatarCropStyle = getAvatarCropStyle(segChar?.avatarCrop);
-          const segName = segChar?.name ?? grp.speaker ?? "";
-          const segColor = segChar?.nameColor;
-          const segAvatarOverride = resolveConversationAvatar(segChar, segAvatar);
-          const isFirst = i === 0;
-          const combinedText = grp.lines.join("\n");
-
-          if (!grp.speaker) {
-            // Non-attributed narration text — render as indented italic
-            return (
-              <div
-                key={i}
-                className="pl-14 py-0.5 text-[0.875rem] leading-relaxed break-words whitespace-pre-wrap text-[var(--muted-foreground)] italic animate-[fadeSlideIn_0.4s_ease-out]"
-                style={messageTextStyle}
-              >
-                {mentionNames.length
-                  ? highlightMentions(applyInlineMarkdown(combinedText, `ns${i}`), mentionNames, `ns${i}`)
-                  : applyInlineMarkdown(combinedText, `ns${i}`)}
-              </div>
-            );
-          }
-
-          return (
-            <div key={i} className={cn("animate-[fadeSlideIn_0.4s_ease-out]", i > 0 && "mt-3")}>
-              {/* First row: Avatar + Name + first paragraph */}
-              {(() => {
-                // Split into paragraphs (on blank lines) for Discord-style compact display
-                const paragraphs = combinedText
-                  .split(/\n{2,}/)
-                  .map((p) => p.trim())
-                  .filter(Boolean);
-                if (paragraphs.length === 0) return null;
-                return (
-                  <>
-                    <div className="flex gap-4">
-                      {/* Avatar */}
-                      <div className="w-10 flex-shrink-0">
-                        {!segAvatarOverride.hide && (
-                          <div className="relative h-10 w-10 overflow-hidden rounded-full bg-[var(--accent)]">
-                            {segAvatarOverride.emoji ? (
-                              <div className="flex h-full w-full items-center justify-center text-2xl leading-none">
-                                {segAvatarOverride.emoji}
-                              </div>
-                            ) : segAvatarOverride.url ? (
-                              <img
-                                src={segAvatarOverride.url}
-                                alt={segName}
-                                loading="lazy"
-                                className="h-full w-full object-cover"
-                                style={segAvatarOverride.isOverride ? undefined : segAvatarCropStyle}
-                              />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center text-sm font-bold text-[var(--muted-foreground)]">
-                                {segName[0]?.toUpperCase()}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {isFirst && (showActions || forceShowActions || showMessageNumbers) && messageIndex != null && (
-                          <span className="mt-0.5 block text-center text-[0.5rem] font-medium text-[var(--muted-foreground)] select-none">
-                            #{messageIndex}
-                          </span>
-                        )}
-                      </div>
-                      {/* Name + first paragraph */}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-baseline gap-2 mb-0.5">
-                          <span
-                            className="text-[0.9375rem] font-semibold leading-tight hover:underline cursor-default"
-                            style={nameColorStyle(segColor)}
-                          >
-                            {segName}
-                          </span>
-                          {isFirst && (
-                            <span className="text-[0.6875rem] text-[var(--muted-foreground)]/60">
-                              {formatTimestamp(message.createdAt)}
-                            </span>
-                          )}
-                        </div>
-                        <div
-                          className="text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap"
-                          style={messageTextStyle}
-                        >
-                          {mentionNames.length
-                            ? highlightMentions(
-                                applyInlineMarkdown(paragraphs[0]!, `gs${i}_0`),
-                                mentionNames,
-                                `gs${i}_0`,
-                              )
-                            : applyInlineMarkdown(paragraphs[0]!, `gs${i}_0`)}
-                        </div>
-                      </div>
-                    </div>
-                    {/* Subsequent paragraphs — indented to align with text (no avatar/name) */}
-                    {paragraphs.slice(1).map((para, pi) => (
-                      <div
-                        key={pi}
-                        className="pl-14 mt-0.5 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap"
-                        style={messageTextStyle}
-                      >
-                        {mentionNames.length
-                          ? highlightMentions(
-                              applyInlineMarkdown(para, `gs${i}_${pi + 1}`),
-                              mentionNames,
-                              `gs${i}_${pi + 1}`,
-                            )
-                          : applyInlineMarkdown(para, `gs${i}_${pi + 1}`)}
-                      </div>
-                    ))}
-                  </>
-                );
-              })()}
-            </div>
-          );
-        })}
-
-        {/* Streaming cursor */}
-        {isStreaming && (
-          <span className="ml-14 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-[var(--foreground)]/50" />
-        )}
-
-        {/* Image attachments (selfies, illustrations) */}
-        {!isHiddenCollapsed && attachments.length > 0 && !IMAGE_URL_RE.test(renderedContent.trim()) && (
-          <div className="ml-14 mt-1.5 flex flex-col items-start gap-2">
-            {attachments.map((att, i) => {
-              return isImageMessageAttachment(att) ? (
-                <MessageAttachmentImagePreview
-                  key={i}
-                  attachment={att}
-                  className="group/att relative inline-block"
-                  buttonClassName="block cursor-zoom-in rounded-lg text-left"
-                  imageClassName="max-h-80 max-w-full rounded-lg"
-                  onOpen={(imageSource, event) => {
-                    event.stopPropagation();
-                    setImageLightbox({ url: imageSource, prompt: att.prompt });
-                  }}
-                >
-                  <button
-                    onClick={() => handleRemoveAttachment(i)}
-                    title="Remove from message"
-                    className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 text-white/80 transition-opacity hover:bg-black/80 hover:text-white sm:opacity-0 sm:group-hover/att:opacity-100"
-                  >
-                    <X size="0.875rem" />
-                  </button>
-                </MessageAttachmentImagePreview>
-              ) : null;
-            })}
-          </div>
-        )}
-
-        {!hideActions && hasSwipes && (
-          <SwipeJumpControl
-            activeSwipeIndex={message.activeSwipeIndex}
-            swipeCount={swipeCount}
-            onSetActiveSwipe={(index) => onSetActiveSwipe?.(message.id, index)}
-            onCreateNextSwipe={onRegenerate ? () => onRegenerate(message.id) : undefined}
-            className="ml-14 mt-2 px-1 text-[0.6875rem] text-[var(--muted-foreground)]"
-            buttonClassName="rounded p-0.5 transition-colors hover:bg-[var(--accent)] disabled:opacity-30"
-            inputClassName="h-[1.5rem] w-[3rem] text-[0.6875rem]"
-          />
-        )}
-
-        {/* Hover action bar */}
-        <div
-          className={cn(
-            "absolute -top-3 right-4 flex items-center gap-0.5 rounded-md border border-[var(--border)] bg-[var(--card)]/90 px-1 py-0.5 shadow-sm backdrop-blur-sm transition-all dark:border-white/20 dark:bg-black/40",
-            "opacity-0 group-hover:opacity-100",
-            (showActions || forceShowActions) && "opacity-100",
-          )}
-        >
-          <MsgAction icon={copied ? "✓" : <Copy size="0.75rem" />} onClick={handleCopy} title="Copy" />
-          <MsgAction
-            icon={<Languages size="0.75rem" />}
-            onClick={() => void translate(message.id, message.content, message.chatId)}
-            title={translatedText ? "Hide translation" : "Translate"}
-            className={translatedText ? "text-blue-400" : undefined}
-          />
-          {generationDurationLabel && (
-            <MsgAction icon={<Timer size="0.75rem" />} onClick={() => undefined} title={generationDurationTitle} />
-          )}
-          <MsgAction icon={<Pencil size="0.75rem" />} onClick={onEditClick ?? startEditing} title="Edit" />
-          <MsgAction
-            icon={<RefreshCw size="0.75rem" />}
-            onClick={() => onRegenerate?.(message.id)}
-            title={regenerateButtonTitle}
-            className={regenerateGuidedClass}
-          />
-          {!isUser && (
-            <MsgAction
-              icon={<Eye size="0.75rem" />}
-              onClick={() =>
-                onPeekPrompt?.({
-                  forCharacterId: message.characterId ?? null,
-                  messageId: message.id,
-                  promptSnapshot: activePromptSnapshot,
-                })
-              }
-              title="Peek prompt"
-            />
-          )}
-          {onToggleHiddenFromAI && (
-            <MsgAction
-              icon={isHiddenFromAI ? <Eye size="0.75rem" /> : <EyeOff size="0.75rem" />}
-              onClick={() => onToggleHiddenFromAI(message.id, isHiddenFromAI)}
-              title={isHiddenFromAI ? "Unhide from AI" : "Hide from AI"}
-              className={isHiddenFromAI ? "text-amber-500" : undefined}
-            />
-          )}
-          {generationReplay && (
-            <MsgAction
-              icon={<ScrollText size="0.75rem" />}
-              onClick={() => setShowGenerationReplay(true)}
-              title="Stored guidance"
-            />
-          )}
-          {thinking && (
-            <MsgAction icon={<Brain size="0.75rem" />} onClick={() => setShowThinking(true)} title="View thoughts" />
-          )}
-          {onBranch && (
-            <MsgAction
-              icon={<GitBranch size="0.75rem" />}
-              onClick={() => onBranch(message.id)}
-              title="Branch from here"
-            />
-          )}
-          <MsgAction
-            icon={<Trash2 size="0.75rem" />}
-            onClick={() => onDelete?.(message.id)}
-            title="Delete"
-            className="hover:text-[var(--destructive)]"
-          />
-        </div>
-
-        {/* Thinking modal */}
-        {showThinking &&
-          thinking &&
-          createPortal(
-            <div
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm max-md:pt-[env(safe-area-inset-top)]"
-              onClick={() => setShowThinking(false)}
-            >
-              <div
-                className="relative mx-4 flex max-h-[70vh] w-full max-w-xl flex-col rounded-xl bg-[var(--card)] shadow-2xl ring-1 ring-[var(--border)]"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-                  <div className="flex items-center gap-2 text-sm font-semibold">
-                    <Brain size="0.875rem" className="text-[var(--muted-foreground)]" />
-                    Model Thoughts
-                  </div>
-                  <button
-                    onClick={() => setShowThinking(false)}
-                    className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]"
-                  >
-                    <X size="0.875rem" />
-                  </button>
-                </div>
-                <div className="overflow-y-auto px-4 py-3">
-                  <pre className="whitespace-pre-wrap break-words text-[0.8125rem] leading-relaxed text-[var(--muted-foreground)]">
-                    {thinking}
-                  </pre>
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )}
-        {generationReplay && (
-          <GenerationReplayDetailsModal
-            open={showGenerationReplay}
-            replay={generationReplay}
-            onClose={() => setShowGenerationReplay(false)}
-          />
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className={cn(
-        "mari-message relative flex px-4 py-0.5 transition-colors",
-        isBubbleStyle ? "gap-3" : "gap-4 hover:bg-[var(--secondary)]/30",
-        isUser ? "mari-message-user" : "mari-message-assistant",
-        isBubbleStyle && (isUser ? "flex-row-reverse justify-start" : "justify-start"),
-        !noHoverGroup && "group",
-        isGrouped ? "mt-0" : isBubbleStyle ? "mt-3" : "mt-4",
-        isStreaming && "bg-[var(--secondary)]/20",
-        multiSelectMode && isSelected && "bg-[var(--destructive)]/10",
-      )}
-      data-message-id={message.id}
-      data-message-role={message.role}
-      data-message-style={messageStyle}
-      data-card-css={cardCssId}
-      data-grouped={isGrouped || undefined}
-      onClick={handleMessageClick}
-      onDoubleClick={handleMessageDoubleClick}
-    >
-      {/* Multi-select checkbox */}
-      {multiSelectMode && (
-        <div className="flex items-center flex-shrink-0">
-          <div
-            className={cn(
-              "h-5 w-5 rounded border-2 flex items-center justify-center transition-colors cursor-pointer",
-              isSelected
-                ? "border-[var(--destructive)] bg-[var(--destructive)]"
-                : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)]",
-            )}
-          >
-            {isSelected && <span className="text-white text-xs font-bold">✓</span>}
-          </div>
-        </div>
-      )}
-
-      {/* Avatar column — fixed 40px width */}
-      <div className={cn("mari-message-avatar flex-shrink-0", isBubbleStyle ? "w-8 self-end" : "w-10")}>
-        {!isGrouped && !conversationAvatar.hide && (
-          <>
-            <div
-              className={cn(
-                "relative overflow-hidden rounded-full bg-[var(--accent)]",
-                isBubbleStyle ? "h-8 w-8" : "h-10 w-10",
-              )}
-            >
-              {/* Emoji and resolved sprite/gallery overrides render directly; the normal avatar
-                  goes through the file-path/thumbnail-aware resolver with crop styling. */}
-              {conversationAvatar.emoji ? (
-                <div className="flex h-full w-full items-center justify-center text-2xl leading-none">
-                  {conversationAvatar.emoji}
-                </div>
-              ) : conversationAvatar.isOverride && conversationAvatar.url ? (
-                <img
-                  src={conversationAvatar.url}
-                  alt={displayName}
-                  loading="lazy"
-                  decoding="async"
-                  className="h-full w-full object-cover"
-                />
-              ) : avatarUrl ? (
-                <ResolvedAvatarImage
-                  src={avatarUrl}
-                  avatarFilePath={avatarFilePath}
-                  avatarFilename={avatarFilename}
-                  alt={displayName}
-                  loading="lazy"
-                  decoding="async"
-                  thumbnailSize={128}
-                  className="h-full w-full object-cover"
-                  style={avatarCropStyle}
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-sm font-bold text-[var(--muted-foreground)]">
-                  {isUser ? <User size="1.125rem" /> : displayName[0]?.toUpperCase()}
-                </div>
-              )}
-            </div>
-            {(showActions || forceShowActions || showMessageNumbers) && messageIndex != null && (
-              <span className="mt-0.5 block text-center text-[0.5rem] font-medium text-[var(--muted-foreground)] select-none">
-                #{messageIndex}
-              </span>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Message content column */}
-      <div
-        className={cn(
-          "mari-message-body min-w-0",
-          isBubbleStyle ? "flex max-w-[min(78%,42rem)] flex-col gap-1" : "flex-1",
-          isBubbleStyle && (isUser ? "items-end" : "items-start"),
-        )}
-      >
-        {/* Header — name + timestamp (only for first in group) */}
-        {!isGrouped && (
-          <div
-            className={cn(
-              "mari-message-meta flex items-baseline gap-2 mb-0.5",
-              isBubbleStyle && "px-2",
-              isBubbleStyle && isUser && "flex-row-reverse",
-            )}
-          >
-            {hiddenFromAIHeader}
-            <span
-              className="mari-message-name text-[0.9375rem] font-semibold leading-tight hover:underline cursor-default"
-              style={nameColorStyle(nameColor)}
-            >
-              {displayName}
-            </span>
-            <span className="mari-message-timestamp text-[0.6875rem] text-[var(--muted-foreground)]/60">
-              {formatTimestamp(message.createdAt)}
-            </span>
-          </div>
-        )}
-
-        {/* Message body */}
-        {isHiddenCollapsed ? null : editing ? (
-          <div className="space-y-2">
-            <textarea
-              ref={editRef}
-              value={editValue}
-              onChange={(e) => {
-                setEditValue(e.target.value);
-                const el = e.target;
-                el.style.height = "auto";
-                el.style.height = `${Math.min(el.scrollHeight, 300)}px`;
-              }}
-              className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--secondary)] p-2.5 text-[0.9375rem] leading-relaxed outline-none"
-              rows={1}
-              style={{ overflow: "auto", ...messageTextStyle }}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  if (!editSaving) setEditing(false);
-                }
-              }}
-              disabled={editSaving}
-            />
-            {editError && <div className="text-[0.6875rem] text-red-300/90">{editError}</div>}
-            <div className="flex items-center gap-2 text-[0.6875rem] text-[var(--muted-foreground)]">
-              <button
-                onClick={() => {
-                  if (!editSaving) setEditing(false);
-                }}
-                disabled={editSaving}
-                className="text-foreground/70 hover:underline hover:text-foreground"
-              >
-                cancel
-              </button>
-              <span>·</span>
-              <button
-                onClick={() => void handleSaveEdit()}
-                disabled={editSaving}
-                className="text-foreground/70 hover:underline hover:text-foreground"
-              >
-                {editSaving ? "saving" : "save"}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div
-            className={cn(
-              "mari-message-content text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap",
-              isBubbleStyle && "mari-message-bubble min-w-0 max-w-full rounded-2xl px-3.5 py-2 shadow-sm ring-1",
-              isBubbleStyle &&
-                (isUser
-                  ? "rounded-br-md bg-[var(--primary)] text-[var(--primary-foreground)] ring-[var(--primary)]/25"
-                  : "rounded-bl-md bg-[var(--card)]/90 text-[var(--foreground)] ring-[var(--border)]"),
-              isBubbleStyle && isGrouped && (isUser ? "rounded-tr-md rounded-br-2xl" : "rounded-tl-md rounded-bl-2xl"),
-              (isStreaming || typingLabel) && !renderedContent && "py-1",
-            )}
-            style={messageTextStyle}
-          >
-            {!renderedContent && typingLabel ? (
-              <div className="mari-typing-indicator flex items-center gap-2" data-typing-name={displayName}>
-                <span className="mari-typing-dots flex items-center gap-1">
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:0ms]" />
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:150ms]" />
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:300ms]" />
-                </span>
-                <span className="mari-typing-text text-[0.8125rem] italic text-[var(--text-secondary)]">
-                  {typingLabel}
-                </span>
-              </div>
-            ) : isStreaming && !renderedContent ? (
-              <div className="flex items-center gap-1">
-                <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:0ms]" />
-                <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:150ms]" />
-                <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:300ms]" />
-              </div>
-            ) : (
-              <>
-                <MessageContent content={renderedContent} mentionNames={mentionNames} onImageOpen={openImageLightbox} />
-                {isStreaming && (
-                  <span className="ml-0.5 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-[var(--foreground)]/50" />
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Translation */}
-        {!isHiddenCollapsed && (translatedText || isTranslating) && (
-          <div className="mt-1.5 border-t border-[var(--border)] pt-1.5">
-            {isTranslating ? (
-              <span className="text-[0.75rem] italic text-[var(--muted-foreground)]">Translating…</span>
-            ) : (
-              <div className="whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-[var(--muted-foreground)]">
-                {translatedText}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Image attachments (selfies, illustrations) — skip when content is already an image URL */}
-        {!isHiddenCollapsed && attachments.length > 0 && !IMAGE_URL_RE.test(renderedContent.trim()) && (
-          <div className="mt-1.5 flex flex-col items-center gap-2">
-            {attachments.map((att, i) => {
-              return isImageMessageAttachment(att) ? (
-                <MessageAttachmentImagePreview
-                  key={i}
-                  attachment={att}
-                  className="group/att relative inline-block"
-                  buttonClassName="block cursor-zoom-in rounded-lg text-left"
-                  imageClassName="max-h-80 max-w-full rounded-lg"
-                  onOpen={(imageSource, event) => {
-                    event.stopPropagation();
-                    setImageLightbox({ url: imageSource, prompt: att.prompt });
-                  }}
-                >
-                  <button
-                    onClick={() => handleRemoveAttachment(i)}
-                    title="Remove from message"
-                    className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 text-white/80 transition-opacity hover:bg-black/80 hover:text-white sm:opacity-0 sm:group-hover/att:opacity-100"
-                  >
-                    <X size="0.875rem" />
-                  </button>
-                </MessageAttachmentImagePreview>
-              ) : null;
-            })}
-          </div>
-        )}
-
-        {!hideActions && hasSwipes && (
-          <SwipeJumpControl
-            activeSwipeIndex={message.activeSwipeIndex}
-            swipeCount={swipeCount}
-            onSetActiveSwipe={(index) => onSetActiveSwipe?.(message.id, index)}
-            onCreateNextSwipe={onRegenerate ? () => onRegenerate(message.id) : undefined}
-            className="mt-1.5 text-[0.6875rem] text-[var(--muted-foreground)]"
-            buttonClassName="rounded p-0.5 transition-colors hover:bg-[var(--accent)] disabled:opacity-30"
-            inputClassName="h-[1.5rem] w-[3rem] text-[0.6875rem]"
-          />
-        )}
-      </div>
-
-      {/* Hover action bar — Discord-style floating pill */}
-      {!hideActions && (
-        <div
-          className={cn(
-            "mari-message-actions absolute -top-3 flex items-center gap-0.5 rounded-md border border-[var(--border)] bg-[var(--card)]/90 px-1 py-0.5 shadow-sm backdrop-blur-sm transition-all dark:border-white/20 dark:bg-black/40",
-            isBubbleStyle && isUser ? "left-4" : "right-4",
-            "opacity-0 group-hover:opacity-100",
-            (showActions || forceShowActions) && "opacity-100",
-          )}
-        >
-          <MsgAction icon={copied ? "✓" : <Copy size="0.75rem" />} onClick={handleCopy} title="Copy" />
-          <MsgAction
-            icon={<Languages size="0.75rem" />}
-            onClick={() => void translate(message.id, renderedContent, message.chatId)}
-            title={translatedText ? "Hide translation" : "Translate"}
-            className={translatedText ? "text-blue-400" : undefined}
-          />
-          {generationDurationLabel && (
-            <MsgAction icon={<Timer size="0.75rem" />} onClick={() => undefined} title={generationDurationTitle} />
-          )}
-          <MsgAction icon={<Pencil size="0.75rem" />} onClick={onEditClick ?? startEditing} title="Edit" />
-          {canRegenerate && (
-            <MsgAction
-              icon={<RefreshCw size="0.75rem" />}
-              onClick={() => onRegenerate?.(message.id)}
-              title={regenerateButtonTitle}
-              className={regenerateGuidedClass}
-            />
-          )}
-          {!isUser && (
-            <MsgAction
-              icon={<Eye size="0.75rem" />}
-              onClick={() =>
-                onPeekPrompt?.({
-                  forCharacterId: message.characterId ?? null,
-                  messageId: message.id,
-                  promptSnapshot: activePromptSnapshot,
-                })
-              }
-              title="Peek prompt"
-            />
-          )}
-          {onToggleHiddenFromAI && (
-            <MsgAction
-              icon={isHiddenFromAI ? <Eye size="0.75rem" /> : <EyeOff size="0.75rem" />}
-              onClick={() => onToggleHiddenFromAI(message.id, isHiddenFromAI)}
-              title={isHiddenFromAI ? "Unhide from AI" : "Hide from AI"}
-              className={isHiddenFromAI ? "text-amber-500" : undefined}
-            />
-          )}
-          {generationReplay && (
-            <MsgAction
-              icon={<ScrollText size="0.75rem" />}
-              onClick={() => setShowGenerationReplay(true)}
-              title="Stored guidance"
-            />
-          )}
-          {thinking && !isUser && (
-            <MsgAction icon={<Brain size="0.75rem" />} onClick={() => setShowThinking(true)} title="View thoughts" />
-          )}
-          {onBranch && (
-            <MsgAction
-              icon={<GitBranch size="0.75rem" />}
-              onClick={() => onBranch(message.id)}
-              title="Branch from here"
-            />
-          )}
-          <MsgAction
-            icon={<Trash2 size="0.75rem" />}
-            onClick={() => onDelete?.(message.id)}
-            title="Delete"
-            className="hover:text-[var(--destructive)]"
-          />
-        </div>
-      )}
-
-      {/* Thinking modal */}
-      {showThinking &&
-        thinking &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm max-md:pt-[env(safe-area-inset-top)]"
-            onClick={() => setShowThinking(false)}
-          >
-            <div
-              className="relative mx-4 flex max-h-[70vh] w-full max-w-xl flex-col rounded-xl bg-[var(--card)] shadow-2xl ring-1 ring-[var(--border)]"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <Brain size="0.875rem" className="text-[var(--muted-foreground)]" />
-                  Model Thoughts
-                </div>
-                <button
-                  onClick={() => setShowThinking(false)}
-                  className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]"
-                >
-                  <X size="0.875rem" />
-                </button>
-              </div>
-              <div className="overflow-y-auto px-4 py-3">
-                <pre className="whitespace-pre-wrap break-words text-[0.8125rem] leading-relaxed text-[var(--muted-foreground)]">
-                  {thinking}
-                </pre>
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
-      {generationReplay && (
-        <GenerationReplayDetailsModal
-          open={showGenerationReplay}
-          replay={generationReplay}
-          onClose={() => setShowGenerationReplay(false)}
-        />
-      )}
-
-      {imageLightbox &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm max-md:pt-[env(safe-area-inset-top)]"
-            onClick={() => setImageLightbox(null)}
-          >
-            <div
-              className="flex max-h-[90vh] w-[min(90vw,64rem)] max-w-[90vw] flex-col items-center gap-2"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <img
-                src={imageLightbox.url}
-                alt="Expanded image"
-                className={
-                  imageLightbox.prompt?.trim()
-                    ? "max-h-[calc(90vh-9rem)] max-w-full rounded-lg object-contain shadow-2xl"
-                    : "max-h-[90vh] max-w-full rounded-lg object-contain shadow-2xl"
-                }
-              />
-              <ImagePromptPanel prompt={imageLightbox.prompt} className="w-full max-w-3xl" />
-            </div>
-            <button
-              onClick={() => setImageLightbox(null)}
-              className="absolute right-4 top-4 rounded-full bg-black/50 p-2 text-white/80 transition-colors hover:bg-black/70 hover:text-white"
-              aria-label="Close image"
-            >
-              <X size="1.125rem" />
-            </button>
-          </div>,
-          document.body,
-        )}
-    </div>
+  const handleTranslate = useCallback(
+    (content: string) => {
+      void translate(message.id, content, message.chatId);
+    },
+    [message.chatId, message.id, translate],
   );
-});
 
-// ── Tiny action button ──
-function MsgAction({
-  icon,
-  onClick,
-  title,
-  className,
-}: {
-  icon: React.ReactNode;
-  onClick: () => void;
-  title: string;
-  className?: string;
-}) {
-  return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      title={title}
-      className={cn(
-        "rounded p-1 text-foreground/70 transition-colors hover:bg-foreground/20 hover:text-foreground",
-        className,
-      )}
-    >
-      {icon}
-    </button>
-  );
-}
+  const handleStartEditAction = useCallback(() => {
+    if (onEditClick) onEditClick();
+    else startEditing();
+  }, [onEditClick, startEditing]);
 
-// ── Timestamp formatting ──
+  const context: ConversationMessageRenderContext = {
+    message,
+    cardCssId,
+    messageStyle,
+    isStreaming,
+    isGrouped,
+    hideActions,
+    noHoverGroup,
+    forceShowActions,
+    multiSelectMode,
+    isSelected,
+    messageIndex,
+    showActions,
+    showMessageNumbers,
+    isUser,
+    isBubbleStyle,
+    isHiddenFromAI,
+    isHiddenCollapsed,
+    hiddenFromAIHeader,
+    canRegenerate,
+    editing,
+    editRef,
+    editValue,
+    editSaving,
+    editError,
+    setEditValue,
+    onCancelEdit: () => setEditing(false),
+    onSaveEdit: handleSaveEdit,
+    messageTextStyle,
+    displayName,
+    nameColor,
+    conversationAvatar,
+    avatarUrl,
+    avatarFilePath,
+    avatarFilename,
+    avatarCropStyle,
+    shouldHideUserAvatarGraphic,
+    shouldHideAvatarColumn,
+    shouldShowMessageNumber,
+    renderedContent,
+    renderedContentParts,
+    hasRenderedContent,
+    typingLabel,
+    mentionNames,
+    groupedSegments,
+    visibleSegments,
+    charByName,
+    attachments,
+    translatedText,
+    isTranslating,
+    hasSwipes,
+    swipeCount,
+    bubbleCornerClass,
+    generationDurationLabel,
+    generationDurationTitle,
+    regenerateButtonTitle,
+    regenerateGuidedClass,
+    thinking,
+    generationReplay,
+    activePromptSnapshot,
+    copied,
+    handleMessageClick,
+    handleMessageDoubleClick,
+    handleCopy,
+    onTranslate: handleTranslate,
+    onStartEdit: handleStartEditAction,
+    onRegenerate,
+    onSetActiveSwipe,
+    onPeekPrompt,
+    onToggleHiddenFromAI,
+    onBranch,
+    onDelete,
+    onShowGenerationReplay: () => setShowGenerationReplay(true),
+    onShowThinking: () => setShowThinking(true),
+    onImageOpen: openImageLightbox,
+    onRemoveAttachment: handleRemoveAttachment,
+    onCloseThinking: () => setShowThinking(false),
+    onCloseGenerationReplay: () => setShowGenerationReplay(false),
+    imageLightbox,
+    onCloseImageLightbox: () => setImageLightbox(null),
+    showThinking,
+    showGenerationReplay,
+  };
 
-/** Full timestamp: "Today at 3:42 PM", "Yesterday at 10:15 AM", "03/15/2026" */
-function formatTimestamp(dateStr: string): string {
-  try {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / 86_400_000);
-
-    const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-
-    if (diffDays === 0 && date.getDate() === now.getDate()) {
-      return `Today at ${time}`;
-    }
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (diffDays <= 1 && date.getDate() === yesterday.getDate()) {
-      return `Yesterday at ${time}`;
-    }
-    return `${date.toLocaleDateString()} ${time}`;
-  } catch {
-    return "";
-  }
-}
+  if (isSystem) return <ConversationMessageSystem context={context} />;
+  if (groupedSegments && !editing && !isUser && !isBubbleStyle) return <ConversationMessageGrouped context={context} />;
+  if (isBubbleStyle) return <ConversationMessageBubble context={context} />;
+  return <ConversationMessageLine context={context} />;
+}, areConversationMessagePropsEqual);

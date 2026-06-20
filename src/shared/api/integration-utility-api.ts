@@ -79,8 +79,8 @@ export const spotifyApi = {
   volume: (body: Record<string, unknown>) => invokeTauri("spotify_player_volume", { body }),
   searchTracks: <T = unknown>(input: Record<string, unknown>) => invokeTauri<T>("spotify_search_tracks", { input }),
   playTrack: <T = unknown>(input: Record<string, unknown>) => invokeTauri<T>("spotify_play_track", { input }),
-  djMariPlaylist: <T = unknown>(input: Record<string, unknown>) =>
-    invokeTauri<T>("spotify_dj_mari_playlist", { input }),
+  djDekiPlaylist: <T = unknown>(input: Record<string, unknown>) =>
+    invokeTauri<T>("spotify_dj_deki_playlist", { input }),
 };
 
 export const knowledgeSourcesApi = {

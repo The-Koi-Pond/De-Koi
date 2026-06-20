@@ -86,7 +86,7 @@ Output format:
 If no issues found, return: { "issues": [], "verdict": "clean" }`,
 
   /* ────────────────────────────────────────── */
-  expression: `Analyze the emotional state of each character or persona in the latest assistant message and pick the best matching sprite expression from their AVAILABLE sprites, listed in <available_sprites>.
+  expression: `Analyze the latest turn and pick the best matching sprite expression for every sprite owner listed in <available_sprites>.
 The <available_sprites> block lists sprite owners in the format: CharacterName (CharacterID): expression1, expression2, ...
 Some listed expressions are simple group keys. For example, if the list includes joy, the engine may randomly display a concrete matching sprite like joy_01 or joy_laugh. Use the simple listed key; do not invent variant filenames that are not listed.
 Respond ONLY with valid JSON.
@@ -108,9 +108,10 @@ Transition guide:
 - hop: small vertical hop (cheerful, eager, greeting).
 - none: instant swap (neutral reset, very minor change).
 Instructions:
-1. ONLY include sprite owners listed in <available_sprites>. If a character or persona is not listed there, do NOT include them.
+1. Include exactly one expression entry for every sprite owner listed in <available_sprites>. If a character or persona is not listed there, do NOT include them.
 2. The characterId MUST be the exact ID string from the parentheses, e.g. if the entry says "Dottore (abc123): happy, sad" then characterId must be "abc123". Never invent, reuse, or copy a different ID from chat history.
-3. When a character's emotion is ambiguous, pick the closest listed available expression or group key rather than guessing a generic one.`,
+3. Use <latest_user_message> to choose the active user persona's expression when that persona is listed in <available_sprites>. Use <assistant_response> to choose assistant or character expressions.
+4. When a character's emotion is ambiguous, prefer neutral/default/calm/idle if available. Do not repeatedly choose a stylized expression like smirk unless the latest turn clearly shows that expression.`,
 
   /* ────────────────────────────────────────── */
   "echo-chamber": `Simulate a live streaming-service chat full of anonymous viewers reacting to the roleplay on screen. Generate a batch of short messages from fictional viewers commenting on the current response.
@@ -195,6 +196,7 @@ IMPORTANT: The player may have at most 3 active (non-completed) quests at a time
 
   /* ────────────────────────────────────────── */
   illustrator: `After key narrative moments, generate a detailed image prompt for an image generation service (Stable Diffusion, DALL-E, etc.).
+The latest generated message is provided in <assistant_response>. Anchor your shouldGenerate decision and image prompt to that latest assistant turn. Use recent context only for continuity; do not illustrate an older scene just because it appears in context.
 Only generate a prompt when the scene is visually significant:
 1. A new important location is described in detail.
 2. A dramatic action scene occurs.
@@ -215,13 +217,14 @@ Output format:
 Prompt quality rules:
 1. Be specific about composition, lighting, mood, and camera angle.
 2. First identify which active characters/persona are actually visible in the image. Put only those names in "characters"; omit absent, off-screen, merely mentioned, or background-only names.
-3. In the "prompt", describe the exact scene-specific appearance of each visible character: face, hair, eye color and eye shape, build, skin tone, current outfit, expression, pose, injuries, props, and distinguishing visible features. Use the recent scene and main response for current clothing and condition. If Dottore is wearing a suit in this scene, describe the suit; do not fall back to his default outfit.
+3. In the "prompt", describe the exact scene-specific appearance of each visible character: face, hair length, hair style, hair color, eye color and eye shape, build, skin tone or carnation, current clothing, expression, pose, injuries, props, and distinguishing visible features. Use the recent scene and main response for current clothing and condition. If Dottore is wearing a suit in this scene, describe the suit; do not fall back to his default outfit.
 4. Do not paste full character/persona descriptions, personality, backstory, scenario, or relationship prose into the prompt. Only include visual details that belong in this exact image.
 5. If attached reference images are provided, inspect them and transfer concrete visible identity traits into the prompt, especially eye color, hair color/style, face shape, body proportions, skin tone, scars, markings, and distinctive accessories.
 6. Mention in the prompt that provided/attached character references should be consulted for identity, facial likeness, hair, proportions, and distinctive features, while the prompt's current-scene outfit/details should take priority over reference clothing when they differ.
-7. Describe the environment and atmosphere with enough detail that an artist could paint it.
-8. Use art-style keywords for quality (e.g., "detailed", "dramatic lighting", "cinematic", "depth of field").
-9. Do not include generic meta-instructions like "make it look good"; write a concrete image prompt only.`,
+7. Do not request dialogue text, captions, narration boxes, speech bubbles, word balloons, manga SFX, signs, subtitles, UI text, logos, or watermarks in the prompt or generated image.
+8. Describe the environment and atmosphere with enough detail that an artist could paint it.
+9. Use art-style keywords for quality (e.g., "detailed", "dramatic lighting", "cinematic", "depth of field").
+10. Do not include generic meta-instructions like "make it look good"; write a concrete image prompt only.`,
 
   /* ────────────────────────────────────────── */
   "lorebook-keeper": `Analyze the narrative for new lore, character details, locations, or world-building information worth recording for future reference.
@@ -496,6 +499,7 @@ IMPORTANT! You MUST use the tool functions above to actually control Spotify.
 - To play music, call spotify_play with the URI. Do NOT just return a URI in JSON without calling the tool.
 - To inspect current playback, call spotify_get_current_playback. To search, call spotify_search. To list playlists, call spotify_get_playlists.
 - To adjust volume, call spotify_set_volume.
+- Use Spotify URIs exactly as returned by spotify_get_playlist_tracks or spotify_search. Do NOT append labels or suffixes such as "_candidate" to a URI.
 - Only AFTER you have used the tools should you respond with the JSON summary below.
 Rules:
 1. ALWAYS check current playback first. If there is no active playback or no current track, choose fitting music and call spotify_play. If <spotify_dj_constraints> includes manualRetry or forceFreshPick, choose a different fitting track and call spotify_play even if the current track still fits. Otherwise, if the existing track still fits, keep it and return action "none" or adjust volume only.
@@ -503,6 +507,7 @@ Rules:
 3. Pick from the user's personal library whenever a good match exists — they chose those songs for a reason. Only search the catalogue if the configured source allows it or nothing personal fits.
 4. When choosing from a configured playlist or Liked Songs, call spotify_get_playlist_tracks with query/mood terms and candidateLimit 30-80. Do NOT manually page through the whole playlist.
 4a. In game mode, pick ONE best track for the current scene and call spotify_play with only that track URI. The app will loop it until the DJ picks a new track.
+4b. If spotify_get_playlist_tracks returns recentTrackUris or recentAvoidedCount, treat recently played tracks as unavailable unless every non-recent candidate is a poor fit.
 5. Only change music when the mood noticeably shifts. Don't change every single turn, except on manualRetry/forceFreshPick where the user explicitly requested a new pick.
 6. Playing an entire playlist URI is fine if it fits the mood (e.g., a "battle music" or "chill" playlist).
 7. Prefer instrumental or ambient tracks for immersion — lyrics can be distracting.

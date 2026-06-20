@@ -174,11 +174,19 @@ pub async fn spotify_play_track(
 }
 
 #[tauri::command]
+pub async fn spotify_dj_deki_playlist(
+    state: State<'_, AppState>,
+    input: Value,
+) -> Result<Value, AppError> {
+    spotify_direct(state, "POST", &["dj-deki-playlist"], input).await
+}
+
+#[tauri::command]
 pub async fn spotify_dj_mari_playlist(
     state: State<'_, AppState>,
     input: Value,
 ) -> Result<Value, AppError> {
-    spotify_direct(state, "POST", &["dj-mari-playlist"], input).await
+    spotify_dj_deki_playlist(state, input).await
 }
 
 #[tauri::command]

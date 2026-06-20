@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { GameState } from "../../contracts/types/game-state";
 import { normalizeGameStateTrackerRows } from "./tracker-row-ids";
-import { applyQuestUpdatesToPlayerStats } from "./player-stats";
+import { applyQuestUpdatesToPlayerStats, compactQuestProgressForContext } from "./player-stats";
 
 function emptyPlayerStats() {
   return {
@@ -123,5 +123,53 @@ describe("applyQuestUpdatesToPlayerStats", () => {
       notes: "The village celebrates the restored water flow.",
       completed: true,
     });
+  });
+});
+
+describe("compactQuestProgressForContext", () => {
+  it("keeps only active quests and unfinished objectives for prompt context", () => {
+    const compacted = compactQuestProgressForContext([
+      {
+        questEntryId: "river-shrine",
+        name: "Restore the River Shrine",
+        currentStage: 1,
+        objectives: [
+          { objectiveId: "done", text: "Find the sluice key", completed: true },
+          { objectiveId: "open", text: "Repair the sluice gate", completed: false },
+        ],
+        completed: false,
+      },
+      {
+        questEntryId: "completed",
+        name: "Completed Quest",
+        currentStage: 1,
+        objectives: [],
+        completed: true,
+      },
+      {
+        questEntryId: "all-done",
+        name: "All Objectives Done",
+        currentStage: 1,
+        objectives: [{ objectiveId: "done", text: "Report back", completed: true }],
+        completed: false,
+      },
+    ]);
+
+    expect(compacted).toEqual([
+      {
+        questEntryId: "river-shrine",
+        name: "Restore the River Shrine",
+        currentStage: 1,
+        objectives: [{ objectiveId: "open", text: "Repair the sluice gate", completed: false }],
+        completed: false,
+      },
+      {
+        questEntryId: "all-done",
+        name: "All Objectives Done",
+        currentStage: 1,
+        objectives: [],
+        completed: false,
+      },
+    ]);
   });
 });

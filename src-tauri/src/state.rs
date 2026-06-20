@@ -1121,6 +1121,65 @@ mod tests {
     }
 
     #[test]
+    fn app_state_startup_repairs_lorebook_entry_roles() {
+        let root = temp_root("lorebook-entry-role-repair");
+        let storage = FileStorage::new(root.0.join("data")).expect("storage should initialize");
+        storage
+            .replace_all(
+                "lorebook-entries",
+                vec![
+                    json!({
+                        "id": "invalid-role",
+                        "lorebookId": "book-1",
+                        "name": "Invalid",
+                        "content": "Lore",
+                        "keys": "[]",
+                        "role": " narrator "
+                    }),
+                    json!({
+                        "id": "numeric-role",
+                        "lorebookId": "book-1",
+                        "name": "Numeric",
+                        "content": "Lore",
+                        "keys": "[]",
+                        "role": 2
+                    }),
+                    json!({
+                        "id": "missing-role",
+                        "lorebookId": "book-1",
+                        "name": "Missing",
+                        "content": "Lore",
+                        "keys": "[]"
+                    }),
+                ],
+            )
+            .expect("legacy lorebook entries should be seeded");
+        persist_fixture_storage(&storage);
+
+        let state = AppState::from_data_dir(&root.0, Vec::new()).expect("state should initialize");
+        let invalid = state
+            .storage
+            .get("lorebook-entries", "invalid-role")
+            .expect("entry should read")
+            .expect("entry should exist");
+        let numeric = state
+            .storage
+            .get("lorebook-entries", "numeric-role")
+            .expect("entry should read")
+            .expect("entry should exist");
+        let missing = state
+            .storage
+            .get("lorebook-entries", "missing-role")
+            .expect("entry should read")
+            .expect("entry should exist");
+
+        assert_eq!(invalid["role"], json!("system"));
+        assert_eq!(numeric["role"], json!("assistant"));
+        assert_eq!(missing["role"], json!("system"));
+        assert_eq!(missing["keys"], json!([]));
+    }
+
+    #[test]
     fn app_state_startup_normalizes_legacy_agent_run_rows() {
         let root = temp_root("agent-run-normalization");
         let storage = FileStorage::new(root.0.join("data")).expect("storage should initialize");

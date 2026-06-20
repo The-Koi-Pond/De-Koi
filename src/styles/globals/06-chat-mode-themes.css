@@ -105,13 +105,6 @@
    ───────────────────────────────────────────── */
 .texting-bubble {
   word-break: break-word;
-  transition:
-    transform 0.15s,
-    box-shadow 0.15s;
-}
-
-.texting-bubble:hover {
-  transform: scale(1.005);
 }
 
 .texting-bubble-user {

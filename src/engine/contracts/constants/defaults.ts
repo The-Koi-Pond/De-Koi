@@ -40,6 +40,7 @@ export const MAX_FILE_SIZES = {
   IMAGE_UPLOAD: 20 * 1024 * 1024, // 20 MB
   SPRITE: 10 * 1024 * 1024, // 10 MB
   CHARACTER_JSON: 5 * 1024 * 1024, // 5 MB
+  CHARACTER_IMPORT: 75 * 1024 * 1024, // 75 MB
   LOREBOOK_JSON: 10 * 1024 * 1024, // 10 MB
   PRESET_JSON: 2 * 1024 * 1024, // 2 MB
   CHAT_JSONL: 50 * 1024 * 1024, // 50 MB
@@ -53,6 +54,12 @@ export const LIMITS = {
   AGENT_CONTEXT_MESSAGES: 20,
   /** Max lorebook entries that can be injected */
   MAX_LOREBOOK_ENTRIES: 100,
+  /**
+   * Default keyword-scan depth (messages back) for the per-turn lorebook scan
+   * when neither the entry nor its lorebook sets one. An explicit per-entry or
+   * per-lorebook scanDepth of 0 ("scan all") still scans the full history.
+   */
+  LOREBOOK_DEFAULT_SCAN_DEPTH: 10,
   /** Default global lorebook token budget per generation. 0 means unlimited when explicitly configured per chat. */
   DEFAULT_LOREBOOK_TOKEN_BUDGET: 8192,
   /** Default summary trigger: every N messages */

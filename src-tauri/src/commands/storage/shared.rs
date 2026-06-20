@@ -976,6 +976,12 @@ fn normalize_typed_json_fields_with_prompt_default_mode(
     if collection == "prompts" {
         normalize_prompt_default_alias(object, prompt_default_mode)?;
     }
+    if collection == "lorebook-entries" {
+        normalize_lorebook_entry_role_field(
+            object,
+            prompt_default_mode == PromptDefaultAliasMode::RepairLegacyConflicts,
+        );
+    }
     if collection == "messages" {
         normalize_message_text_fields(object);
         compact_message_swipe_fields_for_storage(object);
@@ -1330,6 +1336,32 @@ pub(crate) fn with_entity_defaults(collection: &str, body: Value) -> AppResult<V
     Ok(Value::Object(object))
 }
 
+pub(crate) fn normalize_lorebook_entry_role(value: Option<&Value>) -> &'static str {
+    let raw = match value {
+        Some(Value::String(raw)) => raw.trim().to_ascii_lowercase(),
+        Some(Value::Number(raw)) => raw.as_i64().unwrap_or(0).to_string(),
+        _ => String::new(),
+    };
+    match raw.as_str() {
+        "1" | "user" => "user",
+        "2" | "assistant" => "assistant",
+        _ => "system",
+    }
+}
+
+pub(crate) fn normalize_lorebook_entry_role_field(
+    object: &mut Map<String, Value>,
+    default_missing: bool,
+) {
+    if !default_missing && !object.contains_key("role") {
+        return;
+    }
+    object.insert(
+        "role".to_string(),
+        Value::String(normalize_lorebook_entry_role(object.get("role")).to_string()),
+    );
+}
+
 pub(crate) fn with_message_create_defaults(body: Value) -> AppResult<Value> {
     let mut object = ensure_object(body)?;
     normalize_json_array_fields(&mut object, &["swipes", "images", "attachments"])?;
@@ -1367,14 +1399,14 @@ mod tests {
             "characters",
             json!({
                 "data": {
-                    "name": "Professor Mari",
+                    "name": "Deki-senpai",
                     "tags": ["guide"]
                 }
             }),
         )
         .expect("patch should normalize");
 
-        assert_eq!(patch["data"]["name"], "Professor Mari");
+        assert_eq!(patch["data"]["name"], "Deki-senpai");
         assert_eq!(patch["data"]["tags"], json!(["guide"]));
     }
 
@@ -1397,7 +1429,7 @@ mod tests {
                 "comment": "assistant",
                 "avatarPath": "data:image/png;base64,very-large-avatar",
                 "data": {
-                    "name": "Professor Mari",
+                    "name": "Deki-senpai",
                     "creator": "Pasta",
                     "creator_notes": "Codebase helper",
                     "tags": ["Guide"]
@@ -1465,6 +1497,40 @@ mod tests {
     }
 
     #[test]
+    fn upload_gallery_image_does_not_use_parent_id_as_path_segment() {
+        let root = temp_root("gallery-upload-parent-id-path");
+        let state = AppState::from_data_dir(&root.0, Vec::new()).expect("state should initialize");
+        let escaped_dir = state.data_dir.join("escaped-gallery");
+        let uploaded = upload_gallery_image(
+            &state,
+            "gallery",
+            "chatId",
+            "../escaped-gallery",
+            json!({
+                "file": {
+                    "name": "upload.png",
+                    "type": "image/png",
+                    "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lTmZsgAAAABJRU5ErkJggg=="
+                }
+            }),
+        )
+        .expect("gallery upload should be stored");
+
+        let filename = uploaded
+            .get("filename")
+            .and_then(Value::as_str)
+            .expect("managed filename should be present");
+        assert!(
+            state.data_dir.join("gallery").join(filename).exists(),
+            "upload should write only to the managed gallery root"
+        );
+        assert!(
+            !escaped_dir.exists(),
+            "parent ids must not create directories outside the managed gallery root"
+        );
+    }
+
+    #[test]
     fn upload_gallery_image_removes_managed_file_when_row_create_fails() {
         let root = temp_root("gallery-upload-managed-file-rollback");
         let state = AppState::from_data_dir(&root.0, Vec::new()).expect("state should initialize");
@@ -1521,7 +1587,7 @@ mod tests {
                 "id": "char-mari",
                 "comment": "assistant",
                 "data": {
-                    "name": "Professor Mari",
+                    "name": "Deki-senpai",
                     "description": "Codebase helper",
                     "tags": ["Guide"]
                 }
@@ -1730,7 +1796,7 @@ mod tests {
     fn character_update_patch_rejects_invalid_data_shape() {
         for invalid in [
             json!(true),
-            json!("{\"name\":\"Professor Mari\"}"),
+            json!("{\"name\":\"Deki-senpai\"}"),
             json!([]),
             Value::Null,
         ] {
@@ -2441,6 +2507,65 @@ mod tests {
     }
 
     #[test]
+    fn decode_uploaded_file_value_with_limit_rejects_declared_oversized_upload() {
+        let result = decode_uploaded_file_value_with_limit(
+            &json!({
+                "name": "huge.charx",
+                "type": "application/zip",
+                "size": 6,
+                "base64": ""
+            }),
+            5,
+            "too large",
+        );
+
+        let Err(error) = result else {
+            panic!("declared oversized upload should fail before decode");
+        };
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(error.message, "too large");
+    }
+
+    #[test]
+    fn decode_uploaded_file_value_with_limit_rejects_base64_above_limit_before_decode() {
+        let result = decode_uploaded_file_value_with_limit(
+            &json!({
+                "name": "huge.charx",
+                "type": "application/zip",
+                "size": 0,
+                "base64": "AAAAAAAA"
+            }),
+            3,
+            "too large",
+        );
+
+        let Err(error) = result else {
+            panic!("oversized base64 upload should fail before decode");
+        };
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(error.message, "too large");
+    }
+
+    #[test]
+    fn decode_uploaded_file_value_with_limit_rejects_decoded_bytes_above_limit() {
+        let result = decode_uploaded_file_value_with_limit(
+            &json!({
+                "name": "huge.charx",
+                "type": "application/zip",
+                "base64": general_purpose::STANDARD.encode(b"12345")
+            }),
+            4,
+            "too large",
+        );
+
+        let Err(error) = result else {
+            panic!("decoded oversized upload should fail");
+        };
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(error.message, "too large");
+    }
+
+    #[test]
     fn decode_uploaded_image_file_rejects_non_image_content_type() {
         let result = decode_uploaded_image_file(&json!({
             "file": {
@@ -2635,6 +2760,31 @@ mod tests {
         assert_eq!(object["relationships"], Value::Null);
         assert_eq!(object["dynamicState"], Value::Null);
         assert_eq!(object["schedule"], Value::Null);
+    }
+
+    #[test]
+    fn normalize_typed_lorebook_entry_clamps_role_without_defaulting_patch() {
+        let Value::Object(mut object) = json!({
+            "role": " assistant "
+        }) else {
+            unreachable!("json! object literal");
+        };
+
+        normalize_typed_json_fields("lorebook-entries", &mut object)
+            .expect("present role should normalize at the storage boundary");
+
+        assert_eq!(object["role"], json!("assistant"));
+
+        let Value::Object(mut patch_without_role) = json!({
+            "name": "Only a title patch"
+        }) else {
+            unreachable!("json! object literal");
+        };
+
+        normalize_typed_json_fields("lorebook-entries", &mut patch_without_role)
+            .expect("patch without role should normalize without defaulting role");
+
+        assert!(patch_without_role.get("role").is_none());
     }
 
     #[test]
@@ -3019,6 +3169,30 @@ pub(crate) fn decode_uploaded_file_value(file: &Value) -> AppResult<UploadedFile
     })
 }
 
+pub(crate) fn decode_uploaded_file_value_with_limit(
+    file: &Value,
+    max_bytes: usize,
+    too_large_message: &str,
+) -> AppResult<UploadedFile> {
+    if let Some(size) = file.get("size").and_then(Value::as_u64) {
+        if size > max_bytes as u64 {
+            return Err(AppError::invalid_input(too_large_message));
+        }
+    }
+    if file
+        .get("base64")
+        .and_then(Value::as_str)
+        .is_some_and(|base64| base64.len() > max_bytes.div_ceil(3) * 4)
+    {
+        return Err(AppError::invalid_input(too_large_message));
+    }
+    let uploaded = decode_uploaded_file_value(file)?;
+    if uploaded.bytes.len() > max_bytes {
+        return Err(AppError::invalid_input(too_large_message));
+    }
+    Ok(uploaded)
+}
+
 pub(crate) fn decode_uploaded_file(body: &Value) -> AppResult<(String, String, Vec<u8>)> {
     let file = body
         .get("file")
@@ -3076,13 +3250,24 @@ pub(crate) fn decode_uploaded_image_file(body: &Value) -> AppResult<UploadedFile
     Ok(uploaded)
 }
 
-pub(crate) fn decode_uploaded_files(body: &Value, field: &str) -> AppResult<Vec<UploadedFile>> {
+pub(crate) fn decode_uploaded_files_with_limit(
+    body: &Value,
+    field: &str,
+    max_bytes: usize,
+    too_large_message: &str,
+) -> AppResult<Vec<UploadedFile>> {
     let Some(value) = body.get(field) else {
         return Ok(Vec::new());
     };
     match value {
-        Value::Array(items) => items.iter().map(decode_uploaded_file_value).collect(),
-        Value::Object(_) => decode_uploaded_file_value(value).map(|file| vec![file]),
+        Value::Array(items) => items
+            .iter()
+            .map(|file| decode_uploaded_file_value_with_limit(file, max_bytes, too_large_message))
+            .collect(),
+        Value::Object(_) => {
+            decode_uploaded_file_value_with_limit(value, max_bytes, too_large_message)
+                .map(|file| vec![file])
+        }
         _ => Err(AppError::invalid_input(format!(
             "{field} must contain uploaded file objects"
         ))),

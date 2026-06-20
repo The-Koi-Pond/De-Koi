@@ -70,10 +70,9 @@ function readStringList(value: unknown): string[] | undefined {
   return entries.length ? entries : undefined;
 }
 
-function questMetadataFromRecord(record: Record<string, unknown>): Pick<
-  NormalizedQuestUpdate,
-  "description" | "rewards" | "notes"
-> {
+function questMetadataFromRecord(
+  record: Record<string, unknown>,
+): Pick<NormalizedQuestUpdate, "description" | "rewards" | "notes"> {
   const description = readString(record.description).trim();
   const rewards = readStringList(record.rewards);
   const notes = readString(record.notes).trim();
@@ -154,6 +153,22 @@ function normalizeActiveQuestCollection(value: unknown, depth = 0): QuestProgres
     if (nestedKeys.includes(key)) return [];
     const quest = parseQuest(entry, key);
     return quest ? [quest] : normalizeActiveQuestCollection(entry, depth + 1);
+  });
+}
+
+export function compactQuestProgressForContext(value: unknown): QuestProgress[] {
+  return normalizeActiveQuestCollection(value).flatMap((quest) => {
+    if (quest.completed) return [];
+
+    const objectives = quest.objectives.filter((objective) => !objective.completed);
+
+    return [
+      {
+        ...cloneQuest(quest),
+        completed: false,
+        objectives,
+      },
+    ];
   });
 }
 

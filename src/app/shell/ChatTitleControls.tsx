@@ -9,19 +9,19 @@ function stopChromeDrag(event: ReactMouseEvent<HTMLElement>) {
 }
 
 export function ChatTitleControls({
-  professorMariOpen = false,
-  onOpenProfessorMari,
+  dekiOpen = false,
+  onOpenDeki,
   onGoHome,
   className,
-  hideProfessorOnNarrow = false,
+  hideDekiOnNarrow = false,
   hideHome = false,
   showDivider = true,
 }: {
-  professorMariOpen?: boolean;
-  onOpenProfessorMari?: () => void;
+  dekiOpen?: boolean;
+  onOpenDeki?: () => void;
   onGoHome?: () => void;
   className?: string;
-  hideProfessorOnNarrow?: boolean;
+  hideDekiOnNarrow?: boolean;
   hideHome?: boolean;
   showDivider?: boolean;
 }) {
@@ -36,10 +36,10 @@ export function ChatTitleControls({
     onGoHome?.();
   };
 
-  const openProfessorMari = () => {
+  const openDeki = () => {
     setActiveChatId(null);
     closeAllDetails();
-    onOpenProfessorMari?.();
+    onOpenDeki?.();
   };
 
   return (
@@ -85,22 +85,22 @@ export function ChatTitleControls({
       )}
       <button
         type="button"
-        onClick={openProfessorMari}
+        onClick={openDeki}
         onMouseDown={stopChromeDrag}
         onDoubleClick={stopChromeDrag}
         className={cn(
           "mari-titlebar-action relative rounded-md p-1 transition-all duration-200",
-          hideProfessorOnNarrow && "mari-titlebar-action-mobile-optional",
-          professorMariOpen
+          hideDekiOnNarrow && "mari-titlebar-action-mobile-optional",
+          dekiOpen
             ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
             : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
         )}
-        title="Assistant"
-        aria-label="Assistant"
-        aria-pressed={professorMariOpen}
+        title="Deki-senpai"
+        aria-label="Deki-senpai"
+        aria-pressed={dekiOpen}
       >
         <Bot size="0.95rem" aria-hidden />
-        {professorMariOpen && (
+        {dekiOpen && (
           <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
         )}
       </button>

@@ -1,7 +1,7 @@
 # Release Readiness Checklist
 
 Use this checklist before publishing user-facing De-Koi release notes, install
-pages, or screenshots for the refactor architecture.
+pages, or screenshots for the current desktop/runtime architecture.
 
 ## Release Identity
 
@@ -42,7 +42,7 @@ pages, or screenshots for the refactor architecture.
 
 ## Screenshots
 
-- Fresh screenshots exist for the current refactor UI:
+- Fresh screenshots exist for the current De-Koi UI:
   - conversation mode;
   - roleplay mode;
   - game mode;

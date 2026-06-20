@@ -3,6 +3,7 @@ use super::normalization::{
     bool_field, number, optional_number, string_array, string_field, unique_nonempty_strings,
 };
 use super::*;
+use crate::storage_commands::shared::normalize_lorebook_entry_role;
 
 pub(crate) fn lorebook_entries(value: &Value) -> Vec<Value> {
     match value.get("entries") {
@@ -52,19 +53,6 @@ fn selective_logic_value(value: Option<&Value>) -> &'static str {
         "1" | "or" => "or",
         "2" | "not" => "not",
         _ => "and",
-    }
-}
-
-fn lorebook_entry_role(value: Option<&Value>) -> &'static str {
-    let raw = match value {
-        Some(Value::String(raw)) => raw.trim().to_ascii_lowercase(),
-        Some(Value::Number(raw)) => raw.as_i64().unwrap_or(0).to_string(),
-        _ => String::new(),
-    };
-    match raw.as_str() {
-        "1" | "user" => "user",
-        "2" | "assistant" => "assistant",
-        _ => "system",
     }
 }
 
@@ -119,7 +107,7 @@ pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: 
         "position": position,
         "depth": number(entry.get("depth"), 4),
         "order": number(entry.get("order").or_else(|| entry.get("insertion_order")).or_else(|| entry.get("uid")).or_else(|| entry.get("id")), index as i64),
-        "role": lorebook_entry_role(entry.get("role")),
+        "role": normalize_lorebook_entry_role(entry.get("role")),
         "sticky": optional_number(entry.get("sticky")),
         "cooldown": optional_number(entry.get("cooldown")),
         "delay": optional_number(entry.get("delay")),
@@ -199,7 +187,7 @@ pub(super) fn normalize_imported_lorebook_entry(
     }
     object.insert(
         "role".to_string(),
-        json!(lorebook_entry_role(object.get("role"))),
+        json!(normalize_lorebook_entry_role(object.get("role"))),
     );
     object.insert(
         "selectiveLogic".to_string(),

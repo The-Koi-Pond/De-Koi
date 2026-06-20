@@ -1995,6 +1995,57 @@ mod tests {
     }
 
     #[test]
+    fn lorebook_entry_create_and_update_clamp_role() {
+        let state = test_state("lorebook-entry-role-clamp");
+        create_lorebook(&state, "book");
+
+        let created = storage_create_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            json!({
+                "id": "entry-invalid-role",
+                "lorebookId": "book",
+                "name": "Invalid Role",
+                "content": "invalid",
+                "role": "tool"
+            }),
+        )
+        .expect("entry create should clamp invalid role");
+        assert_eq!(created["role"], "system");
+
+        let numeric = storage_update_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            "entry-invalid-role".to_string(),
+            json!({ "role": 2 }),
+        )
+        .expect("entry update should accept numeric assistant role");
+        assert_eq!(numeric["role"], "assistant");
+
+        let invalid = storage_update_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            "entry-invalid-role".to_string(),
+            json!({ "role": " narrator " }),
+        )
+        .expect("entry update should clamp invalid role");
+        assert_eq!(invalid["role"], "system");
+
+        let defaulted = storage_create_inner(
+            &state,
+            "lorebook-entries".to_string(),
+            json!({
+                "id": "entry-default-role",
+                "lorebookId": "book",
+                "name": "Default Role",
+                "content": "default"
+            }),
+        )
+        .expect("entry create should default missing role");
+        assert_eq!(defaulted["role"], "system");
+    }
+
+    #[test]
     fn lorebook_entry_searchable_patch_clears_stored_embedding() {
         for (label, patch) in [
             ("name", json!({ "name": "Fresh name" })),
@@ -3664,6 +3715,44 @@ mod tests {
         assert!(
             !image_path.exists(),
             "managed gallery file should be removed"
+        );
+    }
+
+    #[test]
+    fn deleting_gallery_row_does_not_unlink_poisoned_file_path_outside_gallery_root() {
+        let state = test_state("gallery-delete-poisoned-path");
+        let outside_dir = state.data_dir.join("outside-gallery-delete");
+        std::fs::create_dir_all(&outside_dir).expect("outside dir should be created");
+        let outside_path = outside_dir.join("outside.png");
+        std::fs::write(&outside_path, b"outside").expect("outside image should be written");
+        let outside_path_string = outside_path.to_string_lossy().to_string();
+        state
+            .storage
+            .create(
+                "gallery",
+                json!({
+                    "id": "gallery-image",
+                    "chatId": "chat-1",
+                    "filePath": outside_path_string,
+                    "filename": "outside.png",
+                    "url": "tauri-api:/gallery/outside.png"
+                }),
+            )
+            .expect("gallery row should be created");
+
+        delete_entity(&state, "gallery", "gallery-image", false).expect("delete should succeed");
+
+        assert!(
+            outside_path.exists(),
+            "gallery cleanup must not remove files outside the managed gallery root"
+        );
+        assert!(
+            state
+                .storage
+                .get("gallery", "gallery-image")
+                .expect("gallery should be readable")
+                .is_none(),
+            "poisoned gallery rows should still be deleted"
         );
     }
 

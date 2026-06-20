@@ -14,6 +14,8 @@ export type PeekPromptData = {
   previewMessages?: PeekPromptMessage[];
   parameters: unknown;
   promptPresetId?: string | null;
+  source?: "cached" | "live_preview" | "raw_messages";
+  exact?: boolean;
   generationInfo?: {
     model?: string;
     provider?: string;

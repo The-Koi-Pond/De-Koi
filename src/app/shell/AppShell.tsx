@@ -25,6 +25,7 @@ import { useIdleDetection } from "../../shared/hooks/use-idle-detection";
 import { ImagePromptReviewHost } from "../../shared/components/ui/ImagePromptReviewHost";
 import { cn } from "../../shared/lib/utils";
 import { parseChatMetadata } from "../../shared/lib/chat-display";
+import { watchVisualViewportHeightVar } from "../../shared/lib/visual-viewport";
 import { getDetailRouteView } from "./detail-route-registry";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
@@ -60,8 +61,8 @@ const TrackerDataSidebar = lazy(() =>
 const OnboardingTutorial = lazy(() =>
   import("../../features/shell/onboarding/shell").then((module) => ({ default: module.OnboardingTutorial })),
 );
-const ProfessorMariSurface = lazy(() =>
-  import("../../features/shell/mari/shell").then((module) => ({ default: module.ProfessorMariSurface })),
+const DekiSurface = lazy(() =>
+  import("../../features/shell/deki/shell").then((module) => ({ default: module.DekiSurface })),
 );
 const ChatNotificationBubbles = lazy(() =>
   import("../../features/shell/notifications/shell").then((module) => ({
@@ -237,7 +238,7 @@ export function AppShell() {
   const [sidebarDragWidth, setSidebarDragWidth] = useState<number | null>(null);
   const [rightPanelDragWidth, setRightPanelDragWidth] = useState<number | null>(null);
   const [activeChatSidebarTab, setActiveChatSidebarTab] = useState<ChatSidebarTab>("conversation");
-  const [professorMariOpen, setProfessorMariOpen] = useState(false);
+  const [dekiOpen, setDekiOpen] = useState(false);
   const chatNotificationCount = useChatStore((s) => s.chatNotifications.size);
   const [notificationBubblesMounted, setNotificationBubblesMounted] = useState(false);
   const debugMode = useUIStore((s) => s.debugMode);
@@ -384,24 +385,24 @@ export function AppShell() {
   const lastAutonomousUnreadClearRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (activeChatId) setProfessorMariOpen(false);
+    if (activeChatId) setDekiOpen(false);
   }, [activeChatId]);
 
   useEffect(() => {
     const handleDiscoveryAction = (event: Event) => {
       const detail = (event as CustomEvent<DiscoveryAppEventDetail>).detail;
-      if (detail?.type === "open-professor-mari") {
+      if (detail?.type === "open-deki") {
         useChatStore.getState().setActiveChatId(null);
         useUIStore.getState().closeAllDetails();
         closeRightPanel();
         setSidebarOpen(false);
         setTrackerPanelOpen(false);
-        setProfessorMariOpen(true);
+        setDekiOpen(true);
         return;
       }
 
       if (detail?.type === "go-home") {
-        setProfessorMariOpen(false);
+        setDekiOpen(false);
         setSidebarOpen(false);
         setTrackerPanelOpen(false);
       }
@@ -564,14 +565,14 @@ export function AppShell() {
   });
 
   const showAmbientDecor =
-    !activeChatId && !detailView && !botBrowserOpen && !gameAssetsBrowserOpen && !professorMariOpen;
+    !activeChatId && !detailView && !botBrowserOpen && !gameAssetsBrowserOpen && !dekiOpen;
   const hasDetailView = detailView != null;
   useEffect(() => {
-    if (hasDetailView) setProfessorMariOpen(false);
+    if (hasDetailView) setDekiOpen(false);
   }, [hasDetailView]);
   const trackerPanelActive = trackerPanelEnabled && trackerPanelOpen;
   const trackerPanelSurfaceAvailable =
-    !botBrowserOpen && !gameAssetsBrowserOpen && !hasDetailView && !professorMariOpen;
+    !botBrowserOpen && !gameAssetsBrowserOpen && !hasDetailView && !dekiOpen;
   const trackerPanelVisible = trackerPanelActive && trackerPanelSurfaceAvailable;
   useEffect(() => {
     if (trackerPanelVisible) {
@@ -784,6 +785,10 @@ export function AppShell() {
             : null
     : null;
   const activeMobileOverlayPanel = activeMobilePanel;
+
+  useLayoutEffect(() => {
+    return watchVisualViewportHeightVar(document.documentElement, window);
+  }, []);
 
   const closeActiveMobilePanel = useCallback(() => {
     if (activeMobilePanel === "right") closeRightPanel();
@@ -1007,13 +1012,13 @@ export function AppShell() {
 
   return (
     <TopBarActionsProvider>
-    <div
-      data-component="AppShell"
-      className={cn(
-        "mari-app fixed inset-0 flex flex-col overflow-hidden bg-[var(--background)] max-md:pt-[env(safe-area-inset-top)]",
-        showAmbientDecor && "retro-scanlines noise-bg geometric-grid",
-      )}
-    >
+      <div
+        data-component="AppShell"
+        className={cn(
+          "mari-app fixed left-0 right-0 top-0 flex h-[var(--mari-visual-viewport-height,100dvh)] flex-col overflow-hidden bg-[var(--background)] max-md:pt-[env(safe-area-inset-top)]",
+          showAmbientDecor && "retro-scanlines noise-bg geometric-grid",
+        )}
+      >
       {/* Y2K decorative stars */}
       {showAmbientDecor && (
         <>
@@ -1034,14 +1039,14 @@ export function AppShell() {
         className="mari-app-chrome relative z-40 flex shrink-0 flex-col overflow-visible"
       >
         <WindowTitleBar
-          professorMariOpen={professorMariOpen}
-          onOpenProfessorMari={() => setProfessorMariOpen(true)}
-          onGoHome={() => setProfessorMariOpen(false)}
+          dekiOpen={dekiOpen}
+          onOpenDeki={() => setDekiOpen(true)}
+          onGoHome={() => setDekiOpen(false)}
         />
         <TopBar
-          professorMariOpen={professorMariOpen}
-          onOpenProfessorMari={() => setProfessorMariOpen(true)}
-          onGoHome={() => setProfessorMariOpen(false)}
+          dekiOpen={dekiOpen}
+          onOpenDeki={() => setDekiOpen(true)}
+          onGoHome={() => setDekiOpen(false)}
         />
       </header>
 
@@ -1125,12 +1130,12 @@ export function AppShell() {
             <MountOnceWhenOpened open={gameAssetsBrowserOpen} overlay>
               <GameAssetsBrowserView />
             </MountOnceWhenOpened>
-            <MountOnceWhenOpened open={professorMariOpen} overlay hideOverlayWhenClosed slideFromBottom={isMobile}>
-              <ProfessorMariSurface />
+            <MountOnceWhenOpened open={dekiOpen} overlay hideOverlayWhenClosed slideFromBottom={isMobile}>
+              <DekiSurface />
             </MountOnceWhenOpened>
             <div
               className={
-                botBrowserOpen || gameAssetsBrowserOpen || professorMariOpen
+                botBrowserOpen || gameAssetsBrowserOpen || dekiOpen
                   ? "hidden"
                   : "flex flex-1 flex-col overflow-hidden"
               }
@@ -1304,13 +1309,13 @@ export function AppShell() {
       </div>
     </div>
     <MobileTabBar
-      professorMariOpen={professorMariOpen}
+      dekiOpen={dekiOpen}
       toolsSheetOpen={mobileToolsSheetOpen}
       toolsSheetRef={mobileToolsPanelRef}
       trackerPanelVisible={trackerPanelVisible}
       onToolsSheetOpenChange={setMobileToolsSheetOpen}
-      onToggleProfessorMari={() => setProfessorMariOpen((v) => !v)}
-      onGoHome={() => setProfessorMariOpen(false)}
+      onToggleDeki={() => setDekiOpen((v) => !v)}
+      onGoHome={() => setDekiOpen(false)}
     />
     </TopBarActionsProvider>
   );

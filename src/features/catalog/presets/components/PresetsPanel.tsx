@@ -1,10 +1,18 @@
 // ──────────────────────────────────────────────
 // Panel: Presets (overhauled — search, assign, edit, duplicate)
 // ──────────────────────────────────────────────
-import { useState, useMemo, useCallback, type DragEvent } from "react";
+import { useState, useMemo, useCallback, type DragEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { usePresets, useDeletePreset, useDuplicatePreset, useSetDefaultPreset } from "../hooks/use-presets";
 import { useUpdateChat, useUpdateChatMetadata } from "../../chats/index";
+import {
+  useCustomToolCapabilities,
+  useCustomTools,
+  useDeleteCustomTool,
+  useUpdateCustomTool,
+  type CustomToolCapabilities,
+  type CustomToolRow,
+} from "../../agents/index";
 import { RegexScriptsSection } from "../../regex-scripts/shell";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -23,10 +31,14 @@ import {
   Code2,
   Hash,
   Star,
+  ChevronDown,
   ChevronRight,
   FolderOpen,
   FolderPlus,
   Pencil,
+  ToggleLeft,
+  ToggleRight,
+  Wrench,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { boolish } from "../../../../engine/generation/runtime-records";
@@ -69,9 +81,13 @@ function getPresetChoices(metadata: unknown): PresetChoices {
 
 export function PresetsPanel() {
   const { data: presets, isLoading } = usePresets();
+  const { data: customTools } = useCustomTools();
+  const { data: customToolCapabilities } = useCustomToolCapabilities();
   const deletePreset = useDeletePreset();
   const duplicatePreset = useDuplicatePreset();
   const setDefaultPreset = useSetDefaultPreset();
+  const updateCustomTool = useUpdateCustomTool();
+  const deleteCustomTool = useDeleteCustomTool();
   const {
     data: presetFolders,
     isLoading: presetFoldersLoading,
@@ -84,6 +100,7 @@ export function PresetsPanel() {
   const movePresetItem = useMoveLibraryItem("presets");
   const openModal = useUIStore((s) => s.openModal);
   const openPresetDetail = useUIStore((s) => s.openPresetDetail);
+  const openToolDetail = useUIStore((s) => s.openToolDetail);
   const activeChat = useChatStore((s) => s.activeChat);
   const updateChat = useUpdateChat();
   const updateMetadata = useUpdateChatMetadata();
@@ -113,6 +130,7 @@ export function PresetsPanel() {
   }, [presets, search]);
 
   const presetFolderList = presetFolders ?? [];
+  const customToolRows = useMemo(() => (customTools ?? []) as CustomToolRow[], [customTools]);
   const presetLibraryLoading = isLoading || presetFoldersLoading;
   const presetFolderDataReady = !presetFoldersLoading && !presetFoldersError;
   const presetFiltersActive = search.trim().length > 0;
@@ -771,6 +789,14 @@ export function PresetsPanel() {
 
       <RegexScriptsSection title="Regexes" className="mt-1" />
 
+      <FunctionsSection
+        customToolRows={customToolRows}
+        customToolCapabilities={customToolCapabilities}
+        openToolDetail={openToolDetail}
+        updateCustomTool={updateCustomTool}
+        deleteCustomTool={deleteCustomTool}
+      />
+
       {/* Choice selection modal */}
       {activeChat && (
         <ChoiceSelectionModal
@@ -781,6 +807,178 @@ export function PresetsPanel() {
           existingChoices={getPresetChoices(activeChat.metadata)}
         />
       )}
+    </div>
+  );
+}
+
+function FunctionsSection({
+  customToolRows,
+  customToolCapabilities,
+  openToolDetail,
+  updateCustomTool,
+  deleteCustomTool,
+}: {
+  customToolRows: CustomToolRow[];
+  customToolCapabilities?: CustomToolCapabilities;
+  openToolDetail: (id: string) => void;
+  updateCustomTool: ReturnType<typeof useUpdateCustomTool>;
+  deleteCustomTool: ReturnType<typeof useDeleteCustomTool>;
+}) {
+  return (
+    <PanelSection
+      title="Functions"
+      icon={<Wrench size="0.8125rem" />}
+      action={
+        <button
+          type="button"
+          onClick={() => openToolDetail("__new__")}
+          className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
+          title="Create function"
+        >
+          <Plus size="0.8125rem" />
+        </button>
+      }
+    >
+      <div className="mb-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
+        Custom function calls available from Chat Settings.
+      </div>
+      {customToolRows.length === 0 ? (
+        <p className="px-1 py-2 text-[0.625rem] text-[var(--muted-foreground)]">No functions yet.</p>
+      ) : (
+        customToolRows.map((tool) => {
+          const enabled = boolish(tool.enabled, false);
+          const scriptUnavailable =
+            tool.executionType === "script" && customToolCapabilities?.scriptExecutionEnabled === false;
+          const parameterCount = getFunctionParameterCount(tool.parametersSchema);
+
+          return (
+            <div
+              key={tool.id}
+              className={cn(
+                "flex items-start gap-2.5 rounded-lg p-2 transition-colors hover:bg-[var(--sidebar-accent)]",
+                !enabled && "opacity-50",
+              )}
+            >
+              <Wrench size="0.875rem" className="mt-0.5 shrink-0 text-purple-400" />
+              <button className="min-w-0 flex-1 text-left" onClick={() => openToolDetail(tool.id)}>
+                <div className="truncate font-mono text-xs font-medium">{tool.name}</div>
+                <div className="mt-0.5 flex min-w-0 items-center gap-1">
+                  <span className="rounded bg-[var(--secondary)] px-1 py-0.5 text-[0.5rem] text-[var(--muted-foreground)]">
+                    {formatFunctionExecutionType(tool.executionType)}
+                  </span>
+                  <span className="rounded bg-[var(--secondary)] px-1 py-0.5 text-[0.5rem] text-[var(--muted-foreground)]">
+                    {parameterCount} param{parameterCount === 1 ? "" : "s"}
+                  </span>
+                  {scriptUnavailable && (
+                    <span className="rounded bg-amber-500/10 px-1 py-0.5 text-[0.5rem] text-amber-400">
+                      Script disabled
+                    </span>
+                  )}
+                </div>
+                <div className="mt-0.5 truncate text-[0.5625rem] text-[var(--muted-foreground)]">
+                  {tool.description || "No description"}
+                </div>
+              </button>
+              <button
+                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)]"
+                title={enabled ? "Disable function" : "Enable function"}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  updateCustomTool.mutate({ id: tool.id, enabled: !enabled });
+                }}
+              >
+                {enabled ? <ToggleRight size="0.875rem" className="text-purple-400" /> : <ToggleLeft size="0.875rem" />}
+              </button>
+              <button
+                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)]"
+                title="Edit function"
+                onClick={() => openToolDetail(tool.id)}
+              >
+                <Pencil size="0.8125rem" />
+              </button>
+              <button
+                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--destructive)]"
+                title="Delete function"
+                onClick={async () => {
+                  if (
+                    await showConfirmDialog({
+                      title: "Delete Function",
+                      message: `Delete "${tool.name}"?`,
+                      confirmLabel: "Delete",
+                      tone: "destructive",
+                    })
+                  ) {
+                    deleteCustomTool.mutate(tool.id);
+                  }
+                }}
+              >
+                <Trash2 size="0.8125rem" />
+              </button>
+            </div>
+          );
+        })
+      )}
+    </PanelSection>
+  );
+}
+
+function formatFunctionExecutionType(executionType: string) {
+  if (executionType === "webhook") return "Webhook";
+  if (executionType === "script") return "Script";
+  return "Static";
+}
+
+function getFunctionParameterCount(parametersSchema: Record<string, unknown> | string | null | undefined) {
+  const schema = parseFunctionParametersSchema(parametersSchema);
+  const properties = schema.properties;
+  if (!properties || typeof properties !== "object" || Array.isArray(properties)) return 0;
+  return Object.keys(properties).length;
+}
+
+function parseFunctionParametersSchema(
+  parametersSchema: Record<string, unknown> | string | null | undefined,
+): Record<string, unknown> {
+  if (!parametersSchema) return {};
+  if (typeof parametersSchema === "string") {
+    try {
+      const parsed = JSON.parse(parametersSchema);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  return parametersSchema;
+}
+
+function PanelSection({
+  title,
+  icon,
+  action,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  icon: ReactNode;
+  action?: ReactNode;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <div className="mb-1 border-b border-[var(--border)] pb-1 last:border-b-0">
+      <div className="flex items-center gap-1.5 px-1 py-1.5">
+        <button type="button" onClick={() => setOpen((o) => !o)} className="flex flex-1 items-center gap-1.5 text-left">
+          <span className="text-[var(--muted-foreground)]">{icon}</span>
+          <span className="text-[0.6875rem] font-semibold">{title}</span>
+          <ChevronDown
+            size="0.6875rem"
+            className={cn("text-[var(--muted-foreground)] transition-transform", open && "rotate-180")}
+          />
+        </button>
+        {action}
+      </div>
+      {open && <div className="px-0.5">{children}</div>}
     </div>
   );
 }

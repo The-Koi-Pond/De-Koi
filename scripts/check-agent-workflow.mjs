@@ -267,7 +267,7 @@ N/A - workflow automation fixture.
 
 - Fixture.
 
-## Refactor impact
+## Architecture impact
 
 Primary owner: docs/workflow
 

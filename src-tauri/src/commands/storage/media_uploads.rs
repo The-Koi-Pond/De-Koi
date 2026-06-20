@@ -224,6 +224,38 @@ pub(crate) fn managed_record_file_path(
     managed_file_candidate(managed_dir.join(safe_filename(filename)), &managed_dir)
 }
 
+pub(crate) fn gallery_file_path(state: &AppState, filename: &str) -> AppResult<Value> {
+    let filename = checked_gallery_filename(filename)?;
+    let managed_dir = state.data_dir.join("gallery");
+    let path = managed_dir.join(filename);
+    let metadata = fs::symlink_metadata(&path).map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => AppError::not_found("Gallery asset was not found"),
+        _ => AppError::from(error),
+    })?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(AppError::not_found("Gallery asset was not found"));
+    }
+    if !is_path_inside_dir(&path, &managed_dir)? {
+        return Err(AppError::not_found("Gallery asset was not found"));
+    }
+    Ok(json!({ "path": path.to_string_lossy() }))
+}
+
+fn checked_gallery_filename(filename: &str) -> AppResult<String> {
+    let filename = filename.trim();
+    if filename.is_empty()
+        || filename == "."
+        || filename == ".."
+        || filename.contains('/')
+        || filename.contains('\\')
+        || filename.contains(':')
+        || filename.contains('\0')
+    {
+        return Err(AppError::not_found("Gallery asset was not found"));
+    }
+    Ok(filename.to_string())
+}
+
 fn managed_file_candidate(candidate: PathBuf, managed_dir: &Path) -> AppResult<Option<PathBuf>> {
     if !candidate.exists() {
         return Ok(None);
@@ -505,6 +537,32 @@ mod tests {
             fs::read_to_string(&stored.absolute_path).expect("stored SVG should be readable"),
             r#"<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>"#
         );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn gallery_file_path_resolves_only_existing_managed_gallery_files() {
+        let root = temp_dir("gallery-file-path");
+        let state = AppState::from_data_dir(root.join("data"), Vec::new())
+            .expect("test app state should initialize");
+        let gallery_dir = state.data_dir.join("gallery");
+        fs::create_dir_all(&gallery_dir).expect("gallery dir should be created");
+        let image_path = gallery_dir.join("scene.png");
+        fs::write(&image_path, b"image").expect("gallery image should be written");
+
+        let resolved =
+            gallery_file_path(&state, "scene.png").expect("managed gallery file should resolve");
+        let expected_path = image_path.to_string_lossy().to_string();
+
+        assert_eq!(
+            resolved.get("path").and_then(Value::as_str),
+            Some(expected_path.as_str())
+        );
+        assert!(gallery_file_path(&state, "../scene.png").is_err());
+        assert!(gallery_file_path(&state, r"gallery\scene.png").is_err());
+        assert!(gallery_file_path(&state, "C:scene.png").is_err());
+        assert!(gallery_file_path(&state, "missing.png").is_err());
 
         let _ = fs::remove_dir_all(root);
     }

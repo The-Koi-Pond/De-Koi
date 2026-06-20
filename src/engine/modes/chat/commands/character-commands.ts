@@ -16,7 +16,7 @@
 // - <note>text</note> (durable note for connected roleplay, persists until cleared)
 // - [dm: character="CharName", message="text"] (Roleplay-only: open a direct-message conversation)
 //
-// Assistant commands (Professor Mari):
+// Assistant commands (Deki-senpai):
 // - [create_persona: name="...", description="...", personality="...", appearance="..."]
 // - [create_character: name="...", description="...", personality="...", first_message="...", scenario="...", backstory="...", appearance="...", mes_example="...", creator_notes="...", system_prompt="...", post_history_instructions="...", creator="...", character_version="...", tags="tag1, tag2", alternate_greetings="hello || hi", talkativeness=0.5, fav=true, world="...", depth_prompt="...", depth_prompt_depth=4, depth_prompt_role="system"]
 // - [update_character: name="...", description="...", personality="...", first_message="...", scenario="...", backstory="...", appearance="...", mes_example="...", creator_notes="...", system_prompt="...", post_history_instructions="...", creator="...", character_version="...", tags="tag1, tag2", alternate_greetings="hello || hi", talkativeness=0.5, fav=true, world="...", depth_prompt="...", depth_prompt_depth=4, depth_prompt_role="system"]
@@ -100,7 +100,7 @@ interface SpotifyCommand {
   artist: string;
 }
 
-// ── Assistant commands (Professor Mari) ──
+// ── Assistant commands (Deki-senpai) ──
 
 export interface CreatePersonaCommand {
   type: "create_persona";
@@ -321,6 +321,7 @@ const SCHEDULE_UPDATE_RE = new RegExp(`\\[schedule_update:\\s*(${QUOTED_PARAM_BL
 const CROSS_POST_RE = /\[cross_post:\s*target="([^"]+)"\]/gi;
 const SELFIE_RE = /\[selfie(?::\s*(?:context="([^"]*)"|"([^"]*)"|([^\]\r\n"]+)))?\]/gi;
 const MEMORY_RE = /\[memory:\s*target="([^"]+)"\s*,\s*summary="([^"]+)"\]/gi;
+const BARE_MEMORY_RE = new RegExp(`\\[memory:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const SCENE_RE = new RegExp(`\\[scene:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const SPOTIFY_RE = new RegExp(`\\[spotify:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const DIRECT_MESSAGE_RE = new RegExp(`\\[dm:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
@@ -399,6 +400,52 @@ function parseQuotedParam(params: string, key: string, allowEmpty = false): stri
   const value = decodeQuotedParamValue(rawValue);
   if (!allowEmpty && value.length === 0) return undefined;
   return value;
+}
+
+function stripMatchingQuotes(value: string): string {
+  const trimmed = value.trim();
+  const openingQuote = trimmed[0] ?? "";
+  const closingQuote = QUOTE_PAIRS[openingQuote];
+  if (!closingQuote || !trimmed.endsWith(closingQuote)) return trimmed;
+  return trimmed.slice(1, -1).trim();
+}
+
+function parseLeadingQuotedValue(value: string): string | undefined {
+  const openingQuote = value.trimStart()[0] ?? "";
+  const closingQuote = QUOTE_PAIRS[openingQuote];
+  if (!closingQuote) return undefined;
+
+  let rawValue = "";
+  let index = value.indexOf(openingQuote) + openingQuote.length;
+  while (index < value.length) {
+    const char = value[index] ?? "";
+    const nextChar = value[index + 1];
+
+    if (char === "\\" && nextChar !== undefined) {
+      rawValue += char + nextChar;
+      index += 2;
+      continue;
+    }
+    if (char === closingQuote) return decodeQuotedParamValue(rawValue);
+
+    rawValue += char;
+    index += 1;
+  }
+
+  return undefined;
+}
+
+function parseBareMemoryCommand(params: string): MemoryCommand | null {
+  if (/^\s*target\s*=/i.test(params)) return null;
+
+  const commaIndex = params.indexOf(",");
+  if (commaIndex < 0) return null;
+
+  const target = stripMatchingQuotes(params.slice(0, commaIndex));
+  const summary = parseLeadingQuotedValue(params.slice(commaIndex + 1));
+  if (!target || !summary) return null;
+
+  return { type: "memory", target, summary };
 }
 
 function parseStringList(value: string | undefined): string[] | undefined {
@@ -692,6 +739,35 @@ function parseNumberParam(params: string, key: string): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
+function parseUnquotedSceneParam(params: string, key: string): string | undefined {
+  const match = params.match(
+    new RegExp(`${key}\\s*=\\s*([\\s\\S]*?)(?=\\s*,?\\s*(?:scenario|description|prompt|background|plan)\\s*=|$)`, "i"),
+  );
+  const value = match?.[1]?.replace(/,\s*$/, "").trim();
+  return value || undefined;
+}
+
+function parseSceneTextParam(params: string, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const quoted = parseQuotedParam(params, key);
+    if (quoted) return quoted.trim();
+    const unquoted = parseUnquotedSceneParam(params, key);
+    if (unquoted) return unquoted;
+  }
+  return undefined;
+}
+
+function parseBareSceneScenario(params: string): string | undefined {
+  const trimmed = params.trim();
+  if (!trimmed || /^[A-Za-z_][A-Za-z0-9_]*\s*=/.test(trimmed)) return undefined;
+  const quote = trimmed[0];
+  const closeQuote = quote === "\u201c" ? "\u201d" : quote === "\u2018" ? "\u2019" : quote;
+  if ((quote === '"' || quote === "'" || quote === "\u201c" || quote === "\u2018") && trimmed.endsWith(closeQuote)) {
+    return trimmed.slice(1, -1).trim() || undefined;
+  }
+  return trimmed;
+}
+
 function applyCommonCharacterFields(
   cmd: CreateCharacterCommand | UpdateCharacterCommand,
   params: string,
@@ -795,19 +871,20 @@ export function parseCharacterCommands(content: string): {
     commands.push({ type: "memory", target: match[1]!, summary: match[2]! });
   }
 
+  for (const match of content.matchAll(BARE_MEMORY_RE)) {
+    const command = parseBareMemoryCommand(match[1]!);
+    if (command) commands.push(command);
+  }
+
   // Parse scene commands
   for (const match of content.matchAll(SCENE_RE)) {
     const params = match[1]!;
     const cmd: SceneCommand = { type: "scene", scenario: "" };
 
-    const scenarioMatch = params.match(/scenario="([^"]+)"/);
-    if (scenarioMatch) cmd.scenario = scenarioMatch[1]!;
-
-    const bgMatch = params.match(/background="([^"]+)"/);
-    if (bgMatch) cmd.background = bgMatch[1]!;
-
-    const planMatch = params.match(/plan="([^"]+)"/);
-    if (planMatch) cmd.plan = planMatch[1]!;
+    cmd.scenario =
+      parseSceneTextParam(params, ["scenario", "description", "prompt"]) ?? parseBareSceneScenario(params) ?? "";
+    cmd.background = parseSceneTextParam(params, ["background"]);
+    cmd.plan = parseSceneTextParam(params, ["plan"]);
 
     // Only add if we got a scenario
     if (cmd.scenario) commands.push(cmd);
@@ -835,7 +912,7 @@ export function parseCharacterCommands(content: string): {
     }
   }
 
-  // Parse assistant commands (Professor Mari)
+  // Parse assistant commands (Deki-senpai)
   for (const match of content.matchAll(CREATE_PERSONA_RE)) {
     const params = match[1]!;
     const cmd: CreatePersonaCommand = { type: "create_persona", name: "" };
@@ -959,6 +1036,7 @@ export function parseCharacterCommands(content: string): {
     .replace(CROSS_POST_RE, "")
     .replace(SELFIE_RE, "")
     .replace(MEMORY_RE, "")
+    .replace(BARE_MEMORY_RE, "")
     .replace(SCENE_RE, "")
     .replace(SPOTIFY_RE, "")
     .replace(INFLUENCE_RE, "")

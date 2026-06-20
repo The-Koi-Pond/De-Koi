@@ -23,8 +23,11 @@ describe("completeRequiredSpriteExpressionEntries", () => {
         characterId: "char-speaker",
         characterName: "Speaker",
         expression: "neutral",
-        transition: "none",
+        transition: "crossfade",
       },
+    ]);
+    expect(result.warnings).toEqual([
+      { message: 'Expression agent omitted Speaker - filled missing required expression "neutral"' },
     ]);
   });
 
@@ -45,7 +48,134 @@ describe("completeRequiredSpriteExpressionEntries", () => {
         characterId: "char-speaker",
         characterName: "Speaker",
         expression: "neutral",
-        transition: "none",
+        transition: "crossfade",
+      },
+    ]);
+  });
+
+  it("uses the response text to choose a better fallback expression", () => {
+    const result = completeRequiredSpriteExpressionEntries([], availableSprites, ["char-speaker"], {
+      defaultSourceText: "Speaker smiles warmly.",
+    });
+
+    expect(result.expressions).toEqual([
+      {
+        characterId: "char-speaker",
+        characterName: "Speaker",
+        expression: "happy",
+        transition: "crossfade",
+      },
+    ]);
+  });
+
+  it("does not use containment-only matches for inferred fallback expressions", () => {
+    const result = completeRequiredSpriteExpressionEntries(
+      [],
+      [{ characterId: "char-speaker", characterName: "Speaker", expressions: ["neutral", "unhappy"] }],
+      ["char-speaker"],
+      {
+        defaultSourceText: "Speaker smiles warmly.",
+      },
+    );
+
+    expect(result.expressions).toEqual([
+      {
+        characterId: "char-speaker",
+        characterName: "Speaker",
+        expression: "neutral",
+        transition: "crossfade",
+      },
+    ]);
+  });
+
+  it("uses the named target clause when another owner has a different emotion", () => {
+    const result = completeRequiredSpriteExpressionEntries(
+      [],
+      [{ characterId: "char-speaker", characterName: "Speaker", expressions: ["neutral", "happy", "shy"] }],
+      ["char-speaker"],
+      {
+        defaultSourceText: "Speaker smiles while the player blushes.",
+      },
+    );
+
+    expect(result.expressions).toEqual([
+      {
+        characterId: "char-speaker",
+        characterName: "Speaker",
+        expression: "happy",
+        transition: "crossfade",
+      },
+    ]);
+  });
+
+  it("uses first-person text for persona fallback without requiring a persona name", () => {
+    const result = completeRequiredSpriteExpressionEntries(
+      [],
+      [{ characterId: "persona-1", characterName: "Player", expressions: ["neutral", "happy", "scared"] }],
+      ["persona-1"],
+      {
+        defaultSourceText: "Mira smiles while I panic.",
+        personaCharacterIds: new Set(["persona-1"]),
+      },
+    );
+
+    expect(result.expressions).toEqual([
+      {
+        characterId: "persona-1",
+        characterName: "Player",
+        expression: "scared",
+        transition: "crossfade",
+      },
+    ]);
+  });
+
+  it("does not infer persona fallback from unrelated unnamed text", () => {
+    const result = completeRequiredSpriteExpressionEntries(
+      [],
+      [{ characterId: "persona-1", characterName: "Player", expressions: ["neutral", "happy"] }],
+      ["persona-1"],
+      {
+        defaultSourceText: "Mira smiles nearby.",
+        personaCharacterIds: new Set(["persona-1"]),
+      },
+    );
+
+    expect(result.expressions).toEqual([
+      {
+        characterId: "persona-1",
+        characterName: "Player",
+        expression: "neutral",
+        transition: "crossfade",
+      },
+    ]);
+  });
+
+  it("uses character-specific text when completing multiple required targets", () => {
+    const result = completeRequiredSpriteExpressionEntries(
+      [],
+      [
+        { characterId: "char-speaker", characterName: "Speaker", expressions: ["neutral", "happy"] },
+        { characterId: "char-other", characterName: "Other", expressions: ["neutral", "shy"] },
+      ],
+      ["char-speaker", "char-other"],
+      {
+        defaultSourceText: "Speaker smiles brightly.",
+        sourceTextByCharacterId: new Map([["char-other", "Other blushes and looks away."]]),
+      },
+    );
+
+    expect(result.expressions).toEqual([
+      {
+        characterId: "char-speaker",
+        characterName: "Speaker",
+        expression: "happy",
+        transition: "crossfade",
+      },
+      {
+        characterId: "char-other",
+        characterName: "Other",
+        expression: "shy",
+        transition: "crossfade",
       },
     ]);
   });

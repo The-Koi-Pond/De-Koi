@@ -28,6 +28,7 @@ import { normalizeChatSummaryMetadata } from "../shared/text/chat-summary-entrie
 import { collapseExcessBlankLines } from "../shared/text/newlines";
 import { cleanPromptText, stripPromptComments } from "../shared/text/prompt-comments";
 import { formatZonedDate, formatZonedTime, getZonedWeekdayName, normalizeUserTimeZone } from "../shared/time/timezone";
+import { compactQuestProgressForContext } from "../shared/game-state/player-stats";
 import type {
   GameActiveState,
   GameCampaignPlan,
@@ -1517,7 +1518,9 @@ function trackerPromptSections(state: JsonRecord, activeIds: Set<string>): Track
   }
 
   if (activeIds.has("quest")) {
-    sections.push(trackerSection("quest_tracker", "Quest Tracker", playerStats.activeQuests));
+    sections.push(
+      trackerSection("quest_tracker", "Quest Tracker", compactQuestProgressForContext(playerStats.activeQuests)),
+    );
   }
 
   if (activeIds.has("custom-tracker")) {
@@ -2772,17 +2775,94 @@ function insertBeforeLastUser(messages: ChatMLMessage[], blocks: ChatMLMessage[]
   messages.splice(insertAt >= 0 ? insertAt : messages.length, 0, ...blocks);
 }
 
-function insertAfterLastHistoryUser(messages: ChatMLMessage[], block: ChatMLMessage): void {
+function isLastMessagePromptBlock(content: unknown): boolean {
+  if (typeof content !== "string") return false;
+  return /<\/?last_message>/i.test(content) || /(?:^|\n)\s*#{2,6}\s+Last Message\s*(?:\n|$)/i.test(content);
+}
+
+function stripBoundaryLastMessageWrapper(content: string): string {
+  return content
+    .replace(/<last_message>\s*\n?([\s\S]*?)\n?\s*<\/last_message>/gi, (_match, inner: string) => inner.trim())
+    .replace(/^\s*<last_message>\s*\n?/i, "")
+    .replace(/\n?\s*<\/last_message>\s*$/i, "")
+    .replace(/(?:^|\n)\s*#{2,6}\s+Last Message\s*(?=\n|$)/gi, "\n")
+    .trim();
+}
+
+function hasBoundaryChatHistoryClose(content: string): boolean {
+  return /\n?\s*<\/chat_history>\s*$/i.test(content);
+}
+
+function stripBoundaryChatHistoryClose(content: string): string {
+  return content.replace(/\n?\s*<\/chat_history>\s*$/i, "").trimEnd();
+}
+
+function appendBoundaryChatHistoryClose(content: string): string {
+  return `${content.trimEnd()}\n</chat_history>`;
+}
+
+function dedupeLastMessageWrappers(messages: ChatMLMessage[]): void {
+  const lastMessageIndexes: number[] = [];
+  for (let index = 0; index < messages.length; index += 1) {
+    if (isLastMessagePromptBlock(messages[index]?.content)) {
+      lastMessageIndexes.push(index);
+    }
+  }
+  if (lastMessageIndexes.length <= 1) return;
+
+  const keepIndex = lastMessageIndexes[lastMessageIndexes.length - 1]!;
+  for (const index of lastMessageIndexes) {
+    if (index === keepIndex) continue;
+    let content = stripBoundaryLastMessageWrapper(messages[index]!.content);
+    const previousMessage = messages[index - 1];
+    if (previousMessage && hasBoundaryChatHistoryClose(previousMessage.content)) {
+      messages[index - 1] = {
+        ...previousMessage,
+        content: stripBoundaryChatHistoryClose(previousMessage.content),
+      };
+      content = appendBoundaryChatHistoryClose(content);
+    }
+    messages[index] = {
+      ...messages[index]!,
+      content,
+    };
+  }
+}
+
+function trackerContextInsertIndex(messages: ChatMLMessage[]): number {
+  let latestHistoryIndex = -1;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.contextKind === "history" && message.role === "user") {
-      messages.splice(index + 1, 0, block);
-      return;
+    if (messages[index]?.contextKind === "history") {
+      latestHistoryIndex = index;
+      break;
     }
   }
 
-  const lastHistoryIndex = messages.map((message) => message.contextKind).lastIndexOf("history");
-  messages.splice(lastHistoryIndex >= 0 ? lastHistoryIndex + 1 : messages.length, 0, block);
+  let latestLastMessageBlockIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (isLastMessagePromptBlock(messages[index]?.content)) {
+      latestLastMessageBlockIndex = index;
+      break;
+    }
+  }
+
+  if (latestLastMessageBlockIndex >= 0 && latestLastMessageBlockIndex > latestHistoryIndex) {
+    return latestLastMessageBlockIndex;
+  }
+  if (latestHistoryIndex >= 0) {
+    return latestHistoryIndex;
+  }
+  if (latestLastMessageBlockIndex >= 0) {
+    return latestLastMessageBlockIndex;
+  }
+
+  const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user");
+  return lastUserIndex >= 0 ? lastUserIndex : messages.length;
+}
+
+function insertTrackerContext(messages: ChatMLMessage[], block: ChatMLMessage): void {
+  dedupeLastMessageWrappers(messages);
+  messages.splice(trackerContextInsertIndex(messages), 0, block);
 }
 
 function normalizeRole(value: unknown): "system" | "user" | "assistant" {
@@ -3110,6 +3190,68 @@ function isIndividualGroupHistoryMessage(message: ChatMLMessage): boolean {
     message.contextKind === "history" ||
     (message.contextKind === undefined && message.role !== "system" && message.characterId != null)
   );
+}
+
+function shouldPrefixGroupIndividualHistorySpeakers(
+  input: PromptAssemblyInput,
+  characters: GenerationCharacterContext[],
+): boolean {
+  if (input.request.impersonate === true) return false;
+  if (characters.length <= 1) return false;
+  const chatMode = readString(input.chat.mode || input.chat.chatMode, "conversation");
+  if (chatMode !== "roleplay") return false;
+  const metadata = parseRecord(input.chat.metadata);
+  return metadata.groupSpeakerNamesInHistory === true && readString(metadata.groupChatMode, "merged") === "individual";
+}
+
+function normalizedKnownSpeakerNames(
+  characters: GenerationCharacterContext[],
+  persona: GenerationPersonaContext | null,
+): string[] {
+  return Array.from(
+    new Set([
+      ...characters.map((character) => character.name.trim()).filter(Boolean),
+      ...(persona?.name.trim() ? [persona.name.trim()] : []),
+    ]),
+  );
+}
+
+function hasKnownSpeakerPrefix(content: string, speakerNames: string[]): boolean {
+  const trimmed = content.trimStart().toLowerCase();
+  return speakerNames.some((speakerName) => {
+    const normalized = speakerName.toLowerCase();
+    return trimmed.startsWith(`${normalized}:`) || trimmed.startsWith(`${normalized} :`);
+  });
+}
+
+function historySpeakerName(
+  message: ChatMLMessage,
+  characterNames: Map<string, string>,
+  persona: GenerationPersonaContext | null,
+): string | null {
+  const explicitName = readString(message.name || message.displayName).trim();
+  if (explicitName) return explicitName;
+  const characterId = readString(message.characterId).trim();
+  if (characterId) return characterNames.get(characterId) ?? null;
+  if (message.role === "user") return persona?.name.trim() || null;
+  return null;
+}
+
+function prefixGroupIndividualHistorySpeakers(
+  messages: ChatMLMessage[],
+  characters: GenerationCharacterContext[],
+  persona: GenerationPersonaContext | null,
+): ChatMLMessage[] {
+  const characterNames = characterNameLookup(characters);
+  const knownSpeakerNames = normalizedKnownSpeakerNames(characters, persona);
+  if (knownSpeakerNames.length === 0) return messages;
+
+  return messages.map((message) => {
+    if (!isIndividualGroupHistoryMessage(message)) return message;
+    const speakerName = historySpeakerName(message, characterNames, persona);
+    if (!speakerName || hasKnownSpeakerPrefix(message.content, knownSpeakerNames)) return message;
+    return { ...message, content: `${speakerName}: ${message.content}` };
+  });
 }
 
 function scopeIndividualGroupHistoryRoles(messages: ChatMLMessage[], targetCharacterId: string): ChatMLMessage[] {
@@ -3732,7 +3874,7 @@ export async function assembleGenerationPrompt(
 
   const trackerStateBlock = committedTrackerStatePromptMessage(input, wrapFormat);
   if (trackerStateBlock) {
-    insertAfterLastHistoryUser(messages, trackerStateBlock);
+    insertTrackerContext(messages, trackerStateBlock);
   }
 
   if (chatMode === "game") {
@@ -3808,6 +3950,9 @@ export async function assembleGenerationPrompt(
       content: collapseExcessBlankLines(stripPromptComments(message.content)).trim(),
     }))
     .filter((message) => message.content.length > 0);
+  if (shouldPrefixGroupIndividualHistorySpeakers(input, characters)) {
+    messages = prefixGroupIndividualHistorySpeakers(messages, characters, persona);
+  }
   if (individualGroupTarget) {
     messages = scopeIndividualGroupHistoryRoles(messages, individualGroupTarget);
   }

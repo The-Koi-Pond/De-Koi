@@ -253,6 +253,75 @@ describe("generation agent runner", () => {
     expect(prompt).not.toContain("full_combat");
   });
 
+  it("includes persona sprites for expression avatars even when sprite owners are character-filtered", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
+    const visuals: VisualAssetGateway = {
+      async listSprites(ownerId, ownerType) {
+        if (ownerId === "char-1" && ownerType === "character") return [{ expression: "happy" }];
+        if (ownerId === "persona-1" && ownerType === "persona") return [{ expression: "shy" }];
+        return [];
+      },
+      async listBackgrounds() {
+        return [];
+      },
+    };
+
+    const input = runtimeInput(connection);
+    input.chat = {
+      ...input.chat,
+      personaId: "persona-1",
+      metadata: {
+        spriteDisplayModes: ["expressions"],
+        spriteCharacterIds: ["character:char-1"],
+        expressionAvatarsEnabled: true,
+      },
+    };
+    input.persona = { name: "Player", description: "", tags: [] };
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "expression-agent",
+              type: "expression",
+              name: "Expression Agent",
+              enabled: true,
+              phase: "post_processing",
+              connectionId: connection.id,
+              model: "qa-model",
+            },
+          ],
+          [connection],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+        visuals,
+      },
+      input,
+    );
+
+    expect(runtime.availableSprites).toEqual([
+      expect.objectContaining({
+        characterId: "char-1",
+        characterName: "Hero",
+        expressions: expect.arrayContaining(["happy"]),
+      }),
+      expect.objectContaining({
+        characterId: "persona-1",
+        characterName: "Player",
+        expressions: expect.arrayContaining(["shy"]),
+      }),
+    ]);
+
+    await runtime.runPost("Mira smiles at you.");
+    const prompt = requests[0]?.messages.map((message) => message.content).join("\n") ?? "";
+    expect(prompt).toContain("Return exactly one expression for every owner in <available_sprites>.");
+    expect(prompt).toContain("Player (persona-1) [active user persona]:");
+    expect(prompt).toContain("<latest_user_message>\nhello\n</latest_user_message>");
+  });
+
   it("does not run remembered active agents when legacy metadata disables agents", async () => {
     const requests: LlmRequest[] = [];
     const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };

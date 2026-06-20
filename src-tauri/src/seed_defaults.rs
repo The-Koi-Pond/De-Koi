@@ -9,14 +9,16 @@ const LEGACY_MARINARA_UNIVERSAL_PRESET_NAME: &str = "Marinara's Universal Preset
 const LEGACY_MARINARA_PRESET_NAME: &str = "Default";
 const MARINARA_PRESET_AUTHOR: &str = "De-Koi";
 const LEGACY_MARINARA_PRESET_AUTHOR: &str = "Marinara";
-const PROFESSOR_MARI_ID: &str = "__professor_mari__";
+const LEGACY_DEKI_CHARACTER_ID: &str = "__professor_mari__";
 const LEGACY_CLEANUP_MAX_COLLECTION_BYTES: u64 = 4 * 1024 * 1024;
+const OUTPUT_FORMAT_SECTION_ID: &str = "YX9D0XS7-4_Xx0s9MVPZE";
+const OUTPUT_FORMAT_SECTION_IDENTIFIER: &str = "section_1772657928072";
 const BUNDLED_MARINARA_PRESET_JSON: &str =
     include_str!("../resources/default-data/db/default-preset.json");
 
 pub fn seed_bundled_defaults(storage: &FileStorage, default_data: &Path) -> AppResult<()> {
     let db_root = default_data.join("db");
-    remove_professor_mari_character_records(storage)?;
+    remove_legacy_deki_character_records(storage)?;
     seed_marinara_preset(storage, &db_root)?;
     seed_default_chat_presets(storage)?;
     seed_default_regex_scripts(storage)?;
@@ -55,11 +57,58 @@ fn seed_marinara_preset(storage: &FileStorage, db_root: &Path) -> AppResult<()> 
     seed_related_prompt_rows_if_missing(storage, "prompt-groups", data.get("groups"))?;
     seed_related_prompt_rows_if_missing(storage, "prompt-sections", data.get("sections"))?;
     seed_related_prompt_rows_if_missing(storage, "prompt-variables", data.get("choiceBlocks"))?;
+    patch_legacy_output_format_prompt_section(storage, &data)?;
     Ok(())
 }
 
-fn remove_professor_mari_character_records(storage: &FileStorage) -> AppResult<()> {
-    delete_legacy_record_if_small(storage, "characters", PROFESSOR_MARI_ID)?;
+fn bundled_output_format_content(data: &Value) -> Option<&str> {
+    data.get("sections")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|row| {
+            row.get("id").and_then(Value::as_str) == Some(OUTPUT_FORMAT_SECTION_ID)
+                && row.get("identifier").and_then(Value::as_str)
+                    == Some(OUTPUT_FORMAT_SECTION_IDENTIFIER)
+        })?
+        .get("content")
+        .and_then(Value::as_str)
+}
+
+fn legacy_output_format_content(current: &str) -> String {
+    current
+        .replace(
+            "EXAMPLE: \"Are you even listening?\"",
+            "EXAMPLE: \"Are you a gooner?\"",
+        )
+        .replace("BAD: \"Listening?\"", "BAD: \"Gooner?\"")
+}
+
+fn patch_legacy_output_format_prompt_section(storage: &FileStorage, data: &Value) -> AppResult<()> {
+    let Some(current_content) = bundled_output_format_content(data) else {
+        return Ok(());
+    };
+    let legacy_content = legacy_output_format_content(current_content);
+    let Some(existing) = storage.get("prompt-sections", OUTPUT_FORMAT_SECTION_ID)? else {
+        return Ok(());
+    };
+    let is_bundled_output_format_section = existing.get("presetId").and_then(Value::as_str)
+        == Some(MARINARA_PRESET_ID)
+        && existing.get("identifier").and_then(Value::as_str)
+            == Some(OUTPUT_FORMAT_SECTION_IDENTIFIER);
+    if is_bundled_output_format_section
+        && existing.get("content").and_then(Value::as_str) == Some(legacy_content.as_str())
+    {
+        storage.patch(
+            "prompt-sections",
+            OUTPUT_FORMAT_SECTION_ID,
+            json!({ "content": current_content }),
+        )?;
+    }
+    Ok(())
+}
+
+fn remove_legacy_deki_character_records(storage: &FileStorage) -> AppResult<()> {
+    delete_legacy_record_if_small(storage, "characters", LEGACY_DEKI_CHARACTER_ID)?;
     delete_legacy_record_if_small(storage, "characters", "professor-mari")?;
     delete_legacy_record_if_small(storage, "chats", "__professor_mari_chat__")?;
     delete_legacy_record_if_small(storage, "messages", "professor-mari-welcome")?;
@@ -298,15 +347,15 @@ mod tests {
     }
 
     #[test]
-    fn removes_professor_mari_character_seed() {
+    fn removes_legacy_deki_character_seed() {
         let (storage, root) = temp_storage();
         storage
             .create(
                 "characters",
                 json!({
-                    "id": PROFESSOR_MARI_ID,
+                    "id": LEGACY_DEKI_CHARACTER_ID,
                     "data": {
-                        "name": "Professor Mari",
+                        "name": "Deki-senpai",
                         "extensions": {
                             "isBuiltInAssistant": true
                         }
@@ -321,13 +370,13 @@ mod tests {
             .expect("defaults should seed");
 
         assert!(storage
-            .get("characters", PROFESSOR_MARI_ID)
+            .get("characters", LEGACY_DEKI_CHARACTER_ID)
             .expect("canonical lookup should succeed")
             .is_none());
     }
 
     #[test]
-    fn removes_legacy_professor_mari_records() {
+    fn removes_legacy_deki_records() {
         let (storage, root) = temp_storage();
 
         storage
@@ -371,5 +420,68 @@ mod tests {
         assert!(sections.iter().any(|section| {
             section.get("presetId").and_then(Value::as_str) == Some(MARINARA_PRESET_ID)
         }));
+    }
+
+    #[test]
+    fn patches_stock_legacy_output_format_prompt_section() {
+        let (storage, root) = temp_storage();
+        let envelope: Value = serde_json::from_str(BUNDLED_MARINARA_PRESET_JSON)
+            .expect("bundled preset should parse");
+        let data = envelope
+            .get("data")
+            .expect("bundled preset data should exist");
+        let current_content =
+            bundled_output_format_content(data).expect("output format section should exist");
+        let legacy_content = legacy_output_format_content(current_content);
+
+        storage
+            .create(
+                "prompt-sections",
+                json!({
+                    "id": OUTPUT_FORMAT_SECTION_ID,
+                    "presetId": MARINARA_PRESET_ID,
+                    "identifier": OUTPUT_FORMAT_SECTION_IDENTIFIER,
+                    "name": "Output Format",
+                    "content": legacy_content
+                }),
+            )
+            .expect("legacy prompt section should insert");
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        let patched = storage
+            .get("prompt-sections", OUTPUT_FORMAT_SECTION_ID)
+            .expect("prompt section lookup should succeed")
+            .expect("prompt section should exist");
+        assert_eq!(patched["content"], current_content);
+    }
+
+    #[test]
+    fn preserves_user_edited_output_format_prompt_section() {
+        let (storage, root) = temp_storage();
+        let custom_content = "User customized output format";
+
+        storage
+            .create(
+                "prompt-sections",
+                json!({
+                    "id": OUTPUT_FORMAT_SECTION_ID,
+                    "presetId": MARINARA_PRESET_ID,
+                    "identifier": OUTPUT_FORMAT_SECTION_IDENTIFIER,
+                    "name": "Output Format",
+                    "content": custom_content
+                }),
+            )
+            .expect("custom prompt section should insert");
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        let preserved = storage
+            .get("prompt-sections", OUTPUT_FORMAT_SECTION_ID)
+            .expect("prompt section lookup should succeed")
+            .expect("prompt section should exist");
+        assert_eq!(preserved["content"], custom_content);
     }
 }
