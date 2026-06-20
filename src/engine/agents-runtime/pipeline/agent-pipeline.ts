@@ -5,6 +5,7 @@ import { createAgentRuntimeDebug } from "../debug.js";
 import {
   executeAgent,
   executeAgentBatch,
+  shouldRunAgentIndividually,
   type AgentExecConfig,
   type AgentToolContext,
 } from "../executor/agent-executor.js";
@@ -86,6 +87,19 @@ function groupByProviderModel(agents: ResolvedAgent[]): AgentGroup[] {
 }
 
 function splitGroupByMaxParallelJobs(group: AgentGroup): AgentGroup[] {
+  const individualAgents = group.agents.filter(shouldExecuteIndividually);
+  if (individualAgents.length > 0) {
+    const batchAgents = group.agents.filter((agent) => !shouldExecuteIndividually(agent));
+    return [
+      ...(batchAgents.length > 0 ? [{ ...group, agents: batchAgents }] : []),
+      ...individualAgents.map((agent) => ({ ...group, agents: [agent] })),
+    ];
+  }
+  return splitBatchableGroupByMaxParallelJobs(group);
+}
+
+function splitBatchableGroupByMaxParallelJobs(group: AgentGroup): AgentGroup[] {
+  if (group.agents.length === 0) return [];
   const jobCount = Math.min(group.maxParallelJobs, group.agents.length);
   if (jobCount <= 1) return [group];
 
@@ -152,10 +166,7 @@ function buildAgentContext(agentOrAgents: ResolvedAgent | ResolvedAgent[], conte
 
 function shouldExecuteIndividually(agent: ResolvedAgent): boolean {
   return (
-    agent.type === "expression" ||
-    agent.type === "echo-chamber" ||
-    agent.type === "illustrator" ||
-    agent.type === "spotify" ||
+    shouldRunAgentIndividually(agent) ||
     agent.type === "knowledge-retrieval" ||
     agent.type === "knowledge-router" ||
     Boolean(agent.toolContext?.tools.length)
