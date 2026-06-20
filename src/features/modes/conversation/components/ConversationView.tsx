@@ -27,6 +27,11 @@ import {
   type StreamingBubbleDraftState,
 } from "../lib/conversation-streaming-draft";
 import {
+  CONVERSATION_PART_REVEAL_FRESHNESS_MS,
+  collectFreshAssistantPartRevealStarts,
+  resolveConversationVisiblePartCount,
+} from "../lib/conversation-part-reveal";
+import {
   ChatBranchSelector,
   type ChatBranchSelectorHandle,
   getTranscriptRenderWindow,
@@ -1128,6 +1133,20 @@ export function ConversationView({
     staggerTimersRef.current = [];
     setVisiblePartCounts({});
   }
+  const freshPartRevealStarts = collectFreshAssistantPartRevealStarts({
+    initialLoadSettled: initialLoadSettledRef.current,
+    candidates: renderedItems
+      .filter((item) => item.type === "message")
+      .map((item) => ({
+        key: item.key,
+        role: item.msg.role,
+        createdAtMs: new Date(item.msg.createdAt).getTime(),
+        partCount: item.contentParts?.length ?? 0,
+      })),
+    prevKeys: prevRenderedKeysRef.current,
+    seenKeys: globalSeenKeysRef.current,
+    now: Date.now(),
+  });
 
   useLayoutEffect(() => {
     type RenderedMessageItem = Extract<(typeof renderedItems)[number], { type: "message" }>;
@@ -1151,11 +1170,18 @@ export function ConversationView({
     const seenGlobal = globalSeenKeysRef.current;
     const now = Date.now();
 
-    // Only messages created within the last 15 seconds are considered "live" —
-    // older ones arrived via a cache refetch and should not trigger animation/sound.
-    const FRESHNESS_MS = 15_000;
-
-    const newPartMessages: Array<{ key: string; count: number }> = [];
+    const newPartMessages = collectFreshAssistantPartRevealStarts({
+      initialLoadSettled: true,
+      candidates: messageItems.map((item) => ({
+        key: item.key,
+        role: item.msg.role,
+        createdAtMs: new Date(item.msg.createdAt).getTime(),
+        partCount: item.contentParts?.length ?? 0,
+      })),
+      prevKeys,
+      seenKeys: seenGlobal,
+      now,
+    });
     // Find newly arrived assistant messages (for notification sound)
     let newAssistantMessage: Message | null = null;
 
@@ -1167,7 +1193,7 @@ export function ConversationView({
         // Check if this message is fresh (created recently, meaning it was
         // generated while the user is actively in this chat)
         const ts = new Date(item.msg.createdAt).getTime();
-        const isFresh = now - ts < FRESHNESS_MS;
+        const isFresh = now - ts < CONVERSATION_PART_REVEAL_FRESHNESS_MS;
 
         if (!isFresh) {
           // Stale message from cache refetch — silently mark as seen, skip animation
@@ -1176,10 +1202,6 @@ export function ConversationView({
 
         if (item.msg.role === "assistant") {
           newAssistantMessage ??= item.msg;
-          const partCount = item.contentParts?.length ?? 0;
-          if (partCount > 1) {
-            newPartMessages.push({ key, count: partCount });
-          }
         }
       }
     }
@@ -1575,7 +1597,12 @@ export function ConversationView({
                     : null;
                   const contentParts = isRegenerating && !isBubbleRegenerating ? undefined : item.contentParts;
                   const visiblePartCount = contentParts
-                    ? (visiblePartCounts[item.key] ?? contentParts.length)
+                    ? resolveConversationVisiblePartCount({
+                        key: item.key,
+                        partCount: contentParts.length,
+                        currentVisiblePartCount: visiblePartCounts[item.key],
+                        freshRevealStarts: freshPartRevealStarts,
+                      })
                     : undefined;
                   return (
                     <>
