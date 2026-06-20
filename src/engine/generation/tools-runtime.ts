@@ -192,6 +192,13 @@ function normalizeSpotifyTrackHistory(value: unknown, limit = SPOTIFY_RECENT_TRA
   return normalized;
 }
 
+function spotifyPlaybackAppliedTrackUris(result: unknown, fallbackTrackUris: string[]): string[] {
+  if (!isRecord(result) || result.success === false || result.applied !== true) return [];
+  const responseSources = [result.queued, result.uris].filter(Array.isArray);
+  if (responseSources.length === 0) return fallbackTrackUris;
+  return uniqueStrings(responseSources.flatMap((source) => normalizeSpotifyTrackHistory(source)));
+}
+
 function appendSpotifyTrackHistory(history: unknown, uris: unknown[]): string[] {
   const next: string[] = [];
   const seen = new Set<string>();
@@ -610,7 +617,8 @@ export async function executeBuiltInTool(
       const chatMode = readString(input.chat.mode || input.chat.chatMode).trim();
       if (chatMode === "game") body.repeatAfterPlay = "track";
       const result = await integrations.spotify.play(body);
-      await rememberSpotifyPlayedTracks(storage, input, trackUris);
+      const playedTrackUris = spotifyPlaybackAppliedTrackUris(result, trackUris);
+      await rememberSpotifyPlayedTracks(storage, input, playedTrackUris);
       return result;
     }
     case "spotify_set_volume":

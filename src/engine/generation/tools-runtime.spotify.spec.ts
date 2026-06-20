@@ -210,6 +210,47 @@ describe("Spotify tool runtime", () => {
     });
   });
 
+  it("remembers only the queued track URIs returned by Spotify play", async () => {
+    const chat = { id: "chat-1", mode: "roleplay", metadata: { spotifyRecentTracks: [OLD_URI] } };
+    const integrations = spotifyIntegrations({
+      async play<T = unknown>() {
+        return asValue<T>({ success: true, applied: true, queued: [FRESH_URI] });
+      },
+    });
+
+    await executeBuiltInTool(
+      { storage: storageFor(chat), integrations },
+      runtimeInput(chat),
+      { id: "agent-1" },
+      toolCall("spotify_play", { uris: [FRESH_URI, RECENT_URI] }),
+    );
+
+    expect(chat.metadata).toMatchObject({
+      spotifyRecentTracks: [FRESH_URI, OLD_URI],
+    });
+  });
+
+  it("does not remember tracks when Spotify play reports failure", async () => {
+    const chat = { id: "chat-1", mode: "roleplay", metadata: { spotifyRecentTracks: [OLD_URI] } };
+    const integrations = spotifyIntegrations({
+      async play<T = unknown>() {
+        return asValue<T>({ success: false, applied: false });
+      },
+    });
+
+    const result = await executeBuiltInTool(
+      { storage: storageFor(chat), integrations },
+      runtimeInput(chat),
+      { id: "agent-1" },
+      toolCall("spotify_play", { uri: FRESH_URI }),
+    );
+
+    expect(result).toMatchObject({ success: false, applied: false });
+    expect(chat.metadata).toMatchObject({
+      spotifyRecentTracks: [OLD_URI],
+    });
+  });
+
   it("stores game Spotify plays in the game recent-track bucket", async () => {
     const chat = {
       id: "chat-1",
