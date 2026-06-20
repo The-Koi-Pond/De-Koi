@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { AgentContext } from "../../contracts/types/agent";
 import type { BaseLLMProvider, ChatMessage, LLMToolCall } from "../../generation-core/llm/base-provider";
-import { executeAgent, executeAgentBatch, type AgentExecConfig, type AgentToolContext } from "./agent-executor";
+import {
+  executeAgent,
+  executeAgentBatch,
+  shouldRunAgentIndividually,
+  type AgentExecConfig,
+  type AgentToolContext,
+} from "./agent-executor";
 
 const FRESH_URI = "spotify:track:ABCDEFGHIJKLMNOPQRSTUV";
 
@@ -134,6 +140,11 @@ describe("Spotify agent fallback playback", () => {
 });
 
 describe("agent prompt quest context", () => {
+  it("keeps quest agents out of shared batch prompts", () => {
+    expect(shouldRunAgentIndividually({ type: "quest" })).toBe(true);
+    expect(shouldRunAgentIndividually({ type: "world-state" })).toBe(false);
+  });
+
   it("compacts completed quest progress for quest agents", async () => {
     let capturedMessages: ChatMessage[] = [];
     const provider: BaseLLMProvider = {
