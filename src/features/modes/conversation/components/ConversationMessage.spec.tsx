@@ -35,12 +35,18 @@ const characterMap = new Map([
   ],
 ]);
 
+function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
+  const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+  valueSetter?.call(textarea, value);
+}
+
 function resetConversationUiState() {
   useUIStore.setState((state) => ({
     chatFontSize: 16,
     showMessageNumbers: false,
     guideGenerations: false,
     editMessagesOnDoubleClick: true,
+    quoteFormat: "straight",
     summaryPopoverSettings: {
       ...state.summaryPopoverSettings,
       collapseHiddenMessages: false,
@@ -121,5 +127,67 @@ describe("ConversationMessage memo subscriptions", () => {
     });
     expect(container!.textContent).not.toContain("Hidden content");
     expect(container!.querySelector('button[aria-label="Expand hidden from AI message"]')).not.toBeNull();
+  });
+
+  it("formats message edits with the quote preference while preserving selection", async () => {
+    const onEdit = vi.fn();
+    const editableMessage: Message = {
+      ...message,
+      id: "message-edit",
+      content: '"hello"',
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+
+    act(() => {
+      useUIStore.getState().setQuoteFormat("typographic");
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={editableMessage}
+            onEdit={onEdit}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    act(() => {
+      container!
+        .querySelector<HTMLElement>(".mari-message-content")!
+        .dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+    });
+
+    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+    expect(textarea.value).toBe("\u201chello\u201d");
+
+    act(() => {
+      setTextareaValue(textarea, '"world"');
+      textarea.setSelectionRange(1, 6, "backward");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(textarea.value).toBe("\u201cworld\u201d");
+    expect(textarea.selectionStart).toBe(1);
+    expect(textarea.selectionEnd).toBe(6);
+    expect(textarea.selectionDirection).toBe("backward");
+
+    const saveButton = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "save",
+    );
+    expect(saveButton).toBeDefined();
+
+    await act(async () => {
+      saveButton!.click();
+      await Promise.resolve();
+    });
+
+    expect(onEdit).toHaveBeenCalledWith("message-edit", "\u201cworld\u201d");
   });
 });

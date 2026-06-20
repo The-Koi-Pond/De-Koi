@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, memo, useMemo, type CSSProper
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { formatTextQuotes } from "../../../../shared/lib/dialogue-quotes";
 import { copyToClipboard, getAvatarCropStyle, parseAvatarCropJson } from "../../../../shared/lib/utils";
 import { chatKeys } from "../../../catalog/chats/index";
 import { resolveMessageMacros } from "../../../../shared/lib/chat-macros";
@@ -129,6 +130,7 @@ export const ConversationMessage = memo(function ConversationMessage({
 
   const guideGenerations = useUIStore((s) => s.guideGenerations);
   const chatFontSize = useUIStore((s) => s.chatFontSize);
+  const quoteFormat = useUIStore((s) => s.quoteFormat);
   const showMessageNumbers = useUIStore((s) => s.showMessageNumbers);
   const collapseHiddenMessages = useUIStore((s) => s.summaryPopoverSettings.collapseHiddenMessages);
   const editMessagesOnDoubleClick = useUIStore((s) => s.editMessagesOnDoubleClick);
@@ -405,7 +407,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     setEditError(null);
     setEditSaving(false);
     setEditing(true);
-    setEditValue(editSourceContent);
+    setEditValue(formatTextQuotes(editSourceContent, quoteFormat));
     requestAnimationFrame(() => {
       const el = editRef.current;
       if (el) {
@@ -414,7 +416,7 @@ export const ConversationMessage = memo(function ConversationMessage({
         el.focus();
       }
     });
-  }, [editSourceContent]);
+  }, [editSourceContent, quoteFormat]);
 
   const startEditingFromMessageGesture = useCallback(
     (event: React.MouseEvent) => {
@@ -482,7 +484,7 @@ export const ConversationMessage = memo(function ConversationMessage({
 
   const handleSaveEdit = useCallback(async () => {
     if (editSaving) return;
-    const val = editValueRef.current.trim();
+    const val = formatTextQuotes(editValueRef.current.trim(), quoteFormat);
     setEditSaving(true);
     setEditError(null);
     try {
@@ -493,7 +495,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     } finally {
       setEditSaving(false);
     }
-  }, [editSaving, editSourceContent, message.id, onEdit]);
+  }, [editSaving, editSourceContent, message.id, onEdit, quoteFormat]);
 
   const handleTranslate = useCallback(
     (content: string) => {
@@ -532,6 +534,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     editValue,
     editSaving,
     editError,
+    quoteFormat,
     setEditValue,
     onCancelEdit: () => setEditing(false),
     onSaveEdit: handleSaveEdit,

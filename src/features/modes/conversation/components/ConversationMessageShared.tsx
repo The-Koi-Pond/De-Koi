@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { Brain, ChevronRight, EyeOff, Trash2, User, X } from "lucide-react";
 import type { Message, MessageAttachment, MessageExtra } from "../../../../engine/contracts/types/chat";
 import type { ConversationAvatarOverride } from "../../../../engine/contracts/types/character";
+import type { QuoteFormat } from "../../../../shared/lib/dialogue-quotes";
+import { applyTextareaQuoteFormat } from "../../../../shared/lib/textarea-quotes";
 import { cn } from "../../../../shared/lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../../../shared/lib/markdown";
 import type { ConversationMessageStyle } from "../../../../shared/stores/ui.store";
@@ -102,6 +104,7 @@ export interface ConversationMessageRenderContext {
   editValue: string;
   editSaving: boolean;
   editError: string | null;
+  quoteFormat: QuoteFormat;
   setEditValue: (value: string) => void;
   onCancelEdit: () => void;
   onSaveEdit: () => void | Promise<void>;
@@ -457,8 +460,8 @@ function ConversationMessageEditForm({ context }: { context: ConversationMessage
         ref={context.editRef}
         value={context.editValue}
         onChange={(e) => {
-          context.setEditValue(e.target.value);
-          const el = e.target;
+          const el = e.currentTarget;
+          context.setEditValue(applyTextareaQuoteFormat(el, context.quoteFormat));
           el.style.height = "auto";
           el.style.height = `${Math.min(el.scrollHeight, 300)}px`;
         }}
