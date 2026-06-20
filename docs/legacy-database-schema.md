@@ -38,8 +38,7 @@ The Drizzle SQLite schema still defines the table and column contract. SQLite is
 | `message_swipes`           | `messageSwipes`          | yes         | 6       | `id`        | `message-swipes`                                | Legacy has no denormalized `chatId`; De-Koi sidecars include it.                                                 |
 | `characters`               | `characters`             | yes         | 7       | `id`        | `characters`                                    | CharacterData V2 JSON is the durable payload in both systems.                                                    |
 | `character_card_versions`  | `characterCardVersions`  | yes         | 9       | `id`        | `character-versions`                            | Character snapshot history.                                                                                      |
-| `personas`                 | `personas`               | yes         | 23      | `id`        | `personas`                                      | Persona fields are mostly first-class columns in legacy and object fields in De-Koi.                             |
-| `persona_card_versions`    | `personaCardVersions`    | yes         | 9       | `id`        | -                                               | -                                                                                                                |
+| `personas`                 | `personas`               | yes         | 21      | `id`        | `personas`                                      | Persona fields are mostly first-class columns in legacy and object fields in De-Koi.                             |
 | `character_groups`         | `characterGroups`        | yes         | 7       | `id`        | `character-groups`                              | Stores character IDs as a JSON array.                                                                            |
 | `persona_groups`           | `personaGroups`          | yes         | 6       | `id`        | `persona-groups`                                | Stores persona IDs as a JSON array.                                                                              |
 | `lorebooks`                | `lorebooks`              | yes         | 21      | `id`        | `lorebooks`                                     | Legacy also has link tables for character/persona scope.                                                         |
@@ -61,10 +60,7 @@ The Drizzle SQLite schema still defines the table and column contract. SQLite is
 | `game_checkpoints`         | `gameCheckpoints`        | yes         | 12      | `id`        | `game-checkpoints`                              | Game rollback/checkpoint rows.                                                                                   |
 | `regex_scripts`            | `regexScripts`           | yes         | 15      | `id`        | `regex-scripts`                                 | Find/replace script rows.                                                                                        |
 | `chat_images`              | `chatImages`             | yes         | 9       | `id`        | `gallery`                                       | Legacy chat images map to De-Koi shared/chat gallery rows and managed gallery files.                             |
-| `character_images`         | `characterImages`        | yes         | 11      | `id`        | `character-gallery`                             | Legacy character images map to character gallery rows and managed gallery files.                                 |
-| `persona_images`           | `personaImages`          | yes         | 11      | `id`        | -                                               | -                                                                                                                |
-| `gallery_folders`          | `galleryFolders`         | yes         | 3       | `id`        | -                                               | -                                                                                                                |
-| `global_images`            | `globalImages`           | yes         | 11      | `id`        | -                                               | -                                                                                                                |
+| `character_images`         | `characterImages`        | yes         | 9       | `id`        | `character-gallery`                             | Legacy character images map to character gallery rows and managed gallery files.                                 |
 | `ooc_influences`           | `oocInfluences`          | yes         | 7       | `id`        | `chats.notes[]`                                 | Imported as embedded one-shot influence notes on the target chat.                                                |
 | `conversation_notes`       | `conversationNotes`      | yes         | 6       | `id`        | `chats.notes[]`                                 | Imported as embedded durable conversation notes on the target chat.                                              |
 | `memory_chunks`            | `memoryChunks`           | yes         | 9       | `id`        | `chats.memories[]`                              | Imported as embedded memory chunks; De-Koi has no standalone `chat-memory` collection.                           |
@@ -72,7 +68,6 @@ The Drizzle SQLite schema still defines the table and column contract. SQLite is
 | `api_connection_folders`   | `apiConnectionFolders`   | yes         | 7       | `id`        | `connection-folders`                            | Folder rows remain a separate collection.                                                                        |
 | `custom_themes`            | `customThemes`           | yes         | 7       | `id`        | `themes`                                        | Legacy table name differs from De-Koi's collection name.                                                         |
 | `app_settings`             | `appSettings`            | yes         | 3       | `key`       | `app-settings`                                  | Loose settings key/value payload.                                                                                |
-| `achievement_unlocks`      | `achievementUnlocks`     | yes         | 3       | `id`        | -                                               | -                                                                                                                |
 | `chat_presets`             | `chatPresets`            | yes         | 8       | `id`        | `chat-presets`                                  | Reusable mode/generation defaults.                                                                               |
 | `prompt_overrides`         | `promptOverrides`        | yes         | 4       | `key`       | `prompt-overrides`                              | Compatibility rows for prompt-section override behavior.                                                         |
 | `installed_extensions`     | `installedExtensions`    | yes         | 9       | `id`        | `extensions`                                    | Imported extension rows are disabled by De-Koi profile import.                                                   |
@@ -93,8 +88,6 @@ The file-backed store emulates important SQLite cascades in source code.
 | `messages`       | `message_swipes`           | `id -> messageId`     |
 | `characters`     | `character_card_versions`  | `id -> characterId`   |
 | `characters`     | `character_images`         | `id -> characterId`   |
-| `personas`       | `persona_images`           | `id -> personaId`     |
-| `personas`       | `persona_card_versions`    | `id -> personaId`     |
 | `lorebooks`      | `lorebook_character_links` | `id -> lorebookId`    |
 | `lorebooks`      | `lorebook_persona_links`   | `id -> lorebookId`    |
 | `lorebooks`      | `lorebook_folders`         | `id -> lorebookId`    |
@@ -216,9 +209,6 @@ Source: `<legacy-root>/packages/server/src/db/schema/characters.ts`
 | `id`                 | `id`                   | text | no       | yes     | -                   | -    | -         |
 | `name`               | `name`                 | text | no       | -       | -                   | -    | -         |
 | `comment`            | `comment`              | text | no       | -       | `""`                | -    | -         |
-| `creator`            | `creator`              | text | no       | -       | `""`                | -    | -         |
-| `personaVersion`     | `persona_version`      | text | no       | -       | `"1.0"`             | -    | -         |
-| `creatorNotes`       | `creator_notes`        | text | no       | -       | `""`                | -    | -         |
 | `description`        | `description`          | text | no       | -       | `""`                | -    | -         |
 | `personality`        | `personality`          | text | no       | -       | `""`                | -    | -         |
 | `scenario`           | `scenario`             | text | no       | -       | `""`                | -    | -         |
@@ -232,26 +222,11 @@ Source: `<legacy-root>/packages/server/src/db/schema/characters.ts`
 | `boxColor`           | `box_color`            | text | no       | -       | `""`                | -    | -         |
 | `trackerCardColors`  | `tracker_card_colors`  | text | no       | -       | `'{"mode":"chat"}'` | -    | -         |
 | `personaStats`       | `persona_stats`        | text | no       | -       | `""`                | -    | -         |
+| `altDescriptions`    | `alt_descriptions`     | text | no       | -       | `"[]"`              | -    | -         |
 | `tags`               | `tags`                 | text | no       | -       | `"[]"`              | -    | -         |
 | `savedStatusOptions` | `saved_status_options` | text | no       | -       | `"[]"`              | -    | -         |
 | `createdAt`          | `created_at`           | text | no       | -       | -                   | -    | -         |
 | `updatedAt`          | `updated_at`           | text | no       | -       | -                   | -    | -         |
-
-### persona_card_versions
-
-Source: `<legacy-root>/packages/server/src/db/schema/characters.ts`
-
-| Key          | DB column     | Type | Nullable | Primary | Default    | Enum | Reference                       |
-| ------------ | ------------- | ---- | -------- | ------- | ---------- | ---- | ------------------------------- |
-| `id`         | `id`          | text | no       | yes     | -          | -    | -                               |
-| `personaId`  | `persona_id`  | text | no       | -       | -          | -    | `personas.id` on delete cascade |
-| `data`       | `data`        | text | no       | -       | -          | -    | -                               |
-| `comment`    | `comment`     | text | no       | -       | `""`       | -    | -                               |
-| `avatarPath` | `avatar_path` | text | yes      | -       | -          | -    | -                               |
-| `version`    | `version`     | text | no       | -       | `""`       | -    | -                               |
-| `source`     | `source`      | text | no       | -       | `"manual"` | -    | -                               |
-| `reason`     | `reason`      | text | no       | -       | `""`       | -    | -                               |
-| `createdAt`  | `created_at`  | text | no       | -       | -          | -    | -                               |
 
 ### character_groups
 
@@ -686,55 +661,7 @@ Source: `<legacy-root>/packages/server/src/db/schema/gallery.ts`
 | `model`       | `model`        | text    | no       | -       | `""`    | -    | -                                 |
 | `width`       | `width`        | integer | yes      | -       | -       | -    | -                                 |
 | `height`      | `height`       | integer | yes      | -       | -       | -    | -                                 |
-| `customKind`  | `custom_kind`  | text    | yes      | -       | -       | -    | -                                 |
-| `customName`  | `custom_name`  | text    | yes      | -       | -       | -    | -                                 |
 | `createdAt`   | `created_at`   | text    | no       | -       | -       | -    | -                                 |
-
-### persona_images
-
-Source: `<legacy-root>/packages/server/src/db/schema/gallery.ts`
-
-| Key          | DB column     | Type    | Nullable | Primary | Default | Enum | Reference                       |
-| ------------ | ------------- | ------- | -------- | ------- | ------- | ---- | ------------------------------- |
-| `id`         | `id`          | text    | no       | yes     | -       | -    | -                               |
-| `personaId`  | `persona_id`  | text    | no       | -       | -       | -    | `personas.id` on delete cascade |
-| `filePath`   | `file_path`   | text    | no       | -       | -       | -    | -                               |
-| `prompt`     | `prompt`      | text    | no       | -       | `""`    | -    | -                               |
-| `provider`   | `provider`    | text    | no       | -       | `""`    | -    | -                               |
-| `model`      | `model`       | text    | no       | -       | `""`    | -    | -                               |
-| `width`      | `width`       | integer | yes      | -       | -       | -    | -                               |
-| `height`     | `height`      | integer | yes      | -       | -       | -    | -                               |
-| `customKind` | `custom_kind` | text    | yes      | -       | -       | -    | -                               |
-| `customName` | `custom_name` | text    | yes      | -       | -       | -    | -                               |
-| `createdAt`  | `created_at`  | text    | no       | -       | -       | -    | -                               |
-
-### gallery_folders
-
-Source: `<legacy-root>/packages/server/src/db/schema/gallery.ts`
-
-| Key         | DB column    | Type | Nullable | Primary | Default | Enum | Reference |
-| ----------- | ------------ | ---- | -------- | ------- | ------- | ---- | --------- |
-| `id`        | `id`         | text | no       | yes     | -       | -    | -         |
-| `name`      | `name`       | text | no       | -       | -       | -    | -         |
-| `createdAt` | `created_at` | text | no       | -       | -       | -    | -         |
-
-### global_images
-
-Source: `<legacy-root>/packages/server/src/db/schema/gallery.ts`
-
-| Key          | DB column     | Type    | Nullable | Primary | Default | Enum | Reference                               |
-| ------------ | ------------- | ------- | -------- | ------- | ------- | ---- | --------------------------------------- |
-| `id`         | `id`          | text    | no       | yes     | -       | -    | -                                       |
-| `folderId`   | `folder_id`   | text    | yes      | -       | -       | -    | `gallery_folders.id` on delete set null |
-| `filePath`   | `file_path`   | text    | no       | -       | -       | -    | -                                       |
-| `prompt`     | `prompt`      | text    | no       | -       | `""`    | -    | -                                       |
-| `provider`   | `provider`    | text    | no       | -       | `""`    | -    | -                                       |
-| `model`      | `model`       | text    | no       | -       | `""`    | -    | -                                       |
-| `width`      | `width`       | integer | yes      | -       | -       | -    | -                                       |
-| `height`     | `height`      | integer | yes      | -       | -       | -    | -                                       |
-| `customKind` | `custom_kind` | text    | yes      | -       | -       | -    | -                                       |
-| `customName` | `custom_name` | text    | yes      | -       | -       | -    | -                                       |
-| `createdAt`  | `created_at`  | text    | no       | -       | -       | -    | -                                       |
 
 ### ooc_influences
 
@@ -831,16 +758,6 @@ Source: `<legacy-root>/packages/server/src/db/schema/app-settings.ts`
 | `key`       | `key`        | text | no       | yes     | -       | -    | -         |
 | `value`     | `value`      | text | no       | -       | `""`    | -    | -         |
 | `updatedAt` | `updated_at` | text | no       | -       | -       | -    | -         |
-
-### achievement_unlocks
-
-Source: `<legacy-root>/packages/server/src/db/schema/achievements.ts`
-
-| Key          | DB column     | Type | Nullable | Primary | Default | Enum | Reference |
-| ------------ | ------------- | ---- | -------- | ------- | ------- | ---- | --------- |
-| `id`         | `id`          | text | no       | yes     | -       | -    | -         |
-| `unlockedAt` | `unlocked_at` | text | no       | -       | -       | -    | -         |
-| `updatedAt`  | `updated_at`  | text | no       | -       | -       | -    | -         |
 
 ### chat_presets
 

@@ -388,7 +388,9 @@ async function executeAgentWithTools(
         // unset lets applySpotifyPlaybackFallback retry the real playback instead
         // of suppressing it and reporting success with no audio.
         if (config.type === "spotify" && tc.function.name === "spotify_play") {
-          spotifyPlayCalled = true;
+          const parsedToolResult = parseSpotifyPlaybackFallbackResult(toolResult);
+          spotifyPlayCalled =
+            spotifyPlayCalled || (isJsonRecord(parsedToolResult) && spotifyPlaybackApplied(parsedToolResult));
         }
       }
       emit({
@@ -506,8 +508,15 @@ function spotifyPlaybackFallbackFailureData(data: unknown, error: string): unkno
   };
 }
 
+function spotifyPlaybackApplied(playback: Record<string, unknown>): boolean {
+  return playback.applied === true && playback.success !== false && playback.playbackPending !== true;
+}
+
 function spotifyPlaybackFallbackError(playback: Record<string, unknown>): string | null {
-  if (playback.applied === true && playback.success !== false) return null;
+  if (spotifyPlaybackApplied(playback)) return null;
+  if (playback.playbackPending === true) {
+    return "Spotify playback failed: Spotify accepted the request, but playback was not verified.";
+  }
   const error = playback.error;
   if (typeof error === "string" && error.trim()) {
     return `Spotify playback failed: ${error}`;
