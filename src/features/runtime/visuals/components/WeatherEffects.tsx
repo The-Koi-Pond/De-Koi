@@ -707,7 +707,6 @@ function drawMoon(ctx: CanvasRenderingContext2D, x: number, y: number, radius: n
 export function WeatherEffects({ weather, timeOfDay, showCelestial = true }: WeatherEffectsProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const particlesRef = useRef<Particle[]>([]);
-  const frameRef = useRef<number>(0);
 
   const config = useMemo(() => {
     const wc = parseWeather(weather);
@@ -781,104 +780,110 @@ export function WeatherEffects({ weather, timeOfDay, showCelestial = true }: Wea
     }
 
     let paused = document.hidden;
+    let pendingFrameId: number | null = null;
+    let ticking = false;
 
     const cancelScheduledFrame = () => {
-      if (frameRef.current === 0) return;
-      cancelAnimationFrame(frameRef.current);
-      frameRef.current = 0;
+      if (pendingFrameId === null) return;
+      cancelAnimationFrame(pendingFrameId);
+      pendingFrameId = null;
     };
 
     const scheduleFrame = () => {
-      if (!running || paused || frameRef.current !== 0) return;
-      frameRef.current = requestAnimationFrame(tick);
+      if (!running || paused || ticking || pendingFrameId !== null) return;
+      pendingFrameId = requestAnimationFrame(tick);
     };
 
     function tick() {
-      frameRef.current = 0;
+      pendingFrameId = null;
       if (!running) return;
       if (paused) return;
 
-      activeCtx.clearRect(0, 0, activeCanvas.width / dpr, activeCanvas.height / dpr);
+      ticking = true;
+      try {
+        activeCtx.clearRect(0, 0, activeCanvas.width / dpr, activeCanvas.height / dpr);
 
-      // Draw ambient overlay tint
-      if (config.tint) {
-        activeCtx.fillStyle = config.tint;
-        activeCtx.fillRect(0, 0, activeCanvas.width / dpr, activeCanvas.height / dpr);
-      }
-      if (config.overlay) {
-        activeCtx.fillStyle = config.overlay;
-        activeCtx.fillRect(0, 0, activeCanvas.width / dpr, activeCanvas.height / dpr);
-      }
-
-      // Lightning flash (epilepsy-safe: capped alpha, gentle decay, long gap between flashes)
-      frameCount++;
-      if (config.lightning) {
-        if (frameCount >= nextLightning) {
-          lightningAlpha = 0.45 + Math.random() * 0.15; // soft flash, max 0.6
-          nextLightning = frameCount + 400 + Math.random() * 800; // next in ~7-20s at 60fps
-        }
-        if (lightningAlpha > 0) {
-          activeCtx.fillStyle = `rgba(220,230,255,${lightningAlpha})`;
+        // Draw ambient overlay tint
+        if (config.tint) {
+          activeCtx.fillStyle = config.tint;
           activeCtx.fillRect(0, 0, activeCanvas.width / dpr, activeCanvas.height / dpr);
-          lightningAlpha *= 0.88; // gentle decay
-          if (lightningAlpha < 0.01) lightningAlpha = 0;
         }
+        if (config.overlay) {
+          activeCtx.fillStyle = config.overlay;
+          activeCtx.fillRect(0, 0, activeCanvas.width / dpr, activeCanvas.height / dpr);
+        }
+
+        // Lightning flash (epilepsy-safe: capped alpha, gentle decay, long gap between flashes)
+        frameCount++;
+        if (config.lightning) {
+          if (frameCount >= nextLightning) {
+            lightningAlpha = 0.45 + Math.random() * 0.15; // soft flash, max 0.6
+            nextLightning = frameCount + 400 + Math.random() * 800; // next in ~7-20s at 60fps
+          }
+          if (lightningAlpha > 0) {
+            activeCtx.fillStyle = `rgba(220,230,255,${lightningAlpha})`;
+            activeCtx.fillRect(0, 0, activeCanvas.width / dpr, activeCanvas.height / dpr);
+            lightningAlpha *= 0.88; // gentle decay
+            if (lightningAlpha < 0.01) lightningAlpha = 0;
+          }
+        }
+
+        // ── Celestial bodies (sun / moon) ──
+        const cw = activeCanvas.width / dpr;
+        const ch = activeCanvas.height / dpr;
+        if (shouldDrawCelestial && config.isClearSky) {
+          const bodyRadius = Math.min(cw, ch) * 0.035; // ~3.5% of smallest dimension
+          const hour = config.hour >= 0 ? config.hour : 12;
+
+          if (config.celestial === "sun") {
+            const sx = celestialX(hour, cw);
+            const sy = celestialY(hour, ch, false);
+            drawSun(activeCtx, sx, sy, bodyRadius, cw, ch, config.sunRays, config.sunsetGlow, frameCount);
+          } else if (config.celestial === "moon") {
+            // Moon position: map 21h→left, 0h→center, 5h→right
+            const moonNorm = hour >= 12 ? ((hour - 21 + 24) % 24) / 10 : (hour + 3) / 10;
+            const mx = cw * 0.1 + Math.min(1, Math.max(0, moonNorm)) * cw * 0.8;
+            const my = celestialY(hour, ch, true);
+            drawMoon(activeCtx, mx, my, bodyRadius * 1.1, frameCount);
+          }
+        }
+
+        const particles = particlesRef.current;
+
+        for (let i = particles.length - 1; i >= 0; i--) {
+          const p = particles[i];
+          p.life++;
+
+          // Update position
+          p.x += p.vx;
+          p.y += p.vy;
+
+          // Wobble for organic movement
+          if (p.type === "snow" || p.type === "leaf" || p.type === "petal" || p.type === "ash") {
+            p.wobble += 0.02;
+            p.x += Math.sin(p.wobble) * 0.5;
+          }
+          if (p.type === "ember") {
+            p.wobble += 0.04;
+            p.x += Math.sin(p.wobble) * 0.6;
+          }
+          if (p.type === "firefly") {
+            p.wobble += 0.03;
+            p.x += Math.sin(p.wobble) * 0.8;
+            p.y += Math.cos(p.wobble * 0.7) * 0.4;
+          }
+
+          drawParticle(activeCtx, p);
+
+          // Respawn if off-screen or expired
+          const offScreen = p.y > ch + 20 || p.y < -20 || p.x > cw + 20 || p.x < -20;
+          if (offScreen || p.life > p.maxLife) {
+            particles[i] = createParticle(p.type, cw, ch, true);
+          }
+        }
+      } finally {
+        ticking = false;
       }
-
-      // ── Celestial bodies (sun / moon) ──
-      const cw = activeCanvas.width / dpr;
-      const ch = activeCanvas.height / dpr;
-      if (shouldDrawCelestial && config.isClearSky) {
-        const bodyRadius = Math.min(cw, ch) * 0.035; // ~3.5% of smallest dimension
-        const hour = config.hour >= 0 ? config.hour : 12;
-
-        if (config.celestial === "sun") {
-          const sx = celestialX(hour, cw);
-          const sy = celestialY(hour, ch, false);
-          drawSun(activeCtx, sx, sy, bodyRadius, cw, ch, config.sunRays, config.sunsetGlow, frameCount);
-        } else if (config.celestial === "moon") {
-          // Moon position: map 21h→left, 0h→center, 5h→right
-          const moonNorm = hour >= 12 ? ((hour - 21 + 24) % 24) / 10 : (hour + 3) / 10;
-          const mx = cw * 0.1 + Math.min(1, Math.max(0, moonNorm)) * cw * 0.8;
-          const my = celestialY(hour, ch, true);
-          drawMoon(activeCtx, mx, my, bodyRadius * 1.1, frameCount);
-        }
-      }
-
-      const particles = particlesRef.current;
-
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        p.life++;
-
-        // Update position
-        p.x += p.vx;
-        p.y += p.vy;
-
-        // Wobble for organic movement
-        if (p.type === "snow" || p.type === "leaf" || p.type === "petal" || p.type === "ash") {
-          p.wobble += 0.02;
-          p.x += Math.sin(p.wobble) * 0.5;
-        }
-        if (p.type === "ember") {
-          p.wobble += 0.04;
-          p.x += Math.sin(p.wobble) * 0.6;
-        }
-        if (p.type === "firefly") {
-          p.wobble += 0.03;
-          p.x += Math.sin(p.wobble) * 0.8;
-          p.y += Math.cos(p.wobble * 0.7) * 0.4;
-        }
-
-        drawParticle(activeCtx, p);
-
-        // Respawn if off-screen or expired
-        const offScreen = p.y > ch + 20 || p.y < -20 || p.x > cw + 20 || p.x < -20;
-        if (offScreen || p.life > p.maxLife) {
-          particles[i] = createParticle(p.type, cw, ch, true);
-        }
-      }
-
       scheduleFrame();
     }
 

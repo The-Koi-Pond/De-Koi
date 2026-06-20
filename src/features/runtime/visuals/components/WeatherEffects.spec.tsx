@@ -37,22 +37,12 @@ const canvasContextStub = {
 describe("WeatherEffects", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
+  let rafCallbacks: Map<number, RafCallback>;
+  let nextFrameId: number;
 
-  afterEach(() => {
-    if (root) {
-      act(() => {
-        root?.unmount();
-      });
-    }
-    root = null;
-    container?.remove();
-    container = null;
-    vi.restoreAllMocks();
-  });
-
-  it("stops scheduling animation frames while the document is hidden and resumes when visible", async () => {
-    const rafCallbacks = new Map<number, RafCallback>();
-    let nextFrameId = 1;
+  function setupAnimationEnvironment() {
+    rafCallbacks = new Map<number, RafCallback>();
+    nextFrameId = 1;
     vi.spyOn(window.HTMLCanvasElement.prototype, "getContext").mockReturnValue(canvasContextStub);
     vi.spyOn(window.HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       bottom: 360,
@@ -75,7 +65,10 @@ describe("WeatherEffects", () => {
     const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
       rafCallbacks.delete(id);
     });
+    return { cancelAnimationFrame, hidden, requestAnimationFrame };
+  }
 
+  async function renderWeatherEffects() {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -83,6 +76,23 @@ describe("WeatherEffects", () => {
     await act(async () => {
       root?.render(<WeatherEffects weather="clear" timeOfDay="noon" />);
     });
+  }
+
+  afterEach(() => {
+    if (root) {
+      act(() => {
+        root?.unmount();
+      });
+    }
+    root = null;
+    container?.remove();
+    container = null;
+    vi.restoreAllMocks();
+  });
+
+  it("stops scheduling animation frames while the document is hidden and resumes when visible", async () => {
+    const { cancelAnimationFrame, hidden, requestAnimationFrame } = setupAnimationEnvironment();
+    await renderWeatherEffects();
 
     expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
     expect(rafCallbacks.has(1)).toBe(true);
@@ -99,5 +109,47 @@ describe("WeatherEffects", () => {
 
     expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
     expect(rafCallbacks.has(2)).toBe(true);
+  });
+
+  it("cancels the pending frame on unmount after visibility churn", async () => {
+    const { cancelAnimationFrame, hidden, requestAnimationFrame } = setupAnimationEnvironment();
+    await renderWeatherEffects();
+
+    hidden.mockReturnValue(true);
+    document.dispatchEvent(new Event("visibilitychange"));
+    hidden.mockReturnValue(false);
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
+    expect(rafCallbacks.has(2)).toBe(true);
+
+    act(() => {
+      root?.unmount();
+    });
+    root = null;
+
+    expect(cancelAnimationFrame).toHaveBeenLastCalledWith(2);
+    expect(rafCallbacks.size).toBe(0);
+  });
+
+  it("does not queue duplicate frames during rapid visible events", async () => {
+    const { hidden, requestAnimationFrame } = setupAnimationEnvironment();
+    await renderWeatherEffects();
+
+    document.dispatchEvent(new Event("visibilitychange"));
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    expect(rafCallbacks.has(1)).toBe(true);
+
+    hidden.mockReturnValue(true);
+    document.dispatchEvent(new Event("visibilitychange"));
+    hidden.mockReturnValue(false);
+    document.dispatchEvent(new Event("visibilitychange"));
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
+    expect(rafCallbacks.has(2)).toBe(true);
+    expect(rafCallbacks.size).toBe(1);
   });
 });
