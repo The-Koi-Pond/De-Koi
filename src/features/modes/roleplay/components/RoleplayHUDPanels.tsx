@@ -20,6 +20,7 @@ type RetryControls = {
 interface CombinedPlayerPanelProps extends RetryControls {
   showPersona: boolean;
   showCharacters: boolean;
+  showInventory: boolean;
   showQuests: boolean;
   showCustomTracker: boolean;
   personaStats: CharacterStat[];
@@ -40,6 +41,7 @@ interface CombinedPlayerPanelProps extends RetryControls {
 export function CombinedPlayerPanel({
   showPersona,
   showCharacters,
+  showInventory,
   showQuests,
   showCustomTracker,
   personaStats,
@@ -94,7 +96,7 @@ export function CombinedPlayerPanel({
           />
         )}
 
-        {showPersona && <InventoryTrackerSection layout="combined" items={inventory} onUpdate={onUpdateInventory} />}
+        {showInventory && <InventoryTrackerSection layout="combined" items={inventory} onUpdate={onUpdateInventory} />}
 
         {showQuests && (
           <QuestsTrackerSection
