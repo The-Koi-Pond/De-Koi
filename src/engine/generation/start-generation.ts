@@ -2560,6 +2560,7 @@ function spriteExpressionCompletionOptionsForTarget(
   return {
     defaultSourceText: targetText,
     sourceTextByCharacterId,
+    personaCharacterIds: personaId ? new Set([personaId]) : undefined,
   };
 }
 
@@ -4169,13 +4170,17 @@ export async function* startGeneration(
     let content = streamedContent;
 
     const preSaveAgentResults = isUserMessageRegeneration ? [] : uniqueAgentResults(runtime?.preResults ?? []);
+    const preSavePersonaId = readString(chat.personaId).trim();
     const preSaveSpriteExpressions = isUserMessageRegeneration
       ? null
       : spriteExpressionsFromAgentResults(
           preSaveAgentResults,
           runtime?.availableSprites ?? [],
           requiredSpriteExpressionTargetIds(chat, input),
-          { defaultSourceText: content },
+          {
+            defaultSourceText: content,
+            personaCharacterIds: preSavePersonaId ? new Set([preSavePersonaId]) : undefined,
+          },
         );
     content = await applyRuntimeRegexScripts(deps.storage, "ai_output", content, {
       chatCharacterIds: activeCharacterIds(chat),

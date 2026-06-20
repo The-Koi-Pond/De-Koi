@@ -200,6 +200,41 @@ describe("spriteExpressionPatchesForTarget", () => {
       { messageId: "user-1", spriteExpressions: { "persona-1": "shy" } },
     ]);
   });
+
+  it("fills persona fallback from first-person text instead of another actor's emotion", () => {
+    const userMessage = {
+      id: "user-1",
+      role: "user",
+      content: "Mira smiles while I panic.",
+      extra: { personaSnapshot: { personaId: "persona-1" } },
+    };
+    const assistantMessage = {
+      id: "assistant-1",
+      role: "assistant",
+      characterId: "char-1",
+      content: "Mira smiles at the player.",
+    };
+
+    const patches = spriteExpressionPatchesForTarget({
+      chat: {
+        id: "chat-1",
+        personaId: "persona-1",
+        metadata: { expressionAvatarsEnabled: true },
+      },
+      messages: [userMessage],
+      target: assistantMessage,
+      results: [expressionResult([])],
+      availableSprites: [
+        { characterId: "char-1", characterName: "Mira", expressions: ["neutral", "happy", "scared"] },
+        { characterId: "persona-1", characterName: "Player", expressions: ["neutral", "happy", "scared"] },
+      ],
+    });
+
+    expect(patches).toEqual([
+      { messageId: "assistant-1", spriteExpressions: { "char-1": "happy" } },
+      { messageId: "user-1", spriteExpressions: { "persona-1": "scared" } },
+    ]);
+  });
 });
 
 describe("patchMessageExtrasForGeneration", () => {

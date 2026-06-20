@@ -108,6 +108,48 @@ describe("completeRequiredSpriteExpressionEntries", () => {
     ]);
   });
 
+  it("uses first-person text for persona fallback without requiring a persona name", () => {
+    const result = completeRequiredSpriteExpressionEntries(
+      [],
+      [{ characterId: "persona-1", characterName: "Player", expressions: ["neutral", "happy", "scared"] }],
+      ["persona-1"],
+      {
+        defaultSourceText: "Mira smiles while I panic.",
+        personaCharacterIds: new Set(["persona-1"]),
+      },
+    );
+
+    expect(result.expressions).toEqual([
+      {
+        characterId: "persona-1",
+        characterName: "Player",
+        expression: "scared",
+        transition: "crossfade",
+      },
+    ]);
+  });
+
+  it("does not infer persona fallback from unrelated unnamed text", () => {
+    const result = completeRequiredSpriteExpressionEntries(
+      [],
+      [{ characterId: "persona-1", characterName: "Player", expressions: ["neutral", "happy"] }],
+      ["persona-1"],
+      {
+        defaultSourceText: "Mira smiles nearby.",
+        personaCharacterIds: new Set(["persona-1"]),
+      },
+    );
+
+    expect(result.expressions).toEqual([
+      {
+        characterId: "persona-1",
+        characterName: "Player",
+        expression: "neutral",
+        transition: "crossfade",
+      },
+    ]);
+  });
+
   it("uses character-specific text when completing multiple required targets", () => {
     const result = completeRequiredSpriteExpressionEntries(
       [],

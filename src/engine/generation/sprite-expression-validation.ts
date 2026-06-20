@@ -19,6 +19,7 @@ export interface SpriteExpressionEntry {
 export interface SpriteExpressionCompletionOptions {
   defaultSourceText?: string;
   sourceTextByCharacterId?: ReadonlyMap<string, string>;
+  personaCharacterIds?: ReadonlySet<string>;
 }
 
 interface ExpressionValidationWarning {
@@ -243,14 +244,39 @@ function includesCharacterAlias(text: string, character: AvailableSpriteCharacte
   return normalizeNameAliases(character.characterName).some((alias) => alias && normalizedText.includes(alias));
 }
 
-function characterScopedSourceText(character: AvailableSpriteCharacter, sourceText: string): string {
+function namedCharacterScopedSourceText(character: AvailableSpriteCharacter, sourceText: string): string | null {
+  const text = sourceText.trim();
+  if (!text) return null;
+
+  const namedSentence = splitSourceSentences(text).find((sentence) => includesCharacterAlias(sentence, character));
+  if (!namedSentence) return null;
+
+  return splitSourceClauses(namedSentence).find((clause) => includesCharacterAlias(clause, character)) ?? namedSentence;
+}
+
+function isFirstPersonPersonaClause(text: string): boolean {
+  return /\b(?:i|i'm|i'd|i'll|i've|im|my|mine|myself)\b/i.test(text);
+}
+
+function personaScopedSourceText(character: AvailableSpriteCharacter, sourceText: string): string {
   const text = sourceText.trim();
   if (!text) return "";
 
-  const namedSentence = splitSourceSentences(text).find((sentence) => includesCharacterAlias(sentence, character));
-  if (!namedSentence) return text;
+  const firstPersonSentence = splitSourceSentences(text).find(isFirstPersonPersonaClause);
+  if (firstPersonSentence) {
+    return splitSourceClauses(firstPersonSentence).find(isFirstPersonPersonaClause) ?? firstPersonSentence;
+  }
 
-  return splitSourceClauses(namedSentence).find((clause) => includesCharacterAlias(clause, character)) ?? namedSentence;
+  return namedCharacterScopedSourceText(character, text) ?? "";
+}
+
+function characterScopedSourceText(
+  character: AvailableSpriteCharacter,
+  sourceText: string,
+  isPersonaCharacter: boolean,
+): string {
+  if (isPersonaCharacter) return personaScopedSourceText(character, sourceText);
+  return namedCharacterScopedSourceText(character, sourceText) ?? sourceText.trim();
 }
 
 function inferExpressionCandidatesFromText(text: string): string[] {
@@ -292,8 +318,12 @@ function inferExpressionCandidatesFromText(text: string): string[] {
   return candidates;
 }
 
-function pickFallbackExpression(character: AvailableSpriteCharacter, sourceText: string): string | null {
-  const scopedSourceText = characterScopedSourceText(character, sourceText);
+function pickFallbackExpression(
+  character: AvailableSpriteCharacter,
+  sourceText: string,
+  isPersonaCharacter: boolean,
+): string | null {
+  const scopedSourceText = characterScopedSourceText(character, sourceText, isPersonaCharacter);
   if (scopedSourceText) {
     for (const candidate of inferExpressionCandidatesFromText(scopedSourceText)) {
       const resolved = resolveInferredExpression(candidate, character.expressions);
@@ -388,7 +418,11 @@ export function completeRequiredSpriteExpressionEntries<T extends SpriteExpressi
     const character = availableSprites.find((sprite) => sprite.characterId === characterId);
     if (!character) continue;
     const sourceText = options.sourceTextByCharacterId?.get(characterId) ?? options.defaultSourceText ?? "";
-    const expression = pickFallbackExpression(character, sourceText);
+    const expression = pickFallbackExpression(
+      character,
+      sourceText,
+      options.personaCharacterIds?.has(characterId) === true,
+    );
     if (!expression) continue;
     completed.push({
       characterId: character.characterId,
