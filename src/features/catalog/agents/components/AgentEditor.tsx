@@ -1052,11 +1052,7 @@ export function AgentEditor() {
                 disabled={!localLorebookWriteEnabled && lorebooksLoaded && lorebookOptions.length === 0}
                 onClick={() => {
                   if (!localLorebookWriteEnabled && lorebooksLoaded && lorebookOptions.length === 0) return;
-                  const nextEnabled = !localLorebookWriteEnabled;
-                  setLocalLorebookWriteEnabled(nextEnabled);
-                  if (!nextEnabled) {
-                    setLocalEnabledTools((tools) => tools.filter((tool) => tool !== LOREBOOK_WRITE_TOOL_NAME));
-                  }
+                  setLocalLorebookWriteEnabled((value) => !value);
                   markDirty();
                 }}
                 className={cn(

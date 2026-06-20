@@ -526,17 +526,9 @@ function lorebookContentHasAppendBlock(existingContent: string, content: string)
     .some((block) => block === normalizedContent);
 }
 
-function agentEnabledToolNames(agent: JsonRecord): string[] {
-  const settings = parseRecord(agent.settings);
-  const enabledTools = settings.enabledTools;
-  if (!Array.isArray(enabledTools)) return [];
-  return enabledTools.map((entry) => readString(entry).trim()).filter(Boolean);
-}
-
 function resolveAgentWritableLorebookId(agent: JsonRecord): string | null {
   const settings = parseRecord(agent.settings);
-  const lorebookWriteEnabled =
-    boolish(settings.lorebookWriteEnabled, false) || agentEnabledToolNames(agent).includes(LOREBOOK_WRITE_TOOL_NAME);
+  const lorebookWriteEnabled = boolish(settings.lorebookWriteEnabled, false);
   if (!lorebookWriteEnabled) return null;
 
   for (const key of ["writableLorebookId", "targetLorebookId"]) {

@@ -81,6 +81,7 @@ import {
   customToolExecutor,
   executeBuiltInTool,
   loadCustomTools,
+  LOREBOOK_WRITE_TOOL_NAME,
   normalizeToolCall,
   stringifyToolResult,
   type CustomToolRecord,
@@ -1011,9 +1012,10 @@ function buildAgentToolContext(
   if (!chatToolsEnabled(input)) return undefined;
   const agentType = readString(agent.type || agent.agentType).trim();
   const scopedToolIds = chatActiveToolIds(input);
-  const selectedNames = enabledAgentToolNames(agentType, settings).filter(
-    (name) => AGENT_ONLY_TOOL_NAMES.has(name) || scopedToolIds.size === 0 || scopedToolIds.has(name),
-  );
+  const selectedNames = enabledAgentToolNames(agentType, settings).filter((name) => {
+    if (name === LOREBOOK_WRITE_TOOL_NAME && !boolish(settings.lorebookWriteEnabled, false)) return false;
+    return AGENT_ONLY_TOOL_NAMES.has(name) || scopedToolIds.size === 0 || scopedToolIds.has(name);
+  });
   const selectedBuiltIns = selectedNames.map(builtInToolDefinition).filter((tool): tool is LLMToolDefinition => !!tool);
   const selectedCustomTools = selectedNames
     .map((name) => customTools.get(name))

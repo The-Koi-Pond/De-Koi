@@ -659,7 +659,7 @@ describe("generation agent runner", () => {
     ]);
   });
 
-  it("does not expose the writer tool when saved writer settings are disabled", async () => {
+  it("does not expose the writer tool when the explicit writer flag is disabled", async () => {
     const requests: LlmRequest[] = [];
     const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
     const input = activeAgentRuntimeInput(connection, {
@@ -686,8 +686,9 @@ describe("generation agent runner", () => {
               connectionId: connection.id,
               model: "qa-model",
               settings: {
-                enabledTools: ["search_lorebook"],
+                enabledTools: ["search_lorebook", LOREBOOK_WRITE_TOOL_NAME],
                 lorebookWriteEnabled: false,
+                writableLorebookId: "book-1",
               },
             },
           ],

@@ -167,6 +167,7 @@ function writableAgent(settings: JsonRecord = {}): JsonRecord {
     type: "custom-agent",
     settings: {
       enabledTools: [LOREBOOK_WRITE_TOOL_NAME],
+      lorebookWriteEnabled: true,
       writableLorebookId: "book-1",
       ...settings,
     },
@@ -474,6 +475,34 @@ describe("lorebook writer tool runtime", () => {
       { storage, integrations: integrations() },
       runtimeInput(),
       { id: "agent-1", settings: { enabledTools: [LOREBOOK_WRITE_TOOL_NAME] } },
+      toolCall(LOREBOOK_WRITE_TOOL_NAME, { name: "Moon Gate", content: "A gate." }),
+    );
+
+    expect(result).toEqual({ success: false, error: "Lorebook writing is not available in this context." });
+    expect(creates).toEqual([]);
+    expect(updates).toEqual([]);
+  });
+
+  it("refuses writes when only a stale hidden tool enables the writer", async () => {
+    const creates: Array<{ entity: StorageEntity; value: JsonRecord }> = [];
+    const updates: Array<{ entity: StorageEntity; id: string; patch: JsonRecord }> = [];
+    const storage = storageFor({
+      lorebooks: [{ id: "book-1", name: "World Guide" }],
+      lorebookEntries: [],
+      creates,
+      updates,
+    });
+
+    const result = await executeBuiltInTool(
+      { storage, integrations: integrations() },
+      runtimeInput(),
+      {
+        id: "agent-1",
+        settings: {
+          enabledTools: [LOREBOOK_WRITE_TOOL_NAME],
+          writableLorebookId: "book-1",
+        },
+      },
       toolCall(LOREBOOK_WRITE_TOOL_NAME, { name: "Moon Gate", content: "A gate." }),
     );
 

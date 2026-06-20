@@ -54,8 +54,7 @@ export function normalizeAgentLorebookWriterEditorState(
   const enabledTools = readEnabledToolsSetting(settings, fallbackEnabledTools);
   return {
     enabledTools: enabledTools.filter((tool) => tool !== LOREBOOK_WRITE_TOOL_NAME),
-    lorebookWriteEnabled:
-      readBooleanSetting(settings.lorebookWriteEnabled, false) || enabledTools.includes(LOREBOOK_WRITE_TOOL_NAME),
+    lorebookWriteEnabled: readBooleanSetting(settings.lorebookWriteEnabled, false),
     writableLorebookId: readWriterTargetLorebookIdSetting(settings),
   };
 }

@@ -23,6 +23,22 @@ describe("agent lorebook writer settings", () => {
     });
   });
 
+  it("does not infer writer mode from a stale hidden tool", () => {
+    const state = normalizeAgentLorebookWriterEditorState(
+      {
+        enabledTools: ["search_lorebook", LOREBOOK_WRITE_TOOL_NAME],
+        targetLorebookId: "book-1",
+      },
+      [],
+    );
+
+    expect(state).toEqual({
+      enabledTools: ["search_lorebook"],
+      lorebookWriteEnabled: false,
+      writableLorebookId: "book-1",
+    });
+  });
+
   it("saves exactly one writable lorebook target and the writer tool when enabled", () => {
     const state = buildAgentLorebookWriterSaveState({
       enabledTools: ["search_lorebook", LOREBOOK_WRITE_TOOL_NAME, "search_lorebook"],
