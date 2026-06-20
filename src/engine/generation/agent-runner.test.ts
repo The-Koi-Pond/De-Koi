@@ -9,6 +9,7 @@ import {
   type AgentConnectionWarning,
   type GenerationAgentRuntimeInput,
 } from "./agent-runner";
+import { LOREBOOK_WRITE_TOOL_NAME } from "./tools-runtime";
 import type { JsonRecord } from "./runtime-records";
 
 function asStorageValue<T>(value: unknown): T {
@@ -606,6 +607,55 @@ describe("generation agent runner", () => {
           connectionId: "deleted-connection",
         }),
       }),
+    ]);
+  });
+
+  it("keeps agent-only writer tools when chat tool settings use a visible subset", async () => {
+    const requests: LlmRequest[] = [];
+    const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
+    const input = activeAgentRuntimeInput(connection, {
+      activeAgentIds: ["writer-agent"],
+    });
+    input.chat.metadata = {
+      activeAgentIds: ["writer-agent"],
+      enableTools: true,
+      activeToolIds: ["search_lorebook"],
+    };
+    input.bypassCustomAgentActivation = true;
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "writer-agent",
+              type: "custom-writer",
+              name: "Writer Agent",
+              enabled: true,
+              phase: "post_processing",
+              promptTemplate: "Use available tools when useful.",
+              connectionId: connection.id,
+              model: "qa-model",
+              settings: {
+                enabledTools: ["search_lorebook", LOREBOOK_WRITE_TOOL_NAME],
+                lorebookWriteEnabled: true,
+                writableLorebookId: "book-1",
+              },
+            },
+          ],
+          [connection],
+        ),
+        llm: llmCapturing(requests),
+        integrations: noopIntegrations,
+      },
+      input,
+    );
+
+    await runtime.runPost("main response");
+
+    expect(requests[0]?.tools?.map((tool) => tool.name).sort()).toEqual([
+      LOREBOOK_WRITE_TOOL_NAME,
+      "search_lorebook",
     ]);
   });
 });

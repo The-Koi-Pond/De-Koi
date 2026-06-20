@@ -880,7 +880,7 @@ function chatActiveToolIdsFor(chat: JsonRecord): Set<string> {
 // Main-path public API
 // ──────────────────────────────────────────────
 
-const AGENT_ONLY_TOOL_NAMES = new Set([
+export const AGENT_ONLY_TOOL_NAMES = new Set([
   LOREBOOK_WRITE_TOOL_NAME,
   "read_chat_summary",
   "append_chat_summary",

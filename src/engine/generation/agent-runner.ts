@@ -74,6 +74,7 @@ import {
   type JsonRecord,
 } from "./runtime-records";
 import {
+  AGENT_ONLY_TOOL_NAMES,
   BUILT_IN_TOOL_MAP,
   builtInToolDefinition,
   customToolDefinition,
@@ -1011,7 +1012,7 @@ function buildAgentToolContext(
   const agentType = readString(agent.type || agent.agentType).trim();
   const scopedToolIds = chatActiveToolIds(input);
   const selectedNames = enabledAgentToolNames(agentType, settings).filter(
-    (name) => scopedToolIds.size === 0 || scopedToolIds.has(name),
+    (name) => AGENT_ONLY_TOOL_NAMES.has(name) || scopedToolIds.size === 0 || scopedToolIds.has(name),
   );
   const selectedBuiltIns = selectedNames.map(builtInToolDefinition).filter((tool): tool is LLMToolDefinition => !!tool);
   const selectedCustomTools = selectedNames

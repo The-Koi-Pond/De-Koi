@@ -111,7 +111,8 @@ const SPOTIFY_OAUTH_SETTING_KEYS = [
   "spotifyExpiresAt",
   "spotifyScope",
 ] as const;
-const GENERIC_AGENT_TOOL_PICKER_HIDDEN_NAMES = new Set(["save_lorebook_entry"]);
+const LOREBOOK_WRITE_TOOL_NAME = "save_lorebook_entry";
+const GENERIC_AGENT_TOOL_PICKER_HIDDEN_NAMES = new Set([LOREBOOK_WRITE_TOOL_NAME]);
 const VISIBLE_BUILT_IN_AGENT_TOOLS = BUILT_IN_TOOLS.filter(
   (tool) => !GENERIC_AGENT_TOOL_PICKER_HIDDEN_NAMES.has(tool.name),
 );
@@ -205,6 +206,28 @@ function readBooleanSetting(value: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
+function readStringSetting(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function readStringListSetting(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => readStringSetting(entry))
+    .filter((entry) => entry.length > 0);
+}
+
+function readEnabledToolsSetting(settings: Record<string, unknown>, fallback: string[]): string[] {
+  if (!Array.isArray(settings.enabledTools)) return fallback;
+  return readStringListSetting(settings.enabledTools);
+}
+
+function readWritableLorebookIdSetting(settings: Record<string, unknown>): string {
+  const directId = readStringSetting(settings.writableLorebookId) || readStringSetting(settings.targetLorebookId);
+  if (directId) return directId;
+  return readStringListSetting(settings.writableLorebookIds)[0] ?? "";
+}
+
 // ═══════════════════════════════════════════════
 //  Main Editor
 // ═══════════════════════════════════════════════
@@ -262,6 +285,8 @@ export function AgentEditor() {
   const [localIncludePreGenInjections, setLocalIncludePreGenInjections] = useState(false);
   const [localIncludeParallelResults, setLocalIncludeParallelResults] = useState(false);
   const [localEnabledTools, setLocalEnabledTools] = useState<string[]>([]);
+  const [localLorebookWriteEnabled, setLocalLorebookWriteEnabled] = useState(false);
+  const [localWritableLorebookId, setLocalWritableLorebookId] = useState("");
   const [localSpotifyClientId, setLocalSpotifyClientId] = useState("");
   const [localSourceLorebookIds, setLocalSourceLorebookIds] = useState<string[]>([]);
   const [localUseChatActiveLorebooks, setLocalUseChatActiveLorebooks] = useState(true);
@@ -320,7 +345,12 @@ export function AgentEditor() {
       setLocalInjectAsSection(
         (settings.injectAsSection as boolean | undefined) ?? defaultSettings.injectAsSection === true,
       );
-      setLocalEnabledTools(settings.enabledTools ?? DEFAULT_AGENT_TOOLS[dbConfig.type] ?? []);
+      const enabledTools = readEnabledToolsSetting(settings, DEFAULT_AGENT_TOOLS[dbConfig.type] ?? []);
+      setLocalEnabledTools(enabledTools);
+      setLocalLorebookWriteEnabled(
+        readBooleanSetting(settings.lorebookWriteEnabled, false) || enabledTools.includes(LOREBOOK_WRITE_TOOL_NAME),
+      );
+      setLocalWritableLorebookId(readWritableLorebookIdSetting(settings));
       setLocalSpotifyClientId(settings.spotifyClientId ?? "");
       setLocalSourceLorebookIds(settings.sourceLorebookIds ?? []);
       setLocalUseChatActiveLorebooks(
@@ -350,6 +380,8 @@ export function AgentEditor() {
       setLocalActivationScanDepth(DEFAULT_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH);
       setLocalInjectAsSection(defaultSettings.injectAsSection === true);
       setLocalEnabledTools(DEFAULT_AGENT_TOOLS[builtIn.id] ?? []);
+      setLocalLorebookWriteEnabled(false);
+      setLocalWritableLorebookId("");
       setLocalSpotifyClientId("");
       setLocalSourceLorebookIds([]);
       setLocalUseChatActiveLorebooks(defaultSettings.useChatActiveLorebooks === true);
@@ -378,6 +410,8 @@ export function AgentEditor() {
       setLocalActivationScanDepth(DEFAULT_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH);
       setLocalInjectAsSection(false);
       setLocalEnabledTools([]);
+      setLocalLorebookWriteEnabled(false);
+      setLocalWritableLorebookId("");
       setLocalSpotifyClientId("");
       setLocalSourceLorebookIds([]);
       setLocalUseChatActiveLorebooks(false);
@@ -502,6 +536,12 @@ export function AgentEditor() {
   const defaultAgentImageConn = imageConnections.find(
     (c) => c.defaultForAgents === true || c.defaultForAgents === "true",
   );
+  const lorebooksLoaded = Array.isArray(allLorebooks);
+  const lorebookOptions = allLorebooks ?? [];
+  const writableLorebookSelectionMissing =
+    lorebooksLoaded &&
+    localWritableLorebookId.trim().length > 0 &&
+    !lorebookOptions.some((lorebook) => lorebook.id === localWritableLorebookId);
 
   const handleClose = useCallback(() => {
     if (dirty) {
@@ -526,6 +566,28 @@ export function AgentEditor() {
       localActivationScanDepth === ""
         ? DEFAULT_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH
         : normalizeCustomAgentActivationScanDepth(localActivationScanDepth);
+    const writableLorebookId = localWritableLorebookId.trim();
+    const lorebookWriterEnabled = isEditingCustomAgent && localLorebookWriteEnabled;
+
+    if (lorebookWriterEnabled && !writableLorebookId) {
+      setSaveError("Select a target lorebook before enabling lorebook writing for this agent.");
+      return false;
+    }
+    if (
+      lorebookWriterEnabled &&
+      Array.isArray(allLorebooks) &&
+      !allLorebooks.some((lorebook) => lorebook.id === writableLorebookId)
+    ) {
+      setSaveError("Select an available target lorebook before enabling lorebook writing for this agent.");
+      return false;
+    }
+
+    const normalizedEnabledTools = Array.from(
+      new Set(localEnabledTools.map((tool) => tool.trim()).filter((tool) => tool.length > 0)),
+    );
+    const effectiveEnabledTools = lorebookWriterEnabled
+      ? Array.from(new Set([...normalizedEnabledTools, LOREBOOK_WRITE_TOOL_NAME]))
+      : normalizedEnabledTools.filter((tool) => tool !== LOREBOOK_WRITE_TOOL_NAME);
 
     // Preserve OAuth fields the form doesn't expose. The native update replaces
     // `settings` wholesale, so anything we omit here would be wiped — and the
@@ -560,7 +622,14 @@ export function AgentEditor() {
         ...(localMaxTokens !== "" ? { maxTokens: clampAgentMaxTokens(localMaxTokens) } : {}),
         ...(localRunInterval !== "" ? { runInterval: Number(localRunInterval) } : {}),
         ...(localInjectAsSection ? { injectAsSection: true } : {}),
-        enabledTools: localEnabledTools,
+        enabledTools: effectiveEnabledTools,
+        ...(lorebookWriterEnabled
+          ? {
+              lorebookWriteEnabled: true,
+              writableLorebookId,
+              writableLorebookIds: [writableLorebookId],
+            }
+          : {}),
         ...(localSpotifyClientId ? { spotifyClientId: localSpotifyClientId } : {}),
         ...(isKnowledgeRetrievalAgent || isKnowledgeRouterAgent
           ? { useChatActiveLorebooks: localUseChatActiveLorebooks }
@@ -623,6 +692,8 @@ export function AgentEditor() {
     localIncludePreGenInjections,
     localIncludeParallelResults,
     localEnabledTools,
+    localLorebookWriteEnabled,
+    localWritableLorebookId,
     localSpotifyClientId,
     localSourceLorebookIds,
     localSourceFileIds,
@@ -633,6 +704,7 @@ export function AgentEditor() {
     localImageNegativePrompt,
     dbConfig,
     builtIn,
+    allLorebooks,
     isCustomAgent,
     isNewCustomAgent,
     isKnowledgeRetrievalAgent,
@@ -993,6 +1065,77 @@ export function AgentEditor() {
                   </span>
                 </button>
               </div>
+            </FieldGroup>
+          )}
+
+          {(isCustomAgent || isNewCustomAgent) && (
+            <FieldGroup
+              label="Lorebook Writer"
+              icon={<BookOpen size="0.875rem" className="text-[var(--primary)]" />}
+              help="Allows this custom agent to create or update entries in one selected lorebook."
+            >
+              <button
+                type="button"
+                disabled={!localLorebookWriteEnabled && lorebooksLoaded && lorebookOptions.length === 0}
+                onClick={() => {
+                  if (!localLorebookWriteEnabled && lorebooksLoaded && lorebookOptions.length === 0) return;
+                  setLocalLorebookWriteEnabled((value) => !value);
+                  markDirty();
+                }}
+                className={cn(
+                  "flex w-full items-start gap-3 rounded-xl p-3 text-left text-xs ring-1 transition-all disabled:cursor-not-allowed disabled:opacity-50",
+                  localLorebookWriteEnabled
+                    ? "bg-[var(--primary)]/10 text-[var(--foreground)] ring-[var(--primary)]"
+                    : "text-[var(--muted-foreground)] ring-[var(--border)] hover:bg-[var(--accent)]",
+                )}
+              >
+                {localLorebookWriteEnabled ? (
+                  <ToggleRight size="1rem" className="mt-0.5 shrink-0 text-emerald-400" />
+                ) : (
+                  <ToggleLeft size="1rem" className="mt-0.5 shrink-0" />
+                )}
+                <span className="min-w-0">
+                  <span className="block font-semibold">{localLorebookWriteEnabled ? "Enabled" : "Disabled"}</span>
+                  <span className="mt-0.5 block text-[0.625rem] leading-tight">
+                    {localLorebookWriteEnabled
+                      ? "The agent can save durable facts to the selected lorebook."
+                      : "The write tool stays unavailable to this agent."}
+                  </span>
+                </span>
+              </button>
+
+              <label className="mt-3 flex flex-col gap-1.5">
+                <span className="text-[0.6875rem] font-medium text-[var(--muted-foreground)]">Target lorebook</span>
+                <select
+                  value={localWritableLorebookId}
+                  disabled={!localLorebookWriteEnabled || !lorebooksLoaded || lorebookOptions.length === 0}
+                  onChange={(e) => {
+                    setLocalWritableLorebookId(e.target.value);
+                    markDirty();
+                  }}
+                  className="w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm ring-1 ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <option value="">{lorebooksLoaded ? "Select a lorebook" : "Loading lorebooks..."}</option>
+                  {writableLorebookSelectionMissing && (
+                    <option value={localWritableLorebookId}>Missing lorebook ({localWritableLorebookId})</option>
+                  )}
+                  {lorebookOptions.map((lorebook) => (
+                    <option key={lorebook.id} value={lorebook.id}>
+                      {lorebook.name || "Untitled lorebook"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {lorebooksLoaded && lorebookOptions.length === 0 && (
+                <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
+                  Create a lorebook before enabling writes for this agent.
+                </p>
+              )}
+              {localLorebookWriteEnabled && writableLorebookSelectionMissing && (
+                <p className="mt-1 text-[0.625rem] text-amber-300">
+                  The saved target lorebook is no longer available. Select another lorebook before saving.
+                </p>
+              )}
             </FieldGroup>
           )}
 
