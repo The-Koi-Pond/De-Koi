@@ -176,6 +176,7 @@ export function partializeUiState(state: UIState) {
     hasCompletedOnboarding: state.hasCompletedOnboarding,
     gameTutorialDisabled: state.gameTutorialDisabled,
     linkApiBannerDismissed: state.linkApiBannerDismissed,
+    echoChamberOpen: state.echoChamberOpen,
     echoChamberSide: state.echoChamberSide,
     echoChamberDismissedChatIds: state.echoChamberDismissedChatIds,
     userStatusManual: state.userStatusManual === "dnd" ? "dnd" : "active",
