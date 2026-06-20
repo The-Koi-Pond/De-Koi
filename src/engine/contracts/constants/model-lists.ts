@@ -113,6 +113,7 @@ const OPENAI_MODELS: KnownModel[] = [
 
 const ANTHROPIC_MODELS: KnownModel[] = [
   { id: "claude-opus-4-8", name: "claude-opus-4-8", context: 1000000, maxOutput: 128000 },
+  { id: "claude-fable-5", name: "claude-fable-5", context: 1000000, maxOutput: 128000 },
   { id: "claude-opus-4-7", name: "claude-opus-4-7", context: 1000000, maxOutput: 128000 },
   { id: "claude-opus-4-6", name: "claude-opus-4-6", context: 1000000, maxOutput: 128000 },
   { id: "claude-sonnet-4-6", name: "claude-sonnet-4-6", context: 1000000, maxOutput: 64000 },
@@ -143,6 +144,7 @@ const ANTHROPIC_MODELS: KnownModel[] = [
 const CLAUDE_SUBSCRIPTION_MODELS: KnownModel[] = [
   { id: "claude-opus-4-8", name: "Claude Opus 4.8", context: 1000000, maxOutput: 128000 },
   { id: "claude-opus-4-8[1m]", name: "Claude Opus 4.8 (1M context)", context: 1000000, maxOutput: 128000 },
+  { id: "claude-fable-5", name: "Claude Fable 5", context: 1000000, maxOutput: 128000 },
   { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", context: 1000000, maxOutput: 64000 },
   { id: "claude-haiku-4-5", name: "Claude Haiku 4.5", context: 200000, maxOutput: 64000 },
   { id: "claude-opus-4-7", name: "Claude Opus 4.7 (Legacy)", context: 1000000, maxOutput: 128000 },

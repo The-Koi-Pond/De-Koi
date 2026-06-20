@@ -251,6 +251,7 @@ export function RoleplayHUD({
     [customTrackerFields, getSnapshot, patchPlayerStats],
   );
   const playerTrackerSections: TrackerPanelSection[] = ["persona", "characters", "quests", "custom"];
+  const hasPersonaStatsTracker = enabledAgentTypes.has(TRACKER_SECTION_AGENT_TYPES.persona);
   const hasPlayerTrackerSections = playerTrackerSections.some((section) =>
     enabledAgentTypes.has(TRACKER_SECTION_AGENT_TYPES[section]),
   );
@@ -317,7 +318,7 @@ export function RoleplayHUD({
           {hasPlayerTrackerSections && (
             <CombinedPlayerWidget
               layout={layout}
-              showPersona={enabledAgentTypes.has(TRACKER_SECTION_AGENT_TYPES.persona)}
+              showPersona={hasPersonaStatsTracker}
               showCharacters={enabledAgentTypes.has(TRACKER_SECTION_AGENT_TYPES.characters)}
               showQuests={enabledAgentTypes.has(TRACKER_SECTION_AGENT_TYPES.quests)}
               showCustomTracker={enabledAgentTypes.has(TRACKER_SECTION_AGENT_TYPES.custom)}
@@ -380,7 +381,7 @@ export function RoleplayHUD({
             />
           )}
 
-          {enabledAgentTypes.has(TRACKER_SECTION_AGENT_TYPES.persona) && (
+          {hasPersonaStatsTracker && (
             <PersonaStatsWidget
               bars={personaStatBars}
               onUpdate={updatePersonaStats}
@@ -403,7 +404,7 @@ export function RoleplayHUD({
             />
           )}
 
-          {hasPlayerTrackerSections && <InventoryWidget items={inventory} onUpdate={updateInventory} layout={layout} />}
+          {hasPersonaStatsTracker && <InventoryWidget items={inventory} onUpdate={updateInventory} layout={layout} />}
 
           {enabledAgentTypes.has(TRACKER_SECTION_AGENT_TYPES.quests) && (
             <QuestsWidget

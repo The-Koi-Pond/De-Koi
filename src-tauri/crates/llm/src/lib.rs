@@ -882,14 +882,24 @@ fn is_claude_opus_adaptive_only_model(model: &str) -> bool {
     claude_version_at_least(model, "opus", 4, 7)
 }
 
+fn is_claude_fable_5_model(model: &str) -> bool {
+    model.to_ascii_lowercase().contains("claude-fable-5")
+}
+
+fn is_claude_adaptive_only_model(model: &str) -> bool {
+    is_claude_opus_adaptive_only_model(model) || is_claude_fable_5_model(model)
+}
+
 fn is_anthropic_sampling_restricted_model(model: &str) -> bool {
-    claude_version_at_least(model, "opus", 4, 7)
+    is_claude_adaptive_only_model(model)
         || claude_version_at_least(model, "sonnet", 4, 6)
         || claude_version_at_least(model, "haiku", 4, 5)
 }
 
 fn supports_anthropic_adaptive_thinking(model: &str) -> bool {
-    claude_version_at_least(model, "opus", 4, 6) || claude_version_at_least(model, "sonnet", 4, 6)
+    is_claude_fable_5_model(model)
+        || claude_version_at_least(model, "opus", 4, 6)
+        || claude_version_at_least(model, "sonnet", 4, 6)
 }
 
 fn should_send_openai_sampling_parameters(request: &LlmRequest) -> bool {
@@ -1255,11 +1265,11 @@ fn google_thinking_level(model: &str, parameters: &Value) -> Option<&'static str
     }
 }
 
-fn google_thinking_budget(model: &str, parameters: &Value) -> Option<i64> {
+fn google_thinking_budget(model: &str, parameters: &Value, max_output_tokens: u64) -> Option<i64> {
     let effort =
         param_string(parameters, &["reasoningEffort", "reasoning_effort"])?.to_ascii_lowercase();
     let pro = is_gemini_25_pro_model(model);
-    match effort.as_str() {
+    let requested = match effort.as_str() {
         "none" | "minimal" if pro => Some(128),
         "none" | "minimal" => Some(0),
         "low" => Some(1024),
@@ -1267,17 +1277,38 @@ fn google_thinking_budget(model: &str, parameters: &Value) -> Option<i64> {
         "high" | "maximum" | "xhigh" if pro => Some(32768),
         "high" | "maximum" | "xhigh" => Some(24576),
         _ => None,
-    }
+    }?;
+    Some(cap_google_thinking_budget(requested, max_output_tokens))
 }
 
-fn google_thinking_config(model: &str, parameters: &Value) -> Option<Value> {
+fn cap_google_thinking_budget(requested_budget: i64, max_output_tokens: u64) -> i64 {
+    if max_output_tokens == 0 {
+        return requested_budget;
+    }
+    if requested_budget <= 0 {
+        return 0;
+    }
+    if max_output_tokens <= 1024 {
+        let max_thinking_budget = (max_output_tokens / 2).max(1) as i64;
+        return requested_budget.min(max_thinking_budget).max(1);
+    }
+    let visible_reserve = (max_output_tokens / 2).clamp(1024, 4096);
+    let max_thinking_budget = max_output_tokens.saturating_sub(visible_reserve) as i64;
+    requested_budget.clamp(0, max_thinking_budget)
+}
+
+fn google_thinking_config(
+    model: &str,
+    parameters: &Value,
+    max_output_tokens: u64,
+) -> Option<Value> {
     if is_gemini_3_model(model) {
         return google_thinking_level(model, parameters)
             .map(|level| json!({ "thinkingLevel": level, "includeThoughts": true }));
     }
 
     if is_gemini_25_model(model) {
-        let budget = google_thinking_budget(model, parameters)?;
+        let budget = google_thinking_budget(model, parameters, max_output_tokens)?;
         return Some(json!({ "thinkingBudget": budget, "includeThoughts": true }));
     }
 
@@ -1350,7 +1381,7 @@ fn anthropic_thinking_effort(model: &str, parameters: &Value) -> Option<&'static
         "low" => Some("low"),
         "medium" => Some("medium"),
         "high" => Some("high"),
-        "xhigh" if is_claude_opus_adaptive_only_model(model) => Some("xhigh"),
+        "xhigh" if is_claude_adaptive_only_model(model) => Some("xhigh"),
         "xhigh" => Some("high"),
         "maximum" | "max" => Some("max"),
         _ => None,
@@ -1373,7 +1404,7 @@ fn should_use_anthropic_adaptive_thinking(
     if !supports_anthropic_adaptive_thinking(model) {
         return false;
     }
-    if is_claude_opus_adaptive_only_model(model) {
+    if is_claude_adaptive_only_model(model) {
         return true;
     }
     if effort.is_some() {
@@ -3663,23 +3694,62 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
 
     #[test]
     fn gemini_3_thinking_config_sends_thinking_only_shape() {
-        let config =
-            google_thinking_config("gemini-3-pro", &json!({ "reasoningEffort": "medium" }))
-                .expect("Gemini 3 reasoning effort should create thinking config");
+        let config = google_thinking_config(
+            "gemini-3-pro",
+            &json!({ "reasoningEffort": "medium" }),
+            4096,
+        )
+        .expect("Gemini 3 reasoning effort should create thinking config");
         assert_eq!(config["thinkingLevel"], json!("medium"));
         assert_eq!(config["includeThoughts"], json!(true));
 
-        let flash_config =
-            google_thinking_config("gemini-3.5-flash", &json!({ "reasoningEffort": "minimal" }))
-                .expect("Gemini 3.5 Flash minimal effort should create thinking config");
+        let flash_config = google_thinking_config(
+            "gemini-3.5-flash",
+            &json!({ "reasoningEffort": "minimal" }),
+            4096,
+        )
+        .expect("Gemini 3.5 Flash minimal effort should create thinking config");
         assert_eq!(flash_config["thinkingLevel"], json!("minimal"));
 
         let pro_config = google_thinking_config(
             "gemini-3.1-pro-preview",
             &json!({ "reasoningEffort": "minimal" }),
+            4096,
         )
         .expect("Gemini 3.1 Pro should clamp minimal effort to a supported level");
         assert_eq!(pro_config["thinkingLevel"], json!("low"));
+    }
+
+    #[test]
+    fn gemini_25_thinking_budget_is_capped_by_visible_output_tokens() {
+        let config = google_thinking_config(
+            "gemini-2.5-flash",
+            &json!({ "reasoningEffort": "high" }),
+            4096,
+        )
+        .expect("Gemini 2.5 reasoning effort should create thinking config");
+
+        assert_eq!(config["thinkingBudget"], json!(2048));
+        assert_eq!(config["includeThoughts"], json!(true));
+    }
+
+    #[test]
+    fn gemini_25_thinking_budget_keeps_reasoning_for_low_output_caps() {
+        let pro_minimal = google_thinking_config(
+            "gemini-2.5-pro",
+            &json!({ "reasoningEffort": "minimal" }),
+            512,
+        )
+        .expect("Gemini 2.5 Pro minimal effort should create thinking config");
+        assert_eq!(pro_minimal["thinkingBudget"], json!(128));
+
+        let high = google_thinking_config(
+            "gemini-2.5-flash",
+            &json!({ "reasoningEffort": "high" }),
+            512,
+        )
+        .expect("Gemini 2.5 high effort should retain a nonzero thinking budget");
+        assert_eq!(high["thinkingBudget"], json!(256));
     }
 
     #[test]
@@ -3949,15 +4019,69 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
 
     #[test]
     fn anthropic_adaptive_thinking_model_detection_matches_main_branch_rules() {
+        assert!(supports_anthropic_adaptive_thinking("claude-fable-5"));
+        assert!(supports_anthropic_adaptive_thinking(
+            "anthropic/claude-fable-5"
+        ));
         assert!(supports_anthropic_adaptive_thinking("claude-opus-4-8"));
         assert!(supports_anthropic_adaptive_thinking("claude-opus-4-7"));
         assert!(supports_anthropic_adaptive_thinking("claude-opus-4-6"));
         assert!(supports_anthropic_adaptive_thinking("claude-opus-5-6"));
         assert!(supports_anthropic_adaptive_thinking("claude-sonnet-4-6"));
+        assert!(is_anthropic_sampling_restricted_model(
+            "anthropic/claude-fable-5"
+        ));
         assert!(!supports_anthropic_adaptive_thinking("claude-sonnet-4-5"));
         assert!(!supports_anthropic_adaptive_thinking(
             "claude-opus-4-20250514"
         ));
+    }
+
+    #[test]
+    fn anthropic_fable_5_body_uses_adaptive_thinking_and_strips_sampling() {
+        let request = request_for(
+            "anthropic",
+            "claude-fable-5",
+            json!({
+                "maxTokens": 4096,
+                "reasoningEffort": "xhigh",
+                "temperature": 0.8,
+                "topP": 0.9,
+                "topK": 40
+            }),
+        );
+        let body = build_anthropic_body(&request, false);
+
+        assert_eq!(body["model"], json!("claude-fable-5"));
+        assert_eq!(body["max_tokens"], json!(4096));
+        assert_eq!(
+            body["thinking"],
+            json!({ "type": "adaptive", "display": "summarized" })
+        );
+        assert_eq!(body["output_config"]["effort"], json!("xhigh"));
+        assert!(body.get("temperature").is_none());
+        assert!(body.get("top_p").is_none());
+        assert!(body.get("top_k").is_none());
+    }
+
+    #[test]
+    fn anthropic_adaptive_thinking_respects_max_tokens_override() {
+        let mut request = request_for(
+            "anthropic",
+            "claude-fable-5",
+            json!({
+                "maxTokens": 64000,
+                "reasoningEffort": "maximum"
+            }),
+        );
+        request.connection.max_tokens_override = Some(4096);
+        let body = build_anthropic_body(&request, false);
+
+        assert_eq!(body["max_tokens"], json!(4096));
+        assert_eq!(
+            body["thinking"],
+            json!({ "type": "adaptive", "display": "summarized" })
+        );
     }
 
     #[test]
@@ -4019,6 +4143,7 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
         );
         let body = build_anthropic_body(&request, false);
 
+        assert_eq!(body["max_tokens"], json!(16000));
         assert_eq!(
             body["thinking"],
             json!({ "type": "adaptive", "display": "summarized" })
@@ -4039,6 +4164,7 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
         let body = build_anthropic_body(&request, true);
 
         assert_eq!(body["stream"], json!(true));
+        assert_eq!(body["max_tokens"], json!(1024));
         assert_eq!(
             body["thinking"],
             json!({ "type": "adaptive", "display": "summarized" })
