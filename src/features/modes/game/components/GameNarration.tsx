@@ -2004,7 +2004,16 @@ export function GameNarration({
         ? null
         : (() => {
             const avatar = findNamedMapValue(speakerAvatarInfos, active.speaker);
-            return avatar ? { name: active.speaker, avatarUrl: avatar.url, expression: active.sprite } : null;
+            if (avatar) return { name: active.speaker, avatarUrl: avatar.url, expression: active.sprite };
+            const sprites = spriteMap ? findNamedMapValue(spriteMap, active.speaker) : null;
+            const expressionSprites = sprites?.filter((sprite) => !sprite.expression.toLowerCase().startsWith("full_"));
+            if (!expressionSprites?.length) return null;
+            const exprKey = active.sprite ? normalizeSpriteExpressionKey(active.sprite) : "";
+            const sprite =
+              (exprKey
+                ? expressionSprites.find((item) => normalizeSpriteExpressionKey(item.expression) === exprKey)
+                : null) ?? expressionSprites[0];
+            return sprite ? { name: active.speaker, avatarUrl: sprite.url, expression: active.sprite } : null;
           })();
 
     // Composite key catches legitimate expression/avatar changes, not just name
@@ -2012,7 +2021,7 @@ export function GameNarration({
     if (nextKey === lastReportedSpeakerRef.current) return;
     lastReportedSpeakerRef.current = nextKey;
     onActiveSpeakerChange(next);
-  }, [active, speakerAvatarInfos, onActiveSpeakerChange]);
+  }, [active, speakerAvatarInfos, spriteMap, onActiveSpeakerChange]);
 
   // How many segments are prepended before the actual GM narration segments
   const playerSegmentOffset = latestUserMessage?.content && latestAssistant ? 1 : 0;
