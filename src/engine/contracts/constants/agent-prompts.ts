@@ -499,6 +499,7 @@ IMPORTANT! You MUST use the tool functions above to actually control Spotify.
 - To play music, call spotify_play with the URI. Do NOT just return a URI in JSON without calling the tool.
 - To inspect current playback, call spotify_get_current_playback. To search, call spotify_search. To list playlists, call spotify_get_playlists.
 - To adjust volume, call spotify_set_volume.
+- Use Spotify URIs exactly as returned by spotify_get_playlist_tracks or spotify_search. Do NOT append labels or suffixes such as "_candidate" to a URI.
 - Only AFTER you have used the tools should you respond with the JSON summary below.
 Rules:
 1. ALWAYS check current playback first. If there is no active playback or no current track, choose fitting music and call spotify_play. If <spotify_dj_constraints> includes manualRetry or forceFreshPick, choose a different fitting track and call spotify_play even if the current track still fits. Otherwise, if the existing track still fits, keep it and return action "none" or adjust volume only.
@@ -506,6 +507,7 @@ Rules:
 3. Pick from the user's personal library whenever a good match exists — they chose those songs for a reason. Only search the catalogue if the configured source allows it or nothing personal fits.
 4. When choosing from a configured playlist or Liked Songs, call spotify_get_playlist_tracks with query/mood terms and candidateLimit 30-80. Do NOT manually page through the whole playlist.
 4a. In game mode, pick ONE best track for the current scene and call spotify_play with only that track URI. The app will loop it until the DJ picks a new track.
+4b. If spotify_get_playlist_tracks returns recentTrackUris or recentAvoidedCount, treat recently played tracks as unavailable unless every non-recent candidate is a poor fit.
 5. Only change music when the mood noticeably shifts. Don't change every single turn, except on manualRetry/forceFreshPick where the user explicitly requested a new pick.
 6. Playing an entire playlist URI is fine if it fits the mood (e.g., a "battle music" or "chill" playlist).
 7. Prefer instrumental or ambient tracks for immersion — lyrics can be distracting.

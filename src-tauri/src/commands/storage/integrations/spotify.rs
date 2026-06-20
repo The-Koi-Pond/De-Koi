@@ -40,6 +40,7 @@ const SPOTIFY_REFRESH_TOKEN_ENCRYPTED_KEY: &str = "spotifyRefreshTokenEncrypted"
 const SPOTIFY_TRACK_INDEX_TTL_MS: u128 = 20 * 60_000;
 const SPOTIFY_TRACK_INDEX_CACHE_MAX: usize = 24;
 const SPOTIFY_TRACK_INDEX_MAX_TRACKS: u32 = 2_500;
+const SPOTIFY_RECENT_TRACK_PROMPT_LIMIT: usize = 12;
 const SPOTIFY_PLAYBACK_SETTLE_MS: u64 = 650;
 const SPOTIFY_PLAYBACK_VERIFY_DELAYS_MS: [u64; 5] =
     [0, SPOTIFY_PLAYBACK_SETTLE_MS, 900, 1_500, 2_500];
@@ -588,19 +589,111 @@ fn sample_spotify_tracks_evenly(tracks: &[Value], count: usize, seed: &str) -> V
     selected
 }
 
+fn sample_spotify_tracks_with_recent_avoidance(
+    tracks: &[Value],
+    count: usize,
+    seed: &str,
+    recent_track_uris: &std::collections::HashSet<&str>,
+) -> Vec<Value> {
+    if tracks.len() <= count {
+        if recent_track_uris.is_empty() {
+            return tracks.to_vec();
+        }
+        let mut fresh_tracks = tracks
+            .iter()
+            .filter(|track| {
+                !recent_track_uris.contains(spotify_candidate_field(track, "uri").as_str())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let recent_tracks = tracks
+            .iter()
+            .filter(|track| {
+                recent_track_uris.contains(spotify_candidate_field(track, "uri").as_str())
+            })
+            .cloned();
+        fresh_tracks.extend(recent_tracks);
+        return fresh_tracks;
+    }
+
+    if recent_track_uris.is_empty() {
+        return sample_spotify_tracks_evenly(tracks, count, seed);
+    }
+
+    let fresh_tracks = tracks
+        .iter()
+        .filter(|track| !recent_track_uris.contains(spotify_candidate_field(track, "uri").as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let recent_tracks = tracks
+        .iter()
+        .filter(|track| recent_track_uris.contains(spotify_candidate_field(track, "uri").as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut selected = sample_spotify_tracks_evenly(
+        if fresh_tracks.is_empty() {
+            tracks
+        } else {
+            &fresh_tracks
+        },
+        count.min(if fresh_tracks.is_empty() {
+            tracks.len()
+        } else {
+            fresh_tracks.len()
+        }),
+        seed,
+    );
+    if selected.len() < count && !recent_tracks.is_empty() {
+        let mut seen = selected
+            .iter()
+            .map(|track| spotify_candidate_field(track, "uri"))
+            .collect::<std::collections::HashSet<_>>();
+        for track in sample_spotify_tracks_evenly(
+            &recent_tracks,
+            count - selected.len(),
+            &format!("{seed}:recent"),
+        ) {
+            let uri = spotify_candidate_field(&track, "uri");
+            if seen.insert(uri) {
+                selected.push(track);
+            }
+        }
+    }
+    selected
+}
+
 fn select_spotify_track_candidates(
     tracks: &[Value],
     query: &str,
     limit: usize,
     playlist_id: &str,
-) -> (Vec<Value>, &'static str, Vec<String>) {
+    recent: &[String],
+) -> (Vec<Value>, String, Vec<String>, usize) {
     let phrase = normalize_spotify_text(query);
     let tokens = spotify_candidate_tokens(query);
+    let recent_track_uris = recent
+        .iter()
+        .map(|uri| uri.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let recent_avoided_count = tracks
+        .iter()
+        .filter(|track| recent_track_uris.contains(spotify_candidate_field(track, "uri").as_str()))
+        .count();
     if tokens.is_empty() {
         return (
-            sample_spotify_tracks_evenly(tracks, limit, &format!("{playlist_id}:balanced")),
-            "balanced_sample",
+            sample_spotify_tracks_with_recent_avoidance(
+                tracks,
+                limit,
+                &format!("{playlist_id}:balanced"),
+                &recent_track_uris,
+            ),
+            if recent_avoided_count > 0 {
+                "balanced_sample_recent_aware".to_string()
+            } else {
+                "balanced_sample".to_string()
+            },
             tokens,
+            recent_avoided_count,
         );
     }
 
@@ -619,6 +712,7 @@ fn select_spotify_track_candidates(
         .collect::<Vec<_>>();
     let mut selected = strong
         .iter()
+        .filter(|track| !recent_track_uris.contains(spotify_candidate_field(track, "uri").as_str()))
         .take((limit as f64 * 0.8).floor() as usize)
         .cloned()
         .collect::<Vec<_>>();
@@ -633,10 +727,11 @@ fn select_spotify_track_candidates(
             .map(|(track, _)| track.clone())
             .filter(|track| !seen.contains(&spotify_candidate_field(track, "uri")))
             .collect::<Vec<_>>();
-        for track in sample_spotify_tracks_evenly(
+        for track in sample_spotify_tracks_with_recent_avoidance(
             &fallback_source,
             reserve,
             &format!("{playlist_id}:{phrase}:fallback"),
+            &recent_track_uris,
         ) {
             let uri = spotify_candidate_field(&track, "uri");
             if seen.insert(uri) {
@@ -647,12 +742,19 @@ fn select_spotify_track_candidates(
 
     (
         selected.into_iter().take(limit).collect(),
-        if strong.is_empty() {
-            "balanced_sample"
+        if recent_avoided_count > 0 {
+            if strong.is_empty() {
+                "balanced_sample_recent_aware".to_string()
+            } else {
+                "scored_candidates_recent_aware".to_string()
+            }
+        } else if strong.is_empty() {
+            "balanced_sample".to_string()
         } else {
-            "scored_candidates"
+            "scored_candidates".to_string()
         },
         tokens,
+        recent_avoided_count,
     )
 }
 
@@ -765,29 +867,15 @@ async fn spotify_indexed_candidate_response(
     recent: &[String],
 ) -> AppResult<Value> {
     let (index, cache_status) = fetch_spotify_track_index(credentials, playlist_id).await?;
-    let recent = recent
-        .iter()
-        .map(|uri| uri.as_str())
-        .collect::<std::collections::HashSet<_>>();
-    let filtered = index
-        .tracks
-        .iter()
-        .filter(|track| {
-            track
-                .get("uri")
-                .and_then(Value::as_str)
-                .is_some_and(|uri| !recent.contains(uri))
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    let source_tracks = if filtered.is_empty() {
-        index.tracks.as_slice()
-    } else {
-        filtered.as_slice()
-    };
     let candidate_limit = limit.clamp(1, 80) as usize;
-    let (tracks, candidate_mode, matched_tokens) =
-        select_spotify_track_candidates(source_tracks, &query, candidate_limit, playlist_id);
+    let (tracks, candidate_mode, matched_tokens, recent_avoided_count) =
+        select_spotify_track_candidates(
+            &index.tracks,
+            &query,
+            candidate_limit,
+            playlist_id,
+            recent,
+        );
     let count = tracks.len();
 
     Ok(json!({
@@ -803,8 +891,14 @@ async fn spotify_indexed_candidate_response(
         "source": source,
         "query": if query.trim().is_empty() { Value::Null } else { Value::String(query) },
         "matchedTokens": matched_tokens,
+        "recentTrackUris": recent
+            .iter()
+            .take(SPOTIFY_RECENT_TRACK_PROMPT_LIMIT)
+            .cloned()
+            .collect::<Vec<_>>(),
+        "recentAvoidedCount": recent_avoided_count,
         "truncated": index.truncated,
-        "hint": "Spotify source was indexed and only scored candidates were returned. Pick from this shortlist; do not manually page unless you need raw browsing."
+        "hint": "Spotify source was indexed and only scored candidates were returned. Recently played tracks are suppressed when alternatives exist; avoid recentTrackUris unless no fitting non-recent candidate appears. Pick from this shortlist; do not manually page unless you need raw browsing."
     }))
 }
 
@@ -4087,6 +4181,30 @@ mod tests {
 
         let peaceful = spotify_candidate_tokens("peacefully resting");
         assert!(peaceful.contains(&"serene".to_string()));
+    }
+
+    #[test]
+    fn spotify_candidates_prefer_fresh_tracks_over_recent_matches() {
+        let recent_uri = "spotify:track:recent";
+        let fresh_uri = "spotify:track:fresh";
+        let tracks = vec![
+            json!({ "uri": recent_uri, "name": "Battle anthem", "artist": "Recent" }),
+            json!({ "uri": fresh_uri, "name": "Battle anthem", "artist": "Fresh" }),
+        ];
+        let recent = vec![recent_uri.to_string()];
+
+        let (candidates, mode, _, recent_avoided_count) =
+            select_spotify_track_candidates(&tracks, "battle", 1, "liked", &recent);
+
+        assert_eq!(recent_avoided_count, 1);
+        assert_eq!(mode, "scored_candidates_recent_aware");
+        assert_eq!(
+            candidates
+                .first()
+                .and_then(|track| track.get("uri"))
+                .and_then(Value::as_str),
+            Some(fresh_uri)
+        );
     }
 
     #[test]

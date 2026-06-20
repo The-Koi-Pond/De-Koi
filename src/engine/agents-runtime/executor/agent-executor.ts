@@ -447,11 +447,20 @@ function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function normalizeSpotifyTrackUri(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const uri = value.trim();
+  const suffixedTrack = uri.match(/^spotify:track:([A-Za-z0-9]{22})_candidate$/);
+  if (suffixedTrack) return `spotify:track:${suffixedTrack[1]}`;
+  return /^spotify:track:[A-Za-z0-9]{22}$/i.test(uri) ? uri : null;
+}
+
 function spotifyTrackUrisFromAgentData(data: unknown): string[] {
   if (!isJsonRecord(data) || data.action !== "play") return [];
   const rawUris = Array.isArray(data.trackUris) ? data.trackUris : [];
   return rawUris
-    .filter((uri): uri is string => typeof uri === "string" && uri.startsWith("spotify:track:"))
+    .map(normalizeSpotifyTrackUri)
+    .filter((uri): uri is string => Boolean(uri))
     .slice(0, 5);
 }
 
