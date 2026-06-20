@@ -100,11 +100,27 @@ Build the Tauri desktop bundle:
 pnpm tauri build
 ```
 
+Track `main` from a source checkout on Windows:
+
+```powershell
+.\start-main.cmd
+```
+
+This launcher fetches `origin/main`, rebuilds the release executable when the
+checkout changed, and starts the desktop app. See
+[Source Main-Channel Launcher](docs/source-main-launcher.md) for shortcut setup,
+options, and risk notes.
+
 ## Install Or Update A Release
 
 When maintainers publish De-Koi release assets, use the GitHub Release page for that version as the source of truth. Download the artifact for your operating system, read the release notes, and keep access to the matching source commit listed by the release.
 
-Updates are manual in the current De-Koi architecture. The in-app update check in Settings > Advanced may open the matching GitHub Release page, but De-Koi does not silently download or install desktop updates yet. Replace the app through the platform installer or bundle you downloaded from GitHub Releases.
+Updates are manual in the current De-Koi architecture. The in-app update check
+in Settings > Advanced may open the matching GitHub Release page, but De-Koi
+does not silently download or install desktop release updates yet. Replace the
+app through the platform installer or bundle you downloaded from GitHub
+Releases. The source main-channel launcher is separate from published release
+installers and is intended for users who deliberately run from a git checkout.
 
 Pre-alpha release assets may be unsigned or debug-signed and should be tested with throwaway data. The optional Rust runtime is an API server for supported desktop workflows; it is not a replacement for the desktop app installer and does not serve the React UI.
 
