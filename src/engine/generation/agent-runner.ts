@@ -1393,7 +1393,11 @@ async function loadAgentAvailableSprites(
   );
 
   const personaId = readString(input.chat.personaId).trim();
-  if (personaId && input.persona && (!selectedSprites.restrict || selectedSprites.personaIds.has(personaId))) {
+  const includePersonaSprite =
+    !selectedSprites.restrict ||
+    selectedSprites.personaIds.has(personaId) ||
+    chatMeta.expressionAvatarsEnabled === true;
+  if (personaId && input.persona && includePersonaSprite) {
     const sprites = await visuals.listSprites(personaId, "persona").catch(() => []);
     const spritePersona = buildAvailableSpriteCharacterFromAssets(
       personaId,

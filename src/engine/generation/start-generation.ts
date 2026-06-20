@@ -100,6 +100,7 @@ import {
 import {
   completeRequiredSpriteExpressionEntries,
   type AvailableSpriteCharacter,
+  type SpriteExpressionCompletionOptions,
   type SpriteExpressionEntry,
 } from "./sprite-expression-validation";
 import {
@@ -2411,6 +2412,7 @@ function spriteExpressionsFromAgentResults(
   results: AgentResult[],
   availableSprites: AvailableSpriteCharacter[] | undefined,
   requiredCharacterIds: readonly unknown[] = [],
+  completionOptions: SpriteExpressionCompletionOptions = {},
 ): Record<string, string> | null {
   const entries: SpriteExpressionEntry[] = [];
   const hasAvailableSprites = Array.isArray(availableSprites) && availableSprites.length > 0;
@@ -2432,7 +2434,12 @@ function spriteExpressionsFromAgentResults(
 
   if (!hasAvailableSprites) return null;
 
-  const validation = completeRequiredSpriteExpressionEntries(entries, availableSprites, requiredCharacterIds);
+  const validation = completeRequiredSpriteExpressionEntries(
+    entries,
+    availableSprites,
+    requiredCharacterIds,
+    completionOptions,
+  );
   for (const entry of validation.expressions) {
     const expression = readString(entry.expression).trim();
     const characterId = readString(entry.characterId).trim();
@@ -2447,13 +2454,31 @@ function requiredSpriteExpressionTargetIds(chat: JsonRecord, input: StartGenerat
   return targetId ? [targetId] : [];
 }
 
-function requiredSpriteExpressionTargetIdsForMessage(message: unknown): string[] {
+function expressionAvatarsEnabled(chat: JsonRecord): boolean {
+  return parseRecord(chat.metadata).expressionAvatarsEnabled === true;
+}
+
+function uniqueRequiredSpriteExpressionTargetIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const rawId of ids) {
+    const id = rawId.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    unique.push(id);
+  }
+  return unique;
+}
+
+function requiredSpriteExpressionTargetIdsForMessage(message: unknown, chat?: JsonRecord): string[] {
   if (!isRecord(message)) return [];
   const role = readString(message.role).trim();
   const characterId = readString(message.characterId).trim();
   if (role !== "user" && characterId) return [characterId];
   if (role === "user") {
-    const personaId = readString(parseRecord(parseRecord(message.extra).personaSnapshot).personaId).trim();
+    const personaId =
+      readString(parseRecord(parseRecord(message.extra).personaSnapshot).personaId).trim() ||
+      readString(chat?.personaId).trim();
     if (personaId) return [personaId];
   }
   return [];
@@ -2500,6 +2525,45 @@ function lastUserMessageBeforeTarget(messages: JsonRecord[], target: JsonRecord 
   return null;
 }
 
+function messageContent(message: unknown): string {
+  return isRecord(message) ? readString(message.content) : "";
+}
+
+function requiredSpriteExpressionTargetIdsForTarget(
+  chat: JsonRecord,
+  messages: JsonRecord[],
+  target: JsonRecord | null,
+): string[] {
+  const ids = requiredSpriteExpressionTargetIdsForMessage(target, chat);
+  const personaId = readString(chat.personaId).trim();
+  if (personaId && expressionAvatarsEnabled(chat) && messageRole(target) !== "user") {
+    const personaTarget = lastUserMessageBeforeTarget(messages, target);
+    if (readString(personaTarget?.id).trim()) ids.push(personaId);
+  }
+  return uniqueRequiredSpriteExpressionTargetIds(ids);
+}
+
+function spriteExpressionCompletionOptionsForTarget(
+  chat: JsonRecord,
+  messages: JsonRecord[],
+  target: JsonRecord | null,
+): SpriteExpressionCompletionOptions {
+  const personaId = readString(chat.personaId).trim();
+  const targetRole = messageRole(target);
+  const targetText = messageContent(target);
+  const personaSource =
+    targetRole === "user" ? targetText : messageContent(lastUserMessageBeforeTarget(messages, target));
+  const sourceTextByCharacterId = new Map<string, string>();
+  if (personaId && personaSource.trim()) {
+    sourceTextByCharacterId.set(personaId, personaSource);
+  }
+  return {
+    defaultSourceText: targetText,
+    sourceTextByCharacterId,
+    personaCharacterIds: personaId ? new Set([personaId]) : undefined,
+  };
+}
+
 export function spriteExpressionPatchesForTarget(args: {
   chat: JsonRecord;
   messages: JsonRecord[];
@@ -2513,7 +2577,8 @@ export function spriteExpressionPatchesForTarget(args: {
   const spriteExpressions = spriteExpressionsFromAgentResults(
     args.results,
     args.availableSprites,
-    requiredSpriteExpressionTargetIdsForMessage(args.target),
+    requiredSpriteExpressionTargetIdsForTarget(args.chat, args.messages, args.target),
+    spriteExpressionCompletionOptionsForTarget(args.chat, args.messages, args.target),
   );
   if (!spriteExpressions || Object.keys(spriteExpressions).length === 0) return [];
 
@@ -4105,12 +4170,17 @@ export async function* startGeneration(
     let content = streamedContent;
 
     const preSaveAgentResults = isUserMessageRegeneration ? [] : uniqueAgentResults(runtime?.preResults ?? []);
+    const preSavePersonaId = readString(chat.personaId).trim();
     const preSaveSpriteExpressions = isUserMessageRegeneration
       ? null
       : spriteExpressionsFromAgentResults(
           preSaveAgentResults,
           runtime?.availableSprites ?? [],
           requiredSpriteExpressionTargetIds(chat, input),
+          {
+            defaultSourceText: content,
+            personaCharacterIds: preSavePersonaId ? new Set([preSavePersonaId]) : undefined,
+          },
         );
     content = await applyRuntimeRegexScripts(deps.storage, "ai_output", content, {
       chatCharacterIds: activeCharacterIds(chat),
