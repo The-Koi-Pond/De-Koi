@@ -208,13 +208,19 @@ export function AgentsPanel() {
         setImportFailureDetails(detailLines);
         const keptAfterRollback = result.kept.length;
         if (!result.atomic) {
-          await qc.invalidateQueries({ queryKey: agentKeys.all });
-          toast.error(
-            `Agent import requires cleanup: ${keptAfterRollback} kept after rollback failed`,
-            {
+          if (keptAfterRollback > 0) {
+            await qc.invalidateQueries({ queryKey: agentKeys.all });
+            toast.error(`Agent import requires cleanup: ${keptAfterRollback} kept after rollback failed`, {
               description: formatImportFailureDescription(detailLines),
-            },
-          );
+            });
+          } else {
+            toast.error(
+              `Agent import failed and rolled back ${result.rolledBack.length} agent${result.rolledBack.length === 1 ? "" : "s"}`,
+              {
+                description: formatImportFailureDescription(detailLines),
+              },
+            );
+          }
         } else if (result.imported > 0) {
           toast.warning(`Agent import partially completed: ${result.imported} imported`, {
             description: formatImportFailureDescription(detailLines),

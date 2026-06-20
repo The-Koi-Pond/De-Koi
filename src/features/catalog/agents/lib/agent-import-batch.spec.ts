@@ -20,6 +20,30 @@ function staged(name: string): StagedAgentImportPayload {
 }
 
 describe("agent import batch commit", () => {
+  it("reports atomic success when every staged agent imports", async () => {
+    const createAgent = vi.fn().mockResolvedValueOnce({ id: "agent-1" }).mockResolvedValueOnce({ id: "agent-2" });
+    const deleteAgent = vi.fn().mockResolvedValue(undefined);
+
+    const result = await commitAgentImportBatch([staged("first"), staged("second")], createAgent, deleteAgent);
+
+    expect(result).toEqual({
+      atomic: true,
+      imported: 2,
+      failures: [],
+      created: [
+        { fileName: "first.json", name: "first", id: "agent-1" },
+        { fileName: "second.json", name: "second", id: "agent-2" },
+      ],
+      kept: [],
+      rolledBack: [],
+      outcomes: [
+        { status: "imported", fileName: "first.json", name: "first", id: "agent-1" },
+        { status: "imported", fileName: "second.json", name: "second", id: "agent-2" },
+      ],
+    });
+    expect(deleteAgent).not.toHaveBeenCalled();
+  });
+
   it("rolls back earlier creates when a later create fails", async () => {
     const createAgent = vi
       .fn()
@@ -30,7 +54,7 @@ describe("agent import batch commit", () => {
     const result = await commitAgentImportBatch([staged("first"), staged("second")], createAgent, deleteAgent);
 
     expect(result).toEqual({
-      atomic: true,
+      atomic: false,
       imported: 0,
       failures: [
         "second.json / second: duplicate type",
@@ -89,7 +113,7 @@ describe("agent import batch commit", () => {
     );
 
     expect(result).toEqual({
-      atomic: true,
+      atomic: false,
       imported: 0,
       failures: [
         "first.json / first: duplicate type",

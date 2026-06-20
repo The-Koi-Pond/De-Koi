@@ -48,6 +48,7 @@ function outcomeFailure(outcome: AgentImportBatchOutcome): string | null {
 }
 
 function resultFromOutcomes(outcomes: AgentImportBatchOutcome[]): AgentImportBatchResult {
+  const atomic = outcomes.every((outcome) => outcome.status === "imported");
   const created = outcomes
     .filter((outcome): outcome is Extract<AgentImportBatchOutcome, { status: "imported" }> =>
       outcome.status === "imported",
@@ -64,7 +65,7 @@ function resultFromOutcomes(outcomes: AgentImportBatchOutcome[]): AgentImportBat
     )
     .map(({ fileName, name, id }) => ({ fileName, name, id }));
   const failures = outcomes.map(outcomeFailure).filter((failure): failure is string => Boolean(failure));
-  return { atomic: kept.length === 0, imported: created.length, failures, created, kept, rolledBack, outcomes };
+  return { atomic, imported: created.length, failures, created, kept, rolledBack, outcomes };
 }
 
 export async function commitAgentImportBatch(
