@@ -46,6 +46,7 @@ import { createInputMacroResolverForChat, isPromptPreviewMacro } from "../../../
 import { parseChatMetadata } from "../../../../../shared/lib/chat-display";
 import { formatTextQuotes } from "../../../../../shared/lib/dialogue-quotes";
 import { isSendShortcut } from "../../../../../shared/lib/send-shortcuts";
+import { applyTextareaQuoteFormat } from "../../../../../shared/lib/textarea-quotes";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../../../../shared/lib/utils";
 import { blobToDataUrl } from "../../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../../shared/lib/chat-attachment-images";
@@ -1093,14 +1094,7 @@ export const ChatInput = memo(function ChatInput({
   const handleInput = () => {
     const el = textareaRef.current;
     if (!el) return;
-    // Normalize smart quotes directly in the DOM
-    const raw = el.value;
-    const fixed = formatTextQuotes(raw, quoteFormat);
-    if (raw !== fixed) {
-      const pos = el.selectionStart;
-      el.value = fixed;
-      el.setSelectionRange(pos, pos);
-    }
+    const fixed = applyTextareaQuoteFormat(el, quoteFormat);
     const nowHasInput = fixed.trim().length > 0;
     setHasInput((prev) => (prev === nowHasInput ? prev : nowHasInput));
 

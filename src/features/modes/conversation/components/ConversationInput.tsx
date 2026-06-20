@@ -60,6 +60,7 @@ import { createInputMacroResolverForChat, isPromptPreviewMacro } from "../../../
 import { parseChatMetadata } from "../../../../shared/lib/chat-display";
 import { formatTextQuotes } from "../../../../shared/lib/dialogue-quotes";
 import { isSendShortcut } from "../../../../shared/lib/send-shortcuts";
+import { applyTextareaQuoteFormat } from "../../../../shared/lib/textarea-quotes";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { blobToDataUrl, loadUrlBlob } from "../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../shared/lib/chat-attachment-images";
@@ -1294,15 +1295,7 @@ export function ConversationInput({
   const handleInput = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
-    const raw = el.value;
-    const fixed = formatTextQuotes(raw, quoteFormat);
-    if (fixed !== raw) {
-      const start = el.selectionStart;
-      const end = el.selectionEnd;
-      const direction = el.selectionDirection;
-      el.value = fixed;
-      el.setSelectionRange(start, end, direction);
-    }
+    const fixed = applyTextareaQuoteFormat(el, quoteFormat);
     // Debounced resize to reduce layout reflows during fast typing
     if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
     resizeTimerRef.current = setTimeout(() => {
