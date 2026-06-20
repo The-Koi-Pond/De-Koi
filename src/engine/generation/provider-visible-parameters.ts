@@ -67,16 +67,28 @@ function isClaudeOpusAdaptiveOnlyModel(model: string): boolean {
   return claudeVersionAtLeast(model, "opus", 4, 7);
 }
 
+function isClaudeFable5Model(model: string): boolean {
+  return model.toLowerCase().includes("claude-fable-5");
+}
+
+function isClaudeAdaptiveOnlyModel(model: string): boolean {
+  return isClaudeOpusAdaptiveOnlyModel(model) || isClaudeFable5Model(model);
+}
+
 function isAnthropicSamplingRestrictedModel(model: string): boolean {
   return (
-    claudeVersionAtLeast(model, "opus", 4, 7) ||
+    isClaudeAdaptiveOnlyModel(model) ||
     claudeVersionAtLeast(model, "sonnet", 4, 6) ||
     claudeVersionAtLeast(model, "haiku", 4, 5)
   );
 }
 
 function supportsAnthropicAdaptiveThinking(model: string): boolean {
-  return claudeVersionAtLeast(model, "opus", 4, 6) || claudeVersionAtLeast(model, "sonnet", 4, 6);
+  return (
+    isClaudeFable5Model(model) ||
+    claudeVersionAtLeast(model, "opus", 4, 6) ||
+    claudeVersionAtLeast(model, "sonnet", 4, 6)
+  );
 }
 
 function shouldSendOpenAiSamplingParameters(model: string): boolean {
@@ -413,7 +425,7 @@ function anthropicThinkingEffort(model: string, parameters: JsonRecord): string 
   const effort = parameterString(parameters, ["reasoningEffort", "reasoning_effort"])?.toLowerCase();
   if (!effort) return null;
   if (["low", "medium", "high"].includes(effort)) return effort;
-  if (effort === "xhigh") return isClaudeOpusAdaptiveOnlyModel(model) ? "xhigh" : "high";
+  if (effort === "xhigh") return isClaudeAdaptiveOnlyModel(model) ? "xhigh" : "high";
   if (effort === "maximum" || effort === "max") return "max";
   return null;
 }
@@ -426,7 +438,7 @@ function anthropicThinkingBudgetTokens(effort: string): number {
 
 function shouldUseAnthropicAdaptiveThinking(model: string, parameters: JsonRecord, effort: string | null): boolean {
   if (!supportsAnthropicAdaptiveThinking(model)) return false;
-  if (isClaudeOpusAdaptiveOnlyModel(model)) return true;
+  if (isClaudeAdaptiveOnlyModel(model)) return true;
   if (effort) return true;
   const showThoughts = parameters.showThoughts ?? parameters.show_thoughts;
   if (showThoughts != null) return boolish(showThoughts, false);
@@ -468,25 +480,41 @@ function googleThinkingLevel(model: string, parameters: JsonRecord): string | nu
   return null;
 }
 
-function googleThinkingBudget(model: string, parameters: JsonRecord): number | null {
+function capGoogleThinkingBudget(requestedBudget: number, maxOutputTokens: number): number {
+  if (maxOutputTokens === 0) return requestedBudget;
+  if (requestedBudget <= 0) return 0;
+  if (maxOutputTokens <= 1024) {
+    return Math.max(1, Math.min(requestedBudget, Math.max(1, Math.floor(maxOutputTokens / 2))));
+  }
+  const visibleReserve = Math.min(4096, Math.max(1024, Math.floor(maxOutputTokens / 2)));
+  const maxThinkingBudget = Math.max(0, Math.floor(maxOutputTokens) - visibleReserve);
+  return Math.max(0, Math.min(requestedBudget, maxThinkingBudget));
+}
+
+function googleThinkingBudget(model: string, parameters: JsonRecord, maxOutputTokens: number): number | null {
   const effort = parameterString(parameters, ["reasoningEffort", "reasoning_effort"])?.toLowerCase();
   if (!effort) return null;
   const pro = isGemini25ProModel(model);
-  if (effort === "none" || effort === "minimal") return pro ? 128 : 0;
-  if (effort === "low") return 1024;
-  if (effort === "medium") return 8192;
-  if (["high", "maximum", "xhigh"].includes(effort)) return pro ? 32768 : 24576;
-  return null;
+  let requested: number | null = null;
+  if (effort === "none" || effort === "minimal") requested = pro ? 128 : 0;
+  else if (effort === "low") requested = 1024;
+  else if (effort === "medium") requested = 8192;
+  else if (["high", "maximum", "xhigh"].includes(effort)) requested = pro ? 32768 : 24576;
+  return requested !== null ? capGoogleThinkingBudget(requested, maxOutputTokens) : null;
 }
 
-function googleThinkingConfig(model: string, parameters: JsonRecord): Record<string, unknown> | null {
+function googleThinkingConfig(
+  model: string,
+  parameters: JsonRecord,
+  maxOutputTokens: number,
+): Record<string, unknown> | null {
   if (isGemini3Model(model)) {
     const level = googleThinkingLevel(model, parameters);
     return level ? { thinkingLevel: level, includeThoughts: true } : null;
   }
 
   if (isGemini25Model(model)) {
-    const budget = googleThinkingBudget(model, parameters);
+    const budget = googleThinkingBudget(model, parameters, maxOutputTokens);
     return budget !== null ? { thinkingBudget: budget, includeThoughts: true } : null;
   }
 
@@ -967,9 +995,10 @@ function visibleOpenAiCompatibleParameters(
 function visibleGoogleParameters(connection: JsonRecord, parameters: JsonRecord): Record<string, unknown> {
   const model = readString(connection.model);
   const gemini3 = isGemini3Model(model);
+  const maxOutputTokens = requestMaxTokens(connection, parameters);
   const body: Record<string, unknown> = {};
   const generationConfig: Record<string, unknown> = {
-    maxOutputTokens: requestMaxTokens(connection, parameters),
+    maxOutputTokens,
   };
   if (!gemini3) {
     generationConfig.temperature = parameterNumber(parameters, ["temperature"]) ?? 0.7;
@@ -982,7 +1011,7 @@ function visibleGoogleParameters(connection: JsonRecord, parameters: JsonRecord)
   if (frequencyPenalty !== null) generationConfig.frequencyPenalty = frequencyPenalty;
   const presencePenalty = parameterNumber(parameters, ["presencePenalty", "presence_penalty"]);
   if (presencePenalty !== null) generationConfig.presencePenalty = presencePenalty;
-  const thinkingConfig = googleThinkingConfig(model, parameters);
+  const thinkingConfig = googleThinkingConfig(model, parameters, maxOutputTokens);
   if (thinkingConfig) generationConfig.thinkingConfig = thinkingConfig;
   const stop = stopSequences(parameters);
   if (stop) generationConfig.stopSequences = stop;
