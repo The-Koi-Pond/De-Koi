@@ -42,6 +42,7 @@ import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { showConversationLocalNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
+import { CHAT_SCROLL_TO_BOTTOM_EVENT, type ChatScrollToBottomDetail } from "../../../../shared/lib/chat-scroll-events";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { TOOLS_PANELS, useTopBarActions } from "../../../../shared/components/mobile-shell-actions";
 import { usePageActivity } from "../../../../shared/hooks/use-page-activity";
@@ -590,6 +591,7 @@ export function ConversationView({
   const userScrolledAwayRef = useRef(false);
   const lastScrollTopRef = useRef(0);
   const userScrolledAtRef = useRef(0);
+  const forcedBottomScrollRef = useRef<{ requestedAt: number; behavior: ScrollBehavior } | null>(null);
   const openedAtBottomChatIdRef = useRef<string | null>(null);
   const previousTailRef = useRef<{ messageId: string | undefined; isStreaming: boolean }>({
     messageId: undefined,
@@ -708,6 +710,43 @@ export function ConversationView({
     if (!isStreaming) userScrolledAwayRef.current = false;
   }, [isStreaming]);
 
+  const scrollToMessagesBottom = useCallback((behavior: ScrollBehavior = "auto") => {
+    const element = scrollRef.current;
+    if (!element) return;
+    if (behavior === "smooth") {
+      element.scrollTo({ top: element.scrollHeight, behavior });
+      lastScrollTopRef.current = element.scrollTop;
+      return;
+    }
+    lastScrollTopRef.current = scrollTranscriptToBottom(element);
+  }, []);
+
+  const scheduleScrollToMessagesBottom = useCallback(
+    (behavior: ScrollBehavior = "auto") => {
+      scrollToMessagesBottom(behavior);
+      requestAnimationFrame(() => {
+        scrollToMessagesBottom(behavior);
+        requestAnimationFrame(() => scrollToMessagesBottom(behavior));
+      });
+    },
+    [scrollToMessagesBottom],
+  );
+
+  useEffect(() => {
+    const handleScrollRequest = (event: Event) => {
+      const detail = (event as CustomEvent<ChatScrollToBottomDetail>).detail;
+      if (!detail?.chatId || detail.chatId !== chatId) return;
+      const behavior = detail.behavior ?? "auto";
+      forcedBottomScrollRef.current = { requestedAt: Date.now(), behavior };
+      userScrolledAwayRef.current = false;
+      isNearBottomRef.current = true;
+      scheduleScrollToMessagesBottom(behavior);
+    };
+
+    window.addEventListener(CHAT_SCROLL_TO_BOTTOM_EVENT, handleScrollRequest);
+    return () => window.removeEventListener(CHAT_SCROLL_TO_BOTTOM_EVENT, handleScrollRequest);
+  }, [chatId, scheduleScrollToMessagesBottom]);
+
   // Auto-scroll on new messages / streaming / staggered reveals
   const newestMsgId = messages?.[messages.length - 1]?.id;
   const isOptimistic = newestMsgId?.startsWith("__optimistic_");
@@ -737,11 +776,34 @@ export function ConversationView({
 
   useEffect(() => {
     if (isLoadingMoreRef.current) return;
+    const forcedBottomScroll = forcedBottomScrollRef.current;
+    const hasFreshForcedBottomScroll = !!forcedBottomScroll && Date.now() - forcedBottomScroll.requestedAt < 5000;
+    if (forcedBottomScroll && !hasFreshForcedBottomScroll) {
+      forcedBottomScrollRef.current = null;
+    }
+
     // Always scroll when the user just sent a message (optimistic msg)
-    if (isOptimistic || (isNearBottomRef.current && !userScrolledAwayRef.current)) {
+    if (isOptimistic || hasFreshForcedBottomScroll) {
+      const behavior = forcedBottomScroll?.behavior ?? "auto";
+      forcedBottomScrollRef.current = null;
+      userScrolledAwayRef.current = false;
+      isNearBottomRef.current = true;
+      scheduleScrollToMessagesBottom(behavior);
+      return;
+    }
+    if (isNearBottomRef.current && !userScrolledAwayRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [newestMsgId, streamBuffer, thinkingBuffer, isStreaming, delayedCharacterInfo, typingCharacterName, isOptimistic]);
+  }, [
+    newestMsgId,
+    streamBuffer,
+    thinkingBuffer,
+    isStreaming,
+    delayedCharacterInfo,
+    typingCharacterName,
+    isOptimistic,
+    scheduleScrollToMessagesBottom,
+  ]);
 
   // Preserve scroll on load-more
   useLayoutEffect(() => {
