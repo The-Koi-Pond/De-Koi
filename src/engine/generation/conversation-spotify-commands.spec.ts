@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import { assembleGenerationPrompt } from "./prompt-assembly";
@@ -214,6 +214,35 @@ async function conversationPromptText(commandCapabilities: JsonRecord, metadata:
 }
 
 describe("conversation Spotify command prompting", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("adds authoritative current date, time, weekday, and daypart to conversation prompts", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-21T19:30:00.000Z"));
+
+    const result = await assembleGenerationPrompt(promptStorage(), {
+      chat: {
+        id: "chat-1",
+        mode: "conversation",
+        characterIds: ["char-1"],
+        metadata: {},
+      },
+      storedMessages: [{ role: "user", content: "what time of day is it?" }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: { userTimeZone: "America/New_York" },
+      latestUserInput: "what time of day is it?",
+    });
+
+    const promptText = result.messages.map((message) => String(message.content ?? "")).join("\n");
+    expect(promptText).toContain("Current date: 2026-06-21");
+    expect(promptText).toContain("Current time: 15:30");
+    expect(promptText).toContain("Current weekday: Sunday");
+    expect(promptText).toContain("Current time of day: afternoon");
+    expect(promptText).toContain("Time zone: America/New_York");
+  });
+
   it("uses one activation contract for conversation command defaults", () => {
     expect(conversationCommandPromptEnabled({ mode: "conversation" })).toBe(true);
     expect(conversationCommandPromptEnabled({ mode: "conversation", metadata: {} })).toBe(true);
