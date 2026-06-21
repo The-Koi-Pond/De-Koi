@@ -6,8 +6,10 @@ interface GenerationAgentConnectionWarningBase {
 
 interface GenerationDefaultAgentConnectionWarning extends GenerationAgentConnectionWarningBase {
   code: "default_agent_connection_active";
+  connectionId: string | null;
   connectionName: string;
   model: string;
+  dismissalKey: string;
 }
 
 interface GenerationLocalSidecarUnavailableWarning extends GenerationAgentConnectionWarningBase {
