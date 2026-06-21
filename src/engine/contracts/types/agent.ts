@@ -38,7 +38,7 @@ export type AgentResultType =
   | "game_map_update"
   | "game_state_transition";
 
-export const DEFAULT_AGENT_CREDIT = "Marinara Dev Team";
+const DEFAULT_AGENT_CREDIT = "Marinara Dev Team";
 
 /** Configuration for a single agent. */
 export interface AgentConfig {

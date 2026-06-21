@@ -154,12 +154,15 @@ export function EditAgentModal({ open, onClose, agent }: Props) {
           />
         </label>
 
-        {/* Credit */}
+        {/* Author */}
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-[var(--muted-foreground)]">Credit</span>
-          <div className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-sm text-[var(--foreground)] ring-1 ring-transparent">
-            {agentCreditLabel(form.credit)}
-          </div>
+          <span className="text-xs font-medium text-[var(--muted-foreground)]">Author</span>
+          <input
+            value={form.credit}
+            onChange={(e) => setForm((f) => ({ ...f, credit: e.target.value }))}
+            placeholder="Author name..."
+            className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-sm outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]"
+          />
         </label>
 
         {/* Phase */}
