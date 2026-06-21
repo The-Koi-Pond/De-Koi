@@ -2,12 +2,12 @@
 // Panel: Browser (sidebar — shows imported characters)
 // ──────────────────────────────────────────────
 import { useState, useMemo, useCallback } from "react";
-import { characterAvatarUrl, useCharacterSummaries } from "../../../catalog/characters/index";
+import { CharacterAvatarImage, characterAvatarUrl, useCharacterSummaries } from "../../../catalog/characters/index";
 import { useStartChatFromCharacter } from "../../../catalog/characters/index";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { Search, User, Globe, Wand2, MessageCircle } from "lucide-react";
-import { cn, getAvatarCropStyle } from "../../../../shared/lib/utils";
+import { cn } from "../../../../shared/lib/utils";
 import { ContextMenu, type ContextMenuItem } from "../../../../shared/components/ui/ContextMenu";
 import { toast } from "sonner";
 
@@ -59,7 +59,15 @@ export function BotBrowserPanel() {
   const parsed = useMemo(() => {
     if (!characters) return [];
     return (characters as CharacterRow[]).reduce<
-      { id: string; name: string; avatarPath: string | null; createdAt: string }[]
+      {
+        id: string;
+        name: string;
+        avatarPath: string | null;
+        avatarFilePath?: string | null;
+        avatarFilename?: string | null;
+        avatarCrop?: unknown;
+        createdAt: string;
+      }[]
     >((acc, c) => {
       const d = parseCharacterData(c.data);
       if (!d) return acc;
@@ -68,6 +76,9 @@ export function BotBrowserPanel() {
           id: c.id,
           name: d.name ?? "Unnamed",
           avatarPath: characterAvatarUrl(c),
+          avatarFilePath: c.avatarFilePath,
+          avatarFilename: c.avatarFilename,
+          avatarCrop: d.extensions.avatarCrop,
           createdAt: c.createdAt ?? "",
         });
       }
@@ -171,12 +182,13 @@ export function BotBrowserPanel() {
             >
               <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-pink-400 to-rose-500 text-white shadow-sm overflow-hidden">
                 {char.avatarPath ? (
-                  <img
+                  <CharacterAvatarImage
                     src={char.avatarPath}
+                    avatarFilePath={char.avatarFilePath}
+                    avatarFilename={char.avatarFilename}
                     alt={char.name}
-                    loading="lazy"
-                    className="h-full w-full object-cover"
-                    style={getAvatarCropStyle()}
+                    crop={char.avatarCrop}
+                    thumbnailSize={128}
                   />
                 ) : (
                   <User size="0.875rem" />

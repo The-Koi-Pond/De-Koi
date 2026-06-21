@@ -1,4 +1,4 @@
-import { cn, getAvatarCropStyle } from "../../../../shared/lib/utils";
+import { cn } from "../../../../shared/lib/utils";
 import { ConversationMessageActions } from "./ConversationMessageActions";
 import {
   ConversationMessageAttachments,
@@ -12,6 +12,7 @@ import {
   resolveConversationAvatar,
   type ConversationMessageRenderContext,
 } from "./ConversationMessageShared";
+import { ResolvedAvatarImage } from "../../shared/chat-ui/index";
 
 export function ConversationMessageGrouped({ context }: { context: ConversationMessageRenderContext }) {
   if (context.isHiddenCollapsed) {
@@ -63,7 +64,6 @@ export function ConversationMessageGrouped({ context }: { context: ConversationM
       {context.groupedSegments?.slice(0, context.visibleSegments).map((grp, i) => {
         const segChar = grp.speaker && context.charByName ? context.charByName.get(grp.speaker.toLowerCase()) : null;
         const segAvatar = segChar?.avatarUrl ?? null;
-        const segAvatarCropStyle = getAvatarCropStyle(segChar?.avatarCrop);
         const segName = segChar?.name ?? grp.speaker ?? "";
         const segColor = segChar?.nameColor;
         const segAvatarOverride = resolveConversationAvatar(segChar, segAvatar);
@@ -101,12 +101,15 @@ export function ConversationMessageGrouped({ context }: { context: ConversationM
                               {segAvatarOverride.emoji}
                             </div>
                           ) : segAvatarOverride.url ? (
-                            <img
+                            <ResolvedAvatarImage
                               src={segAvatarOverride.url}
+                              avatarFilePath={segAvatarOverride.isOverride ? null : (segChar?.avatarFilePath ?? null)}
+                              avatarFilename={segAvatarOverride.isOverride ? null : (segChar?.avatarFilename ?? null)}
                               alt={segName}
                               loading="lazy"
+                              decoding="async"
                               className="h-full w-full object-cover"
-                              style={segAvatarOverride.isOverride ? undefined : segAvatarCropStyle}
+                              crop={segAvatarOverride.isOverride ? null : segChar?.avatarCrop}
                             />
                           ) : (
                             <div className="flex h-full w-full items-center justify-center text-sm font-bold text-[var(--muted-foreground)]">

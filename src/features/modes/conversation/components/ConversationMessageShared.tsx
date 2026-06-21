@@ -5,7 +5,7 @@ import type { Message, MessageAttachment, MessageExtra } from "../../../../engin
 import type { ConversationAvatarOverride } from "../../../../engine/contracts/types/character";
 import type { QuoteFormat } from "../../../../shared/lib/dialogue-quotes";
 import { applyTextareaQuoteFormat } from "../../../../shared/lib/textarea-quotes";
-import { cn } from "../../../../shared/lib/utils";
+import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../../../shared/lib/markdown";
 import type { ConversationMessageStyle } from "../../../../shared/stores/ui.store";
 import type { CharacterMap, MessageSelectionToggle, PeekPromptOptions, PersonaInfo } from "../../shared/chat-ui/types";
@@ -117,7 +117,7 @@ export interface ConversationMessageRenderContext {
   avatarUrl: string | null;
   avatarFilePath: string | null;
   avatarFilename: string | null;
-  avatarCropStyle?: CSSProperties;
+  avatarCrop?: AvatarCropValue | null;
   shouldHideUserAvatarGraphic: boolean;
   shouldHideAvatarColumn: boolean;
   shouldShowMessageNumber: boolean;
@@ -713,7 +713,7 @@ export function ConversationMessageAvatarColumn({ context }: { context: Conversa
                   decoding="async"
                   thumbnailSize={128}
                   className="h-full w-full object-cover"
-                  style={context.avatarCropStyle}
+                  crop={context.avatarCrop}
                 />
               ) : (
                 <div className="flex h-full w-full items-center justify-center text-sm font-bold text-[var(--muted-foreground)]">

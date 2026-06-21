@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { ImagePlus, Plus, Sparkles, Users, X } from "lucide-react";
 import type { PresentCharacter } from "../../../../engine/contracts/types/game-state";
 import { cn } from "../../../../shared/lib/utils";
+import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { useTrackerCharacterAvatarActions } from "../../../runtime/world-state/index";
 import {
   appendTrackerListItem,
@@ -87,7 +88,7 @@ export function CharactersTrackerSection({
           className="shrink-0 rounded-full overflow-hidden ring-1 ring-purple-400/40 hover:ring-purple-400/80 transition-all"
           title="Change avatar"
         >
-          <img src={char.avatarPath} alt={char.name} className="w-8 h-8 object-cover" />
+          <AvatarImage src={char.avatarPath} alt={char.name} className="h-8 w-8" />
         </button>
       );
     }

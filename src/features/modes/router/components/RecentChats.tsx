@@ -4,7 +4,7 @@ import { useRecentChatSummaries, type ChatListItem } from "../../../catalog/chat
 import { CharacterAvatarImage, characterAvatarUrl, useCharacterSummariesByIds } from "../../../catalog/characters/index";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { normalizeChatCharacterIds } from "../../../../shared/lib/chat-display";
-import { parseAvatarCropJson, type AvatarCropValue } from "../../../../shared/lib/utils";
+import { normalizeAvatarCropValue, type AvatarCropValue } from "../../../../shared/lib/utils";
 
 const MODE_BADGE: Record<string, { icon: React.ReactNode; bg: string; label: string }> = {
   conversation: { icon: <MessageSquare size="0.75rem" />, bg: "linear-gradient(135deg, #4de5dd, #3ab8b1)", label: "Conversation" },
@@ -13,10 +13,7 @@ const MODE_BADGE: Record<string, { icon: React.ReactNode; bg: string; label: str
 };
 
 function readAvatarCrop(value: unknown): AvatarCropValue | null {
-  if (!value) return null;
-  if (typeof value === "string") return parseAvatarCropJson(value);
-  if (typeof value !== "object" || Array.isArray(value)) return null;
-  try { return parseAvatarCropJson(JSON.stringify(value)); } catch { return null; }
+  return normalizeAvatarCropValue(value);
 }
 
 export function RecentChats() {

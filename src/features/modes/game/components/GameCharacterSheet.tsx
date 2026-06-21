@@ -18,7 +18,8 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../../../shared/lib/utils";
+import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
+import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 
 export interface GameCharacterSheetGameCard {
   shortDescription: string;
@@ -475,12 +476,7 @@ export function GameCharacterSheet({
           <div className="flex items-center gap-3 sm:gap-4">
             {card.avatarUrl ? (
               <span className="relative block h-16 w-16 shrink-0 overflow-hidden rounded-xl border-2 border-[var(--border)] shadow-xl sm:h-20 sm:w-20">
-                <img
-                  src={card.avatarUrl}
-                  alt={card.title}
-                  className="h-full w-full object-cover"
-                  style={getAvatarCropStyle(card.avatarCrop)}
-                />
+                <AvatarImage src={card.avatarUrl} alt={card.title} crop={card.avatarCrop} />
               </span>
             ) : (
               <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border-2 border-[var(--border)] bg-[var(--secondary)] text-xl font-bold text-[var(--muted-foreground)] sm:h-20 sm:w-20 sm:text-2xl">

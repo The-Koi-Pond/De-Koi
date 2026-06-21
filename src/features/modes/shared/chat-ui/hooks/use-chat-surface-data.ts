@@ -10,7 +10,7 @@ import { useActivePersonaSummary, usePersonaSummary } from "../../../../catalog/
 import { ApiError } from "../../../../../shared/api/api-errors";
 import { getConnectedChatDisplayName, parseChatMetadata, normalizeChatCharacterIds } from "../../../../../shared/lib/chat-display";
 import { parseCharacterDisplayData } from "../../../../../shared/lib/character-display";
-import { parseAvatarCropJson, type AvatarCropValue } from "../../../../../shared/lib/utils";
+import { normalizeAvatarCropValue, type AvatarCropValue } from "../../../../../shared/lib/utils";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import type { CharacterMap, MessageWithSwipes, PersonaInfo } from "../types";
 
@@ -66,14 +66,7 @@ function readString(value: unknown, fallback = ""): string {
 }
 
 function readAvatarCrop(value: unknown): AvatarCropValue | null {
-  if (!value) return null;
-  if (typeof value === "string") return parseAvatarCropJson(value);
-  if (typeof value !== "object" || Array.isArray(value)) return null;
-  try {
-    return parseAvatarCropJson(JSON.stringify(value));
-  } catch {
-    return null;
-  }
+  return normalizeAvatarCropValue(value);
 }
 
 function normalizeIds(ids: Array<string | null | undefined>): string[] {
@@ -153,7 +146,7 @@ function buildPersonaInfo(persona: PersonaRow | null | undefined): PersonaInfo |
     avatarUrl: persona.avatarPath || undefined,
     avatarFilePath: persona.avatarFilePath ?? null,
     avatarFilename: persona.avatarFilename ?? null,
-    avatarCrop: parseAvatarCropJson(persona.avatarCrop),
+    avatarCrop: normalizeAvatarCropValue(persona.avatarCrop),
     nameColor: persona.nameColor || undefined,
     dialogueColor: persona.dialogueColor || undefined,
     boxColor: persona.boxColor || undefined,

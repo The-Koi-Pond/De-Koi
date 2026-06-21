@@ -18,8 +18,7 @@ import type { CharacterMap, PersonaInfo } from "../../../modes/shared/chat-ui/ty
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { isSendShortcut } from "../../../../shared/lib/send-shortcuts";
-import type { AvatarCropValue } from "../../../../shared/lib/utils";
-import { cn, parseAvatarCropJson } from "../../../../shared/lib/utils";
+import { cn, normalizeAvatarCropValue } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 
 const DEKI_AVATAR_URL = "/icon-192.png";
@@ -84,17 +83,6 @@ function formatDaySeparator(value: string) {
 function getDayKey(value: string) {
   const date = new Date(value);
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-}
-
-function parseDekiAvatarCrop(value: unknown): AvatarCropValue | null {
-  if (!value) return null;
-  if (typeof value === "string") return parseAvatarCropJson(value);
-  if (typeof value !== "object") return null;
-  try {
-    return parseAvatarCropJson(JSON.stringify(value));
-  } catch {
-    return null;
-  }
 }
 
 function toConversationMessage(message: DekiMessage): Message {
@@ -189,7 +177,9 @@ export function DekiSurface() {
       name: selectedPersona.name,
       description: selectedPersona.description ?? undefined,
       avatarUrl: selectedPersona.avatarPath ?? undefined,
-      avatarCrop: parseDekiAvatarCrop(selectedPersona.avatarCrop),
+      avatarFilePath: selectedPersona.avatarFilePath ?? null,
+      avatarFilename: selectedPersona.avatarFilename ?? null,
+      avatarCrop: normalizeAvatarCropValue(selectedPersona.avatarCrop),
     };
   }, [selectedPersona]);
   const welcomeMessage = useMemo<DekiMessage>(
@@ -508,8 +498,6 @@ export function DekiSurface() {
                   isStreaming={false}
                   isGrouped={isGrouped}
                   hideActions
-                  hideUserAvatar
-                  plainUserMessages
                   characterMap={characterMap}
                   personaInfo={personaInfo}
                   chatCharacterIds={[DEKI_CHARACTER_ID]}

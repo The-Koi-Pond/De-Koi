@@ -4,7 +4,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { useGameModeStore } from "../stores/game-mode.store";
-import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../../../shared/lib/utils";
+import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
+import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 
 interface PartyBarMember {
   id: string;
@@ -52,12 +53,7 @@ function PartyAvatar({ visual, className }: { visual: PartyMemberVisual; classNa
           className,
         )}
       >
-        <img
-          src={avatarSrc}
-          alt={member.name}
-          className="h-full w-full object-cover"
-          style={getAvatarCropStyle(avatarCrop)}
-        />
+        <AvatarImage src={avatarSrc} alt={member.name} crop={avatarCrop} />
       </span>
     );
   }

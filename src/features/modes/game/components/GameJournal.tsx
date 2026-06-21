@@ -9,6 +9,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { X, MapPin, Swords, ScrollText, Package, Users, PenLine, BookOpen, Trash2, Loader2, Wand2 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
+import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { gameApi } from "../api/game-api";
 import { chatKeys } from "../../../catalog/chats/index";
@@ -545,7 +546,7 @@ function NpcsView({
                   )}
                 </div>
               ) : entry.npc.avatarUrl ? (
-                <img src={entry.npc.avatarUrl} alt={name} className="h-6 w-6 shrink-0 rounded-full object-cover" />
+                <AvatarImage src={entry.npc.avatarUrl} alt={name} className="h-6 w-6 shrink-0 rounded-full" />
               ) : (
                 <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/10 text-[0.6rem] font-semibold text-white/60">
                   {name[0]?.toUpperCase() ?? "?"}

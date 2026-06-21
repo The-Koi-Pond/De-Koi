@@ -6,6 +6,7 @@ import { imageGenerationApi } from "../../api/image-generation-api";
 import { cn } from "../../lib/utils";
 import { urlToDataUrl } from "../../lib/url-blob";
 import { Modal } from "./Modal";
+import { AvatarImage } from "./AvatarImage";
 import { ImagePromptReviewModal, type ImagePromptOverride, type ImagePromptReviewItem } from "./ImagePromptReviewModal";
 import { isDefaultImageGenerationConnection, type ImageGenerationConnectionOption } from "../../types/image-generation";
 
@@ -196,10 +197,10 @@ export function AvatarGenerationModal({
                     onChange={(event) => setUseCurrentAvatarReference(event.target.checked)}
                     className="accent-[var(--primary)]"
                   />
-                  <img
+                  <AvatarImage
                     src={defaultAvatarUrl}
                     alt="Current avatar reference"
-                    className="h-10 w-10 rounded-lg object-cover ring-1 ring-[var(--border)]"
+                    className="h-10 w-10 rounded-lg ring-1 ring-[var(--border)]"
                   />
                   <span className="min-w-0 flex-1">Use current avatar as a reference</span>
                 </label>
@@ -209,9 +210,9 @@ export function AvatarGenerationModal({
             <div className="flex flex-col gap-3">
               <div className="relative aspect-square overflow-hidden rounded-xl bg-[var(--secondary)] ring-1 ring-[var(--border)]">
                 {generatedAvatar ? (
-                  <img src={generatedAvatar} alt="Generated avatar" className="h-full w-full object-cover" />
+                  <AvatarImage src={generatedAvatar} alt="Generated avatar" />
                 ) : defaultAvatarUrl ? (
-                  <img src={defaultAvatarUrl} alt="Current avatar" className="h-full w-full object-cover opacity-80" />
+                  <AvatarImage src={defaultAvatarUrl} alt="Current avatar" imageClassName="opacity-80" />
                 ) : (
                   <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-[var(--muted-foreground)]">
                     <ImagePlus size="1.75rem" />

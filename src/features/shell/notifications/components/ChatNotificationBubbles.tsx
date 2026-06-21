@@ -10,7 +10,8 @@ import { useState } from "react";
 import { X, MessageCircle } from "lucide-react";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useNavigateToChatFromShell } from "../../actions";
-import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../../../shared/lib/utils";
+import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
+import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { AnimatePresence, motion } from "framer-motion";
 
 export function ChatNotificationBubbles() {
@@ -84,13 +85,7 @@ export function ChatNotificationBubbles() {
                   }}
                 >
                   {notif.avatarUrl ? (
-                    <img
-                      src={notif.avatarUrl}
-                      alt=""
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                      style={getAvatarCropStyle(notif.avatarCrop)}
-                    />
+                    <AvatarImage src={notif.avatarUrl} alt="" crop={notif.avatarCrop} />
                   ) : (
                     <MessageCircle className="h-4 w-4 text-[var(--accent)]" />
                   )}
@@ -166,13 +161,7 @@ function NotificationBubble({
         title={`${notif.characterName} sent a message`}
       >
         {notif.avatarUrl ? (
-          <img
-            src={notif.avatarUrl}
-            alt={notif.characterName}
-            className="h-full w-full object-cover"
-            loading="lazy"
-            style={getAvatarCropStyle(notif.avatarCrop)}
-          />
+          <AvatarImage src={notif.avatarUrl} alt={notif.characterName} crop={notif.avatarCrop} />
         ) : (
           <MessageCircle className="h-5 w-5 text-[var(--accent)]" />
         )}

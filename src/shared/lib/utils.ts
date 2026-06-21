@@ -72,6 +72,52 @@ export function isLegacyAvatarCrop(crop: AvatarCropValue): crop is LegacyAvatarC
   return "zoom" in crop;
 }
 
+function avatarCropFromObject(obj: unknown): AvatarCropValue | null {
+  if (!obj || typeof obj !== "object") return null;
+  const record = obj as Record<string, unknown>;
+  if (
+    Number.isFinite(record.srcX) &&
+    Number.isFinite(record.srcY) &&
+    Number.isFinite(record.srcWidth) &&
+    Number.isFinite(record.srcHeight) &&
+    typeof record.srcX === "number" &&
+    typeof record.srcY === "number" &&
+    typeof record.srcWidth === "number" &&
+    typeof record.srcHeight === "number" &&
+    record.srcWidth > 0 &&
+    record.srcHeight > 0 &&
+    record.srcX >= 0 &&
+    record.srcY >= 0 &&
+    record.srcX + record.srcWidth <= 1.001 &&
+    record.srcY + record.srcHeight <= 1.001
+  ) {
+    return {
+      srcX: record.srcX,
+      srcY: record.srcY,
+      srcWidth: record.srcWidth,
+      srcHeight: record.srcHeight,
+    };
+  }
+  if (
+    Number.isFinite(record.zoom) &&
+    Number.isFinite(record.offsetX) &&
+    Number.isFinite(record.offsetY) &&
+    typeof record.zoom === "number" &&
+    typeof record.offsetX === "number" &&
+    typeof record.offsetY === "number" &&
+    record.zoom > 0 &&
+    (record.fullImage === undefined || typeof record.fullImage === "boolean")
+  ) {
+    return {
+      zoom: record.zoom,
+      offsetX: record.offsetX,
+      offsetY: record.offsetY,
+      ...(record.fullImage ? { fullImage: true } : {}),
+    };
+  }
+  return null;
+}
+
 /** Parses a JSON-encoded avatarCrop string (as stored on persona rows and as
  *  emitted from extensions on character rows when serialized) with defensive
  *  shape validation. Malformed data returns null and the caller falls back to
@@ -79,45 +125,17 @@ export function isLegacyAvatarCrop(crop: AvatarCropValue): crop is LegacyAvatarC
 export function parseAvatarCropJson(raw: string | undefined | null): AvatarCropValue | null {
   if (!raw) return null;
   try {
-    const obj = JSON.parse(raw);
-    if (!obj || typeof obj !== "object") return null;
-    if (
-      Number.isFinite(obj.srcX) &&
-      Number.isFinite(obj.srcY) &&
-      Number.isFinite(obj.srcWidth) &&
-      Number.isFinite(obj.srcHeight) &&
-      obj.srcWidth > 0 &&
-      obj.srcHeight > 0 &&
-      obj.srcX >= 0 &&
-      obj.srcY >= 0 &&
-      obj.srcX + obj.srcWidth <= 1.001 &&
-      obj.srcY + obj.srcHeight <= 1.001
-    ) {
-      return {
-        srcX: obj.srcX,
-        srcY: obj.srcY,
-        srcWidth: obj.srcWidth,
-        srcHeight: obj.srcHeight,
-      };
-    }
-    if (
-      Number.isFinite(obj.zoom) &&
-      Number.isFinite(obj.offsetX) &&
-      Number.isFinite(obj.offsetY) &&
-      obj.zoom > 0 &&
-      (obj.fullImage === undefined || typeof obj.fullImage === "boolean")
-    ) {
-      return {
-        zoom: obj.zoom,
-        offsetX: obj.offsetX,
-        offsetY: obj.offsetY,
-        ...(obj.fullImage ? { fullImage: true } : {}),
-      };
-    }
+    return avatarCropFromObject(JSON.parse(raw));
   } catch {
-    /* fall through to null */
+    return null;
   }
-  return null;
+}
+
+/** Accepts either a JSON-encoded crop or an already-parsed crop object. */
+export function normalizeAvatarCropValue(raw: unknown): AvatarCropValue | null {
+  if (!raw) return null;
+  if (typeof raw === "string") return parseAvatarCropJson(raw);
+  return avatarCropFromObject(raw);
 }
 
 /** Returns inline styles for a cropped avatar image. Container must have

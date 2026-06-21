@@ -228,7 +228,7 @@ function ConnectionRow({
           onImagePick();
         }}
         className={cn(
-          "relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl text-white shadow-sm transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-sky-400/50",
+          "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-sm transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-sky-400/50",
           resolvedImagePath ? "bg-[var(--muted)]" : "bg-gradient-to-br",
           !resolvedImagePath && colors.from,
           !resolvedImagePath && colors.to,
@@ -236,24 +236,26 @@ function ConnectionRow({
         title={conn.imagePath ? "Replace connection picture" : "Upload connection picture"}
         aria-label={conn.imagePath ? "Replace connection picture" : "Upload connection picture"}
       >
-        {resolvedImagePath ? (
-          <img src={resolvedImagePath} alt="" className="h-full w-full object-cover" draggable={false} />
-        ) : (
-          <Link size="1rem" />
-        )}
+        <span className="absolute inset-0 flex items-center justify-center overflow-hidden rounded-xl">
+          {resolvedImagePath ? (
+            <img src={resolvedImagePath} alt="" className="h-full w-full object-cover" draggable={false} />
+          ) : (
+            <Link size="1rem" />
+          )}
+          <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+            <Camera size="0.875rem" />
+          </span>
+        </span>
         {isSelected && (
           <div
             className={cn(
-              "absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full shadow-sm",
+              "absolute -right-1 -top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full shadow-sm ring-1 ring-[var(--background)]",
               colors.badge,
             )}
           >
             <Check size="0.625rem" className="text-white" />
           </div>
         )}
-        <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
-          <Camera size="0.875rem" />
-        </span>
       </button>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium" title={conn.name}>
