@@ -811,6 +811,9 @@ export function ChatRoleplaySurface({
   const moreMenuBtnRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const branchSelectorRef = useRef<ChatBranchSelectorHandle | null>(null);
+  const topChromeRef = useRef<HTMLDivElement>(null);
+  const inputChromeRef = useRef<HTMLDivElement>(null);
+  const [chromeHeights, setChromeHeights] = useState({ top: 0, bottom: 0 });
   const [transcriptWindowStart, setTranscriptWindowStart] = useState<number | null>(null);
   const previousTailRef = useRef<{ messageId: string | undefined; isStreaming: boolean }>({
     messageId: undefined,
@@ -942,6 +945,22 @@ export function ChatRoleplaySurface({
   const showSpriteOverlay =
     expressionAgentEnabled && spriteCharacterIds.length > 0 && overlaySpriteDisplayModes.length > 0;
 
+  useLayoutEffect(() => {
+    const measure = () => {
+      const top = Math.ceil(topChromeRef.current?.getBoundingClientRect().height ?? 0);
+      const bottom = Math.ceil(inputChromeRef.current?.getBoundingClientRect().height ?? 0);
+      setChromeHeights((current) => (current.top === top && current.bottom === bottom ? current : { top, bottom }));
+    };
+
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(measure);
+    if (topChromeRef.current) observer.observe(topChromeRef.current);
+    if (inputChromeRef.current) observer.observe(inputChromeRef.current);
+    return () => observer.disconnect();
+  }, [activeChatId, addonsReady, agentsUiEnabled, centerCompact, chatMeta.sceneStatus, combatAgentEnabled]);
+
   useEffect(() => {
     setAddonsReady(false);
     setTranscriptWindowStart(null);
@@ -980,8 +999,8 @@ export function ChatRoleplaySurface({
         )}
 
         <div className="relative z-20 flex h-full min-h-0 flex-1 basis-0 overflow-clip min-w-0">
-          <div className="flex h-full min-h-0 flex-1 basis-0 flex-col overflow-clip min-w-0">
-            <>
+          <div className="relative flex h-full min-h-0 flex-1 basis-0 flex-col overflow-clip min-w-0">
+            <div ref={topChromeRef} className="pointer-events-none absolute inset-x-0 top-0 z-40">
               <div
                 data-tracker-panel-anchor="roleplay-hud"
                 className={cn(
@@ -1086,7 +1105,7 @@ export function ChatRoleplaySurface({
                 )}
 
               </div>
-            </>
+            </div>
 
             {encounterActive && (
               <Suspense fallback={null}>
@@ -1095,7 +1114,7 @@ export function ChatRoleplaySurface({
             )}
 
             <div
-              className={cn("relative z-10 min-h-0 flex-1 basis-0 overflow-clip min-w-0", TRACKER_SCROLL_AVOIDANCE_CLASS)}
+              className={cn("absolute inset-0 z-10 overflow-clip min-w-0", TRACKER_SCROLL_AVOIDANCE_CLASS)}
               style={{
                 paddingLeft: "var(--tracker-chat-scroll-avoid-left)",
                 paddingRight: "var(--tracker-chat-scroll-avoid-right)",
@@ -1105,9 +1124,14 @@ export function ChatRoleplaySurface({
                 ref={scrollRef}
                 data-chat-scroll
                 className={cn(
-                  "rpg-chat-messages-mobile mari-messages-scroll relative h-full overflow-y-auto overflow-x-hidden pb-1 pt-4",
+                  "rpg-chat-messages-mobile mari-messages-scroll relative h-full overflow-y-auto overflow-x-hidden pt-4",
                   centerCompact ? "px-3" : "px-3 md:px-[15%]",
                 )}
+                style={{
+                  paddingBottom: Math.max(16, chromeHeights.bottom + 12),
+                  scrollPaddingTop: Math.max(16, chromeHeights.top + 8),
+                  scrollPaddingBottom: Math.max(16, chromeHeights.bottom + 12),
+                }}
               >
                 {(hasNextPage || transcriptWindow.hiddenBeforeCount > 0) && (
                   <div className="mb-3 flex justify-center">
@@ -1240,8 +1264,14 @@ export function ChatRoleplaySurface({
               </div>
             </div>
 
-            <div className={cn("relative z-30 shrink-0 min-w-0", TRACKER_FOREGROUND_AVOIDANCE_CLASS)}>
-              <div className={cn("relative", centerCompact ? "px-3" : "px-3 md:px-[12%]")}>
+            <div
+              ref={inputChromeRef}
+              className={cn(
+                "pointer-events-none absolute inset-x-0 bottom-0 z-30 min-w-0",
+                TRACKER_FOREGROUND_AVOIDANCE_CLASS,
+              )}
+            >
+              <div className={cn("pointer-events-auto relative", centerCompact ? "px-3" : "px-3 md:px-[12%]")}>
                 {chatMeta.sceneStatus === "active" && (
                   <EndSceneBar
                     sceneChatId={activeChatId}
