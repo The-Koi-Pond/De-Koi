@@ -33,6 +33,7 @@ export interface ConversationMessageProps {
   isGrouped?: boolean;
   hideActions?: boolean;
   hideUserAvatar?: boolean;
+  hideTimestamp?: boolean;
   noHoverGroup?: boolean;
   plainUserMessages?: boolean;
   forceShowActions?: boolean;
@@ -86,6 +87,7 @@ export interface ConversationMessageRenderContext {
   isStreaming?: boolean;
   isGrouped?: boolean;
   hideActions?: boolean;
+  hideTimestamp: boolean;
   noHoverGroup?: boolean;
   forceShowActions?: boolean;
   multiSelectMode?: boolean;
@@ -748,9 +750,11 @@ export function ConversationMessageMeta({ context }: { context: ConversationMess
       >
         {context.displayName}
       </span>
-      <span className="mari-message-timestamp text-[0.6875rem] text-[var(--muted-foreground)]/60">
-        {formatTimestamp(context.message.createdAt)}
-      </span>
+      {!context.hideTimestamp && (
+        <span className="mari-message-timestamp text-[0.6875rem] text-[var(--muted-foreground)]/60">
+          {formatTimestamp(context.message.createdAt)}
+        </span>
+      )}
     </div>
   );
 }

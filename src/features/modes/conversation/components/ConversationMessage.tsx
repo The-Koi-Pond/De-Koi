@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, memo, useMemo, type CSSProperties } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { toast } from "sonner";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { formatTextQuotes } from "../../../../shared/lib/dialogue-quotes";
@@ -50,6 +51,7 @@ function areConversationMessagePropsEqual(prev: ConversationMessageProps, next: 
     prev.isGrouped === next.isGrouped &&
     prev.hideActions === next.hideActions &&
     prev.hideUserAvatar === next.hideUserAvatar &&
+    prev.hideTimestamp === next.hideTimestamp &&
     prev.noHoverGroup === next.noHoverGroup &&
     prev.plainUserMessages === next.plainUserMessages &&
     prev.forceShowActions === next.forceShowActions &&
@@ -86,6 +88,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   isGrouped,
   hideActions,
   hideUserAvatar,
+  hideTimestamp,
   noHoverGroup,
   plainUserMessages,
   forceShowActions,
@@ -298,6 +301,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     async (index: number) => {
       const updated = attachments.filter((_, i) => i !== index);
       const msgKey = chatKeys.messages(message.chatId);
+      const previous = qc.getQueryData<InfiniteData<Message[]>>(msgKey);
       qc.setQueryData<InfiniteData<Message[]>>(msgKey, (old) => {
         if (!old) return old;
         return {
@@ -311,8 +315,14 @@ export const ConversationMessage = memo(function ConversationMessage({
           ),
         };
       });
-      await storageApi.patchChatMessageExtra(message.id, { attachments: updated });
-      qc.invalidateQueries({ queryKey: msgKey });
+      try {
+        await storageApi.patchChatMessageExtra(message.id, { attachments: updated });
+      } catch (error) {
+        qc.setQueryData(msgKey, previous);
+        toast.error(error instanceof Error ? error.message : "Failed to remove attachment.");
+      } finally {
+        await qc.invalidateQueries({ queryKey: msgKey });
+      }
     },
     [attachments, message.chatId, message.id, qc],
   );
@@ -388,16 +398,20 @@ export const ConversationMessage = memo(function ConversationMessage({
   const editSourceContent = originalContent ?? message.content;
   const hasRenderedContent = renderedContentParts ? renderedContentParts.length > 0 : renderedContent.length > 0;
   const bubbleCornerClass = isUser
-    ? bubbleGroupPosition === "middle"
-      ? "rounded-2xl rounded-r-md"
-      : bubbleGroupPosition === "last"
-        ? "rounded-2xl rounded-tr-md rounded-br-md"
-        : "rounded-2xl rounded-br-md"
-    : bubbleGroupPosition === "middle"
-      ? "rounded-2xl rounded-l-md"
-      : bubbleGroupPosition === "last"
-        ? "rounded-2xl rounded-tl-md rounded-bl-md"
-        : "rounded-2xl rounded-bl-md";
+    ? bubbleGroupPosition === "single"
+      ? "rounded-2xl"
+      : bubbleGroupPosition === "first"
+        ? "rounded-2xl rounded-br-md"
+        : bubbleGroupPosition === "middle"
+          ? "rounded-2xl rounded-r-md"
+          : "rounded-2xl rounded-tr-md"
+    : bubbleGroupPosition === "single"
+      ? "rounded-2xl"
+      : bubbleGroupPosition === "first"
+        ? "rounded-2xl rounded-bl-md"
+        : bubbleGroupPosition === "middle"
+          ? "rounded-2xl rounded-l-md"
+          : "rounded-2xl rounded-tl-md";
 
   const handleCopy = useCallback(() => {
     copyToClipboard(renderedContent);
@@ -518,6 +532,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     isStreaming,
     isGrouped,
     hideActions,
+    hideTimestamp: hideTimestamp === true,
     noHoverGroup,
     forceShowActions,
     multiSelectMode,

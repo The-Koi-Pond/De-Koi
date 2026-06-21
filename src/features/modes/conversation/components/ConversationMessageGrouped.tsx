@@ -4,6 +4,7 @@ import {
   ConversationMessageAttachments,
   ConversationMessageOverlays,
   ConversationMessageSwipeControl,
+  ConversationMessageTranslation,
   formatTimestamp,
   MessageSelectCheckbox,
   nameColorStyle,
@@ -130,7 +131,7 @@ export function ConversationMessageGrouped({ context }: { context: ConversationM
                         >
                           {segName}
                         </span>
-                        {isFirst && (
+                        {isFirst && !context.hideTimestamp && (
                           <span className="text-[0.6875rem] text-[var(--muted-foreground)]/60">
                             {formatTimestamp(context.message.createdAt)}
                           </span>
@@ -164,6 +165,9 @@ export function ConversationMessageGrouped({ context }: { context: ConversationM
         <span className="ml-14 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-[var(--foreground)]/50" />
       )}
 
+      <div className="ml-14">
+        <ConversationMessageTranslation context={context} />
+      </div>
       <ConversationMessageAttachments context={context} className="ml-14 mt-1.5 flex flex-col items-start gap-2" />
       <ConversationMessageSwipeControl context={context} variant="grouped" />
       <ConversationMessageActions

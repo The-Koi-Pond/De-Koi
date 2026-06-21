@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  clearConversationRevealGeneration,
   collectFreshAssistantPartRevealStarts,
+  isCurrentConversationRevealGeneration,
   resolveConversationVisiblePartCount,
+  startConversationRevealGeneration,
+  type ConversationRevealGenerationMap,
 } from "./conversation-part-reveal";
 
 describe("conversation part reveal", () => {
@@ -78,5 +82,21 @@ describe("conversation part reveal", () => {
         freshRevealStarts: seenStarts,
       }),
     ).toBe(3);
+  });
+
+  it("makes stale same-key reveal generations inert after replacement", () => {
+    const generations: ConversationRevealGenerationMap = {};
+
+    const firstGeneration = startConversationRevealGeneration(generations, "assistant-1");
+    const replacementGeneration = startConversationRevealGeneration(generations, "assistant-1");
+
+    expect(isCurrentConversationRevealGeneration(generations, "assistant-1", firstGeneration)).toBe(false);
+    expect(isCurrentConversationRevealGeneration(generations, "assistant-1", replacementGeneration)).toBe(true);
+
+    clearConversationRevealGeneration(generations, "assistant-1", firstGeneration);
+    expect(isCurrentConversationRevealGeneration(generations, "assistant-1", replacementGeneration)).toBe(true);
+
+    clearConversationRevealGeneration(generations, "assistant-1", replacementGeneration);
+    expect(isCurrentConversationRevealGeneration(generations, "assistant-1", replacementGeneration)).toBe(false);
   });
 });

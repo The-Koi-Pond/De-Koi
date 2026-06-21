@@ -28,8 +28,12 @@ import {
 } from "../lib/conversation-streaming-draft";
 import {
   CONVERSATION_PART_REVEAL_FRESHNESS_MS,
+  clearConversationRevealGeneration,
   collectFreshAssistantPartRevealStarts,
+  isCurrentConversationRevealGeneration,
   resolveConversationVisiblePartCount,
+  startConversationRevealGeneration,
+  type ConversationRevealGenerationMap,
 } from "../lib/conversation-part-reveal";
 import {
   ChatBranchSelector,
@@ -383,6 +387,7 @@ export function ConversationView({
   const typingCharacterName = useChatStore((s) => s.typingCharacterName);
   const delayedCharacterInfo = useChatStore((s) => s.delayedCharacterInfo);
   const conversationMessageStyle = useUIStore((s) => s.conversationMessageStyle);
+  const showTimestamps = useUIStore((s) => s.showTimestamps);
   const inactiveCharacterIdSet = useMemo(
     () => new Set(Array.isArray(chatMeta.inactiveCharacterIds) ? chatMeta.inactiveCharacterIds : []),
     [chatMeta.inactiveCharacterIds],
@@ -1012,7 +1017,7 @@ export function ConversationView({
   }, [transcriptWindow, characterMap, chatCharIds, conversationMessageStyle, totalMessageCount]);
 
   const liveStreamCharacterId =
-    streamingCharacterId ?? (activeChatCharIds.length === 1 ? activeChatCharIds[0]! : (activeChatCharIds[0] ?? null));
+    streamingCharacterId ?? (activeChatCharIds.length === 1 ? activeChatCharIds[0]! : null);
   const liveStreamMessage = useMemo<Message | null>(() => {
     if (!shouldRenderLiveStreamMessage) return null;
     return {
@@ -1110,6 +1115,7 @@ export function ConversationView({
 
   // ── Staggered reveal for assistant message parts ──
   const [visiblePartCounts, setVisiblePartCounts] = useState<Record<string, number>>({});
+  const renderedMessageKeysRef = useRef<Set<string>>(new Set());
   const prevRenderedKeysRef = useRef<Set<string>>(new Set());
   // Track whether the initial data load has settled. Until it has, we treat
   // all arriving keys as "already seen" so re-mounting the component (or the
@@ -1121,7 +1127,8 @@ export function ConversationView({
   const globalSeenKeysRef = useRef(globalSeenKeys);
   // Persist stagger timers in a ref so they survive effect re-runs caused by
   // query refetches arriving shortly after the initial message_saved upsert.
-  const staggerTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const staggerTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>[]>>({});
+  const staggerGenerationsRef = useRef<ConversationRevealGenerationMap>({});
 
   // Reset stagger state when the active chat changes so no cross-chat leakage
   const prevChatIdRef = useRef(chatId);
@@ -1129,8 +1136,10 @@ export function ConversationView({
     prevChatIdRef.current = chatId;
     initialLoadSettledRef.current = false;
     prevRenderedKeysRef.current = new Set();
-    staggerTimersRef.current.forEach(clearTimeout);
-    staggerTimersRef.current = [];
+    renderedMessageKeysRef.current = new Set();
+    Object.values(staggerTimersRef.current).forEach((timers) => timers.forEach(clearTimeout));
+    staggerTimersRef.current = {};
+    staggerGenerationsRef.current = {};
     setVisiblePartCounts({});
   }
   const freshPartRevealStarts = collectFreshAssistantPartRevealStarts({
@@ -1153,6 +1162,25 @@ export function ConversationView({
     const messageItems = renderedItems.filter((item): item is RenderedMessageItem => item.type === "message");
     const currentKeys = new Set(messageItems.map((item) => item.key));
     const itemByKey = new Map(messageItems.map((item) => [item.key, item]));
+    renderedMessageKeysRef.current = currentKeys;
+
+    for (const key of Object.keys(staggerTimersRef.current)) {
+      if (!currentKeys.has(key)) {
+        staggerTimersRef.current[key]?.forEach(clearTimeout);
+        delete staggerTimersRef.current[key];
+        clearConversationRevealGeneration(staggerGenerationsRef.current, key);
+      }
+    }
+
+    setVisiblePartCounts((prev) => {
+      let changed = false;
+      const next: Record<string, number> = {};
+      for (const [key, count] of Object.entries(prev)) {
+        if (currentKeys.has(key)) next[key] = count;
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
 
     // On the very first render that has messages, just snapshot the keys and
     // mark the initial load as settled — don't stagger or play sounds.
@@ -1226,28 +1254,43 @@ export function ConversationView({
     if (newPartMessages.length === 0) {
       // Clear any orphaned partial counts left by a previous stagger whose
       // reveal timers were cancelled, unless a stagger is actively running.
-      if (staggerTimersRef.current.length === 0) {
+      const hasActiveTimers = Object.values(staggerTimersRef.current).some((timers) => timers.length > 0);
+      if (!hasActiveTimers) {
         setVisiblePartCounts((prev) => (Object.keys(prev).length > 0 ? {} : prev));
       }
       return;
     }
 
-    // Cancel any previous stagger before starting a new one
-    staggerTimersRef.current.forEach(clearTimeout);
-    staggerTimersRef.current = [];
+    for (const { key } of newPartMessages) {
+      staggerTimersRef.current[key]?.forEach(clearTimeout);
+      delete staggerTimersRef.current[key];
+    }
 
-    setVisiblePartCounts(() => {
-      const next: Record<string, number> = {};
+    setVisiblePartCounts((prev) => {
+      const next = { ...prev };
       for (const { key } of newPartMessages) next[key] = 1;
       return next;
     });
 
     let revealOrder = 0;
     for (const { key, count } of newPartMessages) {
+      const revealGeneration = startConversationRevealGeneration(staggerGenerationsRef.current, key);
       for (let partIndex = 2; partIndex <= count; partIndex++) {
         revealOrder += 1;
         const delay = revealOrder * 1500;
         const timer = setTimeout(() => {
+          const isCurrentReveal = isCurrentConversationRevealGeneration(
+            staggerGenerationsRef.current,
+            key,
+            revealGeneration,
+          );
+          if (!isCurrentReveal) return;
+          if (!renderedMessageKeysRef.current.has(key)) {
+            clearConversationRevealGeneration(staggerGenerationsRef.current, key, revealGeneration);
+            staggerTimersRef.current[key]?.forEach(clearTimeout);
+            delete staggerTimersRef.current[key];
+            return;
+          }
           setVisiblePartCounts((prev) => {
             const next = { ...prev };
             if (partIndex >= count) {
@@ -1261,9 +1304,15 @@ export function ConversationView({
           if (uiState.convoNotificationSound) {
             playNotificationPing(uiState.notificationSound, uiState.customNotificationSound);
           }
-          staggerTimersRef.current = staggerTimersRef.current.filter((currentTimer) => currentTimer !== timer);
+          staggerTimersRef.current[key] = (staggerTimersRef.current[key] ?? []).filter(
+            (currentTimer) => currentTimer !== timer,
+          );
+          if ((staggerTimersRef.current[key]?.length ?? 0) === 0) {
+            delete staggerTimersRef.current[key];
+            clearConversationRevealGeneration(staggerGenerationsRef.current, key, revealGeneration);
+          }
         }, delay);
-        staggerTimersRef.current.push(timer);
+        (staggerTimersRef.current[key] ??= []).push(timer);
       }
     }
     // No cleanup return here — timers are managed via staggerTimersRef and
@@ -1274,8 +1323,9 @@ export function ConversationView({
   // Clean up stagger timers on unmount only (empty deps = unmount cleanup)
   useEffect(() => {
     return () => {
-      staggerTimersRef.current.forEach(clearTimeout);
-      staggerTimersRef.current = [];
+      Object.values(staggerTimersRef.current).forEach((timers) => timers.forEach(clearTimeout));
+      staggerTimersRef.current = {};
+      staggerGenerationsRef.current = {};
     };
   }, []);
 
@@ -1610,6 +1660,7 @@ export function ConversationView({
                         message={displayMsg}
                         isStreaming={hasStreamContent}
                         isGrouped={isGrouped}
+                        hideTimestamp={!showTimestamps}
                         onDelete={onDelete}
                         onRegenerate={onRegenerate}
                         onEdit={onEdit}
@@ -1640,6 +1691,7 @@ export function ConversationView({
                           isStreaming
                           isGrouped={false}
                           hideActions
+                          hideTimestamp={!showTimestamps}
                           onDelete={onDelete}
                           onRegenerate={onRegenerate}
                           onEdit={onEdit}
@@ -1671,6 +1723,7 @@ export function ConversationView({
               isStreaming
               isGrouped={false}
               hideActions
+              hideTimestamp={!showTimestamps}
               onDelete={onDelete}
               onRegenerate={onRegenerate}
               onEdit={onEdit}
