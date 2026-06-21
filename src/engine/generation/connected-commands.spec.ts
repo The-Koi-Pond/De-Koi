@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { StorageEntity, StorageGateway, StorageListOptions } from "../capabilities/storage";
-import {
-  detectConversationSelfieRequestIntent,
-  persistConnectedCommandTags,
-  pruneConnectedConversationNotes,
-} from "./connected-commands";
+import { persistConnectedCommandTags, pruneConnectedConversationNotes } from "./connected-commands";
 import { loadCharacters } from "./prompt-assembly";
 import { parseCharacterCommands } from "../modes/chat/commands/character-commands";
+import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
 import type { JsonRecord } from "./runtime-records";
 
 function asStorageValue<T>(value: unknown): T {
@@ -224,13 +221,47 @@ describe("conversation selfie request intent", () => {
   it("detects paraphrased selfie requests", () => {
     expect(detectConversationSelfieRequestIntent("Could you snap a quick pic for me?")).toBe(true);
     expect(detectConversationSelfieRequestIntent("I'd love a picture of you.")).toBe(true);
+    expect(detectConversationSelfieRequestIntent("Could I see your latest photo?")).toBe(true);
     expect(detectConversationSelfieRequestIntent("Selfie please?")).toBe(true);
   });
 
   it("does not treat descriptive photo prose as selfie request intent", () => {
-    expect(detectConversationSelfieRequestIntent("I found an old photo by the harbor.")).toBe(false);
-    expect(detectConversationSelfieRequestIntent("That picture was beautiful.")).toBe(false);
-    expect(detectConversationSelfieRequestIntent("No need to send a selfie.")).toBe(false);
+    const negatives = [
+      "I found an old photo by the harbor.",
+      "That picture was beautiful.",
+      "I'd like a photo from last summer.",
+      "Can you describe the picture on the wall?",
+      "Could you share a picture of the city?",
+      "I want to talk about photos.",
+      "No need to send a selfie.",
+      "Please don't send a selfie.",
+    ];
+
+    for (const input of negatives) {
+      expect(detectConversationSelfieRequestIntent(input), input).toBe(false);
+    }
+  });
+
+  it("uses the immediate previous assistant selfie offer for short follow-up requests", () => {
+    expect(
+      detectConversationSelfieRequestIntent({
+        latestUserInput: "Yes please, send one.",
+        recentMessages: [
+          { role: "assistant", content: "Want me to send a selfie from the balcony?" },
+          { role: "user", content: "Yes please, send one." },
+        ],
+      }),
+    ).toBe(true);
+
+    expect(
+      detectConversationSelfieRequestIntent({
+        latestUserInput: "Yes please, send one.",
+        recentMessages: [
+          { role: "assistant", content: "Want me to describe the old photo by the balcony?" },
+          { role: "user", content: "Yes please, send one." },
+        ],
+      }),
+    ).toBe(false);
   });
 });
 
@@ -578,7 +609,7 @@ describe("character connected commands", () => {
 });
 
 describe("persistConnectedCommandTags", () => {
-  it("recovers an implicit selfie command when the user requested one and the reply promises a photo", async () => {
+  it("recovers an implicit selfie command when a paraphrased user request asks for one", async () => {
     const chat = {
       id: "chat-1",
       mode: "conversation",
@@ -617,7 +648,7 @@ describe("persistConnectedCommandTags", () => {
       null,
       undefined,
       undefined,
-      { pendingSelfieIntent: true },
+      { pendingSelfieIntent: detectConversationSelfieRequestIntent("Could you snap a quick pic for me?") },
     );
 
     expect(result.displayContent).toBe("Sure, I will send a selfie from the balcony.");
@@ -830,7 +861,7 @@ describe("persistConnectedCommandTags", () => {
     expect(shareResult.assistantAttachments).toEqual([]);
   });
 
-  it("does not recover an implicit selfie from ordinary photo prose without a request", async () => {
+  it("does not recover an implicit selfie from generic photo prose without selfie intent", async () => {
     const chat = {
       id: "chat-1",
       mode: "conversation",
@@ -853,7 +884,7 @@ describe("persistConnectedCommandTags", () => {
       null,
       undefined,
       undefined,
-      { pendingSelfieIntent: false },
+      { pendingSelfieIntent: detectConversationSelfieRequestIntent("I'd like a photo from last summer.") },
     );
 
     expect(result.executedCommands).toEqual([]);

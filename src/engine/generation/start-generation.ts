@@ -22,6 +22,7 @@ import { collapseExcessBlankLines } from "../shared/text/newlines";
 import { normalizeUserTimeZone } from "../shared/time/timezone";
 import { buildImpersonateInstruction } from "../modes/chat/commands/impersonate-prompt";
 import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
+import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
 import { getConversationStatus } from "../modes/chat/autonomous/autonomous.service";
 import {
   backfillConversationSummaries,
@@ -38,7 +39,6 @@ import { createGenerationAgentRuntime } from "./agent-runner";
 import { buildBuiltInAgentFallback } from "./built-in-agent-fallback";
 import {
   consumePendingConnectedInfluences,
-  detectConversationSelfieRequestIntent,
   persistConnectedCommandTags,
   type ConnectedCommandResult,
 } from "./connected-commands";
@@ -4190,7 +4190,12 @@ export async function* startGeneration(
           readString(connection.id) || input.connectionId || null,
           input.imagePromptSettings,
           deps.visuals,
-          { pendingSelfieIntent: detectConversationSelfieRequestIntent(latestUserInput) },
+          {
+            pendingSelfieIntent: detectConversationSelfieRequestIntent({
+              latestUserInput,
+              recentMessages: generationMessages,
+            }),
+          },
         );
     throwIfAborted(signal);
     for (const event of connected.events) yield event;
@@ -4461,7 +4466,12 @@ export async function* startGeneration(
         readString(connection.id) || input.connectionId || null,
         input.imagePromptSettings,
         deps.visuals,
-        { pendingSelfieIntent: detectConversationSelfieRequestIntent(latestUserInput) },
+        {
+          pendingSelfieIntent: detectConversationSelfieRequestIntent({
+            latestUserInput,
+            recentMessages: generationMessages,
+          }),
+        },
       );
   throwIfAborted(signal);
   for (const event of connected.events) yield event;
