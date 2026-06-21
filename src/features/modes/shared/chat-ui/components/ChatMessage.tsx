@@ -1781,6 +1781,7 @@ export const ChatMessage = memo(function ChatMessage({
             className="rpg-avatar-panel-tail-image absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-700"
             style={{ opacity: i === 0 ? 1 : 0 }}
             crop={null}
+            upgradeToFullResolution
             onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
           />
         ))}
@@ -1798,6 +1799,7 @@ export const ChatMessage = memo(function ChatMessage({
           thumbnailSize={256}
           className="rpg-avatar-panel-tail-image absolute inset-0 h-full w-full object-cover object-top"
           crop={null}
+          upgradeToFullResolution
           onResolvedSrc={handleResolvedAvatarSrc}
         />
       </div>
@@ -2026,6 +2028,7 @@ export const ChatMessage = memo(function ChatMessage({
                       className="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
                       style={{ opacity: i === 0 ? 1 : 0 }}
                       crop={compactMergedAvatarCropForRender(avatar)}
+                      upgradeToFullResolution
                       onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
                     />
                   ))}
@@ -2051,6 +2054,7 @@ export const ChatMessage = memo(function ChatMessage({
                       thumbnailSize={128}
                       className="h-full w-full object-cover"
                       crop={compactAvatarCropForRender}
+                      upgradeToFullResolution
                       onResolvedSrc={handleResolvedAvatarSrc}
                     />
                   </button>
@@ -2177,6 +2181,7 @@ export const ChatMessage = memo(function ChatMessage({
                               className="absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-700"
                               style={{ opacity: i === 0 ? 1 : 0 }}
                               crop={null}
+                              upgradeToFullResolution
                               onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
                             />
                           ))}
@@ -2201,6 +2206,7 @@ export const ChatMessage = memo(function ChatMessage({
                             thumbnailSize={256}
                             className="h-full w-full object-cover object-top"
                             crop={null}
+                            upgradeToFullResolution
                             onResolvedSrc={handleResolvedAvatarSrc}
                           />
                         </button>
@@ -2571,6 +2577,7 @@ export const ChatMessage = memo(function ChatMessage({
                     className="absolute inset-0 h-8 w-8 object-cover transition-opacity duration-700"
                     style={{ opacity: i === 0 ? 1 : 0 }}
                     crop={avatar.crop}
+                    upgradeToFullResolution
                     onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
                   />
                 ))}
@@ -2592,6 +2599,7 @@ export const ChatMessage = memo(function ChatMessage({
                   thumbnailSize={64}
                   className="h-full w-full object-cover"
                   crop={avatarCrop}
+                  upgradeToFullResolution
                   onResolvedSrc={handleResolvedAvatarSrc}
                 />
               </button>

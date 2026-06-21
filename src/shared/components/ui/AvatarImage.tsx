@@ -28,7 +28,8 @@ import {
 export type AvatarImageSizeHint = 64 | 96 | 128 | 256;
 
 const RESOLVED_AVATAR_SRC_CACHE_LIMIT = 128;
-const resolvedAvatarSrcCache = new Map<string, string>();
+const MISSING_RESOLVED_AVATAR_SRC = Symbol("missing-resolved-avatar-src");
+const resolvedAvatarSrcCache = new Map<string, string | typeof MISSING_RESOLVED_AVATAR_SRC>();
 
 function hasText(value: string | null | undefined): boolean {
   return !!value?.trim();
@@ -49,14 +50,15 @@ function getAvatarLoadingMode(src: string | null | undefined): "eager" | "lazy" 
   return value.startsWith("data:") || value.startsWith("blob:") ? "eager" : "lazy";
 }
 
-function readCachedResolvedAvatarSrc(key: string): string | null {
-  return resolvedAvatarSrcCache.get(key) ?? null;
+function readCachedResolvedAvatarSrc(key: string): { hit: boolean; src: string | null } {
+  if (!resolvedAvatarSrcCache.has(key)) return { hit: false, src: null };
+  const cached = resolvedAvatarSrcCache.get(key);
+  return { hit: true, src: cached === MISSING_RESOLVED_AVATAR_SRC ? null : (cached ?? null) };
 }
 
 function rememberResolvedAvatarSrc(key: string, src: string | null): void {
   resolvedAvatarSrcCache.delete(key);
-  if (!src) return;
-  resolvedAvatarSrcCache.set(key, src);
+  resolvedAvatarSrcCache.set(key, src ?? MISSING_RESOLVED_AVATAR_SRC);
   while (resolvedAvatarSrcCache.size > RESOLVED_AVATAR_SRC_CACHE_LIMIT) {
     const oldestKey = resolvedAvatarSrcCache.keys().next().value;
     if (!oldestKey) break;
@@ -103,6 +105,21 @@ function sourceRectCropStyle(
 
 function hasResolvedSourceRectCropStyle(style: CSSProperties): boolean {
   return style.position === "absolute" && typeof style.width === "string" && typeof style.height === "string";
+}
+
+function areCropStylesEqual(a: CSSProperties, b: CSSProperties): boolean {
+  return (
+    a.position === b.position &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.left === b.left &&
+    a.top === b.top &&
+    a.right === b.right &&
+    a.bottom === b.bottom &&
+    a.maxWidth === b.maxWidth &&
+    a.maxHeight === b.maxHeight &&
+    a.objectFit === b.objectFit
+  );
 }
 
 function waitForImageResolveSlot(element: HTMLElement, signal: AbortSignal): Promise<void> {
@@ -176,6 +193,7 @@ type ResolvedAvatarImageProps = {
   className?: string;
   style?: CSSProperties;
   thumbnailSize?: AvatarImageSizeHint;
+  upgradeToFullResolution?: boolean;
   onError?: () => void;
   onResolvedSrc?: (src: string | null) => void;
 };
@@ -195,6 +213,7 @@ export const ResolvedAvatarImage = forwardRef<HTMLImageElement, ResolvedAvatarIm
       className,
       style,
       thumbnailSize,
+      upgradeToFullResolution = false,
       onError,
       onResolvedSrc,
     },
@@ -226,11 +245,20 @@ export const ResolvedAvatarImage = forwardRef<HTMLImageElement, ResolvedAvatarIm
       return avatarThumbnailFileUrlFromPath(avatarFilename, avatarFilePath, effectiveThumbnailSize, src);
     }, [avatarFilePath, avatarFilename, effectiveThumbnailSize, src]);
     const immediateSrc = previewSrc ?? syncFullSrc ?? fallbackSrc;
-    const resolutionKey = JSON.stringify([src ?? "", avatarFilename ?? "", avatarFilePath ?? ""]);
-    const cachedResolvedSrc = hasManagedAvatar ? readCachedResolvedAvatarSrc(resolutionKey) : null;
+    const resolutionKey = JSON.stringify([
+      src ?? "",
+      avatarFilename ?? "",
+      avatarFilePath ?? "",
+      effectiveThumbnailSize ?? "full",
+      upgradeToFullResolution ? "upgrade" : "preview",
+    ]);
+    const cachedResolvedSrcEntry = hasManagedAvatar
+      ? readCachedResolvedAvatarSrc(resolutionKey)
+      : { hit: false, src: null };
+    const cachedResolvedSrc = cachedResolvedSrcEntry.hit ? cachedResolvedSrcEntry.src : null;
     const [resolvedState, setResolvedState] = useState<{ key: string; src: string | null }>({
       key: resolutionKey,
-      src: cachedResolvedSrc ?? immediateSrc,
+      src: cachedResolvedSrcEntry.hit ? cachedResolvedSrcEntry.src : immediateSrc,
     });
     const [sourceRectCropStyleState, setSourceRectCropStyleState] = useState<{
       key: string;
@@ -251,16 +279,16 @@ export const ResolvedAvatarImage = forwardRef<HTMLImageElement, ResolvedAvatarIm
       }
 
       const cachedSrc = readCachedResolvedAvatarSrc(resolutionKey);
-      const nextInitialSrc = cachedSrc ?? immediateSrc;
+      const nextInitialSrc = cachedSrc.hit ? cachedSrc.src : immediateSrc;
       setResolvedState({ key: resolutionKey, src: nextInitialSrc });
-      if (cachedSrc) {
-        onResolvedSrc?.(cachedSrc);
+      if (cachedSrc.hit) {
+        onResolvedSrc?.(cachedSrc.src);
         return () => {
           cancelled = true;
           abort.abort();
         };
       }
-      if (syncFullSrc && !isLikelyFilesystemPath(syncFullSrc)) {
+      if (syncFullSrc && !isLikelyFilesystemPath(syncFullSrc) && (!effectiveThumbnailSize || upgradeToFullResolution)) {
         rememberResolvedAvatarSrc(resolutionKey, syncFullSrc);
         setResolvedState({ key: resolutionKey, src: syncFullSrc });
         onResolvedSrc?.(syncFullSrc);
@@ -283,7 +311,10 @@ export const ResolvedAvatarImage = forwardRef<HTMLImageElement, ResolvedAvatarIm
             src,
           ).catch(() => null);
           if (!cancelled && thumbnailUrl) {
+            rememberResolvedAvatarSrc(resolutionKey, thumbnailUrl);
             setResolvedState({ key: resolutionKey, src: thumbnailUrl });
+            onResolvedSrc?.(thumbnailUrl);
+            if (!upgradeToFullResolution) return thumbnailUrl;
           }
         }
         if (cancelled) return null;
@@ -319,21 +350,28 @@ export const ResolvedAvatarImage = forwardRef<HTMLImageElement, ResolvedAvatarIm
       onResolvedSrc,
       resolutionKey,
       syncFullSrc,
+      upgradeToFullResolution,
     ]);
 
     const imageSrc =
       resolvedState.key === resolutionKey
-        ? (resolvedState.src ?? cachedResolvedSrc ?? immediateSrc)
-        : (cachedResolvedSrc ?? immediateSrc);
+        ? (resolvedState.src ?? (cachedResolvedSrcEntry.hit ? cachedResolvedSrc : immediateSrc))
+        : (cachedResolvedSrcEntry.hit ? cachedResolvedSrc : immediateSrc);
 
     const sourceRectCropStyleKey = useMemo(
       () => JSON.stringify([imageSrc ?? "", resolvedCrop ?? null]),
       [imageSrc, resolvedCrop],
     );
     const updateSourceRectCropStyle = useCallback(() => {
-      setSourceRectCropStyleState({
-        key: sourceRectCropStyleKey,
-        style: isSourceRectAvatarCrop(resolvedCrop) ? sourceRectCropStyle(resolvedCrop, localImageRef.current) : {},
+      const nextStyle = isSourceRectAvatarCrop(resolvedCrop) ? sourceRectCropStyle(resolvedCrop, localImageRef.current) : {};
+      setSourceRectCropStyleState((current) => {
+        if (current.key === sourceRectCropStyleKey && areCropStylesEqual(current.style, nextStyle)) {
+          return current;
+        }
+        return {
+          key: sourceRectCropStyleKey,
+          style: nextStyle,
+        };
       });
     }, [resolvedCrop, sourceRectCropStyleKey]);
 
@@ -346,6 +384,7 @@ export const ResolvedAvatarImage = forwardRef<HTMLImageElement, ResolvedAvatarIm
       }
       const observer = new ResizeObserver(updateSourceRectCropStyle);
       observer.observe(container);
+      observer.observe(image);
       return () => observer.disconnect();
     }, [imageSrc, resolvedCrop, updateSourceRectCropStyle]);
 
