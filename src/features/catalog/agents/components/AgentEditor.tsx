@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
-import { saveTextFileToUserSelectedLocation } from "../../../../shared/api/save-text-file-api";
+import { saveTextFileToUserSelectedLocation } from "../../../../shared/api/file-save-api";
 import {
   agentEnabledFlag,
   agentCreditLabel,

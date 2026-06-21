@@ -1,13 +1,18 @@
-export function downloadTextFile(contents: string, filename: string, type: string) {
-  const blob = new Blob([contents], { type });
-  downloadBlobFile(blob, filename);
+import {
+  saveFileToUserSelectedLocation,
+  saveTextFileToUserSelectedLocation,
+  type SaveFileResult,
+} from "../../../../shared/api/file-save-api";
+
+export function downloadTextFile(contents: string, filename: string, type: string): Promise<SaveFileResult> {
+  return saveTextFileToUserSelectedLocation({
+    content: contents,
+    filename,
+    mimeType: type,
+    filters: [{ name: "Text", extensions: [filename.split(".").pop() || "txt"] }],
+  });
 }
 
-export function downloadBlobFile(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+export function downloadBlobFile(blob: Blob, filename: string): Promise<SaveFileResult> {
+  return saveFileToUserSelectedLocation({ blob, filename });
 }

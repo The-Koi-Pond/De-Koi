@@ -371,7 +371,7 @@ export function useExportChatMemories(chatId: string | null) {
     mutationFn: async () => {
       if (!chatId) throw new Error("No chat selected.");
       const payload = await chatCommandApi.memoriesExport(chatId);
-      downloadTextFile(
+      await downloadTextFile(
         JSON.stringify(payload, null, 2),
         "memory-recall.marinara.json",
         "application/json;charset=utf-8",
@@ -1095,14 +1095,14 @@ export function useExportChat() {
         storageApi.listChatMessages<Message>(chatId),
       ]);
       const filename = chatExportFilename(chat, format);
-      if (format === "text") {
-        downloadTextFile(formatChatText(chat, messages), filename, "text/plain;charset=utf-8");
-      } else {
-        downloadTextFile(formatChatJsonl(chat, messages), filename, "application/x-ndjson;charset=utf-8");
-      }
-      return { format };
+      const result =
+        format === "text"
+          ? await downloadTextFile(formatChatText(chat, messages), filename, "text/plain;charset=utf-8")
+          : await downloadTextFile(formatChatJsonl(chat, messages), filename, "application/x-ndjson;charset=utf-8");
+      return { format, result };
     },
-    onSuccess: ({ format }) => {
+    onSuccess: ({ format, result }) => {
+      if (result === "cancelled") return;
       toast.success(format === "text" ? "Chat transcript exported as text." : "Chat transcript exported as JSONL.");
     },
     onError: (error) => {

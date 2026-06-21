@@ -13,6 +13,7 @@ import { useCharacterSummariesByIds } from "../../../catalog/characters";
 import { useChat } from "../../../catalog/chats";
 import { cn } from "../../../../shared/lib/utils";
 import { useChatStore } from "../../../../shared/stores/chat.store";
+import { saveTextFileToUserSelectedLocation } from "../../../../shared/api/file-save-api";
 import { DeleteTabDialog, RestoreBackupDialog } from "./components/NotepadDialogs";
 import { NotepadHeader } from "./components/NotepadHeader";
 import {
@@ -412,18 +413,16 @@ export function MeNotepadModule() {
     [context, requestImmediateMemorySave, showStatus],
   );
 
-  const exportBackup = useCallback(() => {
-    const blob = new Blob([JSON.stringify(makeBackupPayload(state), null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `marinara-notepad-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const exportBackup = useCallback(async () => {
+    const result = await saveTextFileToUserSelectedLocation({
+      filename: `marinara-notepad-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
+      content: JSON.stringify(makeBackupPayload(state), null, 2),
+      title: "Export notepad backup",
+      mimeType: "application/json",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
     setActionsMenuOpen(false);
-    showStatus("Backup downloaded", "ok");
+    if (result !== "cancelled") showStatus(result === "saved" ? "Backup saved" : "Backup downloaded", "ok");
   }, [showStatus, state]);
 
   const restoreImport = useCallback(() => {
