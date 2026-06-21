@@ -1385,6 +1385,7 @@ dependencies = [
  "png 0.18.1",
  "rand 0.10.1",
  "reqwest 0.12.28",
+ "same-file",
  "serde",
  "serde_json",
  "sha2 0.11.0",

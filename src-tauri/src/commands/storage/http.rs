@@ -49,14 +49,18 @@ pub(crate) async fn http_binary(url: &str, fallback_mime: &str) -> AppResult<Val
             && response.headers().contains_key(reqwest::header::LOCATION)
         {
             if redirects_followed == MAX_BINARY_REDIRECTS {
-                return Err(AppError::invalid_input("Remote URL exceeded redirect limit"));
+                return Err(AppError::invalid_input(
+                    "Remote URL exceeded redirect limit",
+                ));
             }
             current_url = redirected_binary_fetch_url(&current_url, &response)?;
             continue;
         }
         return finalize_binary_response(response, fallback_mime).await;
     }
-    Err(AppError::invalid_input("Remote URL exceeded redirect limit"))
+    Err(AppError::invalid_input(
+        "Remote URL exceeded redirect limit",
+    ))
 }
 
 /// Parse and SSRF-screen a URL before fetching. Rejects local/reserved hosts (IMDS,
@@ -92,9 +96,9 @@ fn validate_redirected_binary_fetch_url(
     current_url: &reqwest::Url,
     location: &str,
 ) -> AppResult<reqwest::Url> {
-    let redirected = current_url
-        .join(location)
-        .map_err(|error| AppError::invalid_input(format!("Remote redirect URL is invalid: {error}")))?;
+    let redirected = current_url.join(location).map_err(|error| {
+        AppError::invalid_input(format!("Remote redirect URL is invalid: {error}"))
+    })?;
     validate_binary_fetch_url(redirected.as_str())
 }
 
@@ -250,12 +254,7 @@ fn load_local_asset_binary(
     }
 
     let file = open_local_binary_file(&canonical_path).map_err(AppError::from)?;
-    let metadata = file.metadata().map_err(AppError::from)?;
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err(AppError::invalid_input(
-            "Managed local asset URL does not point to a file",
-        ));
-    }
+    let metadata = validate_opened_local_binary_file(&file, &canonical_path, &data_dir)?;
     if metadata.len() > MAX_BINARY_RESPONSE_BYTES {
         return Err(AppError::invalid_input("Local asset file is too large"));
     }
@@ -278,6 +277,40 @@ fn open_local_binary_file(path: &Path) -> std::io::Result<File> {
     options.read(true);
     configure_no_follow_open(&mut options);
     options.open(path)
+}
+
+fn validate_opened_local_binary_file(
+    file: &File,
+    canonical_path: &Path,
+    data_dir: &Path,
+) -> AppResult<std::fs::Metadata> {
+    let current_canonical_path = std::fs::canonicalize(canonical_path).map_err(AppError::from)?;
+    if !current_canonical_path.starts_with(data_dir) {
+        return Err(AppError::invalid_input(
+            "Managed local asset URL is outside the app data directory",
+        ));
+    }
+    if !is_managed_local_binary_asset(data_dir, &current_canonical_path) {
+        return Err(AppError::invalid_input(
+            "Managed local asset URL is outside allowed media directories",
+        ));
+    }
+    let file_handle = same_file::Handle::from_file(file.try_clone().map_err(AppError::from)?)
+        .map_err(AppError::from)?;
+    let path_handle =
+        same_file::Handle::from_path(&current_canonical_path).map_err(AppError::from)?;
+    if file_handle != path_handle {
+        return Err(AppError::invalid_input(
+            "Managed local asset changed before it could be read",
+        ));
+    }
+    let metadata = file.metadata().map_err(AppError::from)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(AppError::invalid_input(
+            "Managed local asset URL does not point to a file",
+        ));
+    }
+    Ok(metadata)
 }
 
 #[cfg(unix)]
@@ -314,9 +347,27 @@ fn local_asset_path_from_url(url: &str) -> Option<PathBuf> {
 }
 
 fn local_asset_url_path_shape_is_allowed(encoded: &str) -> bool {
+    let decoded = percent_decode(encoded);
+    if decoded.contains('\0') || decoded_path_has_dot_segment(&decoded) {
+        return false;
+    }
+    if !encoded.contains('/') {
+        return true;
+    }
     encoded.split('/').all(|segment| {
         let decoded = percent_decode(segment);
-        !matches!(decoded.as_str(), "." | "..") && !decoded.contains(['/', '\\'])
+        !decoded.is_empty()
+            && !matches!(decoded.as_str(), "." | "..")
+            && !decoded.contains(['/', '\\'])
+    })
+}
+
+fn decoded_path_has_dot_segment(decoded: &str) -> bool {
+    Path::new(decoded).components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::CurDir | std::path::Component::ParentDir
+        )
     })
 }
 
@@ -495,7 +546,6 @@ pub(crate) async fn gifs_search(route: &ParsedPath) -> AppResult<Value> {
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     fn test_state(label: &str) -> AppState {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -506,18 +556,36 @@ mod tests {
     }
 
     #[test]
-    fn local_asset_url_parser_rejects_malformed_shapes() {
+    fn local_asset_url_parser_accepts_explicit_managed_shapes() {
         assert_eq!(
             local_asset_path_from_url("asset://localhost/gallery/avatar.png"),
             Some(PathBuf::from("gallery/avatar.png"))
         );
 
+        if cfg!(windows) {
+            assert_eq!(
+                local_asset_path_from_url(
+                    "http://asset.localhost/C%3A%5CUsers%5CMari%5CMy%20Avatar.png",
+                ),
+                Some(PathBuf::from(r"C:\Users\Mari\My Avatar.png"))
+            );
+        } else {
+            assert_eq!(
+                local_asset_path_from_url("asset://localhost/%2Ftmp%2Fde-koi%2FAvatar%20One.png"),
+                Some(PathBuf::from("/tmp/de-koi/Avatar One.png"))
+            );
+        }
+    }
+
+    #[test]
+    fn local_asset_url_parser_rejects_malformed_shapes() {
         for url in [
             "asset://localhost/gallery/%2e%2e/secret.png",
             "asset://localhost/gallery/%2Ftmp%2Fsecret.png",
             "asset://localhost/gallery/a%5Cb.png",
             "asset://evil.localhost/gallery/avatar.png",
             "asset://localhost/../gallery/avatar.png",
+            "asset://localhost/%2Ftmp%2F..%2Fsecret.png",
             "http://asset.localhost/gallery/%2e%2e/secret.png",
         ] {
             assert_eq!(
@@ -528,6 +596,41 @@ mod tests {
         }
     }
 
+    #[test]
+    fn local_asset_loader_rejects_handle_mismatch_before_reading() {
+        let state = test_state("handle-mismatch");
+        let gallery = state.data_dir.join("gallery");
+        std::fs::create_dir_all(&gallery).expect("gallery dir should be created");
+        let validated_path = gallery.join("validated.png");
+        let swapped_path = gallery.join("swapped.png");
+        std::fs::write(&validated_path, b"validated").expect("validated asset should be written");
+        std::fs::write(&swapped_path, b"swapped").expect("swapped asset should be written");
+        let data_dir =
+            std::fs::canonicalize(&state.data_dir).expect("data dir should canonicalize");
+        let canonical_path =
+            std::fs::canonicalize(&validated_path).expect("asset should canonicalize");
+        let file = open_local_binary_file(&swapped_path).expect("swapped file should open");
+
+        let error = validate_opened_local_binary_file(&file, &canonical_path, &data_dir)
+            .expect_err("mismatched opened file handle should be rejected");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("changed"));
+    }
+
+    #[cfg(unix)]
+    fn percent_encode_for_test(value: &str) -> String {
+        value
+            .as_bytes()
+            .iter()
+            .map(|byte| match *byte {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    (*byte as char).to_string()
+                }
+                byte => format!("%{byte:02X}"),
+            })
+            .collect()
+    }
     #[cfg(unix)]
     #[test]
     fn local_asset_loader_reads_validated_canonical_target() {
@@ -539,17 +642,23 @@ mod tests {
         let link = gallery.join("link.png");
         std::os::unix::fs::symlink(&target, &link).expect("asset symlink should be created");
 
-        let url = format!("asset://localhost/{}", link.to_string_lossy());
+        let url = format!(
+            "asset://localhost/{}",
+            percent_encode_for_test(&link.to_string_lossy())
+        );
         let result = load_local_asset_binary(&state, &url, "image/png")
-        .expect("valid canonical asset should load")
-        .expect("local asset URL should produce a response");
+            .expect("valid canonical asset should load")
+            .expect("local asset URL should produce a response");
 
         let expected_base64 = general_purpose::STANDARD.encode(b"inside");
         assert_eq!(
             result.get("base64").and_then(Value::as_str),
             Some(expected_base64.as_str())
         );
-        assert_eq!(result.get("mimeType").and_then(Value::as_str), Some("image/png"));
+        assert_eq!(
+            result.get("mimeType").and_then(Value::as_str),
+            Some("image/png")
+        );
     }
     #[tokio::test]
     async fn http_binary_blocks_local_and_reserved_hosts() {
@@ -583,7 +692,10 @@ mod tests {
         ] {
             let error = validate_redirected_binary_fetch_url(&current, location)
                 .expect_err("redirect to a reserved host must be rejected");
-            assert_eq!(error.code, "invalid_input", "location {location} should be blocked");
+            assert_eq!(
+                error.code, "invalid_input",
+                "location {location} should be blocked"
+            );
         }
     }
 
@@ -592,14 +704,20 @@ mod tests {
         let current = reqwest::Url::parse("https://cdn.example.com/avatar.png").unwrap();
         let resolved = validate_redirected_binary_fetch_url(&current, "/resized/avatar.png")
             .expect("public relative redirect should resolve");
-        assert_eq!(resolved.as_str(), "https://cdn.example.com/resized/avatar.png");
+        assert_eq!(
+            resolved.as_str(),
+            "https://cdn.example.com/resized/avatar.png"
+        );
     }
 
     #[tokio::test]
     async fn resolved_addresses_skip_pinning_for_ip_literal_hosts() {
         // IP-literal hosts are screened by the URL guard, so no DNS lookup/pinning is performed.
         let url = reqwest::Url::parse("http://1.1.1.1/x").unwrap();
-        assert!(binary_fetch_resolved_addresses(&url).await.unwrap().is_none());
+        assert!(binary_fetch_resolved_addresses(&url)
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]
