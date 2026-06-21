@@ -1,3 +1,4 @@
+import { illustrationSubjectMatches } from "../../../../engine/generation-core/images/illustration-reference-matching";
 import * as g from "./game-api-support";
 
 export function generatedAssetSlug(value: string): string {
@@ -327,20 +328,10 @@ function matchesIllustrationSubject(
   subject: g.IllustrationReferenceSubject,
   illustration: Record<string, unknown>,
 ): boolean {
-  const name = subject.name.toLowerCase();
-  if (!name) return false;
-  const requestedNames = g.stringArray(illustration.characters).map((entry) => entry.toLowerCase());
-  if (requestedNames.length > 0) {
-    return requestedNames.some(
-      (requested) => requested === name || requested.includes(name) || name.includes(requested),
-    );
-  }
-  const prompt = g.readTrimmed(illustration.prompt).toLowerCase();
-  if (prompt.includes(name)) return true;
-  return name
-    .split(/\s+/)
-    .filter((part) => part.length > 2)
-    .some((part) => prompt.includes(part));
+  return illustrationSubjectMatches(subject, {
+    requestedNames: illustration.characters,
+    prompt: illustration.prompt,
+  });
 }
 
 async function fullBodySpriteReference(sprites: Array<Record<string, unknown>>): Promise<string> {
