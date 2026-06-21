@@ -599,6 +599,7 @@ describe("persistConnectedCommandTags", () => {
       null,
       undefined,
       undefined,
+      { latestUserMessage: "Can I see a selfie please?" },
     );
 
     expect(result.displayContent).toBe("Sure, I will send a selfie from the balcony.");
@@ -634,6 +635,7 @@ describe("persistConnectedCommandTags", () => {
       null,
       undefined,
       undefined,
+      { latestUserMessage: "Can I see a selfie please?" },
     );
 
     expect(result.executedCommands).toEqual([]);
@@ -664,6 +666,7 @@ describe("persistConnectedCommandTags", () => {
       null,
       undefined,
       undefined,
+      { latestUserMessage: "Can I see a selfie please?" },
     );
 
     expect(result.executedCommands).toEqual([]);
@@ -689,6 +692,12 @@ describe("persistConnectedCommandTags", () => {
       storage,
       chat,
       "Sure, I will send a selfie from the balcony.",
+      undefined,
+      undefined,
+      null,
+      undefined,
+      undefined,
+      { latestUserMessage: "Can I see a selfie please?" },
     );
 
     expect(result.executedCommands).toEqual([]);
@@ -714,6 +723,12 @@ describe("persistConnectedCommandTags", () => {
       storage,
       chat,
       "Sure, I will send a selfie from the balcony.",
+      undefined,
+      undefined,
+      null,
+      undefined,
+      undefined,
+      { latestUserMessage: "Can I see a selfie please?" },
     );
 
     expect(result.executedCommands).toEqual([]);
@@ -739,6 +754,12 @@ describe("persistConnectedCommandTags", () => {
       storage,
       chat,
       "Sure, I will send a selfie from the balcony.",
+      undefined,
+      undefined,
+      null,
+      undefined,
+      undefined,
+      { latestUserMessage: "Can I see a selfie please?" },
     );
 
     expect(result.executedCommands).toEqual([]);
@@ -760,8 +781,28 @@ describe("persistConnectedCommandTags", () => {
       lorebookEntries: [],
     });
 
-    const photoResult = await persistConnectedCommandTags(storage, chat, "I do not have a photo to send.");
-    const shareResult = await persistConnectedCommandTags(storage, chat, "I'd rather not share a picture right now.");
+    const photoResult = await persistConnectedCommandTags(
+      storage,
+      chat,
+      "I do not have a photo to send.",
+      undefined,
+      undefined,
+      null,
+      undefined,
+      undefined,
+      { latestUserMessage: "Can I see a selfie please?" },
+    );
+    const shareResult = await persistConnectedCommandTags(
+      storage,
+      chat,
+      "I'd rather not share a picture right now.",
+      undefined,
+      undefined,
+      null,
+      undefined,
+      undefined,
+      { latestUserMessage: "Can I see a selfie please?" },
+    );
 
     expect(photoResult.executedCommands).toEqual([]);
     expect(photoResult.events).toEqual([]);
@@ -769,6 +810,37 @@ describe("persistConnectedCommandTags", () => {
     expect(shareResult.executedCommands).toEqual([]);
     expect(shareResult.events).toEqual([]);
     expect(shareResult.assistantAttachments).toEqual([]);
+  });
+
+  it("does not recover an implicit selfie from ordinary photo prose without a request", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Mira", data: { name: "Mira" } }],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chat,
+      "I took a photo by the harbor yesterday.",
+      undefined,
+      undefined,
+      null,
+      undefined,
+      undefined,
+      { latestUserMessage: "How was your day?" },
+    );
+
+    expect(result.executedCommands).toEqual([]);
+    expect(result.events).toEqual([]);
+    expect(result.assistantAttachments).toEqual([]);
   });
 
   it("updates matched lorebook entries instead of appending duplicates", async () => {

@@ -64,9 +64,15 @@ type ImagePromptSettings = {
 
 type SelfieCommand = Extract<CharacterCommand, { type: "selfie" }>;
 
+type ConnectedCommandOptions = {
+  latestUserMessage?: string | null;
+};
+
 const CONVERSATION_NOTES_BUDGET_CHARS = 4000;
 const LEGACY_ASSISTANT_CONTEXT_METADATA_KEY = "mariContext";
 const SELFIE_WORD_RE = /\b(?:selfie|photo|pic|picture|image)\b/i;
+const USER_SELFIE_REQUEST_RE =
+  /\b(?:send|show|share|take|snap|give|attach|post|can\s+i\s+see|could\s+i\s+see|let\s+me\s+see|want|wanna)\b[\s\S]{0,120}\b(?:selfie|photo|pic|picture)\b|\b(?:selfie|photo|pic|picture)\b[\s\S]{0,80}\b(?:please|pls|send|show|share|take|snap)\b/i;
 const ASSISTANT_SELFIE_CLAIM_RE =
   /\b(?:send|sent|sending|show|showing|share|shares|shared|attach|attaches|attached|post|posts|posted|take|takes|took|snap|snaps|snapped|here's|here is)\b[\s\S]{0,120}\b(?:selfie|photo|pic|picture)\b|\[\s*[^\]]{0,80}\b(?:send|sends|sent|show|shows|share|shares|take|takes|snap|snaps)\b[^\]]{0,120}\b(?:selfie|photo|pic|picture)\b[^\]]*\]/i;
 const ASSISTANT_SELFIE_DECLINE_RE =
@@ -142,11 +148,13 @@ function inferSelfieContextFromResponse(response: string): string | undefined {
 
 function recoverImplicitSelfieCommand(args: {
   response: string;
+  latestUserMessage?: string | null;
   imageGenerationEnabled: boolean;
   existingCommands: CharacterCommand[];
 }): SelfieCommand | null {
   if (!args.imageGenerationEnabled) return null;
   if (args.existingCommands.some((command) => command.type === "selfie")) return null;
+  if (!USER_SELFIE_REQUEST_RE.test(args.latestUserMessage ?? "")) return null;
   const response = args.response.trim();
   if (!SELFIE_WORD_RE.test(response)) return null;
   if (ASSISTANT_SELFIE_DECLINE_RE.test(response)) return null;
@@ -1650,6 +1658,7 @@ export async function persistConnectedCommandTags(
   llmConnectionId?: string | null,
   imagePromptSettings?: ImagePromptSettings,
   visuals?: VisualAssetGateway,
+  options?: ConnectedCommandOptions,
 ): Promise<ConnectedCommandResult> {
   const createdNotes: JsonRecord[] = [];
   const pendingNoteWrites: Array<{ chatId: string; note: JsonRecord }> = [];
@@ -1657,6 +1666,7 @@ export async function persistConnectedCommandTags(
   const metadata = parseRecord(chat.metadata);
   const recoveredSelfie = recoverImplicitSelfieCommand({
     response: parsed.cleanContent,
+    latestUserMessage: options?.latestUserMessage,
     imageGenerationEnabled:
       readString(metadata.imageGenConnectionId).trim().length > 0 && conversationSelfieCommandEnabled(chat),
     existingCommands: parsed.commands,

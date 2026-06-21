@@ -4189,6 +4189,7 @@ export async function* startGeneration(
           readString(connection.id) || input.connectionId || null,
           input.imagePromptSettings,
           deps.visuals,
+          { latestUserMessage: latestUserInput },
         );
     throwIfAborted(signal);
     for (const event of connected.events) yield event;
@@ -4459,6 +4460,7 @@ export async function* startGeneration(
         readString(connection.id) || input.connectionId || null,
         input.imagePromptSettings,
         deps.visuals,
+        { latestUserMessage: latestUserInput },
       );
   throwIfAborted(signal);
   for (const event of connected.events) yield event;
