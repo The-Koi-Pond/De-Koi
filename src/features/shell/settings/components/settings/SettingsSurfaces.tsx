@@ -3647,12 +3647,12 @@ export function AdvancedSettings() {
     const key = name ?? "__current__";
     setDownloadingBackupName(key);
     try {
-      const message = await downloadBackupToBrowser(name, {
+      const result = await downloadBackupToBrowser(name, {
         downloadBackup: backupApi.downloadBackup,
         saveDownloadPayload: (payload) =>
           saveDownloadPayloadToUserSelectedLocation(payload, { title: name ? "Download backup" : "Create backup" }),
       });
-      if (message) toast.success(message);
+      if (result) toast.success(result.message);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to download backup");
     } finally {

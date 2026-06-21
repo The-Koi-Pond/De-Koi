@@ -9,9 +9,10 @@ describe("backup settings actions", () => {
     const saveDownloadPayload = vi.fn<(value: DownloadPayload) => Promise<"saved" | "downloaded" | "cancelled">>()
       .mockResolvedValue("downloaded");
 
-    await expect(downloadBackupToBrowser(undefined, { downloadBackup, saveDownloadPayload })).resolves.toBe(
-      "Backup saved!",
-    );
+    await expect(downloadBackupToBrowser(undefined, { downloadBackup, saveDownloadPayload })).resolves.toEqual({
+      message: "Backup saved!",
+      saveResult: "downloaded",
+    });
 
     expect(downloadBackup).toHaveBeenCalledWith(undefined);
     expect(saveDownloadPayload).toHaveBeenCalledWith(payload);
@@ -23,9 +24,10 @@ describe("backup settings actions", () => {
     const saveDownloadPayload = vi.fn<(value: DownloadPayload) => Promise<"saved" | "downloaded" | "cancelled">>()
       .mockResolvedValue("saved");
 
-    await expect(downloadBackupToBrowser("backup-2026.zip", { downloadBackup, saveDownloadPayload })).resolves.toBe(
-      "Managed backup saved!",
-    );
+    await expect(downloadBackupToBrowser("backup-2026.zip", { downloadBackup, saveDownloadPayload })).resolves.toEqual({
+      message: "Managed backup saved!",
+      saveResult: "saved",
+    });
 
     expect(downloadBackup).toHaveBeenCalledWith("backup-2026.zip");
     expect(saveDownloadPayload).toHaveBeenCalledWith(payload);
@@ -48,13 +50,15 @@ describe("backup settings actions", () => {
     const saveDownloadPayload = vi.fn<(value: DownloadPayload) => Promise<"saved" | "downloaded" | "cancelled">>();
 
     saveDownloadPayload.mockResolvedValueOnce("saved");
-    await expect(downloadBackupToBrowser(undefined, { downloadBackup, saveDownloadPayload })).resolves.toBe(
-      "Backup saved!",
-    );
+    await expect(downloadBackupToBrowser(undefined, { downloadBackup, saveDownloadPayload })).resolves.toEqual({
+      message: "Backup saved!",
+      saveResult: "saved",
+    });
 
     saveDownloadPayload.mockResolvedValueOnce("downloaded");
-    await expect(downloadBackupToBrowser(undefined, { downloadBackup, saveDownloadPayload })).resolves.toBe(
-      "Backup saved!",
-    );
+    await expect(downloadBackupToBrowser(undefined, { downloadBackup, saveDownloadPayload })).resolves.toEqual({
+      message: "Backup saved!",
+      saveResult: "downloaded",
+    });
   });
 });

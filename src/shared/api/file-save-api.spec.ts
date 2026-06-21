@@ -174,6 +174,21 @@ describe("saveTextFileToUserSelectedLocation", () => {
     );
   });
 
+  it("reports browser write failures as primary when close also fails", async () => {
+    const write = vi.fn().mockRejectedValue(new Error("disk full"));
+    const close = vi.fn().mockRejectedValue(new Error("flush failed"));
+    const createWritable = vi.fn().mockResolvedValue({ write, close });
+    (window as unknown as { showSaveFilePicker: unknown }).showSaveFilePicker = vi
+      .fn()
+      .mockResolvedValue({ createWritable });
+
+    const { saveTextFileToUserSelectedLocation } = await import("./file-save-api");
+    await expect(saveTextFileToUserSelectedLocation({ filename: "agent.json", content: "{}" })).rejects.toThrow(
+      "Failed to write saved file: disk full",
+    );
+    expect(close).toHaveBeenCalled();
+  });
+
   it("surfaces native dialog errors in embedded Tauri instead of falling back", async () => {
     mocks.hasEmbeddedTauriIpc.mockReturnValue(true);
     mocks.saveDialog.mockRejectedValue(new Error("dialog denied"));
@@ -259,10 +274,36 @@ describe("saveTextFileToUserSelectedLocation", () => {
       }),
     ).rejects.toThrow("append failed");
 
-    expect(mocks.invokeTauri).toHaveBeenLastCalledWith("local_file_save_cleanup", {
-      path: "C:\\exports\\large.bin",
-      sessionId: expect.any(String),
-    });
+    const firstWriteCall = mocks.invokeTauri.mock.calls[0];
+    const failedWriteCall = mocks.invokeTauri.mock.calls[1];
+    const cleanupCall = mocks.invokeTauri.mock.calls[2];
+    const sessionId = (firstWriteCall[1] as { sessionId: string }).sessionId;
+
+    expect(firstWriteCall).toEqual([
+      "local_file_save",
+      expect.objectContaining({
+        path: "C:\\exports\\large.bin",
+        sessionId,
+        append: false,
+        complete: false,
+      }),
+    ]);
+    expect(failedWriteCall).toEqual([
+      "local_file_save",
+      expect.objectContaining({
+        path: "C:\\exports\\large.bin",
+        sessionId,
+        append: true,
+        complete: true,
+      }),
+    ]);
+    expect(cleanupCall).toEqual([
+      "local_file_save_cleanup",
+      {
+        path: "C:\\exports\\large.bin",
+        sessionId,
+      },
+    ]);
   });
 
   it("surfaces both embedded native write and cleanup failures", async () => {
@@ -281,7 +322,7 @@ describe("saveTextFileToUserSelectedLocation", () => {
         filename: "large.bin",
         blob: new Blob([bytes], { type: "application/octet-stream" }),
       }),
-    ).rejects.toThrow("Failed to save file and clean up temporary output");
+    ).rejects.toThrow("Failed to save file: append failed; cleanup also failed: cleanup failed");
   });
 
   it("creates empty embedded native files without a full-file conversion", async () => {

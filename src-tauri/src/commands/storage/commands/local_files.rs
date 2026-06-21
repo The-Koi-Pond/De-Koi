@@ -3,7 +3,7 @@ use marinara_core::AppError;
 use serde_json::{json, Value};
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 fn ensure_save_path(path: &str) -> Result<&str, AppError> {
@@ -27,33 +27,60 @@ fn ensure_session_id(session_id: &str) -> Result<&str, AppError> {
 }
 
 fn temp_save_path(path: &Path, session_id: &str) -> Result<PathBuf, AppError> {
+    session_file_path(path, session_id, ".tmp")
+}
+
+fn session_file_path(path: &Path, session_id: &str, suffix: &str) -> Result<PathBuf, AppError> {
     let filename = path
         .file_name()
         .ok_or_else(|| AppError::invalid_input("Save path must include a file name"))?;
-    let mut temp_filename = OsString::from(".");
-    temp_filename.push(filename);
-    temp_filename.push(".");
-    temp_filename.push(session_id);
-    temp_filename.push(".tmp");
-    Ok(path.with_file_name(temp_filename))
+    let mut session_filename = OsString::from(".");
+    session_filename.push(filename);
+    session_filename.push(".");
+    session_filename.push(session_id);
+    session_filename.push(suffix);
+    Ok(path.with_file_name(session_filename))
+}
+
+fn rollback_commit_failure(
+    backup_path: &Path,
+    target_path: &Path,
+    commit_error: std::io::Error,
+) -> AppError {
+    match fs::rename(backup_path, target_path) {
+        Ok(()) => AppError::from(commit_error),
+        Err(rollback_error) => AppError::with_details(
+            "io_error",
+            format!(
+                "Failed to commit saved file: {commit_error}; failed to restore previous file: {rollback_error}"
+            ),
+            json!({
+                "commitError": commit_error.to_string(),
+                "rollbackError": rollback_error.to_string(),
+            }),
+        ),
+    }
 }
 
 fn backup_save_path(path: &Path, session_id: &str) -> Result<PathBuf, AppError> {
-    let filename = path
-        .file_name()
-        .ok_or_else(|| AppError::invalid_input("Save path must include a file name"))?;
-    let mut backup_filename = OsString::from(".");
-    backup_filename.push(filename);
-    backup_filename.push(".");
-    backup_filename.push(session_id);
-    backup_filename.push(".backup");
-    Ok(path.with_file_name(backup_filename))
+    session_file_path(path, session_id, ".backup")
 }
 
 fn commit_temp_save(
     temp_path: &Path,
     target_path: &Path,
     session_id: &str,
+) -> Result<(), AppError> {
+    commit_temp_save_with(temp_path, target_path, session_id, |from, to| {
+        fs::rename(from, to)
+    })
+}
+
+fn commit_temp_save_with(
+    temp_path: &Path,
+    target_path: &Path,
+    session_id: &str,
+    rename_temp_to_target: impl FnOnce(&Path, &Path) -> io::Result<()>,
 ) -> Result<(), AppError> {
     if let Some(parent) = target_path.parent() {
         fs::create_dir_all(parent).map_err(AppError::from)?;
@@ -69,7 +96,7 @@ fn commit_temp_save(
         fs::rename(target_path, &backup_path).map_err(AppError::from)?;
     }
 
-    match fs::rename(temp_path, target_path) {
+    match rename_temp_to_target(temp_path, target_path) {
         Ok(()) => {
             if had_target {
                 let _ = fs::remove_file(&backup_path);
@@ -78,7 +105,7 @@ fn commit_temp_save(
         }
         Err(error) => {
             if had_target {
-                let _ = fs::rename(&backup_path, target_path);
+                return Err(rollback_commit_failure(&backup_path, target_path, error));
             }
             Err(AppError::from(error))
         }
@@ -250,6 +277,44 @@ mod tests {
         assert_eq!(
             fs::read(&target).expect("target should be readable"),
             b"replacement"
+        );
+        assert!(
+            !backup_save_path(&target, "session-3")
+                .expect("backup path should be valid")
+                .exists(),
+            "backup should be removed after a successful commit"
+        );
+    }
+
+    #[test]
+    fn rollback_restore_failure_is_reported() {
+        let root = temp_root("rollback");
+        let target = root.0.join("export.bin");
+        let temp = temp_save_path(&target, "session-4").expect("temp path should be valid");
+        fs::write(&target, b"original").expect("original destination should be written");
+        fs::write(&temp, b"replacement").expect("temp destination should be written");
+
+        let error =
+            commit_temp_save_with(&temp, &target, "session-4", |_temp_path, target_path| {
+                fs::create_dir(target_path)
+                    .expect("target directory should block rollback restore");
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "injected commit failure",
+                ))
+            })
+            .expect_err("rollback restore failure should be reported");
+
+        assert_eq!(error.code, "io_error");
+        assert!(
+            error
+                .message
+                .contains("Failed to commit saved file: injected commit failure"),
+            "commit failure should be preserved"
+        );
+        assert!(
+            error.message.contains("failed to restore previous file"),
+            "rollback restore failure should be reported"
         );
     }
 }

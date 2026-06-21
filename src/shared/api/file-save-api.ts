@@ -84,32 +84,68 @@ function nativeSaveSessionId(): string {
   return `save-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+type NativeSaveSession = {
+  path: string;
+  sessionId: string;
+  tempMayExist: boolean;
+  committed: boolean;
+};
+
+async function writeNativeSaveChunk(
+  session: NativeSaveSession,
+  base64: string,
+  append: boolean,
+  complete: boolean,
+): Promise<void> {
+  session.tempMayExist = true;
+  await invokeTauri("local_file_save", {
+    path: session.path,
+    base64,
+    sessionId: session.sessionId,
+    append,
+    complete,
+  });
+  if (complete) session.committed = true;
+}
+
+async function failNativeSave(session: NativeSaveSession, error: unknown): Promise<never> {
+  if (!session.tempMayExist || session.committed) throw error;
+
+  try {
+    await invokeTauri("local_file_save_cleanup", { path: session.path, sessionId: session.sessionId });
+  } catch (cleanupError) {
+    throw new AggregateError(
+      [error, cleanupError],
+      `Failed to save file: ${errorMessage(error)}; cleanup also failed: ${errorMessage(cleanupError)}`,
+    );
+  }
+  throw error;
+}
+
 async function saveBlobToNativePath(path: string, blob: Blob): Promise<void> {
-  const sessionId = nativeSaveSessionId();
+  const session: NativeSaveSession = {
+    path,
+    sessionId: nativeSaveSessionId(),
+    tempMayExist: false,
+    committed: false,
+  };
   try {
     if (blob.size === 0) {
-      await invokeTauri("local_file_save", { path, base64: "", sessionId, append: false, complete: true });
+      await writeNativeSaveChunk(session, "", false, true);
       return;
     }
 
     for (let offset = 0; offset < blob.size; offset += NATIVE_SAVE_CHUNK_BYTES) {
       const chunk = blob.slice(offset, offset + NATIVE_SAVE_CHUNK_BYTES);
       const bytes = new Uint8Array(await chunk.arrayBuffer());
-      await invokeTauri("local_file_save", {
-        path,
-        base64: bytesToBase64(bytes),
-        sessionId,
-        append: offset > 0,
-        complete: offset + chunk.size >= blob.size,
-      });
+      await writeNativeSaveChunk(session, bytesToBase64(bytes), offset > 0, offset + chunk.size >= blob.size);
     }
   } catch (error) {
-    try {
-      await invokeTauri("local_file_save_cleanup", { path, sessionId });
-    } catch (cleanupError) {
-      throw new AggregateError([error, cleanupError], "Failed to save file and clean up temporary output");
-    }
-    throw error;
+    await failNativeSave(session, error);
   }
 }
 
@@ -161,6 +197,7 @@ async function saveFileWithBrowserPickerOrDownload({
 
     const writable = await fileHandle.createWritable();
     let writeError: unknown;
+    let closeError: unknown;
     try {
       await writable.write(blob);
     } catch (error) {
@@ -169,14 +206,18 @@ async function saveFileWithBrowserPickerOrDownload({
 
     try {
       await writable.close();
-    } catch (closeError) {
-      if (writeError) {
-        throw new AggregateError([writeError, closeError], "Failed to write and close saved file");
-      }
-      throw closeError;
+    } catch (error) {
+      closeError = error;
     }
 
+    if (writeError && closeError) {
+      throw new AggregateError(
+        [writeError, closeError],
+        `Failed to write saved file: ${errorMessage(writeError)}; close also failed: ${errorMessage(closeError)}`,
+      );
+    }
     if (writeError) throw writeError;
+    if (closeError) throw closeError;
     return "saved";
   }
 

@@ -5,9 +5,17 @@ export type BackupDownloadDependencies = {
   saveDownloadPayload: (payload: DownloadPayload) => Promise<"saved" | "downloaded" | "cancelled">;
 };
 
+type BackupDownloadResult = {
+  message: string;
+  saveResult: "saved" | "downloaded";
+};
+
 export async function downloadBackupToBrowser(name: string | undefined, deps: BackupDownloadDependencies) {
   const payload = await deps.downloadBackup(name);
-  const result = await deps.saveDownloadPayload(payload);
-  if (result === "cancelled") return null;
-  return name ? "Managed backup saved!" : "Backup saved!";
+  const saveResult = await deps.saveDownloadPayload(payload);
+  if (saveResult === "cancelled") return null;
+  return {
+    message: name ? "Managed backup saved!" : "Backup saved!",
+    saveResult,
+  } satisfies BackupDownloadResult;
 }
