@@ -3094,6 +3094,97 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
     }
 
     #[test]
+    fn openai_chatgpt_responses_body_preserves_mixed_system_and_tool_history() {
+        let mut request = request_for("openai_chatgpt", "gpt-5.4-mini", json!({}));
+        let mut assistant = test_message("assistant", "   ");
+        assistant.tool_calls = Some(json!([
+            {
+                "id": "call_lookup",
+                "type": "function",
+                "function": {
+                    "name": "lookup_fact",
+                    "arguments": "{\"topic\":\"koi\"}"
+                }
+            }
+        ]));
+        let mut tool = test_message("tool", "Koi are ornamental carp.");
+        tool.tool_call_id = Some("call_lookup".to_string());
+        request.messages = vec![
+            test_message("system", "Use terse replies."),
+            test_message("user", "hi"),
+            test_message("system", "Prefer metric units."),
+            assistant,
+            tool,
+            test_message("user", "next"),
+        ];
+
+        let body = build_openai_responses_body(&request, false);
+        let input = body["input"].as_array().expect("input should be an array");
+
+        assert_eq!(
+            body["instructions"],
+            json!("Use terse replies.\n\nPrefer metric units.")
+        );
+        assert!(input
+            .iter()
+            .all(|item| item.get("role").and_then(Value::as_str) != Some("system")));
+        assert_eq!(
+            input,
+            &vec![
+                json!({
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        { "type": "input_text", "text": "hi" }
+                    ]
+                }),
+                json!({
+                    "type": "function_call",
+                    "id": "fc_mapped_1",
+                    "call_id": "fc_mapped_1",
+                    "name": "lookup_fact",
+                    "arguments": "{\"topic\":\"koi\"}"
+                }),
+                json!({
+                    "type": "function_call_output",
+                    "call_id": "fc_mapped_1",
+                    "output": "Koi are ornamental carp."
+                }),
+                json!({
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        { "type": "input_text", "text": "next" }
+                    ]
+                })
+            ]
+        );
+    }
+
+    #[test]
+    fn openai_chatgpt_responses_body_preserves_sparse_assistant_image_turns() {
+        let mut request = request_for("openai_chatgpt", "gpt-5.4-mini", json!({}));
+        let mut assistant = test_message("assistant", "");
+        assistant.images = vec!["data:image/png;base64,abc123".to_string()];
+        request.messages = vec![assistant];
+
+        let body = build_openai_responses_body(&request, false);
+
+        assert_eq!(
+            body["input"],
+            json!([
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        { "type": "input_image", "image_url": "data:image/png;base64,abc123" }
+                    ]
+                }
+            ])
+        );
+    }
+
+    #[test]
     fn openai_chatgpt_base_url_ignores_configured_endpoint() {
         assert_eq!(
             base_url("openai_chatgpt", "https://api.example.com/v1"),
