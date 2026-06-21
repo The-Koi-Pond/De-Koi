@@ -25,7 +25,7 @@ import type { Lorebook } from "../../../../engine/contracts/types/lorebook";
 import { lorebookCanBeSelectedForContext } from "../../../../engine/generation-core/lorebooks/active-lorebook-scope";
 import { getCharacterTitle, parseCharacterDisplayData } from "../../../../shared/lib/character-display";
 import { spotifyApi } from "../../../../shared/api/integration-utility-api";
-import { cn, parseAvatarCropJson, type AvatarCropValue } from "../../../../shared/lib/utils";
+import { cn, normalizeAvatarCropValue, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import {
   GenerationParametersFields,
@@ -76,13 +76,7 @@ type SetupCharacterInfo = {
 };
 
 function parseAvatarCropValue(raw: unknown): AvatarCropValue | null {
-  if (typeof raw === "string") {
-    return parseAvatarCropJson(raw);
-  }
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return null;
-  }
-  return parseAvatarCropJson(JSON.stringify(raw));
+  return normalizeAvatarCropValue(raw);
 }
 
 function useDebouncedValue(value: string, delayMs: number): string {
@@ -1200,7 +1194,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                         character={{
                           name: p.name,
                           avatarUrl: p.avatarPath ?? null,
-                          avatarCrop: parseAvatarCropJson(p.avatarCrop),
+                          avatarCrop: normalizeAvatarCropValue(p.avatarCrop),
                         }}
                       />
                       <div className="flex-1 min-w-0">
@@ -1245,7 +1239,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                           character={{
                             name: p.name,
                             avatarUrl: p.avatarPath ?? null,
-                            avatarCrop: parseAvatarCropJson(p.avatarCrop),
+                            avatarCrop: normalizeAvatarCropValue(p.avatarCrop),
                           }}
                         />
                         <div className="flex-1 min-w-0">

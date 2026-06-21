@@ -48,7 +48,8 @@ import { formatTextQuotes } from "../../../../../shared/lib/dialogue-quotes";
 import { isSendShortcut } from "../../../../../shared/lib/send-shortcuts";
 import { applyTextareaQuoteFormat } from "../../../../../shared/lib/textarea-quotes";
 import { requestChatScrollToBottom } from "../../../../../shared/lib/chat-scroll-events";
-import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../../../../shared/lib/utils";
+import { cn, type AvatarCropValue } from "../../../../../shared/lib/utils";
+import { AvatarImage } from "../../../../../shared/components/ui/AvatarImage";
 import { blobToDataUrl } from "../../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../../shared/lib/chat-attachment-images";
 import { translateDraftText } from "../../../../../shared/lib/draft-translation";
@@ -1554,12 +1555,7 @@ export const ChatInput = memo(function ChatInput({
                 >
                   {char.avatarUrl ? (
                     <span className="relative h-7 w-7 shrink-0 overflow-hidden rounded-full">
-                      <img
-                        src={char.avatarUrl}
-                        alt={char.name}
-                        className="h-full w-full object-cover"
-                        style={getAvatarCropStyle(char.avatarCrop)}
-                      />
+                      <AvatarImage src={char.avatarUrl} alt={char.name} crop={char.avatarCrop} />
                     </span>
                   ) : (
                     <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--secondary)] text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">

@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────
 import { useState, useRef } from "react";
 import { Modal } from "../../../../shared/components/ui/Modal";
+import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { useCreateCharacter, useUploadAvatar } from "../hooks/use-characters";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { Loader2, Sparkles, User, Camera } from "lucide-react";
@@ -95,7 +96,7 @@ export function CreateCharacterModal({ open, onClose }: Props) {
           className="group relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-pink-400 to-rose-500 shadow-lg shadow-pink-400/20 transition-transform hover:scale-105"
         >
           {avatarDataUrl ? (
-            <img src={avatarDataUrl} alt="Avatar" className="h-full w-full object-cover" />
+            <AvatarImage src={avatarDataUrl} alt="Avatar" />
           ) : (
             <User size="2.25rem" className="text-white" />
           )}

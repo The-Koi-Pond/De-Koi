@@ -49,8 +49,9 @@ import { useCharacterSummariesByIds } from "../../features/catalog/characters/in
 import { useChatStore } from "../../shared/stores/chat.store";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
 import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
-import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../shared/lib/utils";
+import { cn, type AvatarCropValue } from "../../shared/lib/utils";
 import { avatarFileUrlFromPath, resolveAvatarFileUrl } from "../../shared/api/local-file-api";
+import { AvatarImage } from "../../shared/components/ui/AvatarImage";
 import { useState, useCallback, useMemo, useRef, useEffect, type DragEvent } from "react";
 import { CHAT_MODES } from "../../engine/contracts/constants/chat-modes";
 import type { ChatFolder } from "../../engine/contracts/types/chat";
@@ -819,12 +820,7 @@ export function ChatSidebar({
               return a.avatarUrl ? (
                 <div className="relative h-7 w-7 flex-shrink-0 transition-transform group-active:scale-90">
                   <span className="relative block h-7 w-7 overflow-hidden rounded-full">
-                    <img
-                      src={a.avatarUrl}
-                      alt={a.name}
-                      className="h-full w-full object-cover"
-                      style={getAvatarCropStyle(a.avatarCrop)}
-                    />
+                    <AvatarImage src={a.avatarUrl} alt={a.name} crop={a.avatarCrop} />
                   </span>
                   {statusDot(a.conversationStatus)}
                 </div>
@@ -850,12 +846,7 @@ export function ChatSidebar({
                         i === 0 ? "top-0 left-0 z-10" : "bottom-0 right-0",
                       )}
                     >
-                      <img
-                        src={a.avatarUrl}
-                        alt={a.name}
-                        className="h-full w-full object-cover"
-                        style={getAvatarCropStyle(a.avatarCrop)}
-                      />
+                      <AvatarImage src={a.avatarUrl} alt={a.name} crop={a.avatarCrop} />
                     </span>
                   ) : (
                     <div

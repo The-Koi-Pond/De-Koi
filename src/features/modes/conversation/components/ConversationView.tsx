@@ -52,7 +52,8 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { showConversationLocalNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
 import { CHAT_SCROLL_TO_BOTTOM_EVENT, type ChatScrollToBottomDetail } from "../../../../shared/lib/chat-scroll-events";
-import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../../../shared/lib/utils";
+import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
+import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { TOOLS_PANELS, useTopBarActions } from "../../../../shared/components/mobile-shell-actions";
 import { usePageActivity } from "../../../../shared/hooks/use-page-activity";
 import { ActiveWorldInfoButton, ActiveWorldInfoModal } from "../../../runtime/visuals/index";
@@ -1406,12 +1407,7 @@ export function ConversationView({
                     <div className="relative flex-shrink-0">
                       {c.avatarUrl ? (
                         <span className="relative block h-5 w-5 overflow-hidden rounded-full">
-                          <img
-                            src={c.avatarUrl}
-                            alt={c.name}
-                            className="h-full w-full object-cover"
-                            style={getAvatarCropStyle(c.avatarCrop)}
-                          />
+                          <AvatarImage src={c.avatarUrl} alt={c.name} crop={c.avatarCrop} />
                         </span>
                       ) : (
                         <div className="flex h-5 w-5 items-center justify-center rounded-full bg-foreground/20 text-[0.5rem] font-bold text-foreground">
@@ -1458,12 +1454,7 @@ export function ConversationView({
                           >
                             {c.avatarUrl ? (
                               <span className="relative block h-5 w-5 overflow-hidden rounded-full ring-1 ring-[var(--border)]">
-                                <img
-                                  src={c.avatarUrl}
-                                  alt={c.name}
-                                  className="h-full w-full object-cover"
-                                  style={getAvatarCropStyle(c.avatarCrop)}
-                                />
+                                <AvatarImage src={c.avatarUrl} alt={c.name} crop={c.avatarCrop} />
                               </span>
                             ) : (
                               <div className="flex h-5 w-5 items-center justify-center rounded-full bg-foreground/20 text-[0.5rem] font-bold text-foreground ring-1 ring-[var(--border)]">

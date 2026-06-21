@@ -34,7 +34,8 @@ import {
   RotateCcw,
   GitBranch,
 } from "lucide-react";
-import { cn, copyToClipboard, getAvatarCropStyle, type AvatarCropValue } from "../../../../shared/lib/utils";
+import { cn, copyToClipboard, type AvatarCropValue } from "../../../../shared/lib/utils";
+import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { findNamedEntry, findNamedMapValue } from "../lib/game-character-name-match";
 import type { GameSegmentEdit } from "../lib/game-segment-edits";
 import { parseGmTags, stripGmTagsKeepReadables } from "../lib/game-tag-parser";
@@ -4336,15 +4337,7 @@ function CroppedAvatar({
   onLoadError?: () => void;
 }) {
   return (
-    <div className={cn("relative overflow-hidden", className)}>
-      <img
-        src={src}
-        alt={alt}
-        className="h-full w-full object-cover"
-        style={getAvatarCropStyle(crop)}
-        onError={onLoadError}
-      />
-    </div>
+    <AvatarImage src={src} alt={alt} crop={crop} className={className} onError={onLoadError} />
   );
 }
 

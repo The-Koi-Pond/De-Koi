@@ -1,6 +1,7 @@
 import { ImagePlus } from "lucide-react";
 import type { PresentCharacter } from "../../../../engine/contracts/types/game-state";
 import { cn } from "../../../../shared/lib/utils";
+import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { visibleText } from "./tracker-display.helpers";
 
 const AVATAR_BOTTOM_GLINT_CLASS =
@@ -38,7 +39,7 @@ export function CharacterTrackerAvatar({
         )}
       >
         {avatarMedia ? (
-          <img src={avatarMedia} alt="" className="h-full w-full object-cover" draggable={false} />
+          <AvatarImage src={avatarMedia} alt="" draggable={false} />
         ) : (
           <span className="text-xs leading-none">{character.emoji || "?"}</span>
         )}

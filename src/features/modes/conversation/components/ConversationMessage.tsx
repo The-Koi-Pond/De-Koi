@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { formatTextQuotes } from "../../../../shared/lib/dialogue-quotes";
-import { copyToClipboard, getAvatarCropStyle, parseAvatarCropJson } from "../../../../shared/lib/utils";
+import { copyToClipboard, normalizeAvatarCropValue } from "../../../../shared/lib/utils";
 import { chatKeys } from "../../../catalog/chats/index";
 import { resolveMessageMacros } from "../../../../shared/lib/chat-macros";
 import { useTranslate } from "../../../../shared/hooks/use-translate";
@@ -232,10 +232,10 @@ export const ConversationMessage = memo(function ConversationMessage({
     ? isPlainUserMessage
       ? null
       : msgPersona
-        ? parseAvatarCropJson(msgPersona.avatarCrop)
+        ? (normalizeAvatarCropValue(msgPersona.avatarCrop) ?? personaInfo?.avatarCrop ?? null)
         : (personaInfo?.avatarCrop ?? null)
     : null;
-  const avatarCropStyle = isUser ? getAvatarCropStyle(personaAvatarCrop) : getAvatarCropStyle(charInfo?.avatarCrop);
+  const avatarCrop = isUser ? personaAvatarCrop : (charInfo?.avatarCrop ?? null);
   const displayName = isUser
     ? isPlainUserMessage
       ? "You"
@@ -562,7 +562,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     avatarUrl,
     avatarFilePath,
     avatarFilename,
-    avatarCropStyle,
+    avatarCrop,
     shouldHideUserAvatarGraphic,
     shouldHideAvatarColumn,
     shouldShowMessageNumber,

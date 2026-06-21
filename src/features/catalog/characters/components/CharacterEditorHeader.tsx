@@ -17,7 +17,8 @@ import {
 } from "lucide-react";
 
 import type { CharacterData } from "../../../../engine/contracts/types/character";
-import { cn, getAvatarCropStyle, type AvatarCrop } from "../../../../shared/lib/utils";
+import { cn } from "../../../../shared/lib/utils";
+import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { estimateCharacterCardTokens, formatEstimatedTokens } from "../lib/character-token-count";
 
 export function CharacterEditorHeader({
@@ -169,12 +170,7 @@ export function CharacterEditorHeader({
           }}
         >
           {avatarPreview ? (
-            <img
-              src={avatarPreview}
-              alt={formData.name}
-              className="h-full w-full object-cover"
-              style={getAvatarCropStyle(formData.extensions.avatarCrop as AvatarCrop | undefined)}
-            />
+            <AvatarImage src={avatarPreview} alt={formData.name} crop={formData.extensions.avatarCrop} />
           ) : (
             <User size="1.375rem" className="text-white" />
           )}

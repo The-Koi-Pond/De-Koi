@@ -1,6 +1,7 @@
 import type { ConversationAvatarMode, ConversationAvatarOverride } from "../../../../engine/contracts/types/character";
 import { useEffect, useState } from "react";
 import { cn } from "../../../../shared/lib/utils";
+import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { useSprites } from "../../sprites/index";
 import { useCharacterGalleryImages } from "../hooks/use-characters";
 import { CharacterEditorSectionHeader } from "./CharacterEditorSectionHeader";
@@ -199,7 +200,7 @@ function AssetGrid({
             it.selected ? "ring-2 ring-purple-400" : "ring-[var(--border)] hover:ring-purple-400/50",
           )}
         >
-          <img src={it.src} alt={it.label} loading="lazy" className="h-full w-full object-cover" />
+          <AvatarImage src={it.src} alt={it.label} />
         </button>
       ))}
     </div>

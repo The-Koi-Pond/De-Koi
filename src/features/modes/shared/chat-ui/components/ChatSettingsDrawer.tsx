@@ -43,7 +43,8 @@ import {
   Paintbrush,
 } from "lucide-react";
 import { toast } from "sonner";
-import { cn, getAvatarCropStyle, type AvatarCrop } from "../../../../../shared/lib/utils";
+import { cn, type AvatarCrop } from "../../../../../shared/lib/utils";
+import { AvatarImage } from "../../../../../shared/components/ui/AvatarImage";
 import { extractCreatorNotesCss } from "../../../../../shared/lib/creator-notes-css";
 import { showAlertDialog, showConfirmDialog, showPromptDialog } from "../../../../../shared/lib/app-dialogs";
 import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
@@ -2130,13 +2131,7 @@ function ChatSettingsDrawerInner({
                           >
                             {c.avatarPath ? (
                               <span className="relative block h-7 w-7 shrink-0 overflow-hidden rounded-full">
-                                <img
-                                  src={c.avatarPath}
-                                  alt={name}
-                                  loading="lazy"
-                                  className="h-full w-full object-cover"
-                                  style={getAvatarCropStyle(charAvatarCrop(c))}
-                                />
+                                <AvatarImage src={c.avatarPath} alt={name} crop={charAvatarCrop(c)} />
                               </span>
                             ) : (
                               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[0.625rem] font-bold">
@@ -2430,13 +2425,7 @@ function ChatSettingsDrawerInner({
                           >
                             {c.avatarPath ? (
                               <span className="relative block h-7 w-7 shrink-0 overflow-hidden rounded-full">
-                                <img
-                                  src={c.avatarPath}
-                                  alt={name}
-                                  loading="lazy"
-                                  className="h-full w-full object-cover"
-                                  style={getAvatarCropStyle(charAvatarCrop(c))}
-                                />
+                                <AvatarImage src={c.avatarPath} alt={name} crop={charAvatarCrop(c)} />
                               </span>
                             ) : (
                               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--accent)] text-[0.625rem] font-bold">
@@ -2522,13 +2511,7 @@ function ChatSettingsDrawerInner({
                       >
                         {c.avatarPath ? (
                           <span className="relative block h-6 w-6 shrink-0 overflow-hidden rounded-full">
-                            <img
-                              src={c.avatarPath}
-                              alt={name}
-                              loading="lazy"
-                              className="h-full w-full object-cover"
-                              style={getAvatarCropStyle(charAvatarCrop(c))}
-                            />
+                            <AvatarImage src={c.avatarPath} alt={name} crop={charAvatarCrop(c)} />
                           </span>
                         ) : (
                           <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-[0.5625rem] font-bold">
@@ -4137,13 +4120,7 @@ function ChatSettingsDrawerInner({
                               >
                                 {avatarPath ? (
                                   <span className="relative block h-8 w-8 shrink-0 overflow-hidden rounded-full">
-                                    <img
-                                      src={avatarPath}
-                                      alt={name}
-                                      loading="lazy"
-                                      className="h-full w-full object-cover"
-                                      style={getAvatarCropStyle(avatarCrop)}
-                                    />
+                                    <AvatarImage src={avatarPath} alt={name} crop={avatarCrop} />
                                   </span>
                                 ) : (
                                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--accent)] text-[0.625rem] font-bold">

@@ -28,10 +28,11 @@ import {
   Image,
   Wand2,
 } from "lucide-react";
-import { cn, generateClientId, getAvatarCropStyle } from "../../../../../shared/lib/utils";
+import { cn, generateClientId } from "../../../../../shared/lib/utils";
 import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
 import { ExpandedTextarea } from "../../../../../shared/components/ui/ExpandedTextarea";
+import { AvatarImage } from "../../../../../shared/components/ui/AvatarImage";
 import { exportApi } from "../../../../../shared/api/export-api";
 import { AvatarGenerationModal } from "../../../../../shared/components/ui/AvatarGenerationModal";
 import { ExportFormatDialog, type ExportFormatChoice } from "../../../../../shared/components/ui/ExportFormatDialog";
@@ -284,12 +285,7 @@ export function PersonaEditor() {
           onClick={() => fileInputRef.current?.click()}
         >
           {avatarPreview ? (
-            <img
-              src={avatarPreview}
-              alt={formData.name}
-              className="h-full w-full object-cover"
-              style={getAvatarCropStyle(formData.avatarCrop)}
-            />
+            <AvatarImage src={avatarPreview} alt={formData.name} crop={formData.avatarCrop} />
           ) : (
             <User size="1.375rem" className="text-white" />
           )}

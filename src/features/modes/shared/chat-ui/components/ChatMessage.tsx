@@ -4,8 +4,7 @@
 import {
   cn,
   copyToClipboard,
-  getAvatarCropStyle,
-  parseAvatarCropJson,
+  normalizeAvatarCropValue,
   type AvatarCropValue,
 } from "../../../../../shared/lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks, applyInlineMarkdownHTML } from "../../../../../shared/lib/markdown";
@@ -1533,14 +1532,14 @@ export const ChatMessage = memo(function ChatMessage({
   }, [avatarFilePath, avatarFilename, avatarUrl, openImageLightbox, resolvedAvatarUrl]);
   const personaAvatarCrop = isUser
     ? msgPersona
-      ? parseAvatarCropJson(msgPersona.avatarCrop)
+      ? (normalizeAvatarCropValue(msgPersona.avatarCrop) ?? personaInfo?.avatarCrop ?? null)
       : (personaInfo?.avatarCrop ?? null)
     : null;
-  const avatarCropStyle = expressionAvatarUrl
-    ? {}
+  const avatarCrop: AvatarCropValue | null = expressionAvatarUrl
+    ? null
     : isUser
-      ? getAvatarCropStyle(personaAvatarCrop)
-      : getAvatarCropStyle(charInfo?.avatarCrop);
+      ? (personaAvatarCrop ?? null)
+      : (charInfo?.avatarCrop ?? null);
 
   // Resolve colors: character colors for assistant, persona colors for user
   // Prefer per-message persona snapshot colors over current persona
@@ -1745,28 +1744,14 @@ export const ChatMessage = memo(function ChatMessage({
   // short message the glued panel becomes a wide rectangle — `object-cover`
   // against a tall source then crops the top off and 50%/50% (or any centered
   // focal point on a top-of-source face) lands on chin/chest instead of face.
-  const rectangleSafeCropStyle = (
-    crop: AvatarCropValue | null | undefined,
-    fallback: React.CSSProperties,
-  ): React.CSSProperties => {
-    if (!crop) return fallback;
-    return {};
-  };
   const compactAvatarCrop: AvatarCropValue | null = isUser
     ? (personaAvatarCrop ?? null)
     : expressionAvatarUrl
       ? null
       : (charInfo?.avatarCrop ?? null);
-  const compactAvatarCropStyle: React.CSSProperties = useCompactRectangleAvatar
-    ? rectangleSafeCropStyle(compactAvatarCrop, avatarCropStyle)
-    : avatarCropStyle;
-  const compactMergedAvatarCropStyle = (avatar: { crop?: AvatarCropValue | null }): React.CSSProperties =>
-    useCompactRectangleAvatar
-      ? rectangleSafeCropStyle(avatar.crop, getAvatarCropStyle(avatar.crop))
-      : getAvatarCropStyle(avatar.crop);
-  const panelAvatarCropStyle: React.CSSProperties = rectangleSafeCropStyle(compactAvatarCrop, avatarCropStyle);
-  const panelMergedAvatarCropStyle = (avatar: { crop?: AvatarCropValue | null }): React.CSSProperties =>
-    rectangleSafeCropStyle(avatar.crop, getAvatarCropStyle(avatar.crop));
+  const compactAvatarCropForRender: AvatarCropValue | null = useCompactRectangleAvatar ? null : compactAvatarCrop;
+  const compactMergedAvatarCropForRender = (avatar: { crop?: AvatarCropValue | null }): AvatarCropValue | null =>
+    useCompactRectangleAvatar ? null : (avatar.crop ?? null);
   const compactAvatarSpacerClass = useCompactRectangleAvatar
     ? "w-[calc(2.75rem*var(--roleplay-avatar-scale))]"
     : "w-[calc(2.5rem*var(--roleplay-avatar-scale))]";
@@ -1794,7 +1779,9 @@ export const ChatMessage = memo(function ChatMessage({
             decoding="async"
             thumbnailSize={256}
             className="rpg-avatar-panel-tail-image absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-700"
-            style={{ opacity: i === 0 ? 1 : 0, ...panelMergedAvatarCropStyle(avatar) }}
+            style={{ opacity: i === 0 ? 1 : 0 }}
+            crop={null}
+            upgradeToFullResolution
             onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
           />
         ))}
@@ -1811,7 +1798,8 @@ export const ChatMessage = memo(function ChatMessage({
           decoding="async"
           thumbnailSize={256}
           className="rpg-avatar-panel-tail-image absolute inset-0 h-full w-full object-cover object-top"
-          style={panelAvatarCropStyle}
+          crop={null}
+          upgradeToFullResolution
           onResolvedSrc={handleResolvedAvatarSrc}
         />
       </div>
@@ -2038,7 +2026,9 @@ export const ChatMessage = memo(function ChatMessage({
                       decoding="async"
                       thumbnailSize={128}
                       className="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
-                      style={{ opacity: i === 0 ? 1 : 0, ...compactMergedAvatarCropStyle(avatar) }}
+                      style={{ opacity: i === 0 ? 1 : 0 }}
+                      crop={compactMergedAvatarCropForRender(avatar)}
+                      upgradeToFullResolution
                       onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
                     />
                   ))}
@@ -2063,7 +2053,8 @@ export const ChatMessage = memo(function ChatMessage({
                       decoding="async"
                       thumbnailSize={128}
                       className="h-full w-full object-cover"
-                      style={compactAvatarCropStyle}
+                      crop={compactAvatarCropForRender}
+                      upgradeToFullResolution
                       onResolvedSrc={handleResolvedAvatarSrc}
                     />
                   </button>
@@ -2188,7 +2179,9 @@ export const ChatMessage = memo(function ChatMessage({
                               decoding="async"
                               thumbnailSize={256}
                               className="absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-700"
-                              style={{ opacity: i === 0 ? 1 : 0, ...panelMergedAvatarCropStyle(avatar) }}
+                              style={{ opacity: i === 0 ? 1 : 0 }}
+                              crop={null}
+                              upgradeToFullResolution
                               onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
                             />
                           ))}
@@ -2212,7 +2205,8 @@ export const ChatMessage = memo(function ChatMessage({
                             decoding="async"
                             thumbnailSize={256}
                             className="h-full w-full object-cover object-top"
-                            style={panelAvatarCropStyle}
+                            crop={null}
+                            upgradeToFullResolution
                             onResolvedSrc={handleResolvedAvatarSrc}
                           />
                         </button>
@@ -2581,7 +2575,9 @@ export const ChatMessage = memo(function ChatMessage({
                     decoding="async"
                     thumbnailSize={64}
                     className="absolute inset-0 h-8 w-8 object-cover transition-opacity duration-700"
-                    style={{ opacity: i === 0 ? 1 : 0, ...getAvatarCropStyle(avatar.crop) }}
+                    style={{ opacity: i === 0 ? 1 : 0 }}
+                    crop={avatar.crop}
+                    upgradeToFullResolution
                     onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
                   />
                 ))}
@@ -2602,7 +2598,8 @@ export const ChatMessage = memo(function ChatMessage({
                   decoding="async"
                   thumbnailSize={64}
                   className="h-full w-full object-cover"
-                  style={avatarCropStyle}
+                  crop={avatarCrop}
+                  upgradeToFullResolution
                   onResolvedSrc={handleResolvedAvatarSrc}
                 />
               </button>
