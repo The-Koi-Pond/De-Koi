@@ -159,6 +159,13 @@ function parsePresentCharacter(value: unknown): PresentCharacter | null {
   };
 }
 
+function parsePresentCharacters(value: unknown, persona?: TrackerPersonaIdentity | null): PresentCharacter[] {
+  if (!Array.isArray(value)) return [];
+  return filterPlayerPersonaPresentCharacters(value.map(parseRecord), persona)
+    .map(parsePresentCharacter)
+    .filter((character): character is PresentCharacter => !!character);
+}
+
 function normalizeGameState(
   value: unknown,
   chatId: string,
@@ -177,14 +184,7 @@ function normalizeGameState(
     location: manualOverrideValue(manualOverrides, "location") ?? readNullableString(record.location),
     weather: manualOverrideValue(manualOverrides, "weather") ?? readNullableString(record.weather),
     temperature: manualOverrideValue(manualOverrides, "temperature") ?? readNullableString(record.temperature),
-    presentCharacters: Array.isArray(record.presentCharacters)
-      ? filterPlayerPersonaPresentCharacters(
-          record.presentCharacters
-            .map(parsePresentCharacter)
-            .filter((character): character is PresentCharacter => !!character),
-          persona,
-        )
-      : [],
+    presentCharacters: parsePresentCharacters(record.presentCharacters, persona),
     recentEvents: Array.isArray(record.recentEvents)
       ? record.recentEvents.map(readNullableString).filter((event): event is string => !!event)
       : [],
@@ -435,14 +435,7 @@ function gameStatePatchFromAgentResult(
   if (!Object.keys(data).length) return null;
 
   if (result.agentType === "character-tracker" || result.type === "character_tracker_update") {
-    const presentCharacters = Array.isArray(data.presentCharacters)
-      ? filterPlayerPersonaPresentCharacters(
-          data.presentCharacters
-            .map(parsePresentCharacter)
-            .filter((character): character is PresentCharacter => !!character),
-          persona,
-        )
-      : [];
+    const presentCharacters = parsePresentCharacters(data.presentCharacters, persona);
     preserveTrackerCharacterUiFields(
       presentCharacters as unknown as Array<Record<string, unknown>>,
       snapshot.presentCharacters as unknown as Array<Record<string, unknown>>,

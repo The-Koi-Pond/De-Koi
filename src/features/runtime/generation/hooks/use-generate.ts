@@ -1131,6 +1131,16 @@ function parsePresentCharacter(value: unknown): PresentCharacter | null {
   };
 }
 
+function parsePresentCharacters(
+  value: unknown,
+  persona?: ReturnType<typeof cachedPersonaSnapshot>,
+): PresentCharacter[] {
+  if (!Array.isArray(value)) return [];
+  return filterPlayerPersonaPresentCharacters(value.map(parseMaybeRecord), persona)
+    .map(parsePresentCharacter)
+    .filter((character): character is PresentCharacter => !!character);
+}
+
 function gameStatePatchFromAgentResult(
   result: AgentResult,
   chatId: string,
@@ -1148,14 +1158,7 @@ function gameStatePatchFromAgentResult(
   if (!Object.keys(data).length) return null;
 
   if (result.agentType === "character-tracker" || result.type === "character_tracker_update") {
-    const presentCharacters = Array.isArray(data.presentCharacters)
-      ? filterPlayerPersonaPresentCharacters(
-          data.presentCharacters
-            .map(parsePresentCharacter)
-            .filter((character): character is PresentCharacter => !!character),
-          persona,
-        )
-      : [];
+    const presentCharacters = parsePresentCharacters(data.presentCharacters, persona);
     return { presentCharacters };
   }
 

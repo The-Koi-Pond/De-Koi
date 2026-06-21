@@ -6,6 +6,7 @@ export interface TrackerPersonaIdentity {
 
 export interface PresentCharacterIdentity {
   characterId?: unknown;
+  characterIds?: unknown;
   name?: unknown;
 }
 
@@ -23,8 +24,24 @@ function normalizeMacroIdentity(value: unknown): string {
   return normalizeIdentity(value).replace(/\s+/g, "");
 }
 
+function readTextList(value: unknown): string[] {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      return Array.isArray(parsed)
+        ? parsed.map(readText).filter(Boolean)
+        : [readText(parsed)].filter(Boolean);
+    } catch {
+      return [trimmed];
+    }
+  }
+  return Array.isArray(value) ? value.map(readText).filter(Boolean) : [];
+}
+
 function rowIdentities(row: PresentCharacterIdentity): string[] {
-  return [readText(row.characterId), readText(row.name)].filter(Boolean);
+  return [readText(row.characterId), ...readTextList(row.characterIds), readText(row.name)].filter(Boolean);
 }
 
 function personaIdentities(persona?: TrackerPersonaIdentity | null): string[] {
