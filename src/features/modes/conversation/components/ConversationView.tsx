@@ -1118,6 +1118,7 @@ export function ConversationView({
   const [visiblePartCounts, setVisiblePartCounts] = useState<Record<string, number>>({});
   const renderedMessageKeysRef = useRef<Set<string>>(new Set());
   const prevRenderedKeysRef = useRef<Set<string>>(new Set());
+  const prevRenderedPartCountsRef = useRef<Map<string, number>>(new Map());
   // Track whether the initial data load has settled. Until it has, we treat
   // all arriving keys as "already seen" so re-mounting the component (or the
   // first async page of messages landing) never replays stagger/sounds.
@@ -1137,6 +1138,7 @@ export function ConversationView({
     prevChatIdRef.current = chatId;
     initialLoadSettledRef.current = false;
     prevRenderedKeysRef.current = new Set();
+    prevRenderedPartCountsRef.current = new Map();
     renderedMessageKeysRef.current = new Set();
     Object.values(staggerTimersRef.current).forEach((timers) => timers.forEach(clearTimeout));
     staggerTimersRef.current = {};
@@ -1154,6 +1156,7 @@ export function ConversationView({
         partCount: item.contentParts?.length ?? 0,
       })),
     prevKeys: prevRenderedKeysRef.current,
+    prevPartCounts: prevRenderedPartCountsRef.current,
     seenKeys: globalSeenKeysRef.current,
     now: Date.now(),
   });
@@ -1162,6 +1165,7 @@ export function ConversationView({
     type RenderedMessageItem = Extract<(typeof renderedItems)[number], { type: "message" }>;
     const messageItems = renderedItems.filter((item): item is RenderedMessageItem => item.type === "message");
     const currentKeys = new Set(messageItems.map((item) => item.key));
+    const currentPartCounts = new Map(messageItems.map((item) => [item.key, item.contentParts?.length ?? 0]));
     const itemByKey = new Map(messageItems.map((item) => [item.key, item]));
     renderedMessageKeysRef.current = currentKeys;
 
@@ -1190,6 +1194,7 @@ export function ConversationView({
         prevRenderedKeysRef.current = currentKeys;
         // Mark all current keys as globally seen so remount won't replay them
         for (const k of currentKeys) globalSeenKeysRef.current.add(k);
+        prevRenderedPartCountsRef.current = currentPartCounts;
         initialLoadSettledRef.current = true;
       }
       return;
@@ -1208,6 +1213,7 @@ export function ConversationView({
         partCount: item.contentParts?.length ?? 0,
       })),
       prevKeys,
+      prevPartCounts: prevRenderedPartCountsRef.current,
       seenKeys: seenGlobal,
       now,
     });
@@ -1238,6 +1244,7 @@ export function ConversationView({
     // Mark all current keys as globally seen
     for (const k of currentKeys) seenGlobal.add(k);
     prevRenderedKeysRef.current = currentKeys;
+    prevRenderedPartCountsRef.current = currentPartCounts;
 
     // Play notification for the first new message appearance
     if (newAssistantMessage) {
