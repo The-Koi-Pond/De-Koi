@@ -1,0 +1,12 @@
+[Unit]
+Description=Run De-Koi Pi image update every 6 hours
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+RandomizedDelaySec=30min
+Persistent=true
+Unit=de-koi-pi-update.service
+
+[Install]
+WantedBy=timers.target

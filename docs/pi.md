@@ -19,6 +19,30 @@ docker compose -f docker-compose.pi.yml -f docker-compose.pi.trusted-lan.yml pul
 docker compose -f docker-compose.pi.yml -f docker-compose.pi.trusted-lan.yml up -d
 ```
 
+The updater checks the pulled image labels before recreating containers. It uses
+the newest successful cooked batch: `de-koi-server` and `de-koi-web` must report
+the same `org.opencontainers.image.revision`, and the candidate batch must not
+be older than the currently deployed image batch when that current revision is
+detectable.
+
+For emergency manual recovery only, set `DE_KOI_PI_ALLOW_REVISION=<sha>` to
+allow a specific matched image batch. This bypasses the freshness comparison for
+that exact candidate revision only; it does not repair mixed running containers
+or missing image labels, and it can deploy an older batch if you choose the wrong
+SHA.
+
+Set `DE_KOI_PI_EXTRA_COMPOSE_FILES` to a comma-separated list of local override
+files when a Pi needs host-specific ports or volumes, such as exposing backend
+port `8787` on a trusted Tailscale network.
+
+For timer-driven updates, put the same override setting in the optional systemd
+environment file:
+
+```sh
+sudo install -d /etc/de-koi
+printf 'DE_KOI_PI_EXTRA_COMPOSE_FILES=docker-compose.pi.local.yml\n' | sudo tee /etc/de-koi/pi-update.env
+```
+
 Open De-Koi at:
 
 ```text
@@ -39,6 +63,21 @@ exact browser origins to `.env`:
 CORS_ORIGINS=http://pi:7860,http://pi.local:7860,http://192.168.1.231:7860,http://100.64.240.39:7860
 CSRF_TRUSTED_ORIGINS=http://pi:7860,http://pi.local:7860,http://192.168.1.231:7860,http://100.64.240.39:7860
 ```
+
+## Auto Update Timer
+
+After one manual image update works, install the systemd timer templates:
+
+```sh
+sudo cp deploy/pi/systemd/de-koi-pi-update.service /etc/systemd/system/
+sudo cp deploy/pi/systemd/de-koi-pi-update.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now de-koi-pi-update.timer
+systemctl list-timers de-koi-pi-update.timer
+```
+
+The timer checks every 6 hours with a randomized delay. The service uses `flock`
+so overlapping updates cannot run.
 
 ## Hardened Default
 
