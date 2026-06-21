@@ -265,7 +265,7 @@ export async function executeAgent(
     if (!responseText && result.content) responseText = result.content;
     responseText = responseText.trim();
     let durationMs = Date.now() - startTime;
-    let totalTokens = result.usage?.totalTokens ?? 0;
+    let totalTokens = 0;
     if (!responseText) {
       return makeError(config, `${config.name} returned an empty response.`, startTime);
     }
@@ -295,6 +295,7 @@ export async function executeAgent(
       maxTokens,
       streamResponses,
       totalTokens,
+      responseTokens: result.usage?.totalTokens ?? 0,
       durationMs,
       startTime,
       signal: context.signal,
@@ -364,8 +365,6 @@ async function executeAgentWithTools(
       }),
     );
 
-    totalTokens += result.usage?.totalTokens ?? 0;
-
     // No tool calls → final response
     if (!result.toolCalls || result.toolCalls.length === 0) {
       const responseText = result.content?.trim() ?? "";
@@ -382,6 +381,7 @@ async function executeAgentWithTools(
         maxTokens,
         streamResponses,
         totalTokens,
+        responseTokens: result.usage?.totalTokens ?? 0,
         durationMs: Date.now() - startTime,
         startTime,
         signal,
@@ -406,6 +406,7 @@ async function executeAgentWithTools(
         error: fallback.error,
       };
     }
+    totalTokens += result.usage?.totalTokens ?? 0;
 
     // Append assistant message with tool calls
     loopMessages.push({
@@ -482,7 +483,6 @@ async function executeAgentWithTools(
       signal,
     }),
   );
-  totalTokens += finalResult.usage?.totalTokens ?? 0;
   const responseText = finalResult.content?.trim() ?? "";
   if (!responseText) {
     return makeError(config, `${config.name} returned an empty response.`, startTime);
@@ -497,6 +497,7 @@ async function executeAgentWithTools(
     maxTokens,
     streamResponses,
     totalTokens,
+    responseTokens: finalResult.usage?.totalTokens ?? 0,
     durationMs: Date.now() - startTime,
     startTime,
     signal,
@@ -1108,6 +1109,7 @@ async function parseAgentResponseWithInvalidJsonRetry(args: {
   maxTokens: number;
   streamResponses: boolean;
   totalTokens: number;
+  responseTokens: number;
   durationMs: number;
   startTime: number;
   signal?: AbortSignal;
@@ -1119,7 +1121,7 @@ async function parseAgentResponseWithInvalidJsonRetry(args: {
   durationMs: number;
 }> {
   let parsed = parseAgentResponse(args.config, args.responseText);
-  let totalTokens = args.totalTokens;
+  let totalTokens = args.totalTokens + args.responseTokens;
   let durationMs = args.durationMs;
   if (!parsed.error || !shouldRetryInvalidJsonAgent(args.config) || args.signal?.aborted) {
     return { parsed, totalTokens, durationMs };
@@ -1132,9 +1134,20 @@ async function parseAgentResponseWithInvalidJsonRetry(args: {
     message: "json-retry",
     args: [args.config.type, parsed.error],
   });
+  args.logger.debug(
+    "[agent] %s malformed JSON response before retry: %s",
+    args.config.type,
+    args.responseText.slice(0, 500),
+  );
+  args.emit({
+    level: "debug",
+    phase: args.config.phase,
+    message: "json-retry-malformed-response",
+    args: [args.config.type, args.responseText.slice(0, 500)],
+  });
   let retryResponseText = "";
   const retryResult = await args.provider.chatComplete(
-    buildInvalidJsonRetryMessages(args.messages, parsed.type, args.responseText),
+    buildInvalidJsonRetryMessages(args.messages, parsed.type),
     buildChatCompleteOptions({
       model: args.model,
       temperature: args.temperature,
@@ -1152,7 +1165,12 @@ async function parseAgentResponseWithInvalidJsonRetry(args: {
   if (!retryResponseText && retryResult.content) retryResponseText = retryResult.content;
   retryResponseText = retryResponseText.trim();
   durationMs = Date.now() - args.startTime;
-  args.logger.info("[agent] %s JSON retry done (%d chars, %dms)", args.config.type, retryResponseText.length, durationMs);
+  args.logger.info(
+    "[agent] %s JSON retry done (%d chars, %dms)",
+    args.config.type,
+    retryResponseText.length,
+    durationMs,
+  );
   args.logger.debug("[agent] %s JSON retry raw response: %s", args.config.type, retryResponseText.slice(0, 500));
   args.emit({
     level: "info",
@@ -1174,15 +1192,9 @@ function shouldRetryInvalidJsonAgent(config: Pick<AgentExecConfig, "type" | "set
   return config.type !== "spotify" && agentResponseIsJson(config);
 }
 
-function buildInvalidJsonRetryMessages(
-  messages: ChatMessage[],
-  resultType: AgentResultType,
-  rawResponse: string,
-): ChatMessage[] {
-  const rawPreview = rawResponse.trim().slice(0, 4000);
+function buildInvalidJsonRetryMessages(messages: ChatMessage[], resultType: AgentResultType): ChatMessage[] {
   return [
     ...messages,
-    ...(rawPreview ? [{ role: "assistant", content: rawPreview }] : []),
     {
       role: "user",
       content: [

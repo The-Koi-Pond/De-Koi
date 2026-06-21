@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { AgentContext } from "../../contracts/types/agent";
-import type { BaseLLMProvider, ChatCompleteOptions, ChatMessage, LLMToolCall } from "../../generation-core/llm/base-provider";
+import type {
+  BaseLLMProvider,
+  ChatCompleteOptions,
+  ChatMessage,
+  LLMToolCall,
+} from "../../generation-core/llm/base-provider";
 import {
   executeAgent,
   executeAgentBatch,
@@ -29,6 +34,9 @@ function spotifyContext(): AgentContext {
 }
 
 describe("agent JSON retry", () => {
+  const hasAssistantContent = (messages: ChatMessage[], content: string) =>
+    messages.some((message) => message.role === "assistant" && message.content === content);
+
   it("retries malformed JSON agents once with a strict JSON reminder", async () => {
     const calls: ChatMessage[][] = [];
     const provider: BaseLLMProvider = {
@@ -61,8 +69,41 @@ describe("agent JSON retry", () => {
     expect(result.data).toEqual({ expressions: [{ characterId: "char-1", expression: "happy" }] });
     expect(calls).toHaveLength(2);
     const retryMessages = calls[1]!;
-    expect(retryMessages[retryMessages.length - 2]).toMatchObject({ role: "assistant", content: "{ not json" });
+    expect(hasAssistantContent(retryMessages, "{ not json")).toBe(false);
     expect(retryMessages[retryMessages.length - 1]?.content).toContain("Return ONLY one valid JSON object");
+  });
+
+  it("does not retry malformed JSON when the agent signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let calls = 0;
+    const provider: BaseLLMProvider = {
+      maxTokensOverrideValue: null,
+      async chatComplete() {
+        calls += 1;
+        return { content: "{ not json", usage: { totalTokens: 3 } };
+      },
+    };
+    const config: AgentExecConfig = {
+      id: "expression-agent",
+      type: "expression",
+      name: "Expression",
+      phase: "post",
+      promptTemplate: "Return sprite expression JSON.",
+      connectionId: null,
+      settings: {},
+    };
+
+    const result = await executeAgent(
+      config,
+      { ...spotifyContext(), signal: controller.signal },
+      provider,
+      "test-model",
+    );
+
+    expect(calls).toBe(1);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("malformed JSON");
   });
 
   it("retries malformed JSON after a tool loop returns a final response", async () => {
@@ -119,7 +160,7 @@ describe("agent JSON retry", () => {
     expect(calls[1]?.options.tools).toEqual([{ name: "lookup" }]);
     expect(calls[2]?.options.tools).toBeUndefined();
     const retryMessages = calls[2]!.messages;
-    expect(retryMessages[retryMessages.length - 2]).toMatchObject({ role: "assistant", content: "{ broken" });
+    expect(hasAssistantContent(retryMessages, "{ broken")).toBe(false);
     expect(retryMessages[retryMessages.length - 1]?.content).toContain("Return ONLY one valid JSON object");
   });
 
@@ -178,7 +219,7 @@ describe("agent JSON retry", () => {
     expect(calls[5]?.options.tools).toBeUndefined();
     expect(calls[6]?.options.tools).toBeUndefined();
     const retryMessages = calls[6]!.messages;
-    expect(retryMessages[retryMessages.length - 2]).toMatchObject({ role: "assistant", content: "{ still broken" });
+    expect(hasAssistantContent(retryMessages, "{ still broken")).toBe(false);
     expect(retryMessages[retryMessages.length - 1]?.content).toContain("Return ONLY one valid JSON object");
   });
 });
