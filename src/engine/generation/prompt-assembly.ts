@@ -17,7 +17,11 @@ import {
 } from "../generation-core/prompt/merger";
 import { applyRegexScriptsToPromptMessages } from "../generation-core/regex/regex-application";
 import { stripConversationPromptTimestamps } from "../modes/chat/core/summaries/transcript-sanitize";
-import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
+import {
+  commandCapabilityEnabled,
+  conversationCommandCapabilities,
+  conversationCommandPromptEnabled,
+} from "../modes/chat/commands/activation";
 import {
   hasDeferredCharacterMacros,
   resolveDeferredCharacterMacros,
@@ -2654,22 +2658,6 @@ async function buildConversationLinkedChatBlock(
   };
 }
 
-function conversationCommandCapabilities(chat: JsonRecord, meta: JsonRecord): JsonRecord {
-  return {
-    ...parseRecord(meta.commandCapabilities),
-    ...parseRecord(meta.capabilities),
-    ...parseRecord(chat.capabilities),
-  };
-}
-
-function commandCapabilityEnabled(capabilities: JsonRecord, keys: string[], fallback = true): boolean {
-  for (const key of keys) {
-    if (capabilities[key] === false) return false;
-    if (capabilities[key] === true) return true;
-  }
-  return fallback;
-}
-
 function buildConversationCommandBlock(
   chat: JsonRecord,
   characters: GenerationCharacterContext[],
@@ -2710,7 +2698,7 @@ function buildConversationCommandBlock(
       ? '- Cross-post a message with [cross_post: target="group or chat name"] when the character naturally wants to move or share a message across conversations.'
       : "",
     canSelfie
-      ? '- Request an image with [selfie] or [selfie: context="brief visual context"] when a casual conversation selfie is appropriate and image generation is configured.'
+      ? '- Request an image with [selfie] or [selfie: context="brief visual context"] when a casual conversation selfie is appropriate and image generation is configured. If you say you are sending, sharing, taking, or attaching a selfie/photo/pic, include [selfie] in that same response; do not only narrate the action.'
       : "",
     hasCharacters && canMemory
       ? '- Save a durable character memory with [memory: target="Character Name", summary="brief memory"] when the character learns something they should remember later.'

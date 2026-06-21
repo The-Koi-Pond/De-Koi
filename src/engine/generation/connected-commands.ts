@@ -15,6 +15,7 @@ import {
   type UpdateLorebookCommand,
   type UpdatePersonaCommand,
 } from "../modes/chat/commands/character-commands";
+import { conversationSelfieCommandEnabled } from "../modes/chat/commands/activation";
 import { createRoleplayScene, planRoleplayScene } from "../modes/roleplay/scene/scene-service";
 import { resolveConversationSelfieSystemPrompt } from "./prompt-overrides";
 import {
@@ -61,8 +62,19 @@ type ImagePromptSettings = {
   styleProfiles?: ImageStyleProfileSettings;
 };
 
+type SelfieCommand = Extract<CharacterCommand, { type: "selfie" }>;
+
+type ConnectedCommandOptions = {
+  pendingSelfieIntent?: boolean;
+};
+
 const CONVERSATION_NOTES_BUDGET_CHARS = 4000;
 const LEGACY_ASSISTANT_CONTEXT_METADATA_KEY = "mariContext";
+const SELFIE_WORD_RE = /\b(?:selfie|photo|pic|picture|image)\b/i;
+const ASSISTANT_SELFIE_CLAIM_RE =
+  /\b(?:send|sent|sending|show|showing|share|shares|shared|attach|attaches|attached|post|posts|posted|take|takes|took|snap|snaps|snapped|here's|here is)\b[\s\S]{0,120}\b(?:selfie|photo|pic|picture)\b|\[\s*[^\]]{0,80}\b(?:send|sends|sent|show|shows|share|shares|take|takes|snap|snaps)\b[^\]]{0,120}\b(?:selfie|photo|pic|picture)\b[^\]]*\]/i;
+const ASSISTANT_SELFIE_DECLINE_RE =
+  /\b(?:can't|cannot|can not|won't|will not|unable|not able|do not|don't|rather not|prefer not to)\b[\s\S]{0,120}\b(?:send|show|share|take|attach|post|give|have)?[\s\S]{0,40}\b(?:selfie|photo|pic|picture|image)s?\b|\b(?:selfie|photo|pic|picture|image)s?\b[\s\S]{0,80}\b(?:not available|not possible|can't|cannot|unable|rather not|prefer not)\b/i;
 
 function parseData(row: JsonRecord | null | undefined): JsonRecord {
   const raw = row?.data;
@@ -116,6 +128,37 @@ function roleplayDirectMessageCommandsEnabled(chat: JsonRecord): boolean {
 
 function cleanCommandContent(content: string): string {
   return content.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function inferSelfieContextFromResponse(response: string): string | undefined {
+  const compact = response.replace(/\s+/g, " ").trim();
+  if (!compact) return undefined;
+  const bracketMatch = compact.match(/\[[^\]]*\b(?:selfie|photo|pic|picture)\b[^\]]*\]/i);
+  const source = bracketMatch?.[0] ?? compact;
+  const context = source
+    .replace(/^\[/, "")
+    .replace(/\]$/, "")
+    .replace(/^.*?\b(?:selfie|photo|pic|picture)\b[:\s-]*/i, "")
+    .trim()
+    .slice(0, 240);
+  return context || undefined;
+}
+
+function recoverImplicitSelfieCommand(args: {
+  response: string;
+  pendingSelfieIntent: boolean;
+  imageGenerationEnabled: boolean;
+  existingCommands: CharacterCommand[];
+}): SelfieCommand | null {
+  if (!args.imageGenerationEnabled) return null;
+  if (args.existingCommands.some((command) => command.type === "selfie")) return null;
+  if (!args.pendingSelfieIntent) return null;
+  const response = args.response.trim();
+  if (!SELFIE_WORD_RE.test(response)) return null;
+  if (ASSISTANT_SELFIE_DECLINE_RE.test(response)) return null;
+  const assistantClaimsSelfie = ASSISTANT_SELFIE_CLAIM_RE.test(response);
+  if (!assistantClaimsSelfie) return null;
+  return { type: "selfie", context: inferSelfieContextFromResponse(response) };
 }
 
 function replaceFirstLiteral(content: string, search: string, replacement: string): string {
@@ -1613,16 +1656,26 @@ export async function persistConnectedCommandTags(
   llmConnectionId?: string | null,
   imagePromptSettings?: ImagePromptSettings,
   visuals?: VisualAssetGateway,
+  options?: ConnectedCommandOptions,
 ): Promise<ConnectedCommandResult> {
   const createdNotes: JsonRecord[] = [];
   const pendingNoteWrites: Array<{ chatId: string; note: JsonRecord }> = [];
   const parsed = await parseConnectedCommands(storage, chat, content);
+  const metadata = parseRecord(chat.metadata);
+  const recoveredSelfie = recoverImplicitSelfieCommand({
+    response: parsed.cleanContent,
+    pendingSelfieIntent: options?.pendingSelfieIntent === true,
+    imageGenerationEnabled:
+      readString(metadata.imageGenConnectionId).trim().length > 0 && conversationSelfieCommandEnabled(chat),
+    existingCommands: parsed.commands,
+  });
+  const commands = recoveredSelfie ? [...parsed.commands, recoveredSelfie] : parsed.commands;
   const executedCommands: string[] = [];
   const events: ConnectedCommandEvent[] = [...parsed.parseEvents];
   const assistantAttachments: JsonRecord[] = [];
   let suppressAssistantMessage = false;
 
-  for (const command of parsed.commands) {
+  for (const command of commands) {
     try {
       const executed = await executeCommand(
         storage,
