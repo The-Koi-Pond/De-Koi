@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { isJsonRepairApiError } from "../../../../shared/api/api-errors";
-import { chatKeys } from "../../../catalog/chats/index";
+import { chatKeys, syncBranchedChatCacheRecord } from "../../../catalog/chats/index";
 import { lorebookKeys } from "../../../catalog/lorebooks/index";
 import {
   getHudWidgetStateSignature,
@@ -707,14 +707,13 @@ export function useBranchCheckpoint() {
   return useMutation({
     mutationFn: (data: { chatId: string; checkpointId: string }) => gameApi.branchFromCheckpoint(data),
     onSuccess: (newChat, { chatId }) => {
+      if (newChat) syncBranchedChatCacheRecord(qc, chatId, newChat);
+
       qc.invalidateQueries({ queryKey: chatKeys.list() });
       qc.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
       qc.invalidateQueries({ queryKey: [...gameKeys.all, "checkpoints", chatId] });
       if (newChat?.groupId) {
         qc.invalidateQueries({ queryKey: chatKeys.group(newChat.groupId) });
-      }
-      if (newChat?.id) {
-        qc.setQueryData(chatKeys.detail(newChat.id), newChat);
       }
     },
   });

@@ -42,7 +42,13 @@ import { downloadTextFile } from "../lib/download";
 import { sanitizeTimelineMessage, timelineMessageProjection } from "../lib/timeline-message";
 import { lorebookKeys } from "../../lorebooks/query-keys";
 import { CHAT_SUMMARY_FIELDS } from "./use-chat-summaries";
-import { applyChatFieldPatch, cancelChatCacheQueries, setChatCacheRecord, type ChatCacheRecord } from "./chat-cache";
+import {
+  applyChatFieldPatch,
+  cancelChatCacheQueries,
+  setChatCacheRecord,
+  syncBranchedChatCacheRecord,
+  type ChatCacheRecord,
+} from "./chat-cache";
 import type {
   Chat,
   ChatMemoryChunk,
@@ -1112,15 +1118,13 @@ export function useBranchChat() {
     mutationFn: ({ chatId, upToMessageId }: { chatId: string; upToMessageId?: string }) =>
       chatCommandApi.branch<Chat>(chatId, upToMessageId),
     onSuccess: (newChat, { chatId }) => {
+      if (newChat) syncBranchedChatCacheRecord(qc, chatId, newChat);
+
       qc.invalidateQueries({ queryKey: chatKeys.list() });
       qc.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
 
       if (newChat?.groupId) {
         qc.invalidateQueries({ queryKey: chatKeys.group(newChat.groupId) });
-      }
-
-      if (newChat) {
-        qc.setQueryData(chatKeys.detail(newChat.id), newChat);
       }
     },
   });
