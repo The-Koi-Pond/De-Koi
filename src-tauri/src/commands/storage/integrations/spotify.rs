@@ -2576,31 +2576,42 @@ async fn start_dj_deki_playlist_playback(
 ) -> AppResult<Value> {
     require_spotify_scope(credentials, SPOTIFY_PLAYBACK_CONTROL_SCOPE)?;
     let device_id = device_id.filter(|value| !value.trim().is_empty());
-    let (repeat_to_restore, repeat_capture_error) =
-        match spotify_current_playback_summary(credentials).await {
-            Ok(playback) => (
-                spotify_repeat_state_to_restore(&playback).map(str::to_string),
-                None,
-            ),
+    let (before_playback, repeat_capture_error) =
+        match fetch_spotify_playback_snapshot(credentials).await {
+            Ok(playback) => (playback, None),
             Err(error) => (None, Some(error.message)),
         };
-    if let Some(device_id) = device_id {
-        let _ = spotify_api(
-            credentials,
-            "/me/player",
-            "PUT",
-            Some(json!({ "device_ids": [device_id], "play": false })),
-        )
-        .await;
-    }
+    let repeat_to_restore = before_playback
+        .as_ref()
+        .and_then(spotify_repeat_state_to_restore_from_snapshot)
+        .map(str::to_string);
     let path = spotify_control_path("/me/player/play", device_id);
-    let response = spotify_api(
+    let mut response = spotify_api(
         credentials,
         &path,
         "PUT",
         Some(json!({ "context_uri": playlist_uri })),
     )
     .await?;
+
+    if !spotify_response_ok(&response) && spotify_should_retry_device(&response, device_id) {
+        if let Some(device_id) = device_id {
+            if transfer_spotify_playback_to_device(credentials, device_id, false)
+                .await
+                .unwrap_or(false)
+            {
+                tokio::time::sleep(Duration::from_millis(SPOTIFY_PLAYBACK_SETTLE_MS)).await;
+            }
+            response = spotify_api(
+                credentials,
+                &path,
+                "PUT",
+                Some(json!({ "context_uri": playlist_uri })),
+            )
+            .await?;
+        }
+    }
+
     if !(200..300).contains(&response.status) && response.status != 204 {
         return Ok(json!({
             "started": false,
@@ -2619,7 +2630,11 @@ async fn start_dj_deki_playlist_playback(
         spotify_restore_repeat_after_playlist_start(
             credentials,
             repeat_to_restore.as_deref(),
-            device_id,
+            device_id.or_else(|| {
+                before_playback
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.device_id.as_deref())
+            }),
         )
         .await
     };
@@ -2656,11 +2671,16 @@ async fn spotify_restore_repeat_after_playlist_start(
     }
 }
 
-fn spotify_repeat_state_to_restore(playback: &Value) -> Option<&'static str> {
-    match playback.get("repeatState").and_then(Value::as_str) {
+fn spotify_repeat_state_to_restore_from_snapshot(
+    playback: &SpotifyPlaybackSnapshot,
+) -> Option<&'static str> {
+    spotify_repeat_state_to_restore_value(Some(playback.repeat_state.as_str()))
+}
+
+fn spotify_repeat_state_to_restore_value(value: Option<&str>) -> Option<&'static str> {
+    match value {
         Some("track") => Some("track"),
         Some("context") => Some("context"),
-        Some("off") => Some("off"),
         _ => None,
     }
 }
@@ -4410,6 +4430,10 @@ mod tests {
             json: json!({}),
         };
         assert!(spotify_should_retry_device(&no_active_device, None));
+        assert!(spotify_should_retry_device(
+            &no_active_device,
+            Some("target-device")
+        ));
 
         let auth_error = SpotifyResponse {
             status: 401,
@@ -4417,6 +4441,13 @@ mod tests {
             json: json!({}),
         };
         assert!(!spotify_should_retry_device(&auth_error, Some("device")));
+
+        let server_error = SpotifyResponse {
+            status: 500,
+            body: r#"{"error":{"message":"Spotify failed"}}"#.to_string(),
+            json: json!({}),
+        };
+        assert!(!spotify_should_retry_device(&server_error, Some("device")));
     }
 
     #[test]
@@ -4590,6 +4621,9 @@ mod tests {
             snapshot.context_uri.as_deref(),
             Some("spotify:playlist:scene")
         );
+        assert!(snapshot.is_playing);
+        assert_eq!(snapshot.repeat_state, "context");
+        assert_eq!(snapshot.device_id.as_deref(), Some("device"));
     }
 
     #[test]
@@ -4707,24 +4741,33 @@ mod tests {
     }
 
     #[test]
-    fn spotify_repeat_state_to_restore_accepts_spotify_repeat_modes_only() {
+    fn spotify_repeat_state_to_restore_keeps_non_default_repeat_modes_only() {
         assert_eq!(
-            spotify_repeat_state_to_restore(&json!({ "repeatState": "track" })),
+            spotify_repeat_state_to_restore_value(Some("track")),
             Some("track")
         );
         assert_eq!(
-            spotify_repeat_state_to_restore(&json!({ "repeatState": "context" })),
+            spotify_repeat_state_to_restore_value(Some("context")),
             Some("context")
         );
+        assert_eq!(spotify_repeat_state_to_restore_value(Some("off")), None);
+        assert_eq!(spotify_repeat_state_to_restore_value(Some("album")), None);
+        assert_eq!(spotify_repeat_state_to_restore_value(None), None);
+
+        let snapshot = SpotifyPlaybackSnapshot {
+            is_playing: true,
+            track_uri: None,
+            context_uri: None,
+            repeat_state: "context".to_string(),
+            device_id: Some("speaker".to_string()),
+            device_name: Some("Speaker".to_string()),
+            device: Value::Null,
+            display: Value::Null,
+        };
         assert_eq!(
-            spotify_repeat_state_to_restore(&json!({ "repeatState": "off" })),
-            Some("off")
+            spotify_repeat_state_to_restore_from_snapshot(&snapshot),
+            Some("context")
         );
-        assert_eq!(
-            spotify_repeat_state_to_restore(&json!({ "repeatState": "album" })),
-            None
-        );
-        assert_eq!(spotify_repeat_state_to_restore(&json!({})), None);
     }
 
     #[test]
