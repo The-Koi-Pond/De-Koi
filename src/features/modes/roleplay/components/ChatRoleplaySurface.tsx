@@ -1128,6 +1128,7 @@ export function ChatRoleplaySurface({
                   centerCompact ? "px-3" : "px-3 md:px-[15%]",
                 )}
                 style={{
+                  paddingTop: Math.max(16, chromeHeights.top + 8),
                   paddingBottom: Math.max(16, chromeHeights.bottom + 12),
                   scrollPaddingTop: Math.max(16, chromeHeights.top + 8),
                   scrollPaddingBottom: Math.max(16, chromeHeights.bottom + 12),
