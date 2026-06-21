@@ -6,7 +6,7 @@ import { useRef, useState } from "react";
 import { X, Trash2, FileText, MessageSquare, Download, Pencil, Upload, Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
+import { showConfirmDialog, showPromptDialog } from "../../../../../shared/lib/app-dialogs";
 import { getChatDisplayName } from "../../../../../shared/lib/chat-display";
 import { cn } from "../../../../../shared/lib/utils";
 import { importApi } from "../../../../../shared/api/import-api";
@@ -94,8 +94,14 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
 
   const handleRename = async (cf: Chat) => {
     const currentName = getChatDisplayName(cf);
-    const nextName = window.prompt("Rename branch:", currentName);
-    if (!nextName) return;
+    const nextName = await showPromptDialog({
+      title: "Rename Branch",
+      message: "Set a display name for this chat branch.",
+      defaultValue: currentName,
+      placeholder: "Branch name",
+      confirmLabel: "Rename",
+    });
+    if (nextName === null) return;
 
     const trimmed = nextName.trim();
     if (!trimmed || trimmed === currentName) return;
