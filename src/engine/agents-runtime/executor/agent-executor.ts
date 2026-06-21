@@ -538,13 +538,15 @@ function normalizeSpotifyTrackUri(value: unknown): string | null {
   return /^spotify:track:[A-Za-z0-9]{22}$/i.test(uri) ? uri : null;
 }
 
+function normalizeSpotifyTrackUris(values: unknown[]): string[] {
+  const uris = values.map(normalizeSpotifyTrackUri).filter((uri): uri is string => Boolean(uri));
+  return Array.from(new Set(uris));
+}
+
 function spotifyTrackUrisFromAgentData(data: unknown): string[] {
   if (!isJsonRecord(data) || data.action !== "play") return [];
   const rawUris = Array.isArray(data.trackUris) ? data.trackUris : [];
-  return rawUris
-    .map(normalizeSpotifyTrackUri)
-    .filter((uri): uri is string => Boolean(uri))
-    .slice(0, 5);
+  return normalizeSpotifyTrackUris(rawUris).slice(0, 5);
 }
 
 function spotifyPlaybackFallbackCall(uris: string[]): LLMToolCall {
@@ -619,24 +621,16 @@ function spotifyPlaybackCurrentUri(playback: Record<string, unknown>): string | 
 }
 
 function spotifyPlaybackDirectTrackUris(playback: Record<string, unknown>, includeCurrentUri: boolean): string[] {
-  const sources = [playback.trackUris, playback.uris, playback.queued].filter(Array.isArray);
-  const uris = sources
-    .flatMap((source) => source.map(normalizeSpotifyTrackUri))
-    .filter((uri): uri is string => Boolean(uri));
-  for (const key of ["trackUri", "uri"]) {
-    const uri = normalizeSpotifyTrackUri(playback[key]);
-    if (uri) uris.push(uri);
-  }
+  const values = [playback.trackUris, playback.uris, playback.queued].filter(Array.isArray).flatMap((source) => source);
+  values.push(playback.trackUri, playback.uri);
   const track = playback.track;
   if (isJsonRecord(track)) {
-    const uri = normalizeSpotifyTrackUri(track.uri);
-    if (uri) uris.push(uri);
+    values.push(track.uri);
   }
   if (includeCurrentUri) {
-    const uri = normalizeSpotifyTrackUri(playback.currentUri);
-    if (uri) uris.push(uri);
+    values.push(playback.currentUri);
   }
-  return Array.from(new Set(uris));
+  return normalizeSpotifyTrackUris(values);
 }
 
 function spotifyPlaybackQueuedCount(playback: Record<string, unknown>, fallbackUris: string[]): number {
@@ -656,10 +650,7 @@ function spotifyToolCallTrackUris(call: LLMToolCall): string[] {
   const parsedArgs = parseSpotifyPlaybackFallbackResult(call.function.arguments);
   if (!isJsonRecord(parsedArgs)) return [];
   const rawUris = Array.isArray(parsedArgs.uris) ? parsedArgs.uris : [];
-  const uris = rawUris.map(normalizeSpotifyTrackUri).filter((uri): uri is string => Boolean(uri));
-  const uri = normalizeSpotifyTrackUri(parsedArgs.uri);
-  if (uri) uris.unshift(uri);
-  return Array.from(new Set(uris));
+  return normalizeSpotifyTrackUris([parsedArgs.uri, ...rawUris]);
 }
 
 function spotifyAcceptedPlaybackTrackUris(playback: Record<string, unknown>, call: LLMToolCall): string[] {

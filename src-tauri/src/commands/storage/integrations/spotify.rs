@@ -3235,7 +3235,6 @@ fn spotify_playback_pending_response(
         "queueRequested": play_request.requested_uris.len(),
         "queueFailed": queue_failed,
         "queueStatus": queue_status,
-        "queueComplete": queue_status == "complete" || queue_status == "not_requested",
         "partialQueueFailure": queue_failed > 0
     })
 }
@@ -3500,7 +3499,6 @@ async fn agent_spotify_play_control(
         "queueRequested": play_request.requested_uris.len(),
         "queueFailed": queue_failed,
         "queueStatus": queue_status,
-        "queueComplete": queue_status == "complete" || queue_status == "not_requested",
         "partialQueueFailure": queue_failed > 0
     }))
 }
@@ -4824,10 +4822,6 @@ mod tests {
         assert_eq!(
             response.get("queueStatus").and_then(Value::as_str),
             Some("partial")
-        );
-        assert_eq!(
-            response.get("queueComplete").and_then(Value::as_bool),
-            Some(false)
         );
         assert_eq!(
             response.get("partialQueueFailure").and_then(Value::as_bool),
