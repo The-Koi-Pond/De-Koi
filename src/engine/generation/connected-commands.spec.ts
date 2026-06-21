@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { IntegrationGateway } from "../capabilities/integrations";
 import type { StorageEntity, StorageGateway, StorageListOptions } from "../capabilities/storage";
 import { persistConnectedCommandTags, pruneConnectedConversationNotes } from "./connected-commands";
 import { loadCharacters } from "./prompt-assembly";
@@ -559,6 +560,217 @@ describe("character connected commands", () => {
 });
 
 describe("persistConnectedCommandTags", () => {
+  it("recovers an implicit selfie command when the user requested one and the reply promises a photo", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1", selfieResolution: "256x256" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Mira", data: { name: "Mira", appearance: "silver hair" } }],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const imageRequests: JsonRecord[] = [];
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(input: Record<string, unknown>): Promise<T> {
+          imageRequests.push(input);
+          return asStorageValue<T>({
+            image: "data:image/png;base64,abc",
+            mimeType: "image/png",
+            provider: "test",
+            model: "fixture",
+          });
+        },
+      },
+      spotify: {} as IntegrationGateway["spotify"],
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chat,
+      "Sure, I will send a selfie from the balcony.",
+      integrations,
+      undefined,
+      null,
+      undefined,
+      undefined,
+    );
+
+    expect(result.displayContent).toBe("Sure, I will send a selfie from the balcony.");
+    expect(result.executedCommands).toEqual(["selfie"]);
+    expect(result.events).toMatchObject([{ type: "selfie" }]);
+    expect(result.assistantAttachments).toHaveLength(1);
+    expect(imageRequests).toHaveLength(1);
+    expect(imageRequests[0]).toMatchObject({
+      connectionId: "image-1",
+      kind: "selfie",
+      reviewTitle: "Selfie: Mira",
+      width: 256,
+      height: 256,
+    });
+    expect(imageRequests[0]?.prompt).toEqual(expect.stringContaining("silver hair"));
+  });
+
+  it("does not recover an implicit selfie when image generation is not configured", async () => {
+    const chat = { id: "chat-1", mode: "conversation", characterIds: ["char-1"], metadata: {} };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Mira", data: { name: "Mira" } }],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chat,
+      "Sure, I will send a selfie from the balcony.",
+      undefined,
+      undefined,
+      null,
+      undefined,
+      undefined,
+    );
+
+    expect(result.executedCommands).toEqual([]);
+    expect(result.events).toEqual([]);
+    expect(result.assistantAttachments).toEqual([]);
+  });
+
+  it("does not recover an implicit selfie from a refusal", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Mira", data: { name: "Mira" } }],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chat,
+      "Sorry, I cannot send a selfie right now.",
+      undefined,
+      undefined,
+      null,
+      undefined,
+      undefined,
+    );
+
+    expect(result.executedCommands).toEqual([]);
+    expect(result.events).toEqual([]);
+    expect(result.assistantAttachments).toEqual([]);
+  });
+
+  it("does not recover an implicit selfie when conversation commands are disabled", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { characterCommands: false, imageGenConnectionId: "image-1" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Mira", data: { name: "Mira" } }],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chat,
+      "Sure, I will send a selfie from the balcony.",
+    );
+
+    expect(result.executedCommands).toEqual([]);
+    expect(result.events).toEqual([]);
+    expect(result.assistantAttachments).toEqual([]);
+  });
+
+  it("does not recover an implicit selfie when the selfie capability is disabled", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1", capabilities: { selfie: false } },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Mira", data: { name: "Mira" } }],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chat,
+      "Sure, I will send a selfie from the balcony.",
+    );
+
+    expect(result.executedCommands).toEqual([]);
+    expect(result.events).toEqual([]);
+    expect(result.assistantAttachments).toEqual([]);
+  });
+
+  it("does not recover an implicit selfie outside conversation mode", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "roleplay",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Mira", data: { name: "Mira" } }],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+
+    const result = await persistConnectedCommandTags(
+      storage,
+      chat,
+      "Sure, I will send a selfie from the balcony.",
+    );
+
+    expect(result.executedCommands).toEqual([]);
+    expect(result.events).toEqual([]);
+    expect(result.assistantAttachments).toEqual([]);
+  });
+
+  it("does not recover an implicit selfie from softer refusal language", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Mira", data: { name: "Mira" } }],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+
+    const photoResult = await persistConnectedCommandTags(storage, chat, "I do not have a photo to send.");
+    const shareResult = await persistConnectedCommandTags(storage, chat, "I'd rather not share a picture right now.");
+
+    expect(photoResult.executedCommands).toEqual([]);
+    expect(photoResult.events).toEqual([]);
+    expect(photoResult.assistantAttachments).toEqual([]);
+    expect(shareResult.executedCommands).toEqual([]);
+    expect(shareResult.events).toEqual([]);
+    expect(shareResult.assistantAttachments).toEqual([]);
+  });
+
   it("updates matched lorebook entries instead of appending duplicates", async () => {
     const lorebooks = [{ id: "lore-1", name: "City Guide" }];
     const lorebookEntries = [
