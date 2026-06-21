@@ -1352,7 +1352,7 @@ function buildExpressionAgentMessages(template: string, context: AgentContext): 
   systemParts.push(`<role>`);
   systemParts.push(`You are a specialized expression-selection agent. Keep the request compact and return only JSON.`);
   systemParts.push(
-    `Return exactly one expression for every owner in <available_sprites>. Use <latest_user_message> for the active user persona and <assistant_response> for assistant or character expressions.`,
+    `Return exactly one expression for every owner in <available_sprites>. Use <latest_user_message> for the active user persona, and still include the persona when listed even if <assistant_response> does not describe their face. Use <assistant_response> for assistant or character expressions.`,
   );
   systemParts.push(`</role>`);
   systemParts.push(``);
