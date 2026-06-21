@@ -9,6 +9,7 @@ describe("default agent prompts", () => {
     expect(prompt).toContain("Analyze the latest turn");
     expect(prompt).toContain("Include exactly one expression entry for every sprite owner listed");
     expect(prompt).toContain("Use <latest_user_message> to choose the active user persona's expression");
+    expect(prompt).toContain("still needs an entry even when <assistant_response> does not describe their face");
     expect(prompt).toContain("Use <assistant_response> to choose assistant or character expressions");
   });
 

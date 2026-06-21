@@ -110,7 +110,7 @@ Transition guide:
 Instructions:
 1. Include exactly one expression entry for every sprite owner listed in <available_sprites>. If a character or persona is not listed there, do NOT include them.
 2. The characterId MUST be the exact ID string from the parentheses, e.g. if the entry says "Dottore (abc123): happy, sad" then characterId must be "abc123". Never invent, reuse, or copy a different ID from chat history.
-3. Use <latest_user_message> to choose the active user persona's expression when that persona is listed in <available_sprites>. Use <assistant_response> to choose assistant or character expressions.
+3. Use <latest_user_message> to choose the active user persona's expression when that persona is listed in <available_sprites>. The active user persona still needs an entry even when <assistant_response> does not describe their face. Use <assistant_response> to choose assistant or character expressions.
 4. When a character's emotion is ambiguous, prefer neutral/default/calm/idle if available. Do not repeatedly choose a stylized expression like smirk unless the latest turn clearly shows that expression.`,
 
   /* ────────────────────────────────────────── */

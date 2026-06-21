@@ -323,6 +323,57 @@ describe("generation agent runner", () => {
     expect(prompt).toContain("<latest_user_message>\nhello\n</latest_user_message>");
   });
 
+  it("keeps persona sprites out when sprite owners are character-filtered and expression avatars are off", async () => {
+    const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
+    const visuals: VisualAssetGateway = {
+      async listSprites(ownerId, ownerType) {
+        if (ownerId === "char-1" && ownerType === "character") return [{ expression: "happy" }];
+        if (ownerId === "persona-1" && ownerType === "persona") return [{ expression: "shy" }];
+        return [];
+      },
+      async listBackgrounds() {
+        return [];
+      },
+    };
+
+    const input = runtimeInput(connection);
+    input.chat = {
+      ...input.chat,
+      personaId: "persona-1",
+      metadata: {
+        spriteDisplayModes: ["expressions"],
+        spriteCharacterIds: ["character:char-1"],
+      },
+    };
+    input.persona = { name: "Player", description: "", tags: [] };
+    input.storedMessages = [{ role: "user", content: "I blush and look away." }];
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: testStorage(
+          [
+            {
+              id: "expression-agent",
+              type: "expression",
+              name: "Expression Agent",
+              enabled: true,
+              phase: "post_processing",
+              connectionId: connection.id,
+              model: "qa-model",
+            },
+          ],
+          [connection],
+        ),
+        llm: llmCapturing([]),
+        integrations: noopIntegrations,
+        visuals,
+      },
+      input,
+    );
+
+    expect(runtime.availableSprites).toEqual([expect.objectContaining({ characterId: "char-1", characterName: "Hero" })]);
+  });
+
   it("does not run remembered active agents when legacy metadata disables agents", async () => {
     const requests: LlmRequest[] = [];
     const connection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
