@@ -12,6 +12,7 @@ import {
   applyChatMetadataPatch,
   cancelChatCacheQueries,
   setChatCacheRecord,
+  upsertChatCacheRecord,
   type ChatCacheRecord,
 } from "./chat-cache";
 import type { ChatListItem } from "./use-chat-summaries";
@@ -57,7 +58,8 @@ export function useCreateChat() {
       personaId?: string | null;
       promptPresetId?: string | null;
     }) => storageApi.create<Chat>("chats", createChatSchema.parse(data)),
-    onSuccess: (_data, variables) => {
+    onSuccess: (chat, variables) => {
+      if (chat) upsertChatCacheRecord(qc, chat);
       qc.invalidateQueries({ queryKey: chatKeys.list() });
       qc.invalidateQueries({ queryKey: chatKeys.summaries() });
       if (variables.groupId) {
