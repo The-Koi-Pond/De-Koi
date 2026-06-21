@@ -249,7 +249,7 @@ fn load_local_asset_binary(
         ));
     }
 
-    let file = open_local_binary_file(&path).map_err(AppError::from)?;
+    let file = open_local_binary_file(&canonical_path).map_err(AppError::from)?;
     let metadata = file.metadata().map_err(AppError::from)?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
         return Err(AppError::invalid_input(
@@ -307,7 +307,17 @@ fn local_asset_path_from_url(url: &str) -> Option<PathBuf> {
         .split(['?', '#'])
         .next()
         .filter(|value| !value.is_empty())?;
+    if !local_asset_url_path_shape_is_allowed(encoded) {
+        return None;
+    }
     Some(PathBuf::from(percent_decode(encoded)))
+}
+
+fn local_asset_url_path_shape_is_allowed(encoded: &str) -> bool {
+    encoded.split('/').all(|segment| {
+        let decoded = percent_decode(segment);
+        !matches!(decoded.as_str(), "." | "..") && !decoded.contains(['/', '\\'])
+    })
 }
 
 fn local_binary_mime_type(path: &Path, fallback_mime: &str) -> String {
@@ -485,6 +495,62 @@ pub(crate) async fn gifs_search(route: &ParsedPath) -> AppResult<Value> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    fn test_state(label: &str) -> AppState {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("de-koi-http-assets-{label}-{nonce}"));
+        AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
+    }
+
+    #[test]
+    fn local_asset_url_parser_rejects_malformed_shapes() {
+        assert_eq!(
+            local_asset_path_from_url("asset://localhost/gallery/avatar.png"),
+            Some(PathBuf::from("gallery/avatar.png"))
+        );
+
+        for url in [
+            "asset://localhost/gallery/%2e%2e/secret.png",
+            "asset://localhost/gallery/%2Ftmp%2Fsecret.png",
+            "asset://localhost/gallery/a%5Cb.png",
+            "asset://evil.localhost/gallery/avatar.png",
+            "asset://localhost/../gallery/avatar.png",
+            "http://asset.localhost/gallery/%2e%2e/secret.png",
+        ] {
+            assert_eq!(
+                local_asset_path_from_url(url),
+                None,
+                "malformed local asset URL should be rejected before filesystem lookup: {url}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_asset_loader_reads_validated_canonical_target() {
+        let state = test_state("symlink-inside");
+        let gallery = state.data_dir.join("gallery");
+        std::fs::create_dir_all(&gallery).expect("gallery dir should be created");
+        let target = gallery.join("target.png");
+        std::fs::write(&target, b"inside").expect("target asset should be written");
+        let link = gallery.join("link.png");
+        std::os::unix::fs::symlink(&target, &link).expect("asset symlink should be created");
+
+        let url = format!("asset://localhost/{}", link.to_string_lossy());
+        let result = load_local_asset_binary(&state, &url, "image/png")
+        .expect("valid canonical asset should load")
+        .expect("local asset URL should produce a response");
+
+        let expected_base64 = general_purpose::STANDARD.encode(b"inside");
+        assert_eq!(
+            result.get("base64").and_then(Value::as_str),
+            Some(expected_base64.as_str())
+        );
+        assert_eq!(result.get("mimeType").and_then(Value::as_str), Some("image/png"));
+    }
     #[tokio::test]
     async fn http_binary_blocks_local_and_reserved_hosts() {
         // The internal-host guard runs before any network request, so these all fail fast.
