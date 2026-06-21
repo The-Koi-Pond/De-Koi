@@ -16,7 +16,8 @@ const IMAGE_TARGETS = new Set(["photo", "photos", "pic", "pics", "picture", "pic
 const REQUEST_ACTIONS = new Set(["attach", "dm", "give", "post", "send", "share", "show", "snap", "take"]);
 const DESIRE_WORDS = new Set(["love", "see", "want", "wanna", "wanted", "like"]);
 const NEGATORS = new Set(["dont", "don't", "not", "never", "without"]);
-const SELF_REFERENCES = new Set(["you", "your", "yours", "yourself", "ur"]);
+const USER_SELF_REFERENCES = new Set(["you", "your", "yours", "yourself", "ur"]);
+const ASSISTANT_SELF_REFERENCES = new Set(["i", "me", "my", "mine", "myself"]);
 const FOLLOW_UP_REFERENCES = new Set(["one", "it", "that", "this"]);
 
 function tokenized(value: unknown): string[] {
@@ -57,20 +58,21 @@ function hasRequestNegator(tokens: string[], targetIndex: number): boolean {
   return false;
 }
 
-function hasCharacterImageObject(tokens: string[], targetIndex: number): boolean {
-  if (
-    tokens[targetIndex + 1] === "of" &&
-    (tokens[targetIndex + 2] === "you" || tokens[targetIndex + 2] === "yourself")
-  ) {
+function hasCharacterImageObject(tokens: string[], targetIndex: number, selfReferences: Set<string>): boolean {
+  if (tokens[targetIndex + 1] === "of" && selfReferences.has(tokens[targetIndex + 2] ?? "")) {
     return true;
   }
-  return tokens[targetIndex - 1] === "your" || tokens[targetIndex - 2] === "your";
+  return selfReferences.has(tokens[targetIndex - 1] ?? "") || selfReferences.has(tokens[targetIndex - 2] ?? "");
 }
 
-function hasExplicitNonCharacterImageObject(tokens: string[], targetIndex: number): boolean {
+function hasExplicitNonCharacterImageObject(
+  tokens: string[],
+  targetIndex: number,
+  selfReferences: Set<string>,
+): boolean {
   if (tokens[targetIndex + 1] !== "of") return false;
   const object = tokens[targetIndex + 2];
-  return !!object && !SELF_REFERENCES.has(object);
+  return !!object && !selfReferences.has(object);
 }
 
 function hasSecondPersonActionBeforeTarget(tokens: string[], targetIndex: number): boolean {
@@ -105,8 +107,8 @@ function hasDirectRequestCue(tokens: string[], targetIndex: number): boolean {
 }
 
 function hasImplicitCharacterPhotoRequest(tokens: string[], targetIndex: number): boolean {
-  if (hasCharacterImageObject(tokens, targetIndex)) return true;
-  if (hasExplicitNonCharacterImageObject(tokens, targetIndex)) return false;
+  if (hasCharacterImageObject(tokens, targetIndex, USER_SELF_REFERENCES)) return true;
+  if (hasExplicitNonCharacterImageObject(tokens, targetIndex, USER_SELF_REFERENCES)) return false;
   return hasSecondPersonActionBeforeTarget(tokens, targetIndex);
 }
 
@@ -140,8 +142,17 @@ function previousAssistantOffersSelfie(messages: readonly SelfieRequestMessage[]
   if (readString(assistant?.role).trim() !== "assistant") return false;
 
   const tokens = tokenized(assistant.content);
-  if (!hasTarget(tokens, SELFIE_TARGETS)) return false;
-  return tokens.includes("want") || tokens.includes("like") || hasTarget(tokens, REQUEST_ACTIONS);
+  for (const [index, token] of tokens.entries()) {
+    const isSelfieTarget = SELFIE_TARGETS.has(token);
+    const isImageTarget = IMAGE_TARGETS.has(token);
+    if (!isSelfieTarget && !isImageTarget) continue;
+    if (!tokens.includes("want") && !tokens.includes("like") && !hasNearby(tokens, index, REQUEST_ACTIONS, 7, 3)) {
+      continue;
+    }
+    if (isSelfieTarget) return true;
+    if (hasCharacterImageObject(tokens, index, ASSISTANT_SELF_REFERENCES)) return true;
+  }
+  return false;
 }
 
 function latestUserAcceptsOfferedSelfie(latestUserInput: unknown): boolean {

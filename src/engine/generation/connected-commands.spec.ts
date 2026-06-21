@@ -242,7 +242,7 @@ describe("conversation selfie request intent", () => {
     }
   });
 
-  it("uses the immediate previous assistant selfie offer for short follow-up requests", () => {
+  it("uses the immediate previous assistant character-image offer for short follow-up requests", () => {
     expect(
       detectConversationSelfieRequestIntent({
         latestUserInput: "Yes please, send one.",
@@ -257,7 +257,37 @@ describe("conversation selfie request intent", () => {
       detectConversationSelfieRequestIntent({
         latestUserInput: "Yes please, send one.",
         recentMessages: [
+          { role: "assistant", content: "Want me to send a photo of myself from the balcony?" },
+          { role: "user", content: "Yes please, send one." },
+        ],
+      }),
+    ).toBe(true);
+
+    expect(
+      detectConversationSelfieRequestIntent({
+        latestUserInput: "Yes please, send it.",
+        recentMessages: [
+          { role: "assistant", content: "I can share a pic of myself from the balcony." },
+          { role: "user", content: "Yes please, send it." },
+        ],
+      }),
+    ).toBe(true);
+
+    expect(
+      detectConversationSelfieRequestIntent({
+        latestUserInput: "Yes please, send one.",
+        recentMessages: [
           { role: "assistant", content: "Want me to describe the old photo by the balcony?" },
+          { role: "user", content: "Yes please, send one." },
+        ],
+      }),
+    ).toBe(false);
+
+    expect(
+      detectConversationSelfieRequestIntent({
+        latestUserInput: "Yes please, send one.",
+        recentMessages: [
+          { role: "assistant", content: "Want me to send a picture of the city from the balcony?" },
           { role: "user", content: "Yes please, send one." },
         ],
       }),
