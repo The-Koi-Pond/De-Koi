@@ -36,6 +36,7 @@ import {
 import { lorebookKeys } from "../../../catalog/lorebooks/index";
 import { parsePngCharacterCard } from "../../../../shared/lib/png-parser";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { saveFileToUserSelectedLocation } from "../../../../shared/api/file-save-api";
 import { toast } from "sonner";
 import { cn } from "../../../../shared/lib/utils";
 import {
@@ -2711,16 +2712,15 @@ function DetailView({
 
       const blob = await buildCharacterCardPng(card.avatarUrl, charData);
 
-      // Trigger download
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${(card.name || "character").replace(/[^a-zA-Z0-9_-]/g, "_")}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast.success(`Downloaded "${card.name}" as PNG character card!`);
+      const result = await saveFileToUserSelectedLocation({
+        blob,
+        filename: `${(card.name || "character").replace(/[^a-zA-Z0-9_-]/g, "_")}.png`,
+        title: "Export character PNG",
+        filters: [{ name: "PNG", extensions: ["png"] }],
+      });
+      if (result !== "cancelled") {
+        toast.success(`${result === "saved" ? "Saved" : "Downloaded"} "${card.name}" as PNG character card!`);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Download failed");
     } finally {

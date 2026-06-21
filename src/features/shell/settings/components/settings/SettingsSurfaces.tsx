@@ -44,7 +44,10 @@ import { ApiError } from "../../../../../shared/api/api-errors";
 import { updatesApi, type UpdateCheckResponse } from "../../../../../shared/api/updates-api";
 import { backgroundsApi, fontsApi } from "../../../../../shared/api/settings-assets-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
-import { triggerDownload } from "../../../../../shared/api/download-payload";
+import {
+  saveDownloadPayloadToUserSelectedLocation,
+  saveTextFileToUserSelectedLocation,
+} from "../../../../../shared/api/file-save-api";
 import { chatBackgroundMetadataToUrl, chatBackgroundUrlToMetadata } from "../../../../../shared/lib/backgrounds";
 import {
   backgroundFileUrlFromPath,
@@ -2983,14 +2986,21 @@ export function ThemesSettings() {
             </button>
             <button
               onClick={() => {
-                const json = JSON.stringify({ name: t.name, css: t.css }, null, 2);
-                const blob = new Blob([json], { type: "application/json" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `${t.name.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`;
-                a.click();
-                URL.revokeObjectURL(url);
+                void (async () => {
+                  try {
+                    const result = await saveTextFileToUserSelectedLocation({
+                      filename: `${t.name.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`,
+                      content: JSON.stringify({ name: t.name, css: t.css }, null, 2),
+                      title: "Export theme",
+                      mimeType: "application/json",
+                      filters: [{ name: "JSON", extensions: ["json"] }],
+                    });
+                    if (result !== "cancelled") toast.success(`Theme "${t.name}" exported`);
+                  } catch (err) {
+                    console.error("[ThemesSettings] Failed to export theme:", err);
+                    toast.error("Failed to export theme.");
+                  }
+                })();
               }}
               className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-emerald-500/10 hover:text-emerald-400"
               title="Export theme"
@@ -3602,8 +3612,10 @@ export function AdvancedSettings() {
     setExportingProfile(true);
     setExportProfileDialogOpen(false);
     try {
-      triggerDownload(await profileApi.exportProfile(format));
-      toast.success(profileExportSuccessMessages[format]);
+      const result = await saveDownloadPayloadToUserSelectedLocation(await profileApi.exportProfile(format), {
+        title: "Export profile",
+      });
+      if (result !== "cancelled") toast.success(profileExportSuccessMessages[format]);
     } catch (err) {
       if (format === "native" && profileExportFallbackFormat(err) === "zip") {
         const confirmed = await showConfirmDialog({
@@ -3637,9 +3649,10 @@ export function AdvancedSettings() {
     try {
       const message = await downloadBackupToBrowser(name, {
         downloadBackup: backupApi.downloadBackup,
-        triggerDownload,
+        saveDownloadPayload: (payload) =>
+          saveDownloadPayloadToUserSelectedLocation(payload, { title: name ? "Download backup" : "Create backup" }),
       });
-      toast.success(message);
+      if (message) toast.success(message);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to download backup");
     } finally {

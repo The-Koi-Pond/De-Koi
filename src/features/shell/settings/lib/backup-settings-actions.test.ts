@@ -6,26 +6,39 @@ describe("backup settings actions", () => {
   it("downloads the current backup payload before triggering the browser save", async () => {
     const payload: DownloadPayload = { blob: new Blob(["backup"]), filename: "de-koi-backup.zip" };
     const downloadBackup = vi.fn<() => Promise<DownloadPayload>>().mockResolvedValue(payload);
-    const triggerDownload = vi.fn<(value: DownloadPayload) => void>();
+    const saveDownloadPayload = vi.fn<(value: DownloadPayload) => Promise<"saved" | "downloaded" | "cancelled">>()
+      .mockResolvedValue("downloaded");
 
-    await expect(downloadBackupToBrowser(undefined, { downloadBackup, triggerDownload })).resolves.toBe(
+    await expect(downloadBackupToBrowser(undefined, { downloadBackup, saveDownloadPayload })).resolves.toBe(
       "Backup downloaded!",
     );
 
     expect(downloadBackup).toHaveBeenCalledWith(undefined);
-    expect(triggerDownload).toHaveBeenCalledWith(payload);
+    expect(saveDownloadPayload).toHaveBeenCalledWith(payload);
   });
 
   it("passes managed backup names through to the download API", async () => {
     const payload: DownloadPayload = { blob: new Blob(["managed"]), filename: "managed.zip" };
     const downloadBackup = vi.fn<(name?: string) => Promise<DownloadPayload>>().mockResolvedValue(payload);
-    const triggerDownload = vi.fn<(value: DownloadPayload) => void>();
+    const saveDownloadPayload = vi.fn<(value: DownloadPayload) => Promise<"saved" | "downloaded" | "cancelled">>()
+      .mockResolvedValue("saved");
 
-    await expect(downloadBackupToBrowser("backup-2026.zip", { downloadBackup, triggerDownload })).resolves.toBe(
-      "Managed backup downloaded!",
+    await expect(downloadBackupToBrowser("backup-2026.zip", { downloadBackup, saveDownloadPayload })).resolves.toBe(
+      "Managed backup saved!",
     );
 
     expect(downloadBackup).toHaveBeenCalledWith("backup-2026.zip");
-    expect(triggerDownload).toHaveBeenCalledWith(payload);
+    expect(saveDownloadPayload).toHaveBeenCalledWith(payload);
+  });
+
+  it("returns no toast message when the save is cancelled", async () => {
+    const payload: DownloadPayload = { blob: new Blob(["managed"]), filename: "managed.zip" };
+    const downloadBackup = vi.fn<(name?: string) => Promise<DownloadPayload>>().mockResolvedValue(payload);
+    const saveDownloadPayload = vi.fn<(value: DownloadPayload) => Promise<"saved" | "downloaded" | "cancelled">>()
+      .mockResolvedValue("cancelled");
+
+    await expect(downloadBackupToBrowser("backup-2026.zip", { downloadBackup, saveDownloadPayload })).resolves.toBe(
+      null,
+    );
   });
 });

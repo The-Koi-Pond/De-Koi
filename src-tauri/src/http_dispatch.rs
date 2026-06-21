@@ -1378,7 +1378,7 @@ mod tests {
         "game_assets_file_path",
         "game_assets_open_folder",
         "import_st_bulk_run_events",
-        "local_text_file_save",
+        "local_file_save",
         "lorebook_image_file_path",
         "llm_stream_channel",
         "profile_export",

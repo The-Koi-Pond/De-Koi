@@ -41,7 +41,7 @@ describe("saveTextFileToUserSelectedLocation", () => {
       .fn()
       .mockResolvedValue({ createWritable });
 
-    const { saveTextFileToUserSelectedLocation } = await import("./save-text-file-api");
+    const { saveTextFileToUserSelectedLocation } = await import("./file-save-api");
     const result = await saveTextFileToUserSelectedLocation({
       filename: "agent.json",
       content: "{}",
@@ -68,7 +68,7 @@ describe("saveTextFileToUserSelectedLocation", () => {
       .fn()
       .mockResolvedValue({ createWritable });
 
-    const { saveTextFileToUserSelectedLocation } = await import("./save-text-file-api");
+    const { saveTextFileToUserSelectedLocation } = await import("./file-save-api");
     await saveTextFileToUserSelectedLocation({
       filename: "agent.json",
       content: "{}",
@@ -93,7 +93,7 @@ describe("saveTextFileToUserSelectedLocation", () => {
       .fn()
       .mockRejectedValue(new Error("picker blocked"));
 
-    const { saveTextFileToUserSelectedLocation } = await import("./save-text-file-api");
+    const { saveTextFileToUserSelectedLocation } = await import("./file-save-api");
     await expect(saveTextFileToUserSelectedLocation({ filename: "agent.json", content: "{}" })).rejects.toThrow(
       "picker blocked",
     );
@@ -109,7 +109,7 @@ describe("saveTextFileToUserSelectedLocation", () => {
       .fn()
       .mockResolvedValue({ createWritable });
 
-    const { saveTextFileToUserSelectedLocation } = await import("./save-text-file-api");
+    const { saveTextFileToUserSelectedLocation } = await import("./file-save-api");
     await expect(saveTextFileToUserSelectedLocation({ filename: "agent.json", content: "{}" })).rejects.toThrow(
       "disk full",
     );
@@ -121,7 +121,7 @@ describe("saveTextFileToUserSelectedLocation", () => {
     mocks.hasEmbeddedTauriIpc.mockReturnValue(true);
     mocks.saveDialog.mockRejectedValue(new Error("dialog denied"));
 
-    const { saveTextFileToUserSelectedLocation } = await import("./save-text-file-api");
+    const { saveTextFileToUserSelectedLocation } = await import("./file-save-api");
     await expect(saveTextFileToUserSelectedLocation({ filename: "agent.json", content: "{}" })).rejects.toThrow(
       "dialog denied",
     );
@@ -135,19 +135,75 @@ describe("saveTextFileToUserSelectedLocation", () => {
     mocks.saveDialog.mockResolvedValue("C:\\exports\\agent.json");
     mocks.invokeTauri.mockResolvedValue({ saved: true });
 
-    const { saveTextFileToUserSelectedLocation } = await import("./save-text-file-api");
+    const { saveTextFileToUserSelectedLocation } = await import("./file-save-api");
     const result = await saveTextFileToUserSelectedLocation({ filename: "agent.json", content: "{}" });
 
     expect(result).toBe("saved");
-    expect(mocks.invokeTauri).toHaveBeenCalledWith("local_text_file_save", {
+    expect(mocks.invokeTauri).toHaveBeenCalledWith("local_file_save", {
       path: "C:\\exports\\agent.json",
-      content: "{}",
+      base64: "e30=",
+      append: false,
     });
     expect(mocks.triggerDownload).not.toHaveBeenCalled();
   });
 
+  it("writes embedded native blobs in bounded chunks", async () => {
+    mocks.hasEmbeddedTauriIpc.mockReturnValue(true);
+    mocks.saveDialog.mockResolvedValue("C:\\exports\\large.bin");
+    mocks.invokeTauri.mockResolvedValue({ saved: true });
+    const oneMiB = 1024 * 1024;
+    const bytes = new Uint8Array(oneMiB + 1);
+    bytes.fill(65);
+    bytes[oneMiB] = 66;
+
+    const { saveFileToUserSelectedLocation } = await import("./file-save-api");
+    const result = await saveFileToUserSelectedLocation({
+      filename: "large.bin",
+      blob: new Blob([bytes], { type: "application/octet-stream" }),
+    });
+
+    expect(result).toBe("saved");
+    expect(mocks.invokeTauri).toHaveBeenCalledTimes(2);
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(1, "local_file_save", {
+      path: "C:\\exports\\large.bin",
+      base64: expect.any(String),
+      append: false,
+    });
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(2, "local_file_save", {
+      path: "C:\\exports\\large.bin",
+      base64: "Qg==",
+      append: true,
+    });
+  });
+
+  it("creates empty embedded native files without a full-file conversion", async () => {
+    mocks.hasEmbeddedTauriIpc.mockReturnValue(true);
+    mocks.saveDialog.mockResolvedValue("C:\\exports\\empty.bin");
+    mocks.invokeTauri.mockResolvedValue({ saved: true });
+
+    const { saveFileToUserSelectedLocation } = await import("./file-save-api");
+    const result = await saveFileToUserSelectedLocation({ filename: "empty.bin", blob: new Blob([]) });
+
+    expect(result).toBe("saved");
+    expect(mocks.invokeTauri).toHaveBeenCalledWith("local_file_save", {
+      path: "C:\\exports\\empty.bin",
+      base64: "",
+      append: false,
+    });
+  });
+
+  it("saves download payload blobs through the shared file path", async () => {
+    const payload = { blob: new Blob(["zip"], { type: "application/zip" }), filename: "export.zip" };
+
+    const { saveDownloadPayloadToUserSelectedLocation } = await import("./file-save-api");
+    const result = await saveDownloadPayloadToUserSelectedLocation(payload);
+
+    expect(result).toBe("downloaded");
+    expect(mocks.triggerDownload).toHaveBeenCalledWith(payload);
+  });
+
   it("falls back to browser download in non-embedded runtimes without a save picker", async () => {
-    const { saveTextFileToUserSelectedLocation } = await import("./save-text-file-api");
+    const { saveTextFileToUserSelectedLocation } = await import("./file-save-api");
     const result = await saveTextFileToUserSelectedLocation({ filename: "agent.json", content: "{}" });
 
     expect(result).toBe("downloaded");
@@ -159,9 +215,7 @@ describe("saveTextFileToUserSelectedLocation", () => {
   it("does not take the native save path from a broad Tauri marker without IPC", async () => {
     (window as unknown as { __TAURI__: unknown }).__TAURI__ = {};
 
-    const { canUseEmbeddedNativeTextFileSave, saveTextFileToUserSelectedLocation } = await import(
-      "./save-text-file-api"
-    );
+    const { canUseEmbeddedNativeTextFileSave, saveTextFileToUserSelectedLocation } = await import("./file-save-api");
     const result = await saveTextFileToUserSelectedLocation({ filename: "agent.json", content: "{}" });
 
     expect(canUseEmbeddedNativeTextFileSave()).toBe(false);
@@ -175,9 +229,7 @@ describe("saveTextFileToUserSelectedLocation", () => {
     (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {};
     mocks.hasEmbeddedTauriIpc.mockReturnValue(false);
 
-    const { canUseEmbeddedNativeTextFileSave, saveTextFileToUserSelectedLocation } = await import(
-      "./save-text-file-api"
-    );
+    const { canUseEmbeddedNativeTextFileSave, saveTextFileToUserSelectedLocation } = await import("./file-save-api");
     const result = await saveTextFileToUserSelectedLocation({ filename: "agent.json", content: "{}" });
 
     expect(canUseEmbeddedNativeTextFileSave()).toBe(false);

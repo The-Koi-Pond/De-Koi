@@ -46,11 +46,14 @@ export function useBulkExportChats() {
           import("../../../../shared/lib/zip"),
         ]);
         const files = buildChatTranscriptZipFiles(chats, format);
-        downloadBlobFile(createStoredZip(files), `chat-transcripts-${format}-${exportedAt.slice(0, 10)}.zip`);
-        return { count: chats.length };
+        const result = await downloadBlobFile(
+          createStoredZip(files),
+          `chat-transcripts-${format}-${exportedAt.slice(0, 10)}.zip`,
+        );
+        return { count: chats.length, result };
       }
 
-      downloadTextFile(
+      const result = await downloadTextFile(
         JSON.stringify(
           {
             format: "marinara-chat-bulk",
@@ -65,9 +68,10 @@ export function useBulkExportChats() {
         `marinara-chats-${exportedAt.slice(0, 10)}.json`,
         "application/json;charset=utf-8",
       );
-      return { count: chats.length };
+      return { count: chats.length, result };
     },
-    onSuccess: ({ count }) => {
+    onSuccess: ({ count, result }) => {
+      if (result === "cancelled") return;
       toast.success(`Exported ${count} chat${count === 1 ? "" : "s"}.`);
     },
     onError: (error) => {
