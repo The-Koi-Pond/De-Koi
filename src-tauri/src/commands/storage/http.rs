@@ -598,8 +598,6 @@ mod tests {
         let swapped_path = gallery.join("swapped.png");
         std::fs::write(&validated_path, b"validated").expect("validated asset should be written");
         std::fs::write(&swapped_path, b"swapped").expect("swapped asset should be written");
-        let data_dir =
-            std::fs::canonicalize(&state.data_dir).expect("data dir should canonicalize");
         let canonical_path =
             std::fs::canonicalize(&validated_path).expect("asset should canonicalize");
         let expected_handle = validated_local_binary_asset_handle(&canonical_path)
