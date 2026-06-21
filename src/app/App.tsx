@@ -5,7 +5,6 @@ import { ModalRenderer } from "./shell/ModalRenderer";
 import { CustomThemeInjector } from "./providers/CustomThemeInjector";
 import { CoreModuleRuntimeProvider } from "../features/shell/plugins/shell";
 import { AppDialogRenderer } from "../shared/components/ui/AppDialogRenderer";
-import { ChibiDekiEasterEgg } from "../shared/components/ui/ChibiDekiEasterEgg";
 import { fontsApi } from "../shared/api/settings-assets-api";
 import { resolveFontFileUrl } from "../shared/api/local-file-api";
 import { useUIStore } from "../shared/stores/ui.store";
@@ -129,7 +128,6 @@ export function App() {
       <AppShell />
       <ModalRenderer />
       <AppDialogRenderer />
-      <ChibiDekiEasterEgg />
       <Toaster
         position="top-center"
         theme={theme}
