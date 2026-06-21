@@ -28,8 +28,12 @@ import {
 } from "../lib/conversation-streaming-draft";
 import {
   CONVERSATION_PART_REVEAL_FRESHNESS_MS,
+  clearConversationRevealGeneration,
   collectFreshAssistantPartRevealStarts,
+  isCurrentConversationRevealGeneration,
   resolveConversationVisiblePartCount,
+  startConversationRevealGeneration,
+  type ConversationRevealGenerationMap,
 } from "../lib/conversation-part-reveal";
 import {
   ChatBranchSelector,
@@ -1124,6 +1128,7 @@ export function ConversationView({
   // Persist stagger timers in a ref so they survive effect re-runs caused by
   // query refetches arriving shortly after the initial message_saved upsert.
   const staggerTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>[]>>({});
+  const staggerGenerationsRef = useRef<ConversationRevealGenerationMap>({});
 
   // Reset stagger state when the active chat changes so no cross-chat leakage
   const prevChatIdRef = useRef(chatId);
@@ -1134,6 +1139,7 @@ export function ConversationView({
     renderedMessageKeysRef.current = new Set();
     Object.values(staggerTimersRef.current).forEach((timers) => timers.forEach(clearTimeout));
     staggerTimersRef.current = {};
+    staggerGenerationsRef.current = {};
     setVisiblePartCounts({});
   }
   const freshPartRevealStarts = collectFreshAssistantPartRevealStarts({
@@ -1162,6 +1168,7 @@ export function ConversationView({
       if (!currentKeys.has(key)) {
         staggerTimersRef.current[key]?.forEach(clearTimeout);
         delete staggerTimersRef.current[key];
+        clearConversationRevealGeneration(staggerGenerationsRef.current, key);
       }
     }
 
@@ -1267,11 +1274,19 @@ export function ConversationView({
 
     let revealOrder = 0;
     for (const { key, count } of newPartMessages) {
+      const revealGeneration = startConversationRevealGeneration(staggerGenerationsRef.current, key);
       for (let partIndex = 2; partIndex <= count; partIndex++) {
         revealOrder += 1;
         const delay = revealOrder * 1500;
         const timer = setTimeout(() => {
+          const isCurrentReveal = isCurrentConversationRevealGeneration(
+            staggerGenerationsRef.current,
+            key,
+            revealGeneration,
+          );
+          if (!isCurrentReveal) return;
           if (!renderedMessageKeysRef.current.has(key)) {
+            clearConversationRevealGeneration(staggerGenerationsRef.current, key, revealGeneration);
             staggerTimersRef.current[key]?.forEach(clearTimeout);
             delete staggerTimersRef.current[key];
             return;
@@ -1294,6 +1309,7 @@ export function ConversationView({
           );
           if ((staggerTimersRef.current[key]?.length ?? 0) === 0) {
             delete staggerTimersRef.current[key];
+            clearConversationRevealGeneration(staggerGenerationsRef.current, key, revealGeneration);
           }
         }, delay);
         (staggerTimersRef.current[key] ??= []).push(timer);
@@ -1309,6 +1325,7 @@ export function ConversationView({
     return () => {
       Object.values(staggerTimersRef.current).forEach((timers) => timers.forEach(clearTimeout));
       staggerTimersRef.current = {};
+      staggerGenerationsRef.current = {};
     };
   }, []);
 

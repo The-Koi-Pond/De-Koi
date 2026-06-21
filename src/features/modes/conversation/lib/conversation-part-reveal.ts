@@ -23,6 +23,8 @@ export interface ConversationPartRevealStart {
   count: number;
 }
 
+export type ConversationRevealGenerationMap = Record<string, number>;
+
 export function collectFreshAssistantPartRevealStarts({
   initialLoadSettled,
   candidates,
@@ -60,4 +62,31 @@ export function resolveConversationVisiblePartCount({
 }: ResolveConversationVisiblePartCountOptions): number {
   if (currentVisiblePartCount != null) return Math.max(1, Math.min(currentVisiblePartCount, partCount));
   return freshRevealStarts.some((start) => start.key === key) ? 1 : partCount;
+}
+
+export function startConversationRevealGeneration(
+  generations: ConversationRevealGenerationMap,
+  key: string,
+): number {
+  const nextGeneration = (generations[key] ?? 0) + 1;
+  generations[key] = nextGeneration;
+  return nextGeneration;
+}
+
+export function isCurrentConversationRevealGeneration(
+  generations: ConversationRevealGenerationMap,
+  key: string,
+  generation: number,
+): boolean {
+  return generations[key] === generation;
+}
+
+export function clearConversationRevealGeneration(
+  generations: ConversationRevealGenerationMap,
+  key: string,
+  generation?: number,
+) {
+  if (generation == null || generations[key] === generation) {
+    delete generations[key];
+  }
 }
