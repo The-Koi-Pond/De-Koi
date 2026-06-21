@@ -1760,7 +1760,7 @@ export function GameSurface({
   const personaSpriteId = useMemo(() => {
     const config = chatMeta.gameSetupConfig as Record<string, unknown> | undefined;
     const configuredPersonaId = typeof config?.personaId === "string" ? config.personaId.trim() : "";
-    return personaInfo?.id ?? (configuredPersonaId || null);
+    return configuredPersonaId || personaInfo?.id || null;
   }, [chatMeta.gameSetupConfig, personaInfo?.id]);
 
   const spriteQueries = useQueries({
