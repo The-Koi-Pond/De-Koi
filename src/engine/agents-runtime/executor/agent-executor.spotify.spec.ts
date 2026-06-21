@@ -269,7 +269,7 @@ describe("Spotify agent fallback playback", () => {
     });
   });
 
-  it("does not treat pending spotify_play results as completed playback", async () => {
+  it("treats pending spotify_play results as accepted playback", async () => {
     let providerCalls = 0;
     const provider: BaseLLMProvider = {
       maxTokensOverrideValue: null,
@@ -308,10 +308,13 @@ describe("Spotify agent fallback playback", () => {
       tools: [{ name: "spotify_play" }],
       async executeToolCall(call) {
         calls.push(call);
-        if (calls.length === 1) {
-          return JSON.stringify({ success: true, applied: true, playbackPending: true, uris: [FRESH_URI] });
-        }
-        return JSON.stringify({ success: true, applied: true, queued: [FRESH_URI] });
+        return JSON.stringify({
+          success: true,
+          applied: true,
+          playbackPending: true,
+          uris: [FRESH_URI],
+          display: "Spotify accepted playback; verification pending",
+        });
       },
     };
     const config: AgentExecConfig = {
@@ -327,10 +330,12 @@ describe("Spotify agent fallback playback", () => {
     const result = await executeAgent(config, spotifyContext(), provider, "test-model", toolContext);
 
     expect(result.success).toBe(true);
-    expect(calls.map((call) => call.function.name)).toEqual(["spotify_play", "spotify_play"]);
+    expect(calls.map((call) => call.function.name)).toEqual(["spotify_play"]);
     expect(result.data).toMatchObject({
       trackUris: [FRESH_URI],
-      toolFallbackApplied: true,
+      toolPlaybackApplied: true,
+      playbackPending: true,
+      display: "Spotify accepted playback; verification pending",
     });
   });
 });
