@@ -614,7 +614,7 @@ If no entries are relevant, respond with: { "entryIds": [] }`,
 Rules:
 1. Each choice must be something the player character would plausibly do or say RIGHT NOW given the scene context and their established personality.
 2. Cover a range of tones — e.g., a bold action, a cautious option, a witty/sly response, an emotional reaction. Not every choice needs all of these, but variety is key.
-3. Keep each choice SHORT: 1–2 sentences max. Write them in first person as if the player is saying/doing it. They will be sent as the player's next message.
+3. Keep each choice SHORT: 1–2 sentences max. Match the perspective already used for the player's messages and actions in the chat. If the chat is written in second person or third person, keep that perspective; only use first person when the chat already uses first person.
 4. Choices should feel meaningfully DIFFERENT from each other — not slight rephrases of the same action.
 5. At least one choice should advance the plot, and at least one should explore the current moment.
 6. Consider the persona's personality traits, current emotional state, relationship with present characters, and any active goals or quests.
@@ -623,7 +623,7 @@ Respond ONLY with valid JSON.
 Schema:
 {
   "choices": [
-    { "label": "string — short display label (3–6 words, e.g. 'Confront the stranger')", "text": "string — the full first-person action/dialogue to send as the player's message" }
+    { "label": "string — short display label (3–6 words, e.g. 'Confront the stranger')", "text": "string — the full in-character action/dialogue to send as the player's message, preserving the chat's perspective" }
   ]
 }`,
 
