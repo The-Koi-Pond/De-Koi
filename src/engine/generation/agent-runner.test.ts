@@ -194,12 +194,6 @@ describe("generation agent runner", () => {
       model: "qa-model",
       message: "Expression Agent is using the default agent connection.",
     });
-    acceptAgentConnectionWarning({
-      code: "local_sidecar_unavailable",
-      severity: "warning",
-      agentNames: ["Expression Agent"],
-      message: "Expression Agent is assigned to the legacy Local Model sidecar.",
-    });
     // @ts-expect-error Default agent connection warnings require connectionName and model.
     acceptAgentConnectionWarning({
       code: "default_agent_connection_active",
@@ -442,7 +436,7 @@ describe("generation agent runner", () => {
     expect(requests).toEqual([]);
   });
 
-  it("skips unavailable legacy Local Model agent overrides with a dedicated warning", async () => {
+  it("runs agents assigned to the synthetic Local Model connection", async () => {
     const requests: LlmRequest[] = [];
     const sidecarConnection = {
       id: LOCAL_SIDECAR_CONNECTION_ID,
@@ -482,26 +476,18 @@ describe("generation agent runner", () => {
       runtimeInput(sidecarConnection),
     );
 
-    expect(runtime.preResults).toEqual([
-      expect.objectContaining({
-        success: false,
-        data: expect.objectContaining({
-          code: "local_sidecar_unavailable",
-          connectionId: LOCAL_SIDECAR_CONNECTION_ID,
-        }),
-      }),
-    ]);
-    expect(runtime.agentWarnings).toEqual([
-      expect.objectContaining({
-        code: "local_sidecar_unavailable",
-        agentNames: ["Expression Agent"],
-      }),
-    ]);
+    expect(runtime.preResults).toEqual([]);
+    expect(runtime.agentWarnings).toEqual([]);
     await runtime.runParallel();
-    expect(requests).toEqual([]);
+    expect(requests).toEqual([
+      expect.objectContaining({
+        connectionId: LOCAL_SIDECAR_CONNECTION_ID,
+        model: LOCAL_SIDECAR_MODEL,
+      }),
+    ]);
   });
 
-  it("skips agents that inherit a default legacy Local Model connection", async () => {
+  it("runs agents that inherit a default Local Model connection", async () => {
     const requests: LlmRequest[] = [];
     const apiConnection = { id: "conn-1", name: "API", provider: "openai", model: "qa-model" };
     const sidecarConnection = {
@@ -541,26 +527,18 @@ describe("generation agent runner", () => {
       runtimeInput(apiConnection),
     );
 
-    expect(runtime.preResults).toEqual([
-      expect.objectContaining({
-        success: false,
-        data: expect.objectContaining({
-          code: "local_sidecar_unavailable",
-          connectionId: LOCAL_SIDECAR_CONNECTION_ID,
-        }),
-      }),
-    ]);
-    expect(runtime.agentWarnings).toEqual([
-      expect.objectContaining({
-        code: "local_sidecar_unavailable",
-        agentNames: ["Expression Agent"],
-      }),
-    ]);
+    expect(runtime.preResults).toEqual([]);
+    expect(runtime.agentWarnings).toEqual([]);
     await runtime.runParallel();
-    expect(requests).toEqual([]);
+    expect(requests).toEqual([
+      expect.objectContaining({
+        connectionId: LOCAL_SIDECAR_CONNECTION_ID,
+        model: LOCAL_SIDECAR_MODEL,
+      }),
+    ]);
   });
 
-  it("skips agents that inherit the generation legacy Local Model connection", async () => {
+  it("runs agents that inherit the generation Local Model connection", async () => {
     const requests: LlmRequest[] = [];
     const sidecarConnection = {
       id: LOCAL_SIDECAR_CONNECTION_ID,
@@ -598,23 +576,15 @@ describe("generation agent runner", () => {
       runtimeInput(sidecarConnection),
     );
 
-    expect(runtime.preResults).toEqual([
-      expect.objectContaining({
-        success: false,
-        data: expect.objectContaining({
-          code: "local_sidecar_unavailable",
-          connectionId: LOCAL_SIDECAR_CONNECTION_ID,
-        }),
-      }),
-    ]);
-    expect(runtime.agentWarnings).toEqual([
-      expect.objectContaining({
-        code: "local_sidecar_unavailable",
-        agentNames: ["Expression Agent"],
-      }),
-    ]);
+    expect(runtime.preResults).toEqual([]);
+    expect(runtime.agentWarnings).toEqual([]);
     await runtime.runParallel();
-    expect(requests).toEqual([]);
+    expect(requests).toEqual([
+      expect.objectContaining({
+        connectionId: LOCAL_SIDECAR_CONNECTION_ID,
+        model: LOCAL_SIDECAR_MODEL,
+      }),
+    ]);
   });
 
   it("still skips agents assigned to missing generic API connections", async () => {
