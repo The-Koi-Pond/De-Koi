@@ -22,4 +22,17 @@ describe("default agent prompts", () => {
     expect(prompt).toContain("Do not request dialogue text");
     expect(prompt).toContain("speech bubbles");
   });
+
+  it("keeps CYOA choices aligned with the chat perspective and tense", () => {
+    const prompt = DEFAULT_AGENT_PROMPTS.cyoa;
+
+    expect(prompt).toContain(
+      "Match the perspective and verb tense already used for the player's messages and actions in the chat",
+    );
+    expect(prompt).toContain(
+      "If the chat is written in first person, second person, third person, past tense, present tense, or future tense, keep that style",
+    );
+    expect(prompt).not.toContain("Write them in first person");
+    expect(prompt).toContain("preserving the chat's perspective and tense");
+  });
 });
