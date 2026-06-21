@@ -307,7 +307,6 @@ function CharacterAvatarImage({
         alt={alt}
         className="h-full w-full object-cover"
         crop={getCharacterAvatarCrop(character)}
-        thumbnailSize={64}
       />
     </span>
   );
@@ -315,14 +314,7 @@ function CharacterAvatarImage({
 
 function PersonaAvatar({ persona }: { persona: PersonaDisplayInfo | null }) {
   if (persona?.avatarPath) {
-    return (
-      <PersonaAvatarImage
-        persona={persona}
-        alt={persona.name}
-        className="h-7 w-7 rounded-full object-cover"
-        thumbnailSize={64}
-      />
-    );
+    return <PersonaAvatarImage persona={persona} alt={persona.name} className="h-7 w-7 rounded-full object-cover" />;
   }
 
   return (

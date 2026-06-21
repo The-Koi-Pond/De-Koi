@@ -153,7 +153,6 @@ export function CharacterListRow({
               avatarFilename={character.avatarFilename}
               alt={charName}
               crop={extensions.avatarCrop}
-              thumbnailSize={128}
             />
           </div>
         ) : (

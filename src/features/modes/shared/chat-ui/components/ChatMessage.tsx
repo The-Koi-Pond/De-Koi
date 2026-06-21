@@ -1792,7 +1792,6 @@ export const ChatMessage = memo(function ChatMessage({
             aria-hidden="true"
             loading="lazy"
             decoding="async"
-            thumbnailSize={256}
             className="rpg-avatar-panel-tail-image absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-700"
             style={{ opacity: i === 0 ? 1 : 0, ...panelMergedAvatarCropStyle(avatar) }}
             onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
@@ -1809,7 +1808,6 @@ export const ChatMessage = memo(function ChatMessage({
           aria-hidden="true"
           loading="lazy"
           decoding="async"
-          thumbnailSize={256}
           className="rpg-avatar-panel-tail-image absolute inset-0 h-full w-full object-cover object-top"
           style={panelAvatarCropStyle}
           onResolvedSrc={handleResolvedAvatarSrc}
@@ -2036,7 +2034,6 @@ export const ChatMessage = memo(function ChatMessage({
                       alt="Group"
                       loading="lazy"
                       decoding="async"
-                      thumbnailSize={128}
                       className="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
                       style={{ opacity: i === 0 ? 1 : 0, ...compactMergedAvatarCropStyle(avatar) }}
                       onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
@@ -2061,7 +2058,6 @@ export const ChatMessage = memo(function ChatMessage({
                       alt={displayName}
                       loading="lazy"
                       decoding="async"
-                      thumbnailSize={128}
                       className="h-full w-full object-cover"
                       style={compactAvatarCropStyle}
                       onResolvedSrc={handleResolvedAvatarSrc}
@@ -2186,7 +2182,6 @@ export const ChatMessage = memo(function ChatMessage({
                               alt="Group"
                               loading="lazy"
                               decoding="async"
-                              thumbnailSize={256}
                               className="absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-700"
                               style={{ opacity: i === 0 ? 1 : 0, ...panelMergedAvatarCropStyle(avatar) }}
                               onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
@@ -2210,7 +2205,6 @@ export const ChatMessage = memo(function ChatMessage({
                             alt={displayName}
                             loading="lazy"
                             decoding="async"
-                            thumbnailSize={256}
                             className="h-full w-full object-cover object-top"
                             style={panelAvatarCropStyle}
                             onResolvedSrc={handleResolvedAvatarSrc}
@@ -2579,7 +2573,6 @@ export const ChatMessage = memo(function ChatMessage({
                     alt="Group"
                     loading="lazy"
                     decoding="async"
-                    thumbnailSize={64}
                     className="absolute inset-0 h-8 w-8 object-cover transition-opacity duration-700"
                     style={{ opacity: i === 0 ? 1 : 0, ...getAvatarCropStyle(avatar.crop) }}
                     onResolvedSrc={(src) => rememberMergedAvatarSrc(avatar.key, src)}
@@ -2600,7 +2593,6 @@ export const ChatMessage = memo(function ChatMessage({
                   alt={displayName}
                   loading="lazy"
                   decoding="async"
-                  thumbnailSize={64}
                   className="h-full w-full object-cover"
                   style={avatarCropStyle}
                   onResolvedSrc={handleResolvedAvatarSrc}

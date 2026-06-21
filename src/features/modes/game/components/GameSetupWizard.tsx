@@ -127,7 +127,6 @@ function CharacterAvatar({
         alt={character.name}
         className="h-full w-full object-cover"
         crop={character.avatarCrop}
-        thumbnailSize={64}
       />
     </span>
   );

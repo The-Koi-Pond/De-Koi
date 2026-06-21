@@ -709,7 +709,6 @@ export function ConversationMessageAvatarColumn({ context }: { context: Conversa
                   alt={context.displayName}
                   loading="lazy"
                   decoding="async"
-                  thumbnailSize={128}
                   className="h-full w-full object-cover"
                   style={context.avatarCropStyle}
                 />

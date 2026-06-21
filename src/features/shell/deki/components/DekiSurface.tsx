@@ -860,7 +860,6 @@ function DekiContextMenu({
                         alt=""
                         className="h-full w-full object-cover"
                         draggable={false}
-                        thumbnailSize={64}
                       />
                     </div>
                   ) : (

@@ -1983,7 +1983,6 @@ function ChatSettingsDrawerInner({
                               persona={p}
                               alt={p.name}
                               className="h-7 w-7 shrink-0 rounded-full object-cover"
-                              thumbnailSize={64}
                             />
                           ) : (
                             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
@@ -2071,7 +2070,6 @@ function ChatSettingsDrawerInner({
                               persona={p}
                               alt={p.name}
                               className="h-6 w-6 shrink-0 rounded-full object-cover"
-                              thumbnailSize={64}
                             />
                           ) : (
                             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
@@ -2242,7 +2240,6 @@ function ChatSettingsDrawerInner({
                             persona={p}
                             alt={p.name}
                             className="h-7 w-7 shrink-0 rounded-full object-cover"
-                            thumbnailSize={64}
                           />
                         ) : (
                           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
@@ -2332,7 +2329,6 @@ function ChatSettingsDrawerInner({
                             persona={p}
                             alt={p.name}
                             className="h-6 w-6 shrink-0 rounded-full object-cover"
-                            thumbnailSize={64}
                           />
                         ) : (
                           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white">

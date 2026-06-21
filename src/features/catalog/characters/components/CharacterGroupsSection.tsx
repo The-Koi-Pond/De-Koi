@@ -199,7 +199,8 @@ export function CharacterGroupsSection({
                   className={cn(
                     "rounded-xl border border-transparent transition-all hover:border-[var(--border)]/50",
                     draggedCharacterId && "ring-inset",
-                    isDropTarget && "border-[var(--primary)]/30 bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+                    isDropTarget &&
+                      "border-[var(--primary)]/30 bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
                   )}
                 >
                   <div
@@ -299,7 +300,9 @@ export function CharacterGroupsSection({
                           <div
                             key={memberId}
                             draggable={canDragCharacters}
-                            onDragStart={(event) => onCharacterDragStart(event, memberId, isSynthetic ? null : group.id)}
+                            onDragStart={(event) =>
+                              onCharacterDragStart(event, memberId, isSynthetic ? null : group.id)
+                            }
                             onDragEnd={onCharacterDragEnd}
                             onClick={() => onOpenCharacterDetail(memberId)}
                             onContextMenu={(event) => {
@@ -326,7 +329,6 @@ export function CharacterGroupsSection({
                                     avatarFilename={member.avatarFilename}
                                     alt={member.name}
                                     crop={member.avatarCrop}
-                                    thumbnailSize={128}
                                   />
                                 ) : (
                                   <div className="flex h-full w-full items-center justify-center">

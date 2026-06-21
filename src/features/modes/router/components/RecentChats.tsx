@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { MessageSquare, BookOpen, Theater } from "lucide-react";
 import { useRecentChatSummaries, type ChatListItem } from "../../../catalog/chats/index";
-import { CharacterAvatarImage, characterAvatarUrl, useCharacterSummariesByIds } from "../../../catalog/characters/index";
+import {
+  CharacterAvatarImage,
+  characterAvatarUrl,
+  useCharacterSummariesByIds,
+} from "../../../catalog/characters/index";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { normalizeChatCharacterIds } from "../../../../shared/lib/chat-display";
 import { parseAvatarCropJson, type AvatarCropValue } from "../../../../shared/lib/utils";
 
 const MODE_BADGE: Record<string, { icon: React.ReactNode; bg: string; label: string }> = {
-  conversation: { icon: <MessageSquare size="0.75rem" />, bg: "linear-gradient(135deg, #4de5dd, #3ab8b1)", label: "Conversation" },
+  conversation: {
+    icon: <MessageSquare size="0.75rem" />,
+    bg: "linear-gradient(135deg, #4de5dd, #3ab8b1)",
+    label: "Conversation",
+  },
   roleplay: { icon: <BookOpen size="0.75rem" />, bg: "linear-gradient(135deg, #eb8951, #d97530)", label: "Roleplay" },
   game: { icon: <Theater size="0.75rem" />, bg: "linear-gradient(135deg, #e15c8c, #c94776)", label: "Game" },
 };
@@ -16,7 +24,11 @@ function readAvatarCrop(value: unknown): AvatarCropValue | null {
   if (!value) return null;
   if (typeof value === "string") return parseAvatarCropJson(value);
   if (typeof value !== "object" || Array.isArray(value)) return null;
-  try { return parseAvatarCropJson(JSON.stringify(value)); } catch { return null; }
+  try {
+    return parseAvatarCropJson(JSON.stringify(value));
+  } catch {
+    return null;
+  }
 }
 
 export function RecentChats() {
@@ -30,12 +42,28 @@ export function RecentChats() {
   const { data: recentCharacters } = useCharacterSummariesByIds(recentCharacterIds, recentCharacterIds.length > 0);
 
   const charLookup = useMemo(() => {
-    const map = new Map<string, { name: string; avatarUrl: string | null; avatarFilePath?: string | null; avatarFilename?: string | null; avatarCrop?: AvatarCropValue | null }>();
+    const map = new Map<
+      string,
+      {
+        name: string;
+        avatarUrl: string | null;
+        avatarFilePath?: string | null;
+        avatarFilename?: string | null;
+        avatarCrop?: AvatarCropValue | null;
+      }
+    >();
     if (!recentCharacters) return map;
-    for (const char of recentCharacters as Array<{ id: string; data: Record<string, unknown>; avatarPath?: string | null; avatarFilePath?: string | null; avatarFilename?: string | null }>) {
-      const extensions = (char.data?.extensions && typeof char.data.extensions === "object" && !Array.isArray(char.data.extensions))
-        ? (char.data.extensions as Record<string, unknown>)
-        : {};
+    for (const char of recentCharacters as Array<{
+      id: string;
+      data: Record<string, unknown>;
+      avatarPath?: string | null;
+      avatarFilePath?: string | null;
+      avatarFilename?: string | null;
+    }>) {
+      const extensions =
+        char.data?.extensions && typeof char.data.extensions === "object" && !Array.isArray(char.data.extensions)
+          ? (char.data.extensions as Record<string, unknown>)
+          : {};
       map.set(char.id, {
         name: typeof char.data?.name === "string" ? char.data.name : "Unknown",
         avatarUrl: characterAvatarUrl(char),
@@ -80,7 +108,16 @@ function RecentChatCard({
   onClick,
 }: {
   chat: ChatListItem;
-  charLookup: Map<string, { name: string; avatarUrl: string | null; avatarFilePath?: string | null; avatarFilename?: string | null; avatarCrop?: AvatarCropValue | null }>;
+  charLookup: Map<
+    string,
+    {
+      name: string;
+      avatarUrl: string | null;
+      avatarFilePath?: string | null;
+      avatarFilename?: string | null;
+      avatarCrop?: AvatarCropValue | null;
+    }
+  >;
   onClick: () => void;
 }) {
   const mode = MODE_BADGE[chat.mode] ?? MODE_BADGE.conversation;
@@ -115,13 +152,21 @@ function RecentChatAvatar({
   avatar,
   mode,
 }: {
-  avatar: { name: string; avatarUrl: string | null; avatarFilePath?: string | null; avatarFilename?: string | null; avatarCrop?: AvatarCropValue | null } | null;
+  avatar: {
+    name: string;
+    avatarUrl: string | null;
+    avatarFilePath?: string | null;
+    avatarFilename?: string | null;
+    avatarCrop?: AvatarCropValue | null;
+  } | null;
   mode: { bg: string; icon: React.ReactNode; label: string };
 }) {
   const [imageFailed, setImageFailed] = useState(false);
   const hasAvatarSource = Boolean(avatar?.avatarUrl || avatar?.avatarFilePath || avatar?.avatarFilename);
 
-  useEffect(() => { setImageFailed(false); }, [avatar?.avatarUrl, avatar?.avatarFilePath, avatar?.avatarFilename]);
+  useEffect(() => {
+    setImageFailed(false);
+  }, [avatar?.avatarUrl, avatar?.avatarFilePath, avatar?.avatarFilename]);
 
   if (!avatar) {
     return (
@@ -148,7 +193,6 @@ function RecentChatAvatar({
         alt={avatar.name}
         className="h-full w-full object-cover"
         crop={avatar.avatarCrop}
-        thumbnailSize={96}
         onError={() => setImageFailed(true)}
       />
     </span>

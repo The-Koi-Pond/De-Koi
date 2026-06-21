@@ -49,8 +49,9 @@ import { useCharacterSummariesByIds } from "../../features/catalog/characters/in
 import { useChatStore } from "../../shared/stores/chat.store";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
 import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
-import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../shared/lib/utils";
+import { cn, type AvatarCropValue } from "../../shared/lib/utils";
 import { avatarFileUrlFromPath, resolveAvatarFileUrl } from "../../shared/api/local-file-api";
+import { ResolvedAvatarImage } from "../../shared/components/ui/ResolvedAvatarImage";
 import { useState, useCallback, useMemo, useRef, useEffect, type DragEvent } from "react";
 import { CHAT_MODES } from "../../engine/contracts/constants/chat-modes";
 import type { ChatFolder } from "../../engine/contracts/types/chat";
@@ -207,6 +208,8 @@ export function ChatSidebar({
       {
         name: string;
         avatarUrl: string | null;
+        avatarFilePath?: string | null;
+        avatarFilename?: string | null;
         avatarCrop?: AvatarCropValue | null;
         conversationStatus?: string;
       }
@@ -228,6 +231,8 @@ export function ChatSidebar({
           avatarFileUrlFromPath(char.avatarFilename, char.avatarFilePath) ??
           char.avatarPath ??
           null,
+        avatarFilePath: char.avatarFilePath,
+        avatarFilename: char.avatarFilename,
         avatarCrop: (extensions.avatarCrop as AvatarCropValue | undefined) ?? null,
         conversationStatus,
       });
@@ -777,6 +782,8 @@ export function ChatSidebar({
               .filter(Boolean) as {
               name: string;
               avatarUrl: string | null;
+              avatarFilePath?: string | null;
+              avatarFilename?: string | null;
               avatarCrop?: AvatarCropValue | null;
               conversationStatus?: string;
             }[];
@@ -819,11 +826,13 @@ export function ChatSidebar({
               return a.avatarUrl ? (
                 <div className="relative h-7 w-7 flex-shrink-0 transition-transform group-active:scale-90">
                   <span className="relative block h-7 w-7 overflow-hidden rounded-full">
-                    <img
+                    <ResolvedAvatarImage
                       src={a.avatarUrl}
+                      avatarFilePath={a.avatarFilePath}
+                      avatarFilename={a.avatarFilename}
                       alt={a.name}
+                      crop={a.avatarCrop}
                       className="h-full w-full object-cover"
-                      style={getAvatarCropStyle(a.avatarCrop)}
                     />
                   </span>
                   {statusDot(a.conversationStatus)}
@@ -850,11 +859,13 @@ export function ChatSidebar({
                         i === 0 ? "top-0 left-0 z-10" : "bottom-0 right-0",
                       )}
                     >
-                      <img
+                      <ResolvedAvatarImage
                         src={a.avatarUrl}
+                        avatarFilePath={a.avatarFilePath}
+                        avatarFilename={a.avatarFilename}
                         alt={a.name}
+                        crop={a.avatarCrop}
                         className="h-full w-full object-cover"
-                        style={getAvatarCropStyle(a.avatarCrop)}
                       />
                     </span>
                   ) : (
@@ -1255,7 +1266,9 @@ export function ChatSidebar({
             className={cn(
               "flex flex-col gap-0.5 rounded-lg transition-colors",
               draggedChatId && "min-h-8",
-              chatDropTarget && chatDropTarget.folderId === null && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+              chatDropTarget &&
+                chatDropTarget.folderId === null &&
+                "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
             )}
           >
             {unfiledChats.map(renderChatRow)}
