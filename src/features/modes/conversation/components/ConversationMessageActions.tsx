@@ -47,7 +47,7 @@ export function ConversationMessageActions({
         <MsgAction icon={<Timer size="0.75rem" />} onClick={() => undefined} title={context.generationDurationTitle} />
       )}
       <MsgAction icon={<Pencil size="0.75rem" />} onClick={context.onStartEdit} title="Edit" />
-      {context.canRegenerate && (
+      {context.canRegenerate && context.onRegenerate && (
         <MsgAction
           icon={<RefreshCw size="0.75rem" />}
           onClick={() => context.onRegenerate?.(context.message.id)}
@@ -55,7 +55,7 @@ export function ConversationMessageActions({
           className={context.regenerateGuidedClass}
         />
       )}
-      {!context.isUser && (
+      {!context.isUser && context.onPeekPrompt && (
         <MsgAction
           icon={<Eye size="0.75rem" />}
           onClick={() =>

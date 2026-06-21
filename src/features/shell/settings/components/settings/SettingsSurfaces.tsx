@@ -4091,13 +4091,13 @@ export function AdvancedSettings() {
           {conversationMessageStyle === "bubble" ? (
             <div className="space-y-1.5">
               <div className="flex justify-end">
-                <div className="mari-message-bubble texting-bubble texting-bubble-user max-w-[78%] rounded-2xl rounded-br-md px-3 py-1.5 text-xs shadow-sm">
+                <div className="mari-message-bubble texting-bubble texting-bubble-user max-w-[78%] rounded-2xl px-3 py-1.5 text-xs shadow-sm">
                   Hey, how's it going?
                 </div>
               </div>
               <div className="flex items-end justify-start gap-1.5">
                 <div className="h-5 w-5 shrink-0 rounded-full bg-[var(--accent)]" />
-                <div className="mari-message-bubble texting-bubble texting-bubble-other max-w-[78%] rounded-2xl rounded-bl-md px-3 py-1.5 text-xs shadow-sm">
+                <div className="mari-message-bubble texting-bubble texting-bubble-other max-w-[78%] rounded-2xl px-3 py-1.5 text-xs shadow-sm">
                   Pretty good, thanks!
                 </div>
               </div>
