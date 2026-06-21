@@ -75,7 +75,6 @@ import {
   BUILT_IN_AGENTS,
   BUILT_IN_TOOLS,
   DEFAULT_AGENT_CONTEXT_SIZE,
-  DEFAULT_AGENT_CREDIT,
   DEFAULT_AGENT_TOOLS,
   DEFAULT_AGENT_MAX_TOKENS,
   MAX_AGENT_MAX_TOKENS,
@@ -239,6 +238,7 @@ export function AgentEditor() {
   // ── Local editable state ──
   const [localName, setLocalName] = useState("");
   const [localDescription, setLocalDescription] = useState("");
+  const [localCredit, setLocalCredit] = useState("");
   const [localEnabled, setLocalEnabled] = useState(true);
   const [localPhase, setLocalPhase] = useState<AgentPhase>("post_processing");
   const [localConnectionId, setLocalConnectionId] = useState("");
@@ -299,6 +299,7 @@ export function AgentEditor() {
     if (dbConfig) {
       setLocalName(builtIn ? builtIn.name : dbConfig.name);
       setLocalDescription(dbConfig.description);
+      setLocalCredit(dbConfig.credit ?? builtIn?.credit ?? "");
       setLocalEnabled(agentEnabledFlag(dbConfig.enabled, true));
       setLocalPhase(dbConfig.phase as AgentPhase);
       setLocalConnectionId(dbConfig.connectionId ?? "");
@@ -340,6 +341,7 @@ export function AgentEditor() {
     } else if (builtIn) {
       setLocalName(builtIn.name);
       setLocalDescription(builtIn.description);
+      setLocalCredit(builtIn.credit);
       setLocalEnabled(builtIn.enabledByDefault);
       setLocalPhase(builtIn.phase);
       setLocalConnectionId("");
@@ -370,6 +372,7 @@ export function AgentEditor() {
       // Brand new custom agent — start empty
       setLocalName("New Agent");
       setLocalDescription("");
+      setLocalCredit("");
       setLocalEnabled(true);
       setLocalPhase("post_processing");
       setLocalConnectionId("");
@@ -572,7 +575,7 @@ export function AgentEditor() {
     const payload = {
       name: localName,
       description: localDescription,
-      credit: agentCreditLabel(dbConfig?.credit ?? builtIn?.credit ?? DEFAULT_AGENT_CREDIT),
+      credit: agentCreditLabel(localCredit),
       phase: savedPhase,
       enabled: localEnabled,
       connectionId: localConnectionId || null,
@@ -641,6 +644,7 @@ export function AgentEditor() {
     agentDetailId,
     localName,
     localDescription,
+    localCredit,
     localEnabled,
     localPhase,
     localResultType,
@@ -748,7 +752,6 @@ export function AgentEditor() {
     (isCustomAgent || isNewCustomAgent) && localResultType === "text_rewrite" ? "post_processing" : localPhase;
   const showTurnDataAccess = (isCustomAgent || isNewCustomAgent) && effectivePhase === "post_processing";
   const isPending = updateAgent.isPending || createAgent.isPending;
-  const displayedCredit = agentCreditLabel(dbConfig?.credit ?? builtIn?.credit ?? DEFAULT_AGENT_CREDIT);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-[var(--background)]">
@@ -887,13 +890,19 @@ export function AgentEditor() {
           </FieldGroup>
 
           <FieldGroup
-            label="Credit"
+            label="Author"
             icon={<Sparkles size="0.875rem" className="text-[var(--primary)]" />}
             help="Who authored or maintains this agent."
           >
-            <div className="rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm text-[var(--foreground)] ring-1 ring-[var(--border)]">
-              {displayedCredit}
-            </div>
+            <input
+              value={localCredit}
+              onChange={(e) => {
+                setLocalCredit(e.target.value);
+                markDirty();
+              }}
+              className="w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+              placeholder="Author name..."
+            />
           </FieldGroup>
 
           {/* ── Pipeline Phase ── */}
