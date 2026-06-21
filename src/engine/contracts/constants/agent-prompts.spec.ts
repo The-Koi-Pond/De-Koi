@@ -23,12 +23,14 @@ describe("default agent prompts", () => {
     expect(prompt).toContain("speech bubbles");
   });
 
-  it("keeps CYOA choices aligned with the chat perspective", () => {
+  it("keeps CYOA choices aligned with the chat perspective and tense", () => {
     const prompt = DEFAULT_AGENT_PROMPTS.cyoa;
 
-    expect(prompt).toContain("Match the perspective already used for the player's messages and actions in the chat");
-    expect(prompt).toContain("If the chat is written in second person or third person, keep that perspective");
+    expect(prompt).toContain(
+      "Match the perspective and verb tense already used for the player's messages and actions in the chat",
+    );
+    expect(prompt).toContain("If the chat is written in second person, third person, past tense, or present tense");
     expect(prompt).not.toContain("Write them in first person");
-    expect(prompt).toContain("preserving the chat's perspective");
+    expect(prompt).toContain("preserving the chat's perspective and tense");
   });
 });
