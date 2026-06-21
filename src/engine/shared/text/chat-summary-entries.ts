@@ -131,7 +131,7 @@ function normalizeChatSummaryEntry(
   const now = options.now ?? defaultNow();
   const origin = VALID_ORIGINS.has(value.origin as ChatSummaryEntryOrigin)
     ? (value.origin as ChatSummaryEntryOrigin)
-    : "manual";
+    : "legacy";
   const sourceMode = VALID_SOURCES.has(value.sourceMode as ChatSummaryEntrySource)
     ? (value.sourceMode as ChatSummaryEntrySource)
     : sourceFromOrigin(origin);
@@ -176,6 +176,7 @@ function createChatSummaryEntry(
   const entry = normalizeChatSummaryEntry(
     {
       ...input,
+      origin: input.origin ?? "manual",
       id: input.id || options.createId?.(),
       createdAt: input.createdAt ?? options.now,
       updatedAt: input.updatedAt ?? options.now,
