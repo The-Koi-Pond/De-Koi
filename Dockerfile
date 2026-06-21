@@ -7,16 +7,9 @@ ENV DE_KOI_SOURCE_COMMIT=${DE_KOI_SOURCE_COMMIT}
 
 WORKDIR /app
 
-# The server binary is Rust-only at runtime, but it currently lives in the Tauri
-# package, so Linux needs the native libraries required to compile that package.
+# The Pi server image builds only the hostable server feature, not the desktop
+# Tauri app, so it does not need WebKit/GTK build dependencies.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config \
-    libglib2.0-dev \
-    libgtk-3-dev \
-    libwebkit2gtk-4.1-dev \
-    libayatana-appindicator3-dev \
-    librsvg2-dev \
-    libsoup-3.0-dev \
     ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
@@ -31,7 +24,9 @@ COPY src-tauri/capabilities ./src-tauri/capabilities
 COPY src-tauri/icons ./src-tauri/icons
 COPY src-tauri/resources ./src-tauri/resources
 
-RUN cargo build --manifest-path src-tauri/Cargo.toml --release --bin de-koi-server
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/app/src-tauri/target \
+    cargo build --manifest-path src-tauri/Cargo.toml --release --bin de-koi-server --no-default-features --features server
 
 FROM debian:bookworm-slim AS runtime
 
@@ -45,12 +40,6 @@ LABEL org.opencontainers.image.version="${DE_KOI_IMAGE_VERSION}"
 LABEL org.opencontainers.image.revision="${DE_KOI_SOURCE_COMMIT}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libglib2.0-0 \
-    libgtk-3-0 \
-    libwebkit2gtk-4.1-0 \
-    libayatana-appindicator3-1 \
-    librsvg2-2 \
-    libsoup-3.0-0 \
     ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 

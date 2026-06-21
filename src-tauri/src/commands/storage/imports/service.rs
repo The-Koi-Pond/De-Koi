@@ -34,7 +34,6 @@ use st_preset::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use timestamps::{apply_timestamp_overrides, timestamp_overrides_from_value};
-
 pub(crate) use lorebook_normalization::{lorebook_entries, normalize_lorebook_entry};
 
 const MAX_CHARACTER_IMPORT_UPLOAD_BYTES: usize = 75 * 1024 * 1024;
@@ -507,6 +506,7 @@ pub(crate) fn import_call(state: &AppState, rest: &[&str], body: Value) -> AppRe
     }
 }
 
+#[cfg(feature = "desktop")]
 pub(crate) fn import_stream_channel(
     state: &AppState,
     rest: &[&str],

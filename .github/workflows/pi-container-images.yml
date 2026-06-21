@@ -113,6 +113,8 @@ jobs:
           build-args: |
             DE_KOI_IMAGE_VERSION=${{ steps.version.outputs.version }}
             DE_KOI_SOURCE_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=pi-${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=pi-${{ matrix.name }}
   promote-prealpha:
     name: Promote prealpha image batch
     runs-on: ubuntu-latest

@@ -4,7 +4,7 @@ use crate::storage_commands::{
     admin, agents, avatars, backgrounds, backup, bot_browser, characters, chat_memory, chats,
     connection_secrets, custom_tools, deki, entity_images, exports, fonts, game_assets, generation,
     http, images, imports, integrations, knowledge, llm, lorebook_images, managed_thumbnails,
-    personas, profile, profile_commands, prompts, shared, sidecar, sprites, translation, updates,
+    personas, profile, prompts, shared, sidecar, sprites, translation, updates,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -82,7 +82,7 @@ async fn dispatch_blocking_http_storage(
 ) -> AppResult<Value> {
     let state = state.clone();
     let args = args.clone();
-    tauri::async_runtime::spawn_blocking(move || operation(&state, &args))
+    tokio::task::spawn_blocking(move || operation(&state, &args))
         .await
         .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
@@ -1064,7 +1064,7 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
 }
 
 async fn load_url_binary(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    profile_commands::load_url_binary_for_state(
+    http::load_url_binary_for_state(
         state,
         required_string(args, "url")?,
         optional_string(args, "fallbackMime")

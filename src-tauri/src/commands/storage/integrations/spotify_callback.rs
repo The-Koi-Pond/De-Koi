@@ -21,7 +21,7 @@ pub(super) fn start_callback_listener(state: AppState) -> bool {
     let Ok(listener) = tokio::net::TcpListener::from_std(listener) else {
         return false;
     };
-    tauri::async_runtime::spawn(async move {
+    tokio::spawn(async move {
         let _ = run_callback_listener(state, listener).await;
     });
     true

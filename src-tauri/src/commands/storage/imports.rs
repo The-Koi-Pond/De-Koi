@@ -9,6 +9,7 @@ pub(crate) fn import_call(state: &AppState, rest: &[&str], body: Value) -> AppRe
     service::import_call(state, rest, body)
 }
 
+#[cfg(feature = "desktop")]
 pub(crate) fn import_stream_channel(
     state: &AppState,
     rest: &[&str],
