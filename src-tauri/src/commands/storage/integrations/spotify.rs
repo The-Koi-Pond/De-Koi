@@ -2583,8 +2583,12 @@ async fn start_dj_deki_playlist_playback(
         };
     let repeat_to_restore = before_playback
         .as_ref()
-        .and_then(spotify_repeat_state_to_restore_from_snapshot)
+        .and_then(spotify_repeat_state_to_restore_from_playback_snapshot)
         .map(str::to_string);
+    let snapshot_device_id = before_playback
+        .as_ref()
+        .and_then(|snapshot| snapshot.device_id.as_deref());
+    let mut repeat_restore_device_id = device_id.or(snapshot_device_id);
     let path = spotify_control_path("/me/player/play", device_id);
     let mut response = spotify_api(
         credentials,
@@ -2595,20 +2599,26 @@ async fn start_dj_deki_playlist_playback(
     .await?;
 
     if !spotify_response_ok(&response) && spotify_should_retry_device(&response, device_id) {
-        if let Some(device_id) = device_id {
-            if transfer_spotify_playback_to_device(credentials, device_id, false)
+        if let Some(retry_device_id) =
+            spotify_dj_playlist_retry_device_id(device_id, snapshot_device_id)
+        {
+            if transfer_spotify_playback_to_device(credentials, retry_device_id, false)
                 .await
                 .unwrap_or(false)
             {
                 tokio::time::sleep(Duration::from_millis(SPOTIFY_PLAYBACK_SETTLE_MS)).await;
             }
+            let retry_path = spotify_control_path("/me/player/play", Some(retry_device_id));
             response = spotify_api(
                 credentials,
-                &path,
+                &retry_path,
                 "PUT",
                 Some(json!({ "context_uri": playlist_uri })),
             )
             .await?;
+            if spotify_response_ok(&response) {
+                repeat_restore_device_id = Some(retry_device_id);
+            }
         }
     }
 
@@ -2630,11 +2640,7 @@ async fn start_dj_deki_playlist_playback(
         spotify_restore_repeat_after_playlist_start(
             credentials,
             repeat_to_restore.as_deref(),
-            device_id.or_else(|| {
-                before_playback
-                    .as_ref()
-                    .and_then(|snapshot| snapshot.device_id.as_deref())
-            }),
+            repeat_restore_device_id,
         )
         .await
     };
@@ -2671,10 +2677,17 @@ async fn spotify_restore_repeat_after_playlist_start(
     }
 }
 
-fn spotify_repeat_state_to_restore_from_snapshot(
+fn spotify_repeat_state_to_restore_from_playback_snapshot(
     playback: &SpotifyPlaybackSnapshot,
 ) -> Option<&'static str> {
     spotify_repeat_state_to_restore_value(Some(playback.repeat_state.as_str()))
+}
+
+fn spotify_dj_playlist_retry_device_id<'a>(
+    request_device_id: Option<&'a str>,
+    snapshot_device_id: Option<&'a str>,
+) -> Option<&'a str> {
+    snapshot_device_id.or(request_device_id)
 }
 
 fn spotify_repeat_state_to_restore_value(value: Option<&str>) -> Option<&'static str> {
@@ -4451,6 +4464,25 @@ mod tests {
     }
 
     #[test]
+    fn spotify_dj_playlist_retry_uses_snapshot_device_when_available() {
+        assert_eq!(
+            spotify_dj_playlist_retry_device_id(None, Some("snapshot-device")),
+            Some("snapshot-device")
+        );
+        assert_eq!(
+            spotify_dj_playlist_retry_device_id(
+                Some("stale-request-device"),
+                Some("snapshot-device")
+            ),
+            Some("snapshot-device")
+        );
+        assert_eq!(
+            spotify_dj_playlist_retry_device_id(Some("request-device"), None),
+            Some("request-device")
+        );
+    }
+
+    #[test]
     fn spotify_active_device_selection_does_not_fall_back_to_inactive_devices() {
         let selected = select_spotify_active_device(vec![
             json!({
@@ -4765,7 +4797,7 @@ mod tests {
             display: Value::Null,
         };
         assert_eq!(
-            spotify_repeat_state_to_restore_from_snapshot(&snapshot),
+            spotify_repeat_state_to_restore_from_playback_snapshot(&snapshot),
             Some("context")
         );
     }
