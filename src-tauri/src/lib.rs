@@ -1,3 +1,4 @@
+#[cfg(feature = "desktop")]
 pub mod app;
 pub(crate) mod builtins;
 pub(crate) mod connection_refs;
@@ -9,9 +10,10 @@ pub mod state;
 #[path = "commands/storage.rs"]
 pub(crate) mod storage_commands;
 
+#[cfg(feature = "desktop")]
 use tauri::Manager;
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(all(feature = "desktop", not(any(target_os = "android", target_os = "ios"))))]
 fn center_main_window_on_primary_monitor(app: &tauri::App) {
     use tauri::{PhysicalPosition, Position};
 
@@ -39,7 +41,7 @@ fn center_main_window_on_primary_monitor(app: &tauri::App) {
     }
 }
 
-#[cfg(all(debug_assertions, not(any(target_os = "android", target_os = "ios"))))]
+#[cfg(all(feature = "desktop", debug_assertions, not(any(target_os = "android", target_os = "ios"))))]
 fn open_main_window_devtools_if_requested(app: &tauri::App) {
     let auto_devtools = std::env::var("DE_KOI_TAURI_AUTO_DEVTOOLS")
         .or_else(|_| std::env::var("MARINARA_TAURI_AUTO_DEVTOOLS"));
@@ -52,6 +54,7 @@ fn open_main_window_devtools_if_requested(app: &tauri::App) {
     window.open_devtools();
 }
 
+#[cfg(feature = "desktop")]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();

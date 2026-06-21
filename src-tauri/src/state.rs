@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+#[cfg(feature = "desktop")]
 use tauri::{AppHandle, Manager};
 use tokio::sync::watch;
 
@@ -43,6 +44,7 @@ const MESSAGE_PROMPT_SNAPSHOT_COMPACTION_KEY: &str = "messagePromptSnapshotCompa
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
 
 impl AppState {
+    #[cfg(feature = "desktop")]
     pub fn new(app: &AppHandle) -> AppResult<Self> {
         let data_dir = app
             .path()
@@ -98,6 +100,7 @@ impl AppState {
             .join("default-data")]
     }
 
+    #[cfg(feature = "desktop")]
     fn default_data_roots(app: &AppHandle) -> Vec<PathBuf> {
         let mut default_data_roots = Vec::new();
         if let Ok(resource_dir) = app.path().resource_dir() {

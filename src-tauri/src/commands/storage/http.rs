@@ -1,6 +1,9 @@
 use super::shared::*;
 use super::*;
 use marinara_security::{is_allowed_outbound_url, is_local_or_reserved_ip};
+use std::fs::{File, OpenOptions};
+use std::io::Read;
+use std::path::{Path, PathBuf};
 
 const MAX_BINARY_RESPONSE_BYTES: u64 = 25 * 1024 * 1024;
 const MAX_BINARY_REDIRECTS: usize = 5;
@@ -209,6 +212,182 @@ fn allowed_binary_mime(mime_type: &str) -> bool {
         )
 }
 
+pub(crate) async fn load_url_binary_for_state(
+    state: &AppState,
+    url: &str,
+    fallback_mime: &str,
+) -> AppResult<Value> {
+    if let Some(response) = load_local_asset_binary(state, url, fallback_mime)? {
+        return Ok(response);
+    }
+    http_binary(url, fallback_mime).await
+}
+
+fn load_local_asset_binary(
+    state: &AppState,
+    url: &str,
+    fallback_mime: &str,
+) -> AppResult<Option<Value>> {
+    let Some(path) = local_asset_path_from_url(url) else {
+        return Ok(None);
+    };
+    let canonical_path = std::fs::canonicalize(&path).map_err(|error| {
+        AppError::new(
+            "local_asset_not_found",
+            format!("Managed local asset could not be read: {error}"),
+        )
+    })?;
+    let data_dir = std::fs::canonicalize(&state.data_dir).map_err(AppError::from)?;
+    if !canonical_path.starts_with(&data_dir) {
+        return Err(AppError::invalid_input(
+            "Managed local asset URL is outside the app data directory",
+        ));
+    }
+    if !is_managed_local_binary_asset(&data_dir, &canonical_path) {
+        return Err(AppError::invalid_input(
+            "Managed local asset URL is outside allowed media directories",
+        ));
+    }
+
+    let file = open_local_binary_file(&path).map_err(AppError::from)?;
+    let metadata = file.metadata().map_err(AppError::from)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(AppError::invalid_input(
+            "Managed local asset URL does not point to a file",
+        ));
+    }
+    if metadata.len() > MAX_BINARY_RESPONSE_BYTES {
+        return Err(AppError::invalid_input("Local asset file is too large"));
+    }
+
+    let mut bytes = Vec::new();
+    let mut reader = file.take(MAX_BINARY_RESPONSE_BYTES + 1);
+    reader.read_to_end(&mut bytes).map_err(AppError::from)?;
+    if bytes.len() as u64 > MAX_BINARY_RESPONSE_BYTES {
+        return Err(AppError::invalid_input("Local asset file is too large"));
+    }
+
+    Ok(Some(json!({
+        "base64": general_purpose::STANDARD.encode(bytes),
+        "mimeType": local_binary_mime_type(&canonical_path, fallback_mime)
+    })))
+}
+
+fn open_local_binary_file(path: &Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    configure_no_follow_open(&mut options);
+    options.open(path)
+}
+
+#[cfg(unix)]
+fn configure_no_follow_open(options: &mut OpenOptions) {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    options.custom_flags(libc::O_NOFOLLOW);
+}
+
+#[cfg(windows)]
+fn configure_no_follow_open(options: &mut OpenOptions) {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+}
+
+#[cfg(not(any(unix, windows)))]
+fn configure_no_follow_open(_options: &mut OpenOptions) {}
+
+fn local_asset_path_from_url(url: &str) -> Option<PathBuf> {
+    let trimmed = url.trim();
+    let encoded = trimmed
+        .strip_prefix("asset://localhost/")
+        .or_else(|| trimmed.strip_prefix("http://asset.localhost/"))?;
+    let encoded = encoded
+        .split(['?', '#'])
+        .next()
+        .filter(|value| !value.is_empty())?;
+    Some(PathBuf::from(percent_decode(encoded)))
+}
+
+fn local_binary_mime_type(path: &Path, fallback_mime: &str) -> String {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "avif" => "image/avif",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "ogg" => "audio/ogg",
+        "webm" => "video/webm",
+        "mp4" => "video/mp4",
+        _ => fallback_mime,
+    }
+    .to_string()
+}
+
+fn is_managed_local_binary_asset(data_dir: &Path, path: &Path) -> bool {
+    const LOCAL_BINARY_ASSET_DIRS: &[&str] = &[
+        "avatars",
+        "backgrounds",
+        "fonts",
+        "gallery",
+        "game-assets",
+        "knowledge-sources",
+        "lorebooks/images",
+        "sprites",
+    ];
+
+    LOCAL_BINARY_ASSET_DIRS.iter().any(|asset_dir| {
+        std::fs::canonicalize(data_dir.join(asset_dir))
+            .ok()
+            .is_some_and(|allowed_root| path.starts_with(allowed_root))
+    })
+}
+
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'%' if index + 2 < bytes.len() => {
+                if let (Some(hi), Some(lo)) =
+                    (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+                {
+                    output.push((hi << 4) | lo);
+                    index += 3;
+                } else {
+                    output.push(bytes[index]);
+                    index += 1;
+                }
+            }
+            byte => {
+                output.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&output).to_string()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
 pub(crate) async fn gifs_search(route: &ParsedPath) -> AppResult<Value> {
     let api_key = std::env::var("GIPHY_API_KEY")
         .or_else(|_| std::env::var("VITE_GIPHY_API_KEY"))

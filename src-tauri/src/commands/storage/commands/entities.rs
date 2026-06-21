@@ -8,6 +8,7 @@ use crate::state::AppState;
 use marinara_core::{ensure_object, new_id, now_iso, AppError};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
+#[cfg(feature = "desktop")]
 use tauri::State;
 
 type LorebookEntryAtomicRows<'a> = (&'a mut Vec<Value>, &'a mut Vec<Value>);
@@ -60,6 +61,7 @@ use list_helpers::*;
 use normalization::*;
 use support::*;
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn storage_list(
     state: State<'_, AppState>,
@@ -312,6 +314,7 @@ pub(crate) fn storage_list_inner(
     )))
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn lorebook_entries_list_by_lorebook_ids(
     state: State<'_, AppState>,
@@ -353,6 +356,7 @@ pub(crate) fn lorebook_entries_list_by_lorebook_ids_inner(
     Ok(Value::Array(rows))
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn storage_get(
     state: State<'_, AppState>,
@@ -407,6 +411,7 @@ pub(crate) fn storage_get_inner(
     Ok(shared::project_record(value, options.as_ref()))
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn storage_create(
     state: State<'_, AppState>,
@@ -484,6 +489,7 @@ pub(crate) fn storage_create_inner(
     Ok(created)
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn storage_update(
     state: State<'_, AppState>,
@@ -584,6 +590,7 @@ pub(crate) fn prepare_entity_for_create(
     }
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn storage_delete(
     state: State<'_, AppState>,
@@ -599,6 +606,7 @@ pub async fn storage_delete(
     .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn connection_folder_reorder(
     state: State<'_, AppState>,
@@ -607,6 +615,7 @@ pub fn connection_folder_reorder(
     connection_folder_reorder_inner(&state, ordered_ids)
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn lorebook_folder_reorder(
     state: State<'_, AppState>,
@@ -617,6 +626,7 @@ pub fn lorebook_folder_reorder(
     lorebook_folder_reorder_inner(&state, &lorebook_id, ordered_ids, parent_folder_id)
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn connection_move(
     state: State<'_, AppState>,
@@ -626,6 +636,7 @@ pub fn connection_move(
     connection_move_inner(&state, &connection_id, folder_id)
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn storage_duplicate(
     state: State<'_, AppState>,

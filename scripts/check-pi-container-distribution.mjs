@@ -30,6 +30,7 @@ function assertBefore(label, text, first, second) {
   }
 }
 
+const serverDockerfile = read("Dockerfile");
 const webDockerfile = read("Dockerfile.web");
 const nginx = read("docker/nginx/pi-web.conf");
 const piImageGuard = read("scripts/pi-image-guard.mjs");
@@ -37,6 +38,11 @@ const piUpdateScript = read("scripts/pi-update.sh");
 const piDocs = read("docs/pi.md");
 const updateService = read("deploy/pi/systemd/de-koi-pi-update.service");
 const updateTimer = read("deploy/pi/systemd/de-koi-pi-update.timer");
+assertContains("Dockerfile", serverDockerfile, "--no-default-features --features server");
+assertContains("Dockerfile", serverDockerfile, "--mount=type=cache,target=/usr/local/cargo/registry");
+assertNotContains("Dockerfile", serverDockerfile, "libwebkit2gtk");
+assertNotContains("Dockerfile", serverDockerfile, "libgtk-3");
+assertNotContains("Dockerfile", serverDockerfile, "libayatana-appindicator");
 assertContains("Dockerfile.web", webDockerfile, "pnpm build");
 assertContains("Dockerfile.web", webDockerfile, "COPY patches ./patches");
 assertContains("Dockerfile.web", webDockerfile, "COPY docker/nginx/pi-web.conf /etc/nginx/conf.d/default.conf");
@@ -96,6 +102,8 @@ assertContains("docker-compose.pi.trusted-lan.yml", trustedLanCompose, 'BYPASS_A
 const workflow = read(".github/workflows/pi-container-images.yml");
 assertContains(".github/workflows/pi-container-images.yml", workflow, "packages: write");
 assertContains(".github/workflows/pi-container-images.yml", workflow, "platforms: linux/arm64");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "cache-from: type=gha,scope=pi-${{ matrix.name }}");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "cache-to: type=gha,mode=max,scope=pi-${{ matrix.name }}");
 assertContains(".github/workflows/pi-container-images.yml", workflow, "ghcr.io/the-koi-pond/de-koi-server");
 assertContains(".github/workflows/pi-container-images.yml", workflow, "ghcr.io/the-koi-pond/de-koi-web");
 assertContains(".github/workflows/pi-container-images.yml", workflow, "cancel-in-progress: true");

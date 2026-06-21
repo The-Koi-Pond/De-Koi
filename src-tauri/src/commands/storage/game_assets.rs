@@ -17,6 +17,7 @@ pub(crate) fn game_assets_rescan(state: &AppState) -> AppResult<Value> {
     Ok(json!({ "ok": true, "manifest": manifest }))
 }
 
+#[cfg(feature = "desktop")]
 pub(crate) fn game_assets_open_folder(state: &AppState, body: Value) -> AppResult<Value> {
     let subfolder = body.get("subfolder").and_then(Value::as_str).unwrap_or("");
     let path = state.game_assets.absolute_path(subfolder)?;

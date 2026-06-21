@@ -283,6 +283,7 @@ fn llm_body_uses_sidecar_connection(body: &Value) -> bool {
         || value_uses_sidecar_connection(body)
 }
 
+#[cfg(feature = "desktop")]
 pub(crate) async fn llm_stream_channel(
     state: &AppState,
     stream_id: String,
