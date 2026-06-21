@@ -31,8 +31,6 @@ interface SpriteOverlayProps {
   spritePlacements?: SpritePlacementMap;
   /** Whether the overlay is currently in drag-to-arrange mode */
   editing?: boolean;
-  /** Called when expression changes (to persist it) */
-  onExpressionChange?: (characterId: string, expression: string) => void;
   /** Called when a sprite is moved (to persist it) */
   onPlacementChange?: (characterId: string, placement: SpritePlacement) => void;
   /** When true, only show full-body sprites (full_ prefix) and hide characters without any */
@@ -85,7 +83,6 @@ export function SpriteOverlay({
   spriteExpressions,
   spritePlacements,
   editing = false,
-  onExpressionChange,
   onPlacementChange,
   fullBodyOnly = false,
   spriteScale = 1,
@@ -127,7 +124,8 @@ export function SpriteOverlay({
     return initial;
   });
 
-  // When agent result arrives, prefer it over keyword detection
+  // When agent result arrives, prefer it over keyword detection.
+  // Validated expression persistence belongs to the generation engine; this layer only reflects live results.
   useEffect(() => {
     // Full-body sprites use poses from spriteExpressions (game mode); the facial-expression agent would overwrite them with values like "happy" that don't match any full_* sprite.
     if (fullBodyOnly) return;
@@ -156,14 +154,10 @@ export function SpriteOverlay({
           }
           return next;
         });
-        // Persist expression changes outside setState to avoid side-effects in updater
-        for (const u of updates) {
-          onExpressionChange?.(u.characterId, u.expression);
-        }
         return;
       }
     }
-  }, [expressionResult, onExpressionChange, fullBodyOnly, spriteOwnerKeyByCharacterId]);
+  }, [expressionResult, fullBodyOnly, spriteOwnerKeyByCharacterId]);
 
   // Apply saved per-swipe expressions whenever the prop changes (e.g. user swipes).
   // This runs independently of the agent store so swiping always updates the sprite.
