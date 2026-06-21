@@ -112,6 +112,21 @@ function hasImplicitCharacterPhotoRequest(tokens: string[], targetIndex: number)
   return hasSecondPersonActionBeforeTarget(tokens, targetIndex);
 }
 
+function hasAssistantOfferCue(tokens: string[], targetIndex: number): boolean {
+  if (tokens.includes("want") || tokens.includes("like")) return true;
+  if (hasNearby(tokens, targetIndex, REQUEST_ACTIONS, 7, 3)) return true;
+  if (tokens[targetIndex - 3] === "here" && tokens[targetIndex - 2] === "is") return true;
+  if (tokens[targetIndex - 4] === "here" && tokens[targetIndex - 3] === "is") return true;
+
+  const start = Math.max(0, targetIndex - 5);
+  for (let i = start; i < targetIndex; i += 1) {
+    const token = tokens[i]!;
+    if (token !== "can" && token !== "could" && token !== "will" && token !== "would") continue;
+    if (ASSISTANT_SELF_REFERENCES.has(tokens[i - 1] ?? "")) return true;
+  }
+  return false;
+}
+
 function latestUserRequestsSelfie(latestUserInput: unknown): boolean {
   const tokens = tokenized(latestUserInput);
   if (tokens.length === 0) return false;
@@ -146,9 +161,7 @@ function previousAssistantOffersSelfie(messages: readonly SelfieRequestMessage[]
     const isSelfieTarget = SELFIE_TARGETS.has(token);
     const isImageTarget = IMAGE_TARGETS.has(token);
     if (!isSelfieTarget && !isImageTarget) continue;
-    if (!tokens.includes("want") && !tokens.includes("like") && !hasNearby(tokens, index, REQUEST_ACTIONS, 7, 3)) {
-      continue;
-    }
+    if (!hasAssistantOfferCue(tokens, index)) continue;
     if (isSelfieTarget) return true;
     if (hasCharacterImageObject(tokens, index, ASSISTANT_SELF_REFERENCES)) return true;
   }
