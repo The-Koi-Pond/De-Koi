@@ -65,18 +65,30 @@ type ImagePromptSettings = {
 type SelfieCommand = Extract<CharacterCommand, { type: "selfie" }>;
 
 type ConnectedCommandOptions = {
-  latestUserMessage?: string | null;
+  pendingSelfieIntent?: boolean;
 };
 
 const CONVERSATION_NOTES_BUDGET_CHARS = 4000;
 const LEGACY_ASSISTANT_CONTEXT_METADATA_KEY = "mariContext";
 const SELFIE_WORD_RE = /\b(?:selfie|photo|pic|picture|image)\b/i;
-const USER_SELFIE_REQUEST_RE =
-  /\b(?:send|show|share|take|snap|give|attach|post|can\s+i\s+see|could\s+i\s+see|let\s+me\s+see|want|wanna)\b[\s\S]{0,120}\b(?:selfie|photo|pic|picture)\b|\b(?:selfie|photo|pic|picture)\b[\s\S]{0,80}\b(?:please|pls|send|show|share|take|snap)\b/i;
 const ASSISTANT_SELFIE_CLAIM_RE =
   /\b(?:send|sent|sending|show|showing|share|shares|shared|attach|attaches|attached|post|posts|posted|take|takes|took|snap|snaps|snapped|here's|here is)\b[\s\S]{0,120}\b(?:selfie|photo|pic|picture)\b|\[\s*[^\]]{0,80}\b(?:send|sends|sent|show|shows|share|shares|take|takes|snap|snaps)\b[^\]]{0,120}\b(?:selfie|photo|pic|picture)\b[^\]]*\]/i;
 const ASSISTANT_SELFIE_DECLINE_RE =
   /\b(?:can't|cannot|can not|won't|will not|unable|not able|do not|don't|rather not|prefer not to)\b[\s\S]{0,120}\b(?:send|show|share|take|attach|post|give|have)?[\s\S]{0,40}\b(?:selfie|photo|pic|picture|image)s?\b|\b(?:selfie|photo|pic|picture|image)s?\b[\s\S]{0,80}\b(?:not available|not possible|can't|cannot|unable|rather not|prefer not)\b/i;
+const SELFIE_REQUEST_TARGETS = new Set(["selfie", "selfies", "photo", "photos", "pic", "pics", "picture", "pictures"]);
+const SELFIE_REQUEST_ACTIONS = new Set([
+  "attach",
+  "dm",
+  "give",
+  "post",
+  "send",
+  "share",
+  "show",
+  "snap",
+  "take",
+]);
+const SELFIE_REQUEST_DESIRE_WORDS = new Set(["love", "want", "wanna", "wanted", "like", "see"]);
+const SELFIE_REQUEST_NEGATORS = new Set(["dont", "don't", "not", "never", "without"]);
 
 function parseData(row: JsonRecord | null | undefined): JsonRecord {
   const raw = row?.data;
@@ -132,6 +144,63 @@ function cleanCommandContent(content: string): string {
   return content.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function selfieIntentTokens(value: unknown): string[] {
+  return readString(value)
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}']+/gu, " ")
+    .replace(/\b(can|don|won)'t\b/g, "$1t")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+}
+
+function hasNearbyToken(tokens: string[], index: number, candidates: Set<string>, before: number, after: number): boolean {
+  const start = Math.max(0, index - before);
+  const end = Math.min(tokens.length - 1, index + after);
+  for (let i = start; i <= end; i += 1) {
+    if (i !== index && candidates.has(tokens[i]!)) return true;
+  }
+  return false;
+}
+
+function hasSelfieRequestNegator(tokens: string[], targetIndex: number): boolean {
+  const start = Math.max(0, targetIndex - 6);
+  for (let i = start; i < targetIndex; i += 1) {
+    const token = tokens[i]!;
+    if (token === "no" && (tokens[i + 1] === "need" || tokens[i + 1] === "selfie")) return true;
+    if (token === "rather" && tokens[i + 1] === "not") return true;
+    if (token === "prefer" && tokens[i + 1] === "not") return true;
+    if (SELFIE_REQUEST_NEGATORS.has(token)) return true;
+  }
+  return false;
+}
+
+export function detectConversationSelfieRequestIntent(value: unknown): boolean {
+  const tokens = selfieIntentTokens(value);
+  if (tokens.length === 0) return false;
+
+  for (const [index, token] of tokens.entries()) {
+    if (!SELFIE_REQUEST_TARGETS.has(token) || hasSelfieRequestNegator(tokens, index)) continue;
+    if (hasNearbyToken(tokens, index, SELFIE_REQUEST_ACTIONS, 8, 3)) return true;
+    if (hasNearbyToken(tokens, index, SELFIE_REQUEST_DESIRE_WORDS, 8, 4)) return true;
+    if (
+      tokens[index - 3] === "can" ||
+      tokens[index - 3] === "could" ||
+      tokens[index - 3] === "may" ||
+      tokens[index - 3] === "would" ||
+      tokens[index - 2] === "please" ||
+      tokens[index + 1] === "please"
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function inferSelfieContextFromResponse(response: string): string | undefined {
   const compact = response.replace(/\s+/g, " ").trim();
   if (!compact) return undefined;
@@ -148,13 +217,13 @@ function inferSelfieContextFromResponse(response: string): string | undefined {
 
 function recoverImplicitSelfieCommand(args: {
   response: string;
-  latestUserMessage?: string | null;
+  pendingSelfieIntent: boolean;
   imageGenerationEnabled: boolean;
   existingCommands: CharacterCommand[];
 }): SelfieCommand | null {
   if (!args.imageGenerationEnabled) return null;
   if (args.existingCommands.some((command) => command.type === "selfie")) return null;
-  if (!USER_SELFIE_REQUEST_RE.test(args.latestUserMessage ?? "")) return null;
+  if (!args.pendingSelfieIntent) return null;
   const response = args.response.trim();
   if (!SELFIE_WORD_RE.test(response)) return null;
   if (ASSISTANT_SELFIE_DECLINE_RE.test(response)) return null;
@@ -1666,7 +1735,7 @@ export async function persistConnectedCommandTags(
   const metadata = parseRecord(chat.metadata);
   const recoveredSelfie = recoverImplicitSelfieCommand({
     response: parsed.cleanContent,
-    latestUserMessage: options?.latestUserMessage,
+    pendingSelfieIntent: options?.pendingSelfieIntent === true,
     imageGenerationEnabled:
       readString(metadata.imageGenConnectionId).trim().length > 0 && conversationSelfieCommandEnabled(chat),
     existingCommands: parsed.commands,

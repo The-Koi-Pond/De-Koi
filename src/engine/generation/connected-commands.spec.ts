@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { StorageEntity, StorageGateway, StorageListOptions } from "../capabilities/storage";
-import { persistConnectedCommandTags, pruneConnectedConversationNotes } from "./connected-commands";
+import {
+  detectConversationSelfieRequestIntent,
+  persistConnectedCommandTags,
+  pruneConnectedConversationNotes,
+} from "./connected-commands";
 import { loadCharacters } from "./prompt-assembly";
 import { parseCharacterCommands } from "../modes/chat/commands/character-commands";
 import type { JsonRecord } from "./runtime-records";
@@ -213,6 +217,20 @@ describe("scene connected command parsing", () => {
 
     expect(result.cleanContent).toBe("Visible setup.");
     expect(result.commands).toEqual([{ type: "scene", scenario: "A quiet shrine at dawn" }]);
+  });
+});
+
+describe("conversation selfie request intent", () => {
+  it("detects paraphrased selfie requests", () => {
+    expect(detectConversationSelfieRequestIntent("Could you snap a quick pic for me?")).toBe(true);
+    expect(detectConversationSelfieRequestIntent("I'd love a picture of you.")).toBe(true);
+    expect(detectConversationSelfieRequestIntent("Selfie please?")).toBe(true);
+  });
+
+  it("does not treat descriptive photo prose as selfie request intent", () => {
+    expect(detectConversationSelfieRequestIntent("I found an old photo by the harbor.")).toBe(false);
+    expect(detectConversationSelfieRequestIntent("That picture was beautiful.")).toBe(false);
+    expect(detectConversationSelfieRequestIntent("No need to send a selfie.")).toBe(false);
   });
 });
 
@@ -599,7 +617,7 @@ describe("persistConnectedCommandTags", () => {
       null,
       undefined,
       undefined,
-      { latestUserMessage: "Can I see a selfie please?" },
+      { pendingSelfieIntent: true },
     );
 
     expect(result.displayContent).toBe("Sure, I will send a selfie from the balcony.");
@@ -635,7 +653,7 @@ describe("persistConnectedCommandTags", () => {
       null,
       undefined,
       undefined,
-      { latestUserMessage: "Can I see a selfie please?" },
+      { pendingSelfieIntent: true },
     );
 
     expect(result.executedCommands).toEqual([]);
@@ -666,7 +684,7 @@ describe("persistConnectedCommandTags", () => {
       null,
       undefined,
       undefined,
-      { latestUserMessage: "Can I see a selfie please?" },
+      { pendingSelfieIntent: true },
     );
 
     expect(result.executedCommands).toEqual([]);
@@ -697,7 +715,7 @@ describe("persistConnectedCommandTags", () => {
       null,
       undefined,
       undefined,
-      { latestUserMessage: "Can I see a selfie please?" },
+      { pendingSelfieIntent: true },
     );
 
     expect(result.executedCommands).toEqual([]);
@@ -728,7 +746,7 @@ describe("persistConnectedCommandTags", () => {
       null,
       undefined,
       undefined,
-      { latestUserMessage: "Can I see a selfie please?" },
+      { pendingSelfieIntent: true },
     );
 
     expect(result.executedCommands).toEqual([]);
@@ -759,7 +777,7 @@ describe("persistConnectedCommandTags", () => {
       null,
       undefined,
       undefined,
-      { latestUserMessage: "Can I see a selfie please?" },
+      { pendingSelfieIntent: true },
     );
 
     expect(result.executedCommands).toEqual([]);
@@ -790,7 +808,7 @@ describe("persistConnectedCommandTags", () => {
       null,
       undefined,
       undefined,
-      { latestUserMessage: "Can I see a selfie please?" },
+      { pendingSelfieIntent: true },
     );
     const shareResult = await persistConnectedCommandTags(
       storage,
@@ -801,7 +819,7 @@ describe("persistConnectedCommandTags", () => {
       null,
       undefined,
       undefined,
-      { latestUserMessage: "Can I see a selfie please?" },
+      { pendingSelfieIntent: true },
     );
 
     expect(photoResult.executedCommands).toEqual([]);
@@ -835,7 +853,7 @@ describe("persistConnectedCommandTags", () => {
       null,
       undefined,
       undefined,
-      { latestUserMessage: "How was your day?" },
+      { pendingSelfieIntent: false },
     );
 
     expect(result.executedCommands).toEqual([]);

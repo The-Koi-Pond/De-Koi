@@ -38,6 +38,7 @@ import { createGenerationAgentRuntime } from "./agent-runner";
 import { buildBuiltInAgentFallback } from "./built-in-agent-fallback";
 import {
   consumePendingConnectedInfluences,
+  detectConversationSelfieRequestIntent,
   persistConnectedCommandTags,
   type ConnectedCommandResult,
 } from "./connected-commands";
@@ -4189,7 +4190,7 @@ export async function* startGeneration(
           readString(connection.id) || input.connectionId || null,
           input.imagePromptSettings,
           deps.visuals,
-          { latestUserMessage: latestUserInput },
+          { pendingSelfieIntent: detectConversationSelfieRequestIntent(latestUserInput) },
         );
     throwIfAborted(signal);
     for (const event of connected.events) yield event;
@@ -4460,7 +4461,7 @@ export async function* startGeneration(
         readString(connection.id) || input.connectionId || null,
         input.imagePromptSettings,
         deps.visuals,
-        { latestUserMessage: latestUserInput },
+        { pendingSelfieIntent: detectConversationSelfieRequestIntent(latestUserInput) },
       );
   throwIfAborted(signal);
   for (const event of connected.events) yield event;
