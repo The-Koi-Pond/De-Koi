@@ -10,7 +10,7 @@ describe("backup settings actions", () => {
       .mockResolvedValue("downloaded");
 
     await expect(downloadBackupToBrowser(undefined, { downloadBackup, saveDownloadPayload })).resolves.toBe(
-      "Backup downloaded!",
+      "Backup saved!",
     );
 
     expect(downloadBackup).toHaveBeenCalledWith(undefined);
@@ -39,6 +39,22 @@ describe("backup settings actions", () => {
 
     await expect(downloadBackupToBrowser("backup-2026.zip", { downloadBackup, saveDownloadPayload })).resolves.toBe(
       null,
+    );
+  });
+
+  it("uses the same success message for native saves and browser downloads", async () => {
+    const payload: DownloadPayload = { blob: new Blob(["backup"]), filename: "de-koi-backup.zip" };
+    const downloadBackup = vi.fn<() => Promise<DownloadPayload>>().mockResolvedValue(payload);
+    const saveDownloadPayload = vi.fn<(value: DownloadPayload) => Promise<"saved" | "downloaded" | "cancelled">>();
+
+    saveDownloadPayload.mockResolvedValueOnce("saved");
+    await expect(downloadBackupToBrowser(undefined, { downloadBackup, saveDownloadPayload })).resolves.toBe(
+      "Backup saved!",
+    );
+
+    saveDownloadPayload.mockResolvedValueOnce("downloaded");
+    await expect(downloadBackupToBrowser(undefined, { downloadBackup, saveDownloadPayload })).resolves.toBe(
+      "Backup saved!",
     );
   });
 });

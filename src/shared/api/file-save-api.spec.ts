@@ -88,6 +88,33 @@ describe("saveTextFileToUserSelectedLocation", () => {
     });
   });
 
+  it("preserves per-filter MIME mappings in the browser save picker", async () => {
+    const write = vi.fn().mockResolvedValue(undefined);
+    const close = vi.fn().mockResolvedValue(undefined);
+    const createWritable = vi.fn().mockResolvedValue({ write, close });
+    (window as unknown as { showSaveFilePicker: unknown }).showSaveFilePicker = vi
+      .fn()
+      .mockResolvedValue({ createWritable });
+
+    const { saveFileToUserSelectedLocation } = await import("./file-save-api");
+    await saveFileToUserSelectedLocation({
+      filename: "export.bin",
+      blob: new Blob(["x"], { type: "application/octet-stream" }),
+      filters: [
+        { name: "JSON", extensions: ["json"], mimeType: "application/json" },
+        { name: "PNG", extensions: ["png"], mimeType: "image/png" },
+      ],
+    });
+
+    expect((window as unknown as { showSaveFilePicker: unknown }).showSaveFilePicker).toHaveBeenCalledWith({
+      suggestedName: "export.bin",
+      types: [
+        { description: "JSON", accept: { "application/json": [".json"] } },
+        { description: "PNG", accept: { "image/png": [".png"] } },
+      ],
+    });
+  });
+
   it("surfaces browser save picker failures instead of falling back to download", async () => {
     (window as unknown as { showSaveFilePicker: unknown }).showSaveFilePicker = vi
       .fn()
@@ -117,6 +144,36 @@ describe("saveTextFileToUserSelectedLocation", () => {
     expect(mocks.triggerDownload).not.toHaveBeenCalled();
   });
 
+  it("attempts to close browser writable streams after write failures", async () => {
+    const write = vi.fn().mockRejectedValue(new Error("disk full"));
+    const close = vi.fn().mockResolvedValue(undefined);
+    const createWritable = vi.fn().mockResolvedValue({ write, close });
+    (window as unknown as { showSaveFilePicker: unknown }).showSaveFilePicker = vi
+      .fn()
+      .mockResolvedValue({ createWritable });
+
+    const { saveTextFileToUserSelectedLocation } = await import("./file-save-api");
+    await expect(saveTextFileToUserSelectedLocation({ filename: "agent.json", content: "{}" })).rejects.toThrow(
+      "disk full",
+    );
+
+    expect(close).toHaveBeenCalled();
+  });
+
+  it("surfaces browser close failures after writes complete", async () => {
+    const write = vi.fn().mockResolvedValue(undefined);
+    const close = vi.fn().mockRejectedValue(new Error("flush failed"));
+    const createWritable = vi.fn().mockResolvedValue({ write, close });
+    (window as unknown as { showSaveFilePicker: unknown }).showSaveFilePicker = vi
+      .fn()
+      .mockResolvedValue({ createWritable });
+
+    const { saveTextFileToUserSelectedLocation } = await import("./file-save-api");
+    await expect(saveTextFileToUserSelectedLocation({ filename: "agent.json", content: "{}" })).rejects.toThrow(
+      "flush failed",
+    );
+  });
+
   it("surfaces native dialog errors in embedded Tauri instead of falling back", async () => {
     mocks.hasEmbeddedTauriIpc.mockReturnValue(true);
     mocks.saveDialog.mockRejectedValue(new Error("dialog denied"));
@@ -142,7 +199,9 @@ describe("saveTextFileToUserSelectedLocation", () => {
     expect(mocks.invokeTauri).toHaveBeenCalledWith("local_file_save", {
       path: "C:\\exports\\agent.json",
       base64: "e30=",
+      sessionId: expect.any(String),
       append: false,
+      complete: true,
     });
     expect(mocks.triggerDownload).not.toHaveBeenCalled();
   });
@@ -167,13 +226,62 @@ describe("saveTextFileToUserSelectedLocation", () => {
     expect(mocks.invokeTauri).toHaveBeenNthCalledWith(1, "local_file_save", {
       path: "C:\\exports\\large.bin",
       base64: expect.any(String),
+      sessionId: expect.any(String),
       append: false,
+      complete: false,
     });
     expect(mocks.invokeTauri).toHaveBeenNthCalledWith(2, "local_file_save", {
       path: "C:\\exports\\large.bin",
       base64: "Qg==",
+      sessionId: expect.any(String),
       append: true,
+      complete: true,
     });
+  });
+
+  it("cleans up embedded native temp saves after a later chunk fails", async () => {
+    mocks.hasEmbeddedTauriIpc.mockReturnValue(true);
+    mocks.saveDialog.mockResolvedValue("C:\\exports\\large.bin");
+    mocks.invokeTauri
+      .mockResolvedValueOnce({ saved: true })
+      .mockRejectedValueOnce(new Error("append failed"))
+      .mockResolvedValueOnce({ cleaned: true });
+    const oneMiB = 1024 * 1024;
+    const bytes = new Uint8Array(oneMiB + 1);
+    bytes.fill(65);
+    bytes[oneMiB] = 66;
+
+    const { saveFileToUserSelectedLocation } = await import("./file-save-api");
+    await expect(
+      saveFileToUserSelectedLocation({
+        filename: "large.bin",
+        blob: new Blob([bytes], { type: "application/octet-stream" }),
+      }),
+    ).rejects.toThrow("append failed");
+
+    expect(mocks.invokeTauri).toHaveBeenLastCalledWith("local_file_save_cleanup", {
+      path: "C:\\exports\\large.bin",
+      sessionId: expect.any(String),
+    });
+  });
+
+  it("surfaces both embedded native write and cleanup failures", async () => {
+    mocks.hasEmbeddedTauriIpc.mockReturnValue(true);
+    mocks.saveDialog.mockResolvedValue("C:\\exports\\large.bin");
+    mocks.invokeTauri
+      .mockResolvedValueOnce({ saved: true })
+      .mockRejectedValueOnce(new Error("append failed"))
+      .mockRejectedValueOnce(new Error("cleanup failed"));
+    const oneMiB = 1024 * 1024;
+    const bytes = new Uint8Array(oneMiB + 1);
+
+    const { saveFileToUserSelectedLocation } = await import("./file-save-api");
+    await expect(
+      saveFileToUserSelectedLocation({
+        filename: "large.bin",
+        blob: new Blob([bytes], { type: "application/octet-stream" }),
+      }),
+    ).rejects.toThrow("Failed to save file and clean up temporary output");
   });
 
   it("creates empty embedded native files without a full-file conversion", async () => {
@@ -188,7 +296,9 @@ describe("saveTextFileToUserSelectedLocation", () => {
     expect(mocks.invokeTauri).toHaveBeenCalledWith("local_file_save", {
       path: "C:\\exports\\empty.bin",
       base64: "",
+      sessionId: expect.any(String),
       append: false,
+      complete: true,
     });
   });
 

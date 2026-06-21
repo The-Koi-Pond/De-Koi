@@ -89,6 +89,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             storage_commands::profile_commands::load_url_binary,
             storage_commands::local_file_commands::local_file_save,
+            storage_commands::local_file_commands::local_file_save_cleanup,
             storage_commands::profile_commands::profile_export,
             storage_commands::profile_commands::profile_import,
             storage_commands::profile_commands::profile_import_preview_file,

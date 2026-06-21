@@ -9,7 +9,5 @@ export async function downloadBackupToBrowser(name: string | undefined, deps: Ba
   const payload = await deps.downloadBackup(name);
   const result = await deps.saveDownloadPayload(payload);
   if (result === "cancelled") return null;
-  return name
-    ? `Managed backup ${result === "saved" ? "saved" : "downloaded"}!`
-    : `Backup ${result === "saved" ? "saved" : "downloaded"}!`;
+  return name ? "Managed backup saved!" : "Backup saved!";
 }

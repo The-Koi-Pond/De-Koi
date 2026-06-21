@@ -24,7 +24,7 @@ const NATIVE_SAVE_CHUNK_BYTES = 1024 * 1024;
 export type SaveFileResult = "saved" | "downloaded" | "cancelled";
 export type SaveTextFileResult = SaveFileResult;
 
-type SaveFileFilter = { name: string; extensions: string[] };
+type SaveFileFilter = { name: string; extensions: string[]; mimeType?: string };
 
 export type SaveFileOptions = {
   filename: string;
@@ -54,10 +54,10 @@ function browserAcceptMimeType(type: string): string {
   return type.split(";")[0]?.trim() || "application/octet-stream";
 }
 
-function browserFilePickerTypes(filters: SaveFileFilter[], mimeType: string) {
+function browserFilePickerTypes(filters: SaveFileFilter[], defaultMimeType: string) {
   return filters.map((filter) => ({
     description: filter.name,
-    accept: { [browserAcceptMimeType(mimeType)]: browserExtensions(filter.extensions) },
+    accept: { [browserAcceptMimeType(filter.mimeType ?? defaultMimeType)]: browserExtensions(filter.extensions) },
   }));
 }
 
@@ -80,16 +80,36 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-async function saveBlobToNativePath(path: string, blob: Blob): Promise<void> {
-  if (blob.size === 0) {
-    await invokeTauri("local_file_save", { path, base64: "", append: false });
-    return;
-  }
+function nativeSaveSessionId(): string {
+  return `save-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
 
-  for (let offset = 0; offset < blob.size; offset += NATIVE_SAVE_CHUNK_BYTES) {
-    const chunk = blob.slice(offset, offset + NATIVE_SAVE_CHUNK_BYTES);
-    const bytes = new Uint8Array(await chunk.arrayBuffer());
-    await invokeTauri("local_file_save", { path, base64: bytesToBase64(bytes), append: offset > 0 });
+async function saveBlobToNativePath(path: string, blob: Blob): Promise<void> {
+  const sessionId = nativeSaveSessionId();
+  try {
+    if (blob.size === 0) {
+      await invokeTauri("local_file_save", { path, base64: "", sessionId, append: false, complete: true });
+      return;
+    }
+
+    for (let offset = 0; offset < blob.size; offset += NATIVE_SAVE_CHUNK_BYTES) {
+      const chunk = blob.slice(offset, offset + NATIVE_SAVE_CHUNK_BYTES);
+      const bytes = new Uint8Array(await chunk.arrayBuffer());
+      await invokeTauri("local_file_save", {
+        path,
+        base64: bytesToBase64(bytes),
+        sessionId,
+        append: offset > 0,
+        complete: offset + chunk.size >= blob.size,
+      });
+    }
+  } catch (error) {
+    try {
+      await invokeTauri("local_file_save_cleanup", { path, sessionId });
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "Failed to save file and clean up temporary output");
+    }
+    throw error;
   }
 }
 
@@ -140,8 +160,23 @@ async function saveFileWithBrowserPickerOrDownload({
     }
 
     const writable = await fileHandle.createWritable();
-    await writable.write(blob);
-    await writable.close();
+    let writeError: unknown;
+    try {
+      await writable.write(blob);
+    } catch (error) {
+      writeError = error;
+    }
+
+    try {
+      await writable.close();
+    } catch (closeError) {
+      if (writeError) {
+        throw new AggregateError([writeError, closeError], "Failed to write and close saved file");
+      }
+      throw closeError;
+    }
+
+    if (writeError) throw writeError;
     return "saved";
   }
 

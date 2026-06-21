@@ -1379,6 +1379,7 @@ mod tests {
         "game_assets_open_folder",
         "import_st_bulk_run_events",
         "local_file_save",
+        "local_file_save_cleanup",
         "lorebook_image_file_path",
         "llm_stream_channel",
         "profile_export",
