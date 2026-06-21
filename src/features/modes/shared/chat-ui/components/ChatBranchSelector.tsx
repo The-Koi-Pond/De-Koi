@@ -116,6 +116,7 @@ export const ChatBranchSelector = forwardRef<ChatBranchSelectorHandle, ChatBranc
   if (!isLoading && branches.length <= 1) return null;
 
   const branchLabel = currentBranch ? getChatDisplayName(currentBranch) : (activeChatName ?? "Current branch");
+  const roleplayMinimal = variant === "roleplay" && !compact;
   const buttonClassName =
     variant === "roleplay"
       ? "border border-foreground/10 bg-foreground/5 text-foreground/80 hover:bg-foreground/10 hover:text-foreground"
@@ -132,9 +133,12 @@ export const ChatBranchSelector = forwardRef<ChatBranchSelectorHandle, ChatBranc
           if (compact) event.stopPropagation();
           setOpen((value) => !value);
         }}
+        aria-label={isLoading ? "Switch branch" : `Switch branch (${branches.length} branches)`}
         className={cn(
           compact
             ? "relative flex h-8 w-8 items-center justify-center rounded-lg backdrop-blur-sm transition-colors"
+            : roleplayMinimal
+              ? "flex h-8 min-w-14 items-center gap-1.5 rounded-lg px-2 py-1 text-left backdrop-blur-sm transition-colors"
             : "flex max-w-[min(15rem,calc(100vw-9rem))] items-center gap-2 rounded-lg px-2.5 py-1.5 text-left backdrop-blur-sm transition-colors",
           buttonClassName,
           className,
@@ -153,6 +157,18 @@ export const ChatBranchSelector = forwardRef<ChatBranchSelectorHandle, ChatBranc
           >
             {isLoading ? <Loader2 size="0.5625rem" className="mt-0.5 animate-spin" /> : branches.length}
           </span>
+        ) : roleplayMinimal ? (
+          <>
+            <span
+              className={cn(
+                "shrink-0 rounded-full px-1.5 py-0.5 text-[0.625rem] font-medium tabular-nums",
+                badgeClassName,
+              )}
+            >
+              {isLoading ? <Loader2 size="0.6875rem" className="animate-spin" /> : branches.length}
+            </span>
+            <ChevronDown size="0.75rem" className={cn("shrink-0 transition-transform", open && "rotate-180")} />
+          </>
         ) : (
           <>
             <span className="min-w-0 flex-1 truncate text-[0.75rem] font-medium">{branchLabel}</span>
