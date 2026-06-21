@@ -897,8 +897,14 @@ fn is_claude_fable_5_model(model: &str) -> bool {
     model.to_ascii_lowercase().contains("claude-fable-5")
 }
 
+fn is_claude_mythos_5_model(model: &str) -> bool {
+    model.to_ascii_lowercase().contains("claude-mythos-5")
+}
+
 fn is_claude_adaptive_only_model(model: &str) -> bool {
-    is_claude_opus_adaptive_only_model(model) || is_claude_fable_5_model(model)
+    is_claude_opus_adaptive_only_model(model)
+        || is_claude_fable_5_model(model)
+        || is_claude_mythos_5_model(model)
 }
 
 fn is_anthropic_sampling_restricted_model(model: &str) -> bool {
@@ -909,6 +915,7 @@ fn is_anthropic_sampling_restricted_model(model: &str) -> bool {
 
 fn supports_anthropic_adaptive_thinking(model: &str) -> bool {
     is_claude_fable_5_model(model)
+        || is_claude_mythos_5_model(model)
         || claude_version_at_least(model, "opus", 4, 6)
         || claude_version_at_least(model, "sonnet", 4, 6)
 }
@@ -4251,10 +4258,39 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
     }
 
     #[test]
+    fn openrouter_claude_mythos_5_strips_sampling_parameters() {
+        let request = request_for(
+            "openrouter",
+            "anthropic/claude-mythos-5",
+            json!({
+                "temperature": 0.8,
+                "topP": 0.9,
+                "topK": 40,
+                "frequencyPenalty": 0.2,
+                "presencePenalty": 0.3,
+                "customParameters": { "top_p": 0.5, "temperature": 0.4 }
+            }),
+        );
+        let mut body = json!({});
+        apply_openai_parameters(&mut body, &request);
+
+        assert!(!should_send_temperature(&request));
+        assert!(body.get("top_p").is_none());
+        assert!(body.get("top_k").is_none());
+        assert!(body.get("frequency_penalty").is_none());
+        assert!(body.get("presence_penalty").is_none());
+        assert!(body.get("temperature").is_none());
+    }
+
+    #[test]
     fn anthropic_adaptive_thinking_model_detection_matches_main_branch_rules() {
         assert!(supports_anthropic_adaptive_thinking("claude-fable-5"));
         assert!(supports_anthropic_adaptive_thinking(
             "anthropic/claude-fable-5"
+        ));
+        assert!(supports_anthropic_adaptive_thinking("claude-mythos-5"));
+        assert!(supports_anthropic_adaptive_thinking(
+            "anthropic/claude-mythos-5"
         ));
         assert!(supports_anthropic_adaptive_thinking("claude-opus-4-8"));
         assert!(supports_anthropic_adaptive_thinking("claude-opus-4-7"));
@@ -4263,6 +4299,9 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
         assert!(supports_anthropic_adaptive_thinking("claude-sonnet-4-6"));
         assert!(is_anthropic_sampling_restricted_model(
             "anthropic/claude-fable-5"
+        ));
+        assert!(is_anthropic_sampling_restricted_model(
+            "anthropic/claude-mythos-5"
         ));
         assert!(!supports_anthropic_adaptive_thinking("claude-sonnet-4-5"));
         assert!(!supports_anthropic_adaptive_thinking(
@@ -4287,6 +4326,33 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
 
         assert_eq!(body["model"], json!("claude-fable-5"));
         assert_eq!(body["max_tokens"], json!(4096));
+        assert_eq!(
+            body["thinking"],
+            json!({ "type": "adaptive", "display": "summarized" })
+        );
+        assert_eq!(body["output_config"]["effort"], json!("xhigh"));
+        assert!(body.get("temperature").is_none());
+        assert!(body.get("top_p").is_none());
+        assert!(body.get("top_k").is_none());
+    }
+
+    #[test]
+    fn anthropic_mythos_5_body_uses_adaptive_thinking_and_strips_sampling() {
+        let request = request_for(
+            "anthropic",
+            "claude-mythos-5",
+            json!({
+                "maxTokens": 64000,
+                "reasoningEffort": "xhigh",
+                "temperature": 0.8,
+                "topP": 0.9,
+                "topK": 40
+            }),
+        );
+        let body = build_anthropic_body(&request, false);
+
+        assert_eq!(body["model"], json!("claude-mythos-5"));
+        assert_eq!(body["max_tokens"], json!(64000));
         assert_eq!(
             body["thinking"],
             json!({ "type": "adaptive", "display": "summarized" })

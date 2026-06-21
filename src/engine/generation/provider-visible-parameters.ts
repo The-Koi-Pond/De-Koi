@@ -71,8 +71,12 @@ function isClaudeFable5Model(model: string): boolean {
   return model.toLowerCase().includes("claude-fable-5");
 }
 
+function isClaudeMythos5Model(model: string): boolean {
+  return model.toLowerCase().includes("claude-mythos-5");
+}
+
 function isClaudeAdaptiveOnlyModel(model: string): boolean {
-  return isClaudeOpusAdaptiveOnlyModel(model) || isClaudeFable5Model(model);
+  return isClaudeOpusAdaptiveOnlyModel(model) || isClaudeFable5Model(model) || isClaudeMythos5Model(model);
 }
 
 function isAnthropicSamplingRestrictedModel(model: string): boolean {
@@ -86,6 +90,7 @@ function isAnthropicSamplingRestrictedModel(model: string): boolean {
 function supportsAnthropicAdaptiveThinking(model: string): boolean {
   return (
     isClaudeFable5Model(model) ||
+    isClaudeMythos5Model(model) ||
     claudeVersionAtLeast(model, "opus", 4, 6) ||
     claudeVersionAtLeast(model, "sonnet", 4, 6)
   );

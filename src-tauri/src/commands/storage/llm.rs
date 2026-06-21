@@ -1046,6 +1046,7 @@ fn provider_model_catalog(provider: &str) -> Vec<Value> {
         "anthropic" => &[
             "claude-opus-4-8",
             "claude-fable-5",
+            "claude-mythos-5",
             "claude-opus-4-7",
             "claude-opus-4-6",
             "claude-sonnet-4-6",
@@ -2014,6 +2015,17 @@ mod tests {
         .expect("ChatGPT connection should parse");
 
         assert_eq!(connection.model, "gpt-5.4-mini");
+    }
+
+    #[test]
+    fn anthropic_fallback_catalog_includes_limited_access_mythos() {
+        let models = provider_model_catalog("anthropic");
+        let ids = models
+            .iter()
+            .filter_map(|model| model.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+
+        assert!(ids.contains(&"claude-mythos-5"));
     }
 
     async fn serve_model_failure(status: &'static str, body: impl Into<String>) -> String {
