@@ -3178,37 +3178,65 @@ fn spotify_playback_verified(
     snapshot.and_then(|item| item.device_id.as_deref()) == verification.target_device_id
 }
 
-fn spotify_playback_not_started_error(
+fn spotify_playback_pending_display(
+    requested_uri: Option<&str>,
     target_device_name: Option<&str>,
+) -> String {
+    let device_text = target_device_name
+        .filter(|name| !name.trim().is_empty())
+        .map(|name| format!(" on {name}"))
+        .unwrap_or_default();
+    let uri_text = requested_uri.unwrap_or("requested Spotify item");
+    format!("Spotify accepted playback{device_text}; verification pending: {uri_text}")
+}
+
+fn spotify_playback_pending_response(
+    play_request: &SpotifyPlayRequest,
     current: Option<&SpotifyPlaybackSnapshot>,
-    expected_uris: &[String],
-    expected_context_uri: Option<&str>,
-) -> AppError {
+    repeat_state: Option<&Value>,
+    target_device_name: Option<&str>,
+    queued_uris: Vec<String>,
+) -> Value {
     let device_name = current
         .and_then(|snapshot| snapshot.device_name.as_deref())
         .or(target_device_name);
-    let suffix = device_name
-        .map(|name| format!(" on {name}"))
-        .unwrap_or_default();
-    AppError::with_details(
-        "spotify_playback_not_started",
-        format!(
-            "Spotify accepted the play request, but playback did not start{suffix}. Open Spotify on the target device, then try again."
-        ),
-        json!({
-            "currentUri": current
-                .and_then(|snapshot| snapshot.track_uri.clone())
-                .map(Value::String)
-                .unwrap_or(Value::Null),
-            "currentContextUri": current
-                .and_then(|snapshot| snapshot.context_uri.clone())
-                .map(Value::String)
-                .unwrap_or(Value::Null),
-            "device": device_name,
-            "uris": expected_uris,
-            "contextUri": expected_context_uri
-        }),
-    )
+    let requested_uri = play_request
+        .requested_uris
+        .first()
+        .map(String::as_str)
+        .or(play_request.requested_context_uri.as_deref());
+    let queue_failed = spotify_queue_failed_count(play_request, &queued_uris);
+    let queue_status = spotify_queue_status(play_request, &queued_uris);
+    json!({
+        "success": true,
+        "applied": true,
+        "playbackPending": true,
+        "verification": "pending",
+        "uris": play_request.requested_uris_json.clone(),
+        "contextUri": play_request.requested_context_uri.clone(),
+        "currentUri": current
+            .and_then(|snapshot| snapshot.track_uri.clone())
+            .map(Value::String)
+            .unwrap_or(Value::Null),
+        "currentContextUri": current
+            .and_then(|snapshot| snapshot.context_uri.clone())
+            .map(Value::String)
+            .unwrap_or(Value::Null),
+        "repeatState": repeat_state
+            .cloned()
+            .or_else(|| current.map(|snapshot| Value::String(snapshot.repeat_state.clone())))
+            .unwrap_or(Value::Null),
+        "device": current
+            .map(|snapshot| snapshot.device.clone())
+            .or_else(|| device_name.map(|name| Value::String(name.to_string())))
+            .unwrap_or(Value::Null),
+        "display": spotify_playback_pending_display(requested_uri, device_name),
+        "queued": if queued_uris.is_empty() { Value::Null } else { json!(queued_uris) },
+        "queueRequested": play_request.requested_uris.len(),
+        "queueFailed": queue_failed,
+        "queueStatus": queue_status,
+        "partialQueueFailure": queue_failed > 0
+    })
 }
 
 fn spotify_actual_queued_uris(
@@ -3228,6 +3256,19 @@ fn spotify_queue_failed_count(play_request: &SpotifyPlayRequest, queued_uris: &[
         .requested_uris
         .len()
         .saturating_sub(queued_uris.len())
+}
+
+fn spotify_queue_status(play_request: &SpotifyPlayRequest, queued_uris: &[String]) -> &'static str {
+    if play_request.requested_context_uri.is_some() || play_request.requested_uris.is_empty() {
+        return "not_requested";
+    }
+    if queued_uris.len() >= play_request.requested_uris.len() {
+        return "complete";
+    }
+    if queued_uris.is_empty() {
+        return "none";
+    }
+    "partial"
 }
 
 fn matched_track_json(track: &MatchedTrack) -> Value {
@@ -3399,11 +3440,34 @@ async fn agent_spotify_play_control(
             .and_then(|snapshot| snapshot.device_id.as_deref())
             != Some(target_device_id_value))
     {
-        return Err(spotify_playback_not_started_error(
-            target_device_name.as_deref(),
+        log::warn!(
+            "[spotify] Playback accepted but verification failed device={} currentUri={} expected={}",
+            current
+                .as_ref()
+                .and_then(|snapshot| snapshot.device_name.as_deref())
+                .or(target_device_name.as_deref())
+                .unwrap_or("unknown"),
+            current
+                .as_ref()
+                .and_then(|snapshot| snapshot.track_uri.as_deref())
+                .unwrap_or("none"),
+            playback_first_uri
+                .or(expected_context_uri)
+                .unwrap_or("requested Spotify item"),
+        );
+        let queue_device_id = current
+            .as_ref()
+            .and_then(|snapshot| snapshot.device_id.as_deref())
+            .or(play_device_id);
+        let queued_tail_uris =
+            queue_spotify_tracks(&credentials, queue_device_id, &play_request.queued_uris).await;
+        let queued_uris = spotify_actual_queued_uris(&play_request, queued_tail_uris);
+        return Ok(spotify_playback_pending_response(
+            &play_request,
             current.as_ref(),
-            &play_request.requested_uris,
-            expected_context_uri,
+            repeat_state.as_ref(),
+            target_device_name.as_deref(),
+            queued_uris,
         ));
     }
 
@@ -3415,6 +3479,7 @@ async fn agent_spotify_play_control(
         queue_spotify_tracks(&credentials, queue_device_id, &play_request.queued_uris).await;
     let queued_uris = spotify_actual_queued_uris(&play_request, queued_tail_uris);
     let queue_failed = spotify_queue_failed_count(&play_request, &queued_uris);
+    let queue_status = spotify_queue_status(&play_request, &queued_uris);
     let current = current.as_ref();
     Ok(json!({
         "success": true,
@@ -3433,6 +3498,7 @@ async fn agent_spotify_play_control(
         "queued": if queued_uris.is_empty() { Value::Null } else { json!(queued_uris) },
         "queueRequested": play_request.requested_uris.len(),
         "queueFailed": queue_failed,
+        "queueStatus": queue_status,
         "partialQueueFailure": queue_failed > 0
     }))
 }
@@ -4705,10 +4771,70 @@ mod tests {
         let fully_queued = spotify_actual_queued_uris(&request, vec![second.to_string()]);
         assert_eq!(fully_queued, vec![first.to_string(), second.to_string()]);
         assert_eq!(spotify_queue_failed_count(&request, &fully_queued), 0);
+        assert_eq!(spotify_queue_status(&request, &fully_queued), "complete");
 
         let partially_queued = spotify_actual_queued_uris(&request, Vec::new());
         assert_eq!(partially_queued, vec![first.to_string()]);
         assert_eq!(spotify_queue_failed_count(&request, &partially_queued), 1);
+        assert_eq!(spotify_queue_status(&request, &partially_queued), "partial");
+    }
+
+    #[test]
+    fn spotify_pending_playback_response_marks_accepted_partial_queue() {
+        let first = "spotify:track:1234567890123456789012";
+        let second = "spotify:track:ABCDEFGHIJKLMNOPQRSTUV";
+        let request = spotify_play_request_from_body(&json!({
+            "uris": [first, "not-spotify", second]
+        }))
+        .expect("multi-track request should parse");
+        let snapshot = SpotifyPlaybackSnapshot {
+            is_playing: false,
+            track_uri: Some("spotify:track:old".to_string()),
+            context_uri: None,
+            repeat_state: "off".to_string(),
+            device_id: Some("device".to_string()),
+            device_name: Some("Desk Speakers".to_string()),
+            device: json!({ "id": "device", "name": "Desk Speakers" }),
+            display: Value::Null,
+        };
+
+        let response = spotify_playback_pending_response(
+            &request,
+            Some(&snapshot),
+            Some(&Value::String("track".to_string())),
+            Some("Fallback Device"),
+            vec![first.to_string()],
+        );
+
+        assert_eq!(response.get("success").and_then(Value::as_bool), Some(true));
+        assert_eq!(response.get("applied").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            response.get("playbackPending").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            response.get("verification").and_then(Value::as_str),
+            Some("pending")
+        );
+        assert_eq!(response.get("uris"), Some(&json!([first, second])));
+        assert_eq!(response.get("queued"), Some(&json!([first])));
+        assert_eq!(response.get("queueFailed").and_then(Value::as_u64), Some(1));
+        assert_eq!(
+            response.get("queueStatus").and_then(Value::as_str),
+            Some("partial")
+        );
+        assert_eq!(
+            response.get("partialQueueFailure").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            response.get("repeatState").and_then(Value::as_str),
+            Some("track")
+        );
+        assert!(response
+            .get("display")
+            .and_then(Value::as_str)
+            .is_some_and(|display| display.contains("verification pending")));
     }
 
     #[test]

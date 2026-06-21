@@ -309,7 +309,7 @@ export async function executeAgent(
       return makeError(config, formatAgentParseError(config, parsed.error), startTime);
     }
 
-    const fallback = await applySpotifyPlaybackFallback(config, parsed.data, toolContext, false, (err) =>
+    const fallback = await applySpotifyPlaybackFallback(config, parsed.data, toolContext, null, (err) =>
       logger.warn(err, "[agent-tools] spotify playback fallback failed"),
     );
     return {
@@ -350,7 +350,7 @@ async function executeAgentWithTools(
   const logger = createAgentRuntimeDebug(context);
   const debugAgentsEnabled = logger.isLevelEnabled("debug");
   const emit = (entry: AgentRuntimeDebugEntry) => logger.emit(entry);
-  let spotifyPlayCalled = false;
+  let spotifyPlayResult: Record<string, unknown> | null = null;
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const result = await provider.chatComplete(
@@ -392,7 +392,7 @@ async function executeAgentWithTools(
       if (parsed.error) {
         return makeError(config, formatAgentParseError(config, parsed.error), startTime);
       }
-      const fallback = await applySpotifyPlaybackFallback(config, parsed.data, toolContext, spotifyPlayCalled, (err) =>
+      const fallback = await applySpotifyPlaybackFallback(config, parsed.data, toolContext, spotifyPlayResult, (err) =>
         logger.warn(err, "[agent-tools] spotify playback fallback failed"),
       );
       return {
@@ -445,14 +445,17 @@ async function executeAgentWithTools(
       }
       if (toolSucceeded) {
         logger.info("[agent-tools] %s %s completed", config.type, tc.function.name);
-        // Only mark spotify_play as called once it actually succeeded. A thrown
-        // call is recovered above (fed back to the model), so leaving the flag
-        // unset lets applySpotifyPlaybackFallback retry the real playback instead
-        // of suppressing it and reporting success with no audio.
+        // Track accepted spotify_play results, including pending verification.
+        // A thrown call is recovered above, so leaving this unset still lets the
+        // fallback retry real playback.
         if (config.type === "spotify" && tc.function.name === "spotify_play") {
           const parsedToolResult = parseSpotifyPlaybackFallbackResult(toolResult);
-          spotifyPlayCalled =
-            spotifyPlayCalled || (isJsonRecord(parsedToolResult) && spotifyPlaybackApplied(parsedToolResult));
+          if (isJsonRecord(parsedToolResult) && spotifyPlaybackApplied(parsedToolResult)) {
+            const acceptedUris = spotifyAcceptedPlaybackTrackUris(parsedToolResult, tc);
+            if (acceptedUris.length > 0) {
+              spotifyPlayResult = { ...parsedToolResult, trackUris: acceptedUris };
+            }
+          }
         }
       }
       emit({
@@ -508,7 +511,7 @@ async function executeAgentWithTools(
   if (parsed.error) {
     return makeError(config, formatAgentParseError(config, parsed.error), startTime);
   }
-  const fallback = await applySpotifyPlaybackFallback(config, parsed.data, toolContext, spotifyPlayCalled, (err) =>
+  const fallback = await applySpotifyPlaybackFallback(config, parsed.data, toolContext, spotifyPlayResult, (err) =>
     logger.warn(err, "[agent-tools] spotify playback fallback failed"),
   );
   return {
@@ -535,13 +538,15 @@ function normalizeSpotifyTrackUri(value: unknown): string | null {
   return /^spotify:track:[A-Za-z0-9]{22}$/i.test(uri) ? uri : null;
 }
 
+function normalizeSpotifyTrackUris(values: unknown[]): string[] {
+  const uris = values.map(normalizeSpotifyTrackUri).filter((uri): uri is string => Boolean(uri));
+  return Array.from(new Set(uris));
+}
+
 function spotifyTrackUrisFromAgentData(data: unknown): string[] {
   if (!isJsonRecord(data) || data.action !== "play") return [];
   const rawUris = Array.isArray(data.trackUris) ? data.trackUris : [];
-  return rawUris
-    .map(normalizeSpotifyTrackUri)
-    .filter((uri): uri is string => Boolean(uri))
-    .slice(0, 5);
+  return normalizeSpotifyTrackUris(rawUris).slice(0, 5);
 }
 
 function spotifyPlaybackFallbackCall(uris: string[]): LLMToolCall {
@@ -587,14 +592,11 @@ function spotifyPlaybackFallbackFailureData(data: unknown, error: string): unkno
 }
 
 function spotifyPlaybackApplied(playback: Record<string, unknown>): boolean {
-  return playback.applied === true && playback.success !== false && playback.playbackPending !== true;
+  return playback.applied === true && playback.success !== false;
 }
 
 function spotifyPlaybackFallbackError(playback: Record<string, unknown>): string | null {
   if (spotifyPlaybackApplied(playback)) return null;
-  if (playback.playbackPending === true) {
-    return "Spotify playback failed: Spotify accepted the request, but playback was not verified.";
-  }
   const error = playback.error;
   if (typeof error === "string" && error.trim()) {
     return `Spotify playback failed: ${error}`;
@@ -618,6 +620,19 @@ function spotifyPlaybackCurrentUri(playback: Record<string, unknown>): string | 
   return null;
 }
 
+function spotifyPlaybackDirectTrackUris(playback: Record<string, unknown>, includeCurrentUri: boolean): string[] {
+  const values = [playback.trackUris, playback.uris, playback.queued].filter(Array.isArray).flatMap((source) => source);
+  values.push(playback.trackUri, playback.uri);
+  const track = playback.track;
+  if (isJsonRecord(track)) {
+    values.push(track.uri);
+  }
+  if (includeCurrentUri) {
+    values.push(playback.currentUri);
+  }
+  return normalizeSpotifyTrackUris(values);
+}
+
 function spotifyPlaybackQueuedCount(playback: Record<string, unknown>, fallbackUris: string[]): number {
   const queued = playback.queued;
   if (typeof queued === "number" && Number.isFinite(queued)) return Math.max(0, Math.floor(queued));
@@ -625,6 +640,22 @@ function spotifyPlaybackQueuedCount(playback: Record<string, unknown>, fallbackU
   const uris = playback.uris;
   if (Array.isArray(uris)) return uris.length;
   return fallbackUris.length;
+}
+
+function spotifyPlaybackTrackUris(playback: Record<string, unknown>): string[] {
+  return spotifyPlaybackDirectTrackUris(playback, playback.playbackPending !== true);
+}
+
+function spotifyToolCallTrackUris(call: LLMToolCall): string[] {
+  const parsedArgs = parseSpotifyPlaybackFallbackResult(call.function.arguments);
+  if (!isJsonRecord(parsedArgs)) return [];
+  const rawUris = Array.isArray(parsedArgs.uris) ? parsedArgs.uris : [];
+  return normalizeSpotifyTrackUris([parsedArgs.uri, ...rawUris]);
+}
+
+function spotifyAcceptedPlaybackTrackUris(playback: Record<string, unknown>, call: LLMToolCall): string[] {
+  const playbackUris = spotifyPlaybackTrackUris(playback);
+  return playbackUris.length > 0 ? playbackUris : spotifyToolCallTrackUris(call);
 }
 
 function spotifyPlaybackDevice(playback: Record<string, unknown>): unknown {
@@ -636,20 +667,31 @@ function spotifyPlaybackDevice(playback: Record<string, unknown>): unknown {
   return device ?? null;
 }
 
-function spotifyPlaybackFallbackSuccessData(data: unknown, playback: Record<string, unknown>, uris: string[]): unknown {
+function spotifyPlaybackSuccessData(
+  data: unknown,
+  playback: Record<string, unknown>,
+  fallbackUris: string[],
+  appliedKey: "toolFallbackApplied" | "toolPlaybackApplied",
+): unknown {
   if (!isJsonRecord(data)) return data;
+  const playbackUris = spotifyPlaybackTrackUris(playback);
+  const uris = playbackUris.length > 0 ? playbackUris : fallbackUris;
   const queued = spotifyPlaybackQueuedCount(playback, uris);
   const trackNames = Array.isArray(data.trackNames)
     ? data.trackNames.filter((name): name is string => typeof name === "string" && name.trim().length > 0)
     : [];
   const display = spotifyPlaybackStringField(playback, "display");
+  const queueStatus = spotifyPlaybackStringField(playback, "queueStatus");
   return {
     ...data,
-    trackUris: uris,
+    ...(uris.length > 0 ? { trackUris: uris } : {}),
     ...(trackNames.length > 0 ? { trackNames } : {}),
-    toolFallbackApplied: true,
+    [appliedKey]: true,
+    playbackPending: playback.playbackPending === true,
     currentUri: spotifyPlaybackCurrentUri(playback),
     queued,
+    ...(queueStatus ? { queueStatus } : {}),
+    ...(playback.partialQueueFailure === true ? { partialQueueFailure: true } : {}),
     device: spotifyPlaybackDevice(playback),
     display: display ?? data.display,
     playback,
@@ -660,10 +702,21 @@ async function applySpotifyPlaybackFallback(
   config: Pick<AgentExecConfig, "type">,
   data: unknown,
   toolContext: AgentToolContext | null | undefined,
-  spotifyPlayCalled: boolean,
+  spotifyPlayResult: Record<string, unknown> | null,
   onFallbackError?: (err: unknown) => void,
 ): Promise<SpotifyPlaybackFallbackResult> {
-  if (config.type !== "spotify" || spotifyPlayCalled) return { data, error: null };
+  if (config.type !== "spotify") return { data, error: null };
+  if (spotifyPlayResult) {
+    return {
+      data: spotifyPlaybackSuccessData(
+        data,
+        spotifyPlayResult,
+        spotifyTrackUrisFromAgentData(data),
+        "toolPlaybackApplied",
+      ),
+      error: null,
+    };
+  }
   const uris = spotifyTrackUrisFromAgentData(data);
   if (uris.length === 0) return { data, error: null };
   if (!toolContext || !toolContext.tools.some((tool) => tool.name === "spotify_play")) {
@@ -687,7 +740,7 @@ async function applySpotifyPlaybackFallback(
   if (playbackError) {
     return { data: spotifyPlaybackFallbackFailureData(data, playbackError), error: playbackError };
   }
-  return { data: spotifyPlaybackFallbackSuccessData(data, parsedPlayback, uris), error: null };
+  return { data: spotifyPlaybackSuccessData(data, parsedPlayback, uris, "toolFallbackApplied"), error: null };
 }
 
 // ──────────────────────────────────────────────

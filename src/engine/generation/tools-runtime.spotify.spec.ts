@@ -251,7 +251,7 @@ describe("Spotify tool runtime", () => {
     });
   });
 
-  it("does not remember tracks when Spotify play is only pending verification", async () => {
+  it("remembers tracks when Spotify accepts playback with pending verification", async () => {
     const chat = { id: "chat-1", mode: "roleplay", metadata: { spotifyRecentTracks: [OLD_URI] } };
     const integrations = spotifyIntegrations({
       async play<T = unknown>() {
@@ -267,7 +267,7 @@ describe("Spotify tool runtime", () => {
     );
 
     expect(chat.metadata).toMatchObject({
-      spotifyRecentTracks: [OLD_URI],
+      spotifyRecentTracks: [FRESH_URI, OLD_URI],
     });
   });
 
