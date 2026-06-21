@@ -16,7 +16,7 @@ import {
   MAX_AGENT_MAX_TOKENS,
   MIN_AGENT_MAX_TOKENS,
 } from "../../contracts/types/agent";
-import { createAgentRuntimeDebug, type AgentRuntimeDebugEntry } from "../debug.js";
+import { createAgentRuntimeDebug, type AgentRuntimeDebugEntry, type AgentRuntimeDebugLogger } from "../debug.js";
 import { stripAvatarPathsReplacer } from "../strip-avatar-paths";
 import { worldStatePatchFromAgentData } from "../../generation/world-state-agent-result";
 import { compactQuestProgressForContext } from "../../shared/game-state/player-stats";
@@ -264,7 +264,8 @@ export async function executeAgent(
 
     if (!responseText && result.content) responseText = result.content;
     responseText = responseText.trim();
-    const durationMs = Date.now() - startTime;
+    let durationMs = Date.now() - startTime;
+    let totalTokens = result.usage?.totalTokens ?? 0;
     if (!responseText) {
       return makeError(config, `${config.name} returned an empty response.`, startTime);
     }
@@ -284,8 +285,25 @@ export async function executeAgent(
       args: [config.type, responseText.slice(0, 500)],
     });
 
-    // Parse the result based on agent type
-    const parsed = parseAgentResponse(config, responseText);
+    const retryParsed = await parseAgentResponseWithInvalidJsonRetry({
+      config,
+      messages,
+      responseText,
+      provider,
+      model,
+      temperature,
+      maxTokens,
+      streamResponses,
+      totalTokens,
+      durationMs,
+      startTime,
+      signal: context.signal,
+      logger,
+      emit,
+    });
+    const { parsed } = retryParsed;
+    totalTokens = retryParsed.totalTokens;
+    durationMs = retryParsed.durationMs;
     if (parsed.error) {
       return makeError(config, formatAgentParseError(config, parsed.error), startTime);
     }
@@ -298,7 +316,7 @@ export async function executeAgent(
       agentType: config.type,
       type: parsed.type,
       data: fallback.data,
-      tokensUsed: result.usage?.totalTokens ?? 0,
+      tokensUsed: totalTokens,
       durationMs,
       success: fallback.error === null,
       error: fallback.error,
@@ -354,7 +372,23 @@ async function executeAgentWithTools(
       if (!responseText) {
         return makeError(config, `${config.name} returned an empty response.`, startTime);
       }
-      const parsed = parseAgentResponse(config, responseText);
+      const { parsed, totalTokens: retryTotalTokens } = await parseAgentResponseWithInvalidJsonRetry({
+        config,
+        messages: loopMessages,
+        responseText,
+        provider,
+        model,
+        temperature,
+        maxTokens,
+        streamResponses,
+        totalTokens,
+        durationMs: Date.now() - startTime,
+        startTime,
+        signal,
+        logger,
+        emit,
+      });
+      totalTokens = retryTotalTokens;
       if (parsed.error) {
         return makeError(config, formatAgentParseError(config, parsed.error), startTime);
       }
@@ -453,7 +487,23 @@ async function executeAgentWithTools(
   if (!responseText) {
     return makeError(config, `${config.name} returned an empty response.`, startTime);
   }
-  const parsed = parseAgentResponse(config, responseText);
+  const { parsed, totalTokens: retryTotalTokens } = await parseAgentResponseWithInvalidJsonRetry({
+    config,
+    messages: loopMessages,
+    responseText,
+    provider,
+    model,
+    temperature,
+    maxTokens,
+    streamResponses,
+    totalTokens,
+    durationMs: Date.now() - startTime,
+    startTime,
+    signal,
+    logger,
+    emit,
+  });
+  totalTokens = retryTotalTokens;
   if (parsed.error) {
     return makeError(config, formatAgentParseError(config, parsed.error), startTime);
   }
@@ -1046,6 +1096,102 @@ function makeError(config: AgentExecConfig, error: string, startTime: number): A
 
 function formatAgentParseError(config: Pick<AgentExecConfig, "name">, error: string): string {
   return `${config.name} returned malformed JSON: ${error}`;
+}
+
+async function parseAgentResponseWithInvalidJsonRetry(args: {
+  config: AgentExecConfig;
+  messages: ChatMessage[];
+  responseText: string;
+  provider: BaseLLMProvider;
+  model: string;
+  temperature: number | undefined;
+  maxTokens: number;
+  streamResponses: boolean;
+  totalTokens: number;
+  durationMs: number;
+  startTime: number;
+  signal?: AbortSignal;
+  logger: AgentRuntimeDebugLogger;
+  emit: (entry: AgentRuntimeDebugEntry) => void;
+}): Promise<{
+  parsed: ReturnType<typeof parseAgentResponse>;
+  totalTokens: number;
+  durationMs: number;
+}> {
+  let parsed = parseAgentResponse(args.config, args.responseText);
+  let totalTokens = args.totalTokens;
+  let durationMs = args.durationMs;
+  if (!parsed.error || !shouldRetryInvalidJsonAgent(args.config) || args.signal?.aborted) {
+    return { parsed, totalTokens, durationMs };
+  }
+
+  args.logger.warn("[agent] %s returned malformed JSON; retrying once with strict JSON reminder", args.config.type);
+  args.emit({
+    level: "warn",
+    phase: args.config.phase,
+    message: "json-retry",
+    args: [args.config.type, parsed.error],
+  });
+  let retryResponseText = "";
+  const retryResult = await args.provider.chatComplete(
+    buildInvalidJsonRetryMessages(args.messages, parsed.type, args.responseText),
+    buildChatCompleteOptions({
+      model: args.model,
+      temperature: args.temperature,
+      maxTokens: args.maxTokens,
+      stream: args.streamResponses,
+      onToken: args.streamResponses
+        ? (chunk) => {
+            retryResponseText += chunk;
+          }
+        : undefined,
+      signal: args.signal,
+    }),
+  );
+  totalTokens += retryResult.usage?.totalTokens ?? 0;
+  if (!retryResponseText && retryResult.content) retryResponseText = retryResult.content;
+  retryResponseText = retryResponseText.trim();
+  durationMs = Date.now() - args.startTime;
+  args.logger.info("[agent] %s JSON retry done (%d chars, %dms)", args.config.type, retryResponseText.length, durationMs);
+  args.logger.debug("[agent] %s JSON retry raw response: %s", args.config.type, retryResponseText.slice(0, 500));
+  args.emit({
+    level: "info",
+    phase: args.config.phase,
+    message: "json-retry-complete",
+    args: [args.config.type, retryResponseText.length, durationMs],
+  });
+  args.emit({
+    level: "debug",
+    phase: args.config.phase,
+    message: "json-retry-raw-response",
+    args: [args.config.type, retryResponseText.slice(0, 500)],
+  });
+  parsed = parseAgentResponse(args.config, retryResponseText);
+  return { parsed, totalTokens, durationMs };
+}
+
+function shouldRetryInvalidJsonAgent(config: Pick<AgentExecConfig, "type" | "settings">): boolean {
+  return config.type !== "spotify" && agentResponseIsJson(config);
+}
+
+function buildInvalidJsonRetryMessages(
+  messages: ChatMessage[],
+  resultType: AgentResultType,
+  rawResponse: string,
+): ChatMessage[] {
+  const rawPreview = rawResponse.trim().slice(0, 4000);
+  return [
+    ...messages,
+    ...(rawPreview ? [{ role: "assistant", content: rawPreview }] : []),
+    {
+      role: "user",
+      content: [
+        `Your previous response was not valid JSON for the requested ${resultType} format.`,
+        "Return ONLY one valid JSON object that matches the required output format.",
+        "Do not include markdown fences, XML tags, commentary, explanations, or any text before or after the JSON.",
+      ].join("\n"),
+    },
+  ];
 }
 
 export function shouldRunAgentIndividually(config: Pick<AgentExecConfig, "type">): boolean {

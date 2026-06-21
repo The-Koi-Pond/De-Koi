@@ -992,7 +992,6 @@ export function ChatRoleplaySurface({
               editing={spriteArrangeMode}
               spriteScale={spriteScale}
               spriteOpacity={spriteOpacity}
-              onExpressionChange={onExpressionChange}
               onPlacementChange={onSpritePlacementChange}
             />
           </Suspense>

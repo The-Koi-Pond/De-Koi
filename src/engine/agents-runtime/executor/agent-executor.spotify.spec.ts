@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentContext } from "../../contracts/types/agent";
-import type { BaseLLMProvider, ChatMessage, LLMToolCall } from "../../generation-core/llm/base-provider";
+import type { BaseLLMProvider, ChatCompleteOptions, ChatMessage, LLMToolCall } from "../../generation-core/llm/base-provider";
 import {
   executeAgent,
   executeAgentBatch,
@@ -27,6 +27,161 @@ function spotifyContext(): AgentContext {
     streaming: false,
   };
 }
+
+describe("agent JSON retry", () => {
+  it("retries malformed JSON agents once with a strict JSON reminder", async () => {
+    const calls: ChatMessage[][] = [];
+    const provider: BaseLLMProvider = {
+      maxTokensOverrideValue: null,
+      async chatComplete(messages) {
+        calls.push(messages);
+        if (calls.length === 1) {
+          return { content: "{ not json", usage: { totalTokens: 3 } };
+        }
+        return {
+          content: JSON.stringify({ expressions: [{ characterId: "char-1", expression: "happy" }] }),
+          usage: { totalTokens: 5 },
+        };
+      },
+    };
+    const config: AgentExecConfig = {
+      id: "expression-agent",
+      type: "expression",
+      name: "Expression",
+      phase: "post",
+      promptTemplate: "Return sprite expression JSON.",
+      connectionId: null,
+      settings: {},
+    };
+
+    const result = await executeAgent(config, spotifyContext(), provider, "test-model");
+
+    expect(result.success).toBe(true);
+    expect(result.tokensUsed).toBe(8);
+    expect(result.data).toEqual({ expressions: [{ characterId: "char-1", expression: "happy" }] });
+    expect(calls).toHaveLength(2);
+    const retryMessages = calls[1]!;
+    expect(retryMessages[retryMessages.length - 2]).toMatchObject({ role: "assistant", content: "{ not json" });
+    expect(retryMessages[retryMessages.length - 1]?.content).toContain("Return ONLY one valid JSON object");
+  });
+
+  it("retries malformed JSON after a tool loop returns a final response", async () => {
+    const calls: Array<{ messages: ChatMessage[]; options: ChatCompleteOptions }> = [];
+    const provider: BaseLLMProvider = {
+      maxTokensOverrideValue: null,
+      async chatComplete(messages, options) {
+        calls.push({ messages, options });
+        if (calls.length === 1) {
+          return {
+            content: "",
+            toolCalls: [
+              {
+                id: "call-lookup",
+                name: "lookup",
+                arguments: "{}",
+                function: { name: "lookup", arguments: "{}" },
+              },
+            ],
+            usage: { totalTokens: 2 },
+          };
+        }
+        if (calls.length === 2) {
+          return { content: "{ broken", usage: { totalTokens: 3 } };
+        }
+        return {
+          content: JSON.stringify({ issues: [] }),
+          usage: { totalTokens: 5 },
+        };
+      },
+    };
+    const toolContext: AgentToolContext = {
+      tools: [{ name: "lookup" }],
+      async executeToolCall() {
+        return JSON.stringify({ ok: true });
+      },
+    };
+    const config: AgentExecConfig = {
+      id: "continuity-agent",
+      type: "continuity",
+      name: "Continuity",
+      phase: "post",
+      promptTemplate: "Use tools if needed, then return continuity JSON.",
+      connectionId: null,
+      settings: {},
+    };
+
+    const result = await executeAgent(config, spotifyContext(), provider, "test-model", toolContext);
+
+    expect(result.success).toBe(true);
+    expect(result.tokensUsed).toBe(10);
+    expect(result.data).toEqual({ issues: [] });
+    expect(calls).toHaveLength(3);
+    expect(calls[1]?.options.tools).toEqual([{ name: "lookup" }]);
+    expect(calls[2]?.options.tools).toBeUndefined();
+    const retryMessages = calls[2]!.messages;
+    expect(retryMessages[retryMessages.length - 2]).toMatchObject({ role: "assistant", content: "{ broken" });
+    expect(retryMessages[retryMessages.length - 1]?.content).toContain("Return ONLY one valid JSON object");
+  });
+
+  it("retries malformed JSON after exhausted tool rounds make a final no-tools call", async () => {
+    const calls: Array<{ messages: ChatMessage[]; options: ChatCompleteOptions }> = [];
+    const provider: BaseLLMProvider = {
+      maxTokensOverrideValue: null,
+      async chatComplete(messages, options) {
+        calls.push({ messages, options });
+        if (calls.length <= 5) {
+          return {
+            content: "",
+            toolCalls: [
+              {
+                id: `call-${calls.length}`,
+                name: "lookup",
+                arguments: "{}",
+                function: { name: "lookup", arguments: "{}" },
+              },
+            ],
+            usage: { totalTokens: 1 },
+          };
+        }
+        if (calls.length === 6) {
+          return { content: "{ still broken", usage: { totalTokens: 2 } };
+        }
+        return {
+          content: JSON.stringify({ updates: [] }),
+          usage: { totalTokens: 3 },
+        };
+      },
+    };
+    const toolContext: AgentToolContext = {
+      tools: [{ name: "lookup" }],
+      async executeToolCall() {
+        return JSON.stringify({ ok: true });
+      },
+    };
+    const config: AgentExecConfig = {
+      id: "lorebook-agent",
+      type: "lorebook-keeper",
+      name: "Lorebook Keeper",
+      phase: "post",
+      promptTemplate: "Use tools if needed, then return lorebook JSON.",
+      connectionId: null,
+      settings: {},
+    };
+
+    const result = await executeAgent(config, spotifyContext(), provider, "test-model", toolContext);
+
+    expect(result.success).toBe(true);
+    expect(result.tokensUsed).toBe(10);
+    expect(result.data).toEqual({ updates: [] });
+    expect(calls).toHaveLength(7);
+    expect(calls.slice(0, 5).every((call) => call.options.tools)).toBe(true);
+    expect(calls[5]?.options.tools).toBeUndefined();
+    expect(calls[6]?.options.tools).toBeUndefined();
+    const retryMessages = calls[6]!.messages;
+    expect(retryMessages[retryMessages.length - 2]).toMatchObject({ role: "assistant", content: "{ still broken" });
+    expect(retryMessages[retryMessages.length - 1]?.content).toContain("Return ONLY one valid JSON object");
+  });
+});
 
 describe("Spotify agent fallback playback", () => {
   it("repairs suffixed track URIs before fallback spotify_play", async () => {
