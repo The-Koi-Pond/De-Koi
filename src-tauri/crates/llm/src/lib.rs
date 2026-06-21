@@ -43,6 +43,7 @@ const OPENAI_CHATGPT_REFRESH_URL: &str = "https://auth.openai.com/oauth/token";
 const OPENAI_CHATGPT_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENAI_CHATGPT_TOKEN_REFRESH_INTERVAL_DAYS: i64 = 8;
 const OPENAI_CHATGPT_EXPIRY_REFRESH_SKEW_SECONDS: i64 = 60;
+const OPENAI_CHATGPT_DEFAULT_MODEL: &str = "gpt-5.4-mini";
 const APP_VERSION: &str = "1.6.1";
 const CLAUDE_SUBSCRIPTION_1M_SUFFIX: &str = "[1m]";
 const CLAUDE_SUBSCRIPTION_1M_BETA: &str = "context-1m-2025-08-07";
@@ -643,6 +644,16 @@ fn should_use_openai_responses(request: &LlmRequest) -> bool {
         || model.starts_with("o4")
         || model.contains("computer-use")
         || model.contains("codex")
+}
+
+pub fn normalize_openai_chatgpt_model(model: &str) -> String {
+    let trimmed = model.trim();
+    let normalized = trimmed.to_ascii_lowercase();
+    if normalized == "chat-latest" || normalized.ends_with("-chat-latest") {
+        OPENAI_CHATGPT_DEFAULT_MODEL.to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn openai_model_id(model: &str) -> String {
@@ -1942,6 +1953,7 @@ fn apply_chatgpt_auth_headers_with_auth(
         .bearer_auth(auth.access_token.as_str())
         .header("version", APP_VERSION)
         .header("originator", "De-Koi")
+        .header("OAI-Language", "en")
         .header("User-Agent", format!("DeKoi/{APP_VERSION}"));
     if let Some(account_id) = auth.account_id.as_deref() {
         req = req.header("ChatGPT-Account-ID", account_id);
@@ -2461,6 +2473,7 @@ mod tests {
                 assert!(headers.contains("chatgpt-account-id: account-1"));
                 assert!(headers.contains("x-openai-fedramp: true"));
                 assert!(headers.contains("originator: de-koi"));
+                assert!(headers.contains("oai-language: en"));
             }
             let response = format!(
                 "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -2991,11 +3004,93 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
         request.messages = vec![test_message("user", "Earlier question."), assistant];
 
         let body = build_openai_responses_body(&request, false);
-        assert!(body.get("include").is_none());
+        assert_eq!(body["include"], json!([]));
         let input = body["input"].as_array().expect("input should be an array");
         assert!(input
             .iter()
             .all(|item| item.get("encrypted_content").is_none()));
+    }
+
+    #[test]
+    fn openai_chatgpt_responses_body_uses_codex_endpoint_shape() {
+        let mut request = request_for(
+            "openai_chatgpt",
+            "gpt-5.4-mini",
+            json!({
+                "maxTokens": 4096,
+                "temperature": 0.7,
+                "topP": 0.9
+            }),
+        );
+        request.messages = vec![test_message("user", "hi")];
+
+        let body = build_openai_responses_body(&request, false);
+
+        assert_eq!(body["model"], json!("gpt-5.4-mini"));
+        assert_eq!(body["stream"], json!(false));
+        assert_eq!(body["store"], json!(false));
+        assert_eq!(body["include"], json!([]));
+        assert_eq!(body["instructions"], json!("You are a helpful assistant."));
+        assert_eq!(body["reasoning"], json!({ "effort": "low" }));
+        assert_eq!(body["tools"], json!([]));
+        assert_eq!(body["tool_choice"], json!("none"));
+        assert_eq!(body["parallel_tool_calls"], json!(false));
+        assert!(body.get("max_output_tokens").is_none());
+        assert!(body.get("temperature").is_none());
+        assert!(body.get("top_p").is_none());
+        assert_eq!(
+            body["input"],
+            json!([
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        { "type": "input_text", "text": "hi" }
+                    ]
+                }
+            ])
+        );
+    }
+
+    #[test]
+    fn openai_chatgpt_legacy_chat_latest_aliases_normalize_to_default_model() {
+        assert_eq!(
+            normalize_openai_chatgpt_model("chat-latest"),
+            "gpt-5.4-mini"
+        );
+        assert_eq!(
+            normalize_openai_chatgpt_model("gpt-5.2-chat-latest"),
+            "gpt-5.4-mini"
+        );
+        assert_eq!(
+            normalize_openai_chatgpt_model(" gpt-5.4-mini "),
+            "gpt-5.4-mini"
+        );
+    }
+
+    #[test]
+    fn openai_chatgpt_responses_body_moves_system_messages_to_instructions() {
+        let mut request = request_for("openai_chatgpt", "gpt-5.4-mini", json!({}));
+        request.messages = vec![
+            test_message("system", "Use terse replies."),
+            test_message("user", "hi"),
+        ];
+
+        let body = build_openai_responses_body(&request, true);
+
+        assert_eq!(body["instructions"], json!("Use terse replies."));
+        assert_eq!(
+            body["input"],
+            json!([
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        { "type": "input_text", "text": "hi" }
+                    ]
+                }
+            ])
+        );
     }
 
     #[test]

@@ -350,7 +350,117 @@ pub(crate) fn responses_input(messages: &[LlmMessage], replay_encrypted_reasonin
     Value::Array(input)
 }
 
+pub(crate) fn chatgpt_responses_message_input(
+    message: &LlmMessage,
+    id_mapper: &mut ResponsesToolCallIdMapper,
+) -> Vec<Value> {
+    if message.role == "system" {
+        return Vec::new();
+    }
+    if message.role == "tool" {
+        let call_id = message
+            .tool_call_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|id| id_mapper.ensure(id))
+            .unwrap_or_default();
+        return vec![json!({
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": message.content,
+        })];
+    }
+
+    let role = if message.role == "assistant" {
+        "assistant"
+    } else {
+        "user"
+    };
+    let text_type = if role == "assistant" {
+        "output_text"
+    } else {
+        "input_text"
+    };
+    let mut items = Vec::new();
+    let mut content = Vec::new();
+    if !message.content.trim().is_empty() || role != "assistant" {
+        content.push(json!({ "type": text_type, "text": message.content }));
+    }
+    for image in &message.images {
+        content.push(json!({ "type": "input_image", "image_url": image }));
+    }
+    if !content.is_empty() {
+        items.push(json!({
+            "type": "message",
+            "role": role,
+            "content": content,
+        }));
+    }
+    if message.role == "assistant" {
+        items.extend(responses_tool_call_input_items(message, id_mapper));
+    }
+    items
+}
+
+pub(crate) fn chatgpt_responses_input(messages: &[LlmMessage]) -> Value {
+    let mut id_mapper = ResponsesToolCallIdMapper::default();
+    Value::Array(
+        messages
+            .iter()
+            .flat_map(|message| chatgpt_responses_message_input(message, &mut id_mapper))
+            .collect(),
+    )
+}
+
+pub(crate) fn chatgpt_responses_instructions(messages: &[LlmMessage]) -> String {
+    let instructions = messages
+        .iter()
+        .filter(|message| message.role == "system")
+        .map(|message| message.content.trim())
+        .filter(|content| !content.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if instructions.is_empty() {
+        "You are a helpful assistant.".to_string()
+    } else {
+        instructions
+    }
+}
+
+pub(crate) fn build_openai_chatgpt_responses_body(request: &LlmRequest, stream: bool) -> Value {
+    let messages = request_messages(request);
+    let effort = openai_reasoning_effort(request).unwrap_or_else(|| "low".to_string());
+    let mut body = json!({
+        "model": request.connection.model,
+        "instructions": chatgpt_responses_instructions(&messages),
+        "input": chatgpt_responses_input(&messages),
+        "stream": stream,
+        "store": false,
+        "include": [],
+        "reasoning": { "effort": effort },
+    });
+    if !request.tools.is_empty() {
+        body["tools"] = Value::Array(
+            request
+                .tools
+                .iter()
+                .map(|tool| json!({ "type": "function", "name": tool.get("name").cloned().unwrap_or(Value::String("tool".to_string())), "description": tool.get("description").cloned().unwrap_or(Value::Null), "parameters": tool.get("parameters").cloned().unwrap_or_else(|| json!({ "type": "object", "properties": {} })) }))
+                .collect(),
+        );
+        body["tool_choice"] = json!("auto");
+    } else {
+        body["tools"] = json!([]);
+        body["tool_choice"] = json!("none");
+        body["parallel_tool_calls"] = json!(false);
+    }
+    body
+}
+
 pub(crate) fn build_openai_responses_body(request: &LlmRequest, stream: bool) -> Value {
+    if request.connection.provider == "openai_chatgpt" {
+        return build_openai_chatgpt_responses_body(request, stream);
+    }
     let messages = request_messages(request);
     let preserve_encrypted_reasoning = openai_responses_preserve_encrypted_reasoning(request);
     let send_sampling = should_send_openai_sampling_parameters(request);
@@ -433,9 +543,61 @@ pub(crate) async fn openai_responses_request(
     send_provider_request(req).await
 }
 
+pub(crate) async fn complete_openai_chatgpt_responses_rich(
+    request: LlmRequest,
+) -> AppResult<LlmCompletion> {
+    let mut content = String::new();
+    let mut tool_calls = Vec::new();
+    let mut usage = None;
+    let mut provider_metadata = None;
+    stream_openai_responses(request, &mut |event| {
+        match event.get("type").and_then(Value::as_str) {
+            Some("token") => {
+                if let Some(text) = event
+                    .get("text")
+                    .or_else(|| event.get("data"))
+                    .and_then(Value::as_str)
+                {
+                    content.push_str(text);
+                }
+            }
+            Some("tool_call") => {
+                if let Some(call) = event.get("data") {
+                    tool_calls.push(call.clone());
+                }
+            }
+            Some("usage") => {
+                usage = event.get("data").cloned();
+            }
+            Some("provider_metadata") => {
+                provider_metadata = event.get("data").cloned();
+            }
+            _ => {}
+        }
+        Ok(())
+    })
+    .await?;
+    if content.trim().is_empty() && tool_calls.is_empty() {
+        return Err(AppError::new(
+            "llm_response_error",
+            "ChatGPT Codex stream did not contain assistant text or tool calls",
+        ));
+    }
+    Ok(LlmCompletion {
+        content,
+        tool_calls,
+        finish_reason: Some("completed".to_string()),
+        usage,
+        provider_metadata,
+    })
+}
+
 pub(crate) async fn complete_openai_responses_rich(
     request: LlmRequest,
 ) -> AppResult<LlmCompletion> {
+    if request.connection.provider == "openai_chatgpt" {
+        return complete_openai_chatgpt_responses_rich(request).await;
+    }
     let body = build_openai_responses_body(&request, false);
     let response = openai_responses_request(&request, &body).await?;
     let (status, json) = read_json_response(response).await?;
@@ -720,7 +882,9 @@ impl ResponsesToolCallAccumulator {
         }
         if to_parts.arguments.is_empty() {
             to_parts.arguments = from_parts.arguments;
-        } else if !from_parts.arguments.is_empty() && !to_parts.arguments.contains(&from_parts.arguments) {
+        } else if !from_parts.arguments.is_empty()
+            && !to_parts.arguments.contains(&from_parts.arguments)
+        {
             to_parts.arguments = format!("{}{}", from_parts.arguments, to_parts.arguments);
         }
     }

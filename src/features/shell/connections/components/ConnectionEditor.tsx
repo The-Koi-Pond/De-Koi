@@ -73,6 +73,7 @@ import {
   MODEL_LISTS,
   IMAGE_GENERATION_SOURCES,
   inferImageSource,
+  normalizeOpenAIChatGPTModel,
 } from "../../../../engine/contracts/constants/model-lists";
 import { PROVIDERS, isTauriRuntimeProvider } from "../../../../engine/contracts/constants/providers";
 import type { APIProvider } from "../../../../engine/contracts/types/connection";
@@ -282,7 +283,9 @@ export function ConnectionEditor() {
     setLocalProvider((c.provider as APIProvider) ?? "openai");
     setLocalBaseUrl((c.baseUrl as string) ?? "");
     setLocalApiKey(""); // never pre-fill (it's masked)
-    setLocalModel((c.model as string) ?? "");
+    const provider = (c.provider as APIProvider) ?? "openai";
+    const model = (c.model as string) ?? "";
+    setLocalModel(provider === "openai_chatgpt" ? normalizeOpenAIChatGPTModel(model) : model);
     setLocalMaxContext(Number(c.maxContext) || 128000);
     setLocalMaxParallelJobs(normalizeMaxParallelJobs(c.maxParallelJobs));
     setLocalEnableCaching(c.enableCaching === "true" || c.enableCaching === true);

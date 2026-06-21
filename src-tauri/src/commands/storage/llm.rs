@@ -408,7 +408,12 @@ async fn lookup_llm_models(
                 .and_then(Value::as_str)
                 .filter(|value| !value.trim().is_empty())
             {
-                push_model(&mut models, model, provider);
+                let model = if provider == "openai_chatgpt" {
+                    marinara_llm::normalize_openai_chatgpt_model(model)
+                } else {
+                    model.to_string()
+                };
+                push_model(&mut models, &model, provider);
             }
         }
     }
@@ -443,12 +448,16 @@ pub(crate) fn llm_connection_from_value(value: &Value) -> AppResult<marinara_llm
         .and_then(Value::as_str)
         .ok_or_else(|| AppError::invalid_input("Connection provider is required"))?
         .to_string();
-    let model = value
+    let raw_model = value
         .get("model")
         .and_then(Value::as_str)
         .filter(|model| !model.trim().is_empty())
-        .ok_or_else(|| AppError::invalid_input("Connection model is required"))?
-        .to_string();
+        .ok_or_else(|| AppError::invalid_input("Connection model is required"))?;
+    let model = if provider == "openai_chatgpt" {
+        marinara_llm::normalize_openai_chatgpt_model(raw_model)
+    } else {
+        raw_model.to_string()
+    };
     let api_key = value
         .get("apiKey")
         .and_then(Value::as_str)
@@ -1028,18 +1037,11 @@ fn build_horde_url(base: &str, target_path: &str) -> String {
 fn provider_model_catalog(provider: &str) -> Vec<Value> {
     let ids: &[&str] = match provider {
         "openai_chatgpt" => &[
-            "chat-latest",
-            "gpt-5.3",
-            "gpt-5.3-chat-latest",
-            "gpt-5.2",
-            "gpt-5.1",
-            "gpt-5",
-            "gpt-5.3-codex",
-            "gpt-5.2-codex",
-            "gpt-5.1-codex",
-            "gpt-5-codex",
-            "gpt-4o",
-            "chatgpt-4o-latest",
+            "gpt-5.5",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.3-codex-spark",
+            "codex-auto-review",
         ],
         "anthropic" => &[
             "claude-opus-4-8",
@@ -2001,6 +2003,17 @@ mod tests {
                 std::env::remove_var(self.key);
             }
         }
+    }
+
+    #[test]
+    fn llm_connection_from_value_normalizes_openai_chatgpt_legacy_model() {
+        let connection = llm_connection_from_value(&json!({
+            "provider": "openai_chatgpt",
+            "model": "chat-latest"
+        }))
+        .expect("ChatGPT connection should parse");
+
+        assert_eq!(connection.model, "gpt-5.4-mini");
     }
 
     async fn serve_model_failure(status: &'static str, body: impl Into<String>) -> String {

@@ -159,19 +159,23 @@ const CLAUDE_SUBSCRIPTION_MODELS: KnownModel[] = [
 
 // ── OpenAI (ChatGPT login via local Codex auth) ──
 const OPENAI_CHATGPT_MODELS: KnownModel[] = [
-  { id: "chat-latest", name: "Chat Latest", context: 400000, maxOutput: 128000 },
-  { id: "gpt-5.3", name: "GPT-5.3", context: 128000, maxOutput: 16384 },
-  { id: "gpt-5.3-chat-latest", name: "GPT-5.3 Chat Latest", context: 128000, maxOutput: 16384 },
-  { id: "gpt-5.2", name: "GPT-5.2", context: 128000, maxOutput: 16384 },
-  { id: "gpt-5.1", name: "GPT-5.1", context: 128000, maxOutput: 16384 },
-  { id: "gpt-5", name: "GPT-5", context: 128000, maxOutput: 16384 },
-  { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", context: 400000, maxOutput: 128000 },
-  { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", context: 400000, maxOutput: 128000 },
-  { id: "gpt-5.1-codex", name: "GPT-5.1 Codex", context: 400000, maxOutput: 128000 },
-  { id: "gpt-5-codex", name: "GPT-5 Codex", context: 400000, maxOutput: 128000 },
-  { id: "gpt-4o", name: "GPT-4o", context: 128000, maxOutput: 16384 },
-  { id: "chatgpt-4o-latest", name: "ChatGPT 4o Latest", context: 128000, maxOutput: 16384 },
+  { id: "gpt-5.5", name: "GPT-5.5", context: 1050000, maxOutput: 128000 },
+  { id: "gpt-5.4", name: "GPT-5.4", context: 1050000, maxOutput: 128000 },
+  { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", context: 400000, maxOutput: 128000 },
+  { id: "gpt-5.3-codex-spark", name: "GPT-5.3 Codex Spark", context: 400000, maxOutput: 128000 },
+  { id: "codex-auto-review", name: "Codex Auto Review", context: 400000, maxOutput: 128000 },
 ];
+
+const OPENAI_CHATGPT_DEFAULT_MODEL = "gpt-5.4-mini";
+
+export function normalizeOpenAIChatGPTModel(model: string): string {
+  const trimmed = model.trim();
+  const normalized = trimmed.toLowerCase();
+  if (normalized === "chat-latest" || normalized.endsWith("-chat-latest")) {
+    return OPENAI_CHATGPT_DEFAULT_MODEL;
+  }
+  return trimmed;
+}
 
 // ── Google AI Studio (from #model_google_select) ──
 
