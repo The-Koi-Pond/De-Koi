@@ -451,7 +451,10 @@ async function executeAgentWithTools(
         if (config.type === "spotify" && tc.function.name === "spotify_play") {
           const parsedToolResult = parseSpotifyPlaybackFallbackResult(toolResult);
           if (isJsonRecord(parsedToolResult) && spotifyPlaybackApplied(parsedToolResult)) {
-            spotifyPlayResult = parsedToolResult;
+            const acceptedUris = spotifyAcceptedPlaybackTrackUris(parsedToolResult, tc);
+            if (acceptedUris.length > 0) {
+              spotifyPlayResult = { ...parsedToolResult, trackUris: acceptedUris };
+            }
           }
         }
       }
@@ -615,6 +618,27 @@ function spotifyPlaybackCurrentUri(playback: Record<string, unknown>): string | 
   return null;
 }
 
+function spotifyPlaybackDirectTrackUris(playback: Record<string, unknown>, includeCurrentUri: boolean): string[] {
+  const sources = [playback.trackUris, playback.uris, playback.queued].filter(Array.isArray);
+  const uris = sources
+    .flatMap((source) => source.map(normalizeSpotifyTrackUri))
+    .filter((uri): uri is string => Boolean(uri));
+  for (const key of ["trackUri", "uri"]) {
+    const uri = normalizeSpotifyTrackUri(playback[key]);
+    if (uri) uris.push(uri);
+  }
+  const track = playback.track;
+  if (isJsonRecord(track)) {
+    const uri = normalizeSpotifyTrackUri(track.uri);
+    if (uri) uris.push(uri);
+  }
+  if (includeCurrentUri) {
+    const uri = normalizeSpotifyTrackUri(playback.currentUri);
+    if (uri) uris.push(uri);
+  }
+  return Array.from(new Set(uris));
+}
+
 function spotifyPlaybackQueuedCount(playback: Record<string, unknown>, fallbackUris: string[]): number {
   const queued = playback.queued;
   if (typeof queued === "number" && Number.isFinite(queued)) return Math.max(0, Math.floor(queued));
@@ -625,13 +649,22 @@ function spotifyPlaybackQueuedCount(playback: Record<string, unknown>, fallbackU
 }
 
 function spotifyPlaybackTrackUris(playback: Record<string, unknown>): string[] {
-  const sources = [playback.trackUris, playback.uris, playback.queued].filter(Array.isArray);
-  const uris = sources
-    .flatMap((source) => source.map(normalizeSpotifyTrackUri))
-    .filter((uri): uri is string => Boolean(uri));
-  if (uris.length > 0) return Array.from(new Set(uris));
-  const direct = normalizeSpotifyTrackUri(playback.trackUri) ?? normalizeSpotifyTrackUri(playback.uri);
-  return direct ? [direct] : [];
+  return spotifyPlaybackDirectTrackUris(playback, playback.playbackPending !== true);
+}
+
+function spotifyToolCallTrackUris(call: LLMToolCall): string[] {
+  const parsedArgs = parseSpotifyPlaybackFallbackResult(call.function.arguments);
+  if (!isJsonRecord(parsedArgs)) return [];
+  const rawUris = Array.isArray(parsedArgs.uris) ? parsedArgs.uris : [];
+  const uris = rawUris.map(normalizeSpotifyTrackUri).filter((uri): uri is string => Boolean(uri));
+  const uri = normalizeSpotifyTrackUri(parsedArgs.uri);
+  if (uri) uris.unshift(uri);
+  return Array.from(new Set(uris));
+}
+
+function spotifyAcceptedPlaybackTrackUris(playback: Record<string, unknown>, call: LLMToolCall): string[] {
+  const playbackUris = spotifyPlaybackTrackUris(playback);
+  return playbackUris.length > 0 ? playbackUris : spotifyToolCallTrackUris(call);
 }
 
 function spotifyPlaybackDevice(playback: Record<string, unknown>): unknown {
@@ -650,12 +683,14 @@ function spotifyPlaybackSuccessData(
   appliedKey: "toolFallbackApplied" | "toolPlaybackApplied",
 ): unknown {
   if (!isJsonRecord(data)) return data;
-  const uris = fallbackUris.length > 0 ? fallbackUris : spotifyPlaybackTrackUris(playback);
+  const playbackUris = spotifyPlaybackTrackUris(playback);
+  const uris = playbackUris.length > 0 ? playbackUris : fallbackUris;
   const queued = spotifyPlaybackQueuedCount(playback, uris);
   const trackNames = Array.isArray(data.trackNames)
     ? data.trackNames.filter((name): name is string => typeof name === "string" && name.trim().length > 0)
     : [];
   const display = spotifyPlaybackStringField(playback, "display");
+  const queueStatus = spotifyPlaybackStringField(playback, "queueStatus");
   return {
     ...data,
     ...(uris.length > 0 ? { trackUris: uris } : {}),
@@ -664,6 +699,8 @@ function spotifyPlaybackSuccessData(
     playbackPending: playback.playbackPending === true,
     currentUri: spotifyPlaybackCurrentUri(playback),
     queued,
+    ...(queueStatus ? { queueStatus } : {}),
+    ...(playback.partialQueueFailure === true ? { partialQueueFailure: true } : {}),
     device: spotifyPlaybackDevice(playback),
     display: display ?? data.display,
     playback,

@@ -15,6 +15,7 @@ import {
 } from "./agent-executor";
 
 const FRESH_URI = "spotify:track:ABCDEFGHIJKLMNOPQRSTUV";
+const SECOND_URI = "spotify:track:ZYXWVUTSRQPONMLKJIHGFE";
 
 function spotifyContext(): AgentContext {
   return {
@@ -336,6 +337,133 @@ describe("Spotify agent fallback playback", () => {
       toolPlaybackApplied: true,
       playbackPending: true,
       display: "Spotify accepted playback; verification pending",
+    });
+  });
+
+  it("keeps fallback available when pending spotify_play has no track evidence", async () => {
+    let providerCalls = 0;
+    const provider: BaseLLMProvider = {
+      maxTokensOverrideValue: null,
+      async chatComplete() {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          return {
+            content: "",
+            toolCalls: [
+              {
+                id: "call-play",
+                name: "spotify_play",
+                arguments: JSON.stringify({ uri: "not-spotify" }),
+                function: {
+                  name: "spotify_play",
+                  arguments: JSON.stringify({ uri: "not-spotify" }),
+                },
+              },
+            ],
+          };
+        }
+        return {
+          content: JSON.stringify({
+            action: "play",
+            mood: "tense",
+            searchQuery: "tense battle",
+            trackUris: [FRESH_URI],
+            trackNames: ["Fresh - Battle"],
+            volume: null,
+          }),
+        };
+      },
+    };
+    const calls: LLMToolCall[] = [];
+    const toolContext: AgentToolContext = {
+      tools: [{ name: "spotify_play" }],
+      async executeToolCall(call) {
+        calls.push(call);
+        if (calls.length === 1) {
+          return JSON.stringify({
+            success: true,
+            applied: true,
+            playbackPending: true,
+            display: "Spotify accepted playback; verification pending",
+          });
+        }
+        return JSON.stringify({
+          success: true,
+          applied: true,
+          queued: [FRESH_URI],
+        });
+      },
+    };
+    const config: AgentExecConfig = {
+      id: "spotify-agent",
+      type: "spotify",
+      name: "Spotify",
+      phase: "post",
+      promptTemplate: "Pick fitting music.",
+      connectionId: null,
+      settings: {},
+    };
+
+    const result = await executeAgent(config, spotifyContext(), provider, "test-model", toolContext);
+
+    expect(result.success).toBe(true);
+    expect(calls.map((call) => call.function.name)).toEqual(["spotify_play", "spotify_play"]);
+    expect(JSON.parse(calls[1]?.function.arguments ?? "{}")).toEqual({ uri: FRESH_URI });
+    expect(result.data).toMatchObject({
+      trackUris: [FRESH_URI],
+      toolFallbackApplied: true,
+    });
+  });
+
+  it("preserves partial queue status from pending fallback playback", async () => {
+    const provider: BaseLLMProvider = {
+      maxTokensOverrideValue: null,
+      async chatComplete() {
+        return {
+          content: JSON.stringify({
+            action: "play",
+            mood: "tense",
+            searchQuery: "tense battle",
+            trackUris: [FRESH_URI, SECOND_URI],
+            trackNames: ["Fresh - Battle", "Second - Battle"],
+            volume: null,
+          }),
+        };
+      },
+    };
+    const toolContext: AgentToolContext = {
+      tools: [{ name: "spotify_play" }],
+      async executeToolCall() {
+        return JSON.stringify({
+          success: true,
+          applied: true,
+          playbackPending: true,
+          queued: [FRESH_URI],
+          queueStatus: "partial",
+          partialQueueFailure: true,
+        });
+      },
+    };
+    const config: AgentExecConfig = {
+      id: "spotify-agent",
+      type: "spotify",
+      name: "Spotify",
+      phase: "post",
+      promptTemplate: "Pick fitting music.",
+      connectionId: null,
+      settings: {},
+    };
+
+    const result = await executeAgent(config, spotifyContext(), provider, "test-model", toolContext);
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      trackUris: [FRESH_URI],
+      queued: 1,
+      playbackPending: true,
+      queueStatus: "partial",
+      partialQueueFailure: true,
+      toolFallbackApplied: true,
     });
   });
 });

@@ -3206,6 +3206,7 @@ fn spotify_playback_pending_response(
         .map(String::as_str)
         .or(play_request.requested_context_uri.as_deref());
     let queue_failed = spotify_queue_failed_count(play_request, &queued_uris);
+    let queue_status = spotify_queue_status(play_request, &queued_uris);
     json!({
         "success": true,
         "applied": true,
@@ -3233,6 +3234,8 @@ fn spotify_playback_pending_response(
         "queued": if queued_uris.is_empty() { Value::Null } else { json!(queued_uris) },
         "queueRequested": play_request.requested_uris.len(),
         "queueFailed": queue_failed,
+        "queueStatus": queue_status,
+        "queueComplete": queue_status == "complete" || queue_status == "not_requested",
         "partialQueueFailure": queue_failed > 0
     })
 }
@@ -3254,6 +3257,19 @@ fn spotify_queue_failed_count(play_request: &SpotifyPlayRequest, queued_uris: &[
         .requested_uris
         .len()
         .saturating_sub(queued_uris.len())
+}
+
+fn spotify_queue_status(play_request: &SpotifyPlayRequest, queued_uris: &[String]) -> &'static str {
+    if play_request.requested_context_uri.is_some() || play_request.requested_uris.is_empty() {
+        return "not_requested";
+    }
+    if queued_uris.len() >= play_request.requested_uris.len() {
+        return "complete";
+    }
+    if queued_uris.is_empty() {
+        return "none";
+    }
+    "partial"
 }
 
 fn matched_track_json(track: &MatchedTrack) -> Value {
@@ -3464,6 +3480,7 @@ async fn agent_spotify_play_control(
         queue_spotify_tracks(&credentials, queue_device_id, &play_request.queued_uris).await;
     let queued_uris = spotify_actual_queued_uris(&play_request, queued_tail_uris);
     let queue_failed = spotify_queue_failed_count(&play_request, &queued_uris);
+    let queue_status = spotify_queue_status(&play_request, &queued_uris);
     let current = current.as_ref();
     Ok(json!({
         "success": true,
@@ -3482,6 +3499,8 @@ async fn agent_spotify_play_control(
         "queued": if queued_uris.is_empty() { Value::Null } else { json!(queued_uris) },
         "queueRequested": play_request.requested_uris.len(),
         "queueFailed": queue_failed,
+        "queueStatus": queue_status,
+        "queueComplete": queue_status == "complete" || queue_status == "not_requested",
         "partialQueueFailure": queue_failed > 0
     }))
 }
@@ -4754,18 +4773,20 @@ mod tests {
         let fully_queued = spotify_actual_queued_uris(&request, vec![second.to_string()]);
         assert_eq!(fully_queued, vec![first.to_string(), second.to_string()]);
         assert_eq!(spotify_queue_failed_count(&request, &fully_queued), 0);
+        assert_eq!(spotify_queue_status(&request, &fully_queued), "complete");
 
         let partially_queued = spotify_actual_queued_uris(&request, Vec::new());
         assert_eq!(partially_queued, vec![first.to_string()]);
         assert_eq!(spotify_queue_failed_count(&request, &partially_queued), 1);
+        assert_eq!(spotify_queue_status(&request, &partially_queued), "partial");
     }
 
     #[test]
-    fn spotify_pending_playback_response_marks_accepted_playback() {
+    fn spotify_pending_playback_response_marks_accepted_partial_queue() {
         let first = "spotify:track:1234567890123456789012";
         let second = "spotify:track:ABCDEFGHIJKLMNOPQRSTUV";
         let request = spotify_play_request_from_body(&json!({
-            "uris": [first, second]
+            "uris": [first, "not-spotify", second]
         }))
         .expect("multi-track request should parse");
         let snapshot = SpotifyPlaybackSnapshot {
@@ -4800,6 +4821,18 @@ mod tests {
         assert_eq!(response.get("uris"), Some(&json!([first, second])));
         assert_eq!(response.get("queued"), Some(&json!([first])));
         assert_eq!(response.get("queueFailed").and_then(Value::as_u64), Some(1));
+        assert_eq!(
+            response.get("queueStatus").and_then(Value::as_str),
+            Some("partial")
+        );
+        assert_eq!(
+            response.get("queueComplete").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            response.get("partialQueueFailure").and_then(Value::as_bool),
+            Some(true)
+        );
         assert_eq!(
             response.get("repeatState").and_then(Value::as_str),
             Some("track")
