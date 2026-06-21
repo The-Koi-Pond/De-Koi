@@ -5,7 +5,7 @@ import { useChatStore } from "../../../../shared/stores/chat.store";
 import { chatKeys } from "../query-keys";
 
 export type ChatCacheRecord = Chat | (Record<string, unknown> & { id?: string; groupId?: unknown; metadata?: unknown });
-type ChatListFamilyQueryClient = Pick<QueryClient, "getQueriesData" | "setQueryData">;
+type ChatListFamilyQueryClient = Pick<QueryClient, "getQueryData" | "getQueriesData" | "setQueryData">;
 
 function parseCacheRecord(value: unknown): Record<string, unknown> {
   if (typeof value === "string") {
@@ -43,6 +43,15 @@ function chatCacheGroupId(chat: ChatCacheRecord): string | null {
   return typeof groupId === "string" && groupId.trim() ? groupId : null;
 }
 
+function chatCacheRowsRecord(rows: ChatCacheRecord[] | undefined, id: string): ChatCacheRecord | null {
+  if (!Array.isArray(rows)) return null;
+  return rows.find((row) => row?.id === id) ?? null;
+}
+
+function withChatCacheGroup(chat: ChatCacheRecord, groupId: string): ChatCacheRecord {
+  return chat.groupId === groupId ? chat : { ...chat, groupId };
+}
+
 function recentSummariesLimit(queryKey: readonly unknown[]): number | null {
   const prefix = chatKeys.summaries();
   if (
@@ -78,6 +87,32 @@ export function syncChatBranchCacheRows<T extends ChatCacheRecord>(
   return upsertChatCacheRows(groupedRows as T[], newChat);
 }
 
+function syncChatBranchGroupCacheRows(
+  rows: ChatCacheRecord[] | undefined,
+  sourceChatId: string,
+  newChat: ChatCacheRecord,
+  sourceChat: ChatCacheRecord | null,
+): ChatCacheRecord[] | undefined {
+  if (!Array.isArray(rows)) return rows;
+  const groupId = chatCacheGroupId(newChat);
+  const groupSourceChat = sourceChat ?? chatCacheRowsRecord(rows, sourceChatId);
+  if (!groupId || !groupSourceChat) return rows;
+
+  const next = syncChatBranchCacheRows(rows, sourceChatId, newChat);
+  if (!Array.isArray(next)) return next;
+
+  const groupedSourceChat = withChatCacheGroup(groupSourceChat, groupId);
+  const sourceIndex = next.findIndex((row) => row?.id === sourceChatId);
+  if (sourceIndex !== -1) {
+    return next.map((row, index) => (index === sourceIndex ? groupedSourceChat : row));
+  }
+
+  const newChatId = chatCacheRecordId(newChat);
+  const newChatIndex = newChatId ? next.findIndex((row) => row?.id === newChatId) : -1;
+  if (newChatIndex === -1) return [groupedSourceChat, ...next];
+  return [...next.slice(0, newChatIndex + 1), groupedSourceChat, ...next.slice(newChatIndex + 1)];
+}
+
 function setChatListFamilyRows(
   qc: ChatListFamilyQueryClient,
   updater: (rows: ChatCacheRecord[] | undefined) => ChatCacheRecord[] | undefined,
@@ -91,6 +126,22 @@ function setChatListFamilyRows(
       return limit && Array.isArray(next) ? next.slice(0, limit) : next;
     });
   }
+}
+
+function findSourceChatCacheRecord(qc: ChatListFamilyQueryClient, sourceChatId: string): ChatCacheRecord | null {
+  const detail = qc.getQueryData<ChatCacheRecord>(chatKeys.detail(sourceChatId));
+  if (detail) return detail;
+
+  const listRecord = chatCacheRowsRecord(qc.getQueryData<ChatCacheRecord[]>(chatKeys.list()), sourceChatId);
+  if (listRecord) return listRecord;
+
+  for (const [, rows] of qc.getQueriesData<ChatCacheRecord[]>({ queryKey: chatKeys.summaries() })) {
+    const summaryRecord = chatCacheRowsRecord(rows, sourceChatId);
+    if (summaryRecord) return summaryRecord;
+  }
+
+  const activeChat = useChatStore.getState().activeChat as ChatCacheRecord | null;
+  return activeChat?.id === sourceChatId ? activeChat : null;
 }
 
 export function applyChatFieldPatch<T extends ChatCacheRecord>(chat: T, patch: Record<string, unknown>): T {
@@ -153,11 +204,12 @@ export function syncBranchedChatCacheRecord(
   const groupId = chatCacheGroupId(newChat);
   if (!groupId) return;
 
+  const sourceChat = findSourceChatCacheRecord(qc, sourceChatId);
   qc.setQueryData<ChatCacheRecord | undefined>(chatKeys.detail(sourceChatId), (current) =>
-    current && current.groupId !== groupId ? { ...current, groupId } : current,
+    current ? withChatCacheGroup(current, groupId) : current,
   );
   qc.setQueryData<ChatCacheRecord[]>(chatKeys.group(groupId), (rows) =>
-    syncChatBranchCacheRows(rows, sourceChatId, newChat),
+    syncChatBranchGroupCacheRows(rows, sourceChatId, newChat, sourceChat),
   );
 
   const activeChat = useChatStore.getState().activeChat as ChatCacheRecord | null;

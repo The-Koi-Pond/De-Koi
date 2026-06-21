@@ -83,6 +83,47 @@ describe("chat cache helpers", () => {
     expect(useChatStore.getState().activeChat).toMatchObject({ id: "source", groupId: "group-1" });
   });
 
+  it("adds the patched source to a loaded target group cache that did not contain it", () => {
+    const qc = new QueryClient();
+    const source = record("source", null);
+    const branch = record("branch", "group-1");
+    qc.setQueryData(chatKeys.detail("source"), source);
+    qc.setQueryData(chatKeys.list(), [source]);
+    qc.setQueryData(chatKeys.summaries(), [source]);
+    qc.setQueryData(chatKeys.group("group-1"), [record("sibling", "group-1")]);
+    useChatStore.getState().setActiveChat(source as unknown as Chat);
+
+    syncBranchedChatCacheRecord(qc, "source", branch);
+
+    expect(qc.getQueryData<ChatCacheRecord[]>(chatKeys.group("group-1"))).toEqual([
+      branch,
+      { ...source, groupId: "group-1" },
+      record("sibling", "group-1"),
+    ]);
+    expect(qc.getQueryData(chatKeys.detail("source"))).toMatchObject({ id: "source", groupId: "group-1" });
+    expect(qc.getQueryData<ChatCacheRecord[]>(chatKeys.list())).toEqual([branch, { ...source, groupId: "group-1" }]);
+    expect(qc.getQueryData<ChatCacheRecord[]>(chatKeys.summaries())).toEqual([
+      branch,
+      { ...source, groupId: "group-1" },
+    ]);
+    expect(useChatStore.getState().activeChat).toMatchObject({ id: "source", groupId: "group-1" });
+  });
+
+  it("uses the loaded group source row when no other source cache is loaded", () => {
+    const qc = new QueryClient();
+    const source = record("source", null);
+    const branch = record("branch", "group-1");
+    qc.setQueryData(chatKeys.group("group-1"), [source]);
+
+    syncBranchedChatCacheRecord(qc, "source", branch);
+
+    expect(qc.getQueryData<ChatCacheRecord[]>(chatKeys.group("group-1"))).toEqual([
+      branch,
+      { ...source, groupId: "group-1" },
+    ]);
+    expect(qc.getQueryData(chatKeys.detail("source"))).toBeUndefined();
+  });
+
   it("keeps unloaded query caches unloaded", () => {
     const qc = new QueryClient();
 
