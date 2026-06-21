@@ -253,8 +253,9 @@ fn load_local_asset_binary(
         ));
     }
 
+    let expected_handle = validated_local_binary_asset_handle(&canonical_path)?;
     let file = open_local_binary_file(&canonical_path).map_err(AppError::from)?;
-    let metadata = validate_opened_local_binary_file(&file, &canonical_path, &data_dir)?;
+    let metadata = validate_opened_local_binary_file(&file, &expected_handle)?;
     if metadata.len() > MAX_BINARY_RESPONSE_BYTES {
         return Err(AppError::invalid_input("Local asset file is too large"));
     }
@@ -279,27 +280,17 @@ fn open_local_binary_file(path: &Path) -> std::io::Result<File> {
     options.open(path)
 }
 
+fn validated_local_binary_asset_handle(canonical_path: &Path) -> AppResult<same_file::Handle> {
+    same_file::Handle::from_path(canonical_path).map_err(AppError::from)
+}
+
 fn validate_opened_local_binary_file(
     file: &File,
-    canonical_path: &Path,
-    data_dir: &Path,
+    expected_handle: &same_file::Handle,
 ) -> AppResult<std::fs::Metadata> {
-    let current_canonical_path = std::fs::canonicalize(canonical_path).map_err(AppError::from)?;
-    if !current_canonical_path.starts_with(data_dir) {
-        return Err(AppError::invalid_input(
-            "Managed local asset URL is outside the app data directory",
-        ));
-    }
-    if !is_managed_local_binary_asset(data_dir, &current_canonical_path) {
-        return Err(AppError::invalid_input(
-            "Managed local asset URL is outside allowed media directories",
-        ));
-    }
     let file_handle = same_file::Handle::from_file(file.try_clone().map_err(AppError::from)?)
         .map_err(AppError::from)?;
-    let path_handle =
-        same_file::Handle::from_path(&current_canonical_path).map_err(AppError::from)?;
-    if file_handle != path_handle {
+    if &file_handle != expected_handle {
         return Err(AppError::invalid_input(
             "Managed local asset changed before it could be read",
         ));
@@ -352,7 +343,7 @@ fn local_asset_url_path_shape_is_allowed(encoded: &str) -> bool {
         return false;
     }
     if !encoded.contains('/') {
-        return true;
+        return Path::new(&decoded).is_absolute();
     }
     encoded.split('/').all(|segment| {
         let decoded = percent_decode(segment);
@@ -582,6 +573,8 @@ mod tests {
         for url in [
             "asset://localhost/gallery/%2e%2e/secret.png",
             "asset://localhost/gallery/%2Ftmp%2Fsecret.png",
+            "asset://localhost/gallery%2Favatar.png",
+            "asset://localhost/gallery%5Cavatar.png",
             "asset://localhost/gallery/a%5Cb.png",
             "asset://evil.localhost/gallery/avatar.png",
             "asset://localhost/../gallery/avatar.png",
@@ -609,10 +602,36 @@ mod tests {
             std::fs::canonicalize(&state.data_dir).expect("data dir should canonicalize");
         let canonical_path =
             std::fs::canonicalize(&validated_path).expect("asset should canonicalize");
+        let expected_handle = validated_local_binary_asset_handle(&canonical_path)
+            .expect("validated asset handle should be captured");
         let file = open_local_binary_file(&swapped_path).expect("swapped file should open");
 
-        let error = validate_opened_local_binary_file(&file, &canonical_path, &data_dir)
+        let error = validate_opened_local_binary_file(&file, &expected_handle)
             .expect_err("mismatched opened file handle should be rejected");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("changed"));
+    }
+
+    #[test]
+    fn local_asset_loader_rejects_file_replaced_after_validation() {
+        let state = test_state("file-replaced");
+        let gallery = state.data_dir.join("gallery");
+        std::fs::create_dir_all(&gallery).expect("gallery dir should be created");
+        let asset_path = gallery.join("asset.png");
+        std::fs::write(&asset_path, b"validated").expect("validated asset should be written");
+        let data_dir =
+            std::fs::canonicalize(&state.data_dir).expect("data dir should canonicalize");
+        let canonical_path = std::fs::canonicalize(&asset_path).expect("asset should canonicalize");
+        assert!(is_managed_local_binary_asset(&data_dir, &canonical_path));
+        let expected_handle = validated_local_binary_asset_handle(&canonical_path)
+            .expect("validated asset handle should be captured");
+        std::fs::remove_file(&asset_path).expect("asset should be removable");
+        std::fs::write(&asset_path, b"replacement").expect("replacement asset should be written");
+        let file = open_local_binary_file(&canonical_path).expect("replacement file should open");
+
+        let error = validate_opened_local_binary_file(&file, &expected_handle)
+            .expect_err("replacement file handle should be rejected");
 
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("changed"));
