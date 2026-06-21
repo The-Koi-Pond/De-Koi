@@ -417,8 +417,8 @@ pub(crate) fn chatgpt_responses_instructions(messages: &[LlmMessage]) -> String 
     let instructions = messages
         .iter()
         .filter(|message| message.role == "system")
-        .map(|message| message.content.trim())
-        .filter(|content| !content.is_empty())
+        .map(|message| message.content.as_str())
+        .filter(|content| !content.trim().is_empty())
         .collect::<Vec<_>>()
         .join("\n\n");
     if instructions.is_empty() {
@@ -543,14 +543,16 @@ pub(crate) async fn openai_responses_request(
     send_provider_request(req).await
 }
 
-pub(crate) async fn complete_openai_chatgpt_responses_rich(
-    request: LlmRequest,
-) -> AppResult<LlmCompletion> {
-    let mut content = String::new();
-    let mut tool_calls = Vec::new();
-    let mut usage = None;
-    let mut provider_metadata = None;
-    stream_openai_responses(request, &mut |event| {
+#[derive(Default)]
+pub(crate) struct ChatGptResponsesRichCollector {
+    content: String,
+    tool_calls: Vec<Value>,
+    usage: Option<Value>,
+    provider_metadata: Option<Value>,
+}
+
+impl ChatGptResponsesRichCollector {
+    pub(crate) fn ingest_event(&mut self, event: &Value) {
         match event.get("type").and_then(Value::as_str) {
             Some("token") => {
                 if let Some(text) = event
@@ -558,38 +560,56 @@ pub(crate) async fn complete_openai_chatgpt_responses_rich(
                     .or_else(|| event.get("data"))
                     .and_then(Value::as_str)
                 {
-                    content.push_str(text);
+                    self.content.push_str(text);
                 }
             }
             Some("tool_call") => {
                 if let Some(call) = event.get("data") {
-                    tool_calls.push(call.clone());
+                    self.tool_calls.push(call.clone());
                 }
             }
             Some("usage") => {
-                usage = event.get("data").cloned();
+                self.usage = event.get("data").cloned();
             }
             Some("provider_metadata") => {
-                provider_metadata = event.get("data").cloned();
+                self.provider_metadata = event.get("data").cloned();
             }
             _ => {}
         }
+    }
+
+    pub(crate) fn into_completion(self) -> AppResult<LlmCompletion> {
+        if self.content.trim().is_empty() && self.tool_calls.is_empty() {
+            return Err(AppError::new(
+                "llm_response_error",
+                "ChatGPT Codex stream did not contain assistant text or tool calls",
+            ));
+        }
+        let finish_reason = if self.tool_calls.is_empty() {
+            "completed"
+        } else {
+            "tool_calls"
+        };
+        Ok(LlmCompletion {
+            content: self.content,
+            tool_calls: self.tool_calls,
+            finish_reason: Some(finish_reason.to_string()),
+            usage: self.usage,
+            provider_metadata: self.provider_metadata,
+        })
+    }
+}
+
+pub(crate) async fn complete_openai_chatgpt_responses_rich(
+    request: LlmRequest,
+) -> AppResult<LlmCompletion> {
+    let mut collector = ChatGptResponsesRichCollector::default();
+    stream_openai_responses(request, &mut |event| {
+        collector.ingest_event(&event);
         Ok(())
     })
     .await?;
-    if content.trim().is_empty() && tool_calls.is_empty() {
-        return Err(AppError::new(
-            "llm_response_error",
-            "ChatGPT Codex stream did not contain assistant text or tool calls",
-        ));
-    }
-    Ok(LlmCompletion {
-        content,
-        tool_calls,
-        finish_reason: Some("completed".to_string()),
-        usage,
-        provider_metadata,
-    })
+    collector.into_completion()
 }
 
 pub(crate) async fn complete_openai_responses_rich(

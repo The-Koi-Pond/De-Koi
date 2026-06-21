@@ -3110,9 +3110,10 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
         let mut tool = test_message("tool", "Koi are ornamental carp.");
         tool.tool_call_id = Some("call_lookup".to_string());
         request.messages = vec![
-            test_message("system", "Use terse replies."),
+            test_message("system", "  Use terse replies.  "),
+            test_message("system", "  \t "),
             test_message("user", "hi"),
-            test_message("system", "Prefer metric units."),
+            test_message("system", "Prefer metric units.\n"),
             assistant,
             tool,
             test_message("user", "next"),
@@ -3123,7 +3124,7 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
 
         assert_eq!(
             body["instructions"],
-            json!("Use terse replies.\n\nPrefer metric units.")
+            json!("  Use terse replies.  \n\nPrefer metric units.\n")
         );
         assert!(input
             .iter()
@@ -3718,6 +3719,52 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
             completion.tool_calls[0]["function"]["name"],
             json!("roll_dice")
         );
+    }
+
+    #[test]
+    fn openai_chatgpt_rich_completion_marks_tool_calls_finish() {
+        let mut collector = ChatGptResponsesRichCollector::default();
+        collector.ingest_event(&json!({
+            "type": "token",
+            "text": "Need a roll."
+        }));
+        collector.ingest_event(&json!({
+            "type": "tool_call",
+            "data": {
+                "id": "fc_1",
+                "name": "roll_dice",
+                "arguments": "{\"notation\":\"1d20\"}",
+                "function": {
+                    "name": "roll_dice",
+                    "arguments": "{\"notation\":\"1d20\"}"
+                }
+            }
+        }));
+
+        let completion = collector
+            .into_completion()
+            .expect("tool-call completion should parse");
+
+        assert_eq!(completion.content, "Need a roll.");
+        assert_eq!(completion.finish_reason.as_deref(), Some("tool_calls"));
+        assert_eq!(completion.tool_calls[0]["id"], json!("fc_1"));
+    }
+
+    #[test]
+    fn openai_chatgpt_rich_completion_keeps_completed_for_text_only() {
+        let mut collector = ChatGptResponsesRichCollector::default();
+        collector.ingest_event(&json!({
+            "type": "token",
+            "text": "Done."
+        }));
+
+        let completion = collector
+            .into_completion()
+            .expect("text-only completion should parse");
+
+        assert_eq!(completion.content, "Done.");
+        assert_eq!(completion.finish_reason.as_deref(), Some("completed"));
+        assert!(completion.tool_calls.is_empty());
     }
 
     #[test]
