@@ -113,7 +113,7 @@
     "id": "agents",
     "title": "Agents",
     "category": "Agents",
-    "summary": "Optional helpers and custom functions that can be enabled or disabled globally, imported, exported, track world state, review or write lorebooks, guide prose, create images, run custom behavior, and enrich generation.",
+    "summary": "Optional helpers and custom functions that can be named, credited with editable author metadata, enabled or disabled globally, imported, exported, track world state, review or write lorebooks, guide prose, create images, run custom behavior, and enrich generation.",
     "keywords": [
       "agent",
       "automation",
@@ -132,7 +132,10 @@
       "custom tools",
       "lorebook writer",
       "save lorebook",
-      "workflow"
+      "workflow",
+      "author",
+      "agent author",
+      "agent credit"
     ],
     "audience": "Users who want extra systems layered on top of their main chat.",
     "where": "Title bar > Agents, Title bar > Presets > Functions, and each chat settings drawer.",
