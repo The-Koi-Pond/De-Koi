@@ -1996,6 +1996,23 @@ export function GameNarration({
   // Guard against infinite re-render: skip callback if the resolved speaker hasn't changed,
   // even when dependency refs churn (e.g. unstable speakerAvatarInfos from store).
   const lastReportedSpeakerRef = useRef<string | null>(null);
+  const resolveSpeakerExpressionAvatar = useCallback(
+    (speaker?: string, expression?: string): SpeakerAvatarInfo | null => {
+      if (!speaker || !expression || !spriteMap) return null;
+
+      const sprites = findNamedMapValue(spriteMap, speaker);
+      if (!sprites?.length) return null;
+
+      const exprKey = normalizeSpriteExpressionKey(expression);
+      const sprite = sprites.find(
+        (item) =>
+          !item.expression.toLowerCase().startsWith("full_") &&
+          normalizeSpriteExpressionKey(item.expression) === exprKey,
+      );
+      return sprite ? { url: sprite.url } : null;
+    },
+    [spriteMap],
+  );
   useEffect(() => {
     if (!onActiveSpeakerChange) return;
 
@@ -2004,7 +2021,11 @@ export function GameNarration({
         ? null
         : (() => {
             const avatar = findNamedMapValue(speakerAvatarInfos, active.speaker);
-            return avatar ? { name: active.speaker, avatarUrl: avatar.url, expression: active.sprite } : null;
+            if (avatar) return { name: active.speaker, avatarUrl: avatar.url, expression: active.sprite };
+            const expressionAvatar = resolveSpeakerExpressionAvatar(active.speaker, active.sprite);
+            return expressionAvatar
+              ? { name: active.speaker, avatarUrl: expressionAvatar.url, expression: active.sprite }
+              : null;
           })();
 
     // Composite key catches legitimate expression/avatar changes, not just name
@@ -2012,7 +2033,7 @@ export function GameNarration({
     if (nextKey === lastReportedSpeakerRef.current) return;
     lastReportedSpeakerRef.current = nextKey;
     onActiveSpeakerChange(next);
-  }, [active, speakerAvatarInfos, onActiveSpeakerChange]);
+  }, [active, speakerAvatarInfos, resolveSpeakerExpressionAvatar, onActiveSpeakerChange]);
 
   // How many segments are prepended before the actual GM narration segments
   const playerSegmentOffset = latestUserMessage?.content && latestAssistant ? 1 : 0;
