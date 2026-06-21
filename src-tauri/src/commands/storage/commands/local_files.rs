@@ -124,6 +124,7 @@ pub fn local_file_save(
     let session_id = ensure_session_id(&session_id)?;
     let target_path = PathBuf::from(trimmed);
     let temp_path = temp_save_path(&target_path, session_id)?;
+    let temp_path_string = temp_path.to_string_lossy().to_string();
     let bytes = general_purpose::STANDARD
         .decode(base64.trim())
         .map_err(|error| {
@@ -146,16 +147,32 @@ pub fn local_file_save(
     if complete.unwrap_or(false) {
         commit_temp_save(&temp_path, &target_path, session_id)?;
     }
-    Ok(json!({ "saved": true, "path": trimmed }))
+    Ok(json!({ "saved": true, "path": trimmed, "tempPath": temp_path_string }))
 }
 
 #[tauri::command]
-pub fn local_file_save_cleanup(path: String, session_id: String) -> Result<Value, AppError> {
+pub fn local_file_save_cleanup(
+    path: String,
+    session_id: String,
+    temp_path: Option<String>,
+) -> Result<Value, AppError> {
     let trimmed = ensure_save_path(&path)?;
     let session_id = ensure_session_id(&session_id)?;
     let target_path = PathBuf::from(trimmed);
-    let temp_path = temp_save_path(&target_path, session_id)?;
-    match fs::remove_file(&temp_path) {
+    let expected_temp_path = temp_save_path(&target_path, session_id)?;
+    let cleanup_temp_path = match temp_path {
+        Some(temp_path) => {
+            let provided_temp_path = PathBuf::from(ensure_save_path(&temp_path)?);
+            if provided_temp_path != expected_temp_path {
+                return Err(AppError::invalid_input(
+                    "Save cleanup path does not match the save session",
+                ));
+            }
+            provided_temp_path
+        }
+        None => expected_temp_path,
+    };
+    match fs::remove_file(&cleanup_temp_path) {
         Ok(()) => Ok(json!({ "cleaned": true })),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             Ok(json!({ "cleaned": false }))
@@ -193,7 +210,7 @@ mod tests {
         let target = root.0.join("export.bin");
         let target_string = target.to_string_lossy().to_string();
 
-        local_file_save(
+        let first_result = local_file_save(
             target_string.clone(),
             general_purpose::STANDARD.encode(b"abc"),
             "session-1".to_string(),
@@ -201,6 +218,12 @@ mod tests {
             Some(false),
         )
         .expect("first chunk should write to temp");
+        assert_eq!(
+            first_result.get("tempPath").and_then(Value::as_str),
+            temp_save_path(&target, "session-1")
+                .expect("temp path should be valid")
+                .to_str()
+        );
         assert!(
             !target.exists(),
             "destination should not exist before commit"
@@ -243,8 +266,13 @@ mod tests {
         )
         .expect("partial chunk should write to temp");
 
-        local_file_save_cleanup(target_string, "session-2".to_string())
-            .expect("cleanup should remove temp");
+        let temp_path = temp_save_path(&target, "session-2").expect("temp path should be valid");
+        local_file_save_cleanup(
+            target_string,
+            "session-2".to_string(),
+            Some(temp_path.to_string_lossy().to_string()),
+        )
+        .expect("cleanup should remove temp");
 
         assert_eq!(
             fs::read(&target).expect("target should be readable"),
@@ -255,6 +283,27 @@ mod tests {
                 .expect("temp path should be valid")
                 .exists(),
             "temp file should be removed"
+        );
+    }
+
+    #[test]
+    fn cleanup_rejects_mismatched_temp_path() {
+        let root = temp_root("cleanup-mismatch");
+        let target = root.0.join("export.bin");
+        let target_string = target.to_string_lossy().to_string();
+        let other_temp = root.0.join(".other.session-2.tmp");
+
+        let error = local_file_save_cleanup(
+            target_string,
+            "session-2".to_string(),
+            Some(other_temp.to_string_lossy().to_string()),
+        )
+        .expect_err("cleanup should reject a mismatched temp path");
+
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(
+            error.message,
+            "Save cleanup path does not match the save session"
         );
     }
 
@@ -298,10 +347,7 @@ mod tests {
             commit_temp_save_with(&temp, &target, "session-4", |_temp_path, target_path| {
                 fs::create_dir(target_path)
                     .expect("target directory should block rollback restore");
-                Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "injected commit failure",
-                ))
+                Err(io::Error::other("injected commit failure"))
             })
             .expect_err("rollback restore failure should be reported");
 

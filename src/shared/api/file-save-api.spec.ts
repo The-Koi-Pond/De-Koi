@@ -257,8 +257,9 @@ describe("saveTextFileToUserSelectedLocation", () => {
   it("cleans up embedded native temp saves after a later chunk fails", async () => {
     mocks.hasEmbeddedTauriIpc.mockReturnValue(true);
     mocks.saveDialog.mockResolvedValue("C:\\exports\\large.bin");
+    const tempPath = "C:\\exports\\.large.bin.save-temp.tmp";
     mocks.invokeTauri
-      .mockResolvedValueOnce({ saved: true })
+      .mockResolvedValueOnce({ saved: true, tempPath })
       .mockRejectedValueOnce(new Error("append failed"))
       .mockResolvedValueOnce({ cleaned: true });
     const oneMiB = 1024 * 1024;
@@ -302,6 +303,7 @@ describe("saveTextFileToUserSelectedLocation", () => {
       {
         path: "C:\\exports\\large.bin",
         sessionId,
+        tempPath,
       },
     ]);
   });
@@ -309,8 +311,9 @@ describe("saveTextFileToUserSelectedLocation", () => {
   it("surfaces both embedded native write and cleanup failures", async () => {
     mocks.hasEmbeddedTauriIpc.mockReturnValue(true);
     mocks.saveDialog.mockResolvedValue("C:\\exports\\large.bin");
+    const tempPath = "C:\\exports\\.large.bin.save-temp.tmp";
     mocks.invokeTauri
-      .mockResolvedValueOnce({ saved: true })
+      .mockResolvedValueOnce({ saved: true, tempPath })
       .mockRejectedValueOnce(new Error("append failed"))
       .mockRejectedValueOnce(new Error("cleanup failed"));
     const oneMiB = 1024 * 1024;

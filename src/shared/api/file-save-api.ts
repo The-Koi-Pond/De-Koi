@@ -91,8 +91,13 @@ function errorMessage(error: unknown): string {
 type NativeSaveSession = {
   path: string;
   sessionId: string;
+  tempPath?: string;
   tempMayExist: boolean;
   committed: boolean;
+};
+
+type NativeSaveResponse = {
+  tempPath?: unknown;
 };
 
 async function writeNativeSaveChunk(
@@ -102,13 +107,14 @@ async function writeNativeSaveChunk(
   complete: boolean,
 ): Promise<void> {
   session.tempMayExist = true;
-  await invokeTauri("local_file_save", {
+  const result = await invokeTauri<NativeSaveResponse>("local_file_save", {
     path: session.path,
     base64,
     sessionId: session.sessionId,
     append,
     complete,
   });
+  if (typeof result?.tempPath === "string") session.tempPath = result.tempPath;
   if (complete) session.committed = true;
 }
 
@@ -116,7 +122,11 @@ async function failNativeSave(session: NativeSaveSession, error: unknown): Promi
   if (!session.tempMayExist || session.committed) throw error;
 
   try {
-    await invokeTauri("local_file_save_cleanup", { path: session.path, sessionId: session.sessionId });
+    await invokeTauri("local_file_save_cleanup", {
+      path: session.path,
+      sessionId: session.sessionId,
+      ...(session.tempPath ? { tempPath: session.tempPath } : {}),
+    });
   } catch (cleanupError) {
     throw new AggregateError(
       [error, cleanupError],
