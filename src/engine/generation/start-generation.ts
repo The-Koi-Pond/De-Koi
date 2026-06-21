@@ -92,6 +92,7 @@ import type { GenerationCharacterContext, GenerationPersonaContext } from "./pro
 import { generationInfoFromVisibleParameters, providerVisibleLlmParameters } from "./provider-visible-parameters";
 import { applyRuntimeRegexScripts } from "./regex-runtime";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
+import { illustrationSubjectMatches } from "../generation-core/images/illustration-reference-matching";
 import {
   normalizeStartGenerationInput,
   type AgentInjectionOverride,
@@ -704,20 +705,10 @@ function recordAvatar(record: JsonRecord): string {
 }
 
 function matchesIllustrationSubject(subject: IllustrationReferenceSubject, item: IllustrationPromptData): boolean {
-  const name = subject.name.trim().toLowerCase();
-  if (!name) return false;
-  const requestedNames = item.characterNames.map((entry) => entry.trim().toLowerCase()).filter(Boolean);
-  if (requestedNames.length > 0) {
-    return requestedNames.some(
-      (requested) => requested === name || requested.includes(name) || name.includes(requested),
-    );
-  }
-  const prompt = item.prompt.toLowerCase();
-  if (prompt.includes(name)) return true;
-  return name
-    .split(/\s+/)
-    .filter((part) => part.length > 2)
-    .some((part) => prompt.includes(part));
+  return illustrationSubjectMatches(subject, {
+    requestedNames: item.characterNames,
+    prompt: item.prompt,
+  });
 }
 
 async function resolveIllustrationReferenceImage(
