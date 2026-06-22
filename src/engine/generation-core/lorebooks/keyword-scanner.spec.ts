@@ -81,6 +81,7 @@ describe("lorebook keyword scanner", () => {
     const result = await scanForActivatedEntriesWithTrace(
       messages,
       [
+        entry({ id: "constant", constant: true, order: 0 }),
         entry({ id: "primary-miss", keys: ["missing"] }),
         entry({
           id: "secondary-miss",
@@ -105,9 +106,14 @@ describe("lorebook keyword scanner", () => {
       },
     );
 
-    expect(result.activatedEntries.map((item) => item.entry.id)).toEqual(["semantic", "group-winner", "sticky"]);
+    expect(result.activatedEntries.map((item) => item.entry.id)).toEqual(["constant", "semantic", "group-winner", "sticky"]);
 
     const traceById = new Map(result.trace.entries.map((item) => [item.entryId, item]));
+    expect(traceById.get("constant")).toMatchObject({
+      status: "included",
+      reason: "constant",
+      matchedKeys: ["[constant]"],
+    });
     expect(traceById.get("primary-miss")).toMatchObject({
       status: "skipped",
       reason: "primary_key_miss",

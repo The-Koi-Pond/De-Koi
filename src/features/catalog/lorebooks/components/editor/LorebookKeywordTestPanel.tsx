@@ -6,25 +6,30 @@ export function LorebookKeywordTestPanel({
   open,
   text,
   previewActive,
-  previewMatchCount,
   enabledEntryCount,
   traceEntries,
+  visibleTraceEntryIds,
   onOpenChange,
   onTextChange,
 }: {
   open: boolean;
   text: string;
   previewActive: boolean;
-  previewMatchCount: number;
   enabledEntryCount: number;
   traceEntries: LorebookActivationTraceEntry[];
+  visibleTraceEntryIds: string[];
   onOpenChange: (open: boolean) => void;
   onTextChange: (text: string) => void;
 }) {
-  const includedCount = traceEntries.filter((entry) => entry.status === "included").length;
-  const matchedCount = traceEntries.filter((entry) => entry.status === "matched").length;
-  const skippedCount = traceEntries.filter((entry) => entry.status === "skipped").length;
-  const firstSkipped = traceEntries.find((entry) => entry.status === "skipped");
+  const visibleTraceIds = new Set(visibleTraceEntryIds);
+  const scopedTraceEntries =
+    visibleTraceIds.size > 0 ? traceEntries.filter((entry) => visibleTraceIds.has(entry.entryId)) : traceEntries;
+  const traceScopeLabel = scopedTraceEntries.length === traceEntries.length ? "Trace" : "Visible trace";
+  const includedCount = scopedTraceEntries.filter((entry) => entry.status === "included").length;
+  const matchedCount = scopedTraceEntries.filter((entry) => entry.status === "matched").length;
+  const skippedCount = scopedTraceEntries.filter((entry) => entry.status === "skipped").length;
+  const firstSkipped = scopedTraceEntries.find((entry) => entry.status === "skipped");
+  const displayedMatchCount = includedCount;
 
   return (
     <div className="rounded-xl bg-[var(--secondary)]/60 ring-1 ring-[var(--border)]">
@@ -38,7 +43,7 @@ export function LorebookKeywordTestPanel({
         <span className="flex-1">Keyword test</span>
         {previewActive && (
           <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-[0.625rem] font-medium text-emerald-300 ring-1 ring-emerald-400/25">
-            {previewMatchCount} match{previewMatchCount === 1 ? "" : "es"}
+            {displayedMatchCount} match{displayedMatchCount === 1 ? "" : "es"}
           </span>
         )}
         <ChevronDown
@@ -78,14 +83,14 @@ export function LorebookKeywordTestPanel({
           {previewActive && (
             <div className="space-y-1 text-[0.6875rem] text-[var(--muted-foreground)]">
               <p>
-                {previewMatchCount === 0
-                  ? "No entries would activate on this text."
-                  : `${previewMatchCount} of ${enabledEntryCount} enabled entr${
+                {displayedMatchCount === 0
+                  ? "No visible entries would activate on this text."
+                  : `${displayedMatchCount} of ${enabledEntryCount} enabled entr${
                       enabledEntryCount === 1 ? "y" : "ies"
                     } would activate.`}
               </p>
               <p>
-                Trace: {includedCount} included, {matchedCount} matched, {skippedCount} skipped
+                {traceScopeLabel}: {includedCount} included, {matchedCount} matched, {skippedCount} skipped
               </p>
               {firstSkipped && <p>First skipped: {firstSkipped.name} - {firstSkipped.hint}</p>}
             </div>

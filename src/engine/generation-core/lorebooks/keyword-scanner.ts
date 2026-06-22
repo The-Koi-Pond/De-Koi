@@ -432,6 +432,8 @@ export function hintForTraceReason(reason: LorebookActivationTraceReason): strin
       return "Enable this injection position in the active prompt preset.";
     case "recursion_blocked":
       return "Disable anti-recursion only if this entry should seed recursive scans.";
+    case "unscanned":
+      return "This entry was not evaluated by this scanner pass.";
     case "keyword_match":
     case "constant":
     case "sticky":
@@ -750,7 +752,7 @@ export async function scanForActivatedEntriesWithTrace(
   return {
     activatedEntries: afterGroups,
     trace: {
-      entries: entries.map((entry) => traceById.get(entry.id) ?? traceEntry(entry, "skipped", "primary_key_miss")),
+      entries: entries.map((entry) => traceById.get(entry.id) ?? traceEntry(entry, "skipped", "unscanned")),
     },
   };
 }

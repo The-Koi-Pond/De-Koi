@@ -278,7 +278,8 @@ export type LorebookActivationTraceReason =
   | "folder_disabled"
   | "empty_content"
   | "position_disabled"
-  | "recursion_blocked";
+  | "recursion_blocked"
+  | "unscanned";
 
 export interface LorebookActivationTraceEntry {
   entryId: string;

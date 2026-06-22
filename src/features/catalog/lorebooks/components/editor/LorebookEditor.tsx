@@ -8,7 +8,7 @@
 // flow has been replaced so users can edit row-level params without leaving
 // the list. Inspired by SillyTavern's World Info layout.
 // ──────────────────────────────────────────────
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import {
   useLorebook,
@@ -146,6 +146,7 @@ export function LorebookEditor() {
   const [keywordPreviewText, setKeywordPreviewText] = useState("");
   const [keywordPreviewDebounced, setKeywordPreviewDebounced] = useState("");
   const [keywordPreviewTraceEntries, setKeywordPreviewTraceEntries] = useState<LorebookActivationTraceEntry[]>([]);
+  const keywordPreviewScanId = useRef(0);
   useEffect(() => {
     const handle = window.setTimeout(() => setKeywordPreviewDebounced(keywordPreviewText), 150);
     return () => window.clearTimeout(handle);
@@ -413,20 +414,19 @@ export function LorebookEditor() {
   // Logic mirrors the original lorebook keyword scanner —
   // both sides import the same shared helpers so the preview cannot drift.
   useEffect(() => {
-    let cancelled = false;
-    if (!keywordPreviewDebounced.trim()) {
+    const scanText = keywordPreviewDebounced;
+    const scanId = keywordPreviewScanId.current + 1;
+    keywordPreviewScanId.current = scanId;
+    if (!scanText.trim()) {
       setKeywordPreviewTraceEntries([]);
       return;
     }
-    void scanForActivatedEntriesWithTrace([{ role: "user", content: keywordPreviewDebounced }], entries, {
+    void scanForActivatedEntriesWithTrace([{ role: "user", content: scanText }], entries, {
       ignoreTiming: true,
       generationTriggers: ["test_scan", "chat"],
     }).then((result) => {
-      if (!cancelled) setKeywordPreviewTraceEntries(result.trace.entries);
+      if (keywordPreviewScanId.current === scanId) setKeywordPreviewTraceEntries(result.trace.entries);
     });
-    return () => {
-      cancelled = true;
-    };
   }, [entries, keywordPreviewDebounced]);
 
   const previewMatches = useMemo(() => {
@@ -440,7 +440,6 @@ export function LorebookEditor() {
   }, [keywordPreviewDebounced, keywordPreviewTraceEntries]);
 
   const previewActive = keywordPreviewDebounced.trim().length > 0;
-  const previewMatchCount = previewMatches.size;
   const enabledEntryCount = useMemo(() => entries.filter((entry) => entry.enabled).length, [entries]);
   const {
     entrySelectionMode,
@@ -672,9 +671,9 @@ export function LorebookEditor() {
                 keywordPreviewOpen={keywordPreviewOpen}
                 keywordPreviewText={keywordPreviewText}
                 previewActive={previewActive}
-                previewMatchCount={previewMatchCount}
                 enabledEntryCount={enabledEntryCount}
                 traceEntries={keywordPreviewTraceEntries}
+                visibleTraceEntryIds={visibleEntryIds}
                 entrySelectionMode={entrySelectionMode}
                 selectedEntryIds={selectedEntryIds}
                 visibleEntryIds={visibleEntryIds}

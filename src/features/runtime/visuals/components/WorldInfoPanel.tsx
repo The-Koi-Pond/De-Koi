@@ -54,6 +54,8 @@ function reasonLabel(reason: LorebookActivationTraceEntry["reason"]): string {
       return "Position";
     case "recursion_blocked":
       return "Recursion";
+    case "unscanned":
+      return "Not scanned";
   }
 }
 
@@ -137,7 +139,7 @@ export function WorldInfoPanel({
   const { data, isLoading, isError, error } = useActiveLorebookEntries(chatId, true, {
     includeTestScanTrigger: true,
   });
-  const [filter, setFilter] = useState<TraceFilter>("included");
+  const [filter, setFilter] = useState<TraceFilter>("all");
   const traceEntries = data?.activationTrace.entries ?? [];
   const activeContentById = useMemo(
     () => new Map((data?.entries ?? []).map((entry) => [entry.id, entry.content])),
