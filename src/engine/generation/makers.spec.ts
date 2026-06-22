@@ -18,6 +18,14 @@ function streamLlm(chunks: LlmChunk[]): LlmGateway {
   } as unknown as LlmGateway;
 }
 
+function completeLlm(raw: string): LlmGateway {
+  return {
+    complete: vi.fn(async () => raw),
+    stream: vi.fn(),
+    listModels: vi.fn(async () => []),
+  } as unknown as LlmGateway;
+}
+
 function tokenText(events: MakerEvent[]): string {
   return events
     .filter((event): event is Extract<MakerEvent, { type: "token" }> => event.type === "token")
@@ -60,5 +68,37 @@ describe("generateCharacterMaker", () => {
     );
 
     expect(tokenText(events)).toBe('{"name":"Mira"}');
+  });
+
+  it("does not emit non-streaming token text for a thinking-only response", async () => {
+    const events = await collectEvents(
+      generateCharacterMaker(
+        {
+          llm: completeLlm("<think>hidden</think>"),
+        },
+        { prompt: "Create Mira", connectionId: "conn-1" },
+      ),
+    );
+    const done = events.find((event): event is Extract<MakerEvent, { type: "done" }> => event.type === "done");
+
+    expect(tokenText(events)).toBe("");
+    expect(JSON.stringify(events)).not.toContain("hidden");
+    expect(done?.data).toBe("");
+  });
+
+  it("emits and parses only visible JSON for a non-streaming response with leading thinking", async () => {
+    const events = await collectEvents(
+      generateCharacterMaker(
+        {
+          llm: completeLlm('<think>hidden</think>{"name":"Mira"}'),
+        },
+        { prompt: "Create Mira", connectionId: "conn-1" },
+      ),
+    );
+    const done = events.find((event): event is Extract<MakerEvent, { type: "done" }> => event.type === "done");
+
+    expect(tokenText(events)).toBe('{"name":"Mira"}');
+    expect(tokenText(events)).not.toContain("hidden");
+    expect(JSON.parse(done?.data ?? "{}")).toEqual({ name: "Mira" });
   });
 });

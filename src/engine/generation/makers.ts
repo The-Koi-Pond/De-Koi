@@ -358,9 +358,10 @@ async function* generateJsonMaker(
   );
 
   const payload = parseObject(raw);
+  const cleanText = cleanMakerResponseText(raw);
   yield {
     type: "done",
-    data: Object.keys(payload).length > 0 ? JSON.stringify(payload) : raw,
+    data: Object.keys(payload).length > 0 ? JSON.stringify(payload) : cleanText,
   };
 }
 
@@ -379,7 +380,8 @@ async function* runMakerRequest(
   };
   if (!input.streaming) {
     const raw = await llm.complete(request, signal);
-    yield { type: "token", data: extractLeadingThinkingBlocks(raw).cleanText || raw };
+    const cleanText = cleanMakerResponseText(raw);
+    if (cleanText) yield { type: "token", data: cleanText };
     return raw;
   }
 
@@ -446,9 +448,18 @@ function buildContinuationLorebookPrompt(
 }
 
 function parseObject<T extends Record<string, unknown>>(raw: string): T {
-  const { cleanText } = extractLeadingThinkingBlocks(raw);
-  const parsed = parseGameJsonish(cleanText);
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as T) : ({} as T);
+  const cleanText = cleanMakerResponseText(raw);
+  if (!cleanText.trim()) return {} as T;
+  try {
+    const parsed = parseGameJsonish(cleanText);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as T) : ({} as T);
+  } catch {
+    return {} as T;
+  }
+}
+
+function cleanMakerResponseText(raw: string): string {
+  return extractLeadingThinkingBlocks(raw).cleanText;
 }
 
 function normalizeLorebookEntry(entry: LorebookMakerEntry): LorebookMakerEntry {
