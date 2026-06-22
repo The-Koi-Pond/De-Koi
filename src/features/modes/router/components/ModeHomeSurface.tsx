@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useState, type CSSProperties, type ReactNode } from "react";
 import { BookOpen, HelpCircle, List, MessageSquare, Theater } from "lucide-react";
 import { useConnections } from "../../../catalog/connections/index";
 import { useCreateChat } from "../../../catalog/chats/index";
@@ -26,11 +26,6 @@ function prewarmQuickStartMode(mode: QuickStartMode): void {
   quickStartModePreloads[mode]().catch(() => preloadedQuickStartModes.delete(mode));
 }
 
-function prewarmAllQuickStartModes(): void {
-  prewarmQuickStartMode("conversation");
-  prewarmQuickStartMode("roleplay");
-  prewarmQuickStartMode("game");
-}
 
 export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?: ReactNode }) {
   const { data: connections } = useConnections();
@@ -39,20 +34,6 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
   const [creditsOpen, setCreditsOpen] = useState(false);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    const requestIdle = idleWindow.requestIdleCallback;
-    if (typeof requestIdle === "function") {
-      const handle = requestIdle(prewarmAllQuickStartModes, { timeout: 1800 });
-      return () => idleWindow.cancelIdleCallback?.(handle);
-    }
-    const handle = window.setTimeout(prewarmAllQuickStartModes, 600);
-    return () => window.clearTimeout(handle);
-  }, []);
 
   const handleQuickStart = useCallback(
     (mode: QuickStartMode) => {
