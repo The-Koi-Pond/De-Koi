@@ -8,7 +8,7 @@
 // flow has been replaced so users can edit row-level params without leaving
 // the list. Inspired by SillyTavern's World Info layout.
 // ──────────────────────────────────────────────
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import {
   useLorebook,
@@ -32,8 +32,8 @@ import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { exportApi } from "../../../../../shared/api/export-api";
 import { toastExportError, triggerDownloadWithToast } from "../../../../shared/lib/export-feedback";
-import type { Lorebook, LorebookEntry, LorebookFolder } from "../../../../../engine/contracts/types/lorebook";
-import { testPrimaryKeys, testSecondaryKeys } from "../../../../../engine/shared/regex/lorebook-keyword-matching";
+import type { Lorebook, LorebookActivationTraceEntry, LorebookEntry, LorebookFolder } from "../../../../../engine/contracts/types/lorebook";
+import { scanForActivatedEntriesWithTrace } from "../../../../../engine/generation-core/lorebooks/keyword-scanner";
 import { LorebookEditorHeader } from "./LorebookEditorHeader";
 import { LorebookEditorTabs, type LorebookEditorTabId } from "./LorebookEditorTabs";
 import { LorebookEntriesTab } from "./LorebookEntriesTab";
@@ -145,6 +145,8 @@ export function LorebookEditor() {
   const [keywordPreviewOpen, setKeywordPreviewOpen] = useState(false);
   const [keywordPreviewText, setKeywordPreviewText] = useState("");
   const [keywordPreviewDebounced, setKeywordPreviewDebounced] = useState("");
+  const [keywordPreviewTraceEntries, setKeywordPreviewTraceEntries] = useState<LorebookActivationTraceEntry[]>([]);
+  const keywordPreviewScanId = useRef(0);
   useEffect(() => {
     const handle = window.setTimeout(() => setKeywordPreviewDebounced(keywordPreviewText), 150);
     return () => window.clearTimeout(handle);
@@ -411,34 +413,33 @@ export function LorebookEditor() {
   // filters, semantic embeddings, recursive scan, group selection).
   // Logic mirrors the original lorebook keyword scanner —
   // both sides import the same shared helpers so the preview cannot drift.
-  const previewMatches = useMemo(() => {
-    const result = new Map<string, "matched" | "constant">();
-    const text = keywordPreviewDebounced;
-    if (!text.trim()) return result;
-    for (const entry of entries) {
-      if (!entry.enabled) continue;
-      if (entry.constant) {
-        result.set(entry.id, "constant");
-        continue;
-      }
-      const opts = {
-        useRegex: entry.useRegex,
-        matchWholeWords: entry.matchWholeWords,
-        caseSensitive: entry.caseSensitive,
-      };
-      const { matched } = testPrimaryKeys(entry.keys, text, opts);
-      if (!matched) continue;
-      if (entry.selective && entry.secondaryKeys.length > 0) {
-        if (!testSecondaryKeys(entry.secondaryKeys, text, entry.selectiveLogic, opts)) continue;
-      }
-      result.set(entry.id, "matched");
+  useEffect(() => {
+    const scanText = keywordPreviewDebounced;
+    const scanId = keywordPreviewScanId.current + 1;
+    keywordPreviewScanId.current = scanId;
+    if (!scanText.trim()) {
+      setKeywordPreviewTraceEntries([]);
+      return;
     }
-    return result;
+    void scanForActivatedEntriesWithTrace([{ role: "user", content: scanText }], entries, {
+      ignoreTiming: true,
+      generationTriggers: ["test_scan", "chat"],
+    }).then((result) => {
+      if (keywordPreviewScanId.current === scanId) setKeywordPreviewTraceEntries(result.trace.entries);
+    });
   }, [entries, keywordPreviewDebounced]);
 
+  const previewMatches = useMemo(() => {
+    const result = new Map<string, "matched" | "constant">();
+    if (!keywordPreviewDebounced.trim()) return result;
+    for (const trace of keywordPreviewTraceEntries) {
+      if (trace.status !== "included") continue;
+      result.set(trace.entryId, trace.reason === "constant" ? "constant" : "matched");
+    }
+    return result;
+  }, [keywordPreviewDebounced, keywordPreviewTraceEntries]);
+
   const previewActive = keywordPreviewDebounced.trim().length > 0;
-  const previewMatchCount = previewMatches.size;
-  const enabledEntryCount = useMemo(() => entries.filter((entry) => entry.enabled).length, [entries]);
   const {
     entrySelectionMode,
     selectedEntryIds,
@@ -467,6 +468,12 @@ export function LorebookEditor() {
 
   // Toggle the inline drawer for an entry. Single-expand keeps the page
   // tidy; users can collapse the open one and click another to jump.
+  const visibleEntryIdSet = useMemo(() => new Set(visibleEntryIds), [visibleEntryIds]);
+  const visibleEnabledEntryCount = useMemo(
+    () => entries.filter((entry) => entry.enabled && visibleEntryIdSet.has(entry.id)).length,
+    [entries, visibleEntryIdSet],
+  );
+
   const toggleEntryExpanded = useCallback((entryId: string) => {
     setExpandedEntryId((current) => (current === entryId ? null : entryId));
   }, []);
@@ -669,8 +676,9 @@ export function LorebookEditor() {
                 keywordPreviewOpen={keywordPreviewOpen}
                 keywordPreviewText={keywordPreviewText}
                 previewActive={previewActive}
-                previewMatchCount={previewMatchCount}
-                enabledEntryCount={enabledEntryCount}
+                traceEntries={keywordPreviewTraceEntries}
+                visibleTraceEntryIds={visibleEntryIds}
+                visibleEnabledEntryCount={visibleEnabledEntryCount}
                 entrySelectionMode={entrySelectionMode}
                 selectedEntryIds={selectedEntryIds}
                 visibleEntryIds={visibleEntryIds}

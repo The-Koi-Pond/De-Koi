@@ -12,11 +12,11 @@ const messages = [
   })),
 ];
 
-function storageFor(lorebook: JsonRecord, entries: JsonRecord[]): StorageGateway {
+function storageFor(lorebook: JsonRecord, entries: JsonRecord[], folders: JsonRecord[] = []): StorageGateway {
   return {
     list: async <T = unknown>(entity: string): Promise<T[]> => {
       if (entity === "lorebooks") return [lorebook] as T[];
-      if (entity === "lorebook-folders") return [];
+      if (entity === "lorebook-folders") return folders as T[];
       return [];
     },
     listLorebookEntriesByLorebookIds: async <T = unknown>(_lorebookIds: string[]): Promise<T[]> => entries as T[],
@@ -61,4 +61,84 @@ describe("active lorebook scanner", () => {
   it("preserves explicit lorebook scanDepth 0 as scan-all", async () => {
     await expect(scanEntryIds({ scanDepth: 0 })).resolves.toEqual(["entry-1"]);
   });
+
+  it("traces entries skipped by lorebook token budget", async () => {
+    const result = await scanActiveLorebooks({
+      storage: storageFor(
+        { id: "book-1", name: "Book", enabled: true, isGlobal: true, tokenBudget: 2 },
+        [
+          {
+            id: "entry-1",
+            lorebookId: "book-1",
+            name: "Small",
+            content: "abcd",
+            constant: true,
+            enabled: true,
+            order: 1,
+          },
+          {
+            id: "entry-2",
+            lorebookId: "book-1",
+            name: "Large",
+            content: "abcdefghijkl",
+            constant: true,
+            enabled: true,
+            order: 2,
+          },
+        ],
+      ),
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      characters: [],
+      persona: null,
+      storedMessages: messages,
+      request: {},
+      embeddingSource: null,
+    });
+
+    expect(result.activatedEntries.map((entry) => entry.entry.id)).toEqual(["entry-1"]);
+    expect(result.activationTrace.entries.find((entry) => entry.entryId === "entry-2")).toMatchObject({
+      status: "matched",
+      reason: "budget_lorebook",
+      matchedKeys: ["[constant]"],
+      tokenEstimate: 3,
+      hint: "Raise this lorebook's token budget or shorten higher-priority entries.",
+    });
+  });
+
+  it("traces folder-disabled entries before activation filtering", async () => {
+    const result = await scanActiveLorebooks({
+      storage: storageFor(
+        { id: "book-1", name: "Book", enabled: true, isGlobal: true },
+        [
+          {
+            id: "entry-1",
+            lorebookId: "book-1",
+            folderId: "folder-1",
+            name: "Foldered",
+            content: "Lore content",
+            keys: ["ancient gate"],
+            enabled: true,
+          },
+        ],
+        [{ id: "folder-1", lorebookId: "book-1", enabled: false }],
+      ),
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      characters: [],
+      persona: null,
+      storedMessages: messages,
+      request: {},
+      embeddingSource: null,
+    });
+
+    expect(result.activatedEntries).toEqual([]);
+    expect(result.activationTrace.entries).toContainEqual(
+      expect.objectContaining({
+        entryId: "entry-1",
+        status: "skipped",
+        reason: "folder_disabled",
+        hint: "Re-enable this entry's folder to allow activation.",
+      }),
+    );
+  });
+
 });

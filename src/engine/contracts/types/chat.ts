@@ -4,6 +4,7 @@
 
 import type { GenerationGuideSource } from "../../shared/text/generation-guide.js";
 import type { GenerationEvent, LegacyStreamProtocolEvent } from "./generation.js";
+import type { LorebookActivationTrace } from "./lorebook.js";
 
 /** The primary chat modes the engine supports. */
 export type ChatMode = "conversation" | "roleplay" | "game";
@@ -544,6 +545,7 @@ export interface GenerationPromptSnapshot {
   tools?: unknown[] | null;
   generationInfo?: GenerationPromptSnapshotInfo | null;
   promptPresetId?: string | null;
+  lorebookActivationTrace?: LorebookActivationTrace;
   createdAt?: string;
 }
 

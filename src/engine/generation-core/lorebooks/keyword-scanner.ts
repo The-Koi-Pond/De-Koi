@@ -1,5 +1,9 @@
 import type {
   ActivationCondition,
+  LorebookActivationTrace,
+  LorebookActivationTraceEntry,
+  LorebookActivationTraceReason,
+  LorebookActivationTraceStatus,
   LorebookEntry,
   LorebookFilterMode,
   LorebookMatchingSource,
@@ -54,6 +58,11 @@ export interface EntryTimingState {
   cooldownRemaining: number;
   /** Delay messages remaining before first activation */
   delayRemaining: number;
+}
+
+export interface LorebookActivationTraceResult {
+  activatedEntries: ActivatedEntry[];
+  trace: LorebookActivationTrace;
 }
 
 type LorebookFilterValueContext = {
@@ -191,41 +200,10 @@ function checkTiming(entry: LorebookEntry, timingState: EntryTimingState | undef
   return true;
 }
 
-function passesContextualActivationGate(
-  entry: LorebookEntry,
-  filterContext: LorebookFilterValueContext,
-  gameState: GameStateForScanning | null,
-): boolean {
-  if (!entry.enabled) return false;
-  if (!passesEntryFilters(entry, filterContext)) return false;
-  if (!evaluateConditions(entry.activationConditions, gameState)) return false;
-  if (!evaluateSchedule(entry.schedule, gameState)) return false;
-  return true;
-}
-
-function passesActivationGate(
-  entry: LorebookEntry,
-  timingState: EntryTimingState | undefined,
-  filterContext: LorebookFilterValueContext,
-  gameState: GameStateForScanning | null,
-  ignoreTiming: boolean = false,
-): boolean {
-  if (!passesContextualActivationGate(entry, filterContext, gameState)) return false;
-  if (!ignoreTiming && !checkTiming(entry, timingState)) return false;
-  return true;
-}
-
 function normalizeProbability(value: unknown): number | null {
   const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : null;
   if (parsed === null || !Number.isFinite(parsed)) return null;
   return Math.max(0, Math.min(100, parsed));
-}
-
-function passesProbabilityGate(entry: LorebookEntry, random: () => number): boolean {
-  const probability = normalizeProbability(entry.probability);
-  if (probability === null || probability >= 100) return true;
-  if (probability <= 0) return false;
-  return random() * 100 < probability;
 }
 
 function hasTimingConfig(entry: LorebookEntry): boolean {
@@ -412,15 +390,107 @@ export interface ScanOptions {
   random?: () => number;
 }
 
+function estimateTraceTokens(entry: LorebookEntry): number {
+  return Math.ceil(entry.content.length / 4);
+}
+
+function timingTrace(state: EntryTimingState | undefined): EntryTimingState | undefined {
+  return state ? cloneTimingState(state) : undefined;
+}
+
+export function hintForTraceReason(reason: LorebookActivationTraceReason): string {
+  switch (reason) {
+    case "primary_key_miss":
+      return "Edit this entry's keys or increase scan depth.";
+    case "secondary_key_miss":
+      return "Edit secondary keys or change the selective-key logic.";
+    case "disabled":
+      return "Enable this entry to allow activation.";
+    case "scope_filter":
+      return "Adjust character, tag, or generation-trigger filters for this context.";
+    case "condition_miss":
+      return "Change the game-state condition or update the current game state.";
+    case "schedule_miss":
+      return "Adjust the schedule or move the scene into a matching time, date, or location.";
+    case "timing_blocked":
+      return "Reset timing state or wait for delay/cooldown to expire.";
+    case "probability_failed":
+      return "Increase probability or test again with a new roll.";
+    case "group_loser":
+      return "Raise this entry's group weight or move it to another group.";
+    case "budget_lorebook":
+      return "Raise this lorebook's token budget or shorten higher-priority entries.";
+    case "budget_chat":
+      return "Raise the chat lorebook budget or shorten higher-priority entries.";
+    case "budget_both":
+      return "Raise lorebook and chat budgets or shorten higher-priority entries.";
+    case "folder_disabled":
+      return "Re-enable this entry's folder to allow activation.";
+    case "empty_content":
+      return "Add entry content before testing activation.";
+    case "position_disabled":
+      return "Enable this injection position in the active prompt preset.";
+    case "recursion_blocked":
+      return "Disable anti-recursion only if this entry should seed recursive scans.";
+    case "unscanned":
+      return "This entry was not evaluated by this scanner pass.";
+    case "keyword_match":
+    case "constant":
+    case "sticky":
+    case "semantic_match":
+      return "This entry reached the activation set for this scan.";
+  }
+}
+
+function traceEntry(
+  entry: LorebookEntry,
+  status: LorebookActivationTraceStatus,
+  reason: LorebookActivationTraceReason,
+  extras: Partial<LorebookActivationTraceEntry> = {},
+): LorebookActivationTraceEntry {
+  return {
+    entryId: entry.id,
+    lorebookId: entry.lorebookId,
+    name: entry.name,
+    status,
+    reason,
+    hint: hintForTraceReason(reason),
+    matchedKeys: [],
+    tokenEstimate: estimateTraceTokens(entry),
+    injection: {
+      position: entry.position,
+      role: entry.role,
+      depth: entry.depth,
+      order: entry.order,
+    },
+    ...extras,
+  };
+}
+
+function activationGateTraceReason(
+  entry: LorebookEntry,
+  timingState: EntryTimingState | undefined,
+  filterContext: LorebookFilterValueContext,
+  gameState: GameStateForScanning | null,
+  ignoreTiming: boolean,
+): LorebookActivationTraceReason | null {
+  if (!entry.enabled) return "disabled";
+  if (!passesEntryFilters(entry, filterContext)) return "scope_filter";
+  if (!evaluateConditions(entry.activationConditions, gameState)) return "condition_miss";
+  if (!evaluateSchedule(entry.schedule, gameState)) return "schedule_miss";
+  if (!ignoreTiming && !checkTiming(entry, timingState)) return "timing_blocked";
+  return null;
+}
+
 /**
- * Main scanning function: given messages and lorebook entries,
- * returns the list of activated entries.
+ * Main scanning function with trace metadata: given messages and lorebook entries,
+ * returns activated entries plus one decision row per scanned entry.
  */
-export async function scanForActivatedEntries(
+export async function scanForActivatedEntriesWithTrace(
   messages: ScanMessage[],
   entries: LorebookEntry[],
   options: ScanOptions = {},
-): Promise<ActivatedEntry[]> {
+): Promise<LorebookActivationTraceResult> {
   const {
     scanDepth = 0,
     gameState = null,
@@ -441,53 +511,120 @@ export async function scanForActivatedEntries(
     generationTriggers: makeValueSet(generationTriggers.length > 0 ? generationTriggers : ["chat"]),
   };
 
-  // Build the text to scan from recent messages
   const messagesToScan = scanDepth > 0 ? messages.slice(-scanDepth) : messages;
   const combinedText = messagesToScan.map((m) => m.content).join("\n");
   const latestUserText = latestUserMessageContent(messages);
 
   const activated: ActivatedEntry[] = [];
   const activatedIds = new Set<string>();
-  const probabilityDecisions = new Map<string, boolean>();
-  const passesEntryProbability = (entry: LorebookEntry) => {
-    const existing = probabilityDecisions.get(entry.id);
-    if (existing !== undefined) return existing;
-    const passes = passesProbabilityGate(entry, random);
-    probabilityDecisions.set(entry.id, passes);
-    return passes;
+  const traceById = new Map<string, LorebookActivationTraceEntry>();
+  const probabilityDecisions = new Map<
+    string,
+    { configured: number | null; roll: number | null; passed: boolean }
+  >();
+  const recordTrace = (entry: LorebookEntry, trace: LorebookActivationTraceEntry) => {
+    traceById.set(entry.id, trace);
   };
+  const probabilityForEntry = (entry: LorebookEntry) => {
+    const existing = probabilityDecisions.get(entry.id);
+    if (existing) return existing;
+    const configured = normalizeProbability(entry.probability);
+    if (configured === null || configured >= 100) {
+      const decision = { configured, roll: null, passed: true };
+      probabilityDecisions.set(entry.id, decision);
+      return decision;
+    }
+    if (configured <= 0) {
+      const decision = { configured, roll: null, passed: false };
+      probabilityDecisions.set(entry.id, decision);
+      return decision;
+    }
+    const roll = random() * 100;
+    const decision = { configured, roll, passed: roll < configured };
+    probabilityDecisions.set(entry.id, decision);
+    return decision;
+  };
+  const probabilityTrace = (decision: { configured: number | null; roll: number | null; passed: boolean }) =>
+    decision.configured === null
+      ? undefined
+      : {
+          configured: decision.configured,
+          roll: decision.roll === null ? null : Number(decision.roll.toFixed(6)),
+          passed: decision.passed,
+        };
 
   for (const entry of entries) {
     const timingState = timingStates.get(entry.id);
 
     if (!ignoreTiming && timingState?.stickyCount && timingState.stickyCount > 0) {
-      if (!passesContextualActivationGate(entry, filterContext, gameState)) continue;
-      activated.push({
+      const contextualReason = activationGateTraceReason(entry, undefined, filterContext, gameState, true);
+      if (contextualReason) {
+        recordTrace(
+          entry,
+          traceEntry(entry, "skipped", contextualReason, {
+            timing: timingTrace(timingState),
+          }),
+        );
+        continue;
+      }
+      const activatedEntry = {
         entry,
         matchedKeys: ["[sticky]"],
         injectionOrder: entry.order,
         sticky: true,
-      });
+      } satisfies ActivatedEntry;
+      activated.push(activatedEntry);
       activatedIds.add(entry.id);
+      recordTrace(
+        entry,
+        traceEntry(entry, "included", "sticky", {
+          matchedKeys: activatedEntry.matchedKeys,
+          timing: timingTrace(timingState),
+        }),
+      );
       continue;
     }
 
-    if (!passesActivationGate(entry, timingState, filterContext, gameState, ignoreTiming)) continue;
+    const gateReason = activationGateTraceReason(entry, timingState, filterContext, gameState, ignoreTiming);
+    if (gateReason) {
+      recordTrace(
+        entry,
+        traceEntry(entry, "skipped", gateReason, {
+          timing: timingTrace(timingState),
+        }),
+      );
+      continue;
+    }
 
-    // Constant entries still activate without keywords, but they obey timing,
-    // context filters, activation conditions, schedule, and probability gates.
     if (entry.constant) {
-      if (!passesEntryProbability(entry)) continue;
-      activated.push({
+      const probability = probabilityForEntry(entry);
+      if (!probability.passed) {
+        recordTrace(
+          entry,
+          traceEntry(entry, "skipped", "probability_failed", {
+            matchedKeys: ["[constant]"],
+            probability: probabilityTrace(probability),
+          }),
+        );
+        continue;
+      }
+      const activatedEntry = {
         entry,
         matchedKeys: ["[constant]"],
         injectionOrder: entry.order,
-      });
+      } satisfies ActivatedEntry;
+      activated.push(activatedEntry);
       activatedIds.add(entry.id);
+      recordTrace(
+        entry,
+        traceEntry(entry, "included", "constant", {
+          matchedKeys: activatedEntry.matchedKeys,
+          probability: probabilityTrace(probability),
+        }),
+      );
       continue;
     }
 
-    // Per-entry scan depth override
     const baseEntryScanText =
       entry.scanDepth === 0
         ? messages.map((m) => m.content).join("\n")
@@ -507,58 +644,127 @@ export async function scanForActivatedEntries(
       regexExecutor: vmRegexExecutor,
     };
 
-    // Test primary keys
     const { matched, matchedKeys } = await testPrimaryKeysAsync(entry.keys, entryScanText, matchOptions);
-    if (!matched) continue;
+    if (!matched) {
+      recordTrace(entry, traceEntry(entry, "skipped", "primary_key_miss"));
+      continue;
+    }
     const matchedLatestUserMessage =
       latestUserText.length > 0 && (await testPrimaryKeysAsync(entry.keys, latestUserText, matchOptions)).matched;
 
-    // Test secondary keys only for selective entries. Older imports can carry
-    // secondary keys while keeping selective disabled.
     if (entry.selective && entry.secondaryKeys.length > 0) {
       if (!(await testSecondaryKeysAsync(entry.secondaryKeys, entryScanText, entry.selectiveLogic, matchOptions))) {
+        recordTrace(
+          entry,
+          traceEntry(entry, "skipped", "secondary_key_miss", {
+            matchedKeys,
+          }),
+        );
         continue;
       }
     }
 
-    if (!passesEntryProbability(entry)) continue;
+    const probability = probabilityForEntry(entry);
+    if (!probability.passed) {
+      recordTrace(
+        entry,
+        traceEntry(entry, "skipped", "probability_failed", {
+          matchedKeys,
+          probability: probabilityTrace(probability),
+        }),
+      );
+      continue;
+    }
 
-    activated.push({
+    const activatedEntry = {
       entry,
       matchedKeys,
       matchedLatestUserMessage,
       injectionOrder: entry.order,
-    });
+    } satisfies ActivatedEntry;
+    activated.push(activatedEntry);
     activatedIds.add(entry.id);
+    recordTrace(
+      entry,
+      traceEntry(entry, "included", "keyword_match", {
+        matchedKeys,
+        probability: probabilityTrace(probability),
+      }),
+    );
   }
 
-  // ── Semantic fallback: check entries with embeddings that weren't keyword-matched ──
   if (chatEmbedding && chatEmbedding.length > 0) {
     for (const entry of entries) {
       if (!entry.enabled || entry.constant || activatedIds.has(entry.id)) continue;
       if (entry.excludeFromVectorization) continue;
       if (!entry.embedding || entry.embedding.length === 0) continue;
       const timingState = timingStates.get(entry.id);
-      if (!passesActivationGate(entry, timingState, filterContext, gameState, ignoreTiming)) continue;
+      const gateReason = activationGateTraceReason(entry, timingState, filterContext, gameState, ignoreTiming);
+      if (gateReason) continue;
 
       const similarity = cosineSimilarity(chatEmbedding, entry.embedding);
       if (similarity >= semanticThreshold) {
-        if (!passesEntryProbability(entry)) continue;
-        activated.push({
+        const probability = probabilityForEntry(entry);
+        if (!probability.passed) {
+          recordTrace(
+            entry,
+            traceEntry(entry, "skipped", "probability_failed", {
+              matchedKeys: [`[semantic:${similarity.toFixed(3)}]`],
+              probability: probabilityTrace(probability),
+              semanticScore: Number(similarity.toFixed(6)),
+            }),
+          );
+          continue;
+        }
+        const activatedEntry = {
           entry,
           matchedKeys: [`[semantic:${similarity.toFixed(3)}]`],
           injectionOrder: entry.order,
-        });
+        } satisfies ActivatedEntry;
+        activated.push(activatedEntry);
         activatedIds.add(entry.id);
+        recordTrace(
+          entry,
+          traceEntry(entry, "included", "semantic_match", {
+            matchedKeys: activatedEntry.matchedKeys,
+            probability: probabilityTrace(probability),
+            semanticScore: Number(similarity.toFixed(6)),
+          }),
+        );
       }
     }
   }
 
-  // Apply group selection
   const afterGroups = applyGroupSelection(activated);
+  const selectedIds = new Set(afterGroups.map((entry) => entry.entry.id));
+  for (const entry of activated) {
+    if (selectedIds.has(entry.entry.id)) continue;
+    recordTrace(
+      entry.entry,
+      traceEntry(entry.entry, "skipped", "group_loser", {
+        matchedKeys: entry.matchedKeys,
+      }),
+    );
+  }
 
-  // Sort by injection order (lower = higher priority)
   afterGroups.sort((a, b) => a.injectionOrder - b.injectionOrder);
 
-  return afterGroups;
+  return {
+    activatedEntries: afterGroups,
+    trace: {
+      entries: entries.map((entry) => traceById.get(entry.id) ?? traceEntry(entry, "skipped", "unscanned")),
+    },
+  };
+}
+
+/**
+ * Main scanning function: given messages and lorebook entries,
+ * returns the list of activated entries.
+ */
+export async function scanForActivatedEntries(
+  messages: ScanMessage[],
+  entries: LorebookEntry[],
+  options: ScanOptions = {},
+): Promise<ActivatedEntry[]> {
+  return (await scanForActivatedEntriesWithTrace(messages, entries, options)).activatedEntries;
 }
