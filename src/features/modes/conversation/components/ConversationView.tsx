@@ -18,16 +18,7 @@ import {
 import { ConversationMessage } from "./ConversationMessage";
 import { ConversationInput } from "./ConversationInput";
 import { SceneBanner, EndSceneBar } from "../../shared/scene-ui";
-import {
-  EMPTY_STREAMING_BUBBLE_DRAFT,
-  bubbleRegenerationBackingSignature,
-  hasBubbleRegenerationBackingChanged,
-  shouldRenderBubbleRegenerationDraft,
-  shouldRenderConversationLiveStreamMessage,
-  shouldRenderConversationRegenerationStream,
-  updateStreamingBubbleDraft,
-  type StreamingBubbleDraftState,
-} from "../lib/conversation-streaming-draft";
+
 import {
   CONVERSATION_PART_REVEAL_FRESHNESS_MS,
   clearConversationRevealGeneration,
@@ -413,30 +404,8 @@ export function ConversationView({
   const liveTypingVerb = liveTypingName.includes(",") || liveTypingName.includes(" & ") ? "are" : "is";
   // When the stream buffer clears before isStreaming flips false, hide bubble
   // draft rows immediately so the saved message can take over without a flash.
-  const streamHadContentRef = useRef(false);
-  useEffect(() => {
-    if (!isStreaming) {
-      streamHadContentRef.current = false;
-      return;
-    }
-    if (streamBuffer || thinkingBuffer) streamHadContentRef.current = true;
-  }, [isStreaming, streamBuffer, thinkingBuffer]);
-  const isStreamWindingDown =
-    isStreaming &&
-    conversationMessageStyle === "bubble" &&
-    !streamBuffer &&
-    !thinkingBuffer &&
-    streamHadContentRef.current;
+
   const hasStreamBufferContent = !!streamBuffer || !!thinkingBuffer;
-  const shouldRenderLiveStreamMessage = shouldRenderConversationLiveStreamMessage({
-    allowPartialResponses: false,
-    isStreaming,
-    hasDelayedCharacterInfo: !!delayedCharacterInfo,
-    isRegenerating: !!regenerateMessageId,
-    isStreamWindingDown,
-    messageStyle: conversationMessageStyle,
-    hasStreamBufferContent,
-  });
   const showTypingIndicator =
     isStreaming && !delayedCharacterInfo && !hasStreamBufferContent && conversationMessageStyle !== "bubble";
   const liveTypingLabel = `${liveTypingName} ${liveTypingVerb} typing...`;
@@ -1038,102 +1007,6 @@ export function ConversationView({
     return items;
   }, [transcriptWindow, characterMap, chatCharIds, conversationMessageStyle, totalMessageCount]);
 
-  const liveStreamCharacterId = streamingCharacterId ?? (activeChatCharIds.length === 1 ? activeChatCharIds[0]! : null);
-  const liveStreamMessage = useMemo<Message | null>(() => {
-    if (!shouldRenderLiveStreamMessage) return null;
-    return {
-      id: "__conversation_live_stream__",
-      chatId,
-      role: "assistant",
-      characterId: liveStreamCharacterId,
-      content: conversationMessageStyle === "bubble" ? "" : streamBuffer,
-      activeSwipeIndex: 0,
-      swipeCount: 0,
-      createdAt: new Date().toISOString(),
-      extra: {
-        displayText: null,
-        isGenerated: true,
-        tokenCount: null,
-        generationInfo: null,
-        thinking: thinkingBuffer || null,
-      },
-    };
-  }, [
-    chatId,
-    conversationMessageStyle,
-    liveStreamCharacterId,
-    shouldRenderLiveStreamMessage,
-    streamBuffer,
-    thinkingBuffer,
-  ]);
-
-  const buildStreamingBubblePreview = useCallback(
-    (content: string, characterId: string | null) => {
-      if (conversationMessageStyle !== "bubble" || !content.trim()) return "";
-      const cleaned = content
-        .replace(/^(\s*\[\d{1,2}[:.]\d{2}\]\s*)+/gm, "")
-        .replace(/^(\s*\[\d{1,2}\.\d{1,2}\.\d{4}\]\s*)+/gm, "")
-        .trimStart();
-      const cutoffs: number[] = [];
-
-      for (const match of cleaned.matchAll(/\n\s*\n/g)) {
-        if (typeof match.index === "number") cutoffs.push(match.index + match[0].length);
-      }
-
-      const lastNewlineIndex = cleaned.lastIndexOf("\n");
-      if (lastNewlineIndex >= 0) cutoffs.push(lastNewlineIndex + 1);
-
-      for (const match of cleaned.matchAll(/[.!?…]["')\]]?(?=\s|$)/g)) {
-        if (typeof match.index === "number") cutoffs.push(match.index + match[0].length);
-      }
-
-      const cutoff = Math.max(0, ...cutoffs);
-      if (cutoff <= 0) return "";
-      const characterName = characterId ? characterMap.get(characterId)?.name : null;
-      const lines = splitAssistantContentLines(cleaned.slice(0, cutoff).trim(), characterName);
-      return lines.join("\n").trim();
-    },
-    [characterMap, conversationMessageStyle],
-  );
-
-  const streamingDraftKey =
-    isStreaming && conversationMessageStyle === "bubble" && !delayedCharacterInfo
-      ? `${chatId}:${regenerateMessageId ?? "new"}:${liveStreamCharacterId ?? "assistant"}`
-      : null;
-  const regenerationBackingSignature = useMemo(() => {
-    if (!regenerateMessageId) return "";
-    return bubbleRegenerationBackingSignature(messages?.find((message) => message.id === regenerateMessageId));
-  }, [messages, regenerateMessageId]);
-  const [streamingBubbleDraft, setStreamingBubbleDraft] =
-    useState<StreamingBubbleDraftState>(EMPTY_STREAMING_BUBBLE_DRAFT);
-
-  useEffect(() => {
-    const nextPreview = buildStreamingBubblePreview(streamBuffer, liveStreamCharacterId);
-    setStreamingBubbleDraft((current) =>
-      updateStreamingBubbleDraft(current, {
-        key: streamingDraftKey,
-        preview: nextPreview,
-        streamBuffer,
-        backingSignature: regenerateMessageId ? regenerationBackingSignature : "",
-      }),
-    );
-  }, [
-    buildStreamingBubblePreview,
-    liveStreamCharacterId,
-    regenerateMessageId,
-    regenerationBackingSignature,
-    streamBuffer,
-    streamingDraftKey,
-  ]);
-
-  const streamingBubblePreview =
-    streamingDraftKey && streamingBubbleDraft.key === streamingDraftKey ? streamingBubbleDraft.text : "";
-  const liveStreamContentParts = streamingBubblePreview ? [streamingBubblePreview] : undefined;
-  const bubbleRegenerationBackingChanged =
-    streamingDraftKey && streamingBubbleDraft.key === streamingDraftKey
-      ? hasBubbleRegenerationBackingChanged(streamingBubbleDraft, regenerationBackingSignature)
-      : false;
-
   // ── Staggered reveal for assistant message parts ──
   const [visiblePartCounts, setVisiblePartCounts] = useState<Record<string, number>>({});
   const renderedMessageKeysRef = useRef<Set<string>>(new Set());
@@ -1632,43 +1505,9 @@ export function ConversationView({
                   const isRegenerating = isStreaming && regenerateMessageId === msg.id;
                   const isBubbleRegenerating = isRegenerating && conversationMessageStyle === "bubble";
                   // Conversation mode keeps partial regeneration text hidden until the saved response arrives.
-                  const shouldRenderRegenerationStream = shouldRenderConversationRegenerationStream({
-                    allowPartialResponses: false,
-                    isRegenerating,
-                    isBubbleRegenerating,
-                    hasStreamBufferContent: !!streamBuffer || !!thinkingBuffer,
-                  });
-                  const hasStreamContent = shouldRenderRegenerationStream && (!!streamBuffer || !!thinkingBuffer);
-                  const displayMsg = shouldRenderRegenerationStream
-                    ? (() => {
-                        const parsed = typeof msg.extra === "string" ? JSON.parse(msg.extra) : (msg.extra ?? {});
-                        return {
-                          ...msg,
-                          content: streamBuffer || (thinkingBuffer ? "Thinking..." : ""),
-                          extra: { ...parsed, attachments: null, thinking: thinkingBuffer || parsed.thinking },
-                        };
-                      })()
-                    : msg;
-                  const regenerationDraftMessage = shouldRenderBubbleRegenerationDraft({
-                    allowPartialResponses: false,
-                    isBubbleRegenerating,
-                    backingMessageChanged: bubbleRegenerationBackingChanged,
-                  })
-                    ? ({
-                        ...msg,
-                        id: `__conversation_regeneration_stream__${msg.id}`,
-                        content: "",
-                        activeSwipeIndex: 0,
-                        swipeCount: 0,
-                        extra: {
-                          ...(typeof msg.extra === "string" ? JSON.parse(msg.extra) : (msg.extra ?? {})),
-                          attachments: null,
-                          displayText: null,
-                          thinking: thinkingBuffer || null,
-                        },
-                      } as Message)
-                    : null;
-                  const contentParts = shouldRenderRegenerationStream ? undefined : item.contentParts;
+                  const hasStreamContent = false;
+                  const displayMsg = msg;
+                  const contentParts = item.contentParts;
                   const visiblePartCount = contentParts
                     ? resolveConversationVisiblePartCount({
                         key: item.key,
@@ -1707,63 +1546,12 @@ export function ConversationView({
                         originalContent={!isRegenerating || isBubbleRegenerating ? item.originalContent : undefined}
                         typingLabel={typingLabelInMessage && msg.id === typingTargetId ? liveTypingLabel : undefined}
                       />
-                      {regenerationDraftMessage && (
-                        <ConversationMessage
-                          key={regenerationDraftMessage.id}
-                          message={regenerationDraftMessage}
-                          isStreaming
-                          isGrouped={false}
-                          hideActions
-                          hideTimestamp={!showTimestamps}
-                          onDelete={onDelete}
-                          onRegenerate={onRegenerate}
-                          onEdit={onEdit}
-                          onSetActiveSwipe={onSetActiveSwipe}
-                          onPeekPrompt={onPeekPrompt}
-                          onToggleHiddenFromAI={onToggleHiddenFromAI}
-                          onBranch={onBranch}
-                          isLastAssistantMessage={false}
-                          characterMap={characterMap}
-                          personaInfo={personaInfo}
-                          chatCharacterIds={chatCharIds}
-                          messageStyle={conversationMessageStyle}
-                          contentParts={liveStreamContentParts}
-                          visiblePartCount={liveStreamContentParts?.length}
-                          bubbleGroupPosition="single"
-                        />
-                      )}
                     </>
                   );
                 })()}
               </Fragment>
             );
           })}
-
-          {liveStreamMessage && (
-            <ConversationMessage
-              key={liveStreamMessage.id}
-              message={liveStreamMessage}
-              isStreaming
-              isGrouped={false}
-              hideActions
-              hideTimestamp={!showTimestamps}
-              onDelete={onDelete}
-              onRegenerate={onRegenerate}
-              onEdit={onEdit}
-              onSetActiveSwipe={onSetActiveSwipe}
-              onPeekPrompt={onPeekPrompt}
-              onToggleHiddenFromAI={onToggleHiddenFromAI}
-              onBranch={onBranch}
-              isLastAssistantMessage={false}
-              characterMap={characterMap}
-              personaInfo={personaInfo}
-              chatCharacterIds={chatCharIds}
-              messageStyle={conversationMessageStyle}
-              contentParts={liveStreamContentParts}
-              visiblePartCount={liveStreamContentParts?.length}
-              bubbleGroupPosition="single"
-            />
-          )}
 
           {transcriptWindow.hiddenAfterCount > 0 && (
             <div className="flex justify-center py-3">
