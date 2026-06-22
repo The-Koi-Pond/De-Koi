@@ -60,6 +60,9 @@ export function useChatMetadataSync({ chat, chatMeta, messages, messagePageCount
     url: null,
     isSyncing: false,
   });
+  const restoredUrlForRender = chat?.id ? chatBackgroundMetadataToUrl(chatMeta.background) : null;
+  const chatBackgroundForRender =
+    chat?.id && restoredChatBackgroundRef.current.chatId !== chat.id ? restoredUrlForRender : chatBackground;
   useEffect(() => {
     if (!chat?.id) return;
     const restoredUrl = chatBackgroundMetadataToUrl(chatMeta.background);
@@ -133,5 +136,5 @@ export function useChatMetadataSync({ chat, chatMeta, messages, messagePageCount
     };
   }, []);
 
-  return { chatBackground, updateMeta };
+  return { chatBackground: chatBackgroundForRender, updateMeta };
 }

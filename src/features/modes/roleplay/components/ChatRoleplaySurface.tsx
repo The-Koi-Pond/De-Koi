@@ -188,6 +188,18 @@ function CrossfadeBackground({
   );
 }
 
+export function RoleplayBackgroundLayer({
+  activeChatId,
+  chatBackground,
+  blurPx = 0,
+}: {
+  activeChatId: string;
+  chatBackground: string | null;
+  blurPx?: number;
+}) {
+  return <CrossfadeBackground key={activeChatId} url={chatBackground} blurPx={blurPx} />;
+}
+
 function StreamingIndicator({
   activeChatId,
   chatCharIds,
@@ -976,7 +988,11 @@ export function ChatRoleplaySurface({
         className="rpg-chat-area mari-chat-area mari-card-css relative isolate flex h-full min-h-0 flex-1 basis-0 flex-col overflow-clip min-w-0"
         data-chat-mode="roleplay"
       >
-        <CrossfadeBackground url={chatBackground} blurPx={chatBackgroundBlur} />
+        <RoleplayBackgroundLayer
+          activeChatId={activeChatId}
+          chatBackground={chatBackground}
+          blurPx={chatBackgroundBlur}
+        />
         <div className="rpg-overlay pointer-events-none absolute inset-0 z-0" />
         <div className="rpg-vignette pointer-events-none absolute inset-0 z-0" />
         {weatherEffects && addonsReady && <WeatherEffectsConnected chatId={activeChatId} />}
