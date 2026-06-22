@@ -113,7 +113,14 @@ describe("ensureNoModelGameShowcase", () => {
     );
     expect(mockedStorageApi.createChatMessage).toHaveBeenCalledTimes(4);
     expect(storageStore.get(storageKey("personas", "showcase-no-model-game-v1-persona"))).toBeTruthy();
+    expect(storageStore.get(storageKey("lorebooks", "showcase-no-model-game-v1-lorebook"))).toBeTruthy();
+    expect(storageStore.get(storageKey("lorebook-entries", "showcase-no-model-game-v1-lore-entry-bells"))).toBeTruthy();
+    expect(storageStore.get(storageKey("lorebook-entries", "showcase-no-model-game-v1-lore-entry-token"))).toBeTruthy();
     expect(storageStore.get(storageKey("messages", "showcase-no-model-game-v1-message-4"))).toBeTruthy();
+
+    const readyPatchOrder = mockedStorageApi.patchChatMetadata.mock.invocationCallOrder.at(-1);
+    const lorebookEntryCreateOrder = mockedStorageApi.create.mock.invocationCallOrder.at(-1);
+    expect(lorebookEntryCreateOrder).toBeLessThan(readyPatchOrder ?? 0);
     expect(storageStore.get(storageKey("chats", NO_MODEL_GAME_SHOWCASE_CHAT_ID))?.metadata).toEqual(
       expect.objectContaining({
         showcaseSeedStatus: "ready",
