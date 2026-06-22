@@ -17,6 +17,7 @@ import {
 } from "../modes/chat/commands/character-commands";
 import { conversationSelfieCommandEnabled } from "../modes/chat/commands/activation";
 import { createRoleplayScene, planRoleplayScene } from "../modes/roleplay/scene/scene-service";
+import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import { resolveConversationSelfieSystemPrompt } from "./prompt-overrides";
 import {
   compileImagePrompt,
@@ -786,7 +787,7 @@ async function buildSelfiePrompt(args: {
     ? await resolveIllustratorLlmConnectionId(args.storage, args.llmConnectionId)
     : null;
   if (args.llm && promptConnectionId) {
-    prompt = (
+    prompt = extractLeadingThinkingBlocks(
       await args.llm.complete({
         connectionId: promptConnectionId,
         messages: [
@@ -805,8 +806,8 @@ async function buildSelfiePrompt(args: {
           },
         ],
         parameters: { temperature: 0.7, maxTokens: 800 },
-      })
-    ).trim();
+      }),
+    ).cleanText.trim();
     if (prompt && positive) prompt = appendMissingPositiveTags(prompt, positive);
   }
   if (!prompt) {

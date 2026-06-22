@@ -1,5 +1,6 @@
 import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
+import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import { readString as stringValue } from "../shared/value-readers";
 
 export type PromptReviewInput = {
@@ -56,7 +57,8 @@ function normalizePromptReviewJson(raw: string): string | null {
 }
 
 function normalizePromptReviewOutput(raw: string): string | null {
-  return normalizePromptReviewJson(raw) ?? (raw.trim() || null);
+  const { cleanText } = extractLeadingThinkingBlocks(raw);
+  return normalizePromptReviewJson(cleanText) ?? (cleanText.trim() || null);
 }
 
 export async function* reviewPromptPreset(

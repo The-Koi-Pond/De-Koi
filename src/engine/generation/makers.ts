@@ -1,5 +1,6 @@
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
+import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import { parseGameJsonish } from "../shared/parsing-jsonish";
 
 type LorebookMakerEntry = {
@@ -433,7 +434,8 @@ function buildContinuationLorebookPrompt(
 }
 
 function parseObject<T extends Record<string, unknown>>(raw: string): T {
-  const parsed = parseGameJsonish(raw);
+  const { cleanText } = extractLeadingThinkingBlocks(raw);
+  const parsed = parseGameJsonish(cleanText);
   return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as T) : ({} as T);
 }
 

@@ -2,6 +2,7 @@ import type { DaySummaryEntry, WeekSummaryEntry } from "../../../../contracts/ty
 import type { LlmGateway, LlmMessage } from "../../../../capabilities/llm";
 import type { StorageGateway } from "../../../../capabilities/storage";
 import type { BaseLLMProvider } from "../../../../generation-core/llm/base-provider.js";
+import { extractLeadingThinkingBlocks } from "../../../../generation-core/llm/inline-thinking";
 import { boolish } from "../../../../generation/runtime-records";
 import { formatZonedDate, normalizeUserTimeZone } from "../../../../shared/time/timezone";
 import { readString as stringValue } from "../../../../shared/value-readers";
@@ -136,7 +137,7 @@ function createSummaryProvider(llm: LlmGateway, connection: JsonRecord): BaseLLM
         },
         options.signal,
       );
-      return { content };
+      return { content: extractLeadingThinkingBlocks(content).cleanText };
     },
   };
 }
@@ -324,12 +325,7 @@ function throwIfSummaryAborted(signal?: AbortSignal): void {
 }
 
 function isAbortError(error: unknown): boolean {
-  return (
-    !!error &&
-    typeof error === "object" &&
-    "name" in error &&
-    (error as { name?: unknown }).name === "AbortError"
-  );
+  return !!error && typeof error === "object" && "name" in error && (error as { name?: unknown }).name === "AbortError";
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, signal?: AbortSignal): Promise<T> {

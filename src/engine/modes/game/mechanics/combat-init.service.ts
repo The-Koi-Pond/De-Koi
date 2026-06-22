@@ -1,6 +1,7 @@
 import type { LlmGateway, LlmMessage } from "../../../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../../../capabilities/storage";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
+import { extractLeadingThinkingBlocks } from "../../../generation-core/llm/inline-thinking";
 import { parseGameJsonish } from "../../../shared/parsing-jsonish";
 import { readString as stringValue } from "../../../shared/value-readers";
 import type { RPGStatsConfig } from "../../../contracts/types/character";
@@ -361,7 +362,8 @@ async function completeJsonObject(
   const connectionId = await resolveConnectionId(capabilities.storage, chat, overrideConnectionId);
   const raw = await capabilities.llm.complete({ connectionId, messages, parameters });
   try {
-    const parsed = parseGameJsonish(raw);
+    const { cleanText } = extractLeadingThinkingBlocks(raw);
+    const parsed = parseGameJsonish(cleanText);
     return { parsed: isRecord(parsed) ? parsed : null, raw };
   } catch {
     return { parsed: null, raw };
@@ -891,10 +893,19 @@ function combatDialogueType(value: unknown): CombatDialogueCue["type"] | null {
 }
 
 function combatDialogueTrigger(value: unknown): CombatDialogueCue["trigger"] | null {
-  return oneOf(
-    value,
-    ["intro", "round", "attack", "hit", "charge", "phase_75", "phase_50", "phase_25", "low_hp", "victory", "defeat"] as const,
-  );
+  return oneOf(value, [
+    "intro",
+    "round",
+    "attack",
+    "hit",
+    "charge",
+    "phase_75",
+    "phase_50",
+    "phase_25",
+    "low_hp",
+    "victory",
+    "defeat",
+  ] as const);
 }
 
 function combatMechanicTrigger(value: unknown): CombatMechanic["trigger"] | null {
@@ -902,10 +913,14 @@ function combatMechanicTrigger(value: unknown): CombatMechanic["trigger"] | null
 }
 
 function combatMechanicEffect(value: unknown): NonNullable<CombatMechanic["effectType"]> | null {
-  return oneOf(
-    value,
-    ["damage_all", "damage_one", "buff_self", "debuff_party", "status_party", "status_enemy"] as const,
-  );
+  return oneOf(value, [
+    "damage_all",
+    "damage_one",
+    "buff_self",
+    "debuff_party",
+    "status_party",
+    "status_enemy",
+  ] as const);
 }
 
 function combatStatusStat(value: unknown): CombatStatus["stat"] | null {
@@ -926,11 +941,7 @@ function compact(value: string, maxLength: number): string {
 }
 
 function escapePromptAttr(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 function titleCase(value: string): string {
