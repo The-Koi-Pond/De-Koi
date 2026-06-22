@@ -232,6 +232,58 @@ function setupGuideNpc() {
   };
 }
 
+function mockLorebookKeeperExtractionStorage(chatOverrides: Record<string, unknown> = {}) {
+  let chat: Record<string, unknown> = {
+    id: "chat-1",
+    name: "Game",
+    mode: "game",
+    metadata: {
+      gameLorebookKeeperEnabled: true,
+      activeLorebookIds: ["existing-lorebook"],
+      gamePreviousSessionSummaries: [fallbackSummary],
+      ...gRecord(chatOverrides.metadata),
+    },
+    ...chatOverrides,
+  };
+  const createdEntries: Array<Record<string, unknown>> = [];
+
+  storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+    if (entity === "chats") return chat;
+    if (entity === "lorebook-entries") return createdEntries.find((entry) => entry.id === id) ?? null;
+    return null;
+  });
+  storageApiMock.list.mockImplementation(async (entity: string) => {
+    if (entity === "messages") return [{ role: "assistant", content: "The moon key opened the vault." }];
+    if (entity === "lorebook-entries") return createdEntries;
+    return [];
+  });
+  storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => {
+    if (entity === "lorebooks") return { id: "new-lorebook", ...value };
+    if (entity === "lorebook-entries") {
+      const entry = { id: `entry-${createdEntries.length + 1}`, ...value };
+      createdEntries.push(entry);
+      return entry;
+    }
+    return { id: `${entity}-1`, ...value };
+  });
+  storageApiMock.update.mockImplementation(async (entity: string, id: string, patch: Record<string, unknown>) => {
+    if (entity === "chats") {
+      chat = { ...chat, ...patch, metadata: { ...gRecord(chat.metadata), ...gRecord(patch.metadata) } };
+      return chat;
+    }
+    if (entity === "lorebook-entries") {
+      const index = createdEntries.findIndex((entry) => entry.id === id);
+      if (index >= 0) {
+        createdEntries[index] = { ...createdEntries[index], ...patch };
+        return createdEntries[index];
+      }
+    }
+    return { id, ...patch };
+  });
+
+  return { chat, createdEntries };
+}
+
 function gameImageChat(metadata: Record<string, unknown> = {}) {
   return {
     id: "chat-1",
@@ -2309,6 +2361,137 @@ describe("game API review guards", () => {
         ],
         gameCampaignProgression: expect.objectContaining({ storyArc: "Repaired arc" }),
         gameCharacterCards: [{ name: "Repaired Ren" }],
+      }),
+    );
+  });
+
+  it("creates keeper entries from valid structured lore extraction JSON", async () => {
+    const { chat } = mockLorebookKeeperExtractionStorage();
+    llmApiMock.complete.mockResolvedValue(
+      JSON.stringify({
+        entries: [
+          {
+            name: "Moon Key",
+            content: "The moon key opens the academy vault.",
+            keys: ["moon key", "academy vault"],
+            tag: "relic",
+          },
+        ],
+      }),
+    );
+
+    const result = await runGameLorebookKeeperAfterConclusion({
+      chat: chat as never,
+      meta: gRecord(chat.metadata),
+      sessionNumber: 2,
+      summary: fallbackSummary,
+      connectionId: "gm-conn",
+    });
+
+    expect(result).toMatchObject({ lorebookId: "new-lorebook", entryCount: 1 });
+    expect(llmApiMock.complete).toHaveBeenCalledTimes(1);
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "lorebook-entries",
+      expect.objectContaining({
+        name: "Moon Key",
+        content: "The moon key opens the academy vault.",
+        keys: ["moon key", "academy vault"],
+        tag: "relic",
+      }),
+    );
+  });
+
+  it("repairs malformed lore extraction JSON before creating keeper entries", async () => {
+    const { chat } = mockLorebookKeeperExtractionStorage();
+    llmApiMock.complete
+      .mockResolvedValueOnce("not json")
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          entries: [{ name: "Repaired Moon Key", content: "The repaired key opens the vault.", keys: ["moon key"] }],
+        }),
+      );
+
+    const result = await runGameLorebookKeeperAfterConclusion({
+      chat: chat as never,
+      meta: gRecord(chat.metadata),
+      sessionNumber: 2,
+      summary: fallbackSummary,
+      connectionId: "gm-conn",
+    });
+
+    expect(result).toMatchObject({ lorebookId: "new-lorebook", entryCount: 1 });
+    expect(llmApiMock.complete).toHaveBeenCalledTimes(2);
+    const repairPrompt = llmApiMock.complete.mock.calls[1]?.[0]?.messages.at(-1)?.content as string;
+    expect(repairPrompt).toContain("game.session_lorebook");
+    expect(repairPrompt).toContain("not json");
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "lorebook-entries",
+      expect.objectContaining({ name: "Repaired Moon Key" }),
+    );
+  });
+
+  it("repairs schema-invalid lore extraction JSON before creating keeper entries", async () => {
+    const { chat } = mockLorebookKeeperExtractionStorage();
+    llmApiMock.complete
+      .mockResolvedValueOnce(JSON.stringify({ entries: [{ name: "", content: "", keys: [] }] }))
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          entries: [
+            { name: "Schema-Repaired Vault", content: "A repaired vault detail.", keys: ["vault", "repair"] },
+          ],
+        }),
+      );
+
+    const result = await runGameLorebookKeeperAfterConclusion({
+      chat: chat as never,
+      meta: gRecord(chat.metadata),
+      sessionNumber: 2,
+      summary: fallbackSummary,
+      connectionId: "gm-conn",
+    });
+
+    expect(result).toMatchObject({ lorebookId: "new-lorebook", entryCount: 1 });
+    expect(llmApiMock.complete).toHaveBeenCalledTimes(2);
+    const repairPrompt = llmApiMock.complete.mock.calls[1]?.[0]?.messages.at(-1)?.content as string;
+    expect(repairPrompt).toContain("entries.0.name");
+    expect(repairPrompt).toContain("Expected JSON schema/shape");
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "lorebook-entries",
+      expect.objectContaining({
+        name: "Schema-Repaired Vault",
+        content: "A repaired vault detail.",
+        keys: ["vault", "repair"],
+      }),
+    );
+  });
+
+  it("rejects final invalid lore extraction output without creating durable lore entries", async () => {
+    const { chat } = mockLorebookKeeperExtractionStorage();
+    llmApiMock.complete
+      .mockResolvedValueOnce(JSON.stringify({ entries: [{ name: "", content: "", keys: [] }] }))
+      .mockResolvedValueOnce(JSON.stringify({ entries: [{ name: "", content: "", keys: [] }] }));
+
+    const result = await runGameLorebookKeeperAfterConclusion({
+      chat: chat as never,
+      meta: gRecord(chat.metadata),
+      sessionNumber: 2,
+      summary: fallbackSummary,
+      connectionId: "gm-conn",
+    });
+
+    expect(result).toMatchObject({ lorebookId: null });
+    expect(result.entryCount).toBeUndefined();
+    expect(llmApiMock.complete).toHaveBeenCalledTimes(2);
+    expect(storageApiMock.create).not.toHaveBeenCalled();
+    const finalChatUpdate = storageApiMock.update.mock.calls.filter(([entity]) => entity === "chats").at(-1);
+    expect(finalChatUpdate?.[2]).toEqual(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          gameLorebookKeeperLastRun: expect.objectContaining({
+            status: "failed",
+            error: expect.stringContaining("structured lore"),
+          }),
+        }),
       }),
     );
   });
