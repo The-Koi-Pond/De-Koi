@@ -7,12 +7,39 @@ import {
   NO_MODEL_GAME_SHOWCASE_ID,
 } from "./no-model-game-showcase";
 
+const storageStore = vi.hoisted(() => new Map<string, Record<string, unknown>>());
+
+function storageKey(entity: string, id: string) {
+  return `${entity}:${id}`;
+}
+
 vi.mock("../../../../shared/api/storage-api", () => ({
   storageApi: {
-    get: vi.fn(),
-    create: vi.fn(async (_entity: string, value: Record<string, unknown>) => value),
-    createChatMessage: vi.fn(async (_chatId: string, value: Record<string, unknown>) => value),
-    listChatMessages: vi.fn(async () => []),
+    get: vi.fn(async (entity: string, id: string) => storageStore.get(storageKey(entity, id)) ?? null),
+    create: vi.fn(async (entity: string, value: Record<string, unknown>) => {
+      storageStore.set(storageKey(entity, String(value.id)), { ...value });
+      return value;
+    }),
+    patchChatMetadata: vi.fn(async (chatId: string, patch: Record<string, unknown>) => {
+      const current = storageStore.get(storageKey("chats", chatId)) ?? { id: chatId, metadata: {} };
+      const metadata = { ...((current.metadata as Record<string, unknown> | undefined) ?? {}), ...patch };
+      const next = { ...current, metadata };
+      storageStore.set(storageKey("chats", chatId), next);
+      return next;
+    }),
+    delete: vi.fn(async (entity: string, id: string) => {
+      storageStore.delete(storageKey(entity, id));
+    }),
+    createChatMessage: vi.fn(async (chatId: string, value: Record<string, unknown>) => {
+      const record = { ...value, chatId };
+      storageStore.set(storageKey("messages", String(value.id)), record);
+      return record;
+    }),
+    listChatMessages: vi.fn(async (chatId: string) =>
+      Array.from(storageStore.entries())
+        .filter(([key, value]) => key.startsWith("messages:") && value.chatId === chatId)
+        .map(([, value]) => value),
+    ),
   },
 }));
 
@@ -20,13 +47,15 @@ const mockedStorageApi = vi.mocked(storageApi);
 
 describe("ensureNoModelGameShowcase", () => {
   beforeEach(() => {
+    storageStore.clear();
     vi.clearAllMocks();
-    mockedStorageApi.get.mockResolvedValue(null);
-    mockedStorageApi.listChatMessages.mockResolvedValue([]);
   });
 
-  it("seeds deterministic showcase records once and returns the game chat id", async () => {
+  it("seeds deterministic showcase records once and marks the game chat ready", async () => {
     const first = await ensureNoModelGameShowcase();
+    const createCallsAfterFirstOpen = mockedStorageApi.create.mock.calls.length;
+    const messageCallsAfterFirstOpen = mockedStorageApi.createChatMessage.mock.calls.length;
+
     const second = await ensureNoModelGameShowcase();
 
     expect(first).toEqual({ chatId: NO_MODEL_GAME_SHOWCASE_CHAT_ID });
@@ -40,7 +69,18 @@ describe("ensureNoModelGameShowcase", () => {
         metadata: expect.objectContaining({
           showcaseKey: NO_MODEL_GAME_SHOWCASE_ID,
           showcaseVersion: 1,
+          showcaseSeedStatus: "pending",
         }),
+      }),
+    );
+    expect(mockedStorageApi.patchChatMetadata).toHaveBeenCalledWith(NO_MODEL_GAME_SHOWCASE_CHAT_ID, {
+      showcaseSeedStatus: "ready",
+    });
+    expect(storageStore.get(storageKey("chats", NO_MODEL_GAME_SHOWCASE_CHAT_ID))?.metadata).toEqual(
+      expect.objectContaining({
+        showcaseKey: NO_MODEL_GAME_SHOWCASE_ID,
+        showcaseVersion: 1,
+        showcaseSeedStatus: "ready",
       }),
     );
     expect(mockedStorageApi.createChatMessage).toHaveBeenCalledWith(
@@ -50,13 +90,23 @@ describe("ensureNoModelGameShowcase", () => {
         content: expect.stringContaining("Glasswake"),
       }),
     );
-
-    const createCallsAfterFirstOpen = mockedStorageApi.create.mock.calls.length;
-    mockedStorageApi.get.mockImplementation(async (entity, id) => ({ id, entity }));
-    mockedStorageApi.listChatMessages.mockResolvedValue([{ id: "existing-message" }]);
-
-    await ensureNoModelGameShowcase();
-
     expect(mockedStorageApi.create.mock.calls).toHaveLength(createCallsAfterFirstOpen);
+    expect(mockedStorageApi.createChatMessage.mock.calls).toHaveLength(messageCallsAfterFirstOpen);
+  });
+
+  it("rolls back newly-created showcase rows if message seeding fails", async () => {
+    mockedStorageApi.createChatMessage.mockImplementation(async (chatId, value) => {
+      if (value.id === "showcase-no-model-game-v1-message-2") throw new Error("message write failed");
+      const record = { ...value, chatId };
+      storageStore.set(storageKey("messages", String(value.id)), record);
+      return record;
+    });
+
+    await expect(ensureNoModelGameShowcase()).rejects.toThrow("message write failed");
+
+    expect(mockedStorageApi.patchChatMetadata).not.toHaveBeenCalled();
+    expect(mockedStorageApi.delete).toHaveBeenCalledWith("messages", "showcase-no-model-game-v1-message-1");
+    expect(mockedStorageApi.delete).toHaveBeenCalledWith("chats", NO_MODEL_GAME_SHOWCASE_CHAT_ID);
+    expect(storageStore.get(storageKey("chats", NO_MODEL_GAME_SHOWCASE_CHAT_ID))).toBeUndefined();
   });
 });
