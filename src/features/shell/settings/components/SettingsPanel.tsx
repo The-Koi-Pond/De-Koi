@@ -1,6 +1,7 @@
 import type { ComponentType, KeyboardEvent } from "react";
 import { cn } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { HealthDiagnosticsSettings } from "../../diagnostics/shell";
 import { CoreModulesSettings } from "../../plugins/settings";
 import {
   AdvancedSettings,
@@ -18,6 +19,7 @@ const TABS = [
   { id: "plugins", label: "Modules" },
   { id: "extensions", label: "Extensions" },
   { id: "import", label: "Import" },
+  { id: "health", label: "Health" },
   { id: "advanced", label: "Advanced" },
 ] as const;
 
@@ -32,6 +34,7 @@ const SETTINGS_COMPONENTS: Record<SettingsTabId, ComponentType> = {
   plugins: CoreModulesSettings,
   extensions: ExtensionsSettings,
   import: ImportSettings,
+  health: HealthDiagnosticsSettings,
   advanced: AdvancedSettings,
 };
 
