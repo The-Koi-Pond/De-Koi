@@ -28,7 +28,10 @@ import {
   startConversationRevealGeneration,
   type ConversationRevealGenerationMap,
 } from "../lib/conversation-part-reveal";
-import { resolveConversationRegenerationDisplay } from "../lib/conversation-streaming-draft";
+import {
+  resolveConversationRegenerationDisplay,
+  shouldShowConversationTypingIndicator,
+} from "../lib/conversation-streaming-draft";
 import {
   ChatBranchSelector,
   type ChatBranchSelectorHandle,
@@ -68,8 +71,6 @@ const SummaryPopover = lazy(async () => {
   const module = await import("../../shared/chat-ui/index");
   return { default: module.SummaryPopover };
 });
-
-const CONVERSATION_ALLOW_PARTIAL_RESPONSES = false;
 
 const SHEET_FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -405,13 +406,11 @@ export function ConversationView({
     return "Character";
   }, [activeCharacterNames, activeChatCharIds, characterMap, streamingCharacterId, typingCharacterName]);
   const liveTypingVerb = liveTypingName.includes(",") || liveTypingName.includes(" & ") ? "are" : "is";
-  const hasStreamBufferContent = !!streamBuffer || !!thinkingBuffer;
-  const hiddenStreamBufferJustifiesTyping = hasStreamBufferContent && !CONVERSATION_ALLOW_PARTIAL_RESPONSES;
-  const showTypingIndicator =
-    isStreaming &&
-    !delayedCharacterInfo &&
-    conversationMessageStyle !== "bubble" &&
-    (!hasStreamBufferContent || hiddenStreamBufferJustifiesTyping);
+  const showTypingIndicator = shouldShowConversationTypingIndicator({
+    isStreaming,
+    hasDelayedCharacterInfo: !!delayedCharacterInfo,
+    messageStyle: conversationMessageStyle,
+  });
   const liveTypingLabel = `${liveTypingName} ${liveTypingVerb} typing...`;
 
   // ── Group typing rows ──
@@ -1509,12 +1508,9 @@ export function ConversationView({
                   const isRegenerating = isStreaming && regenerateMessageId === msg.id;
                   const savedBackingContent = item.originalContent ?? msg.content;
                   const regenerationDisplay = resolveConversationRegenerationDisplay({
-                    allowPartialResponses: CONVERSATION_ALLOW_PARTIAL_RESPONSES,
                     isRegenerating,
                     savedMessageContent: msg.content,
                     savedContentParts: item.contentParts,
-                    partialMessageContent: streamBuffer || thinkingBuffer,
-                    partialContentParts: undefined,
                   });
                   const displayMsg = regenerationDisplay.showActiveRegeneration
                     ? { ...msg, content: regenerationDisplay.messageContent }
