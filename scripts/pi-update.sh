@@ -42,6 +42,11 @@ if [ "$trusted_lan" = true ]; then
   set -- "$@" -f "$trusted_lan_file"
 fi
 
+local_compose_file="${DE_KOI_PI_LOCAL_COMPOSE_FILE:-docker-compose.pi.local.yml}"
+if [ -n "$local_compose_file" ] && [ -f "$local_compose_file" ]; then
+  set -- "$@" -f "$local_compose_file"
+fi
+
 old_ifs="$IFS"
 IFS=","
 for extra_compose_file in $extra_compose_files; do
