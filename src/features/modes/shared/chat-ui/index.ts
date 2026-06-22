@@ -34,3 +34,4 @@ export * from "./lib/empty-new-chat";
 export * from "./lib/prompt-snapshot";
 export * from "./lib/transcript-render-window";
 export * from "./lib/transcript-scroll-geometry";
+export * from "./lib/custom-quick-replies";

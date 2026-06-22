@@ -19,6 +19,7 @@ import {
   normalizeSummaryPopoverSettings,
   normalizeTextBlipMode,
   normalizeTrackerPanelCollapsedSections,
+  normalizeUserQuickReplyActions,
   normalizeTrackerTemperatureUnit,
   normalizeTrackerThoughtBubbleDisplay,
 } from "./model";
@@ -139,6 +140,7 @@ export function partializeUiState(state: UIState) {
     showQuickReplyPostOnly: state.showQuickReplyPostOnly,
     showQuickReplyGuide: state.showQuickReplyGuide,
     showQuickReplyImpersonate: state.showQuickReplyImpersonate,
+    userQuickReplyActions: state.userQuickReplyActions,
     confirmBeforeDelete: state.confirmBeforeDelete,
     messagesPerPage: state.messagesPerPage,
     boldDialogue: state.boldDialogue,
@@ -231,6 +233,7 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
   persisted.trackerPanelSectionOrder = normalizeTrackerPanelSectionOrder(persisted.trackerPanelSectionOrder);
   persisted.conversationMessageStyle = normalizeConversationMessageStyle(persisted.conversationMessageStyle);
   persisted.summaryPopoverSettings = normalizeSummaryPopoverSettings(persisted.summaryPopoverSettings);
+  persisted.userQuickReplyActions = normalizeUserQuickReplyActions(persisted.userQuickReplyActions);
   persisted.quoteFormat = normalizeQuoteFormat(persisted.quoteFormat);
   persisted.editMessagesOnDoubleClick = persisted.editMessagesOnDoubleClick !== false;
   persisted.imagePromptIncludeAppearances = persisted.imagePromptIncludeAppearances !== false;

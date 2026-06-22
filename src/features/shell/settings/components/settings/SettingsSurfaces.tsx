@@ -134,6 +134,7 @@ import { TrackerSizeTierIcon } from "../../../../../shared/components/ui/Tracker
 import { ImageUploadDropzone } from "../../../../../shared/components/ui/ImageUploadDropzone";
 import { ConversationSoundSetting, ToggleSetting } from "./SettingControls";
 import { PromptOverridesEditor } from "./PromptOverridesEditor";
+import { UserQuickRepliesManager } from "./UserQuickRepliesManager";
 import { DraftNumberInput } from "../../../../../shared/components/ui/DraftNumberInput";
 import { TrackerCardColorSettings } from "../../../../runtime/tracker/shell";
 import { inspectCharacterFilesForEmbeddedLorebooks } from "../../../../../shared/lib/character-import";
@@ -4041,6 +4042,7 @@ export function AdvancedSettings() {
                 </button>
               );
             })}
+            <UserQuickRepliesManager />
           </div>
         )}
       </div>
