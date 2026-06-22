@@ -483,6 +483,26 @@ export const ConversationMessage = memo(function ConversationMessage({
     [isSelected, message.id, messageOrderIndex, multiSelectMode, onToggleSelect, startEditingFromMessageGesture],
   );
 
+  const handleMessageKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(MESSAGE_EDIT_GESTURE_IGNORE_SELECTOR)) return;
+      event.preventDefault();
+      if (multiSelectMode && onToggleSelect) {
+        onToggleSelect({
+          messageId: message.id,
+          orderIndex: messageOrderIndex ?? 0,
+          checked: !isSelected,
+          shiftKey: event.shiftKey,
+        });
+        return;
+      }
+      setShowActions((v) => !v);
+    },
+    [isSelected, message.id, messageOrderIndex, multiSelectMode, onToggleSelect],
+  );
+
   useEffect(() => {
     if (!onEdit) return;
     const handler = (event: Event) => {
@@ -537,6 +557,16 @@ export const ConversationMessage = memo(function ConversationMessage({
     forceShowActions,
     multiSelectMode,
     isSelected,
+    onToggleSelect:
+      multiSelectMode && onToggleSelect
+        ? (shiftKey: boolean) =>
+            onToggleSelect({
+              messageId: message.id,
+              orderIndex: messageOrderIndex ?? 0,
+              checked: !isSelected,
+              shiftKey,
+            })
+        : undefined,
     messageIndex,
     showActions,
     showMessageNumbers,
@@ -590,6 +620,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     copied,
     handleMessageClick,
     handleMessageDoubleClick,
+    handleMessageKeyDown,
     handleCopy,
     onTranslate: handleTranslate,
     onStartEdit: handleStartEditAction,

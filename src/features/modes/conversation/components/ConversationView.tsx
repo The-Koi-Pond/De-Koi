@@ -1276,14 +1276,18 @@ export function ConversationView({
 
     setVisiblePartCounts((prev) => {
       const next = { ...prev };
-      for (const { key } of newPartMessages) next[key] = 1;
+      for (const { key, count, initialVisiblePartCount } of newPartMessages) {
+        const visibleFloor = Math.min(count, Math.max(1, initialVisiblePartCount));
+        next[key] = Math.min(count, Math.max(prev[key] ?? 1, visibleFloor));
+      }
       return next;
     });
 
     let revealOrder = 0;
-    for (const { key, count } of newPartMessages) {
+    for (const { key, count, initialVisiblePartCount } of newPartMessages) {
       const revealGeneration = startConversationRevealGeneration(staggerGenerationsRef.current, key);
-      for (let partIndex = 2; partIndex <= count; partIndex++) {
+      const visibleFloor = Math.min(count, Math.max(1, initialVisiblePartCount));
+      for (let partIndex = visibleFloor + 1; partIndex <= count; partIndex++) {
         revealOrder += 1;
         const delay = revealOrder * 1500;
         const timer = setTimeout(() => {

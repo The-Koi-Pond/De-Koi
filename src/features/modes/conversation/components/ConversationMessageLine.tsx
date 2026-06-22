@@ -29,13 +29,27 @@ export function ConversationMessageLine({ context }: { context: ConversationMess
       data-message-style={context.messageStyle}
       data-card-css={context.cardCssId}
       data-grouped={context.isGrouped || undefined}
+      tabIndex={context.hideActions ? undefined : 0}
       onClick={context.handleMessageClick}
+      onKeyDown={context.handleMessageKeyDown}
       onDoubleClick={context.handleMessageDoubleClick}
     >
       <div className="contents">
         {context.multiSelectMode && (
           <div className="flex items-center flex-shrink-0">
-            <MessageSelectCheckbox isSelected={context.isSelected} />
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={context.isSelected}
+              aria-label={context.isSelected ? "Deselect message" : "Select message"}
+              className="border-0 bg-transparent p-0 text-inherit"
+              onClick={(e) => {
+                e.stopPropagation();
+                context.onToggleSelect?.(e.shiftKey);
+              }}
+            >
+              <MessageSelectCheckbox isSelected={context.isSelected} />
+            </button>
           </div>
         )}
 
