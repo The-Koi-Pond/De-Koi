@@ -16,6 +16,7 @@ import {
 
 const FRESH_URI = "spotify:track:ABCDEFGHIJKLMNOPQRSTUV";
 const SECOND_URI = "spotify:track:ZYXWVUTSRQPONMLKJIHGFE";
+const HALLUCINATED_URI = "spotify:track:AAAAAAAAAAAAAAAAAAAAAA";
 
 function spotifyContext(): AgentContext {
   return {
@@ -463,6 +464,240 @@ describe("Spotify agent fallback playback", () => {
       playbackPending: true,
       queueStatus: "partial",
       partialQueueFailure: true,
+      toolFallbackApplied: true,
+    });
+  });
+
+  it("applies playback fallback after batched spotify intent parsing", async () => {
+    let sawModelTools = false;
+    const provider: BaseLLMProvider = {
+      maxTokensOverrideValue: null,
+      async chatComplete(_messages, options) {
+        sawModelTools = sawModelTools || Boolean(options.tools);
+        return {
+          content: [
+            `<result agent="spotify">`,
+            JSON.stringify({
+              action: "play",
+              mood: "tense",
+              searchQuery: "tense battle",
+              trackUris: [],
+              trackNames: [],
+              volume: null,
+            }),
+            `</result>`,
+            `<result agent="world-state">{"updates":[]}</result>`,
+          ].join("\n"),
+        };
+      },
+    };
+    const calls: LLMToolCall[] = [];
+    const toolContext: AgentToolContext = {
+      tools: [{ name: "spotify_get_playlist_tracks" }, { name: "spotify_play" }],
+      async executeToolCall(call) {
+        calls.push(call);
+        if (call.function.name === "spotify_get_playlist_tracks") {
+          return JSON.stringify({
+            tracks: [
+              { uri: FRESH_URI, name: "Fresh", artist: "Battle" },
+              { uri: SECOND_URI, name: "Second", artist: "Battle" },
+            ],
+          });
+        }
+        return JSON.stringify({
+          success: true,
+          applied: true,
+          queued: [FRESH_URI, SECOND_URI],
+        });
+      },
+    };
+    const configs: AgentExecConfig[] = [
+      {
+        id: "spotify-agent",
+        type: "spotify",
+        name: "Spotify",
+        phase: "post_processing",
+        promptTemplate: "Pick fitting music.",
+        connectionId: null,
+        settings: {},
+        toolContext,
+      },
+      {
+        id: "world-state-agent",
+        type: "world-state",
+        name: "World State",
+        phase: "post_processing",
+        promptTemplate: "Update state.",
+        connectionId: null,
+        settings: {},
+      },
+    ];
+
+    const results = await executeAgentBatch(
+      configs,
+      {
+        ...spotifyContext(),
+        memory: { _spotifyDjConstraints: { sourceType: "liked", playlistId: "liked", mode: "roleplay" } },
+      },
+      provider,
+      "test-model",
+    );
+
+    const spotifyResult = results.find((result) => result.agentType === "spotify");
+    expect(sawModelTools).toBe(false);
+    expect(calls.map((call) => call.function.name)).toEqual(["spotify_get_playlist_tracks", "spotify_play"]);
+    expect(JSON.parse(calls[1]?.function.arguments ?? "{}")).toEqual({ uris: [FRESH_URI, SECOND_URI] });
+    expect(spotifyResult?.success).toBe(true);
+    expect(spotifyResult?.data).toMatchObject({
+      trackUris: [FRESH_URI, SECOND_URI],
+      trackNames: ["Fresh - Battle", "Second - Battle"],
+      toolFallbackApplied: true,
+    });
+  });
+
+  it("applies volume fallback after batched spotify intent parsing", async () => {
+    let sawModelTools = false;
+    const provider: BaseLLMProvider = {
+      maxTokensOverrideValue: null,
+      async chatComplete(_messages, options) {
+        sawModelTools = sawModelTools || Boolean(options.tools);
+        return {
+          content: [
+            `<result agent="spotify">`,
+            JSON.stringify({
+              action: "volume",
+              mood: "quiet conversation",
+              searchQuery: "",
+              trackUris: [],
+              trackNames: [],
+              volume: 30,
+            }),
+            `</result>`,
+            `<result agent="world-state">{"updates":[]}</result>`,
+          ].join("\n"),
+        };
+      },
+    };
+    const calls: LLMToolCall[] = [];
+    const toolContext: AgentToolContext = {
+      tools: [{ name: "spotify_set_volume" }],
+      async executeToolCall(call) {
+        calls.push(call);
+        return JSON.stringify({ success: true, volume: 30 });
+      },
+    };
+    const configs: AgentExecConfig[] = [
+      {
+        id: "spotify-agent",
+        type: "spotify",
+        name: "Spotify",
+        phase: "post_processing",
+        promptTemplate: "Adjust fitting volume.",
+        connectionId: null,
+        settings: {},
+        toolContext,
+      },
+      {
+        id: "world-state-agent",
+        type: "world-state",
+        name: "World State",
+        phase: "post_processing",
+        promptTemplate: "Update state.",
+        connectionId: null,
+        settings: {},
+      },
+    ];
+
+    const results = await executeAgentBatch(configs, spotifyContext(), provider, "test-model");
+
+    const spotifyResult = results.find((result) => result.agentType === "spotify");
+    expect(sawModelTools).toBe(false);
+    expect(calls.map((call) => call.function.name)).toEqual(["spotify_set_volume"]);
+    expect(JSON.parse(calls[0]?.function.arguments ?? "{}")).toEqual({ volume: 30 });
+    expect(spotifyResult?.success).toBe(true);
+    expect(spotifyResult?.data).toMatchObject({
+      action: "volume",
+      volume: 30,
+      toolFallbackApplied: true,
+    });
+  });
+
+  it("retrieves fresh candidates when selected spotify URIs are outside the known shortlist", async () => {
+    let providerCalls = 0;
+    const provider: BaseLLMProvider = {
+      maxTokensOverrideValue: null,
+      async chatComplete() {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          return {
+            content: "",
+            toolCalls: [
+              {
+                id: "call-candidates",
+                name: "spotify_get_playlist_tracks",
+                arguments: JSON.stringify({ playlistId: "liked", query: "tense battle" }),
+                function: {
+                  name: "spotify_get_playlist_tracks",
+                  arguments: JSON.stringify({ playlistId: "liked", query: "tense battle" }),
+                },
+              },
+            ],
+          };
+        }
+        return {
+          content: JSON.stringify({
+            action: "play",
+            mood: "tense",
+            searchQuery: "tense battle",
+            trackUris: [HALLUCINATED_URI],
+            trackNames: ["Made Up - Track"],
+            volume: null,
+          }),
+        };
+      },
+    };
+    const calls: LLMToolCall[] = [];
+    const toolContext: AgentToolContext = {
+      tools: [{ name: "spotify_get_playlist_tracks" }, { name: "spotify_play" }],
+      async executeToolCall(call) {
+        calls.push(call);
+        if (call.function.name === "spotify_get_playlist_tracks") {
+          return JSON.stringify({ tracks: [{ uri: FRESH_URI, name: "Fresh", artist: "Battle" }] });
+        }
+        return JSON.stringify({ success: true, applied: true, queued: [FRESH_URI] });
+      },
+    };
+    const config: AgentExecConfig = {
+      id: "spotify-agent",
+      type: "spotify",
+      name: "Spotify",
+      phase: "post",
+      promptTemplate: "Pick fitting music.",
+      connectionId: null,
+      settings: {},
+    };
+
+    const result = await executeAgent(
+      config,
+      {
+        ...spotifyContext(),
+        memory: { _spotifyDjConstraints: { sourceType: "liked", playlistId: "liked", mode: "roleplay" } },
+      },
+      provider,
+      "test-model",
+      toolContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(calls.map((call) => call.function.name)).toEqual([
+      "spotify_get_playlist_tracks",
+      "spotify_get_playlist_tracks",
+      "spotify_play",
+    ]);
+    expect(JSON.parse(calls[2]?.function.arguments ?? "{}")).toEqual({ uri: FRESH_URI });
+    expect(result.data).toMatchObject({
+      trackUris: [FRESH_URI],
+      trackNames: ["Fresh - Battle"],
       toolFallbackApplied: true,
     });
   });

@@ -165,6 +165,11 @@ function buildAgentContext(agentOrAgents: ResolvedAgent | ResolvedAgent[], conte
 }
 
 function shouldExecuteIndividually(agent: ResolvedAgent): boolean {
+  // Spotify agents in post_processing batch with others and return JSON intent;
+  // tool execution happens later via applySpotifyPlaybackFallback.
+  if (agent.type === "spotify" && agent.phase === "post_processing") {
+    return shouldRunAgentIndividually(agent);
+  }
   return (
     shouldRunAgentIndividually(agent) ||
     agent.type === "knowledge-retrieval" ||

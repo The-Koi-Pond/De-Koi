@@ -665,12 +665,21 @@ fn sample_spotify_tracks_with_recent_avoidance(
     selected
 }
 
+fn create_spotify_selection_variant() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{now:x}")
+}
+
 fn select_spotify_track_candidates(
     tracks: &[Value],
     query: &str,
     limit: usize,
     playlist_id: &str,
     recent: &[String],
+    selection_variant: &str,
 ) -> (Vec<Value>, String, Vec<String>, usize) {
     let phrase = normalize_spotify_text(query);
     let tokens = spotify_candidate_tokens(query);
@@ -687,13 +696,13 @@ fn select_spotify_track_candidates(
             sample_spotify_tracks_with_recent_avoidance(
                 tracks,
                 limit,
-                &format!("{playlist_id}:balanced"),
+                &format!("{playlist_id}:balanced:{selection_variant}"),
                 &recent_track_uris,
             ),
             if recent_avoided_count > 0 {
-                "balanced_sample_recent_aware".to_string()
+                "balanced_sample_recent_aware_rotating".to_string()
             } else {
-                "balanced_sample".to_string()
+                "balanced_sample_rotating".to_string()
             },
             tokens,
             recent_avoided_count,
@@ -716,7 +725,7 @@ fn select_spotify_track_candidates(
     let mut selected = strong
         .iter()
         .filter(|track| !recent_track_uris.contains(spotify_candidate_field(track, "uri").as_str()))
-        .take((limit as f64 * 0.8).floor() as usize)
+        .take(std::cmp::max(1, (limit as f64 * 0.75).floor() as usize))
         .cloned()
         .collect::<Vec<_>>();
     let mut seen = selected
@@ -733,7 +742,7 @@ fn select_spotify_track_candidates(
         for track in sample_spotify_tracks_with_recent_avoidance(
             &fallback_source,
             reserve,
-            &format!("{playlist_id}:{phrase}:fallback"),
+            &format!("{playlist_id}:{phrase}:{selection_variant}:fallback"),
             &recent_track_uris,
         ) {
             let uri = spotify_candidate_field(&track, "uri");
@@ -747,14 +756,14 @@ fn select_spotify_track_candidates(
         selected.into_iter().take(limit).collect(),
         if recent_avoided_count > 0 {
             if strong.is_empty() {
-                "balanced_sample_recent_aware".to_string()
+                "balanced_sample_recent_aware_rotating".to_string()
             } else {
-                "scored_candidates_recent_aware".to_string()
+                "scored_candidates_recent_aware_rotating".to_string()
             }
         } else if strong.is_empty() {
-            "balanced_sample".to_string()
+            "balanced_sample_rotating".to_string()
         } else {
-            "scored_candidates".to_string()
+            "scored_candidates_rotating".to_string()
         },
         tokens,
         recent_avoided_count,
@@ -871,6 +880,7 @@ async fn spotify_indexed_candidate_response(
 ) -> AppResult<Value> {
     let (index, cache_status) = fetch_spotify_track_index(credentials, playlist_id).await?;
     let candidate_limit = limit.clamp(1, 80) as usize;
+    let selection_variant = create_spotify_selection_variant();
     let (tracks, candidate_mode, matched_tokens, recent_avoided_count) =
         select_spotify_track_candidates(
             &index.tracks,
@@ -878,6 +888,7 @@ async fn spotify_indexed_candidate_response(
             candidate_limit,
             playlist_id,
             recent,
+            &selection_variant,
         );
     let count = tracks.len();
 
@@ -4478,10 +4489,10 @@ mod tests {
         let recent = vec![recent_uri.to_string()];
 
         let (candidates, mode, _, recent_avoided_count) =
-            select_spotify_track_candidates(&tracks, "battle", 1, "liked", &recent);
+            select_spotify_track_candidates(&tracks, "battle", 1, "liked", &recent, "test-variant");
 
         assert_eq!(recent_avoided_count, 1);
-        assert_eq!(mode, "scored_candidates_recent_aware");
+        assert_eq!(mode, "scored_candidates_recent_aware_rotating");
         assert_eq!(
             candidates
                 .first()
