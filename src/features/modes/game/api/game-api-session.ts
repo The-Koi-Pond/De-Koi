@@ -1,4 +1,9 @@
 import * as g from "./game-api-support";
+import { generateStructured } from "../../../../engine/generation/structured-generation";
+import {
+  GAME_SETUP_SCHEMA_DESCRIPTION,
+  gameSetupStructuredSchema,
+} from "../../../../engine/modes/game/setup/game-setup.schema";
 import { createAutomaticGameCheckpoint } from "./game-api-checkpoint-helpers";
 import { journalFromChat, journalFromMeta } from "./game-api-journal-helpers";
 import { setupMapFromResponse } from "./game-api-map-helpers";
@@ -27,6 +32,9 @@ type SetupCharacterPromptContext = {
   card: string;
   name: string | null;
 };
+
+const GAME_SETUP_FAILURE_MESSAGE =
+  "Game setup did not return usable structured data. Nothing was changed; try again or choose a different model.";
 
 function withoutEmptyValues(record: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
@@ -187,6 +195,41 @@ async function setupPromptContext(
   };
 }
 
+function validateGameSetup(value: unknown): Record<string, unknown> {
+  const result = gameSetupStructuredSchema.safeParse(value);
+  if (result.success) return result.data;
+  throw new Error(GAME_SETUP_FAILURE_MESSAGE);
+}
+
+async function generateGameSetup(input: {
+  connectionId?: string | null;
+  system: string;
+  user: string;
+  parameters: Record<string, unknown>;
+}): Promise<Record<string, unknown>> {
+  if (!input.connectionId) {
+    throw new Error("Choose a model connection before setting up the game.");
+  }
+  const result = await generateStructured(
+    { llm: g.llmApi },
+    {
+      taskName: "game.setup",
+      connectionId: input.connectionId,
+      messages: [
+        { role: "system", content: input.system },
+        { role: "user", content: input.user },
+      ],
+      parameters: input.parameters,
+      schema: gameSetupStructuredSchema,
+      schemaDescription: GAME_SETUP_SCHEMA_DESCRIPTION,
+      maxRepairAttempts: 1,
+      failureMessage: GAME_SETUP_FAILURE_MESSAGE,
+    },
+  );
+  if (!result.ok) throw new Error(GAME_SETUP_FAILURE_MESSAGE);
+  return result.data;
+}
+
 export async function createGame(data: {
   name: string;
   setupConfig: g.GameSetupConfig;
@@ -249,49 +292,40 @@ export async function setupGame(data: {
     data.setupConfig ?? (isGameSetupConfig(existingMeta.gameSetupConfig) ? existingMeta.gameSetupConfig : undefined);
   const setupConfig = effectiveSetupConfigFromMeta(baseSetupConfig, existingMeta);
   const promptContext = await setupPromptContext(setupConfig, existingMeta);
-  const setup =
-    data.setup ??
-    (await g.llmJson({
-      connectionId: data.connectionId,
-      fallback,
-      system: g.buildSetupPrompt({
-        ...promptContext,
-        rating: setupConfig?.rating ?? "sfw",
-        enableCustomWidgets: setupConfig?.enableCustomWidgets !== false,
-        language: setupConfig?.language,
-      }),
-      user: [
-        `Player preferences:`,
-        data.preferences,
-        ``,
-        setupConfig
-          ? `Structured setup config:\n${JSON.stringify(
-              {
-                genre: setupConfig.genre,
-                setting: setupConfig.setting,
-                tone: setupConfig.tone,
-                difficulty: setupConfig.difficulty,
-                playerGoals: setupConfig.playerGoals,
-              },
-              null,
-              2,
-            )}`
-          : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      parameters: { temperature: 0.8, maxTokens: 8192 },
-      repair: {
-        kind: "game_setup",
-        title: "Repair Game Setup JSON",
-        applyBody: {
-          chatId: data.chatId,
-          connectionId: data.connectionId,
-          preferences: data.preferences,
-          setupConfig,
-        },
-      },
-    }));
+  const setupSystemPrompt = g.buildSetupPrompt({
+    ...promptContext,
+    rating: setupConfig?.rating ?? "sfw",
+    enableCustomWidgets: setupConfig?.enableCustomWidgets !== false,
+    language: setupConfig?.language,
+  });
+  const setupUserPrompt = [
+    `Player preferences:`,
+    data.preferences,
+    ``,
+    setupConfig
+      ? `Structured setup config:\n${JSON.stringify(
+          {
+            genre: setupConfig.genre,
+            setting: setupConfig.setting,
+            tone: setupConfig.tone,
+            difficulty: setupConfig.difficulty,
+            playerGoals: setupConfig.playerGoals,
+          },
+          null,
+          2,
+        )}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const setup = data.setup
+    ? validateGameSetup(data.setup)
+    : await generateGameSetup({
+        connectionId: data.connectionId,
+        system: setupSystemPrompt,
+        user: setupUserPrompt,
+        parameters: { temperature: 0.8, maxTokens: 8192 },
+      });
   const worldOverview =
     typeof setup.worldOverview === "string"
       ? setup.worldOverview
