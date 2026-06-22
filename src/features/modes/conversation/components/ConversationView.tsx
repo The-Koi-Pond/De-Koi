@@ -598,7 +598,7 @@ export function ConversationView({
   const prevScrollHeightRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
   const [transcriptWindowStart, setTranscriptWindowStart] = useState<number | null>(null);
-  const pendingLoadMoreRevealRef = useRef<{ previousLength: number; previousStartIndex: number } | null>(null);
+  const pendingLoadMoreRevealRef = useRef<{ previousLength: number } | null>(null);
   const isNearBottomRef = useRef(true);
   const userScrolledAwayRef = useRef(false);
   const lastScrollTopRef = useRef(0);
@@ -829,14 +829,13 @@ export function ConversationView({
     }
   }, [pageCount, isFetchingNextPage]);
 
-  // After load-more completes, adjust transcriptWindowStart to keep the same visible messages in view
+  // After load-more completes, reveal the newly prepended older slice.
   useLayoutEffect(() => {
     const pending = pendingLoadMoreRevealRef.current;
     if (!pending || isFetchingNextPage) return;
     const newLength = messages?.length ?? 0;
     if (newLength > pending.previousLength) {
-      const addedCount = newLength - pending.previousLength;
-      setTranscriptWindowStart(pending.previousStartIndex + addedCount);
+      setTranscriptWindowStart(0);
     }
     pendingLoadMoreRevealRef.current = null;
   }, [isFetchingNextPage, messages?.length]);
@@ -918,7 +917,6 @@ export function ConversationView({
     if (!hasNextPage || isFetchingNextPage) return;
     pendingLoadMoreRevealRef.current = {
       previousLength: messages?.length ?? 0,
-      previousStartIndex: transcriptWindow.startIndex,
     };
     handleLoadMore();
   }, [

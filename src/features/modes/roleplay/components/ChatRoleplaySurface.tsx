@@ -827,7 +827,7 @@ export function ChatRoleplaySurface({
   const inputChromeRef = useRef<HTMLDivElement>(null);
   const [chromeHeights, setChromeHeights] = useState({ top: 0, bottom: 0 });
   const [transcriptWindowStart, setTranscriptWindowStart] = useState<number | null>(null);
-  const pendingLoadMoreRevealRef = useRef<{ previousLength: number; previousStartIndex: number } | null>(null);
+  const pendingLoadMoreRevealRef = useRef<{ previousLength: number } | null>(null);
   const previousTailRef = useRef<{ messageId: string | undefined; isStreaming: boolean }>({
     messageId: undefined,
     isStreaming: false,
@@ -860,14 +860,13 @@ export function ChatRoleplaySurface({
     previousTailRef.current = { messageId: newestMsgId, isStreaming };
   }, [isStreaming, newestMsgId, transcriptWindowStart]);
 
-  // After load-more completes, adjust transcriptWindowStart to keep the same visible messages in view
+  // After load-more completes, reveal the newly prepended older slice.
   useLayoutEffect(() => {
     const pending = pendingLoadMoreRevealRef.current;
     if (!pending || isFetchingNextPage) return;
     const newLength = messages?.length ?? 0;
     if (newLength > pending.previousLength) {
-      const addedCount = newLength - pending.previousLength;
-      setTranscriptWindowStart(pending.previousStartIndex + addedCount);
+      setTranscriptWindowStart(0);
     }
     pendingLoadMoreRevealRef.current = null;
   }, [isFetchingNextPage, messages?.length]);
@@ -880,7 +879,6 @@ export function ChatRoleplaySurface({
     if (!hasNextPage || isFetchingNextPage) return;
     pendingLoadMoreRevealRef.current = {
       previousLength: messages?.length ?? 0,
-      previousStartIndex: transcriptWindow.startIndex,
     };
     onLoadMore();
   };
