@@ -94,6 +94,34 @@ describe("ensureNoModelGameShowcase", () => {
     expect(mockedStorageApi.createChatMessage.mock.calls).toHaveLength(messageCallsAfterFirstOpen);
   });
 
+  it("repairs missing child records for an existing showcase chat before marking it ready", async () => {
+    storageStore.set(storageKey("chats", NO_MODEL_GAME_SHOWCASE_CHAT_ID), {
+      id: NO_MODEL_GAME_SHOWCASE_CHAT_ID,
+      metadata: {
+        showcaseKey: NO_MODEL_GAME_SHOWCASE_ID,
+        showcaseVersion: 1,
+        showcaseSeedStatus: "pending",
+        userEditedNote: "keep me",
+      },
+    });
+
+    await ensureNoModelGameShowcase();
+
+    expect(mockedStorageApi.create).not.toHaveBeenCalledWith(
+      "chats",
+      expect.objectContaining({ id: NO_MODEL_GAME_SHOWCASE_CHAT_ID }),
+    );
+    expect(mockedStorageApi.createChatMessage).toHaveBeenCalledTimes(4);
+    expect(storageStore.get(storageKey("personas", "showcase-no-model-game-v1-persona"))).toBeTruthy();
+    expect(storageStore.get(storageKey("messages", "showcase-no-model-game-v1-message-4"))).toBeTruthy();
+    expect(storageStore.get(storageKey("chats", NO_MODEL_GAME_SHOWCASE_CHAT_ID))?.metadata).toEqual(
+      expect.objectContaining({
+        showcaseSeedStatus: "ready",
+        userEditedNote: "keep me",
+      }),
+    );
+  });
+
   it("rolls back newly-created showcase rows if message seeding fails", async () => {
     mockedStorageApi.createChatMessage.mockImplementation(async (chatId, value) => {
       if (value.id === "showcase-no-model-game-v1-message-2") throw new Error("message write failed");

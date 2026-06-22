@@ -262,7 +262,7 @@ async function verifyShowcaseComplete() {
   if (missingMessage) throw new Error(`Showcase seed is missing message ${missingMessage.id}.`);
 }
 
-async function seedNoModelGameShowcase(createdRecords: CreatedRecord[]) {
+async function reconcileNoModelGameShowcase(createdRecords: CreatedRecord[]) {
   await createIfMissing(
     "personas",
     PERSONA_ID,
@@ -374,7 +374,7 @@ async function seedNoModelGameShowcase(createdRecords: CreatedRecord[]) {
 export async function ensureNoModelGameShowcase(): Promise<{ chatId: string }> {
   const createdRecords: CreatedRecord[] = [];
   try {
-    await seedNoModelGameShowcase(createdRecords);
+    await reconcileNoModelGameShowcase(createdRecords);
   } catch (error) {
     const rollbackFailures = await rollbackCreatedRecords(createdRecords);
     if (rollbackFailures.length > 0) {
