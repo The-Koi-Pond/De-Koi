@@ -25,6 +25,27 @@ The current build keeps an explicit in-app update check in Settings > Advanced. 
 Token budget displays and prompt budget paths currently use deterministic estimates rather than provider-exact tokenizers. See [Token Budget Estimates](docs/token-budget-estimates.md) for the tokenizer support spike note and future requirements.
 Storage is file-backed JSON collections plus managed asset files. See [De-Koi Storage Schema](docs/database-schema.md) for the current collection catalog and [Legacy Marinara Storage Schema](docs/legacy-database-schema.md) for the generated comparison source.
 
+## Trying De-Koi For The First Time
+
+If you just want to try De-Koi, start with the smallest path that matches your
+setup:
+
+- **Use a published desktop release when one is available.** Download it from
+  the matching GitHub Release page, read that release's notes, and keep access
+  to the corresponding source code. Pre-alpha builds may be unsigned or
+  debug-signed, so test them with throwaway data first. See
+  [Install Or Update A Release](#install-or-update-a-release).
+- **Run from source when you deliberately want the current development line.**
+  Install the prerequisites, then run `pnpm install` and `pnpm tauri dev`. See
+  [Run From Source](#run-from-source).
+- **Use the Pi guide only for Raspberry Pi installs.** Pi users should prefer
+  prebuilt ARM64 images instead of local Rust/frontend builds. See
+  [Raspberry Pi Pre-Alpha Web Shell](#raspberry-pi-pre-alpha-web-shell).
+
+Most first-time desktop users do not need the Remote Runtime, Docker Compose,
+Raspberry Pi setup, or validation commands. Those sections are for self-hosting,
+Pi installs, contributor workflows, and development checks.
+
 ## Screenshots
 
 Current release-build screenshots are checked in under [`docs/screenshots/release`](docs/screenshots/release). These captures were taken from the production web preview for the current De-Koi build; the mode captures show the web-shell setup path before a remote runtime and provider connection are configured.
