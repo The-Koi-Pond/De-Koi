@@ -165,6 +165,17 @@
     "coverage": "core"
   },
   {
+    "id": "health-diagnostics",
+    "title": "Health And Diagnostics",
+    "category": "Settings",
+    "summary": "Review setup readiness, runtime health, Local Model status, provider probes, storage reachability, recent client diagnostics, and a redacted troubleshooting packet.",
+    "keywords": ["health", "diagnostics", "troubleshooting", "setup", "runtime", "sidecar", "local model", "provider", "storage", "support packet"],
+    "audience": "Users checking first-run setup or collecting safe troubleshooting details for support.",
+    "where": "Settings > Health.",
+    "actions": [{ "type": "open-settings", "tab": "health", "label": "Open Health" }],
+    "coverage": "core"
+  },
+  {
     "id": "notification-sounds",
     "title": "Notification Sounds",
     "category": "Settings",
