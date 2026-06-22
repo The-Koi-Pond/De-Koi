@@ -440,7 +440,6 @@ export function LorebookEditor() {
   }, [keywordPreviewDebounced, keywordPreviewTraceEntries]);
 
   const previewActive = keywordPreviewDebounced.trim().length > 0;
-  const enabledEntryCount = useMemo(() => entries.filter((entry) => entry.enabled).length, [entries]);
   const {
     entrySelectionMode,
     selectedEntryIds,
@@ -469,6 +468,12 @@ export function LorebookEditor() {
 
   // Toggle the inline drawer for an entry. Single-expand keeps the page
   // tidy; users can collapse the open one and click another to jump.
+  const visibleEntryIdSet = useMemo(() => new Set(visibleEntryIds), [visibleEntryIds]);
+  const visibleEnabledEntryCount = useMemo(
+    () => entries.filter((entry) => entry.enabled && visibleEntryIdSet.has(entry.id)).length,
+    [entries, visibleEntryIdSet],
+  );
+
   const toggleEntryExpanded = useCallback((entryId: string) => {
     setExpandedEntryId((current) => (current === entryId ? null : entryId));
   }, []);
@@ -671,9 +676,9 @@ export function LorebookEditor() {
                 keywordPreviewOpen={keywordPreviewOpen}
                 keywordPreviewText={keywordPreviewText}
                 previewActive={previewActive}
-                enabledEntryCount={enabledEntryCount}
                 traceEntries={keywordPreviewTraceEntries}
                 visibleTraceEntryIds={visibleEntryIds}
+                visibleEnabledEntryCount={visibleEnabledEntryCount}
                 entrySelectionMode={entrySelectionMode}
                 selectedEntryIds={selectedEntryIds}
                 visibleEntryIds={visibleEntryIds}

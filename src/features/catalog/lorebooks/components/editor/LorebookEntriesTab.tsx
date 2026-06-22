@@ -26,9 +26,9 @@ export function LorebookEntriesTab({
   keywordPreviewOpen,
   keywordPreviewText,
   previewActive,
-  enabledEntryCount,
   traceEntries,
   visibleTraceEntryIds,
+  visibleEnabledEntryCount,
   entrySelectionMode,
   selectedEntryIds,
   visibleEntryIds,
@@ -96,9 +96,9 @@ export function LorebookEntriesTab({
   keywordPreviewOpen: boolean;
   keywordPreviewText: string;
   previewActive: boolean;
-  enabledEntryCount: number;
   traceEntries: LorebookActivationTraceEntry[];
   visibleTraceEntryIds: string[];
+  visibleEnabledEntryCount: number;
   entrySelectionMode: boolean;
   selectedEntryIds: Set<string>;
   visibleEntryIds: string[];
@@ -294,9 +294,9 @@ export function LorebookEntriesTab({
         open={keywordPreviewOpen}
         text={keywordPreviewText}
         previewActive={previewActive}
-        enabledEntryCount={enabledEntryCount}
         traceEntries={traceEntries}
         visibleTraceEntryIds={visibleTraceEntryIds}
+        visibleEnabledEntryCount={visibleEnabledEntryCount}
         onOpenChange={onKeywordPreviewOpenChange}
         onTextChange={onKeywordPreviewTextChange}
       />

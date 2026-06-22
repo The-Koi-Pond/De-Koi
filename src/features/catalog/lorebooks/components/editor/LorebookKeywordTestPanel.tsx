@@ -2,34 +2,50 @@ import { ChevronDown, FlaskConical, X } from "lucide-react";
 import type { LorebookActivationTraceEntry } from "../../../../../engine/contracts/types/lorebook";
 import { cn } from "../../../../../shared/lib/utils";
 
+
+export function getKeywordTraceSummary(
+  traceEntries: LorebookActivationTraceEntry[],
+  visibleTraceEntryIds: string[],
+  visibleEnabledEntryCount: number,
+) {
+  const visibleTraceIds = new Set(visibleTraceEntryIds);
+  const scopedTraceEntries = traceEntries.filter((entry) => visibleTraceIds.has(entry.entryId));
+  const includedCount = scopedTraceEntries.filter((entry) => entry.status === "included").length;
+  const matchedCount = scopedTraceEntries.filter((entry) => entry.status === "matched").length;
+  const skippedCount = scopedTraceEntries.filter((entry) => entry.status === "skipped").length;
+
+  return {
+    displayedMatchCount: includedCount,
+    enabledEntryCount: visibleEnabledEntryCount,
+    firstSkipped: scopedTraceEntries.find((entry) => entry.status === "skipped"),
+    includedCount,
+    matchedCount,
+    skippedCount,
+    traceScopeLabel: scopedTraceEntries.length === traceEntries.length ? "Trace" : "Visible trace",
+  };
+}
+
 export function LorebookKeywordTestPanel({
   open,
   text,
   previewActive,
-  enabledEntryCount,
   traceEntries,
   visibleTraceEntryIds,
+  visibleEnabledEntryCount,
   onOpenChange,
   onTextChange,
 }: {
   open: boolean;
   text: string;
   previewActive: boolean;
-  enabledEntryCount: number;
   traceEntries: LorebookActivationTraceEntry[];
   visibleTraceEntryIds: string[];
+  visibleEnabledEntryCount: number;
   onOpenChange: (open: boolean) => void;
   onTextChange: (text: string) => void;
 }) {
-  const visibleTraceIds = new Set(visibleTraceEntryIds);
-  const scopedTraceEntries =
-    visibleTraceIds.size > 0 ? traceEntries.filter((entry) => visibleTraceIds.has(entry.entryId)) : traceEntries;
-  const traceScopeLabel = scopedTraceEntries.length === traceEntries.length ? "Trace" : "Visible trace";
-  const includedCount = scopedTraceEntries.filter((entry) => entry.status === "included").length;
-  const matchedCount = scopedTraceEntries.filter((entry) => entry.status === "matched").length;
-  const skippedCount = scopedTraceEntries.filter((entry) => entry.status === "skipped").length;
-  const firstSkipped = scopedTraceEntries.find((entry) => entry.status === "skipped");
-  const displayedMatchCount = includedCount;
+  const summary = getKeywordTraceSummary(traceEntries, visibleTraceEntryIds, visibleEnabledEntryCount);
+  const { displayedMatchCount, firstSkipped, includedCount, matchedCount, skippedCount, traceScopeLabel } = summary;
 
   return (
     <div className="rounded-xl bg-[var(--secondary)]/60 ring-1 ring-[var(--border)]">
@@ -85,8 +101,8 @@ export function LorebookKeywordTestPanel({
               <p>
                 {displayedMatchCount === 0
                   ? "No visible entries would activate on this text."
-                  : `${displayedMatchCount} of ${enabledEntryCount} enabled entr${
-                      enabledEntryCount === 1 ? "y" : "ies"
+                  : `${displayedMatchCount} of ${summary.enabledEntryCount} visible enabled entr${
+                      summary.enabledEntryCount === 1 ? "y" : "ies"
                     } would activate.`}
               </p>
               <p>
