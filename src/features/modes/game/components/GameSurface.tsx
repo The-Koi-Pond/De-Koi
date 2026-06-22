@@ -219,6 +219,7 @@ import { GameTransitionManager } from "./GameTransitionManager";
 import { GameChoiceCards } from "./GameChoiceCards";
 import { GameQteOverlay } from "./GameQteOverlay";
 import { GameJsonRepairModal } from "./GameJsonRepairModal";
+import { GameShowcaseBanner } from "./GameShowcaseBanner";
 import { DirectionEngine } from "./DirectionEngine";
 import { GameWidgetPanel, GameWidgetSessionPrepModal, MobileWidgetPanel } from "./GameWidgetPanel";
 import { WeatherEffects } from "../../../runtime/visuals/index";
@@ -1302,6 +1303,7 @@ export function GameSurface({
     !!chatMeta.enableSpriteGeneration &&
     !!chatMeta.gameImageConnectionId &&
     canRequestGameSceneIllustration(chatMeta as Record<string, unknown>, sessionNumber, sceneTurnNumber);
+  const isNoModelShowcase = chatMeta.showcaseKey === "no-model-game-v1";
   const queryClient = useQueryClient();
   const { patchVisibleGameState, persistMetadata, publishSessionChat, syncHudWidgetsToChatCache } =
     useGameSurfacePersistenceController({
@@ -7338,6 +7340,12 @@ export function GameSurface({
                 introCinematicActive ? "pointer-events-none opacity-0" : "opacity-100"
               }`}
             >
+              {isNoModelShowcase && (
+                <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-3">
+                  <GameShowcaseBanner />
+                </div>
+              )}
+
               {/* Top-right action controls */}
               <div
                 data-tour="game-controls"

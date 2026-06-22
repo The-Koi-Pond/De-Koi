@@ -40,6 +40,7 @@ const coreSurfaceIds = [
   "imports",
   "bot-browser",
   "deki",
+  "no-model-showcase",
 ];
 const discoveryMetadataPaths = ["src/features/shell/discovery/"];
 
@@ -67,6 +68,11 @@ function validateAction(action, entryId, index) {
     case "replay-onboarding":
     case "open-deki":
     case "go-home":
+      break;
+    case "open-showcase":
+      if (action.showcaseId !== "no-model-game-v1") {
+        errors.push(`${path}.showcaseId must target a known showcase.`);
+      }
       break;
     default:
       errors.push(`${path}.type must be a supported discovery action.`);

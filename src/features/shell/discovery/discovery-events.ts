@@ -6,4 +6,8 @@ export type DiscoveryAppEventDetail =
     }
   | {
       type: "go-home";
+    }
+  | {
+      type: "open-showcase";
+      showcaseId: "no-model-game-v1";
     };
