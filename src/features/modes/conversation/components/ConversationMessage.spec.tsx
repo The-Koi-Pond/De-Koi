@@ -220,4 +220,116 @@ describe("ConversationMessage memo subscriptions", () => {
 
     expect(container!.textContent).toContain("\u201chello\u201d");
   });
+
+  it("keeps child button keyboard events isolated from message-level toggles", () => {
+    const onRegenerate = vi.fn();
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={{
+              ...message,
+              id: "message-keyboard-actions",
+              extra: {
+                displayText: null,
+                isGenerated: true,
+                tokenCount: null,
+                generationInfo: null,
+              },
+            }}
+            onRegenerate={onRegenerate}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const messageRow = container!.querySelector<HTMLElement>(".mari-message")!;
+    expect(container!.querySelector<HTMLElement>(".mari-message-actions")?.hasAttribute("aria-hidden")).toBe(false);
+    const regenerateButton = container!.querySelector<HTMLButtonElement>('button[title="Regenerate"]')!;
+    expect(regenerateButton.tabIndex).toBe(-1);
+
+    act(() => {
+      messageRow.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    expect(regenerateButton.tabIndex).toBe(0);
+
+    act(() => {
+      regenerateButton.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    expect(regenerateButton.tabIndex).toBe(0);
+
+    act(() => {
+      regenerateButton.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+    });
+    expect(regenerateButton.tabIndex).toBe(0);
+
+    act(() => {
+      regenerateButton.click();
+    });
+    expect(onRegenerate).toHaveBeenCalledWith("message-keyboard-actions");
+  });
+
+  it("keeps multi-select checkbox keyboard events from double toggling selection", () => {
+    const onToggleSelect = vi.fn();
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={{
+              ...message,
+              id: "message-keyboard-select",
+              extra: {
+                displayText: null,
+                isGenerated: true,
+                tokenCount: null,
+                generationInfo: null,
+              },
+            }}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+            messageOrderIndex={4}
+            multiSelectMode
+            isSelected={false}
+            onToggleSelect={onToggleSelect}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const messageRow = container!.querySelector<HTMLElement>(".mari-message")!;
+    act(() => {
+      messageRow.dispatchEvent(
+        new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true, shiftKey: true }),
+      );
+    });
+    expect(onToggleSelect).toHaveBeenCalledWith({
+      messageId: "message-keyboard-select",
+      orderIndex: 4,
+      checked: true,
+      shiftKey: true,
+    });
+
+    onToggleSelect.mockClear();
+    const checkbox = container!.querySelector<HTMLButtonElement>('button[role="checkbox"]')!;
+    act(() => {
+      checkbox.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+    });
+    expect(onToggleSelect).not.toHaveBeenCalled();
+
+    act(() => {
+      checkbox.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true }));
+    });
+    expect(onToggleSelect).toHaveBeenCalledWith({
+      messageId: "message-keyboard-select",
+      orderIndex: 4,
+      checked: true,
+      shiftKey: true,
+    });
+  });
 });

@@ -22,6 +22,7 @@ interface CollectFreshAssistantPartRevealStartsOptions {
 export interface ConversationPartRevealStart {
   key: string;
   count: number;
+  initialVisiblePartCount: number;
 }
 
 export type ConversationRevealGenerationMap = Record<string, number>;
@@ -48,7 +49,10 @@ export function collectFreshAssistantPartRevealStarts({
     if (!isNewKey && !partCountIncreased) continue;
     if (!Number.isFinite(candidate.createdAtMs)) continue;
     if (now - candidate.createdAtMs >= freshnessMs) continue;
-    starts.push({ key: candidate.key, count: candidate.partCount });
+    const initialVisiblePartCount = partCountIncreased
+      ? Math.max(1, Math.min(previousPartCount, candidate.partCount))
+      : 1;
+    starts.push({ key: candidate.key, count: candidate.partCount, initialVisiblePartCount });
   }
   return starts;
 }
@@ -66,8 +70,12 @@ export function resolveConversationVisiblePartCount({
   currentVisiblePartCount,
   freshRevealStarts,
 }: ResolveConversationVisiblePartCountOptions): number {
-  if (currentVisiblePartCount != null) return Math.max(1, Math.min(currentVisiblePartCount, partCount));
-  return freshRevealStarts.some((start) => start.key === key) ? 1 : partCount;
+  const freshRevealStart = freshRevealStarts.find((start) => start.key === key);
+  const visibleFloor = freshRevealStart?.initialVisiblePartCount ?? 1;
+  if (currentVisiblePartCount != null) {
+    return Math.min(partCount, Math.max(visibleFloor, currentVisiblePartCount));
+  }
+  return freshRevealStart ? Math.min(partCount, visibleFloor) : partCount;
 }
 
 export function startConversationRevealGeneration(

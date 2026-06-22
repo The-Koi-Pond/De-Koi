@@ -26,7 +26,7 @@ describe("conversation part reveal", () => {
       now: 101_000,
     });
 
-    expect(starts).toEqual([{ key: "assistant-1", count: 3 }]);
+    expect(starts).toEqual([{ key: "assistant-1", count: 3, initialVisiblePartCount: 1 }]);
     expect(
       resolveConversationVisiblePartCount({
         key: "assistant-1",
@@ -101,7 +101,7 @@ describe("conversation part reveal", () => {
       now: 101_000,
     });
 
-    expect(starts).toEqual([{ key: "assistant-saving", count: 3 }]);
+    expect(starts).toEqual([{ key: "assistant-saving", count: 3, initialVisiblePartCount: 1 }]);
     expect(
       resolveConversationVisiblePartCount({
         key: "assistant-saving",
@@ -128,7 +128,15 @@ describe("conversation part reveal", () => {
       now: 101_000,
     });
 
-    expect(starts).toEqual([{ key: "assistant-saving", count: 3 }]);
+    expect(starts).toEqual([{ key: "assistant-saving", count: 3, initialVisiblePartCount: 2 }]);
+    expect(
+      resolveConversationVisiblePartCount({
+        key: "assistant-saving",
+        partCount: 3,
+        currentVisiblePartCount: 1,
+        freshRevealStarts: starts,
+      }),
+    ).toBe(2);
   });
 
   it("makes stale same-key reveal generations inert after replacement", () => {

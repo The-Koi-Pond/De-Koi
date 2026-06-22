@@ -92,6 +92,8 @@ export interface ConversationMessageRenderContext {
   forceShowActions?: boolean;
   multiSelectMode?: boolean;
   isSelected?: boolean;
+  onToggleSelect?: (shiftKey: boolean) => void;
+  handleMessageKeyDown?: (event: React.KeyboardEvent) => void;
   messageIndex?: number;
   showActions: boolean;
   showMessageNumbers: boolean;
@@ -416,11 +418,13 @@ export function MsgAction({
   onClick,
   title,
   className,
+  tabIndex,
 }: {
   icon: ReactNode;
   onClick: () => void;
   title: string;
   className?: string;
+  tabIndex?: number;
 }) {
   return (
     <button
@@ -430,6 +434,7 @@ export function MsgAction({
         onClick();
       }}
       title={title}
+      tabIndex={tabIndex}
       className={cn(
         "rounded p-1 text-foreground/70 transition-colors hover:bg-foreground/20 hover:text-foreground",
         className,

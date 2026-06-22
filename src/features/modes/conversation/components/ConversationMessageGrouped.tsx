@@ -44,7 +44,9 @@ export function ConversationMessageGrouped({ context }: { context: ConversationM
       data-message-role={context.message.role}
       data-card-css={context.cardCssId}
       data-grouped={context.isGrouped || undefined}
+      tabIndex={context.hideActions ? undefined : 0}
       onClick={context.handleMessageClick}
+      onKeyDown={context.handleMessageKeyDown}
       onDoubleClick={context.handleMessageDoubleClick}
     >
       {context.multiSelectMode && (
@@ -55,6 +57,10 @@ export function ConversationMessageGrouped({ context }: { context: ConversationM
             aria-checked={context.isSelected}
             aria-label={context.isSelected ? "Deselect message" : "Select message"}
             className="block border-0 bg-transparent p-0 text-inherit"
+            onClick={(e) => {
+              e.stopPropagation();
+              context.onToggleSelect?.(e.shiftKey);
+            }}
           >
             <MessageSelectCheckbox isSelected={context.isSelected} />
           </button>
