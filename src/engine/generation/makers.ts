@@ -1,6 +1,6 @@
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
-import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
+import { createInlineThinkingStreamParser, extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import { parseGameJsonish } from "../shared/parsing-jsonish";
 
 type LorebookMakerEntry = {
@@ -379,22 +379,34 @@ async function* runMakerRequest(
   };
   if (!input.streaming) {
     const raw = await llm.complete(request, signal);
-    yield { type: "token", data: raw };
+    yield { type: "token", data: extractLeadingThinkingBlocks(raw).cleanText || raw };
     return raw;
   }
 
   let raw = "";
+  const thinkingParser = createInlineThinkingStreamParser();
+  const emitContentParts = function* (text: string): Generator<MakerEvent> {
+    for (const part of thinkingParser.push(text)) {
+      if (part.type !== "content" || !part.text) continue;
+      yield { type: "token", data: part.text };
+    }
+  };
+
   for await (const chunk of llm.stream(request, signal)) {
     if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
     if (chunk.type === "token") {
       const token = llmChunkText(chunk);
       if (token) {
         raw += token;
-        yield { type: "token", data: token };
+        yield* emitContentParts(token);
       }
     } else if (chunk.type === "error") {
       throw new Error(llmStreamErrorMessage(chunk));
     }
+  }
+  for (const part of thinkingParser.flush()) {
+    if (part.type !== "content" || !part.text) continue;
+    yield { type: "token", data: part.text };
   }
   return raw;
 }

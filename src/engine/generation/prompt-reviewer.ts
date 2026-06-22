@@ -1,6 +1,6 @@
 import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
-import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
+import { createInlineThinkingStreamParser, extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import { readString as stringValue } from "../shared/value-readers";
 
 export type PromptReviewInput = {
@@ -112,20 +112,35 @@ async function* streamPromptReview(
   signal?: AbortSignal,
 ): AsyncGenerator<PromptReviewEvent, string> {
   let raw = "";
+  let visible = "";
+  const thinkingParser = createInlineThinkingStreamParser();
+  const emitContentParts = function* (text: string): Generator<PromptReviewEvent> {
+    for (const part of thinkingParser.push(text)) {
+      if (part.type !== "content" || !part.text) continue;
+      visible += part.text;
+      yield { type: "token", data: part.text };
+    }
+  };
+
   for await (const chunk of llm.stream(request, signal)) {
     if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
     if (chunk.type === "token") {
       const token = llmChunkText(chunk);
       if (token) {
         raw += token;
-        yield { type: "token", data: token };
+        yield* emitContentParts(token);
       }
     } else if (chunk.type === "error") {
       yield { type: "error", data: llmStreamErrorMessage(chunk) };
-      return raw;
+      return visible;
     }
   }
-  return raw;
+  for (const part of thinkingParser.flush()) {
+    if (part.type !== "content" || !part.text) continue;
+    visible += part.text;
+    yield { type: "token", data: part.text };
+  }
+  return visible || extractLeadingThinkingBlocks(raw).cleanText;
 }
 
 async function assemblePromptReviewView(storage: StorageGateway, presetId: string): Promise<string> {

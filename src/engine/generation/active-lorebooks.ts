@@ -58,11 +58,12 @@ export async function scanActiveLorebookEntries(
 ): Promise<ActiveLorebookScanResult> {
   const rawChat = requireRecord(await storage.get("chats", chatId), "Chat");
   const storedMessages = await loadChatMessages(storage, chatId);
+  const chatMode = readString(rawChat.mode || rawChat.chatMode).trim();
 
   // For game-mode chats, resolve the visible-anchor game state snapshot
   // so the preview matches what generation actually sees.
   let chat = rawChat;
-  if (chat.mode === "game") {
+  if (chatMode === "game") {
     try {
       const visibleAnchor = resolveVisibleGameStateAnchor(storedMessages);
       if (visibleAnchor) {
