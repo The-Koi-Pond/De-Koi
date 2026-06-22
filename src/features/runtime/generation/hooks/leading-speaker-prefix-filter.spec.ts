@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createLeadingSpeakerPrefixFilter, filterLeadingSpeakerPrefix } from "./leading-speaker-prefix-filter";
 
-describe("createLeadingSpeakerPrefixFilter", () => {
-  it("strips case-insensitive speaker prefixes across chunks", () => {
+describe("leading speaker-prefix stream boundary filtering", () => {
+  it("strips case-insensitive speaker prefixes split across stream chunks", () => {
     const filter = createLeadingSpeakerPrefixFilter(["Alice"]);
 
     expect(filter.filter("ali")).toBe("");
@@ -25,11 +25,11 @@ describe("createLeadingSpeakerPrefixFilter", () => {
     expect(filter.flush()).toBe("Ali");
   });
 
-  it("filters a full replacement payload", () => {
+  it("filters a full replacement payload from replacement-style streams", () => {
     expect(filterLeadingSpeakerPrefix("alice: Hello there.", ["Alice"])).toBe("Hello there.");
   });
 
-  it("can discard a pending partial prefix before replacement", () => {
+  it("can discard a pending partial stream prefix before replacement", () => {
     const filter = createLeadingSpeakerPrefixFilter(["Alice"]);
 
     expect(filter.filter("Ali")).toBe("");

@@ -231,6 +231,25 @@ function cachedPersonaSnapshot(queryClient: QueryClient, chatId: string) {
   return findPersonaSnapshotForChat(personas, chat);
 }
 
+function cachedChatSpeakerNames(queryClient: QueryClient, chatId: string): Set<string> {
+  const speakerNames = new Set<string>();
+  try {
+    const chat = queryClient.getQueryData<Pick<Chat, "id" | "characterIds"> | undefined>(chatKeys.detail(chatId));
+    const charIds = chat?.characterIds;
+    if (charIds?.length) {
+      for (const cid of charIds) {
+        const char = queryClient.getQueryData<Record<string, unknown> | undefined>(characterKeys.detail(cid));
+        const data = parseMaybeRecord(char?.data);
+        const name = readString(data.name).trim() || readString(char?.name).trim();
+        if (name) speakerNames.add(name);
+      }
+    }
+  } catch {
+    // best-effort
+  }
+  return speakerNames;
+}
+
 function optimisticUserMessage(queryClient: QueryClient, args: GenerateArgs): Message | null {
   if (args.impersonate === true || readString(args.regenerateMessageId).trim()) return null;
   const content = readString(args.userMessage).trim() || readString(args.message).trim();
@@ -1565,21 +1584,7 @@ export async function runGenerationWithUi(
 
   // Leading speaker-prefix filter: strips "Name: " / "Name： " prefix from roleplay
   // / group-chat model output when the prefix matches a known speaker.
-  const speakerNames = new Set<string>();
-  try {
-    const chat = queryClient.getQueryData<Pick<Chat, "id" | "characterIds"> | undefined>(chatKeys.detail(chatId));
-    const charIds = chat?.characterIds;
-    if (charIds?.length) {
-      for (const cid of charIds) {
-        const char = queryClient.getQueryData<Record<string, unknown> | undefined>(characterKeys.detail(cid));
-        const data = parseMaybeRecord(char?.data);
-        const name = readString(data.name).trim() || readString(char?.name).trim();
-        if (name) speakerNames.add(name);
-      }
-    }
-  } catch {
-    // best-effort
-  }
+  const speakerNames = cachedChatSpeakerNames(queryClient, chatId);
   const speakerPrefixFilter = createLeadingSpeakerPrefixFilter(speakerNames);
 
   const flushLeadingSpeakerPrefix = () => {
