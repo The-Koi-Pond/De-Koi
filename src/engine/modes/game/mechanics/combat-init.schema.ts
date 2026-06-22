@@ -140,11 +140,13 @@ const combatInitStateSchema = z
   })
   .passthrough();
 
-export const combatInitStructuredSchema = z
-  .union([z.object({ combatState: combatInitStateSchema }).passthrough(), combatInitStateSchema])
-  .transform(
-    (value): CombatInitJsonRecord => ("combatState" in value ? value.combatState : value) as CombatInitJsonRecord,
-  );
+export const combatInitStructuredSchema = z.union([
+  combatInitStateSchema.transform((value): CombatInitJsonRecord => value as CombatInitJsonRecord),
+  z
+    .object({ combatState: combatInitStateSchema })
+    .passthrough()
+    .transform((value): CombatInitJsonRecord => value.combatState as CombatInitJsonRecord),
+]);
 
 export const COMBAT_INIT_SCHEMA_DESCRIPTION = JSON.stringify({
   party: [

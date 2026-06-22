@@ -168,6 +168,23 @@ describe("initGameCombatEncounter structured generation", () => {
     expect(result.combatState.environment).toBe("A mirror-bright hall.");
     expect(result.combatState.enemies).toHaveLength(1);
   });
+  it("keeps direct combat JSON when passthrough combatState noise is malformed", async () => {
+    const llm = llmWithResponses([
+      validCombatJson({
+        environment: "A direct arena.",
+        combatState: { party: [], enemies: [] },
+      }),
+    ]);
+
+    const result = await initGameCombatEncounter(
+      { storage: storageGateway(), llm },
+      { chatId: "chat-1", connectionId: null, settings },
+    );
+
+    expect(result.combatState.environment).toBe("A direct arena.");
+    expect(result.combatState.party[0]?.name).toBe("Mira");
+    expect(llm.complete).toHaveBeenCalledTimes(1);
+  });
 
   it("repairs malformed initial combat JSON and returns the repaired state", async () => {
     const llm = llmWithResponses(["not json", validCombatJson({ environment: "A repaired arena." })]);
