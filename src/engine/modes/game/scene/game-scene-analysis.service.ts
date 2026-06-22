@@ -1,9 +1,8 @@
-import type { LlmGateway } from "../../../capabilities/llm";
+import type { LlmGateway, LlmMessage } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
 import type { DirectionCommand } from "../../../contracts/types/game";
 import type { SceneAnalysis, SceneSegmentEffect } from "../../../contracts/types/scene";
-import { extractLeadingThinkingBlocks } from "../../../generation-core/llm/inline-thinking";
-import { parseGameJsonish } from "../../../shared/parsing-jsonish";
+import { generateStructured } from "../../../generation/structured-generation";
 import {
   boolish,
   isRecord,
@@ -18,6 +17,10 @@ import {
   buildSceneAnalyzerUserPrompt,
   type SceneAnalyzerContext,
 } from "./scene-analyzer";
+import {
+  GAME_SCENE_ANALYSIS_SCHEMA_DESCRIPTION,
+  gameSceneAnalysisStructuredSchema,
+} from "./game-scene-analysis.schema";
 import { postProcessSceneResult, type PostProcessContext } from "./scene-postprocess";
 
 export interface GameSceneAnalysisCapabilities {
@@ -32,6 +35,9 @@ export interface GameSceneAnalysisRequest {
   playerAction?: string | null;
   context?: JsonRecord;
 }
+
+const GAME_SCENE_ANALYSIS_FAILURE_MESSAGE =
+  "Scene analysis did not return usable structured data. Scene changes were skipped for this turn.";
 
 function defaultGameSceneAnalysis(): SceneAnalysis {
   return {
@@ -121,31 +127,6 @@ function sanitizeGameSceneAnalysis(parsed: JsonRecord): SceneAnalysis {
       ? (parsed.illustration as unknown as SceneAnalysis["illustration"])
       : null,
   } as SceneAnalysis;
-}
-
-function parseObject(raw: string): JsonRecord | null {
-  try {
-    const { cleanText } = extractLeadingThinkingBlocks(raw);
-    const parsed = parseGameJsonish(cleanText);
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function malformedJsonFallback(sceneContext: SceneAnalyzerContext): SceneAnalysis {
-  const fallback = defaultGameSceneAnalysis();
-  const track = sceneContext.useSpotifyMusic ? sceneContext.availableSpotifyTracks?.[0] : null;
-  const uri = readString(track?.uri).trim();
-  if (uri) {
-    fallback.spotifyTrack = {
-      uri,
-      name: readNullableString(track?.name),
-      artist: readNullableString(track?.artist),
-      album: readNullableString(track?.album),
-    };
-  }
-  return fallback;
 }
 
 function readNullableString(value: unknown): string | null {
@@ -254,18 +235,33 @@ export async function analyzeGameScene(
   const connectionId = await resolveGameSceneConnectionId(capabilities.storage, chat, input.connectionId ?? null);
   const sceneContext = normalizeSceneAnalyzerContext(input.context);
 
-  const raw = await capabilities.llm.complete({
-    connectionId,
-    messages: [
-      { role: "system", content: buildSceneAnalyzerSystemPrompt(sceneContext) },
-      {
-        role: "user",
-        content: buildSceneAnalyzerUserPrompt(input.narration, input.playerAction ?? undefined, sceneContext),
-      },
-    ],
-    parameters: { maxTokens: 1200, temperature: 0.2 },
-  });
-  const parsed = parseObject(raw);
-  const analysis = parsed ? sanitizeGameSceneAnalysis(parsed) : malformedJsonFallback(sceneContext);
+  const messages: LlmMessage[] = [
+    { role: "system", content: buildSceneAnalyzerSystemPrompt(sceneContext) },
+    {
+      role: "user",
+      content: buildSceneAnalyzerUserPrompt(input.narration, input.playerAction ?? undefined, sceneContext),
+    },
+  ];
+  const result = await generateStructured(
+    { llm: capabilities.llm },
+    {
+      taskName: "game.sceneAnalysis",
+      connectionId,
+      messages,
+      parameters: { maxTokens: 1200, temperature: 0.2 },
+      schema: gameSceneAnalysisStructuredSchema,
+      schemaDescription: GAME_SCENE_ANALYSIS_SCHEMA_DESCRIPTION,
+      maxRepairAttempts: 1,
+      failureMessage: GAME_SCENE_ANALYSIS_FAILURE_MESSAGE,
+    },
+  );
+
+  if (!result.ok) {
+    const fallback = defaultGameSceneAnalysis();
+    fallback.structuredFailure = result.failure;
+    return fallback;
+  }
+
+  const analysis = sanitizeGameSceneAnalysis(result.data);
   return postProcessSceneResult(analysis, scenePostProcessContext(sceneContext));
 }
