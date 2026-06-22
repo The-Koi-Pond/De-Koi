@@ -229,6 +229,7 @@ Useful starting points:
 - [Architecture guide](./docs/developer/architecture.html)
 - [Module ownership guide](./docs/developer/modules.html)
 - [Impact areas guide](./docs/developer/impact-areas.html)
+- [Extension developer guide](./docs/developer/extensions.html)
 - [De-Koi storage schema](./docs/database-schema.md)
 - [Release update strategy](./docs/release-update-strategy.md)
 - [Token budget estimates](./docs/token-budget-estimates.md)
