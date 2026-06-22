@@ -73,6 +73,7 @@ import {
 import { filterPlayerPersonaPresentCharacters } from "../../../../engine/shared/game-state/present-character-filter";
 import type { AgentDebugEntry } from "../../../../engine/contracts/types/agent";
 import type { IntegrationGateway } from "../../../../engine/capabilities/integrations";
+import { createLeadingSpeakerPrefixFilter, filterLeadingSpeakerPrefix } from "./leading-speaker-prefix-filter";
 
 export type GenerateArgs = GenerationReplayInput & {
   chatId: string;
@@ -1562,10 +1563,49 @@ export async function runGenerationWithUi(
     resolveAllRevealWaiters();
   }
 
+  // Leading speaker-prefix filter: strips "Name: " / "Name： " prefix from roleplay
+  // / group-chat model output when the prefix matches a known speaker.
+  const speakerNames = new Set<string>();
+  try {
+    const chat = queryClient.getQueryData<Pick<Chat, "id" | "characterIds"> | undefined>(chatKeys.detail(chatId));
+    const charIds = chat?.characterIds;
+    if (charIds?.length) {
+      for (const cid of charIds) {
+        const char = queryClient.getQueryData<Record<string, unknown> | undefined>(characterKeys.detail(cid));
+        const data = parseMaybeRecord(char?.data);
+        const name = readString(data.name).trim() || readString(char?.name).trim();
+        if (name) speakerNames.add(name);
+      }
+    }
+  } catch {
+    // best-effort
+  }
+  const speakerPrefixFilter = createLeadingSpeakerPrefixFilter(speakerNames);
+
+  const flushLeadingSpeakerPrefix = () => {
+    const remaining = speakerPrefixFilter.flush();
+    if (remaining) {
+      received += remaining;
+      if (!useUIStore.getState().enableStreaming) return;
+      pendingReveal += remaining;
+      scheduleStreamReveal();
+    }
+  };
+
   const enqueueVisibleStreamText = (text: string) => {
-    if (!text || !useUIStore.getState().enableStreaming) return;
-    pendingReveal += text;
-    scheduleStreamReveal();
+    if (!text) return;
+    const filtered = speakerPrefixFilter.filter(text);
+    if (filtered) {
+      received += filtered;
+      if (!useUIStore.getState().enableStreaming) return;
+      pendingReveal += filtered;
+      scheduleStreamReveal();
+    }
+  };
+
+  const filterReplacementStreamText = (text: string) => {
+    speakerPrefixFilter.reset();
+    return filterLeadingSpeakerPrefix(text, speakerNames);
   };
 
   const replaceVisibleStreamText = (text: string) => {
@@ -1606,6 +1646,7 @@ export async function runGenerationWithUi(
   };
 
   const flushLiveGenerationBuffers = async () => {
+    flushLeadingSpeakerPrefix();
     commitThinkingBuffer(true);
     await flushVisibleStreamText();
   };
@@ -1615,6 +1656,7 @@ export async function runGenerationWithUi(
     received = "";
     receivedTurnContent = false;
     receivedThinking = false;
+    speakerPrefixFilter.reset();
     visibleStreamText = "";
     committedStreamText = "";
     lastStreamBufferCommitAt = 0;
@@ -1742,15 +1784,15 @@ export async function runGenerationWithUi(
             if (firstVisibleToken) {
               clearChatAvailabilityState();
             }
-            received += event.data;
             enqueueVisibleStreamText(event.data);
           }
           break;
         case "content_replace":
           if (!foregroundGenerationReleased && typeof event.data === "string") {
-            received = event.data;
-            receivedAnyContent = receivedAnyContent || event.data.trim().length > 0;
-            replaceVisibleStreamText(event.data);
+            const filtered = filterReplacementStreamText(event.data);
+            received = filtered;
+            receivedAnyContent = receivedAnyContent || filtered.trim().length > 0;
+            replaceVisibleStreamText(filtered);
           }
           break;
         case "message":
@@ -1799,6 +1841,7 @@ export async function runGenerationWithUi(
           break;
         }
         case "typing": {
+          flushLeadingSpeakerPrefix();
           const label = characterLabel(eventCharacters(event));
           const state = useChatStore.getState();
           state.setPerChatTyping(chatId, label);
