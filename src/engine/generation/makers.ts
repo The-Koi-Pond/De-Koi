@@ -1,5 +1,6 @@
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
+import { createInlineThinkingStreamParser, extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import { parseGameJsonish } from "../shared/parsing-jsonish";
 
 type LorebookMakerEntry = {
@@ -357,9 +358,10 @@ async function* generateJsonMaker(
   );
 
   const payload = parseObject(raw);
+  const cleanText = cleanMakerResponseText(raw);
   yield {
     type: "done",
-    data: Object.keys(payload).length > 0 ? JSON.stringify(payload) : raw,
+    data: Object.keys(payload).length > 0 ? JSON.stringify(payload) : cleanText,
   };
 }
 
@@ -378,22 +380,35 @@ async function* runMakerRequest(
   };
   if (!input.streaming) {
     const raw = await llm.complete(request, signal);
-    yield { type: "token", data: raw };
+    const cleanText = cleanMakerResponseText(raw);
+    if (cleanText) yield { type: "token", data: cleanText };
     return raw;
   }
 
   let raw = "";
+  const thinkingParser = createInlineThinkingStreamParser();
+  const emitContentParts = function* (text: string): Generator<MakerEvent> {
+    for (const part of thinkingParser.push(text)) {
+      if (part.type !== "content" || !part.text) continue;
+      yield { type: "token", data: part.text };
+    }
+  };
+
   for await (const chunk of llm.stream(request, signal)) {
     if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
     if (chunk.type === "token") {
       const token = llmChunkText(chunk);
       if (token) {
         raw += token;
-        yield { type: "token", data: token };
+        yield* emitContentParts(token);
       }
     } else if (chunk.type === "error") {
       throw new Error(llmStreamErrorMessage(chunk));
     }
+  }
+  for (const part of thinkingParser.flush()) {
+    if (part.type !== "content" || !part.text) continue;
+    yield { type: "token", data: part.text };
   }
   return raw;
 }
@@ -433,8 +448,18 @@ function buildContinuationLorebookPrompt(
 }
 
 function parseObject<T extends Record<string, unknown>>(raw: string): T {
-  const parsed = parseGameJsonish(raw);
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as T) : ({} as T);
+  const cleanText = cleanMakerResponseText(raw);
+  if (!cleanText.trim()) return {} as T;
+  try {
+    const parsed = parseGameJsonish(cleanText);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as T) : ({} as T);
+  } catch {
+    return {} as T;
+  }
+}
+
+function cleanMakerResponseText(raw: string): string {
+  return extractLeadingThinkingBlocks(raw).cleanText;
 }
 
 function normalizeLorebookEntry(entry: LorebookMakerEntry): LorebookMakerEntry {

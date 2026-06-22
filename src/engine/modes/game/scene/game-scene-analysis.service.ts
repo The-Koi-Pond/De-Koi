@@ -2,6 +2,7 @@ import type { LlmGateway } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
 import type { DirectionCommand } from "../../../contracts/types/game";
 import type { SceneAnalysis, SceneSegmentEffect } from "../../../contracts/types/scene";
+import { extractLeadingThinkingBlocks } from "../../../generation-core/llm/inline-thinking";
 import { parseGameJsonish } from "../../../shared/parsing-jsonish";
 import {
   boolish,
@@ -124,7 +125,8 @@ function sanitizeGameSceneAnalysis(parsed: JsonRecord): SceneAnalysis {
 
 function parseObject(raw: string): JsonRecord | null {
   try {
-    const parsed = parseGameJsonish(raw);
+    const { cleanText } = extractLeadingThinkingBlocks(raw);
+    const parsed = parseGameJsonish(cleanText);
     return isRecord(parsed) ? parsed : null;
   } catch {
     return null;

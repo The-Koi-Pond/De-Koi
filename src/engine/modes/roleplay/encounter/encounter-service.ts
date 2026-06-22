@@ -1,6 +1,7 @@
 import type { LlmGateway, LlmMessage } from "../../../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../../../capabilities/storage";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
+import { extractLeadingThinkingBlocks } from "../../../generation-core/llm/inline-thinking";
 import { parseGameJsonish } from "../../../shared/parsing-jsonish";
 import { readString as stringValue } from "../../../shared/value-readers";
 import type { RPGStatsConfig } from "../../../contracts/types/character";
@@ -146,7 +147,10 @@ export async function summarizeRoleplayEncounter(
       messages,
       parameters: { temperature: 0.9, maxTokens: SUMMARY_OUTPUT_TOKENS },
     });
-    summary = generated.replace(/\[FIGHT CONCLUDED\]\s*/i, "").trim() || fallback;
+    summary =
+      extractLeadingThinkingBlocks(generated)
+        .cleanText.replace(/\[FIGHT CONCLUDED\]\s*/i, "")
+        .trim() || fallback;
   } catch {
     summary = fallback;
   }
@@ -453,7 +457,8 @@ async function completeJsonObject(
   try {
     const connectionId = await resolveConnectionId(capabilities.storage, chat, overrideConnectionId);
     const raw = await capabilities.llm.complete({ connectionId, messages, parameters });
-    const parsed = parseGameJsonish(raw);
+    const { cleanText } = extractLeadingThinkingBlocks(raw);
+    const parsed = parseGameJsonish(cleanText);
     return { parsed: isRecord(parsed) ? parsed : null, raw };
   } catch {
     return { parsed: null, raw: "" };

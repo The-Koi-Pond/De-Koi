@@ -8,6 +8,8 @@ import {
 import { loadChatMessages, requireRecord } from "./context";
 import { loadCharacters, loadPersona } from "./prompt-assembly";
 import { hiddenFromAi, readString, type JsonRecord } from "./runtime-records";
+import { resolveVisibleGameStateAnchor } from "./generate-route-utils";
+import { selectTrackerSnapshotForGeneration } from "./tracker-snapshots";
 
 export interface ActiveLorebookScanResult {
   entries: Array<{
@@ -54,8 +56,30 @@ export async function scanActiveLorebookEntries(
   chatId: string,
   options: ActiveLorebookScanOptions = {},
 ): Promise<ActiveLorebookScanResult> {
-  const chat = requireRecord(await storage.get("chats", chatId), "Chat");
+  const rawChat = requireRecord(await storage.get("chats", chatId), "Chat");
   const storedMessages = await loadChatMessages(storage, chatId);
+  const chatMode = readString(rawChat.mode || rawChat.chatMode).trim();
+
+  // For game-mode chats, resolve the visible-anchor game state snapshot
+  // so the preview matches what generation actually sees.
+  let chat = rawChat;
+  if (chatMode === "game") {
+    try {
+      const visibleAnchor = resolveVisibleGameStateAnchor(storedMessages);
+      if (visibleAnchor) {
+        const snapshot = await selectTrackerSnapshotForGeneration(storage, chatId, {
+          preferLatestVisible: true,
+          visibleAnchor,
+        });
+        if (snapshot) {
+          chat = { ...rawChat, gameState: snapshot as unknown as JsonRecord };
+        }
+      }
+    } catch {
+      // Fall through to raw chat.gameState
+    }
+  }
+
   const characters = await loadCharacters(storage, chat);
   const persona = await loadPersona(storage, chat);
   const scan = await scanActiveLorebooks({

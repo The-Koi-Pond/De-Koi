@@ -44,7 +44,7 @@ import {
 } from "./connected-commands";
 import { fitLlmRequestToContextWindow } from "./context-window";
 import type { LLMToolCall } from "../generation-core/llm/base-provider";
-import { createInlineThinkingStreamParser } from "../generation-core/llm/inline-thinking";
+import { createInlineThinkingStreamParser, extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import {
   buildMainToolDefinitions,
   executeMainToolCall,
@@ -1746,7 +1746,8 @@ function smartSelectorTranscript(messages: JsonRecord[]): string {
 
 function parseSmartGroupSelectionIds(raw: string, validIds: string[]): string[] {
   const valid = new Set(validIds);
-  let text = raw.trim();
+  const { cleanText: stripped } = extractLeadingThinkingBlocks(raw);
+  let text = stripped.trim();
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fenced?.[1]) text = fenced[1].trim();
   const start = text.indexOf("{");
@@ -1757,7 +1758,7 @@ function parseSmartGroupSelectionIds(raw: string, validIds: string[]): string[] 
     const ids = stringArray(parsed.characterIds ?? parsed.character_ids ?? parsed.characters);
     return [...new Set(ids.filter((id) => valid.has(id)))];
   } catch {
-    return validIds.filter((id) => raw.includes(id)).slice(0, 3);
+    return validIds.filter((id) => stripped.includes(id)).slice(0, 3);
   }
 }
 
@@ -4284,7 +4285,10 @@ export async function* startGeneration(
           const patchedMessageId = messageId(patched);
           if (patchedMessageId && patchedMessageId === messageId(latestSaved)) {
             latestSaved = patched;
-            yield { type: savedGenerationEventType(input, regenerationTarget), data: savedGenerationEventData(patched) };
+            yield {
+              type: savedGenerationEventType(input, regenerationTarget),
+              data: savedGenerationEventData(patched),
+            };
           } else {
             yield { type: "message", data: savedGenerationEventData(patched) };
           }

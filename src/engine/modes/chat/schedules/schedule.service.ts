@@ -5,6 +5,7 @@ import { parseJsonArray, parseJsonObject } from "../../../core/json";
 import { loadLorebookEntriesForActivationBatch } from "../../../generation/active-lorebook-scanner";
 import { boolish } from "../../../generation/runtime-records";
 import type { BaseLLMProvider, ChatMessage } from "../../../generation-core/llm/base-provider.js";
+import { extractLeadingThinkingBlocks } from "../../../generation-core/llm/inline-thinking";
 import { resolveActiveLorebookScopeReason } from "../../../generation-core/lorebooks/active-lorebook-scope";
 import { lorebookEntryPassesContextFilters } from "../../../generation-core/lorebooks/keyword-scanner";
 import { readString as stringValue } from "../../../shared/value-readers";
@@ -700,7 +701,7 @@ function createScheduleProvider(
               },
             },
       );
-      return { content };
+      return { content: extractLeadingThinkingBlocks(content).cleanText };
     },
   };
 }

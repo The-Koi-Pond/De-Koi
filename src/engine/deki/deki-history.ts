@@ -1,4 +1,5 @@
 import type { LlmGateway } from "../capabilities/llm";
+import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import type { DekiMessage } from "./deki-entry";
 
 export const DEKI_CHAT_ID = "deki";
@@ -119,8 +120,8 @@ function formatCompactionTranscript(messages: DekiMessage[], maxContext: number)
 }
 
 function normalizeDekiCompactionSummary(value: string): string {
-  return value
-    .trim()
+  return extractLeadingThinkingBlocks(value)
+    .cleanText.trim()
     .replace(/^```(?:markdown|md|text)?\s*/i, "")
     .replace(/```$/i, "")
     .trim();
