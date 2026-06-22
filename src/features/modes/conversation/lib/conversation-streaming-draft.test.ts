@@ -38,12 +38,14 @@ describe("conversation streaming bubble draft", () => {
     expect(afterBufferClear.text).toBe("Replacement response.");
     expect(
       shouldRenderBubbleRegenerationDraft({
+        allowPartialResponses: true,
         isBubbleRegenerating: true,
         backingMessageChanged: hasBubbleRegenerationBackingChanged(afterBufferClear, originalSignature),
       }),
     ).toBe(true);
     expect(
       shouldRenderBubbleRegenerationDraft({
+        allowPartialResponses: true,
         isBubbleRegenerating: true,
         backingMessageChanged: hasBubbleRegenerationBackingChanged(afterBufferClear, replacementSignature),
       }),

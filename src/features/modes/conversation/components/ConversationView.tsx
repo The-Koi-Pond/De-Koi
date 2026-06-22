@@ -429,6 +429,7 @@ export function ConversationView({
     streamHadContentRef.current;
   const hasStreamBufferContent = !!streamBuffer || !!thinkingBuffer;
   const shouldRenderLiveStreamMessage = shouldRenderConversationLiveStreamMessage({
+    allowPartialResponses: false,
     isStreaming,
     hasDelayedCharacterInfo: !!delayedCharacterInfo,
     isRegenerating: !!regenerateMessageId,
@@ -1632,13 +1633,24 @@ export function ConversationView({
                   const isBubbleRegenerating = isRegenerating && conversationMessageStyle === "bubble";
                   // Conversation mode keeps partial regeneration text hidden until the saved response arrives.
                   const shouldRenderRegenerationStream = shouldRenderConversationRegenerationStream({
+                    allowPartialResponses: false,
                     isRegenerating,
                     isBubbleRegenerating,
                     hasStreamBufferContent: !!streamBuffer || !!thinkingBuffer,
                   });
                   const hasStreamContent = shouldRenderRegenerationStream && (!!streamBuffer || !!thinkingBuffer);
-                  const displayMsg = msg;
+                  const displayMsg = shouldRenderRegenerationStream
+                    ? (() => {
+                        const parsed = typeof msg.extra === "string" ? JSON.parse(msg.extra) : (msg.extra ?? {});
+                        return {
+                          ...msg,
+                          content: streamBuffer || (thinkingBuffer ? "Thinking..." : ""),
+                          extra: { ...parsed, attachments: null, thinking: thinkingBuffer || parsed.thinking },
+                        };
+                      })()
+                    : msg;
                   const regenerationDraftMessage = shouldRenderBubbleRegenerationDraft({
+                    allowPartialResponses: false,
                     isBubbleRegenerating,
                     backingMessageChanged: bubbleRegenerationBackingChanged,
                   })

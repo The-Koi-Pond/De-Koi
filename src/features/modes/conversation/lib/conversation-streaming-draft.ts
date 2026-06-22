@@ -59,21 +59,20 @@ export function updateStreamingBubbleDraft(
   return current;
 }
 
-export function hasBubbleRegenerationBackingChanged(
-  draft: StreamingBubbleDraftState,
-  currentBackingSignature: string,
-) {
+export function hasBubbleRegenerationBackingChanged(draft: StreamingBubbleDraftState, currentBackingSignature: string) {
   return !!draft.backingSignature && !!currentBackingSignature && draft.backingSignature !== currentBackingSignature;
 }
 
-export function shouldRenderBubbleRegenerationDraft(_input: {
+export function shouldRenderBubbleRegenerationDraft(input: {
+  allowPartialResponses: boolean;
   isBubbleRegenerating: boolean;
   backingMessageChanged: boolean;
 }) {
-  return false;
+  return input.allowPartialResponses && input.isBubbleRegenerating && !input.backingMessageChanged;
 }
 
-export function shouldRenderConversationLiveStreamMessage(_input: {
+export function shouldRenderConversationLiveStreamMessage(input: {
+  allowPartialResponses: boolean;
   isStreaming: boolean;
   hasDelayedCharacterInfo: boolean;
   isRegenerating: boolean;
@@ -81,13 +80,23 @@ export function shouldRenderConversationLiveStreamMessage(_input: {
   messageStyle: string;
   hasStreamBufferContent: boolean;
 }) {
-  return false;
+  if (!input.allowPartialResponses) return false;
+  return (
+    input.isStreaming &&
+    !input.hasDelayedCharacterInfo &&
+    !input.isRegenerating &&
+    !input.isStreamWindingDown &&
+    (input.messageStyle === "bubble" || input.hasStreamBufferContent)
+  );
 }
 
-export function shouldRenderConversationRegenerationStream(_input: {
+export function shouldRenderConversationRegenerationStream(input: {
+  allowPartialResponses: boolean;
   isRegenerating: boolean;
   isBubbleRegenerating: boolean;
   hasStreamBufferContent: boolean;
 }) {
-  return false;
+  return (
+    input.allowPartialResponses && input.isRegenerating && !input.isBubbleRegenerating && input.hasStreamBufferContent
+  );
 }
