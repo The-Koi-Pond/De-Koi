@@ -183,7 +183,7 @@ const internalStartGenerationOptions = new WeakMap<StartGenerationInput, Interna
 
 type MainGenerationPromptSnapshot = Pick<
   GenerationPromptSnapshot,
-  "messages" | "previewMessages" | "parameters" | "tools" | "promptPresetId"
+  "messages" | "previewMessages" | "parameters" | "tools" | "promptPresetId" | "lorebookActivationTrace"
 >;
 
 type GenerationDryRunPromptSnapshot = MainGenerationPromptSnapshot;
@@ -2361,6 +2361,7 @@ function buildSavedGenerationPromptSnapshot(args: {
     parameters: isRecord(parameters) ? parameters : {},
     ...(tools?.length ? { tools } : {}),
     promptPresetId: args.promptSnapshot.promptPresetId ?? null,
+    ...(args.promptSnapshot.lorebookActivationTrace ? { lorebookActivationTrace: args.promptSnapshot.lorebookActivationTrace } : {}),
     generationInfo: {
       model: generationInfo.model,
       provider: generationInfo.provider,
@@ -4678,6 +4679,7 @@ async function* streamMainGenerationLoop(args: {
   baseMessages: LlmMessage[];
   previewMessages?: LlmMessage[] | null;
   promptPresetId?: string | null;
+  lorebookActivationTrace?: MainGenerationPromptSnapshot["lorebookActivationTrace"];
   mainTools: MainToolDefinitions | null;
   toolRuntimeInput: ToolRuntimeInput;
   signal: AbortSignal | undefined;
@@ -4701,6 +4703,7 @@ async function* streamMainGenerationLoop(args: {
     baseMessages,
     previewMessages,
     promptPresetId,
+    lorebookActivationTrace,
     mainTools,
     toolRuntimeInput,
     signal,
@@ -4763,6 +4766,7 @@ async function* streamMainGenerationLoop(args: {
         ...(requestPreviewMessages?.length ? { previewMessages: requestPreviewMessages.map(clonePromptMessage) } : {}),
         parameters: cloneSerializableValue(visibleRequestParameters),
         promptPresetId: promptPresetId ?? null,
+        ...(lorebookActivationTrace ? { lorebookActivationTrace } : {}),
         ...(requestTools?.length ? { tools: cloneSerializableValue(requestTools) } : {}),
       };
 

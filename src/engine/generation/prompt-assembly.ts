@@ -1,4 +1,4 @@
-import type { LorebookEntryTimingState } from "../contracts/types/lorebook";
+import type { LorebookActivationTrace, LorebookEntryTimingState } from "../contracts/types/lorebook";
 import type { ChatMLMessage, MarkerConfig, WrapFormat } from "../contracts/types/prompt";
 import { BUILT_IN_AGENTS, enabledChatAgentIds } from "../contracts/types/agent";
 import {
@@ -144,6 +144,7 @@ export interface PromptAssemblyResult {
   lorebookTimingStates: Record<string, LorebookEntryTimingState> | null;
   lorebookEntryStateOverrides: Record<string, { ephemeral?: number | null; enabled?: boolean }> | null;
   budgetSkippedLorebookEntries: BudgetSkippedLorebookEntry[];
+  lorebookActivationTrace: LorebookActivationTrace;
   chatSummary: string | null;
   chatSummaryFingerprint: string | null;
   reusableContext: PromptAssemblyReusableContext;
@@ -4012,6 +4013,7 @@ export async function assembleGenerationPrompt(
     lorebookTimingStates: loreScan.lorebookTimingStates,
     lorebookEntryStateOverrides: loreScan.lorebookEntryStateOverrides,
     budgetSkippedLorebookEntries: loreScan.budgetSkippedLorebookEntries,
+    lorebookActivationTrace: loreScan.activationTrace,
     chatSummary: summary,
     chatSummaryFingerprint: summaryFingerprint,
     reusableContext: nextReusableContext,

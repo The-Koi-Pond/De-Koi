@@ -1,122 +1,128 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight, Globe, Loader2, X } from "lucide-react";
-import { type BudgetSkippedLorebookEntry, useActiveLorebookEntries } from "../../../catalog/lorebooks/index";
+import type { LorebookActivationTraceEntry, LorebookActivationTraceStatus } from "../../../../engine/contracts/types/lorebook";
+import { useActiveLorebookEntries } from "../../../catalog/lorebooks/index";
 
-function WorldInfoEntryRow({
-  entry,
-}: {
-  entry: { name: string; keys: string[]; content: string; constant: boolean; order: number };
-}) {
-  const [expanded, setExpanded] = useState(false);
+type TraceFilter = LorebookActivationTraceStatus | "all";
 
-  return (
-    <div
-      className="cursor-pointer rounded-lg bg-[var(--secondary)] p-2 text-xs transition-colors hover:bg-[var(--accent)]"
-      onClick={() => setExpanded((prev) => !prev)}
-    >
-      <div className="flex items-center gap-2">
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
-        <span className="truncate font-medium text-[var(--foreground)]/80">{entry.name}</span>
-        {entry.constant && (
-          <span className="shrink-0 rounded bg-amber-400/15 px-1 py-0.5 text-[0.5rem] font-medium text-amber-400">
-            CONST
-          </span>
-        )}
-        <span className="ml-auto shrink-0 text-[0.625rem] text-[var(--muted-foreground)]">#{entry.order}</span>
-      </div>
-      {entry.keys.length > 0 && (
-        <p className="mt-0.5 truncate text-[0.625rem] text-[var(--muted-foreground)]">
-          Keys: {entry.keys.slice(0, 5).join(", ")}
-          {entry.keys.length > 5 && ` +${entry.keys.length - 5}`}
-        </p>
-      )}
-      {expanded && (
-        <p className="mt-1.5 max-h-40 overflow-y-auto whitespace-pre-wrap border-t border-[var(--border)] pt-1.5 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
-          {entry.content || "(empty)"}
-        </p>
-      )}
-    </div>
-  );
-}
+const FILTERS: Array<{ id: TraceFilter; label: string }> = [
+  { id: "included", label: "Included" },
+  { id: "matched", label: "Matched" },
+  { id: "skipped", label: "Skipped" },
+  { id: "all", label: "All" },
+];
 
-function formatBudgetName(blockedBy: BudgetSkippedLorebookEntry["blockedBy"]) {
-  if (blockedBy === "lorebook") return "lorebook budget";
-  if (blockedBy === "chat") return "chat budget";
-  return "lorebook and chat budgets";
-}
-
-function formatBudgetCap(entry: BudgetSkippedLorebookEntry) {
-  if (entry.blockedBy === "lorebook") {
-    return `${entry.lorebookUsedTokens.toLocaleString()} / ${entry.lorebookBudget.toLocaleString()}`;
+function reasonLabel(reason: LorebookActivationTraceEntry["reason"]): string {
+  switch (reason) {
+    case "keyword_match":
+      return "Keyword";
+    case "constant":
+      return "Constant";
+    case "sticky":
+      return "Sticky";
+    case "semantic_match":
+      return "Semantic";
+    case "primary_key_miss":
+      return "No primary key";
+    case "secondary_key_miss":
+      return "Secondary key";
+    case "disabled":
+      return "Disabled";
+    case "scope_filter":
+      return "Scope filter";
+    case "condition_miss":
+      return "Condition";
+    case "schedule_miss":
+      return "Schedule";
+    case "timing_blocked":
+      return "Timing";
+    case "probability_failed":
+      return "Probability";
+    case "group_loser":
+      return "Group";
+    case "budget_lorebook":
+      return "Lorebook budget";
+    case "budget_chat":
+      return "Chat budget";
+    case "budget_both":
+      return "Budgets";
+    case "folder_disabled":
+      return "Folder";
+    case "empty_content":
+      return "Empty";
+    case "position_disabled":
+      return "Position";
+    case "recursion_blocked":
+      return "Recursion";
   }
-  if (entry.blockedBy === "chat") {
-    return `${entry.chatUsedTokens.toLocaleString()} / ${entry.chatBudget.toLocaleString()}`;
-  }
-  const lorebookPart = `${entry.lorebookUsedTokens.toLocaleString()} / ${entry.lorebookBudget.toLocaleString()} lorebook`;
-  const chatPart = `${entry.chatUsedTokens.toLocaleString()} / ${entry.chatBudget.toLocaleString()} chat`;
-  return `${lorebookPart}, ${chatPart}`;
 }
 
-function BudgetSkippedEntryRow({ entry }: { entry: BudgetSkippedLorebookEntry }) {
+function statusClass(status: LorebookActivationTraceStatus): string {
+  if (status === "included") return "bg-emerald-400 text-emerald-100 border-emerald-400/25";
+  if (status === "matched") return "bg-amber-400 text-amber-100 border-amber-400/25";
+  return "bg-zinc-400 text-zinc-100 border-zinc-400/25";
+}
+
+function TraceEntryRow({ entry, content }: { entry: LorebookActivationTraceEntry; content?: string }) {
   const [expanded, setExpanded] = useState(false);
+  const timing = entry.timing;
 
   return (
     <button
       type="button"
-      className="w-full rounded-lg border border-amber-500/20 bg-amber-500/10 p-2 text-left text-xs transition-colors hover:bg-amber-500/15"
+      className="w-full rounded-lg bg-[var(--secondary)] p-2 text-left text-xs transition-colors hover:bg-[var(--accent)]"
       onClick={() => setExpanded((prev) => !prev)}
     >
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-2">
         {expanded ? <ChevronDown size="0.75rem" /> : <ChevronRight size="0.75rem" />}
-        <span className="min-w-0 flex-1 truncate font-medium text-amber-200">{entry.name}</span>
-        <span className="shrink-0 text-[0.625rem] text-amber-200/70">~{entry.estimatedTokens.toLocaleString()}</span>
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusClass(entry.status).split(" ")[0]}`} />
+        <span className="min-w-0 flex-1 truncate font-medium text-[var(--foreground)]/85">{entry.name}</span>
+        <span className="shrink-0 rounded border px-1.5 py-0.5 text-[0.5625rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+          {reasonLabel(entry.reason)}
+        </span>
       </div>
-      <p className="mt-0.5 truncate pl-5 text-[0.625rem] text-amber-100/70">
-        {entry.lorebookName} blocked by {formatBudgetName(entry.blockedBy)}
+      <p className="mt-1 truncate pl-5 text-[0.625rem] text-[var(--muted-foreground)]">
+        {entry.hint}
       </p>
       {expanded && (
-        <div className="mt-1.5 space-y-1 border-t border-amber-500/20 pt-1.5 pl-5 text-[0.625rem] leading-relaxed text-amber-50/75">
-          <p>Matched: {entry.matchedKeys.length > 0 ? entry.matchedKeys.slice(0, 5).join(", ") : "No key recorded"}</p>
-          <p>Entry estimate: ~{entry.estimatedTokens.toLocaleString()} tokens</p>
-          <p>Budget used before entry: {formatBudgetCap(entry)}</p>
+        <div className="mt-2 space-y-1.5 border-t border-[var(--border)] pt-2 pl-5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+          <p>
+            Status: <span className="text-[var(--foreground)]/80">{entry.status}</span>
+          </p>
+          <p>
+            Position: {entry.injection.position} / role {entry.injection.role} / order {entry.injection.order}
+          </p>
+          <p>Estimate: ~{entry.tokenEstimate.toLocaleString()} tokens</p>
+          {entry.matchedKeys.length > 0 && <p>Matched: {entry.matchedKeys.slice(0, 6).join(", ")}</p>}
+          {entry.probability && (
+            <p>
+              Probability: {entry.probability.configured}%
+              {entry.probability.roll === null ? "" : `, roll ${entry.probability.roll.toFixed(2)}`}
+            </p>
+          )}
+          {typeof entry.semanticScore === "number" && <p>Semantic score: {entry.semanticScore.toFixed(3)}</p>}
+          {timing && (
+            <p>
+              Timing: sticky {timing.stickyCount}, cooldown {timing.cooldownRemaining}, delay {timing.delayRemaining}
+            </p>
+          )}
+          {entry.recursive && <p>Recursion pass: {entry.recursive.depth}</p>}
+          {content && (
+            <p className="max-h-36 overflow-y-auto whitespace-pre-wrap border-t border-[var(--border)] pt-1.5 text-[0.6875rem]">
+              {content}
+            </p>
+          )}
         </div>
       )}
     </button>
   );
 }
 
-function BudgetSkippedEntriesNotice({ entries }: { entries: BudgetSkippedLorebookEntry[] }) {
-  const [expanded, setExpanded] = useState(false);
-  if (entries.length === 0) return null;
-
-  return (
-    <div className="mb-2 rounded-lg border border-amber-500/25 bg-amber-500/10 p-2 text-xs text-amber-50/85">
-      <button
-        type="button"
-        className="flex w-full items-start gap-2 text-left"
-        onClick={() => setExpanded((prev) => !prev)}
-      >
-        <AlertTriangle size="0.875rem" className="mt-0.5 shrink-0 text-amber-300" />
-        <span className="min-w-0 flex-1">
-          <span className="block font-medium text-amber-100">
-            {entries.length} matching lore {entries.length === 1 ? "entry was" : "entries were"} skipped by token budget
-          </span>
-          <span className="mt-0.5 block text-[0.625rem] leading-relaxed text-amber-50/65">
-            Expand for budget details. Knowledge Retrieval or Knowledge Router may fit large lorebooks better than
-            simply raising caps.
-          </span>
-        </span>
-        {expanded ? <ChevronDown size="0.75rem" /> : <ChevronRight size="0.75rem" />}
-      </button>
-      {expanded && (
-        <div className="mt-2 space-y-1.5">
-          {entries.map((entry) => (
-            <BudgetSkippedEntryRow key={entry.id} entry={entry} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
+function emptyText(filter: TraceFilter): string {
+  if (filter === "included") return "No included entries for this scan";
+  if (filter === "matched") return "No matched entries were skipped";
+  if (filter === "skipped") return "No skipped entries for this scan";
+  return "No lorebook trace entries for this scan";
 }
 
 export function WorldInfoPanel({
@@ -131,15 +137,28 @@ export function WorldInfoPanel({
   const { data, isLoading, isError, error } = useActiveLorebookEntries(chatId, true, {
     includeTestScanTrigger: true,
   });
-  const entries = data?.entries ?? [];
-  const skippedEntries = data?.budgetSkippedEntries ?? [];
-  const errorMessage = error instanceof Error ? error.message : "The active world info scan could not complete.";
+  const [filter, setFilter] = useState<TraceFilter>("included");
+  const traceEntries = data?.activationTrace.entries ?? [];
+  const activeContentById = useMemo(
+    () => new Map((data?.entries ?? []).map((entry) => [entry.id, entry.content])),
+    [data?.entries],
+  );
+  const counts = useMemo(() => {
+    return {
+      included: traceEntries.filter((entry) => entry.status === "included").length,
+      matched: traceEntries.filter((entry) => entry.status === "matched").length,
+      skipped: traceEntries.filter((entry) => entry.status === "skipped").length,
+      all: traceEntries.length,
+    } satisfies Record<TraceFilter, number>;
+  }, [traceEntries]);
+  const visibleEntries = filter === "all" ? traceEntries : traceEntries.filter((entry) => entry.status === filter);
+  const errorMessage = error instanceof Error ? error.message : "The lorebook inspector scan could not complete.";
 
   return (
     <>
       <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-[var(--foreground)]">
         <Globe size="0.75rem" />
-        Active World Info
+        Lorebook Inspector
         {isMobile && (
           <button
             onClick={onClose}
@@ -158,26 +177,40 @@ export function WorldInfoPanel({
         <div className="rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/10 p-2 text-xs text-[var(--destructive)]">
           <div className="flex items-center gap-1.5 font-medium">
             <AlertTriangle size="0.75rem" />
-            World info scan failed
+            Lorebook scan failed
           </div>
           <p className="mt-1 leading-relaxed text-[var(--destructive)]/80">{errorMessage}</p>
         </div>
-      ) : entries.length === 0 ? (
-        <>
-          <BudgetSkippedEntriesNotice entries={skippedEntries} />
-          <p className="py-3 text-center text-xs text-[var(--muted-foreground)]">No active entries for this chat</p>
-        </>
       ) : (
         <>
           <p className="mb-2 text-[0.625rem] text-[var(--muted-foreground)]">
-            {entries.length} active * ~{(data?.totalTokens ?? 0).toLocaleString()} tokens
+            {counts.included} included * {counts.matched} matched * {counts.skipped} skipped
           </p>
-          <BudgetSkippedEntriesNotice entries={skippedEntries} />
-          <div className="space-y-1.5">
-            {entries.map((entry) => (
-              <WorldInfoEntryRow key={entry.id} entry={entry} />
+          <div className="mb-2 grid grid-cols-4 gap-1 rounded-lg bg-[var(--secondary)] p-1">
+            {FILTERS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`rounded-md px-1.5 py-1 text-[0.625rem] font-medium transition-colors ${
+                  filter === item.id
+                    ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm"
+                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                }`}
+                onClick={() => setFilter(item.id)}
+              >
+                {item.label} {counts[item.id]}
+              </button>
             ))}
           </div>
+          {visibleEntries.length === 0 ? (
+            <p className="py-3 text-center text-xs text-[var(--muted-foreground)]">{emptyText(filter)}</p>
+          ) : (
+            <div className="space-y-1.5">
+              {visibleEntries.map((entry) => (
+                <TraceEntryRow key={entry.entryId} entry={entry} content={activeContentById.get(entry.entryId)} />
+              ))}
+            </div>
+          )}
         </>
       )}
     </>

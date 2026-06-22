@@ -32,8 +32,8 @@ import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { exportApi } from "../../../../../shared/api/export-api";
 import { toastExportError, triggerDownloadWithToast } from "../../../../shared/lib/export-feedback";
-import type { Lorebook, LorebookEntry, LorebookFolder } from "../../../../../engine/contracts/types/lorebook";
-import { testPrimaryKeys, testSecondaryKeys } from "../../../../../engine/shared/regex/lorebook-keyword-matching";
+import type { Lorebook, LorebookActivationTraceEntry, LorebookEntry, LorebookFolder } from "../../../../../engine/contracts/types/lorebook";
+import { scanForActivatedEntriesWithTrace } from "../../../../../engine/generation-core/lorebooks/keyword-scanner";
 import { LorebookEditorHeader } from "./LorebookEditorHeader";
 import { LorebookEditorTabs, type LorebookEditorTabId } from "./LorebookEditorTabs";
 import { LorebookEntriesTab } from "./LorebookEntriesTab";
@@ -145,6 +145,7 @@ export function LorebookEditor() {
   const [keywordPreviewOpen, setKeywordPreviewOpen] = useState(false);
   const [keywordPreviewText, setKeywordPreviewText] = useState("");
   const [keywordPreviewDebounced, setKeywordPreviewDebounced] = useState("");
+  const [keywordPreviewTraceEntries, setKeywordPreviewTraceEntries] = useState<LorebookActivationTraceEntry[]>([]);
   useEffect(() => {
     const handle = window.setTimeout(() => setKeywordPreviewDebounced(keywordPreviewText), 150);
     return () => window.clearTimeout(handle);
@@ -411,30 +412,32 @@ export function LorebookEditor() {
   // filters, semantic embeddings, recursive scan, group selection).
   // Logic mirrors the original lorebook keyword scanner —
   // both sides import the same shared helpers so the preview cannot drift.
+  useEffect(() => {
+    let cancelled = false;
+    if (!keywordPreviewDebounced.trim()) {
+      setKeywordPreviewTraceEntries([]);
+      return;
+    }
+    void scanForActivatedEntriesWithTrace([{ role: "user", content: keywordPreviewDebounced }], entries, {
+      ignoreTiming: true,
+      generationTriggers: ["test_scan", "chat"],
+    }).then((result) => {
+      if (!cancelled) setKeywordPreviewTraceEntries(result.trace.entries);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [entries, keywordPreviewDebounced]);
+
   const previewMatches = useMemo(() => {
     const result = new Map<string, "matched" | "constant">();
-    const text = keywordPreviewDebounced;
-    if (!text.trim()) return result;
-    for (const entry of entries) {
-      if (!entry.enabled) continue;
-      if (entry.constant) {
-        result.set(entry.id, "constant");
-        continue;
-      }
-      const opts = {
-        useRegex: entry.useRegex,
-        matchWholeWords: entry.matchWholeWords,
-        caseSensitive: entry.caseSensitive,
-      };
-      const { matched } = testPrimaryKeys(entry.keys, text, opts);
-      if (!matched) continue;
-      if (entry.selective && entry.secondaryKeys.length > 0) {
-        if (!testSecondaryKeys(entry.secondaryKeys, text, entry.selectiveLogic, opts)) continue;
-      }
-      result.set(entry.id, "matched");
+    if (!keywordPreviewDebounced.trim()) return result;
+    for (const trace of keywordPreviewTraceEntries) {
+      if (trace.status !== "included") continue;
+      result.set(trace.entryId, trace.reason === "constant" ? "constant" : "matched");
     }
     return result;
-  }, [entries, keywordPreviewDebounced]);
+  }, [keywordPreviewDebounced, keywordPreviewTraceEntries]);
 
   const previewActive = keywordPreviewDebounced.trim().length > 0;
   const previewMatchCount = previewMatches.size;
@@ -671,6 +674,7 @@ export function LorebookEditor() {
                 previewActive={previewActive}
                 previewMatchCount={previewMatchCount}
                 enabledEntryCount={enabledEntryCount}
+                traceEntries={keywordPreviewTraceEntries}
                 entrySelectionMode={entrySelectionMode}
                 selectedEntryIds={selectedEntryIds}
                 visibleEntryIds={visibleEntryIds}

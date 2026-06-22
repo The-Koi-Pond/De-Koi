@@ -69,10 +69,10 @@
     "id": "lorebooks",
     "title": "Lorebooks",
     "category": "Library",
-    "summary": "Store and organize world info, setting details, rules, backstory, and keyword-triggered context that can be assigned to chats, characters, or personas.",
-    "keywords": ["lore", "world info", "memory", "remember", "background", "keywords", "rag", "knowledge", "assign", "folders", "organize", "character lorebook", "persona lorebook"],
+    "summary": "Store, organize, test, and inspect world info, setting details, rules, backstory, and keyword-triggered context assigned to chats, characters, or personas.",
+    "keywords": ["lore", "world info", "memory", "remember", "background", "keywords", "activation", "inspector", "trace", "rag", "knowledge", "assign", "folders", "organize", "character lorebook", "persona lorebook"],
     "audience": "Users with worlds, settings, factions, or recurring facts too large for a character card.",
-    "where": "Title bar > Lorebooks, chat settings, or character/persona editor Lorebook tabs.",
+    "where": "Title bar > Lorebooks for the test panel, or the chat Active World Info button for the inspector.",
     "actions": [{ "type": "open-panel", "panel": "lorebooks", "label": "Open Lorebooks" }],
     "coverage": "core"
   },

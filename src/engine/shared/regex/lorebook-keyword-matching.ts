@@ -124,36 +124,6 @@ export async function testPrimaryKeysAsync(
   return { matched: matchedKeys.length > 0, matchedKeys };
 }
 
-/** Secondary key set with selective logic (and/or/not). Empty list passes. */
-export function testSecondaryKeys(
-  secondaryKeys: string[],
-  text: string,
-  logic: SelectiveLogic,
-  options: KeywordMatchOptions,
-): boolean {
-  if (secondaryKeys.length === 0) return true;
-
-  switch (logic) {
-    case "and":
-      for (const key of secondaryKeys) {
-        if (!testKeyword(key, text, options)) return false;
-      }
-      return true;
-    case "or":
-      for (const key of secondaryKeys) {
-        if (testKeyword(key, text, options)) return true;
-      }
-      return false;
-    case "not":
-      for (const key of secondaryKeys) {
-        if (testKeyword(key, text, options)) return false;
-      }
-      return true;
-    default:
-      return true;
-  }
-}
-
 export async function testSecondaryKeysAsync(
   secondaryKeys: string[],
   text: string,

@@ -1,4 +1,5 @@
 import { ChevronDown, FlaskConical, X } from "lucide-react";
+import type { LorebookActivationTraceEntry } from "../../../../../engine/contracts/types/lorebook";
 import { cn } from "../../../../../shared/lib/utils";
 
 export function LorebookKeywordTestPanel({
@@ -7,6 +8,7 @@ export function LorebookKeywordTestPanel({
   previewActive,
   previewMatchCount,
   enabledEntryCount,
+  traceEntries,
   onOpenChange,
   onTextChange,
 }: {
@@ -15,9 +17,15 @@ export function LorebookKeywordTestPanel({
   previewActive: boolean;
   previewMatchCount: number;
   enabledEntryCount: number;
+  traceEntries: LorebookActivationTraceEntry[];
   onOpenChange: (open: boolean) => void;
   onTextChange: (text: string) => void;
 }) {
+  const includedCount = traceEntries.filter((entry) => entry.status === "included").length;
+  const matchedCount = traceEntries.filter((entry) => entry.status === "matched").length;
+  const skippedCount = traceEntries.filter((entry) => entry.status === "skipped").length;
+  const firstSkipped = traceEntries.find((entry) => entry.status === "skipped");
+
   return (
     <div className="rounded-xl bg-[var(--secondary)]/60 ring-1 ring-[var(--border)]">
       <button
@@ -44,9 +52,8 @@ export function LorebookKeywordTestPanel({
       {open && (
         <div className="space-y-2 border-t border-[var(--border)] px-3 py-3">
           <p className="text-[0.6875rem] text-[var(--muted-foreground)]">
-            Paste sample chat text and entries whose keys would trigger get an emerald accent and a &quot;Would
-            activate&quot; chip. Constant entries are flagged separately because they activate regardless of text. Out
-            of scope: timing, probability, character/persona filters, and semantic matching.
+            Paste sample chat text to inspect entry activation with keyword, secondary-key, probability, timing, and
+            semantic trace metadata available to this editor preview.
           </p>
           <div className="relative">
             <textarea
@@ -69,13 +76,19 @@ export function LorebookKeywordTestPanel({
             )}
           </div>
           {previewActive && (
-            <p className="text-[0.6875rem] text-[var(--muted-foreground)]">
-              {previewMatchCount === 0
-                ? "No entries would activate on this text."
-                : `${previewMatchCount} of ${enabledEntryCount} enabled entr${
-                    enabledEntryCount === 1 ? "y" : "ies"
-                  } would activate.`}
-            </p>
+            <div className="space-y-1 text-[0.6875rem] text-[var(--muted-foreground)]">
+              <p>
+                {previewMatchCount === 0
+                  ? "No entries would activate on this text."
+                  : `${previewMatchCount} of ${enabledEntryCount} enabled entr${
+                      enabledEntryCount === 1 ? "y" : "ies"
+                    } would activate.`}
+              </p>
+              <p>
+                Trace: {includedCount} included, {matchedCount} matched, {skippedCount} skipped
+              </p>
+              {firstSkipped && <p>First skipped: {firstSkipped.name} - {firstSkipped.hint}</p>}
+            </div>
           )}
         </div>
       )}
