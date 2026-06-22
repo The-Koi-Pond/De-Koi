@@ -43,8 +43,9 @@ export function collectFreshAssistantPartRevealStarts({
     if (candidate.partCount <= 1) continue;
     const previousPartCount = prevPartCounts?.get(candidate.key);
     const isNewKey = !prevKeys.has(candidate.key) && !seenKeys.has(candidate.key);
-    const becameMultiPart = prevKeys.has(candidate.key) && previousPartCount != null && previousPartCount <= 1;
-    if (!isNewKey && !becameMultiPart) continue;
+    const partCountIncreased =
+      prevKeys.has(candidate.key) && previousPartCount != null && candidate.partCount > previousPartCount;
+    if (!isNewKey && !partCountIncreased) continue;
     if (!Number.isFinite(candidate.createdAtMs)) continue;
     if (now - candidate.createdAtMs >= freshnessMs) continue;
     starts.push({ key: candidate.key, count: candidate.partCount });

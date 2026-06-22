@@ -111,6 +111,26 @@ describe("conversation part reveal", () => {
     ).toBe(1);
   });
 
+  it("starts fresh same-key assistant messages when saved content adds another part", () => {
+    const starts = collectFreshAssistantPartRevealStarts({
+      initialLoadSettled: true,
+      candidates: [
+        {
+          key: "assistant-saving",
+          role: "assistant",
+          createdAtMs: 100_000,
+          partCount: 3,
+        },
+      ],
+      prevKeys: new Set(["assistant-saving"]),
+      prevPartCounts: new Map([["assistant-saving", 2]]),
+      seenKeys: new Set(["assistant-saving"]),
+      now: 101_000,
+    });
+
+    expect(starts).toEqual([{ key: "assistant-saving", count: 3 }]);
+  });
+
   it("makes stale same-key reveal generations inert after replacement", () => {
     const generations: ConversationRevealGenerationMap = {};
 
