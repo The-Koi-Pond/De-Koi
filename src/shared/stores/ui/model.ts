@@ -37,7 +37,7 @@ export type GameDialogueDisplayMode = "classic" | "stacked";
 export type ConversationMessageStyle = "classic" | "bubble";
 export type SummaryPopoverSourceMode = "last" | "range";
 export type QuickReplyActionScope = "global" | "mode" | "chat";
-export type QuickReplyModeScope = "conversation" | "roleplay";
+export type QuickReplyModeScope = "conversation" | "roleplay" | "game";
 export const QUICK_REPLY_ICON_IDS = [
   "file-text",
   "wand",
@@ -268,7 +268,7 @@ export function normalizeUserQuickReplyActions(value: unknown): UserQuickReplyAc
       raw.scope === "mode" || raw.scope === "chat" || raw.scope === "global"
         ? (raw.scope as QuickReplyActionScope)
         : "global";
-    const mode = raw.mode === "conversation" || raw.mode === "roleplay" ? raw.mode : undefined;
+    const mode = raw.mode === "conversation" || raw.mode === "roleplay" || raw.mode === "game" ? raw.mode : undefined;
     const chatId = typeof raw.chatId === "string" ? raw.chatId.trim() : undefined;
 
     if (!id || seenIds.has(id) || !label || !commandTemplate) continue;

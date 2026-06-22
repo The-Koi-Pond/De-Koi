@@ -1,4 +1,4 @@
-﻿import type { QuoteFormat, UserQuickReplyActionConfig } from "../../../../../shared/stores/ui.store";
+import type { QuickReplyModeScope, QuoteFormat, UserQuickReplyActionConfig } from "../../../../../shared/stores/ui.store";
 import { formatTextQuotes } from "../../../../../shared/lib/dialogue-quotes";
 import { matchSlashCommand } from "../../../../../shared/lib/slash-commands";
 
@@ -14,7 +14,7 @@ export interface ResolvedUserQuickReplyCommand {
 }
 
 export interface UserQuickReplyVisibilityContext {
-  mode: "conversation" | "roleplay";
+  mode: QuickReplyModeScope;
   activeChatId: string | null;
 }
 

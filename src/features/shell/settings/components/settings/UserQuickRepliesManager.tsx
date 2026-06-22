@@ -26,6 +26,7 @@ const ICON_LABELS: Record<QuickReplyIconId, string> = {
 const MODE_LABELS: Record<QuickReplyModeScope, string> = {
   conversation: "Conversation",
   roleplay: "Roleplay",
+  game: "Game",
 };
 
 type ActionTextDraft = Partial<Pick<UserQuickReplyActionConfig, "label" | "commandTemplate">>;
@@ -45,7 +46,9 @@ function newQuickReplyAction(activeChatId: string | null, mode: QuickReplyModeSc
 }
 
 function getCurrentMode(rawMode: unknown): QuickReplyModeScope {
-  return rawMode === "roleplay" ? "roleplay" : "conversation";
+  if (rawMode === "roleplay") return "roleplay";
+  if (rawMode === "game") return "game";
+  return "conversation";
 }
 
 function actionScopeLabel(action: UserQuickReplyActionConfig) {
@@ -278,6 +281,7 @@ export function UserQuickRepliesManager() {
                         >
                           <option value="conversation">Conversation</option>
                           <option value="roleplay">Roleplay</option>
+                          <option value="game">Game</option>
                         </select>
                       </label>
                     ) : (

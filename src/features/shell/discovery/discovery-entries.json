@@ -292,10 +292,10 @@
     "id": "quick-replies",
     "title": "Quick Replies",
     "category": "Advanced",
-    "summary": "Optional input actions for posting without generation, guiding a reply, impersonating a character, or saving custom slash-command buttons from the chat toolbar.",
+    "summary": "Optional input actions for posting without generation, guiding a reply, impersonating a character, or saving custom slash-command buttons from mode input toolbars.",
     "keywords": ["quick replies", "custom quick replies", "saved actions", "slash command buttons", "post only", "guide", "impersonate", "toolbar", "send"],
     "audience": "Users who want faster alternate send actions during writing.",
-    "where": "Settings > Advanced, then the chat input toolbar.",
+    "where": "Settings > Advanced, then the Conversation, Roleplay, or Game input toolbar.",
     "actions": [{ "type": "open-settings", "tab": "advanced", "label": "Open Advanced" }],
     "coverage": "advanced"
   },
