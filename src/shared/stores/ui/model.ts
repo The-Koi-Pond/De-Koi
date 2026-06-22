@@ -36,6 +36,30 @@ export type RoleplayAvatarStyle = "none" | "circles" | "rectangles" | "panel";
 export type GameDialogueDisplayMode = "classic" | "stacked";
 export type ConversationMessageStyle = "classic" | "bubble";
 export type SummaryPopoverSourceMode = "last" | "range";
+export type QuickReplyActionScope = "global" | "mode" | "chat";
+export type QuickReplyModeScope = "conversation" | "roleplay";
+export const QUICK_REPLY_ICON_IDS = [
+  "file-text",
+  "wand",
+  "user-check",
+  "message-circle",
+  "scroll-text",
+  "bookmark",
+  "zap",
+  "dices",
+] as const;
+export type QuickReplyIconId = (typeof QUICK_REPLY_ICON_IDS)[number];
+export interface UserQuickReplyActionConfig {
+  id: string;
+  label: string;
+  iconId: QuickReplyIconId;
+  commandTemplate: string;
+  includeDraft: boolean;
+  scope: QuickReplyActionScope;
+  mode?: QuickReplyModeScope;
+  chatId?: string;
+  enabled: boolean;
+}
 interface FloatingWidgetPosition {
   x: number;
   y: number;
@@ -89,6 +113,9 @@ const TRACKER_PANEL_WIDTH_MAX = TRACKER_PANEL_SIZE_PROFILE_WIDTHS.expanded;
 export const IMAGE_DIMENSION_MIN = 64;
 export const IMAGE_DIMENSION_MAX = 4096;
 const GAME_SETUP_LEARNED_LIMIT = 60;
+const USER_QUICK_REPLY_LIMIT = 24;
+const USER_QUICK_REPLY_LABEL_LIMIT = 24;
+const USER_QUICK_REPLY_TEMPLATE_LIMIT = 500;
 export const TRACKER_DATA_PANEL_SECTIONS: TrackerDataPanelSection[] = [
   "world",
   "persona",
@@ -217,6 +244,54 @@ export function normalizeLearnedGameSetupOption(value: unknown) {
 export function normalizeRememberedGameSetupText(value: unknown) {
   if (typeof value !== "string") return "";
   return value.trim().slice(0, 2000);
+}
+
+export function normalizeUserQuickReplyActions(value: unknown): UserQuickReplyActionConfig[] {
+  if (!Array.isArray(value)) return [];
+
+  const normalized: UserQuickReplyActionConfig[] = [];
+  const seenIds = new Set<string>();
+
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Record<string, unknown>;
+    const id = typeof raw.id === "string" ? raw.id.trim().slice(0, 80) : "";
+    const label = typeof raw.label === "string" ? raw.label.trim().slice(0, USER_QUICK_REPLY_LABEL_LIMIT) : "";
+    const commandTemplate =
+      typeof raw.commandTemplate === "string"
+        ? raw.commandTemplate.trim().slice(0, USER_QUICK_REPLY_TEMPLATE_LIMIT)
+        : "";
+    const iconId = QUICK_REPLY_ICON_IDS.includes(raw.iconId as QuickReplyIconId)
+      ? (raw.iconId as QuickReplyIconId)
+      : "wand";
+    const scope =
+      raw.scope === "mode" || raw.scope === "chat" || raw.scope === "global"
+        ? (raw.scope as QuickReplyActionScope)
+        : "global";
+    const mode = raw.mode === "conversation" || raw.mode === "roleplay" ? raw.mode : undefined;
+    const chatId = typeof raw.chatId === "string" ? raw.chatId.trim() : undefined;
+
+    if (!id || seenIds.has(id) || !label || !commandTemplate) continue;
+    if (scope === "mode" && !mode) continue;
+    if (scope === "chat" && !chatId) continue;
+
+    seenIds.add(id);
+    normalized.push({
+      id,
+      label,
+      iconId,
+      commandTemplate,
+      includeDraft: raw.includeDraft === true,
+      scope,
+      ...(mode ? { mode } : {}),
+      ...(chatId ? { chatId } : {}),
+      enabled: raw.enabled !== false,
+    });
+
+    if (normalized.length >= USER_QUICK_REPLY_LIMIT) break;
+  }
+
+  return normalized;
 }
 
 export function mergeLearnedGameSetupOptions(existing: string[] | undefined, incoming: unknown[]) {
@@ -410,6 +485,7 @@ export interface UIState {
   showQuickReplyPostOnly: boolean;
   showQuickReplyGuide: boolean;
   showQuickReplyImpersonate: boolean;
+  userQuickReplyActions: UserQuickReplyActionConfig[];
   confirmBeforeDelete: boolean;
   /** Number of messages to load per page */
   messagesPerPage: number;
@@ -645,6 +721,7 @@ export interface UIState {
   setShowQuickReplyPostOnly: (v: boolean) => void;
   setShowQuickReplyGuide: (v: boolean) => void;
   setShowQuickReplyImpersonate: (v: boolean) => void;
+  setUserQuickReplyActions: (actions: UserQuickReplyActionConfig[]) => void;
   setConfirmBeforeDelete: (v: boolean) => void;
   setMessagesPerPage: (n: number) => void;
   setBoldDialogue: (v: boolean) => void;
