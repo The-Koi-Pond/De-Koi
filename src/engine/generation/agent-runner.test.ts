@@ -190,8 +190,10 @@ describe("generation agent runner", () => {
       code: "default_agent_connection_active",
       severity: "warning",
       agentNames: ["Expression Agent"],
+      connectionId: "conn-api",
       connectionName: "API",
       model: "qa-model",
+      dismissalKey: "default_agent_connection_active:conn-api",
       message: "Expression Agent is using the default agent connection.",
     });
     // @ts-expect-error Default agent connection warnings require connectionName and model.

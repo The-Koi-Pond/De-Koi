@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import { chatKeys } from "../../../catalog/chats/index";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -8,13 +9,27 @@ import {
   handleSceneCreatedGenerationEvent,
   isTrackerPatchRetryRequest,
   runGenerationWithUi,
+  showAgentWarningToast,
 } from "./use-generate";
 import type { AgentResult } from "../../../../engine/contracts/types/agent";
 import type { Chat, StreamEvent } from "../../../../engine/contracts/types/chat";
 
+vi.mock("sonner", () => {
+  const base = vi.fn();
+  return {
+    toast: Object.assign(base, {
+      error: vi.fn(),
+      info: vi.fn(),
+      success: vi.fn(),
+      warning: vi.fn(),
+    }),
+  };
+});
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.clearAllMocks();
+  window.localStorage.clear();
   useChatStore.getState().reset();
   useUIStore.getState().setEnableStreaming(true);
   useUIStore.getState().setStreamingSpeed(50);
@@ -148,6 +163,40 @@ describe("isTrackerPatchRetryRequest", () => {
   });
 });
 
+describe("showAgentWarningToast", () => {
+  it("dismisses default agent connection warnings per connection key", () => {
+    const firstWarning = {
+      code: "default_agent_connection_active",
+      severity: "warning",
+      message: "One agent is using the default agent connection.",
+      agentNames: ["One"],
+      connectionId: "conn-paid",
+      connectionName: "Paid API",
+      model: "gpt-paid",
+      dismissalKey: "default_agent_connection_active:conn-paid",
+    };
+    const otherWarning = {
+      ...firstWarning,
+      message: "Two agent is using the other default agent connection.",
+      connectionId: "conn-other",
+      connectionName: "Other API",
+      dismissalKey: "default_agent_connection_active:conn-other",
+    };
+
+    showAgentWarningToast(firstWarning, new Set());
+    const options = vi.mocked(toast.warning).mock.calls[0]?.[1] as
+      | { action?: { label?: string; onClick?: () => void } }
+      | undefined;
+    expect(options?.action?.label).toBe("Don't warn again");
+
+    options?.action?.onClick?.();
+    showAgentWarningToast(firstWarning, new Set());
+    showAgentWarningToast(otherWarning, new Set());
+
+    expect(vi.mocked(toast.warning)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(toast.warning).mock.calls[1]?.[0]).toBe(otherWarning.message);
+  });
+});
 describe("runGenerationWithUi", () => {
   it("keeps the origin conversation active when a character-created scene is ready", () => {
     vi.useFakeTimers();

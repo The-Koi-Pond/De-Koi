@@ -136,8 +136,10 @@ interface AgentConnectionWarningBase {
 
 interface DefaultAgentConnectionWarning extends AgentConnectionWarningBase {
   code: "default_agent_connection_active";
+  connectionId: string | null;
   connectionName: string;
   model: string;
+  dismissalKey: string;
 }
 
 export type AgentConnectionWarning = DefaultAgentConnectionWarning;
@@ -265,6 +267,7 @@ function formatAgentNameList(agentNames: string[]): string {
 
 function buildDefaultAgentConnectionWarning(args: {
   agentNames: string[];
+  connectionId: string | null;
   connectionName: string;
   model: string;
 }): AgentConnectionWarning {
@@ -276,8 +279,10 @@ function buildDefaultAgentConnectionWarning(args: {
     code: "default_agent_connection_active",
     severity: "warning",
     agentNames: normalizedNames,
+    connectionId: args.connectionId,
     connectionName: args.connectionName,
     model: args.model,
+    dismissalKey: `default_agent_connection_active:${args.connectionId || `${args.connectionName}:${args.model}`}`,
     message: `${agentList} ${noun} using the default agent connection "${args.connectionName}" (${args.model}). If this is a paid API model, agent calls may bill that provider.`,
   };
 }
@@ -288,14 +293,16 @@ function recordDefaultAgentConnectionWarning(
   connection: JsonRecord,
   model: string,
 ): void {
+  const connectionId = readString(connection.id).trim() || null;
   const connectionName = readString(connection.name).trim() || "Default agent connection";
-  const key = `${connectionName}\0${model}`;
+  const key = connectionId || `${connectionName}\0${model}`;
   const existing = warnings.get(key);
   const agentNames = uniqueStrings([...(existing?.agentNames ?? []), agentName]);
   warnings.set(
     key,
     buildDefaultAgentConnectionWarning({
       agentNames,
+      connectionId,
       connectionName,
       model,
     }),

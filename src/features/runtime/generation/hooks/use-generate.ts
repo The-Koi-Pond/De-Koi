@@ -102,6 +102,7 @@ const TRACKER_PATCH_AGENT_IDS = new Set(["world-state", "character-tracker", "pe
 const scheduledChatRefreshTimers = new Map<string, number>();
 const queuedAgentDebugEntries: Array<Omit<AgentDebugEntry, "timestamp"> & { timestamp?: number }> = [];
 const activeGenerateLocks = new Set<string>();
+const AGENT_WARNING_DISMISSAL_STORAGE_PREFIX = "de-koi:agent-warning-dismissed:";
 let agentDebugFlushTimer: number | null = null;
 
 function eventCharacters(event: StreamEvent): string[] {
@@ -514,14 +515,51 @@ function readGenerationReplay(value: unknown): GenerationReplay | null {
   return isRecord(replay) ? (replay as GenerationReplay) : null;
 }
 
-function showAgentWarningToast(rawData: unknown, shownKeys: Set<string>): void {
+function agentWarningDismissalStorageKey(data: Record<string, unknown>): string | null {
+  const dismissalKey = readString(data.dismissalKey).trim();
+  if (!dismissalKey) return null;
+  return `${AGENT_WARNING_DISMISSAL_STORAGE_PREFIX}${dismissalKey}`;
+}
+
+function isAgentWarningDismissed(data: Record<string, unknown>): boolean {
+  const storageKey = agentWarningDismissalStorageKey(data);
+  if (!storageKey) return false;
+  try {
+    return window.localStorage.getItem(storageKey) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function dismissAgentWarning(data: Record<string, unknown>): void {
+  const storageKey = agentWarningDismissalStorageKey(data);
+  if (!storageKey) return;
+  try {
+    window.localStorage.setItem(storageKey, "1");
+  } catch {
+    /* localStorage unavailable or full: keep warning behavior unchanged. */
+  }
+}
+
+export function showAgentWarningToast(rawData: unknown, shownKeys: Set<string>): void {
   const data = parseMaybeRecord(rawData);
   const message = readString(data.message).trim();
-  if (!message) return;
-  const key = `${readString(data.code).trim()}\0${message}`;
+  if (!message || isAgentWarningDismissed(data)) return;
+  const dismissalStorageKey = agentWarningDismissalStorageKey(data);
+  const key = dismissalStorageKey || `${readString(data.code).trim()}\0${message}`;
   if (shownKeys.has(key)) return;
   shownKeys.add(key);
-  toast.warning(message, { duration: 10_000 });
+  toast.warning(message, {
+    duration: 10_000,
+    ...(dismissalStorageKey
+      ? {
+          action: {
+            label: "Don't warn again",
+            onClick: () => dismissAgentWarning(data),
+          },
+        }
+      : {}),
+  });
 }
 
 const editableCharacterCardFieldSet = new Set<string>(EDITABLE_CHARACTER_CARD_FIELDS);
