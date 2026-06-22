@@ -42,6 +42,7 @@ import {
   isNearTranscriptBottom,
   preserveTranscriptScrollAfterPrepend,
   readTranscriptScrollMetrics,
+  scheduleTranscriptBottomLock,
   scheduleTranscriptScrollWrite,
   scrollTranscriptToBottom,
   TRANSCRIPT_RENDER_WINDOW_STEP,
@@ -594,7 +595,6 @@ export function ConversationView({
       ? chatMeta.summaryContextSize
       : 50;
   const scrollRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const prevScrollHeightRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
   const [transcriptWindowStart, setTranscriptWindowStart] = useState<number | null>(null);
@@ -735,11 +735,7 @@ export function ConversationView({
 
   const scheduleScrollToMessagesBottom = useCallback(
     (behavior: ScrollBehavior = "auto") => {
-      scrollToMessagesBottom(behavior);
-      requestAnimationFrame(() => {
-        scrollToMessagesBottom(behavior);
-        requestAnimationFrame(() => scrollToMessagesBottom(behavior));
-      });
+      return scheduleTranscriptBottomLock(() => scrollToMessagesBottom(behavior));
     },
     [scrollToMessagesBottom],
   );
@@ -800,11 +796,10 @@ export function ConversationView({
       forcedBottomScrollRef.current = null;
       userScrolledAwayRef.current = false;
       isNearBottomRef.current = true;
-      scheduleScrollToMessagesBottom(behavior);
-      return;
+      return scheduleScrollToMessagesBottom(behavior);
     }
     if (isNearBottomRef.current && !userScrolledAwayRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      return scheduleScrollToMessagesBottom("auto");
     }
   }, [
     newestMsgId,
@@ -1359,9 +1354,9 @@ export function ConversationView({
   // Auto-scroll when staggered parts are revealed
   useEffect(() => {
     if (!isLoadingMoreRef.current && isNearBottomRef.current && !userScrolledAwayRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      return scheduleScrollToMessagesBottom("auto");
     }
-  }, [visiblePartCounts]);
+  }, [scheduleScrollToMessagesBottom, visiblePartCounts]);
 
   // When the message currently generating has a bubble in the list, render the typing
   // indicator inside that bubble; otherwise it falls back to the standalone row below.
@@ -1808,7 +1803,7 @@ export function ConversationView({
             <SceneBanner variant="origin" sceneChatId={sceneInfo.sceneChatId} sceneChatName={sceneInfo.sceneChatName} />
           )}
 
-          <div ref={messagesEndRef} className="h-1" />
+          <div className="h-1" />
         </div>
 
         {/* ── Autonomous message toast notification ── */}
