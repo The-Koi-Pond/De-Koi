@@ -69,6 +69,8 @@ const SummaryPopover = lazy(async () => {
   return { default: module.SummaryPopover };
 });
 
+const CONVERSATION_ALLOW_PARTIAL_RESPONSES = false;
+
 const SHEET_FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
@@ -403,9 +405,13 @@ export function ConversationView({
     return "Character";
   }, [activeCharacterNames, activeChatCharIds, characterMap, streamingCharacterId, typingCharacterName]);
   const liveTypingVerb = liveTypingName.includes(",") || liveTypingName.includes(" & ") ? "are" : "is";
-  // Conversation mode hides partial response text, so keep visible typing feedback
-  // while hidden stream buffers accumulate. The saved message replaces it on persist.
-  const showTypingIndicator = isStreaming && !delayedCharacterInfo && conversationMessageStyle !== "bubble";
+  const hasStreamBufferContent = !!streamBuffer || !!thinkingBuffer;
+  const hiddenStreamBufferJustifiesTyping = hasStreamBufferContent && !CONVERSATION_ALLOW_PARTIAL_RESPONSES;
+  const showTypingIndicator =
+    isStreaming &&
+    !delayedCharacterInfo &&
+    conversationMessageStyle !== "bubble" &&
+    (!hasStreamBufferContent || hiddenStreamBufferJustifiesTyping);
   const liveTypingLabel = `${liveTypingName} ${liveTypingVerb} typing...`;
 
   // ── Group typing rows ──
@@ -1501,10 +1507,14 @@ export function ConversationView({
                   // Regular single message
                   const { msg, isGrouped } = item;
                   const isRegenerating = isStreaming && regenerateMessageId === msg.id;
+                  const savedBackingContent = item.originalContent ?? msg.content;
                   const regenerationDisplay = resolveConversationRegenerationDisplay({
+                    allowPartialResponses: CONVERSATION_ALLOW_PARTIAL_RESPONSES,
                     isRegenerating,
-                    messageContent: msg.content,
-                    contentParts: item.contentParts,
+                    savedMessageContent: msg.content,
+                    savedContentParts: item.contentParts,
+                    partialMessageContent: streamBuffer || thinkingBuffer,
+                    partialContentParts: undefined,
                   });
                   const displayMsg = regenerationDisplay.showActiveRegeneration
                     ? { ...msg, content: regenerationDisplay.messageContent }
@@ -1546,9 +1556,7 @@ export function ConversationView({
                         contentParts={contentParts}
                         visiblePartCount={visiblePartCount}
                         originalContent={
-                          regenerationDisplay.showActiveRegeneration
-                            ? (item.originalContent ?? msg.content)
-                            : item.originalContent
+                          regenerationDisplay.showActiveRegeneration ? savedBackingContent : item.originalContent
                         }
                         typingLabel={typingLabelInMessage && msg.id === typingTargetId ? liveTypingLabel : undefined}
                       />

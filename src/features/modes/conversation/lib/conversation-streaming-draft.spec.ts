@@ -64,9 +64,12 @@ describe("conversation streaming draft display", () => {
   it("keeps active regeneration feedback without rendering partial replacement text", () => {
     expect(
       resolveConversationRegenerationDisplay({
+        allowPartialResponses: false,
         isRegenerating: true,
-        messageContent: "Saved response.",
-        contentParts: ["Saved response."],
+        savedMessageContent: "Saved response.",
+        savedContentParts: ["Saved response."],
+        partialMessageContent: "Partial replacement.",
+        partialContentParts: ["Partial replacement."],
       }),
     ).toEqual({
       messageContent: "",
@@ -75,12 +78,32 @@ describe("conversation streaming draft display", () => {
     });
   });
 
+  it("preserves regeneration partial text when the caller policy allows it", () => {
+    expect(
+      resolveConversationRegenerationDisplay({
+        allowPartialResponses: true,
+        isRegenerating: true,
+        savedMessageContent: "Saved response.",
+        savedContentParts: ["Saved response."],
+        partialMessageContent: "Partial replacement.",
+        partialContentParts: ["Partial replacement."],
+      }),
+    ).toEqual({
+      messageContent: "Partial replacement.",
+      contentParts: ["Partial replacement."],
+      showActiveRegeneration: true,
+    });
+  });
+
   it("leaves completed conversation text alone when no regeneration is active", () => {
     expect(
       resolveConversationRegenerationDisplay({
+        allowPartialResponses: false,
         isRegenerating: false,
-        messageContent: "Saved response.",
-        contentParts: ["Saved response."],
+        savedMessageContent: "Saved response.",
+        savedContentParts: ["Saved response."],
+        partialMessageContent: "Partial replacement.",
+        partialContentParts: ["Partial replacement."],
       }),
     ).toEqual({
       messageContent: "Saved response.",

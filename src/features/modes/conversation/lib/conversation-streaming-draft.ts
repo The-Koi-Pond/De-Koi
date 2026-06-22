@@ -102,15 +102,26 @@ export function shouldRenderConversationRegenerationStream(input: {
 }
 
 export function resolveConversationRegenerationDisplay<TContentParts>(input: {
+  allowPartialResponses: boolean;
   isRegenerating: boolean;
-  messageContent: string;
-  contentParts: TContentParts | undefined;
+  savedMessageContent: string;
+  savedContentParts: TContentParts | undefined;
+  partialMessageContent: string;
+  partialContentParts: TContentParts | undefined;
 }) {
   if (!input.isRegenerating) {
     return {
-      messageContent: input.messageContent,
-      contentParts: input.contentParts,
+      messageContent: input.savedMessageContent,
+      contentParts: input.savedContentParts,
       showActiveRegeneration: false,
+    };
+  }
+
+  if (input.allowPartialResponses) {
+    return {
+      messageContent: input.partialMessageContent,
+      contentParts: input.partialContentParts,
+      showActiveRegeneration: true,
     };
   }
 
