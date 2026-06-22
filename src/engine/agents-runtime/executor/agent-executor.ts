@@ -1750,8 +1750,11 @@ function buildAgentMessages(
     finalParts.push(`</agent_results>`);
   }
 
+  // Echo-chamber in group chat produces history ending on assistant turn. Anthropic
+  // rejects trailing assistant messages (invalid prefill), so always push a user instruction.
+  const requiresTerminalUserInstruction = finalParts.length > 0 || contextAgentTypes.includes("echo-chamber");
   const finalInstruction =
-    options.finalInstruction ?? (finalParts.length > 0 ? "Now return the requested format(s)." : "");
+    options.finalInstruction ?? (requiresTerminalUserInstruction ? "Now return the requested format(s)." : "");
   if (finalParts.length > 0 || finalInstruction) {
     if (finalInstruction) finalParts.push(`\n${finalInstruction}`);
     const finalContent = finalParts.join("\n").trim();

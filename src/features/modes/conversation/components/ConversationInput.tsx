@@ -236,7 +236,6 @@ export function ConversationInput({
   const setInputDraft = useChatStore((s) => s.setInputDraft);
   const clearInputDraft = useChatStore((s) => s.clearInputDraft);
   const setCurrentInput = useChatStore((s) => s.setCurrentInput);
-  const currentInput = useChatStore((s) => s.currentInput);
   const { generate } = useGenerate();
   const chatCharacterIds = useMemo(() => chatCharacters?.map((c) => c.id), [chatCharacters]);
   const { applyToUserInput } = useApplyRegex(chatCharacterIds);
@@ -1471,7 +1470,7 @@ export function ConversationInput({
                 chatId: activeChatId,
                 connectionId: null,
                 forCharacterId: characterId,
-                generationGuide: buildGuidedGenerationInstructionMessage(currentInput),
+                generationGuide: buildGuidedGenerationInstructionMessage(textareaRef.current?.value ?? ""),
                 generationGuideSource: "guide",
               }
             : { chatId: activeChatId, connectionId: null, forCharacterId: characterId },
@@ -1481,7 +1480,7 @@ export function ConversationInput({
         toast.error(msg);
       }
     },
-    [activeChatId, isStreaming, generate, guideGenerations, hasInput, currentInput],
+    [activeChatId, isStreaming, generate, guideGenerations, hasInput],
   );
 
   useEffect(() => {

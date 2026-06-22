@@ -175,7 +175,6 @@ export const ChatInput = memo(function ChatInput({
   const setInputDraft = useChatStore((s) => s.setInputDraft);
   const clearInputDraft = useChatStore((s) => s.clearInputDraft);
   const setCurrentInput = useChatStore((s) => s.setCurrentInput);
-  const currentInput = useChatStore((s) => s.currentInput);
   const activeChat = useChatStore((s) => s.activeChat);
   const { generate } = useGenerate();
   const chatCharacterIds = useMemo(() => chatCharacters?.map((c) => c.id), [chatCharacters]);
@@ -1174,7 +1173,7 @@ export const ChatInput = memo(function ChatInput({
                 chatId: activeChatId,
                 connectionId: null,
                 forCharacterId: characterId,
-                generationGuide: buildGuidedGenerationInstructionMessage(currentInput),
+                generationGuide: buildGuidedGenerationInstructionMessage(textareaRef.current?.value ?? ""),
                 generationGuideSource: "guide",
               }
             : { chatId: activeChatId, connectionId: null, forCharacterId: characterId },
@@ -1191,7 +1190,7 @@ export const ChatInput = memo(function ChatInput({
         }
       }
     },
-    [activeChatId, isStreaming, generate, hasInput, currentInput, guideGenerations],
+    [activeChatId, isStreaming, generate, hasInput, guideGenerations],
   );
 
   // Close character picker on outside click
