@@ -66,6 +66,8 @@ const DEKI_ATTACHMENT_TOTAL_MAX_CHARS: usize = 48 * 1024;
 const DEKI_TEXT_ATTACHMENT_EXTENSIONS: &[&str] = &[
     "csv", "json", "jsonl", "log", "md", "markdown", "txt", "xml", "yaml", "yml",
 ];
+const DEKI_INITIAL_MAX_TOKENS: u64 = 2048;
+const DEKI_POST_TOOL_MAX_TOKENS: u64 = 8192;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -182,13 +184,18 @@ fn deki_request_parameters(
     messages: &[ChatMessage],
     tools: &[Tool],
 ) -> Value {
-    let mut parameters = json!({
-                "temperature": 0.4,
-                "maxTokens": 2048,
-    });
     let has_tool_result = messages
         .iter()
         .any(|message| matches!(message.message_type, MessageType::ToolResult(_)));
+    let max_tokens = if has_tool_result {
+        DEKI_POST_TOOL_MAX_TOKENS
+    } else {
+        DEKI_INITIAL_MAX_TOKENS
+    };
+    let mut parameters = json!({
+                "temperature": 0.4,
+                "maxTokens": max_tokens,
+    });
     let latest_user = messages
         .iter()
         .rev()
@@ -1471,6 +1478,21 @@ mod tests {
         }
     }
 
+    fn tool_result_message() -> ChatMessage {
+        ChatMessage {
+            role: ChatRole::Tool,
+            message_type: MessageType::ToolResult(vec![ToolCall {
+                id: "call_test".to_string(),
+                call_type: "function".to_string(),
+                function: FunctionCall {
+                    name: "read_deki_library".to_string(),
+                    arguments: "{}".to_string(),
+                },
+            }]),
+            content: "{}".to_string(),
+        }
+    }
+
     fn test_tool(name: &str) -> Tool {
         Tool {
             tool_type: "function".to_string(),
@@ -1523,6 +1545,32 @@ mod tests {
         let parameters = deki_request_parameters(&connection, &messages, &tools);
 
         assert_eq!(parameters["toolChoice"], json!("required"));
+    }
+
+    #[test]
+    fn deki_initial_tool_request_uses_compact_output_budget() {
+        let connection = test_connection("custom");
+        let messages = [text_message("What lorebooks are in my library?")];
+        let tools = [test_tool("read_deki_library")];
+
+        let parameters = deki_request_parameters(&connection, &messages, &tools);
+
+        assert_eq!(parameters["maxTokens"], json!(2048));
+    }
+
+    #[test]
+    fn deki_post_tool_response_uses_larger_output_budget() {
+        let connection = test_connection("custom");
+        let messages = [
+            text_message("Can you make me a dead by daylight lorebook?"),
+            tool_result_message(),
+        ];
+        let tools = [test_tool("read_deki_library")];
+
+        let parameters = deki_request_parameters(&connection, &messages, &tools);
+
+        assert_eq!(parameters["maxTokens"], json!(8192));
+        assert!(parameters.get("toolChoice").is_none());
     }
 
     fn prompt_with_attachment(attachment: DekiAttachment) -> String {
