@@ -2430,6 +2430,15 @@ function promptSnippet(value: unknown, limit = 900): string {
   return text.length > limit ? `${text.slice(0, limit - 3).trimEnd()}...` : text;
 }
 
+function conversationTimeOfDay(date: Date, timeZone?: string): string {
+  const hour = Number(formatZonedTime(date, timeZone).slice(0, 2));
+  if (!Number.isFinite(hour)) return "day";
+  if (hour >= 5 && hour < 12) return "morning";
+  if (hour >= 12 && hour < 17) return "afternoon";
+  if (hour >= 17 && hour < 21) return "evening";
+  return "night";
+}
+
 function modeOf(chat: JsonRecord | null | undefined): string {
   return readString(chat?.mode || chat?.chatMode, "conversation");
 }
@@ -2463,6 +2472,7 @@ function buildConversationPresenceBlock(input: PromptAssemblyInput, wrapFormat: 
     activity ? `User activity: ${activity}` : "",
     `Current date: ${formatZonedDate(now, timeZone)}`,
     `Current time: ${formatZonedTime(now, timeZone)}`,
+    `Current time of day: ${conversationTimeOfDay(now, timeZone)}`,
     `Current weekday: ${getZonedWeekdayName(now, timeZone)}`,
     timeZone ? `Time zone: ${timeZone}` : "",
   ].filter(Boolean);
@@ -2472,7 +2482,7 @@ function buildConversationPresenceBlock(input: PromptAssemblyInput, wrapFormat: 
     contextKind: "prompt",
     content: wrapContent(
       [
-        "Use this live conversation presence context to judge availability, timing, and whether proactive or casual replies make sense.",
+        "Use this live conversation presence context as the authoritative current date/time source when asked, and to judge availability, timing, and whether proactive or casual replies make sense.",
         ...parts,
       ].join("\n"),
       "conversation_presence",
