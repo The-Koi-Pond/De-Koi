@@ -13,6 +13,7 @@ interface CollectFreshAssistantPartRevealStartsOptions {
   initialLoadSettled: boolean;
   candidates: ConversationPartRevealCandidate[];
   prevKeys: ReadonlySet<string>;
+  prevPartCounts?: ReadonlyMap<string, number>;
   seenKeys: ReadonlySet<string>;
   now: number;
   freshnessMs?: number;
@@ -29,6 +30,7 @@ export function collectFreshAssistantPartRevealStarts({
   initialLoadSettled,
   candidates,
   prevKeys,
+  prevPartCounts,
   seenKeys,
   now,
   freshnessMs = CONVERSATION_PART_REVEAL_FRESHNESS_MS,
@@ -39,7 +41,11 @@ export function collectFreshAssistantPartRevealStarts({
   for (const candidate of candidates) {
     if (candidate.role !== "assistant") continue;
     if (candidate.partCount <= 1) continue;
-    if (prevKeys.has(candidate.key) || seenKeys.has(candidate.key)) continue;
+    const previousPartCount = prevPartCounts?.get(candidate.key);
+    const isNewKey = !prevKeys.has(candidate.key) && !seenKeys.has(candidate.key);
+    const partCountIncreased =
+      prevKeys.has(candidate.key) && previousPartCount != null && candidate.partCount > previousPartCount;
+    if (!isNewKey && !partCountIncreased) continue;
     if (!Number.isFinite(candidate.createdAtMs)) continue;
     if (now - candidate.createdAtMs >= freshnessMs) continue;
     starts.push({ key: candidate.key, count: candidate.partCount });
