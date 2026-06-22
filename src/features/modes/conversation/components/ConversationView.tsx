@@ -28,6 +28,7 @@ import {
   startConversationRevealGeneration,
   type ConversationRevealGenerationMap,
 } from "../lib/conversation-part-reveal";
+import { resolveConversationRegenerationDisplay } from "../lib/conversation-streaming-draft";
 import {
   ChatBranchSelector,
   type ChatBranchSelectorHandle,
@@ -402,12 +403,9 @@ export function ConversationView({
     return "Character";
   }, [activeCharacterNames, activeChatCharIds, characterMap, streamingCharacterId, typingCharacterName]);
   const liveTypingVerb = liveTypingName.includes(",") || liveTypingName.includes(" & ") ? "are" : "is";
-  // When the stream buffer clears before isStreaming flips false, hide bubble
-  // draft rows immediately so the saved message can take over without a flash.
-
-  const hasStreamBufferContent = !!streamBuffer || !!thinkingBuffer;
-  const showTypingIndicator =
-    isStreaming && !delayedCharacterInfo && !hasStreamBufferContent && conversationMessageStyle !== "bubble";
+  // Conversation mode hides partial response text, so keep visible typing feedback
+  // while hidden stream buffers accumulate. The saved message replaces it on persist.
+  const showTypingIndicator = isStreaming && !delayedCharacterInfo && conversationMessageStyle !== "bubble";
   const liveTypingLabel = `${liveTypingName} ${liveTypingVerb} typing...`;
 
   // ── Group typing rows ──
@@ -1503,11 +1501,15 @@ export function ConversationView({
                   // Regular single message
                   const { msg, isGrouped } = item;
                   const isRegenerating = isStreaming && regenerateMessageId === msg.id;
-                  const isBubbleRegenerating = isRegenerating && conversationMessageStyle === "bubble";
-                  // Conversation mode keeps partial regeneration text hidden until the saved response arrives.
-                  const hasStreamContent = false;
-                  const displayMsg = msg;
-                  const contentParts = item.contentParts;
+                  const regenerationDisplay = resolveConversationRegenerationDisplay({
+                    isRegenerating,
+                    messageContent: msg.content,
+                    contentParts: item.contentParts,
+                  });
+                  const displayMsg = regenerationDisplay.showActiveRegeneration
+                    ? { ...msg, content: regenerationDisplay.messageContent }
+                    : msg;
+                  const contentParts = regenerationDisplay.contentParts;
                   const visiblePartCount = contentParts
                     ? resolveConversationVisiblePartCount({
                         key: item.key,
@@ -1520,7 +1522,7 @@ export function ConversationView({
                     <>
                       <ConversationMessage
                         message={displayMsg}
-                        isStreaming={hasStreamContent}
+                        isStreaming={regenerationDisplay.showActiveRegeneration}
                         isGrouped={isGrouped}
                         hideTimestamp={!showTimestamps}
                         onDelete={onDelete}
@@ -1543,7 +1545,11 @@ export function ConversationView({
                         bubbleGroupPosition={item.bubbleGroupPosition}
                         contentParts={contentParts}
                         visiblePartCount={visiblePartCount}
-                        originalContent={!isRegenerating || isBubbleRegenerating ? item.originalContent : undefined}
+                        originalContent={
+                          regenerationDisplay.showActiveRegeneration
+                            ? (item.originalContent ?? msg.content)
+                            : item.originalContent
+                        }
                         typingLabel={typingLabelInMessage && msg.id === typingTargetId ? liveTypingLabel : undefined}
                       />
                     </>

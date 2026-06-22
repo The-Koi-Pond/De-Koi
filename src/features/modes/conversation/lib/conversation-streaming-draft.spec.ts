@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  resolveConversationRegenerationDisplay,
   shouldRenderBubbleRegenerationDraft,
   shouldRenderConversationLiveStreamMessage,
   shouldRenderConversationRegenerationStream,
@@ -58,6 +59,34 @@ describe("conversation streaming draft display", () => {
         hasStreamBufferContent: true,
       }),
     ).toBe(false);
+  });
+
+  it("keeps active regeneration feedback without rendering partial replacement text", () => {
+    expect(
+      resolveConversationRegenerationDisplay({
+        isRegenerating: true,
+        messageContent: "Saved response.",
+        contentParts: ["Saved response."],
+      }),
+    ).toEqual({
+      messageContent: "",
+      contentParts: undefined,
+      showActiveRegeneration: true,
+    });
+  });
+
+  it("leaves completed conversation text alone when no regeneration is active", () => {
+    expect(
+      resolveConversationRegenerationDisplay({
+        isRegenerating: false,
+        messageContent: "Saved response.",
+        contentParts: ["Saved response."],
+      }),
+    ).toEqual({
+      messageContent: "Saved response.",
+      contentParts: ["Saved response."],
+      showActiveRegeneration: false,
+    });
   });
 
   it("preserves classic regeneration streaming when partial responses are allowed", () => {

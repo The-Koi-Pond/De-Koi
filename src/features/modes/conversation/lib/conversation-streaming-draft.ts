@@ -100,3 +100,23 @@ export function shouldRenderConversationRegenerationStream(input: {
     input.allowPartialResponses && input.isRegenerating && !input.isBubbleRegenerating && input.hasStreamBufferContent
   );
 }
+
+export function resolveConversationRegenerationDisplay<TContentParts>(input: {
+  isRegenerating: boolean;
+  messageContent: string;
+  contentParts: TContentParts | undefined;
+}) {
+  if (!input.isRegenerating) {
+    return {
+      messageContent: input.messageContent,
+      contentParts: input.contentParts,
+      showActiveRegeneration: false,
+    };
+  }
+
+  return {
+    messageContent: "",
+    contentParts: undefined,
+    showActiveRegeneration: true,
+  };
+}
