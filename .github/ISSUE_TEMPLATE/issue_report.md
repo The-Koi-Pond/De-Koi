@@ -35,7 +35,7 @@ assignees: ""
 - [ ] Game mode
 - [ ] Shared mode UI
 - [ ] Runtime systems: generation, world-state, visuals, or tracker
-- [ ] Professor Mari or shell tools
+- [ ] Deki-senpai or shell tools
 - [ ] React-free engine behavior, contracts, agents, or capability ports
 - [ ] Shared API wrapper or remote runtime routing
 - [ ] Tauri/Rust storage, assets, LLM, integrations, security, imports, or HTTP runtime
