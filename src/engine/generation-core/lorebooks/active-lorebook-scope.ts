@@ -176,10 +176,11 @@ export function resolveActiveLorebookScopeReasons(
   const activePersonaIds = [readString(chat.personaId), readString(context.persona?.id)].filter(
     (id, index, ids) => id && ids.indexOf(id) === index,
   );
+  let matchedPersonaIds: string[] = [];
   if (context.persona && activePersonaIds.length > 0) {
     const personaIds = stringArray(lorebook.personaIds);
     const lorebookPersonaId = readString(lorebook.personaId);
-    const matchedPersonaIds = activePersonaIds.filter((id) => personaIds.includes(id) || lorebookPersonaId === id);
+    matchedPersonaIds = activePersonaIds.filter((id) => personaIds.includes(id) || lorebookPersonaId === id);
     if (matchedPersonaIds.length > 0) {
       reasons.push({ lorebookId, lorebookName, reason: "persona", matchedIds: matchedPersonaIds });
     }
@@ -192,7 +193,23 @@ export function resolveActiveLorebookScopeReasons(
 
   const selectedLorebookIds = stringArray(metadata.activeLorebookIds ?? chat.activeLorebookIds);
   if (selectedLorebookIds.includes(lorebookId)) {
-    reasons.push({ lorebookId, lorebookName, reason: "selected", matchedIds: [lorebookId] });
+    // Gate: if the lorebook has character/persona/chat owner links, at least one must match
+    // the current context. This prevents stale lorebooks from injecting context when their
+    // owner character/persona/chat is no longer in scope.
+    const hasOwnerLinks =
+      stringArray(lorebook.characterIds).length > 0 ||
+      !!readString(lorebook.characterId) ||
+      stringArray(lorebook.personaIds).length > 0 ||
+      !!readString(lorebook.personaId) ||
+      !!readString(lorebook.chatId);
+    if (
+      !hasOwnerLinks ||
+      matchedCharacterIds.length > 0 ||
+      matchedPersonaIds.length > 0 ||
+      (chatScopedId && chatScopedId === chatId)
+    ) {
+      reasons.push({ lorebookId, lorebookName, reason: "selected", matchedIds: [lorebookId] });
+    }
   }
 
   return reasons;

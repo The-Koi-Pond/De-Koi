@@ -332,7 +332,11 @@ function upsertCachedMessage(
           isOptimisticMatch(message, saved);
         if (shouldReplace) {
           found = true;
-          return { ...message, ...saved };
+          // Merge extra fields from cached message to preserve expression avatars,
+          // illustration attachments, and other agent-set extras that may predate
+          // the saved snapshot. Saved snapshot values take priority for overlapping fields.
+          const mergedExtra = { ...(message.extra ?? {}), ...(saved.extra ?? {}) };
+          return { ...message, ...saved, extra: mergedExtra };
         }
         return message;
       }),

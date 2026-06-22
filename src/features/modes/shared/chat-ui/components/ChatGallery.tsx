@@ -10,7 +10,6 @@ import {
   Paintbrush,
   Trash2,
   X,
-  ZoomIn,
   Download,
   Sparkles,
   Pin,
@@ -177,29 +176,26 @@ export function ChatGallery({ chat, onIllustrate }: ChatGalleryProps) {
           {images.map((img) => (
             <div
               key={img.id}
-              className="group relative overflow-hidden rounded-lg bg-[var(--secondary)] ring-1 ring-transparent transition-all hover:ring-[var(--primary)]/40 hover:shadow-lg"
+              className="group relative overflow-hidden rounded-lg bg-[var(--secondary)] ring-1 ring-transparent transition-all focus-within:ring-2 focus-within:ring-[var(--primary)]/40 hover:ring-[var(--primary)]/40 hover:shadow-lg"
             >
-              <img
-                src={img.url}
-                alt={img.prompt || "Gallery image"}
-                loading="lazy"
-                decoding="async"
-                className="aspect-square w-full cursor-pointer object-cover transition-transform group-hover:scale-105"
+              <button
+                type="button"
                 onClick={() => setLightbox(img)}
-              />
+                aria-label={img.prompt || "View gallery image"}
+                className="w-full focus:outline-none"
+              >
+                <img
+                  src={img.url}
+                  alt={img.prompt || "Gallery image"}
+                  loading="lazy"
+                  decoding="async"
+                  className="aspect-square w-full object-cover transition-transform group-hover:scale-105"
+                />
+              </button>
               {/* Overlay */}
-              <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100">
-                <div className="flex w-full items-center justify-between p-2">
+              <div className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <div className="pointer-events-auto flex w-full items-center justify-between p-2">
                   <div className="flex gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setLightbox(img)}
-                      aria-label="View image fullscreen"
-                      className="rounded-md bg-white/20 p-1.5 text-white transition-colors hover:bg-white/30"
-                      title="View fullscreen"
-                    >
-                      <ZoomIn size="0.75rem" />
-                    </button>
                     <button
                       type="button"
                       onClick={() => pinImage(img)}

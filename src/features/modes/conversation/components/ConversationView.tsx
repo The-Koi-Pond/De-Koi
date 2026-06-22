@@ -598,6 +598,7 @@ export function ConversationView({
   const prevScrollHeightRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
   const [transcriptWindowStart, setTranscriptWindowStart] = useState<number | null>(null);
+  const pendingLoadMoreRevealRef = useRef<{ previousLength: number; previousStartIndex: number } | null>(null);
   const isNearBottomRef = useRef(true);
   const userScrolledAwayRef = useRef(false);
   const lastScrollTopRef = useRef(0);
@@ -828,6 +829,18 @@ export function ConversationView({
     }
   }, [pageCount, isFetchingNextPage]);
 
+  // After load-more completes, adjust transcriptWindowStart to keep the same visible messages in view
+  useLayoutEffect(() => {
+    const pending = pendingLoadMoreRevealRef.current;
+    if (!pending || isFetchingNextPage) return;
+    const newLength = messages?.length ?? 0;
+    if (newLength > pending.previousLength) {
+      const addedCount = newLength - pending.previousLength;
+      setTranscriptWindowStart(pending.previousStartIndex + addedCount);
+    }
+    pendingLoadMoreRevealRef.current = null;
+  }, [isFetchingNextPage, messages?.length]);
+
   const handleLoadMore = useCallback(() => {
     if (!scrollRef.current || !hasNextPage || isFetchingNextPage) return;
     prevScrollHeightRef.current = readTranscriptScrollMetrics(scrollRef.current).scrollHeight;
@@ -837,6 +850,7 @@ export function ConversationView({
 
   useEffect(() => {
     setTranscriptWindowStart(null);
+    pendingLoadMoreRevealRef.current = null;
   }, [chatId]);
 
   useEffect(() => {
@@ -902,12 +916,16 @@ export function ConversationView({
       return;
     }
     if (!hasNextPage || isFetchingNextPage) return;
-    setTranscriptWindowStart(0);
+    pendingLoadMoreRevealRef.current = {
+      previousLength: messages?.length ?? 0,
+      previousStartIndex: transcriptWindow.startIndex,
+    };
     handleLoadMore();
   }, [
     handleLoadMore,
     hasNextPage,
     isFetchingNextPage,
+    messages?.length,
     transcriptWindow.hiddenBeforeCount,
     transcriptWindow.startIndex,
   ]);
@@ -1017,8 +1035,7 @@ export function ConversationView({
     return items;
   }, [transcriptWindow, characterMap, chatCharIds, conversationMessageStyle, totalMessageCount]);
 
-  const liveStreamCharacterId =
-    streamingCharacterId ?? (activeChatCharIds.length === 1 ? activeChatCharIds[0]! : null);
+  const liveStreamCharacterId = streamingCharacterId ?? (activeChatCharIds.length === 1 ? activeChatCharIds[0]! : null);
   const liveStreamMessage = useMemo<Message | null>(() => {
     if (!shouldRenderLiveStreamMessage) return null;
     return {
