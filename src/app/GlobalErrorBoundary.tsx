@@ -35,6 +35,23 @@ function describeError(error: unknown) {
   };
 }
 
+export function describeWindowErrorEvent(event: ErrorEvent) {
+  const details = event.error instanceof Error
+    ? describeError(event.error)
+    : {
+        name: "Error",
+        message: event.message || "Unknown error",
+        stack: "",
+      };
+
+  return {
+    ...details,
+    filename: event.filename,
+    lineno: event.lineno,
+    colno: event.colno,
+  };
+}
+
 function buildDebugDetails(error: unknown, componentStack: string) {
   const details = describeError(error);
   const parts = [`${details.name}: ${details.message}`];
@@ -84,7 +101,7 @@ export function installGlobalErrorDiagnostics() {
     if (isObject(event.error) && reactRootUncaughtErrors.has(event.error)) return;
 
     console.error("[De-Koi] Unhandled window error", event.error ?? event.message);
-    const details = describeError(event.error ?? event.message);
+    const details = describeWindowErrorEvent(event);
     recordClientDiagnostic({
       level: "error",
       source: "window",

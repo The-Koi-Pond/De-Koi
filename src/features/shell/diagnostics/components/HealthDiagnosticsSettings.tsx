@@ -59,7 +59,7 @@ export function HealthDiagnosticsSettings() {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [sidecarBusy, setSidecarBusy] = useState(false);
   const [sidecarSmokeResult, setSidecarSmokeResult] = useState<ProbeState | null>(null);
-  const [providerBusy, setProviderBusy] = useState<string | null>(null);
+  const [providerBusy, setProviderBusy] = useState<Record<string, boolean>>({});
   const [providerProbeResults, setProviderProbeResults] = useState<Record<string, ProbeState>>({});
 
   const packetText = useMemo(() => {
@@ -111,8 +111,8 @@ export function HealthDiagnosticsSettings() {
 
   const runProviderProbe = async (item: DiagnosticItem) => {
     const connectionId = String(detailRecord(item).connectionId ?? "").trim();
-    if (!connectionId || providerBusy) return;
-    setProviderBusy(connectionId);
+    if (!connectionId || providerBusy[connectionId]) return;
+    setProviderBusy((current) => ({ ...current, [connectionId]: true }));
     try {
       const result = await connectionCommandApi.test<{ success?: boolean; error?: string; latencyMs?: number }>(connectionId);
       const success = result.success !== false;
@@ -136,7 +136,10 @@ export function HealthDiagnosticsSettings() {
         details: { connectionId, error: probeError },
       });
     } finally {
-      setProviderBusy(null);
+      setProviderBusy((current) => {
+        const { [connectionId]: _finished, ...rest } = current;
+        return rest;
+      });
     }
   };
 
@@ -248,10 +251,10 @@ export function HealthDiagnosticsSettings() {
                     <button
                       type="button"
                       onClick={() => void runProviderProbe(item)}
-                      disabled={!!providerBusy}
+                      disabled={!!providerBusy[connectionId]}
                       className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md bg-[var(--background)] px-2.5 py-1 text-[0.6875rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {providerBusy === connectionId ? <Loader2 size="0.75rem" className="animate-spin" /> : <Wifi size="0.75rem" />}
+                      {providerBusy[connectionId] ? <Loader2 size="0.75rem" className="animate-spin" /> : <Wifi size="0.75rem" />}
                       Probe
                     </button>
                   )}

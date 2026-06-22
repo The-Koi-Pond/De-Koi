@@ -157,12 +157,27 @@ function providerItem(connection: ConnectionSummary): DiagnosticItem {
   };
 }
 
+function invalidProviderItem(connection: ConnectionSummary, index: number): DiagnosticItem {
+  return {
+    id: `provider-invalid-${index}`,
+    label: connection.name?.trim() || "Invalid provider entry",
+    status: "error",
+    summary: "Stored provider entry is missing an ID and cannot be probed.",
+    details: {
+      invalidReason: "missing-id",
+      provider: connection.provider ?? "",
+      model: connection.model ?? "",
+      baseUrl: connection.baseUrl ?? "",
+    },
+  };
+}
+
 async function providersSection(): Promise<DiagnosticsSection> {
   try {
     const connections = await storageApi.list<ConnectionSummary>("connections", CONNECTION_SUMMARY_OPTIONS);
-    const items = connections
-      .filter((connection) => !!connection.id?.trim())
-      .map(providerItem);
+    const items = connections.map((connection, index) =>
+      connection.id?.trim() ? providerItem(connection) : invalidProviderItem(connection, index),
+    );
     if (items.length === 0) {
       items.push({
         id: "providers-empty",
@@ -216,6 +231,46 @@ async function storageSection(): Promise<DiagnosticsSection> {
   return section("storage", "Storage", items);
 }
 
+async function sectionOrError(id: string, title: string, load: () => Promise<DiagnosticsSection>): Promise<DiagnosticsSection> {
+  try {
+    return await load();
+  } catch (error) {
+    const message = errorMessage(error);
+    recordClientDiagnostic({
+      level: "error",
+      source: "health-diagnostics",
+      message,
+      details: { section: id, error },
+    });
+    return section(id, title, [
+      {
+        id: `${id}-refresh`,
+        label: title,
+        status: "error",
+        summary: message,
+      },
+    ]);
+  }
+}
+
+export async function createDiagnosticsSnapshot(remoteRuntimeUrl: string): Promise<DiagnosticsSnapshot> {
+  const [runtime, sidecar, providers, storage] = await Promise.all([
+    sectionOrError("runtime", "Runtime", () => runtimeSection(remoteRuntimeUrl)),
+    sectionOrError("sidecar", "Local Model", sidecarSection),
+    sectionOrError("providers", "Providers", providersSection),
+    sectionOrError("storage", "Storage", storageSection),
+  ]);
+  const sections = [runtime, sidecar, providers, storage];
+  return {
+    generatedAt: new Date().toISOString(),
+    appVersion: APP_VERSION,
+    runtimeMode: runtimeMode(remoteRuntimeUrl),
+    overallStatus: diagnosticsOverallStatus(sections),
+    sections,
+    recentDiagnostics: getRecentClientDiagnostics(),
+  };
+}
+
 export function useDiagnosticsSnapshot() {
   const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
   const [snapshot, setSnapshot] = useState<DiagnosticsSnapshot | null>(null);
@@ -226,22 +281,7 @@ export function useDiagnosticsSnapshot() {
     setLoading(true);
     setError(null);
     try {
-      const [runtime, sidecar, providers, storage] = await Promise.all([
-        runtimeSection(remoteRuntimeUrl),
-        sidecarSection(),
-        providersSection(),
-        storageSection(),
-      ]);
-      const sections = [runtime, sidecar, providers, storage];
-      const next: DiagnosticsSnapshot = {
-        generatedAt: new Date().toISOString(),
-        appVersion: APP_VERSION,
-        runtimeMode: runtimeMode(remoteRuntimeUrl),
-        overallStatus: diagnosticsOverallStatus(sections),
-        sections,
-        recentDiagnostics: getRecentClientDiagnostics(),
-      };
-      setSnapshot(next);
+      setSnapshot(await createDiagnosticsSnapshot(remoteRuntimeUrl));
     } catch (refreshError) {
       const message = errorMessage(refreshError);
       recordClientDiagnostic({
