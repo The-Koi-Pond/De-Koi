@@ -23,6 +23,8 @@ import {
   bubbleRegenerationBackingSignature,
   hasBubbleRegenerationBackingChanged,
   shouldRenderBubbleRegenerationDraft,
+  shouldRenderConversationLiveStreamMessage,
+  shouldRenderConversationRegenerationStream,
   updateStreamingBubbleDraft,
   type StreamingBubbleDraftState,
 } from "../lib/conversation-streaming-draft";
@@ -426,12 +428,14 @@ export function ConversationView({
     !thinkingBuffer &&
     streamHadContentRef.current;
   const hasStreamBufferContent = !!streamBuffer || !!thinkingBuffer;
-  const shouldRenderLiveStreamMessage =
-    isStreaming &&
-    !delayedCharacterInfo &&
-    !regenerateMessageId &&
-    !isStreamWindingDown &&
-    (conversationMessageStyle === "bubble" || hasStreamBufferContent);
+  const shouldRenderLiveStreamMessage = shouldRenderConversationLiveStreamMessage({
+    isStreaming,
+    hasDelayedCharacterInfo: !!delayedCharacterInfo,
+    isRegenerating: !!regenerateMessageId,
+    isStreamWindingDown,
+    messageStyle: conversationMessageStyle,
+    hasStreamBufferContent,
+  });
   const showTypingIndicator =
     isStreaming && !delayedCharacterInfo && !hasStreamBufferContent && conversationMessageStyle !== "bubble";
   const liveTypingLabel = `${liveTypingName} ${liveTypingVerb} typing...`;
@@ -1626,24 +1630,14 @@ export function ConversationView({
                   const { msg, isGrouped } = item;
                   const isRegenerating = isStreaming && regenerateMessageId === msg.id;
                   const isBubbleRegenerating = isRegenerating && conversationMessageStyle === "bubble";
-                  // Classic regeneration keeps the existing in-place stream behavior.
-                  // Bubble regeneration keeps the saved message stable and renders a
-                  // separate presentation-only draft row below it.
-                  const hasStreamContent =
-                    isRegenerating && !isBubbleRegenerating && (!!streamBuffer || !!thinkingBuffer);
-                  // Strip old-swipe attachments during classic regeneration so a previous
-                  // illustration doesn't linger while new text is streaming in.
-                  const displayMsg =
-                    isRegenerating && !isBubbleRegenerating
-                      ? (() => {
-                          const parsed = typeof msg.extra === "string" ? JSON.parse(msg.extra) : (msg.extra ?? {});
-                          return {
-                            ...msg,
-                            content: streamBuffer || (thinkingBuffer ? "Thinking..." : ""),
-                            extra: { ...parsed, attachments: null, thinking: thinkingBuffer || parsed.thinking },
-                          };
-                        })()
-                      : msg;
+                  // Conversation mode keeps partial regeneration text hidden until the saved response arrives.
+                  const shouldRenderRegenerationStream = shouldRenderConversationRegenerationStream({
+                    isRegenerating,
+                    isBubbleRegenerating,
+                    hasStreamBufferContent: !!streamBuffer || !!thinkingBuffer,
+                  });
+                  const hasStreamContent = shouldRenderRegenerationStream && (!!streamBuffer || !!thinkingBuffer);
+                  const displayMsg = msg;
                   const regenerationDraftMessage = shouldRenderBubbleRegenerationDraft({
                     isBubbleRegenerating,
                     backingMessageChanged: bubbleRegenerationBackingChanged,
@@ -1662,7 +1656,7 @@ export function ConversationView({
                         },
                       } as Message)
                     : null;
-                  const contentParts = isRegenerating && !isBubbleRegenerating ? undefined : item.contentParts;
+                  const contentParts = shouldRenderRegenerationStream ? undefined : item.contentParts;
                   const visiblePartCount = contentParts
                     ? resolveConversationVisiblePartCount({
                         key: item.key,

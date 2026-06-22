@@ -66,9 +66,28 @@ export function hasBubbleRegenerationBackingChanged(
   return !!draft.backingSignature && !!currentBackingSignature && draft.backingSignature !== currentBackingSignature;
 }
 
-export function shouldRenderBubbleRegenerationDraft(input: {
+export function shouldRenderBubbleRegenerationDraft(_input: {
   isBubbleRegenerating: boolean;
   backingMessageChanged: boolean;
 }) {
-  return input.isBubbleRegenerating && !input.backingMessageChanged;
+  return false;
+}
+
+export function shouldRenderConversationLiveStreamMessage(_input: {
+  isStreaming: boolean;
+  hasDelayedCharacterInfo: boolean;
+  isRegenerating: boolean;
+  isStreamWindingDown: boolean;
+  messageStyle: string;
+  hasStreamBufferContent: boolean;
+}) {
+  return false;
+}
+
+export function shouldRenderConversationRegenerationStream(_input: {
+  isRegenerating: boolean;
+  isBubbleRegenerating: boolean;
+  hasStreamBufferContent: boolean;
+}) {
+  return false;
 }
