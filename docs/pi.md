@@ -35,6 +35,38 @@ Set `DE_KOI_PI_EXTRA_COMPOSE_FILES` to a comma-separated list of local override
 files when a Pi needs host-specific ports or volumes, such as exposing backend
 port `8787` on a trusted Tailscale network.
 
+### ChatGPT Through Local Codex Login
+
+The ChatGPT connection uses the local Codex `auth.json` file instead of an API
+key. For Pi Docker installs, run `codex login` as the host user that owns the
+De-Koi install, then mount that host Codex directory into the server container.
+This lets De-Koi read the login and persist token refreshes back to the host
+after container recreation.
+
+For the default `chai` Pi user, create a local override such as
+`docker-compose.pi.local.yml`:
+
+```yaml
+services:
+  de-koi-server:
+    environment:
+      CODEX_HOME: /root/.codex
+    volumes:
+      - /home/chai/.codex:/root/.codex
+```
+
+Then include that override when updating:
+
+```sh
+DE_KOI_PI_EXTRA_COMPOSE_FILES=docker-compose.pi.local.yml sh scripts/pi-update.sh --trusted-lan
+```
+
+For timer-driven updates, keep the same override in `/etc/de-koi/pi-update.env`
+so future image updates recreate the container with the Codex auth mount.
+
+In De-Koi, use the ChatGPT connection's **Test Connection** to verify the local
+login, **Fetch ChatGPT Models** to confirm live model access, and **Send Test Message** to prove generation for the selected model.
+
 For timer-driven updates, put the same override setting in the optional systemd
 environment file:
 
