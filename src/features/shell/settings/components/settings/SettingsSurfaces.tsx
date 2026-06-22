@@ -785,8 +785,6 @@ export function GeneralSettings() {
   const setSpeechToTextEnabled = useUIStore((s) => s.setSpeechToTextEnabled);
   const spotifyPlayerEnabled = useUIStore((s) => s.spotifyPlayerEnabled);
   const setSpotifyPlayerEnabled = useUIStore((s) => s.setSpotifyPlayerEnabled);
-  const chibiDekiEnabled = useUIStore((s) => s.chibiDekiEnabled);
-  const setChibiDekiEnabled = useUIStore((s) => s.setChibiDekiEnabled);
   const intuitiveSwipeNavigation = useUIStore((s) => s.intuitiveSwipeNavigation);
   const setIntuitiveSwipeNavigation = useUIStore((s) => s.setIntuitiveSwipeNavigation);
   const intuitiveSwipeRerollLatest = useUIStore((s) => s.intuitiveSwipeRerollLatest);
@@ -945,13 +943,6 @@ export function GeneralSettings() {
         checked={spotifyPlayerEnabled}
         onChange={setSpotifyPlayerEnabled}
         help="Shows a compact Spotify player in the top bar on desktop and as a draggable floating widget on mobile. Requires the Spotify DJ agent to be connected."
-      />
-
-      <ToggleSetting
-        label="Chibi Deki-senpai visits"
-        checked={chibiDekiEnabled}
-        onChange={setChibiDekiEnabled}
-        help="Allows the rare Chibi Deki-senpai scroll toast to appear. Turn this off to prevent the easter egg from registering while you use the app."
       />
 
       {/* Streaming Speed */}

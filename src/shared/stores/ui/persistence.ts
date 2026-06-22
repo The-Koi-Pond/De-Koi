@@ -25,7 +25,7 @@ import {
 import type { UIState } from "./model";
 
 export const UI_STORE_NAME = "marinara-engine-ui-tauri";
-export const UI_STORE_VERSION = 9;
+export const UI_STORE_VERSION = 10;
 
 const LEGACY_SIDEBAR_WIDTH_DEFAULT = 280;
 
@@ -146,7 +146,6 @@ export function partializeUiState(state: UIState) {
     trimIncompleteModelOutput: state.trimIncompleteModelOutput,
     speechToTextEnabled: state.speechToTextEnabled,
     spotifyPlayerEnabled: state.spotifyPlayerEnabled,
-    chibiDekiEnabled: state.chibiDekiEnabled,
     remoteRuntimeUrl: state.remoteRuntimeUrl,
     spotifyMobileWidgetCollapsed: state.spotifyMobileWidgetCollapsed,
     spotifyMobileWidgetPosition: state.spotifyMobileWidgetPosition,
@@ -206,10 +205,8 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
     typeof persistedState === "object" && persistedState !== null ? { ...(persistedState as PersistedUiState) } : {};
 
   const legacyWidth = persisted.trackerPanelWidth;
-  const legacyChibiDekiEnabled = (persisted as Record<string, unknown>)["chibiProfessorMariEnabled"];
-  if (persisted.chibiDekiEnabled === undefined && typeof legacyChibiDekiEnabled === "boolean") {
-    persisted.chibiDekiEnabled = legacyChibiDekiEnabled;
-  }
+  delete (persisted as Record<string, unknown>)["chibiDekiEnabled"];
+  delete (persisted as Record<string, unknown>)["chibiProfessorMariEnabled"];
   persisted.sidebarWidth = normalizePersistedWidth(
     persisted.sidebarWidth === LEGACY_SIDEBAR_WIDTH_DEFAULT ? SIDEBAR_WIDTH_DEFAULT : persisted.sidebarWidth,
     SIDEBAR_WIDTH_DEFAULT,

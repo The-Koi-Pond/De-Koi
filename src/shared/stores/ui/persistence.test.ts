@@ -4,25 +4,18 @@ import type { UIState } from "./model";
 import { migrateUiState, partializeUiState, UI_STORE_VERSION } from "./persistence";
 
 describe("ui persistence migration", () => {
-  it("bumps the store version for the Deki chibi setting migration", () => {
-    expect(UI_STORE_VERSION).toBe(9);
+  it("bumps the store version for the chibi visit setting removal", () => {
+    expect(UI_STORE_VERSION).toBe(10);
   });
 
-  it("hydrates the legacy chibi assistant setting to Deki", () => {
-    const migrated = migrateUiState({
-      chibiProfessorMariEnabled: false,
-    });
-
-    expect(migrated.chibiDekiEnabled).toBe(false);
-  });
-
-  it("preserves an explicit Deki chibi setting over the legacy setting", () => {
+  it("drops legacy chibi visit settings during migration", () => {
     const migrated = migrateUiState({
       chibiDekiEnabled: true,
       chibiProfessorMariEnabled: false,
     });
 
-    expect(migrated.chibiDekiEnabled).toBe(true);
+    expect(migrated).not.toHaveProperty("chibiDekiEnabled");
+    expect(migrated).not.toHaveProperty("chibiProfessorMariEnabled");
   });
 
   it("hydrates legacy tag prompt settings to the Danbooru image style profile", () => {
@@ -72,11 +65,13 @@ describe("ui persistence migration", () => {
 
   it("persists the Echo Chamber open state with its placement settings", () => {
     const partialized = partializeUiState({
+      chibiDekiEnabled: true,
       echoChamberOpen: true,
       echoChamberSide: "top-left",
       echoChamberDismissedChatIds: { "chat-1": true },
     } as unknown as UIState);
 
+    expect(partialized).not.toHaveProperty("chibiDekiEnabled");
     expect(partialized.echoChamberOpen).toBe(true);
     expect(partialized.echoChamberSide).toBe("top-left");
     expect(partialized.echoChamberDismissedChatIds).toEqual({ "chat-1": true });
