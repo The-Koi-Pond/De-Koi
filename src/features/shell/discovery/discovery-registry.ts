@@ -1,4 +1,5 @@
 import rawDiscoveryEntries from "./discovery-entries.json";
+import { NO_MODEL_GAME_SHOWCASE_ID } from "./showcase";
 import {
   DISCOVERY_CATEGORIES,
   DISCOVERY_COVERAGE,
@@ -23,6 +24,7 @@ export const DISCOVERY_CORE_SURFACE_IDS = [
   "imports",
   "bot-browser",
   "deki",
+  "no-model-showcase",
 ] as const;
 
 const DISCOVERY_PANEL_TARGETS = [
@@ -55,6 +57,7 @@ function validateDiscoveryAction(action: unknown, entryId: string, index: number
   const type = action.type;
   const panel = action.panel;
   const tab = action.tab;
+  const showcaseId = action.showcaseId;
   const errors: string[] = [];
   if (action.label !== undefined && action.label !== null && !hasText(action.label)) {
     errors.push(`${path}.label must be non-empty.`);
@@ -72,6 +75,11 @@ function validateDiscoveryAction(action: unknown, entryId: string, index: number
     case "replay-onboarding":
     case "open-deki":
     case "go-home":
+      break;
+    case "open-showcase":
+      if (showcaseId !== NO_MODEL_GAME_SHOWCASE_ID) {
+        errors.push(`${path}.showcaseId must target a known showcase.`);
+      }
       break;
     default:
       errors.push(`${path}.type must be a supported discovery action.`);

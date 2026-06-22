@@ -39,6 +39,11 @@ export type DiscoveryAction =
   | {
       type: "go-home";
       label?: string;
+    }
+  | {
+      type: "open-showcase";
+      showcaseId: "no-model-game-v1";
+      label?: string;
     };
 
 export interface DiscoveryEntry {

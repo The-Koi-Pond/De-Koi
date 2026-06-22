@@ -91,4 +91,24 @@ describe("ModeHomeSurface quick-start prewarming", () => {
 
     expect(requestIdleCallbackSpy).not.toHaveBeenCalled();
   });
+
+  it("offers a no-model showcase when no language connections exist", async () => {
+    const onOpenNoModelShowcase = vi.fn();
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface onOpenNoModelShowcase={onOpenNoModelShowcase} />);
+    });
+
+    const button = Array.from(container!.querySelectorAll("button")).find((item) =>
+      item.textContent?.includes("Explore sample world"),
+    );
+    expect(button).toBeTruthy();
+
+    act(() => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onOpenNoModelShowcase).toHaveBeenCalledTimes(1);
+  });
 });

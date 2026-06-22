@@ -21,6 +21,8 @@ export function getDiscoveryActionLabel(action: DiscoveryAction) {
       return "Open Deki-senpai";
     case "go-home":
       return "Go Home";
+    case "open-showcase":
+      return "Explore Sample World";
   }
 }
 
@@ -46,6 +48,9 @@ export function runDiscoveryAction(action: DiscoveryAction) {
       ui.closeAllDetails();
       ui.closeRightPanel();
       emitDiscoveryEvent({ type: "go-home" });
+      return;
+    case "open-showcase":
+      emitDiscoveryEvent({ type: "open-showcase", showcaseId: action.showcaseId });
       return;
   }
 }

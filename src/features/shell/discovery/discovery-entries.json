@@ -1,5 +1,16 @@
 [
   {
+    "id": "no-model-showcase",
+    "title": "Sample Game Showcase",
+    "category": "Getting started",
+    "summary": "Open a curated Game world with sample party members, map, journal, lore, and messages before configuring a model.",
+    "keywords": ["showcase", "demo", "sample", "first run", "no model", "game", "journal", "map", "lore"],
+    "audience": "New or returning users who want to feel how De-Koi works before setting up a provider.",
+    "where": "Home > Explore sample world, or Discover > Sample Game Showcase.",
+    "actions": [{ "type": "open-showcase", "showcaseId": "no-model-game-v1", "label": "Explore Sample World" }],
+    "coverage": "core"
+  },
+  {
     "id": "conversation-mode",
     "title": "Conversation Mode",
     "category": "Chat modes",
