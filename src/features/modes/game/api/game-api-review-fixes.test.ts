@@ -1405,6 +1405,98 @@ describe("game API review guards", () => {
     expect(prompt).toContain("All academy machines obey moon-signed contracts.");
   });
 
+  it("accepts valid structured setup JSON and seeds ready game metadata", async () => {
+    storageApiMock.get.mockImplementation(async (entity: string) =>
+      entity === "chats" ? { id: "chat-1", connectionId: "chat-conn", metadata: {} } : null,
+    );
+    llmApiMock.complete.mockResolvedValue(JSON.stringify(BASIC_SETUP_RESPONSE));
+    mockUpdateEcho();
+
+    const result = await setupGame({
+      chatId: "chat-1",
+      connectionId: "gm-conn",
+      preferences: "coastal ruins",
+    });
+
+    expect(result.worldOverview).toBe("A stormy coast.");
+    expect(readyMetadataPatch()).toEqual(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          gameSessionStatus: "ready",
+          gameWorldOverview: "A stormy coast.",
+        }),
+      }),
+    );
+    expect(llmApiMock.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("repairs malformed setup JSON before seeding game metadata", async () => {
+    storageApiMock.get.mockImplementation(async (entity: string) =>
+      entity === "chats" ? { id: "chat-1", connectionId: "chat-conn", metadata: {} } : null,
+    );
+    llmApiMock.complete
+      .mockResolvedValueOnce("not json")
+      .mockResolvedValueOnce(JSON.stringify({ ...BASIC_SETUP_RESPONSE, worldOverview: "A repaired coast." }));
+    mockUpdateEcho();
+
+    const result = await setupGame({
+      chatId: "chat-1",
+      connectionId: "gm-conn",
+      preferences: "coastal ruins",
+    });
+
+    expect(result.worldOverview).toBe("A repaired coast.");
+    expect(llmApiMock.complete).toHaveBeenCalledTimes(2);
+    const repairPrompt = llmApiMock.complete.mock.calls[1]?.[0]?.messages.at(-1)?.content as string;
+    expect(repairPrompt).toContain("game.setup");
+    expect(repairPrompt).toContain("not json");
+  });
+
+  it("repairs schema-invalid setup JSON before deriving setup state", async () => {
+    storageApiMock.get.mockImplementation(async (entity: string) =>
+      entity === "chats" ? { id: "chat-1", connectionId: "chat-conn", metadata: {} } : null,
+    );
+    llmApiMock.complete
+      .mockResolvedValueOnce(JSON.stringify({ ...BASIC_SETUP_RESPONSE, startingMap: [] }))
+      .mockResolvedValueOnce(
+        JSON.stringify({ ...BASIC_SETUP_RESPONSE, worldOverview: "A schema-repaired coast.", startingMap: { name: "Repaired Harbor" } }),
+      );
+    mockUpdateEcho();
+
+    const result = await setupGame({
+      chatId: "chat-1",
+      connectionId: "gm-conn",
+      preferences: "coastal ruins",
+    });
+
+    expect(result.worldOverview).toBe("A schema-repaired coast.");
+    expect(gRecord(gRecord(result.sessionChat.metadata).gameMap).name).toBe("Repaired Harbor");
+    expect(llmApiMock.complete).toHaveBeenCalledTimes(2);
+    const repairPrompt = llmApiMock.complete.mock.calls[1]?.[0]?.messages.at(-1)?.content as string;
+    expect(repairPrompt).toContain("startingMap");
+    expect(repairPrompt).toContain("Expected JSON schema/shape");
+  });
+
+  it("rejects final invalid setup output without mutating ready game metadata", async () => {
+    storageApiMock.get.mockImplementation(async (entity: string) =>
+      entity === "chats" ? { id: "chat-1", connectionId: "chat-conn", metadata: {} } : null,
+    );
+    llmApiMock.complete
+      .mockResolvedValueOnce("not json")
+      .mockResolvedValueOnce(JSON.stringify({ ...BASIC_SETUP_RESPONSE, worldOverview: "" }));
+    mockUpdateEcho();
+
+    await expect(
+      setupGame({
+        chatId: "chat-1",
+        connectionId: "gm-conn",
+        preferences: "coastal ruins",
+      }),
+    ).rejects.toThrow("Game setup did not return usable structured data");
+    expect(llmApiMock.complete).toHaveBeenCalledTimes(2);
+    expect(readyMetadataPatch()).toBeUndefined();
+  });
+
   it.each([
     {
       label: "persona",
