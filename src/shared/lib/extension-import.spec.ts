@@ -148,4 +148,34 @@ describe("extension import safety", () => {
       ),
     ).toThrow(/Unsupported extension UI slot/);
   });
+
+  it("rejects malformed package permission and slot arrays", () => {
+    expect(() =>
+      buildImportedExtensionInput(
+        "bad-permission-type.json",
+        JSON.stringify({
+          manifestVersion: 1,
+          id: "bad-permission-type",
+          name: "Bad Permission Type",
+          version: "1.0.0",
+          permissions: [123],
+        }),
+        installedAt,
+      ),
+    ).toThrow(/permissions entries must be strings/);
+
+    expect(() =>
+      buildImportedExtensionInput(
+        "bad-slot-type.json",
+        JSON.stringify({
+          manifestVersion: 1,
+          id: "bad-slot-type",
+          name: "Bad Slot Type",
+          version: "1.0.0",
+          ui: { slots: [{}] },
+        }),
+        installedAt,
+      ),
+    ).toThrow(/ui\.slots entries must be strings/);
+  });
 });

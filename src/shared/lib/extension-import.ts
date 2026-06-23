@@ -49,8 +49,13 @@ function readRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-function readStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+function readStringArray(value: unknown, field: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error(`Extension package ${field} must be an array.`);
+  return value.map((item) => {
+    if (typeof item !== "string") throw new Error(`Extension package ${field} entries must be strings.`);
+    return item;
+  });
 }
 
 function assertPackageId(value: string): string {
@@ -62,7 +67,7 @@ function assertPackageId(value: string): string {
 }
 
 function normalizePermissions(value: unknown): ExtensionPackagePermission[] {
-  return readStringArray(value).map((permission) => {
+  return readStringArray(value, "permissions").map((permission) => {
     if (!SUPPORTED_PERMISSIONS.has(permission as ExtensionPackagePermission)) {
       throw new Error(`Unsupported extension permission: ${permission}`);
     }
@@ -71,7 +76,7 @@ function normalizePermissions(value: unknown): ExtensionPackagePermission[] {
 }
 
 function normalizeSlots(value: unknown): ExtensionPackageUiSlot[] {
-  return readStringArray(value).map((slot) => {
+  return readStringArray(value, "ui.slots").map((slot) => {
     if (!SUPPORTED_UI_SLOTS.has(slot as ExtensionPackageUiSlot)) {
       throw new Error(`Unsupported extension UI slot: ${slot}`);
     }

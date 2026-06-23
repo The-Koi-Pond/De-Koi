@@ -886,6 +886,18 @@ mod tests {
         )
         .expect_err("unsupported UI slot should reject");
         assert_eq!(bad_slot.code, "invalid_input");
+
+        let bad_package_id = storage_create_inner(
+            &state,
+            "extensions".to_string(),
+            json!({
+                "name": "Bad Package Id",
+                "manifestVersion": 1,
+                "packageId": "bad id"
+            }),
+        )
+        .expect_err("unsupported package id should reject");
+        assert_eq!(bad_package_id.code, "invalid_input");
     }
     #[test]
     fn extension_update_validates_supported_patch_fields_only() {

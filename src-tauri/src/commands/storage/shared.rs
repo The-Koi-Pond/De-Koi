@@ -687,6 +687,15 @@ const EXTENSION_PACKAGE_PERMISSIONS: &[&str] = &[
 const EXTENSION_UI_SLOTS: &[&str] = &["settings", "overlay", "messages", "theme"];
 const EXTENSION_SOURCES: &[&str] = &["file", "package", "profile"];
 
+fn is_valid_extension_package_id(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_alphanumeric()
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+}
+
 fn required_extension_string(
     object: &Map<String, Value>,
     field: &str,
@@ -899,7 +908,13 @@ fn normalize_extension_manifest_metadata(
     normalized: &mut Map<String, Value>,
 ) -> AppResult<()> {
     if let Some(package_id) = optional_extension_string(object, "packageId", 96)? {
-        normalized.insert("packageId".to_string(), Value::String(package_id));
+        let package_id = package_id.trim();
+        if !is_valid_extension_package_id(package_id) {
+            return Err(AppError::invalid_input(
+                "Extension packageId must be a stable id using letters, numbers, dots, dashes, or underscores",
+            ));
+        }
+        normalized.insert("packageId".to_string(), Value::String(package_id.to_string()));
     }
     if let Some(package_version) = optional_extension_string(object, "packageVersion", 80)? {
         normalized.insert("packageVersion".to_string(), Value::String(package_version));
