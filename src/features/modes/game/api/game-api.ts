@@ -7,7 +7,10 @@ import * as mechanicsApi from "./game-api-mechanics";
 import * as partyApi from "./game-api-party";
 import * as sessionApi from "./game-api-session";
 import * as spotifySceneApi from "./game-api-spotify";
+import * as worldTickApi from "./game-api-world-tick";
 import type { GameAssetGenerationPayload } from "./game-api-support";
+
+export type { GameWorldTickResponse } from "./game-api-world-tick";
 
 export type {
   CreateGameResponse,
@@ -54,6 +57,7 @@ export const gameApi = {
   lootGenerate: mechanicsApi.lootGenerate,
   advanceTime: mechanicsApi.advanceTime,
   updateWeather: mechanicsApi.updateWeather,
+  runWorldTick: worldTickApi.runWorldTick,
   rollEncounter: mechanicsApi.rollEncounter,
   updateReputation: mechanicsApi.updateReputation,
   addJournalEntry: journalApi.addJournalEntry,
