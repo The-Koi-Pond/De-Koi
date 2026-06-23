@@ -197,6 +197,7 @@ import type {
   SceneAnalysis,
   SceneSpotifyTrackCandidate,
 } from "../../../../engine/contracts/types/scene";
+import { resolveSceneClockUpdate } from "../../../../engine/modes/game/scene/scene-clock.service";
 import { scoreMusic, scoreAmbient } from "../../../../engine/shared/scoring/music-score";
 import {
   applyMapUpdateCommandsToMeta,
@@ -3304,6 +3305,7 @@ export function GameSurface({
   }
 
   async function applySceneResult(result: SceneAnalysis, msg: { id: string }) {
+    const sceneClock = resolveSceneClockUpdate(result);
 
     setSceneAnalysisFailed(false);
     // NOTE: Game state transitions are owned exclusively by the GM model via [state: ...] tags.
@@ -3313,7 +3315,7 @@ export function GameSurface({
     // The mutations below also persist to DB, but may race with snapshot creation.
     // If no snapshot exists yet (first turn), create a minimal one.
     const currentGS = useGameStateStore.getState().current;
-    if (result.weather || result.timeOfDay) {
+    if (result.weather || sceneClock.shouldAdvanceTimeOfDay) {
       const base = currentGS ?? {
         id: "",
         chatId: activeChatId,
@@ -3333,7 +3335,7 @@ export function GameSurface({
       useGameStateStore.getState().setGameState({
         ...base,
         ...(result.weather ? { weather: result.weather } : {}),
-        ...(result.timeOfDay ? { time: result.timeOfDay } : {}),
+        ...(sceneClock.shouldAdvanceTimeOfDay ? { time: sceneClock.timeOfDay } : {}),
       });
     }
 
@@ -3345,11 +3347,11 @@ export function GameSurface({
         location: gameSnapshot?.location ?? "",
       });
     }
-    if (result.timeOfDay) {
-      _advanceTime.mutate({ chatId: activeChatId, action: result.timeOfDay });
+    if (sceneClock.shouldAdvanceTimeOfDay && sceneClock.timeOfDay) {
+      _advanceTime.mutate({ chatId: activeChatId, action: sceneClock.timeOfDay });
     }
-    if (result.elapsedMinutes != null) {
-      runAutomaticWorldTick("scene_end", msg.id, activeChatId, result.elapsedMinutes);
+    if (sceneClock.elapsedMinutes != null) {
+      runAutomaticWorldTick("scene_end", msg.id, activeChatId, sceneClock.elapsedMinutes);
     }
     if (result.reputationChanges?.length) {
       const repActions = result.reputationChanges.map((rc) => ({
