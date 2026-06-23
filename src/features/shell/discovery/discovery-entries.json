@@ -477,13 +477,13 @@
   },
   {
     "id": "chat-memory-summaries",
-    "title": "Chat Memory And Summaries",
+    "title": "Chat Continuity Overview",
     "category": "Advanced",
-    "summary": "Long chats can use recalled fragments and automatic summaries so relevant context survives beyond the latest messages.",
-    "keywords": ["memory", "summary", "summaries", "recall", "context", "long chat", "remember"],
-    "audience": "Users running long conversations or campaigns that need continuity.",
-    "where": "Per-chat settings drawer and runtime summary controls.",
+    "summary": "See what a chat can remember at a glance: Memory Recall, saved summaries, active world info, and tracker agents, with shortcuts to the existing editors.",
+    "keywords": ["continuity", "continuity overview", "memory", "summary", "summaries", "recall", "context", "long chat", "remember", "world info", "lorebooks", "trackers", "what will this chat remember"],
+    "audience": "Users running long conversations, roleplays, or campaigns who want to know what context can carry forward.",
+    "where": "Open a chat > Chat Settings > Continuity, with details in Memory Recall, Automatic Summarization, Lorebooks, and Function Calling.",
     "actions": [{ "type": "go-home", "label": "Open a chat" }],
-    "coverage": "needs-polish"
+    "coverage": "advanced"
   }
 ]

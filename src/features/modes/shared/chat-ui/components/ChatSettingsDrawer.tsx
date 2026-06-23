@@ -61,6 +61,7 @@ import { ImpersonateSettingsContent } from "./settings/ImpersonateSettingsConten
 import { MemoryRecallMemoriesModal } from "./settings/MemoryRecallMemoriesModal";
 import { ModePromptSettingsSections } from "./settings/ModePromptSettingsSections";
 import { ChatPresetBar } from "./settings/ChatPresetBar";
+import { ContinuityOverviewPanel } from "./settings/ContinuityOverviewPanel";
 import { ScheduleEditor, SelfiePromptControls } from "./settings/ScheduleEditor";
 import {
   ScopedRegexCharacterGroups,
@@ -78,6 +79,7 @@ import {
   metadataTranslationProvider,
 } from "../lib/chat-settings-metadata";
 import { toggleChatAgent } from "../lib/chat-settings-actions";
+import { buildContinuityOverviewViewModel } from "../lib/continuity-overview";
 import {
   AgentCategorySection,
   ChatSettingsSection as Section,
@@ -137,7 +139,7 @@ import {
   createChatPresetExportEnvelope,
 } from "../../../../catalog/chat-presets/index";
 import type { AgentPhase } from "../../../../../engine/contracts/types/agent";
-import type { Chat, ChatMode } from "../../../../../engine/contracts/types/chat";
+import type { Chat, ChatMetadata, ChatMode } from "../../../../../engine/contracts/types/chat";
 import type { ChatPreset, ChatPresetSettings } from "../../../../../engine/contracts/types/chat-preset";
 import { useAgentConfigs, useCreateAgent, useUpdateAgent, type AgentConfigRow } from "../../../../catalog/agents/index";
 import { isRegexScriptScoped, useRegexScripts, useUpdateRegexScript } from "../../../../catalog/regex-scripts/index";
@@ -599,6 +601,19 @@ function ChatSettingsDrawerInner({
       ? Math.max(0, Math.floor(metadata.lorebookTokenBudget))
       : LIMITS.DEFAULT_LOREBOOK_TOKEN_BUDGET;
   const activeAgentIds = useMemo<string[]>(() => enabledChatAgentIds(metadata, chatMode), [chatMode, metadata]);
+  const continuityOverviewModel = useMemo(
+    () =>
+      buildContinuityOverviewViewModel({
+        chatMode,
+        metadata: metadata as Partial<ChatMetadata>,
+        activeLorebookCount: activeLorebooks.length,
+      }),
+    [activeLorebooks.length, chatMode, metadata],
+  );
+  const continuityOverviewActiveCount = useMemo(
+    () => continuityOverviewModel.sections.filter((section) => section.status === "active").length,
+    [continuityOverviewModel],
+  );
   const inactiveCharacterIds = useMemo<string[]>(
     () =>
       Array.isArray(metadata.inactiveCharacterIds)
@@ -1917,6 +1932,19 @@ function ChatSettingsDrawerInner({
               </p>
             </div>
           )}
+
+          <Section
+            label="Continuity"
+            icon={<Brain size="0.875rem" />}
+            count={continuityOverviewActiveCount}
+            help="Overview of the memory, summary, world-info, and tracker context this chat can carry forward."
+          >
+            <ContinuityOverviewPanel
+              model={continuityOverviewModel}
+              onOpenMemories={() => setShowMemoriesModal(true)}
+              onOpenSummaries={() => setShowSummariesModal(true)}
+            />
+          </Section>
 
           <ChatBasicSettingsSections
             chat={chat}
@@ -3517,6 +3545,7 @@ function ChatSettingsDrawerInner({
 
           {/* Lorebooks */}
           <Section
+            id="chat-settings-lorebooks"
             label="Lorebooks"
             icon={<BookOpen size="0.875rem" />}
             count={activeLorebooks.length}
@@ -5042,6 +5071,7 @@ function ChatSettingsDrawerInner({
 
           {/* Function Calling */}
           <Section
+            id="chat-settings-agents"
             label="Function Calling"
             icon={<Wrench size="0.875rem" />}
             count={activeToolIds.length}
