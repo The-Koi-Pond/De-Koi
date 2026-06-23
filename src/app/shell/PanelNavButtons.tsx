@@ -3,6 +3,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { useAgentStore } from "../../shared/stores/agent.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 import { cn } from "../../shared/lib/utils";
+import { preloadRightPanelPanel } from "./right-panel-loaders";
 
 const RIGHT_PANEL_BUTTONS = [
   {
@@ -99,12 +100,21 @@ export function PanelNavButtons({ className }: { className?: string }) {
     >
       {RIGHT_PANEL_BUTTONS.map(({ panel, icon: Icon, label, activeClass, hoverClass, underlineClass }) => {
         const isActive = rightPanelOpen && rightPanel === panel;
+        const preloadPanel = () => preloadRightPanelPanel(panel);
         return (
           <button
             key={panel}
             type="button"
-            onClick={() => toggleRightPanel(panel)}
-            onMouseDown={stopTitlebarDrag}
+            onClick={() => {
+              preloadPanel();
+              toggleRightPanel(panel);
+            }}
+            onFocus={preloadPanel}
+            onPointerEnter={preloadPanel}
+            onMouseDown={(event) => {
+              stopTitlebarDrag(event);
+              preloadPanel();
+            }}
             onDoubleClick={stopTitlebarDrag}
             className={cn(
               "mari-titlebar-action relative rounded-md p-1.5 transition-all duration-200",
