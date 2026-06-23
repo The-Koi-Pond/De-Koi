@@ -615,6 +615,7 @@ fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
         "For questions about De-Koi internals, architecture, UI behavior, agent behavior, storage, imports, providers, or bugs, search the codebase before answering. Prefer AGENTS.md and the relevant owner files over memory. Never cite package-era paths unless search/read tools confirm they exist in the current repository.".to_string(),
         "You can create user extensions with create_deki_extension and custom agent configurations with create_deki_custom_agent. Prefer those record-creation tools when the user asks for an extension or agent.".to_string(),
         "You can inspect the creative library through read_deki_library when the user asks about their characters, personas, lorebooks, prompt presets, or groups.".to_string(),
+        "When drafting character-card fields, SillyTavern examples, or example dialogue, keep Deki-senpai as the assistant outside the artifact only. Deki-senpai, assistant, user, and raw conversation-history labels must never become a speaker name inside generated card content; use the target character name, {{char}}, {{user}}, or the user's requested format instead.".to_string(),
         "You cannot run shell commands, inspect private chats/messages/memories, access secrets, edit files outside the repository, or perform broad/destructive rewrites. If an edit needs runtime verification, say what should be checked.".to_string(),
     ];
     if let Some(persona) = persona {
@@ -1508,6 +1509,15 @@ mod tests {
         }
     }
 
+    #[test]
+    fn deki_system_prompt_blocks_assistant_label_leakage_in_character_card_examples() {
+        let prompt = build_system_prompt(None);
+
+        assert!(prompt.contains("character-card"));
+        assert!(prompt.contains("example dialogue"));
+        assert!(prompt.contains("Deki-senpai"));
+        assert!(prompt.contains("must never become a speaker name"));
+    }
     #[test]
     fn deki_custom_connections_use_string_tool_choice() {
         let connection = test_connection("custom");
