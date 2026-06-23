@@ -1,5 +1,12 @@
 import type { StorageGateway } from "../capabilities/storage";
-import type { LorebookEntry, LorebookEntryTimingState, LorebookMatchingSource } from "../contracts/types/lorebook";
+import type {
+  LorebookActivationTrace,
+  LorebookActivationTraceEntry,
+  LorebookActivationTraceReason,
+  LorebookEntry,
+  LorebookEntryTimingState,
+  LorebookMatchingSource,
+} from "../contracts/types/lorebook";
 import { LIMITS } from "../contracts/constants/defaults";
 import { processActivatedEntries, type LorebookContentResolver } from "../generation-core/lorebooks/prompt-injector";
 import {
@@ -12,7 +19,8 @@ import {
   type ActiveLorebookScopeReason,
 } from "../generation-core/lorebooks/active-lorebook-scope";
 import {
-  scanForActivatedEntries,
+  hintForTraceReason,
+  scanForActivatedEntriesWithTrace,
   updateTimingStatesForScan,
   type ActivatedEntry,
   type EntryTimingState,
@@ -91,6 +99,7 @@ interface ActiveLorebookBudgetMetadata {
 interface LoadedActivatedLore {
   activatedEntries: ActivatedEntry[];
   budgetSkippedEntries: BudgetSkippedLorebookEntry[];
+  activationTrace: LorebookActivationTrace;
   entriesForTiming: LorebookEntry[];
   previousTimingStates: Map<string, EntryTimingState>;
   lorebookNamesById: Map<string, string>;
@@ -136,6 +145,12 @@ export interface ActiveLorebookScannerResult {
   activeLorebookReasons: ActiveLorebookScopeReason[];
   scopeExclusions: LorebookScopeExclusions;
   semanticStatus: LorebookSemanticScanStatus;
+  activationTrace: LorebookActivationTrace;
+}
+
+interface LoadedLorebookEntriesForActivation {
+  entries: LorebookEntry[];
+  traceEntries: LorebookActivationTraceEntry[];
 }
 
 interface LorebookEntryStateOverride {
@@ -563,6 +578,106 @@ export async function loadLorebookEntriesForActivationBatch(
   );
 }
 
+function normalizeLorebookEntriesForActivationWithTrace(
+  lorebook: JsonRecord,
+  rows: JsonRecord[],
+  folders: JsonRecord[],
+): LoadedLorebookEntriesForActivation {
+  const disabledFolderIds = collectEffectivelyDisabledFolderIds(folders);
+  const defaultScanDepth = lorebook.scanDepth == null ? null : nonNegativeInteger(lorebook.scanDepth, 0);
+  const excludeFromVectorization = boolish(lorebook.excludeFromVectorization, false);
+  const entries: LorebookEntry[] = [];
+  const traceEntries: LorebookActivationTraceEntry[] = [];
+
+  for (const row of rows) {
+    const entry = {
+      ...normalizeLorebookEntry(excludeFromVectorization ? { ...row, excludeFromVectorization: true } : row),
+    };
+    entry.scanDepth = entry.scanDepth == null ? defaultScanDepth : entry.scanDepth;
+
+    if (!entry.enabled) {
+      traceEntries.push(activationTraceEntry(entry, "skipped", "disabled"));
+      continue;
+    }
+    if (!entry.content.trim()) {
+      traceEntries.push(activationTraceEntry(entry, "skipped", "empty_content"));
+      continue;
+    }
+    if (entry.folderId && disabledFolderIds.has(entry.folderId)) {
+      traceEntries.push(activationTraceEntry(entry, "skipped", "folder_disabled"));
+      continue;
+    }
+    entries.push(entry);
+  }
+
+  return { entries, traceEntries };
+}
+
+async function loadLorebookEntriesForActivationTraceBatch(
+  storage: StorageGateway,
+  lorebooks: JsonRecord[],
+): Promise<Map<string, LoadedLorebookEntriesForActivation>> {
+  const lorebooksById = new Map(
+    lorebooks
+      .map((book) => [readString(book.id), book] as const)
+      .filter((entry): entry is readonly [string, JsonRecord] => Boolean(entry[0])),
+  );
+  const lorebookIds = [...lorebooksById.keys()];
+  if (lorebookIds.length === 0) return new Map();
+
+  if (!storage.listLorebookEntriesByLorebookIds) {
+    return new Map(
+      await Promise.all(
+        lorebookIds.map(async (id) => {
+          const [rows, folders] = await Promise.all([
+            storage.listLorebookEntries<JsonRecord>(id),
+            storage.list<JsonRecord>("lorebook-folders", { filters: { lorebookId: id } }),
+          ]);
+          return [
+            id,
+            normalizeLorebookEntriesForActivationWithTrace(lorebooksById.get(id) ?? {}, rows, folders),
+          ] as const;
+        }),
+      ),
+    );
+  }
+
+  const lorebookIdSet = new Set(lorebookIds);
+  const [rows, folders] = await Promise.all([
+    storage.listLorebookEntriesByLorebookIds<JsonRecord>(lorebookIds),
+    storage.list<JsonRecord>("lorebook-folders"),
+  ]);
+
+  const rowsByLorebookId = new Map<string, JsonRecord[]>();
+  for (const row of rows) {
+    const lorebookId = readString(row.lorebookId);
+    if (!lorebookIdSet.has(lorebookId)) continue;
+    const bucket = rowsByLorebookId.get(lorebookId) ?? [];
+    bucket.push(row);
+    rowsByLorebookId.set(lorebookId, bucket);
+  }
+
+  const foldersByLorebookId = new Map<string, JsonRecord[]>();
+  for (const folder of folders) {
+    const lorebookId = readString(folder.lorebookId);
+    if (!lorebookIdSet.has(lorebookId)) continue;
+    const bucket = foldersByLorebookId.get(lorebookId) ?? [];
+    bucket.push(folder);
+    foldersByLorebookId.set(lorebookId, bucket);
+  }
+
+  return new Map(
+    lorebookIds.map((id) => [
+      id,
+      normalizeLorebookEntriesForActivationWithTrace(
+        lorebooksById.get(id) ?? {},
+        rowsByLorebookId.get(id) ?? [],
+        foldersByLorebookId.get(id) ?? [],
+      ),
+    ]),
+  );
+}
+
 function lorebookEntryIncludedByPosition(entry: LorebookEntry, positions?: ActiveLorebookIncludedPositions): boolean {
   if (!positions) return true;
   if (entry.position <= 0) return positions.worldInfoBefore === true;
@@ -584,6 +699,37 @@ function lorebookInjectionOrder(a: ActivatedEntry, b: ActivatedEntry): number {
 
 function estimateLorebookTokens(content: string): number {
   return Math.ceil(content.length / 4);
+}
+
+function activationTraceEntry(
+  entry: LorebookEntry,
+  status: LorebookActivationTraceEntry["status"],
+  reason: LorebookActivationTraceReason,
+  extras: Partial<LorebookActivationTraceEntry> = {},
+): LorebookActivationTraceEntry {
+  return {
+    entryId: entry.id,
+    lorebookId: entry.lorebookId,
+    name: entry.name,
+    status,
+    reason,
+    hint: hintForTraceReason(reason),
+    matchedKeys: [],
+    tokenEstimate: estimateLorebookTokens(entry.content),
+    injection: {
+      position: entry.position,
+      role: entry.role,
+      depth: entry.depth,
+      order: entry.order,
+    },
+    ...extras,
+  };
+}
+
+function budgetTraceReason(blockedBy: BudgetSkippedLorebookEntry["blockedBy"]): LorebookActivationTraceReason {
+  if (blockedBy === "lorebook") return "budget_lorebook";
+  if (blockedBy === "chat") return "budget_chat";
+  return "budget_both";
 }
 
 function createLorebookBudgetSelectionState(): LorebookBudgetSelectionState {
@@ -789,11 +935,48 @@ async function scanActiveLorebookEntrySet(
   chatBudget: number,
   maxEntries: number,
   contentResolver?: LorebookContentResolver,
-): Promise<{ activatedEntries: ActivatedEntry[]; budgetSkippedEntries: BudgetSkippedLorebookEntry[] }> {
+  preScanTraceEntries: LorebookActivationTraceEntry[] = [],
+): Promise<{
+  activatedEntries: ActivatedEntry[];
+  budgetSkippedEntries: BudgetSkippedLorebookEntry[];
+  activationTrace: LorebookActivationTrace;
+}> {
   const state = createLorebookBudgetSelectionState();
   const processedIds = new Set<string>();
   const budgetSkippedEntries: BudgetSkippedLorebookEntry[] = [];
-  let frontier = await scanForActivatedEntries(messages, entries, options);
+  const traceById = new Map(preScanTraceEntries.map((entry) => [entry.entryId, entry]));
+  const mergeTrace = (trace: LorebookActivationTrace, depth: number) => {
+    for (const entry of trace.entries) {
+      const recursive = depth > 0
+        ? {
+            depth,
+            preventedByEntry: false,
+          }
+        : undefined;
+      traceById.set(entry.entryId, recursive ? { ...entry, recursive } : entry);
+    }
+  };
+  const markIncluded = (entriesToMark: ActivatedEntry[], depth: number) => {
+    for (const selected of entriesToMark) {
+      const previous = traceById.get(selected.entry.id);
+      traceById.set(selected.entry.id, {
+        ...(previous ?? activationTraceEntry(selected.entry, "included", selected.entry.constant ? "constant" : "keyword_match")),
+        status: "included",
+        matchedKeys: selected.matchedKeys,
+        recursive:
+          depth > 0
+            ? {
+                depth,
+                preventedByEntry: selected.entry.preventRecursion,
+              }
+            : previous?.recursive,
+      });
+    }
+  };
+
+  let frontierScan = await scanForActivatedEntriesWithTrace(messages, entries, options);
+  mergeTrace(frontierScan.trace, 0);
+  let frontier = frontierScan.activatedEntries;
 
   for (let depth = 0; frontier.length > 0; depth += 1) {
     const candidates = frontier.filter(
@@ -812,6 +995,20 @@ async function scanActiveLorebookEntrySet(
       contentResolver,
     );
     budgetSkippedEntries.push(...selectedBatch.budgetSkippedEntries);
+    markIncluded(selectedBatch.selectedFromCandidates, depth);
+    for (const skipped of selectedBatch.budgetSkippedEntries) {
+      const previous = traceById.get(skipped.id);
+      if (!previous) continue;
+      const reason = budgetTraceReason(skipped.blockedBy);
+      traceById.set(skipped.id, {
+        ...previous,
+        status: "matched",
+        reason,
+        hint: hintForTraceReason(reason),
+        matchedKeys: skipped.matchedKeys,
+        tokenEstimate: skipped.estimatedTokens,
+      });
+    }
 
     const recursiveContent = selectedBatch.selectedFromCandidates
       .filter((selected) => !selected.entry.preventRecursion)
@@ -825,12 +1022,17 @@ async function scanActiveLorebookEntrySet(
     const remaining = entries.filter((entry) => !processedIds.has(entry.id) && !state.selectedIds.has(entry.id));
     if (remaining.length === 0) break;
 
-    frontier = await scanForActivatedEntries([{ role: "system", content: recursiveContent }], remaining, options);
+    frontierScan = await scanForActivatedEntriesWithTrace([{ role: "system", content: recursiveContent }], remaining, options);
+    mergeTrace(frontierScan.trace, depth + 1);
+    frontier = frontierScan.activatedEntries;
   }
 
   return {
     activatedEntries: state.selected.sort(lorebookInjectionOrder),
     budgetSkippedEntries,
+    activationTrace: {
+      entries: [...traceById.values()].sort((a, b) => a.injection.order - b.injection.order || a.entryId.localeCompare(b.entryId)),
+    },
   };
 }
 
@@ -960,15 +1162,20 @@ async function loadActivatedLore(input: ActiveLorebookScannerInput): Promise<Loa
       ] as const;
     }),
   );
-  const entriesForActivationByBookId = await loadLorebookEntriesForActivationBatch(input.storage, lorebooks);
+  const entriesForActivationByBookId = await loadLorebookEntriesForActivationTraceBatch(input.storage, lorebooks);
   const entriesByBook = lorebooks.map((book) => {
     const id = readString(book.id);
-    return {
-      book,
-      entries: (entriesForActivationByBookId.get(id) ?? [])
-        .map((entry) => entryWithChatState(entry, previousEntryStateOverrides))
-        .filter((entry) => lorebookEntryIncludedByPosition(entry, input.includedPositions)),
-    };
+    const loaded = entriesForActivationByBookId.get(id) ?? { entries: [], traceEntries: [] };
+    const entries: LorebookEntry[] = [];
+    const traceEntries = [...loaded.traceEntries];
+    for (const entry of loaded.entries.map((item) => entryWithChatState(item, previousEntryStateOverrides))) {
+      if (lorebookEntryIncludedByPosition(entry, input.includedPositions)) {
+        entries.push(entry);
+      } else {
+        traceEntries.push(activationTraceEntry(entry, "skipped", "position_disabled"));
+      }
+    }
+    return { book, entries, traceEntries };
   });
   const vectorizedEntryCount = entriesByBook.reduce(
     (sum, item) => sum + countSemanticCandidateEntries(item.entries),
@@ -1009,6 +1216,7 @@ async function loadActivatedLore(input: ActiveLorebookScannerInput): Promise<Loa
     resolveLorebookTokenBudget(input.chat, input.request ?? {}),
     LIMITS.MAX_LOREBOOK_ENTRIES,
     input.contentResolver,
+    entriesByBook.flatMap((item) => item.traceEntries),
   );
   return {
     activatedEntries: scanned.activatedEntries,
@@ -1021,6 +1229,7 @@ async function loadActivatedLore(input: ActiveLorebookScannerInput): Promise<Loa
     activeLorebookReasons,
     scopeExclusions,
     semanticStatus: semantic.status,
+    activationTrace: scanned.activationTrace,
   };
 }
 
@@ -1074,5 +1283,6 @@ export async function scanActiveLorebooks(input: ActiveLorebookScannerInput): Pr
     activeLorebookReasons: loadedLore.activeLorebookReasons,
     scopeExclusions: loadedLore.scopeExclusions,
     semanticStatus: loadedLore.semanticStatus,
+    activationTrace: loadedLore.activationTrace,
   };
 }

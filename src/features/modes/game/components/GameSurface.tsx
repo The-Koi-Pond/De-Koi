@@ -61,6 +61,7 @@ import {
   useGenerateMap,
   useAdvanceTime,
   useUpdateWeather,
+  useWorldTick,
   useRollEncounter,
   useUpdateReputation,
   useJournalEntry,
@@ -219,6 +220,7 @@ import { GameTransitionManager } from "./GameTransitionManager";
 import { GameChoiceCards } from "./GameChoiceCards";
 import { GameQteOverlay } from "./GameQteOverlay";
 import { GameJsonRepairModal } from "./GameJsonRepairModal";
+import { GameShowcaseBanner } from "./GameShowcaseBanner";
 import { DirectionEngine } from "./DirectionEngine";
 import { GameWidgetPanel, GameWidgetSessionPrepModal, MobileWidgetPanel } from "./GameWidgetPanel";
 import { WeatherEffects } from "../../../runtime/visuals/index";
@@ -1302,6 +1304,7 @@ export function GameSurface({
     !!chatMeta.enableSpriteGeneration &&
     !!chatMeta.gameImageConnectionId &&
     canRequestGameSceneIllustration(chatMeta as Record<string, unknown>, sessionNumber, sceneTurnNumber);
+  const isNoModelShowcase = chatMeta.showcaseKey === "no-model-game-v1";
   const queryClient = useQueryClient();
   const { patchVisibleGameState, persistMetadata, publishSessionChat, syncHudWidgetsToChatCache } =
     useGameSurfacePersistenceController({
@@ -1994,6 +1997,7 @@ export function GameSurface({
   const transitionGameState = useTransitionGameState();
   const sceneAnalysis = useGameSceneAnalysis();
   const sceneAnalysisEnabled = enabledChatAgentIds(chatMeta, "game").length > 0;
+  const gameWorldTickEnabled = chatMeta.gameWorldTickEnabled === true;
 
   // Process GM tags from the latest assistant message
   const latestAssistantMsg = useMemo(() => {
@@ -3781,6 +3785,7 @@ export function GameSurface({
   const regenerateSessionLorebook = useRegenerateSessionLorebook();
   const updateCampaignProgression = useUpdateCampaignProgression();
   const startSession = useStartSession();
+  const worldTick = useWorldTick();
   const generateMap = useGenerateMap();
   const deleteChat = useDeleteChat();
   const branchChat = useBranchChat();
@@ -6401,14 +6406,54 @@ export function GameSurface({
     }
   }, [currentMap?.partyPosition, isSameMapPosition, pendingMapMove]);
 
+  const handleAdvanceWorld = useCallback(() => {
+    if (worldTick.isPending) return;
+    worldTick.mutate(
+      { chatId: activeChatId, trigger: "manual", triggerKey: `manual:${activeChatId}:${Date.now()}`, enabled: true },
+      {
+        onSuccess: (res) => {
+          if (!res.changed) {
+            toast.info("World tick skipped.");
+            return;
+          }
+          toast.info("World advanced.", {
+            description: res.recapLines.slice(0, 3).join("\n"),
+            duration: 8000,
+          });
+        },
+        onError: (error) => {
+          toast.error(error instanceof Error ? error.message : "World tick failed.");
+        },
+      },
+    );
+  }, [activeChatId, worldTick]);
+
+  const runAutomaticWorldTick = useCallback(
+    (trigger: "session_start" | "session_end" | "day_start", discriminator: string, chatId = activeChatId) => {
+      if (!gameWorldTickEnabled || worldTick.isPending) return;
+      worldTick.mutate({ chatId, trigger, discriminator });
+    },
+    [activeChatId, gameWorldTickEnabled, worldTick],
+  );
+
+  const previousWorldTickDayRef = useRef(currentGameDay);
+  useEffect(() => {
+    const previousDay = previousWorldTickDayRef.current;
+    previousWorldTickDayRef.current = currentGameDay;
+    if (currentGameDay <= previousDay) return;
+    runAutomaticWorldTick("day_start", `day-${currentGameDay}`);
+  }, [currentGameDay, runAutomaticWorldTick]);
   const handleConcludeSession = useCallback(() => {
     if (concludeSession.isPending) return;
     const trimmedRequest = nextSessionRequest.trim();
     concludeSession.mutate(
       { chatId: activeChatId, ...(trimmedRequest ? { nextSessionRequest: trimmedRequest } : {}) },
-      { onError: handleJsonRepairError },
+      {
+        onSuccess: () => runAutomaticWorldTick("session_end", "concluded"),
+        onError: handleJsonRepairError,
+      },
     );
-  }, [activeChatId, concludeSession, handleJsonRepairError, nextSessionRequest]);
+  }, [activeChatId, concludeSession, handleJsonRepairError, nextSessionRequest, runAutomaticWorldTick]);
 
   const handleRequestEndSession = useCallback(() => {
     if (concludeSession.isPending) return;
@@ -6433,13 +6478,14 @@ export function GameSurface({
     startSession.mutate(
       { gameId },
       {
+        onSuccess: (res) => runAutomaticWorldTick("session_start", "started", res.sessionChat.id),
         onSettled: () => {
           startSessionGuardRef.current = false;
           setStartSessionRequested(false);
         },
       },
     );
-  }, [gameId, startSession, startSessionLocked]);
+  }, [gameId, runAutomaticWorldTick, startSession, startSessionLocked]);
 
   const handleStartNewSession = useCallback(() => {
     if (!gameId || startSessionLocked || startSessionGuardRef.current) return;
@@ -7338,6 +7384,12 @@ export function GameSurface({
                 introCinematicActive ? "pointer-events-none opacity-0" : "opacity-100"
               }`}
             >
+              {isNoModelShowcase && (
+                <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-3">
+                  <GameShowcaseBanner />
+                </div>
+              )}
+
               {/* Top-right action controls */}
               <div
                 data-tour="game-controls"
@@ -7371,6 +7423,14 @@ export function GameSurface({
                     iconSize={14}
                     buttonClassName="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white/80 backdrop-blur-md transition-colors hover:bg-black/60 hover:text-white"
                   />
+                  <button
+                    onClick={handleAdvanceWorld}
+                    disabled={worldTick.isPending}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white/80 backdrop-blur-md transition-colors hover:bg-black/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-black/45"
+                    title={gameWorldTickEnabled ? "Advance World" : "Advance World and enable world tick"}
+                  >
+                    {worldTick.isPending ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                  </button>
                   {sessionStatus !== "concluded" ? (
                     <button
                       onClick={handleRequestEndSession}
@@ -7640,6 +7700,19 @@ export function GameSurface({
                             <Globe size="0.9rem" />
                           </div>
                           <span className="text-sm font-medium text-[var(--foreground)]">World Info</span>
+                        </button>
+
+                        {/* Advance World */}
+                        <button
+                          type="button"
+                          onClick={() => { setMoreSheetOpen(false); handleAdvanceWorld(); }}
+                          disabled={worldTick.isPending}
+                          className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20 disabled:opacity-50"
+                        >
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 text-white shadow-sm">
+                            {worldTick.isPending ? <Loader2 size="0.9rem" className="animate-spin" /> : <RefreshCw size="0.9rem" />}
+                          </div>
+                          <span className="text-sm font-medium text-[var(--foreground)]">Advance World</span>
                         </button>
 
                         {/* End/Start Session */}

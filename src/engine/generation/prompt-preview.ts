@@ -1,3 +1,4 @@
+import type { LorebookActivationTrace } from "../contracts/types/lorebook";
 import type { ChatMLMessage, GenerationParameters } from "../contracts/types/prompt";
 import type { ChatMessageListOptions, StorageGateway } from "../capabilities/storage";
 import type { VisualAssetGateway } from "../capabilities/visual-assets";
@@ -25,6 +26,7 @@ export interface PromptPreviewResult {
   previewMessages: ChatMLMessage[];
   parameters: Partial<GenerationParameters> | Record<string, unknown>;
   promptPresetId: string | null;
+  lorebookActivationTrace: LorebookActivationTrace;
   messageCount: number;
   source: PromptPreviewSource;
   exact: boolean;
@@ -151,6 +153,7 @@ export async function previewGenerationPrompt(
     previewMessages: assembly.previewMessages,
     parameters: visibleParameters,
     promptPresetId: assembly.promptPresetId,
+    lorebookActivationTrace: assembly.lorebookActivationTrace,
     messageCount: assembly.messages.length,
     source: "live_preview",
     exact: false,

@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { recordClientDiagnostic } from "../shared/lib/client-diagnostics";
 
 type GlobalErrorBoundaryState = {
   error: unknown;
@@ -34,6 +35,23 @@ function describeError(error: unknown) {
   };
 }
 
+export function describeWindowErrorEvent(event: ErrorEvent) {
+  const details = event.error instanceof Error
+    ? describeError(event.error)
+    : {
+        name: "Error",
+        message: event.message || "Unknown error",
+        stack: "",
+      };
+
+  return {
+    ...details,
+    filename: event.filename,
+    lineno: event.lineno,
+    colno: event.colno,
+  };
+}
+
 function buildDebugDetails(error: unknown, componentStack: string) {
   const details = describeError(error);
   const parts = [`${details.name}: ${details.message}`];
@@ -61,6 +79,18 @@ export function reportReactRootError(
   console.error(`[De-Koi] React ${type} error`, error, {
     componentStack: errorInfo?.componentStack ?? "",
   });
+
+  const details = describeError(error);
+  recordClientDiagnostic({
+    level: type === "recoverable" ? "warning" : "error",
+    source: `react-${type}`,
+    message: details.message,
+    details: {
+      name: details.name,
+      stack: details.stack,
+      componentStack: errorInfo?.componentStack ?? "",
+    },
+  });
 }
 
 export function installGlobalErrorDiagnostics() {
@@ -71,10 +101,30 @@ export function installGlobalErrorDiagnostics() {
     if (isObject(event.error) && reactRootUncaughtErrors.has(event.error)) return;
 
     console.error("[De-Koi] Unhandled window error", event.error ?? event.message);
+    const details = describeWindowErrorEvent(event);
+    recordClientDiagnostic({
+      level: "error",
+      source: "window",
+      message: details.message,
+      details: {
+        name: details.name,
+        stack: details.stack,
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno,
+      },
+    });
   });
 
   window.addEventListener("unhandledrejection", (event) => {
     console.error("[De-Koi] Unhandled promise rejection", event.reason);
+    const details = describeError(event.reason);
+    recordClientDiagnostic({
+      level: "error",
+      source: "unhandledrejection",
+      message: details.message,
+      details,
+    });
   });
 }
 
@@ -95,6 +145,17 @@ export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, Glo
   componentDidCatch(_error: unknown, errorInfo: ErrorInfo) {
     this.setState({
       componentStack: errorInfo.componentStack ?? "",
+    });
+    const details = describeError(_error);
+    recordClientDiagnostic({
+      level: "error",
+      source: "error-boundary",
+      message: details.message,
+      details: {
+        name: details.name,
+        stack: details.stack,
+        componentStack: errorInfo.componentStack ?? "",
+      },
     });
   }
 

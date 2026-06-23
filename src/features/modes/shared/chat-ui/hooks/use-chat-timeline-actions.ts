@@ -92,6 +92,7 @@ function promptSnapshotToPeekPromptData(value: unknown): PeekPromptData | null {
     promptPresetId: readString(snapshot.promptPresetId).trim() || null,
     source: "cached",
     exact: true,
+    contextAttribution: snapshot.contextAttribution as PeekPromptData["contextAttribution"],
     generationInfo: readRecord(snapshot.generationInfo) as PeekPromptData["generationInfo"],
     agentNote: "This is the cached text prompt saved after provider preparation for the active assistant swipe.",
   };

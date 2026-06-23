@@ -256,6 +256,63 @@ export interface LorebookEntryTimingState {
   delayRemaining: number;
 }
 
+export type LorebookActivationTraceStatus = "included" | "matched" | "skipped";
+
+export type LorebookActivationTraceReason =
+  | "keyword_match"
+  | "constant"
+  | "sticky"
+  | "semantic_match"
+  | "primary_key_miss"
+  | "secondary_key_miss"
+  | "disabled"
+  | "scope_filter"
+  | "condition_miss"
+  | "schedule_miss"
+  | "timing_blocked"
+  | "probability_failed"
+  | "group_loser"
+  | "budget_lorebook"
+  | "budget_chat"
+  | "budget_both"
+  | "folder_disabled"
+  | "empty_content"
+  | "position_disabled"
+  | "recursion_blocked"
+  | "unscanned";
+
+export interface LorebookActivationTraceEntry {
+  entryId: string;
+  lorebookId: string;
+  name: string;
+  status: LorebookActivationTraceStatus;
+  reason: LorebookActivationTraceReason;
+  hint: string;
+  matchedKeys: string[];
+  tokenEstimate: number;
+  injection: {
+    position: number;
+    role: LorebookRole;
+    depth: number;
+    order: number;
+  };
+  timing?: LorebookEntryTimingState;
+  probability?: {
+    configured: number;
+    roll: number | null;
+    passed: boolean;
+  };
+  semanticScore?: number;
+  recursive?: {
+    depth: number;
+    preventedByEntry: boolean;
+  };
+}
+
+export interface LorebookActivationTrace {
+  entries: LorebookActivationTraceEntry[];
+}
+
 /** Quest-specific fields for quest-type lorebook entries. */
 export interface QuestData {
   stages: QuestStage[];

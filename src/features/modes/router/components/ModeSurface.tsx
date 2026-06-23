@@ -52,7 +52,13 @@ function RestoringChatState({
   );
 }
 
-export function ModeSurface({ homeDiscoverySurface = null }: { homeDiscoverySurface?: ReactNode }) {
+export function ModeSurface({
+  homeDiscoverySurface = null,
+  onOpenNoModelShowcase,
+}: {
+  homeDiscoverySurface?: ReactNode;
+  onOpenNoModelShowcase?: () => void;
+}) {
   const activeChatId = useChatStore((state) => state.activeChatId);
   const setActiveChatId = useChatStore((state) => state.setActiveChatId);
   const { data: chat, error: chatError, isLoading: isChatLoading, isFetching: isChatFetching } = useChat(activeChatId);
@@ -70,7 +76,7 @@ export function ModeSurface({ homeDiscoverySurface = null }: { homeDiscoverySurf
     setActiveChatId(null);
   }, [activeChatId, cachedChat, chat, chatError, chatSummaries, isChatFetching, isChatLoading, setActiveChatId]);
 
-  if (!activeChatId) return <ModeHomeSurface discoverySurface={homeDiscoverySurface} />;
+  if (!activeChatId) return <ModeHomeSurface discoverySurface={homeDiscoverySurface} onOpenNoModelShowcase={onOpenNoModelShowcase} />;
 
   const fallback = <RestoringChatState onBack={() => setActiveChatId(null)} />;
   const resolvedChatMode = chat?.mode ?? cachedChat?.mode;
@@ -88,7 +94,7 @@ export function ModeSurface({ homeDiscoverySurface = null }: { homeDiscoverySurf
     return message ? (
       <RestoringChatState error={message} onBack={() => setActiveChatId(null)} />
     ) : (
-      <ModeHomeSurface discoverySurface={homeDiscoverySurface} />
+      <ModeHomeSurface discoverySurface={homeDiscoverySurface} onOpenNoModelShowcase={onOpenNoModelShowcase} />
     );
   }
 

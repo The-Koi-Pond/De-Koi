@@ -64,6 +64,7 @@ import { applyTextareaQuoteFormat } from "../../../../shared/lib/textarea-quotes
 import { requestChatScrollToBottom } from "../../../../shared/lib/chat-scroll-events";
 import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
+import { UserQuickReplyIcon } from "../../../../shared/components/ui/UserQuickReplyIcon";
 import { blobToDataUrl, loadUrlBlob } from "../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../shared/lib/chat-attachment-images";
 import { translateDraftText } from "../../../../shared/lib/draft-translation";
@@ -79,6 +80,7 @@ import {
   QuickSwitcherMobile,
   SlashCommandFeedback,
   type QuickReplyAction,
+  buildUserQuickReplyMenuEntries,
 } from "../../shared/chat-ui";
 import { EmojiPicker } from "../../../../shared/components/ui/EmojiPicker";
 import { GifPicker } from "../../../../shared/components/ui/GifPicker";
@@ -236,6 +238,7 @@ export function ConversationInput({
   const setInputDraft = useChatStore((s) => s.setInputDraft);
   const clearInputDraft = useChatStore((s) => s.clearInputDraft);
   const setCurrentInput = useChatStore((s) => s.setCurrentInput);
+  const currentInput = useChatStore((s) => s.currentInput);
   const { generate } = useGenerate();
   const chatCharacterIds = useMemo(() => chatCharacters?.map((c) => c.id), [chatCharacters]);
   const { applyToUserInput } = useApplyRegex(chatCharacterIds);
@@ -245,6 +248,7 @@ export function ConversationInput({
   const showQuickReplyPostOnly = useUIStore((s) => s.showQuickReplyPostOnly);
   const showQuickReplyGuide = useUIStore((s) => s.showQuickReplyGuide);
   const showQuickReplyImpersonate = useUIStore((s) => s.showQuickReplyImpersonate);
+  const userQuickReplyActions = useUIStore((s) => s.userQuickReplyActions);
   const speechToTextEnabled = useUIStore((s) => s.speechToTextEnabled);
   const quoteFormat = useUIStore((s) => s.quoteFormat);
   const userActivity = useUIStore((s) => s.userActivity);
@@ -1204,6 +1208,27 @@ export function ConversationInput({
         onSelect: handleImpersonateQuickButton,
       });
     }
+    const customActions = buildUserQuickReplyMenuEntries({
+      actions: userQuickReplyActions,
+      mode: "conversation",
+      activeChatId,
+      draft: currentInput,
+      quoteFormat,
+      isStreaming,
+      hasPendingAttachments,
+      executeCommand: runQuickSlashCommand,
+    });
+    actions.push(
+      ...customActions.map((action) => ({
+        id: action.id,
+        label: action.label,
+        description: action.description,
+        icon: <UserQuickReplyIcon iconId={action.iconId} size="0.875rem" />,
+        disabled: action.disabled,
+        disabledReason: action.disabledReason,
+        onSelect: action.onSelect,
+      })),
+    );
     return actions;
   }, [
     activeChatId,
@@ -1216,6 +1241,10 @@ export function ConversationInput({
     showQuickReplyPostOnly,
     showQuickReplyGuide,
     showQuickReplyImpersonate,
+    userQuickReplyActions,
+    currentInput,
+    quoteFormat,
+    runQuickSlashCommand,
     handlePostOnlyButton,
     handleGuidedGenerationButton,
     handleImpersonateQuickButton,
@@ -1949,7 +1978,7 @@ export function ConversationInput({
           {showQuickRepliesMenu && quickReplyActions.length > 0 && (
             <QuickReplyMenu
               actions={quickReplyActions}
-              disabled={!activeChatId || isReadingAttachments || (!hasInput && attachments.length === 0)}
+              disabled={quickReplyActions.every((action) => action.disabled)}
             />
           )}
 

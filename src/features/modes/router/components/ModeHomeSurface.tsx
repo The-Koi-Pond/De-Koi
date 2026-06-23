@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { BookOpen, HelpCircle, List, MessageSquare, Theater } from "lucide-react";
+import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { BookOpen, Compass, HelpCircle, List, MessageSquare, Theater } from "lucide-react";
 import { useConnections } from "../../../catalog/connections/index";
 import { useCreateChat } from "../../../catalog/chats/index";
 import { useApplyUserStarredChatPreset } from "../../../catalog/chat-presets/index";
@@ -26,47 +26,38 @@ function prewarmQuickStartMode(mode: QuickStartMode): void {
   quickStartModePreloads[mode]().catch(() => preloadedQuickStartModes.delete(mode));
 }
 
-function prewarmAllQuickStartModes(): void {
-  prewarmQuickStartMode("conversation");
-  prewarmQuickStartMode("roleplay");
-  prewarmQuickStartMode("game");
-}
 
-export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?: ReactNode }) {
+export function ModeHomeSurface({
+  discoverySurface = null,
+  onOpenNoModelShowcase,
+}: {
+  discoverySurface?: ReactNode;
+  onOpenNoModelShowcase?: () => void;
+}) {
   const { data: connections } = useConnections();
   const createChat = useCreateChat();
   const applyUserStarredChatPreset = useApplyUserStarredChatPreset();
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
   const [creditsOpen, setCreditsOpen] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    const requestIdle = idleWindow.requestIdleCallback;
-    if (typeof requestIdle === "function") {
-      const handle = requestIdle(prewarmAllQuickStartModes, { timeout: 1800 });
-      return () => idleWindow.cancelIdleCallback?.(handle);
-    }
-    const handle = window.setTimeout(prewarmAllQuickStartModes, 600);
-    return () => window.clearTimeout(handle);
-  }, []);
+  const languageConnections = useMemo(
+    () =>
+      filterLanguageGenerationConnections(
+        (connections ?? []) as Array<{ id: string; provider?: string }>,
+      ).filter((connection) => !!connection.id),
+    [connections],
+  );
+  const hasLanguageConnections = languageConnections.length > 0;
 
   const handleQuickStart = useCallback(
     (mode: QuickStartMode) => {
-      const connectionRows = filterLanguageGenerationConnections(
-        (connections ?? []) as Array<{ id: string; provider?: string }>,
-      ).filter((connection) => !!connection.id);
-      if (connectionRows.length === 0) {
+      if (languageConnections.length === 0) {
         useChatStore.getState().setPendingNewChatMode(mode);
         return;
       }
 
       const label = mode === "conversation" ? "Conversation" : mode === "game" ? "Game" : "Roleplay";
       createChat.mutate(
-        { name: `New ${label}`, mode, characterIds: [], connectionId: connectionRows[0]!.id },
+        { name: `New ${label}`, mode, characterIds: [], connectionId: languageConnections[0]!.id },
         {
           onSuccess: async (chat) => {
             const store = useChatStore.getState();
@@ -82,7 +73,7 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
         },
       );
     },
-    [applyUserStarredChatPreset, connections, createChat],
+    [applyUserStarredChatPreset, createChat, languageConnections],
   );
 
   const showQuickStartEntranceEffects = true;
@@ -168,6 +159,24 @@ export function ModeHomeSurface({ discoverySurface = null }: { discoverySurface?
               onClick={() => handleQuickStart("game")}
             />
           </div>
+
+          {!hasLanguageConnections && onOpenNoModelShowcase && (
+            <button
+              type="button"
+              onClick={onOpenNoModelShowcase}
+              className="group flex w-full max-w-[32rem] items-center gap-3 rounded-lg border border-[var(--primary)]/25 bg-[var(--card)]/75 px-3 py-2.5 text-left shadow-sm transition-colors hover:border-[var(--primary)]/45 hover:bg-[var(--primary)]/8"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--primary)]/25 bg-[var(--primary)]/10 text-[var(--primary)]">
+                <Compass size="1rem" aria-hidden />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-[var(--foreground)]">Explore sample world</span>
+                <span className="mt-0.5 block text-xs leading-snug text-[var(--muted-foreground)]">
+                  Browse a Game scene, party, journal, map, and lore before connecting a model.
+                </span>
+              </span>
+            </button>
+          )}
 
           <RecentChats />
           {discoverySurface}

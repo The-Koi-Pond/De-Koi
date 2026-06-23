@@ -1,23 +1,52 @@
 import { ChevronDown, FlaskConical, X } from "lucide-react";
+import type { LorebookActivationTraceEntry } from "../../../../../engine/contracts/types/lorebook";
 import { cn } from "../../../../../shared/lib/utils";
+
+
+export function getKeywordTraceSummary(
+  traceEntries: LorebookActivationTraceEntry[],
+  visibleTraceEntryIds: string[],
+  visibleEnabledEntryCount: number,
+) {
+  const visibleTraceIds = new Set(visibleTraceEntryIds);
+  const scopedTraceEntries = traceEntries.filter((entry) => visibleTraceIds.has(entry.entryId));
+  const includedCount = scopedTraceEntries.filter((entry) => entry.status === "included").length;
+  const matchedCount = scopedTraceEntries.filter((entry) => entry.status === "matched").length;
+  const skippedCount = scopedTraceEntries.filter((entry) => entry.status === "skipped").length;
+
+  return {
+    displayedMatchCount: includedCount,
+    enabledEntryCount: visibleEnabledEntryCount,
+    firstSkipped: scopedTraceEntries.find((entry) => entry.status === "skipped"),
+    includedCount,
+    matchedCount,
+    skippedCount,
+    traceScopeLabel: scopedTraceEntries.length === traceEntries.length ? "Trace" : "Visible trace",
+  };
+}
 
 export function LorebookKeywordTestPanel({
   open,
   text,
   previewActive,
-  previewMatchCount,
-  enabledEntryCount,
+  traceEntries,
+  visibleTraceEntryIds,
+  visibleEnabledEntryCount,
   onOpenChange,
   onTextChange,
 }: {
   open: boolean;
   text: string;
   previewActive: boolean;
-  previewMatchCount: number;
-  enabledEntryCount: number;
+  traceEntries: LorebookActivationTraceEntry[];
+  visibleTraceEntryIds: string[];
+  visibleEnabledEntryCount: number;
   onOpenChange: (open: boolean) => void;
   onTextChange: (text: string) => void;
 }) {
+  const summary = getKeywordTraceSummary(traceEntries, visibleTraceEntryIds, visibleEnabledEntryCount);
+  const { displayedMatchCount, firstSkipped, includedCount, matchedCount, skippedCount, traceScopeLabel } = summary;
+
   return (
     <div className="rounded-xl bg-[var(--secondary)]/60 ring-1 ring-[var(--border)]">
       <button
@@ -30,7 +59,7 @@ export function LorebookKeywordTestPanel({
         <span className="flex-1">Keyword test</span>
         {previewActive && (
           <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-[0.625rem] font-medium text-emerald-300 ring-1 ring-emerald-400/25">
-            {previewMatchCount} match{previewMatchCount === 1 ? "" : "es"}
+            {displayedMatchCount} match{displayedMatchCount === 1 ? "" : "es"}
           </span>
         )}
         <ChevronDown
@@ -44,9 +73,8 @@ export function LorebookKeywordTestPanel({
       {open && (
         <div className="space-y-2 border-t border-[var(--border)] px-3 py-3">
           <p className="text-[0.6875rem] text-[var(--muted-foreground)]">
-            Paste sample chat text and entries whose keys would trigger get an emerald accent and a &quot;Would
-            activate&quot; chip. Constant entries are flagged separately because they activate regardless of text. Out
-            of scope: timing, probability, character/persona filters, and semantic matching.
+            Paste sample chat text to inspect entry activation with keyword, secondary-key, probability, timing, and
+            semantic trace metadata available to this editor preview.
           </p>
           <div className="relative">
             <textarea
@@ -69,13 +97,19 @@ export function LorebookKeywordTestPanel({
             )}
           </div>
           {previewActive && (
-            <p className="text-[0.6875rem] text-[var(--muted-foreground)]">
-              {previewMatchCount === 0
-                ? "No entries would activate on this text."
-                : `${previewMatchCount} of ${enabledEntryCount} enabled entr${
-                    enabledEntryCount === 1 ? "y" : "ies"
-                  } would activate.`}
-            </p>
+            <div className="space-y-1 text-[0.6875rem] text-[var(--muted-foreground)]">
+              <p>
+                {displayedMatchCount === 0
+                  ? "No visible entries would activate on this text."
+                  : `${displayedMatchCount} of ${summary.enabledEntryCount} visible enabled entr${
+                      summary.enabledEntryCount === 1 ? "y" : "ies"
+                    } would activate.`}
+              </p>
+              <p>
+                {traceScopeLabel}: {includedCount} included, {matchedCount} matched, {skippedCount} skipped
+              </p>
+              {firstSkipped && <p>First skipped: {firstSkipped.name} - {firstSkipped.hint}</p>}
+            </div>
           )}
         </div>
       )}

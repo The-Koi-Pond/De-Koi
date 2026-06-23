@@ -1,0 +1,15 @@
+:root {
+  --de-koi-extension-reading-line-height: 1.72;
+}
+
+[data-message-content],
+.prose,
+article {
+  line-height: var(--de-koi-extension-reading-line-height);
+}
+
+[data-message-content] p,
+.prose p,
+article p {
+  margin-block: 0.72em;
+}

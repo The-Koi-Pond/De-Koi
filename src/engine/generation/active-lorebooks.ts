@@ -1,4 +1,5 @@
 import type { StorageGateway } from "../capabilities/storage";
+import type { LorebookActivationTrace } from "../contracts/types/lorebook";
 import {
   lorebookActivatedEntryForEvent,
   scanActiveLorebooks,
@@ -25,6 +26,7 @@ export interface ActiveLorebookScanResult {
   totalTokens: number;
   totalEntries: number;
   semanticStatus: LorebookSemanticScanStatus;
+  activationTrace: LorebookActivationTrace;
 }
 
 interface ActiveLorebookScanOptions {
@@ -111,5 +113,6 @@ export async function scanActiveLorebookEntries(
     totalTokens: Math.ceil(entries.reduce((sum, entry) => sum + entry.content.length, 0) / 4),
     totalEntries: entries.length,
     semanticStatus: scan.semanticStatus,
+    activationTrace: scan.activationTrace,
   };
 }

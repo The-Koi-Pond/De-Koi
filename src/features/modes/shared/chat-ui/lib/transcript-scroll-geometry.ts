@@ -26,6 +26,34 @@ export function scheduleTranscriptScrollWrite(write: () => void): () => void {
   return () => window.cancelAnimationFrame(frame);
 }
 
+export function scheduleTranscriptBottomLock(writeBottom: () => void, frameCount = 2): () => void {
+  writeBottom();
+
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+
+  let cancelled = false;
+  const frames: number[] = [];
+
+  const scheduleNextFrame = (remainingFrames: number) => {
+    if (remainingFrames <= 0) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      writeBottom();
+      scheduleNextFrame(remainingFrames - 1);
+    });
+    frames.push(frame);
+  };
+
+  scheduleNextFrame(frameCount);
+
+  return () => {
+    cancelled = true;
+    frames.forEach((frame) => window.cancelAnimationFrame(frame));
+  };
+}
+
 export function scrollTranscriptToBottom(element: HTMLElement): number {
   element.scrollTop = element.scrollHeight;
   return element.scrollTop;

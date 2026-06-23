@@ -236,6 +236,13 @@ export interface SceneAnalysis {
   generatedIllustration?: GeneratedSceneIllustration | null;
   /** NPC avatars generated during this scene wrap. */
   generatedNpcAvatars?: Array<{ name: string; avatarUrl: string; avatarGalleryId?: string | null }>;
+  /** Structured scene-analysis failure context when model output could not be safely applied. */
+  structuredFailure?: {
+    taskName: string;
+    message: string;
+    validationErrors: string[];
+    raw: string;
+  } | null;
 }
 
 /** A single widget update from scene analysis. */

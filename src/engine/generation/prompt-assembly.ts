@@ -1,4 +1,5 @@
-import type { LorebookEntryTimingState } from "../contracts/types/lorebook";
+import type { GenerationContextAttributionItem } from "../contracts/types/chat";
+import type { LorebookActivationTrace, LorebookEntryTimingState } from "../contracts/types/lorebook";
 import type { ChatMLMessage, MarkerConfig, WrapFormat } from "../contracts/types/prompt";
 import { BUILT_IN_AGENTS, enabledChatAgentIds } from "../contracts/types/agent";
 import {
@@ -31,6 +32,7 @@ import {
 import { normalizeChatSummaryMetadata } from "../shared/text/chat-summary-entries";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
 import { cleanPromptText, stripPromptComments } from "../shared/text/prompt-comments";
+import { attributionForLorebookEntries, attributionForMemoryRecall } from "./context-attribution";
 import { formatZonedDate, formatZonedTime, getZonedWeekdayName, normalizeUserTimeZone } from "../shared/time/timezone";
 import { compactQuestProgressForContext } from "../shared/game-state/player-stats";
 import type {
@@ -144,6 +146,8 @@ export interface PromptAssemblyResult {
   lorebookTimingStates: Record<string, LorebookEntryTimingState> | null;
   lorebookEntryStateOverrides: Record<string, { ephemeral?: number | null; enabled?: boolean }> | null;
   budgetSkippedLorebookEntries: BudgetSkippedLorebookEntry[];
+  lorebookActivationTrace: LorebookActivationTrace;
+  contextAttributionItems: GenerationContextAttributionItem[];
   chatSummary: string | null;
   chatSummaryFingerprint: string | null;
   reusableContext: PromptAssemblyReusableContext;
@@ -186,6 +190,7 @@ interface PromptAssemblyReusableContext {
   processedLore: ActiveLorebookScannerResult["processedLore"];
   summary: string | null;
   memoryRecallBlock: string | null;
+  contextAttributionItems: GenerationContextAttributionItem[];
   history: ChatMLMessage[];
   greetingPromptVariables: Record<string, string>;
   userRegenerationSourceFingerprint: string | null;
@@ -2262,6 +2267,10 @@ function recentMemoryRecallScoringSet(memories: JsonRecord[]): JsonRecord[] {
     .slice(0, MAX_MEMORY_RECALL_SCORING_CHUNKS);
 }
 
+interface MemoryRecallPromptContext {
+  block: string;
+  attributionItems: GenerationContextAttributionItem[];
+}
 function memoryRecallRows(value: unknown): JsonRecord[] {
   return parseArray(value).filter(isRecord);
 }
@@ -2273,7 +2282,7 @@ async function buildMemoryRecallBlock(
   latestUserInput: string,
   maxContext?: number,
   embeddingSource?: { embed(texts: string[]): Promise<number[][] | null> } | null,
-): Promise<string | null> {
+): Promise<MemoryRecallPromptContext | null> {
   if (!memoryRecallEnabled(chat) || !latestUserInput.trim()) return null;
   const chatId = readString(chat.id).trim();
   if (!chatId) return null;
@@ -2322,12 +2331,20 @@ async function buildMemoryRecallBlock(
 
   const packed = packRecalledMemories(recalled, maxContext);
   if (packed.lines.length === 0) return null;
-  return [
-    "<memories>",
-    "The following are recalled fragments from earlier in this chat. Use them to maintain continuity, remember past events, and stay in character. Do not explicitly reference memory recall unless it is natural.",
-    ...packed.lines.map((line, index) => `--- Memory ${index + 1} ---\n${line}`),
-    "</memories>",
-  ].join("\n");
+  const attribution = attributionForMemoryRecall({
+    packedLines: packed.lines,
+    recalled,
+    consideredCount: memories.length,
+  });
+  return {
+    block: [
+      "<memories>",
+      "The following are recalled fragments from earlier in this chat. Use them to maintain continuity, remember past events, and stay in character. Do not explicitly reference memory recall unless it is natural.",
+      ...attribution.promptLines.map((line, index) => `--- Memory ${index + 1} ---\n${line}`),
+      "</memories>",
+    ].join("\n"),
+    attributionItems: attribution.items,
+  };
 }
 
 function memoizedEmbeddingSource(
@@ -3712,9 +3729,12 @@ export async function assembleGenerationPrompt(
   let processedLore =
     canReuseSourceSensitiveContext && reusableContext ? reusableContext.processedLore : loreScan.processedLore;
   const summary = reusableContext?.summary ?? chatSummaryForGeneration(input.chat);
-  const memoryRecallBlock =
+  const memoryRecallContext =
     canReuseSourceSensitiveContext && reusableContext
-      ? reusableContext.memoryRecallBlock
+      ? {
+          block: reusableContext.memoryRecallBlock,
+          attributionItems: reusableContext.contextAttributionItems.filter((item) => item.kind === "memory_recall"),
+        }
       : await buildMemoryRecallBlock(
           storage,
           input.chat,
@@ -3723,6 +3743,7 @@ export async function assembleGenerationPrompt(
           maxContext || undefined,
           embeddingSource,
         );
+  const memoryRecallBlock = memoryRecallContext?.block ?? null;
   const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
   const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || 300);
   const historyLimit = Math.max(1, Math.min(300, metadataHistoryLimit || requestedHistoryLimit || 300));
@@ -3972,6 +3993,11 @@ export async function assembleGenerationPrompt(
     messages = collapseToSingleUserMessage(messages);
   }
   const summaryFingerprint = fingerprintChatSummary(summary);
+  const contextAttributionItems = [
+    ...(memoryRecallContext?.attributionItems ?? []),
+    ...attributionForLorebookEntries(processedLore.includedEntries.map(lorebookActivatedEntryForEvent)),
+  ];
+
   const nextReusableContext: PromptAssemblyReusableContext = {
     chatMeta,
     chatMode,
@@ -3990,6 +4016,7 @@ export async function assembleGenerationPrompt(
     processedLore,
     summary,
     memoryRecallBlock,
+    contextAttributionItems,
     history,
     greetingPromptVariables,
     userRegenerationSourceFingerprint: regenerationSourceFingerprint,
@@ -4012,6 +4039,8 @@ export async function assembleGenerationPrompt(
     lorebookTimingStates: loreScan.lorebookTimingStates,
     lorebookEntryStateOverrides: loreScan.lorebookEntryStateOverrides,
     budgetSkippedLorebookEntries: loreScan.budgetSkippedLorebookEntries,
+    lorebookActivationTrace: loreScan.activationTrace,
+    contextAttributionItems,
     chatSummary: summary,
     chatSummaryFingerprint: summaryFingerprint,
     reusableContext: nextReusableContext,

@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>De-Koi Extension Developer Guide</title>
+    <link rel="stylesheet" href="./docs.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <strong>De-Koi</strong>
+          <span>Developer docs</span>
+        </div>
+        <nav class="nav" aria-label="Documentation">
+          <a href="./index.html">Overview</a>
+          <a href="./getting-started.html">Getting started</a>
+          <a href="./run-build.html">Run and build</a>
+          <a href="./architecture.html">Architecture</a>
+          <a href="./modules.html">Modules</a>
+          <a href="./extensions.html" aria-current="page">Extensions</a>
+          <a href="./impact-areas.html">Impact areas</a>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <p class="eyebrow">Local extensions</p>
+        <h1>Build small trusted extensions without depending on De-Koi internals.</h1>
+        <p class="lead">
+          De-Koi can import local CSS and JavaScript extensions from Settings &gt; Extensions. The supported public
+          surface for JavaScript extensions is the <code>marinara</code> object passed to the extension at runtime.
+          Treat React components, app stores, and private DOM structure as implementation details.
+        </p>
+
+        <h2>Import Formats</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Format</th>
+              <th>What De-Koi reads</th>
+              <th>Initial enabled state</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>.css</code></td>
+              <td>The whole file is stored as extension CSS and injected while the extension is enabled.</td>
+              <td>Enabled immediately.</td>
+            </tr>
+            <tr>
+              <td><code>.js</code></td>
+              <td>The whole file is stored as extension JavaScript and executed through the extension runtime.</td>
+              <td>Installed disabled. The user must review and enable it.</td>
+            </tr>
+            <tr>
+              <td><code>.json</code></td>
+              <td>
+                A record with <code>name</code>, optional <code>description</code>, optional <code>css</code>, and
+                optional <code>js</code>.
+              </td>
+              <td>Disabled when <code>js</code> has runnable code; otherwise enabled.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          JavaScript extensions are trusted local code. They can change the page and use extension storage, so De-Koi
+          imports runnable JavaScript disabled by default and asks for confirmation before enabling it.
+        </div>
+
+        <h2>Runtime API</h2>
+        <p>
+          JavaScript is wrapped by the extension loader and receives one object named <code>marinara</code>. This object
+          is the public API. Do not import app source files, call internal stores, or depend on private React component
+          names.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>API</th>
+              <th>Use it for</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>extensionId</code>, <code>extensionName</code></td>
+              <td>Stable identity and display name for the installed extension.</td>
+            </tr>
+            <tr>
+              <td><code>addStyle(css)</code></td>
+              <td>Add a <code>&lt;style&gt;</code> tag that De-Koi removes when the extension is disabled.</td>
+            </tr>
+            <tr>
+              <td><code>addElement(parent, tag, attrs)</code></td>
+              <td>
+                Add a DOM element under a selector or element. Attribute values are strings; <code>textContent</code>
+                and <code>innerHTML</code> are handled specially.
+              </td>
+            </tr>
+            <tr>
+              <td><code>storage</code></td>
+              <td>Scoped access to the <code>plugin-memory</code> collection.</td>
+            </tr>
+            <tr>
+              <td><code>on(target, event, handler)</code></td>
+              <td>Add an event listener that is removed during extension cleanup.</td>
+            </tr>
+            <tr>
+              <td><code>setInterval(fn, ms)</code>, <code>setTimeout(fn, ms)</code></td>
+              <td>Schedule timers that De-Koi clears during extension cleanup.</td>
+            </tr>
+            <tr>
+              <td><code>observe(target, callback, options)</code></td>
+              <td>Create a <code>MutationObserver</code> that disconnects during extension cleanup.</td>
+            </tr>
+            <tr>
+              <td><code>onCleanup(fn)</code></td>
+              <td>Register custom teardown for anything the runtime does not already own.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>Storage Scope</h2>
+        <p>
+          Extension storage is intentionally narrow. The runtime allows only the <code>plugin-memory</code> entity and
+          automatically scopes records to the current extension.
+        </p>
+        <ul>
+          <li>List calls are filtered to the current extension's <code>pluginId</code>.</li>
+          <li>Create calls force <code>pluginId</code> to <code>marinara.extensionId</code>.</li>
+          <li>
+            Record IDs must stay inside the extension namespace:
+            <code>&lt;extensionId&gt;:&lt;encoded key&gt;</code>.
+          </li>
+          <li>Update calls cannot change <code>id</code> or <code>key</code>.</li>
+        </ul>
+
+        <pre><code class="language-js">const key = "panel-enabled";
+const id = `${marinara.extensionId}:${encodeURIComponent(key)}`;
+
+const existing = await marinara.storage.get("plugin-memory", id);
+if (existing) {
+  await marinara.storage.update("plugin-memory", id, {
+    value: { enabled: true },
+    schemaVersion: 1,
+  });
+} else {
+  await marinara.storage.create("plugin-memory", {
+    key,
+    value: { enabled: true },
+    schemaVersion: 1,
+  });
+}</code></pre>
+
+        <h2>Cleanup</h2>
+        <p>
+          Prefer runtime helpers over raw browser APIs when possible. Elements from <code>addElement</code>, styles from
+          <code>addStyle</code>, listeners from <code>on</code>, timers from <code>setInterval</code> and
+          <code>setTimeout</code>, and observers from <code>observe</code> are cleaned up automatically when the
+          extension is disabled or reloaded.
+        </p>
+        <p>
+          Use <code>onCleanup</code> for custom teardown such as removing global flags, closing a third-party widget, or
+          undoing a change that the runtime did not create for you.
+        </p>
+
+        <h2>Samples</h2>
+        <div class="grid">
+          <article class="panel">
+            <h3>CSS-only extension</h3>
+            <p>
+              <a href="./samples/extensions/soft-reading-mode.css" download>soft-reading-mode.css</a>
+              adjusts reading surfaces with a small style tweak. Importing this file enables it immediately.
+            </p>
+          </article>
+          <article class="panel">
+            <h3>JavaScript with memory</h3>
+            <p>
+              <a href="./samples/extensions/local-ui-memory.json" download>local-ui-memory.json</a>
+              adds a small local control and stores one setting in <code>plugin-memory</code>. Importing this file keeps
+              it disabled until the user explicitly enables it.
+            </p>
+          </article>
+        </div>
+
+        <h2>Security Expectations</h2>
+        <ul>
+          <li>Only import JavaScript extensions from authors and files you trust.</li>
+          <li>Do not store secrets in extension source or extension memory.</li>
+          <li>Avoid global monkeypatching unless the extension fully owns the risk and cleanup.</li>
+          <li>Prefer stable selectors you create yourself over De-Koi's private internal DOM structure.</li>
+          <li>Keep extensions small and reversible so disabling them returns the page to normal.</li>
+        </ul>
+
+        <p class="footer">
+          Runtime implementation references:
+          <code>src/app/providers/extension-runtime.ts</code>,
+          <code>src/app/providers/extension-storage-api.ts</code>, and Settings &gt; Extensions.
+        </p>
+      </main>
+    </div>
+    <script type="module" src="./shared.js"></script>
+  </body>
+</html>

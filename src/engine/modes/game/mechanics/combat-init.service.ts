@@ -1,8 +1,7 @@
 import type { LlmGateway, LlmMessage } from "../../../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../../../capabilities/storage";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
-import { extractLeadingThinkingBlocks } from "../../../generation-core/llm/inline-thinking";
-import { parseGameJsonish } from "../../../shared/parsing-jsonish";
+import { generateStructured } from "../../../generation/structured-generation";
 import { readString as stringValue } from "../../../shared/value-readers";
 import type { RPGStatsConfig } from "../../../contracts/types/character";
 import type { Chat, Message } from "../../../contracts/types/chat";
@@ -22,6 +21,7 @@ import type {
   EncounterInitResponse,
 } from "../../../contracts/types/combat-encounter";
 import type { PersonaStatsConfig } from "../../../contracts/types/persona";
+import { COMBAT_INIT_SCHEMA_DESCRIPTION, combatInitStructuredSchema } from "./combat-init.schema";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -47,6 +47,8 @@ type GameCombatInitContext = {
 };
 
 const COMBAT_BLUEPRINT_OUTPUT_TOKENS = 12_000;
+const COMBAT_INIT_FAILURE_MESSAGE =
+  "Combat setup did not return usable structured data. Nothing was changed; try again or choose a different model.";
 
 const DEFAULT_STYLE_NOTES: CombatStyleNotes = {
   environmentType: "plains",
@@ -73,18 +75,38 @@ export async function initGameCombatEncounter(
     settings: input.settings,
     messages,
   });
-  const result = await completeJsonObject(capabilities, context.chat, input.connectionId ?? null, messages, {
-    temperature: 0.8,
-    maxTokens: COMBAT_BLUEPRINT_OUTPUT_TOKENS,
-  });
+  const connectionId = await resolveConnectionId(capabilities.storage, context.chat, input.connectionId ?? null);
+  const result = await generateStructured(
+    { llm: capabilities.llm },
+    {
+      taskName: "game.combatInit",
+      connectionId,
+      messages,
+      parameters: {
+        temperature: 0.8,
+        maxTokens: COMBAT_BLUEPRINT_OUTPUT_TOKENS,
+      },
+      schema: combatInitStructuredSchema,
+      schemaDescription: COMBAT_INIT_SCHEMA_DESCRIPTION,
+      maxRepairAttempts: 1,
+      failureMessage: COMBAT_INIT_FAILURE_MESSAGE,
+    },
+  );
   debug("[debug/game/combat:init] raw response", {
     chatId: input.chatId,
     chars: result.raw.length,
     raw: result.raw,
   });
-  const parsed = result.parsed;
-  const rawCombatState = recordValue(parsed?.combatState) ?? parsed;
-  const combatState = sanitizeCombatInitState(rawCombatState, context.fallbackState);
+  if (!result.ok) {
+    debug("[debug/game/combat:init] invalid structured response", {
+      chatId: input.chatId,
+      attempts: result.attempts,
+      errors: result.failure.validationErrors,
+    });
+    throw new Error(COMBAT_INIT_FAILURE_MESSAGE);
+  }
+
+  const combatState = sanitizeCombatInitState(result.data, context.fallbackState);
   debug("[debug/game/combat:init] parsed response", { chatId: input.chatId, combatState });
 
   return { combatState };
@@ -350,24 +372,6 @@ function buildInitPrompt(context: GameCombatInitContext, chatHistory: LlmMessage
   ].join("\n\n");
 
   return [{ role: "system", content: system }, ...chatHistory, { role: "user", content: instruction }];
-}
-
-async function completeJsonObject(
-  capabilities: GameCombatInitCapabilities,
-  chat: JsonRecord,
-  overrideConnectionId: string | null,
-  messages: LlmMessage[],
-  parameters: Record<string, unknown>,
-): Promise<{ parsed: JsonRecord | null; raw: string }> {
-  const connectionId = await resolveConnectionId(capabilities.storage, chat, overrideConnectionId);
-  const raw = await capabilities.llm.complete({ connectionId, messages, parameters });
-  try {
-    const { cleanText } = extractLeadingThinkingBlocks(raw);
-    const parsed = parseGameJsonish(cleanText);
-    return { parsed: isRecord(parsed) ? parsed : null, raw };
-  } catch {
-    return { parsed: null, raw };
-  }
 }
 
 function createCombatInitDebug(input: Pick<EncounterInitRequest, "debugMode" | "debugSink">) {

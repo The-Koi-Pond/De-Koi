@@ -30,6 +30,7 @@ const baseRequiredDocs = [
   "docs/developer/run-build.html",
   "docs/developer/architecture.html",
   "docs/developer/modules.html",
+  "docs/developer/extensions.html",
   "docs/developer/impact-areas.html",
   "docs/developer/docs.css",
   "docs/developer/shared.js",
@@ -77,6 +78,7 @@ const expectedLinks = [
   "./run-build.html",
   "./architecture.html",
   "./modules.html",
+  "./extensions.html",
   "./impact-areas.html",
 ];
 

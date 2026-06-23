@@ -7,6 +7,7 @@ import { cn } from "../../../../shared/lib/utils";
 import { isSendShortcut } from "../../../../shared/lib/send-shortcuts";
 import { EmojiPicker } from "../../../../shared/components/ui/EmojiPicker";
 import { SpeechToTextButton } from "../../../../shared/components/ui/SpeechToTextButton";
+import { UserQuickReplyIcon } from "../../../../shared/components/ui/UserQuickReplyIcon";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { translateDraftText } from "../../../../shared/lib/draft-translation";
@@ -19,7 +20,10 @@ import {
   CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
   CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
   CHAT_INPUT_ICON_BUTTON_READY_CLASS,
+  QuickReplyMenu,
+  type QuickReplyAction,
 } from "../../shared/chat-ui";
+import { buildGameUserQuickReplyMenuEntries } from "../lib/game-user-quick-replies";
 
 interface Attachment {
   type: string;
@@ -112,6 +116,9 @@ export function GameInput({
 }: GameInputProps) {
   const enterToSend = useUIStore((s) => s.enterToSendGame);
   const speechToTextEnabled = useUIStore((s) => s.speechToTextEnabled);
+  const quoteFormat = useUIStore((s) => s.quoteFormat);
+  const showQuickRepliesMenu = useUIStore((s) => s.showQuickRepliesMenu);
+  const userQuickReplyActions = useUIStore((s) => s.userQuickReplyActions);
   const storageKey = draftKey ? `game-input-draft:${draftKey}` : null;
   const [text, setText] = useState(() => readGameInputDraft(storageKey));
   const [showDice, setShowDice] = useState(false);
@@ -129,6 +136,7 @@ export function GameInput({
   const inputBarRef = useRef<HTMLDivElement>(null);
   const addressButtonRef = useRef<HTMLButtonElement>(null);
   const addressMenuRef = useRef<HTMLDivElement>(null);
+  const activeChatId = useChatStore((s) => s.activeChatId);
   const activeChat = useChatStore((s) => s.activeChat);
   const chatMetadata = useMemo(() => {
     if (!activeChat?.metadata) return {};
@@ -194,6 +202,57 @@ export function GameInput({
     clearGameInputDraft(storageKey);
   }, [storageKey]);
 
+  const executeGameQuickReplyCommand = useCallback(
+    async (commandLine: string, fallbackError: string) => {
+      void fallbackError;
+      if (disabled || rollingQueuedDice) return;
+      const sent = await onSend(commandLine, undefined, { commitPendingMove: false });
+      if (!sent) return;
+
+      setText("");
+      clearDraft();
+      if (inputRef.current) inputRef.current.style.height = "auto";
+      inputRef.current?.focus();
+    },
+    [clearDraft, disabled, onSend, rollingQueuedDice],
+  );
+
+  const quickReplyActions = useMemo<QuickReplyAction[]>(() => {
+    if (!showQuickRepliesMenu) return [];
+
+    const entries = buildGameUserQuickReplyMenuEntries({
+      actions: userQuickReplyActions,
+      activeChatId,
+      draft: text,
+      quoteFormat,
+      isStreaming: disabled || isStreaming,
+      hasPendingGameTurnState: attachments.length > 0 || !!pendingMoveLabel || !!queuedDice || rollingQueuedDice,
+      executeGameTurn: executeGameQuickReplyCommand,
+    });
+
+    return entries.map((action) => ({
+      id: action.id,
+      label: action.label,
+      description: action.description,
+      icon: <UserQuickReplyIcon iconId={action.iconId} size="0.875rem" />,
+      disabled: action.disabled,
+      disabledReason: action.disabledReason,
+      onSelect: action.onSelect,
+    }));
+  }, [
+    activeChatId,
+    attachments.length,
+    disabled,
+    executeGameQuickReplyCommand,
+    isStreaming,
+    pendingMoveLabel,
+    queuedDice,
+    quoteFormat,
+    rollingQueuedDice,
+    showQuickRepliesMenu,
+    text,
+    userQuickReplyActions,
+  ]);
   const handleAddressModeSelect = useCallback((nextMode: Exclude<AddressMode, "scene">) => {
     setAddressMode((current) => (current === nextMode ? "scene" : nextMode));
     setAddressMenuOpen(false);
@@ -646,6 +705,8 @@ export function GameInput({
             iconSize={18}
           />
         )}
+
+        {quickReplyActions.length > 0 && <QuickReplyMenu actions={quickReplyActions} disabled={disabled} />}
 
         <button
           type="button"

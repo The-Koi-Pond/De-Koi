@@ -50,6 +50,7 @@ import { applyTextareaQuoteFormat } from "../../../../../shared/lib/textarea-quo
 import { requestChatScrollToBottom } from "../../../../../shared/lib/chat-scroll-events";
 import { cn, type AvatarCropValue } from "../../../../../shared/lib/utils";
 import { AvatarImage } from "../../../../../shared/components/ui/AvatarImage";
+import { UserQuickReplyIcon } from "../../../../../shared/components/ui/UserQuickReplyIcon";
 import { blobToDataUrl } from "../../../../../shared/lib/url-blob";
 import { prepareImageAttachment } from "../../../../../shared/lib/chat-attachment-images";
 import { translateDraftText } from "../../../../../shared/lib/draft-translation";
@@ -60,6 +61,7 @@ import { QuickPersonaSwitcher } from "./QuickPersonaSwitcher";
 import { QuickSwitcherMobile } from "./QuickSwitcherMobile";
 import { SlashCommandFeedback } from "./SlashCommandFeedback";
 import { QuickReplyMenu, type QuickReplyAction } from "./QuickReplyMenu";
+import { buildUserQuickReplyMenuEntries } from "../lib/custom-quick-replies";
 import {
   CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS,
   CHAT_INPUT_ICON_BUTTON_CLASS,
@@ -175,6 +177,7 @@ export const ChatInput = memo(function ChatInput({
   const setInputDraft = useChatStore((s) => s.setInputDraft);
   const clearInputDraft = useChatStore((s) => s.clearInputDraft);
   const setCurrentInput = useChatStore((s) => s.setCurrentInput);
+  const currentInput = useChatStore((s) => s.currentInput);
   const activeChat = useChatStore((s) => s.activeChat);
   const { generate } = useGenerate();
   const chatCharacterIds = useMemo(() => chatCharacters?.map((c) => c.id), [chatCharacters]);
@@ -185,6 +188,7 @@ export const ChatInput = memo(function ChatInput({
   const showQuickReplyPostOnly = useUIStore((s) => s.showQuickReplyPostOnly);
   const showQuickReplyGuide = useUIStore((s) => s.showQuickReplyGuide);
   const showQuickReplyImpersonate = useUIStore((s) => s.showQuickReplyImpersonate);
+  const userQuickReplyActions = useUIStore((s) => s.userQuickReplyActions);
   const speechToTextEnabled = useUIStore((s) => s.speechToTextEnabled);
   const quoteFormat = useUIStore((s) => s.quoteFormat);
   const createMessage = useCreateMessage(activeChatId);
@@ -1039,6 +1043,27 @@ export const ChatInput = memo(function ChatInput({
         onSelect: handleImpersonateQuickButton,
       });
     }
+    const customActions = buildUserQuickReplyMenuEntries({
+      actions: userQuickReplyActions,
+      mode,
+      activeChatId,
+      draft: currentInput,
+      quoteFormat,
+      isStreaming,
+      hasPendingAttachments,
+      executeCommand: runQuickSlashCommand,
+    });
+    actions.push(
+      ...customActions.map((action) => ({
+        id: action.id,
+        label: action.label,
+        description: action.description,
+        icon: <UserQuickReplyIcon iconId={action.iconId} size="0.875rem" />,
+        disabled: action.disabled,
+        disabledReason: action.disabledReason,
+        onSelect: action.onSelect,
+      })),
+    );
     return actions;
   }, [
     activeChatId,
@@ -1051,6 +1076,11 @@ export const ChatInput = memo(function ChatInput({
     showQuickReplyPostOnly,
     showQuickReplyGuide,
     showQuickReplyImpersonate,
+    userQuickReplyActions,
+    currentInput,
+    mode,
+    quoteFormat,
+    runQuickSlashCommand,
     handlePostOnlyButton,
     handleGuidedGenerationButton,
     handleImpersonateQuickButton,
@@ -1497,10 +1527,7 @@ export const ChatInput = memo(function ChatInput({
         )}
 
         {showQuickRepliesMenu && quickReplyActions.length > 0 && (
-          <QuickReplyMenu
-            actions={quickReplyActions}
-            disabled={!activeChatId || isReadingAttachments || (!hasInput && attachments.length === 0)}
-          />
+          <QuickReplyMenu actions={quickReplyActions} disabled={quickReplyActions.every((action) => action.disabled)} />
         )}
 
         {/* Send / Stop button */}

@@ -1,6 +1,13 @@
 import * as g from "./game-api-support";
+import { generateStructured } from "../../../../engine/generation/structured-generation";
+import {
+  GAME_LORE_EXTRACTION_SCHEMA_DESCRIPTION,
+  gameLoreExtractionStructuredSchema,
+} from "../../../../engine/modes/game/lorebook/game-lore-extraction.schema";
 
 const GAME_LOREBOOK_KEEPER_SOURCE_ID = "game-lorebook-keeper";
+const GAME_LOREBOOK_KEEPER_FAILURE_MESSAGE =
+  "Game Lorebook Keeper did not return usable structured lore. Nothing was written; try again or choose a different model.";
 
 function keeperEntrySessionNumber(entry: g.LorebookEntry): number | null {
   const state = g.asRecord(entry.dynamicState);
@@ -68,6 +75,57 @@ function normalizeGameLorebookKeeperEntry(
   };
 }
 
+function validateGameLorebookExtraction(value: unknown): Record<string, unknown> {
+  const result = gameLoreExtractionStructuredSchema.safeParse(value);
+  if (result.success) return result.data;
+  throw new Error(GAME_LOREBOOK_KEEPER_FAILURE_MESSAGE);
+}
+
+async function generateGameLorebookExtraction(input: {
+  sessionNumber: number;
+  summary: g.SessionSummary;
+  transcript: string;
+  connectionId?: string | null;
+}): Promise<Record<string, unknown>> {
+  if (!input.connectionId) {
+    throw new Error("Choose a model connection before running Game Lorebook Keeper.");
+  }
+
+  const result = await generateStructured(
+    { llm: g.llmApi },
+    {
+      taskName: "game.session_lorebook",
+      connectionId: input.connectionId,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Extract durable game campaign lore from this concluded session. Return strict JSON with an entries array; each entry has name, content, keys array, and optional tag.",
+        },
+        {
+          role: "user",
+          content: [
+            `Session number: ${input.sessionNumber}`,
+            ``,
+            `Session summary:`,
+            JSON.stringify(input.summary, null, 2),
+            ``,
+            `Session transcript:`,
+            input.transcript,
+          ].join("\n"),
+        },
+      ],
+      parameters: { temperature: 0.3, maxTokens: 2500 },
+      schema: gameLoreExtractionStructuredSchema,
+      schemaDescription: GAME_LORE_EXTRACTION_SCHEMA_DESCRIPTION,
+      maxRepairAttempts: 1,
+      failureMessage: GAME_LOREBOOK_KEEPER_FAILURE_MESSAGE,
+    },
+  );
+  if (!result.ok) throw new Error(GAME_LOREBOOK_KEEPER_FAILURE_MESSAGE);
+  return result.data;
+}
+
 async function resolveGameLorebookKeeperLorebook(chat: g.Chat, meta: Record<string, unknown>): Promise<g.Lorebook> {
   const existingId = g.readTrimmed(meta.gameLorebookKeeperLorebookId);
   if (existingId) {
@@ -96,20 +154,13 @@ async function writeGameLorebookKeeperEntries(data: {
   sessionNumber: number;
   entries: unknown[];
 }): Promise<{ lorebookId: string; entryCount: number; sessionChat: g.Chat }> {
+  if (data.entries.length === 0) {
+    throw new Error(GAME_LOREBOOK_KEEPER_FAILURE_MESSAGE);
+  }
   const lorebook = await resolveGameLorebookKeeperLorebook(data.chat, data.meta);
-  const normalizedEntries = data.entries.length
-    ? data.entries.map((entry, index) => normalizeGameLorebookKeeperEntry(entry, data.sessionNumber, index))
-    : [
-        normalizeGameLorebookKeeperEntry(
-          {
-            name: `Session ${data.sessionNumber} Recap`,
-            content: "No durable lore was generated for this concluded session.",
-            keys: [`session ${data.sessionNumber}`],
-          },
-          data.sessionNumber,
-          0,
-        ),
-      ];
+  const normalizedEntries = data.entries.map((entry, index) =>
+    normalizeGameLorebookKeeperEntry(entry, data.sessionNumber, index),
+  );
   const entriesToCreate = normalizedEntries.map((entry) =>
     g.createLorebookEntrySchema.parse({
       ...entry,
@@ -260,41 +311,15 @@ export async function runGameLorebookKeeperAfterConclusion(data: {
 
   try {
     const transcript = await g.sessionTranscript(data.chat.id, 160);
-    const fallbackEntries = [
-      {
-        name: `Session ${data.sessionNumber} Recap`,
-        content: data.summary.summary || transcript.split("\n").slice(-12).join("\n"),
-        keys: [`session ${data.sessionNumber}`, "recap", "campaign"],
-      },
-    ];
-    const parsed =
-      data.generated ??
-      (await g.llmJson({
-        connectionId: data.connectionId,
-        fallback: { entries: fallbackEntries },
-        system:
-          "Extract durable game campaign lore from this concluded session. Return strict JSON with an entries array; each entry has name, content, keys array, and optional tag.",
-        user: [
-          `Session number: ${data.sessionNumber}`,
-          ``,
-          `Session summary:`,
-          JSON.stringify(data.summary, null, 2),
-          ``,
-          `Session transcript:`,
+    const parsed = data.generated
+      ? validateGameLorebookExtraction(data.generated)
+      : await generateGameLorebookExtraction({
+          sessionNumber: data.sessionNumber,
+          summary: data.summary,
           transcript,
-        ].join("\n"),
-        parameters: { temperature: 0.3, maxTokens: 2500 },
-        repair: {
-          kind: "session_lorebook",
-          title: `Repair Session ${data.sessionNumber} Lorebook JSON`,
-          applyBody: {
-            chatId: data.chat.id,
-            sessionNumber: data.sessionNumber,
-            connectionId: data.connectionId,
-          },
-        },
-      }));
-    const entries = Array.isArray(parsed.entries) && parsed.entries.length ? parsed.entries : fallbackEntries;
+          connectionId: data.connectionId,
+        });
+    const entries = parsed.entries as unknown[];
     return await writeGameLorebookKeeperEntries({
       chat: data.chat,
       meta: data.meta,
@@ -313,6 +338,14 @@ export async function runGameLorebookKeeperAfterConclusion(data: {
       },
     });
     if (data.propagateRepairErrors && g.isJsonRepairApiError(error)) {
+      throw error;
+    }
+    if (
+      data.propagateRepairErrors &&
+      error instanceof Error &&
+      (error.message === GAME_LOREBOOK_KEEPER_FAILURE_MESSAGE ||
+        error.message === "Choose a model connection before running Game Lorebook Keeper.")
+    ) {
       throw error;
     }
     return { lorebookId, sessionChat };

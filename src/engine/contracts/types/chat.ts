@@ -4,6 +4,7 @@
 
 import type { GenerationGuideSource } from "../../shared/text/generation-guide.js";
 import type { GenerationEvent, LegacyStreamProtocolEvent } from "./generation.js";
+import type { LorebookActivationTrace } from "./lorebook.js";
 
 /** The primary chat modes the engine supports. */
 export type ChatMode = "conversation" | "roleplay" | "game";
@@ -537,6 +538,32 @@ export interface GenerationPromptSnapshotInfo {
   finishReason?: string | null;
 }
 
+export type GenerationContextAttributionSource = "saved_snapshot" | "best_effort_reconstruction";
+
+export type GenerationContextAttributionKind =
+  | "memory_recall"
+  | "lorebook"
+  | "knowledge_retrieval"
+  | "knowledge_router"
+  | "agent_injection";
+
+export type GenerationContextAttributionStatus = "considered" | "injected" | "redacted" | "skipped";
+
+export interface GenerationContextAttributionItem {
+  kind: GenerationContextAttributionKind;
+  label: string;
+  status: GenerationContextAttributionStatus;
+  sourceId?: string | null;
+  sourceCollection?: string | null;
+  parentSourceId?: string | null;
+  snippet?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface GenerationContextAttribution {
+  source: GenerationContextAttributionSource;
+  items: GenerationContextAttributionItem[];
+}
 export interface GenerationPromptSnapshot {
   messages: GenerationPromptSnapshotMessage[];
   previewMessages?: GenerationPromptSnapshotMessage[];
@@ -544,6 +571,8 @@ export interface GenerationPromptSnapshot {
   tools?: unknown[] | null;
   generationInfo?: GenerationPromptSnapshotInfo | null;
   promptPresetId?: string | null;
+  lorebookActivationTrace?: LorebookActivationTrace;
+  contextAttribution?: GenerationContextAttribution | null;
   createdAt?: string;
 }
 

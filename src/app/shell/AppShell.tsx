@@ -8,6 +8,7 @@ import { TopBarActionsProvider } from "../../shared/components/mobile-shell-acti
 import { WindowTitleBar } from "./WindowTitleBar";
 import { MobileTabBar } from "./MobileTabBar";
 import { DISCOVERY_APP_EVENT, type DiscoveryAppEventDetail } from "../../features/shell/discovery/discovery-events";
+import { ensureNoModelGameShowcase } from "../../features/shell/discovery/showcase";
 import {
   getTrackerPanelWidthForProfile,
   RIGHT_PANEL_WIDTH_MAX,
@@ -21,6 +22,7 @@ import { useChatStore } from "../../shared/stores/chat.store";
 import { useAgentStore } from "../../shared/stores/agent.store";
 import { useBackgroundAutonomousPolling } from "../../features/modes/conversation/background-autonomous";
 import { useClearAutonomousUnread } from "../../features/catalog/chats/autonomous-unread";
+import { chatKeys } from "../../features/catalog/chats/index";
 import { useIdleDetection } from "../../shared/hooks/use-idle-detection";
 import { ImagePromptReviewHost } from "../../shared/components/ui/ImagePromptReviewHost";
 import { cn } from "../../shared/lib/utils";
@@ -28,6 +30,8 @@ import { parseChatMetadata } from "../../shared/lib/chat-display";
 import { watchVisualViewportHeightVar } from "../../shared/lib/visual-viewport";
 import { getDetailRouteView } from "./detail-route-registry";
 import { motion, AnimatePresence } from "framer-motion";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import {
   lazy,
@@ -220,6 +224,7 @@ export function AppShell() {
   // Auto idle detection (10 min inactivity → idle, activity → active)
   useIdleDetection();
 
+  const queryClient = useQueryClient();
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
@@ -384,6 +389,23 @@ export function AppShell() {
   const trackerPanelWasActiveRef = useRef(false);
   const lastAutonomousUnreadClearRef = useRef<string | null>(null);
 
+  const openNoModelShowcase = useCallback(() => {
+    void ensureNoModelGameShowcase()
+      .then(({ chatId }) => {
+        queryClient.invalidateQueries({ queryKey: chatKeys.all });
+        useChatStore.getState().setActiveChatId(chatId);
+        useUIStore.getState().closeAllDetails();
+        closeRightPanel();
+        setDekiOpen(false);
+        setSidebarOpen(false);
+        setTrackerPanelOpen(false);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : "Could not create the sample world.";
+        toast.error(message);
+      });
+  }, [closeRightPanel, queryClient, setSidebarOpen, setTrackerPanelOpen]);
+
   useEffect(() => {
     if (activeChatId) setDekiOpen(false);
   }, [activeChatId]);
@@ -405,12 +427,17 @@ export function AppShell() {
         setDekiOpen(false);
         setSidebarOpen(false);
         setTrackerPanelOpen(false);
+        return;
+      }
+
+      if (detail?.type === "open-showcase") {
+        openNoModelShowcase();
       }
     };
 
     window.addEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
     return () => window.removeEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
-  }, [closeRightPanel, setSidebarOpen, setTrackerPanelOpen]);
+  }, [closeRightPanel, openNoModelShowcase, setSidebarOpen, setTrackerPanelOpen]);
 
   useEffect(() => {
     if (!activeChatId || isClearingAutonomousUnread) return;
@@ -1161,6 +1188,7 @@ export function AppShell() {
                         <DiscoverPanel />
                       </Suspense>
                     }
+                    onOpenNoModelShowcase={openNoModelShowcase}
                   />
                 )}
               </Suspense>

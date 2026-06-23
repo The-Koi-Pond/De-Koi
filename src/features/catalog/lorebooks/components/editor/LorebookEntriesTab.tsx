@@ -1,6 +1,6 @@
 import { type DragEvent as ReactDragEvent, type ReactNode } from "react";
 import { FileText, Hash } from "lucide-react";
-import type { LorebookEntry, LorebookFolder } from "../../../../../engine/contracts/types/lorebook";
+import type { LorebookActivationTraceEntry, LorebookEntry, LorebookFolder } from "../../../../../engine/contracts/types/lorebook";
 import type { FolderForest } from "../../lib/lorebook-folder-tree";
 import type { FolderDropTarget } from "./use-lorebook-editor-drag-drop";
 import { cn } from "../../../../../shared/lib/utils";
@@ -26,8 +26,9 @@ export function LorebookEntriesTab({
   keywordPreviewOpen,
   keywordPreviewText,
   previewActive,
-  previewMatchCount,
-  enabledEntryCount,
+  traceEntries,
+  visibleTraceEntryIds,
+  visibleEnabledEntryCount,
   entrySelectionMode,
   selectedEntryIds,
   visibleEntryIds,
@@ -95,8 +96,9 @@ export function LorebookEntriesTab({
   keywordPreviewOpen: boolean;
   keywordPreviewText: string;
   previewActive: boolean;
-  previewMatchCount: number;
-  enabledEntryCount: number;
+  traceEntries: LorebookActivationTraceEntry[];
+  visibleTraceEntryIds: string[];
+  visibleEnabledEntryCount: number;
   entrySelectionMode: boolean;
   selectedEntryIds: Set<string>;
   visibleEntryIds: string[];
@@ -292,8 +294,9 @@ export function LorebookEntriesTab({
         open={keywordPreviewOpen}
         text={keywordPreviewText}
         previewActive={previewActive}
-        previewMatchCount={previewMatchCount}
-        enabledEntryCount={enabledEntryCount}
+        traceEntries={traceEntries}
+        visibleTraceEntryIds={visibleTraceEntryIds}
+        visibleEnabledEntryCount={visibleEnabledEntryCount}
         onOpenChange={onKeywordPreviewOpenChange}
         onTextChange={onKeywordPreviewTextChange}
       />
