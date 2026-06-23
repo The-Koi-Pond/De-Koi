@@ -1,12 +1,7 @@
 // ──────────────────────────────────────────────
 // Chat: Message — mode-aware rendering
 // ──────────────────────────────────────────────
-import {
-  cn,
-  copyToClipboard,
-  normalizeAvatarCropValue,
-  type AvatarCropValue,
-} from "../../../../../shared/lib/utils";
+import { cn, copyToClipboard, normalizeAvatarCropValue, type AvatarCropValue } from "../../../../../shared/lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks, applyInlineMarkdownHTML } from "../../../../../shared/lib/markdown";
 import {
   User,
@@ -83,6 +78,7 @@ import type {
 import { GenerationReplayDetailsModal, hasGenerationReplayDetails } from "./GenerationReplayDetailsModal";
 import { ImagePromptPanel } from "./ImagePromptPanel";
 import { SaveMomentAction } from "./SaveMomentAction";
+import type { SaveMomentSource } from "../lib/save-moment";
 import { SwipeJumpControl } from "./SwipeJumpControl";
 import { readStoredThinking } from "../lib/message-thinking";
 import { isImageMessageAttachment, messageAttachmentsFromExtra } from "../lib/message-attachments";
@@ -405,6 +401,7 @@ interface ChatMessageProps {
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
   onBranch?: (messageId: string) => void;
+  onSaveMomentSummary?: (source: SaveMomentSource) => void;
   onCloneSceneFromHere?: (messageId: string) => void;
   isCloneSceneFromHereDisabled?: boolean;
   isLastAssistantMessage?: boolean;
@@ -994,6 +991,7 @@ export const ChatMessage = memo(function ChatMessage({
   onToggleHiddenFromAI,
   onPeekPrompt,
   onBranch,
+  onSaveMomentSummary,
   onCloneSceneFromHere,
   isCloneSceneFromHereDisabled,
   characterMap,
@@ -2327,6 +2325,7 @@ export const ChatMessage = memo(function ChatMessage({
               />
               <SaveMomentAction
                 source={saveMomentSource}
+                onCreateSummaryDraft={onSaveMomentSummary}
                 onBranch={onBranch}
                 onCloneSceneFromHere={onCloneSceneFromHere}
                 buttonClassName="rounded-md p-[0.35em] text-[0.8125rem] text-white/40 transition-all hover:bg-white/10 hover:text-white/70 active:scale-90"
@@ -2804,6 +2803,7 @@ export const ChatMessage = memo(function ChatMessage({
             />
             <SaveMomentAction
               source={saveMomentSource}
+              onCreateSummaryDraft={onSaveMomentSummary}
               onBranch={onBranch}
               onCloneSceneFromHere={onCloneSceneFromHere}
               buttonClassName="rounded-md p-[0.35em] text-[0.8125rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] active:scale-90"

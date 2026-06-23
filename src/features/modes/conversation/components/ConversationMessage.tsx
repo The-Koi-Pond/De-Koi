@@ -62,6 +62,7 @@ function areConversationMessagePropsEqual(prev: ConversationMessageProps, next: 
     prev.onPeekPrompt === next.onPeekPrompt &&
     prev.onToggleHiddenFromAI === next.onToggleHiddenFromAI &&
     prev.onBranch === next.onBranch &&
+    prev.onSaveMomentSummary === next.onSaveMomentSummary &&
     prev.isLastAssistantMessage === next.isLastAssistantMessage &&
     prev.characterMap === next.characterMap &&
     prev.personaInfo === next.personaInfo &&
@@ -99,6 +100,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   onPeekPrompt,
   onToggleHiddenFromAI,
   onBranch,
+  onSaveMomentSummary,
   characterMap,
   personaInfo,
   onEditClick,
@@ -629,6 +631,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     onPeekPrompt,
     onToggleHiddenFromAI,
     onBranch,
+    onSaveMomentSummary,
     onDelete,
     onShowGenerationReplay: () => setShowGenerationReplay(true),
     onShowThinking: () => setShowThinking(true),
