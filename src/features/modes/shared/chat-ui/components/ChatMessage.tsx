@@ -78,7 +78,7 @@ import type {
 import { GenerationReplayDetailsModal, hasGenerationReplayDetails } from "./GenerationReplayDetailsModal";
 import { ImagePromptPanel } from "./ImagePromptPanel";
 import { SaveMomentAction } from "./SaveMomentAction";
-import type { SaveMomentSource } from "../lib/save-moment";
+import type { SaveMomentDestination, SaveMomentSource } from "../lib/save-moment";
 import { SwipeJumpControl } from "./SwipeJumpControl";
 import { readStoredThinking } from "../lib/message-thinking";
 import { isImageMessageAttachment, messageAttachmentsFromExtra } from "../lib/message-attachments";
@@ -403,6 +403,8 @@ interface ChatMessageProps {
   onBranch?: (messageId: string) => void;
   onSaveMomentSummary?: (source: SaveMomentSource) => void;
   onCloneSceneFromHere?: (messageId: string) => void;
+  saveMomentDestinations?: readonly SaveMomentDestination[];
+  onSaveMomentDestination?: (destinationId: string, source: SaveMomentSource) => void | Promise<void>;
   isCloneSceneFromHereDisabled?: boolean;
   isLastAssistantMessage?: boolean;
   characterMap?: CharacterMap;
@@ -993,6 +995,8 @@ export const ChatMessage = memo(function ChatMessage({
   onBranch,
   onSaveMomentSummary,
   onCloneSceneFromHere,
+  saveMomentDestinations,
+  onSaveMomentDestination,
   isCloneSceneFromHereDisabled,
   characterMap,
   chatMode,
@@ -2328,6 +2332,8 @@ export const ChatMessage = memo(function ChatMessage({
                 onCreateSummaryDraft={onSaveMomentSummary}
                 onBranch={onBranch}
                 onCloneSceneFromHere={onCloneSceneFromHere}
+              destinations={saveMomentDestinations}
+              onDestinationSelect={onSaveMomentDestination}
                 buttonClassName="rounded-md p-[0.35em] text-[0.8125rem] text-white/40 transition-all hover:bg-white/10 hover:text-white/70 active:scale-90"
                 iconSize={MESSAGE_ACTION_ICON_SIZE}
                 align="start"
@@ -2806,6 +2812,8 @@ export const ChatMessage = memo(function ChatMessage({
               onCreateSummaryDraft={onSaveMomentSummary}
               onBranch={onBranch}
               onCloneSceneFromHere={onCloneSceneFromHere}
+              destinations={saveMomentDestinations}
+              onDestinationSelect={onSaveMomentDestination}
               buttonClassName="rounded-md p-[0.35em] text-[0.8125rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] active:scale-90"
               iconSize={MESSAGE_ACTION_ICON_SIZE}
             />

@@ -9,11 +9,17 @@ export interface SaveMomentSource {
   content: string;
 }
 
-export type SaveMomentMenuItemId = "copy-snippet" | "chat-summary" | "lore-draft" | "branch" | "clone-scene";
+export interface SaveMomentDestination {
+  id: string;
+  label: string;
+}
+
+export type SaveMomentMenuItemId = string;
 
 export interface SaveMomentMenuItem {
   id: SaveMomentMenuItemId;
   label: string;
+  destinationId?: string;
 }
 
 export interface SaveMomentSummaryDraft {
@@ -48,13 +54,13 @@ function compactSourceContent(content: string): string {
 export function buildSaveMomentExportText(source: SaveMomentSource): string {
   const lines = [
     "De-Koi Save Moment",
-    `Chat: ${source.chatId}`,
-    `Message: ${source.messageId}`,
-    `Role: ${source.role}`,
+    "Chat: " + source.chatId,
+    "Message: " + source.messageId,
+    "Role: " + source.role,
   ];
   const speaker = source.speakerName?.trim();
-  if (speaker) lines.push(`Speaker: ${speaker}`);
-  if (source.createdAt) lines.push(`Created: ${source.createdAt}`);
+  if (speaker) lines.push("Speaker: " + speaker);
+  if (source.createdAt) lines.push("Created: " + source.createdAt);
   lines.push("", source.content);
   return lines.join("\n");
 }
@@ -98,16 +104,24 @@ export function buildSaveMomentMenuItems({
   canBranch,
   canCloneScene,
   canDraftLore = false,
+  destinations = [],
 }: {
   canCreateSummaryDraft?: boolean;
   canBranch: boolean;
   canCloneScene: boolean;
   canDraftLore?: boolean;
+  destinations?: readonly SaveMomentDestination[];
 }): SaveMomentMenuItem[] {
   const items: SaveMomentMenuItem[] = [{ id: "copy-snippet", label: "Copy snippet" }];
   if (canCreateSummaryDraft) items.push({ id: "chat-summary", label: "Chat summary draft" });
   if (canDraftLore) items.push({ id: "lore-draft", label: "Draft lore entry" });
   if (canBranch) items.push({ id: "branch", label: "Branch from here" });
   if (canCloneScene) items.push({ id: "clone-scene", label: "Clone from here" });
+  for (const destination of destinations) {
+    const id = destination.id.trim();
+    const label = destination.label.trim();
+    if (!id || !label) continue;
+    items.push({ id: "destination:" + id, label, destinationId: id });
+  }
   return items;
 }

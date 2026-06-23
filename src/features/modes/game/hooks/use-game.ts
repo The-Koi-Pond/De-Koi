@@ -726,7 +726,8 @@ export function useGameCheckpoints(chatId: string | null) {
 
 export function useCreateCheckpoint() {
   return useMutation({
-    mutationFn: (data: { chatId: string; label: string; triggerType: string }) => gameApi.createCheckpoint(data),
+    mutationFn: (data: { chatId: string; label: string; triggerType: string; sourceMessageId?: string | null }) =>
+      gameApi.createCheckpoint(data),
   });
 }
 

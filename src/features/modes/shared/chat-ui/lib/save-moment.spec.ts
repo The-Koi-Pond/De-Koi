@@ -89,4 +89,26 @@ describe("save moment", () => {
     ]);
     expect(current.daySummaries["23.06.2026"]?.keyDetails).toEqual(["The lighthouse was quiet."]);
   });
+
+  it("adds caller-provided destinations after built-in message actions", () => {
+    const items = buildSaveMomentMenuItems({
+      canBranch: false,
+      canCloneScene: true,
+      destinations: [
+        { id: "game-journal-note", label: "Add journal note" },
+        { id: "game-checkpoint", label: "Create checkpoint" },
+      ],
+    });
+
+    expect(items.map((item) => item.id)).toEqual([
+      "copy-snippet",
+      "clone-scene",
+      "destination:game-journal-note",
+      "destination:game-checkpoint",
+    ]);
+    expect(items.at(-1)).toMatchObject({
+      destinationId: "game-checkpoint",
+      label: "Create checkpoint",
+    });
+  });
 });
