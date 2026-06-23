@@ -149,6 +149,35 @@ describe("extension import safety", () => {
     ).toThrow(/Unsupported extension UI slot/);
   });
 
+  it("rejects malformed package compatibility metadata", () => {
+    expect(() =>
+      buildImportedExtensionInput(
+        "bad-compatibility.json",
+        JSON.stringify({
+          manifestVersion: 1,
+          id: "bad-compatibility",
+          name: "Bad Compatibility",
+          version: "1.0.0",
+          compatibility: "not an object",
+        }),
+        installedAt,
+      ),
+    ).toThrow(/compatibility must be an object or null/);
+
+    expect(() =>
+      buildImportedExtensionInput(
+        "bad-compatibility-version.json",
+        JSON.stringify({
+          manifestVersion: 1,
+          id: "bad-compatibility-version",
+          name: "Bad Compatibility Version",
+          version: "1.0.0",
+          compatibility: { deKoi: 1 },
+        }),
+        installedAt,
+      ),
+    ).toThrow(/compatibility\.deKoi must be a string/);
+  });
   it("rejects malformed package permission and slot arrays", () => {
     expect(() =>
       buildImportedExtensionInput(

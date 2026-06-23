@@ -49,6 +49,12 @@ function readRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
+function readOptionalRecord(value: unknown, field: string): Record<string, unknown> | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  throw new Error(`Extension package ${field} must be an object or null.`);
+}
+
 function readStringArray(value: unknown, field: string): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new Error(`Extension package ${field} must be an array.`);
@@ -86,7 +92,7 @@ function normalizeSlots(value: unknown): ExtensionPackageUiSlot[] {
 
 function parseJsonExtension(fileName: string, text: string, installedAt: string): ImportedExtensionBuildResult {
   const parsed = readRecord(JSON.parse(text));
-  const entrypoints = readRecord(parsed.entrypoints);
+  const entrypoints = readOptionalRecord(parsed.entrypoints, "entrypoints") ?? {};
   const isPackage = parsed.manifestVersion !== undefined || parsed.entrypoints !== undefined;
 
   if (!isPackage) {
@@ -111,8 +117,11 @@ function parseJsonExtension(fileName: string, text: string, installedAt: string)
 
   const js = readString(entrypoints.js);
   const css = readString(entrypoints.css);
-  const compatibility = readRecord(parsed.compatibility);
-  const ui = readRecord(parsed.ui);
+  const compatibility = readOptionalRecord(parsed.compatibility, "compatibility");
+  if (compatibility?.deKoi !== undefined && typeof compatibility.deKoi !== "string") {
+    throw new Error("Extension package compatibility.deKoi must be a string.");
+  }
+  const ui = readOptionalRecord(parsed.ui, "ui") ?? {};
   const input: CreateExtensionInput = {
     name,
     description: readString(parsed.description) ?? "",
@@ -123,7 +132,7 @@ function parseJsonExtension(fileName: string, text: string, installedAt: string)
     packageId,
     packageVersion,
     manifestVersion: 1,
-    compatibility: Object.keys(compatibility).length ? { deKoi: readString(compatibility.deKoi) ?? undefined } : null,
+    compatibility: compatibility ? { deKoi: readString(compatibility.deKoi) ?? undefined } : null,
     permissions: normalizePermissions(parsed.permissions),
     uiContributions: { slots: normalizeSlots(ui.slots) },
     source: "package",
