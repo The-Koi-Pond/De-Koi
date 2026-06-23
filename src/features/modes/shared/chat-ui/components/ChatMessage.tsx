@@ -82,6 +82,7 @@ import type {
 } from "../types";
 import { GenerationReplayDetailsModal, hasGenerationReplayDetails } from "./GenerationReplayDetailsModal";
 import { ImagePromptPanel } from "./ImagePromptPanel";
+import { SaveMomentAction } from "./SaveMomentAction";
 import { SwipeJumpControl } from "./SwipeJumpControl";
 import { readStoredThinking } from "../lib/message-thinking";
 import { isImageMessageAttachment, messageAttachmentsFromExtra } from "../lib/message-attachments";
@@ -1725,6 +1726,17 @@ export const ChatMessage = memo(function ChatMessage({
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
+  const saveMomentSource = useMemo(
+    () => ({
+      chatId: message.chatId,
+      messageId: message.id,
+      role: message.role,
+      speakerName: displayName,
+      createdAt: message.createdAt,
+      content: text,
+    }),
+    [displayName, message.chatId, message.createdAt, message.id, message.role, text],
+  );
 
   // ─── Swipe navigation ───
   const swipeCount = message.swipeCount ?? 0;
@@ -2313,6 +2325,14 @@ export const ChatMessage = memo(function ChatMessage({
                 title="Copy"
                 dark
               />
+              <SaveMomentAction
+                source={saveMomentSource}
+                onBranch={onBranch}
+                onCloneSceneFromHere={onCloneSceneFromHere}
+                buttonClassName="rounded-md p-[0.35em] text-[0.8125rem] text-white/40 transition-all hover:bg-white/10 hover:text-white/70 active:scale-90"
+                iconSize={MESSAGE_ACTION_ICON_SIZE}
+                align="start"
+              />
               <ActionBtn
                 icon={<Languages size={MESSAGE_ACTION_ICON_SIZE} />}
                 onClick={() => void translate(message.id, message.content, message.chatId)}
@@ -2778,9 +2798,16 @@ export const ChatMessage = memo(function ChatMessage({
             )}
           >
             <ActionBtn
-              icon={copied ? "✓" : <Copy size={MESSAGE_ACTION_ICON_SIZE} />}
+              icon={copied ? "\u2713" : <Copy size={MESSAGE_ACTION_ICON_SIZE} />}
               onClick={handleCopy}
               title="Copy"
+            />
+            <SaveMomentAction
+              source={saveMomentSource}
+              onBranch={onBranch}
+              onCloneSceneFromHere={onCloneSceneFromHere}
+              buttonClassName="rounded-md p-[0.35em] text-[0.8125rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] active:scale-90"
+              iconSize={MESSAGE_ACTION_ICON_SIZE}
             />
             <ActionBtn
               icon={<Languages size={MESSAGE_ACTION_ICON_SIZE} />}
