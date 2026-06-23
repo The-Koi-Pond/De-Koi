@@ -603,6 +603,11 @@ function BudgetOverview({ budget }: { budget: PromptBudgetEstimate }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
 function attributionBadgeClass(model: PromptAttributionViewModel): string {
   if (model.sourceTone === "exact") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
   return "border-amber-500/30 bg-amber-500/10 text-amber-300";
