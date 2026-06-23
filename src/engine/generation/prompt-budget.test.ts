@@ -88,6 +88,17 @@ describe("prompt budget estimates", () => {
     expect(budget.warnings.some((warning) => warning.kind === "lorebook_skipped")).toBe(true);
   });
 
+  it("clamps the input budget when reserves exceed a tiny context limit", () => {
+    const budget = buildPromptBudgetEstimate({
+      messages: [message({ role: "user", content: "Tiny window prompt." })],
+      connection: { maxContext: 128 },
+      parameters: { maxTokens: 256 },
+    });
+
+    expect(budget.inputBudgetTokens).toBe(0);
+    expect(budget.remainingTokens).toBeLessThan(0);
+    expect(budget.warnings.some((warning) => warning.kind === "over_budget")).toBe(true);
+  });
   it("keeps estimates honest when the context limit is unknown", () => {
     const budget = buildPromptBudgetEstimate({
       messages: [message({ role: "system", content: "Prompt without a known model window." })],

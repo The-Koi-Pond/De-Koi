@@ -176,7 +176,7 @@ export function buildPromptBudgetEstimate(input: PromptBudgetInput): PromptBudge
   const inputBudgetTokens =
     contextLimit == null || outputReserveTokens == null
       ? null
-      : contextLimit - outputReserveTokens - CONTEXT_SAFETY_TOKENS;
+      : Math.max(0, contextLimit - outputReserveTokens - CONTEXT_SAFETY_TOKENS);
   const remainingTokens = inputBudgetTokens == null ? null : inputBudgetTokens - estimatedPromptTokens;
   const sections = buildSections(input.messages, inputBudgetTokens, remainingTokens);
   const warnings: PromptBudgetWarning[] = [];
