@@ -562,12 +562,34 @@ export function DekiSurface() {
       try {
         await dekiApi.history.markActionApplied(message.id, application);
       } catch (error) {
+        let reloadedMessages: DekiMessage[] | null = null;
+        let reloadError: unknown = null;
+        try {
+          const history = await dekiApi.history.get();
+          reloadedMessages = history.messages;
+          setMessages(history.messages);
+          setCompaction(history.compaction);
+        } catch (historyError) {
+          reloadError = historyError;
+        }
+        const persistedMessage = reloadedMessages?.find((item) => item.id === message.id);
+        if (persistedMessage?.actionApplication?.status === "applied") {
+          await invalidateDekiActionQueries(queryClient, action.entity).catch(() => undefined);
+          return;
+        }
+        const statusMessage =
+          error instanceof Error
+            ? `The change was applied, but the action card status could not be saved: ${error.message}.`
+            : "The change was applied, but the action card status could not be saved.";
+        const reloadMessage =
+          reloadError instanceof Error
+            ? ` Saved history could not be refreshed: ${reloadError.message}.`
+            : reloadError
+              ? " Saved history could not be refreshed."
+              : " Saved history was refreshed and the action is still pending there.";
         setActionErrors((current) => ({
           ...current,
-          [message.id]:
-            error instanceof Error
-              ? `The change was applied, but the action card status could not be saved: ${error.message}. Retry Apply to save the card status.`
-              : "The change was applied, but the action card status could not be saved. Retry Apply to save the card status.",
+          [message.id]: `${statusMessage}${reloadMessage} Retry Apply to reconcile the card status.`,
         }));
         await invalidateDekiActionQueries(queryClient, action.entity).catch(() => undefined);
         return;

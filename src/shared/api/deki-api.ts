@@ -222,17 +222,17 @@ function withCreateActionId(
   entity: DekiActionEntity,
   draft: Record<string, unknown>,
   actionId: string | undefined,
-): { draft: Record<string, unknown>; generatedId: string | null } {
+): { draft: Record<string, unknown>; idempotencyId: string | null } {
   const existingId = readTrimmedString(draft.id);
-  if (existingId) return { draft: { ...draft, id: existingId }, generatedId: null };
+  if (existingId) return { draft: { ...draft, id: existingId }, idempotencyId: existingId };
   const generatedId = createActionRecordId(entity, actionId);
-  return generatedId ? { draft: { ...draft, id: generatedId }, generatedId } : { draft, generatedId: null };
+  return generatedId ? { draft: { ...draft, id: generatedId }, idempotencyId: generatedId } : { draft, idempotencyId: null };
 }
 
 function normalizeCreateActionDraft(
   action: Extract<DekiEntryAction, { type: "create_record" }>,
   actionId: string | undefined,
-): { draft: Record<string, unknown>; generatedId: string | null } {
+): { draft: Record<string, unknown>; idempotencyId: string | null } {
   switch (action.entity) {
     case "prompt-sections":
       return withCreateActionId(action.entity, createPromptSectionSchema.parse(action.draft), actionId);
@@ -245,18 +245,26 @@ function normalizeCreateActionDraft(
   }
 }
 
+async function getExistingDekiActionRecord(
+  storageEntity: StorageEntity,
+  idempotencyId: string | null,
+): Promise<unknown | null> {
+  if (!idempotencyId) return null;
+  return storageApi.get(storageEntity, idempotencyId).catch(() => null);
+}
+
 async function createDekiActionRecord(
   storageEntity: StorageEntity,
   draft: Record<string, unknown>,
-  generatedId: string | null,
+  idempotencyId: string | null,
 ): Promise<unknown> {
+  const existing = await getExistingDekiActionRecord(storageEntity, idempotencyId);
+  if (existing) return existing;
   try {
     return await storageApi.create(storageEntity, draft);
   } catch (error) {
-    if (generatedId) {
-      const existing = await storageApi.get(storageEntity, generatedId).catch(() => null);
-      if (existing) return existing;
-    }
+    const recovered = await getExistingDekiActionRecord(storageEntity, idempotencyId);
+    if (recovered) return recovered;
     throw error;
   }
 }
@@ -292,8 +300,8 @@ async function applyCreateDekiAction(
   actionId: string | undefined,
 ): Promise<unknown> {
   const storageEntity = storageEntityForDekiAction(action.entity);
-  const { draft, generatedId } = normalizeCreateActionDraft(action, actionId);
-  const result = await createDekiActionRecord(storageEntity, draft, generatedId);
+  const { draft, idempotencyId } = normalizeCreateActionDraft(action, actionId);
+  const result = await createDekiActionRecord(storageEntity, draft, idempotencyId);
   await appendPromptChildToParentOrder(action.entity, draft, result);
   return result;
 }

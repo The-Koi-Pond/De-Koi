@@ -66,9 +66,15 @@ describe("dekiApi.actions.apply", () => {
       presetId: "preset-1",
       name: "Deki Section",
     });
-    storageApiMock.get.mockResolvedValue({
-      id: "preset-1",
-      sectionOrder: ["section-existing"],
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "prompt-sections" && id === "deki-prompt-sections-message-1") return null;
+      if (entity === "prompts" && id === "preset-1") {
+        return {
+          id: "preset-1",
+          sectionOrder: ["section-existing"],
+        };
+      }
+      return null;
     });
     storageApiMock.update.mockResolvedValue({
       id: "preset-1",
@@ -106,7 +112,6 @@ describe("dekiApi.actions.apply", () => {
         description: "Sunny traveler",
       },
     };
-    storageApiMock.create.mockRejectedValue(new Error("Record already exists"));
     storageApiMock.get.mockResolvedValue({
       id: "deki-personas-message-1",
       name: "Sol",
@@ -114,17 +119,56 @@ describe("dekiApi.actions.apply", () => {
 
     const result = await dekiApi.actions.apply(action, { actionId: "message-1" });
 
-    expect(storageApiMock.create).toHaveBeenCalledWith(
-      "personas",
-      expect.objectContaining({
-        id: "deki-personas-message-1",
-        name: "Sol",
-      }),
-    );
+    expect(storageApiMock.create).not.toHaveBeenCalled();
     expect(storageApiMock.get).toHaveBeenCalledWith("personas", "deki-personas-message-1");
     expect(storageApiMock.update).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       resultId: "deki-personas-message-1",
+    });
+  });
+
+  it("reconciles prompt child order when retry finds an existing deterministic child", async () => {
+    const action: DekiEntryAction = {
+      type: "create_record",
+      entity: "prompt-sections",
+      draft: {
+        presetId: "preset-1",
+        identifier: "section_deki",
+        name: "Deki Section",
+        content: "Use a lighter tone.",
+      },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "prompt-sections" && id === "deki-prompt-sections-message-1") {
+        return {
+          id: "deki-prompt-sections-message-1",
+          presetId: "preset-1",
+          name: "Deki Section",
+        };
+      }
+      if (entity === "prompts" && id === "preset-1") {
+        return {
+          id: "preset-1",
+          sectionOrder: ["section-existing"],
+        };
+      }
+      return null;
+    });
+    storageApiMock.update.mockResolvedValue({
+      id: "preset-1",
+      sectionOrder: ["section-existing", "deki-prompt-sections-message-1"],
+    });
+
+    const result = await dekiApi.actions.apply(action, { actionId: "message-1" });
+
+    expect(storageApiMock.create).not.toHaveBeenCalled();
+    expect(storageApiMock.get).toHaveBeenCalledWith("prompt-sections", "deki-prompt-sections-message-1");
+    expect(storageApiMock.get).toHaveBeenCalledWith("prompts", "preset-1");
+    expect(storageApiMock.update).toHaveBeenCalledWith("prompts", "preset-1", {
+      sectionOrder: ["section-existing", "deki-prompt-sections-message-1"],
+    });
+    expect(result).toMatchObject({
+      resultId: "deki-prompt-sections-message-1",
     });
   });
 });
