@@ -206,18 +206,59 @@ assertContains("docs/vds.md", vdsDocs, "IP_ALLOWLIST");
 
 const workflow = read(".github/workflows/pi-container-images.yml");
 assertContains(".github/workflows/pi-container-images.yml", workflow, "packages: write");
-assertContains(".github/workflows/pi-container-images.yml", workflow, "docker/setup-qemu-action@v3");
-assertContains(".github/workflows/pi-container-images.yml", workflow, "platforms: linux/amd64,linux/arm64");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "runs-on: ${{ matrix.runner }}");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "runner: ubuntu-24.04-arm");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "platform: linux/amd64");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "platform: linux/arm64");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "platforms: ${{ matrix.platform }}");
 assertContains(
   ".github/workflows/pi-container-images.yml",
   workflow,
-  "cache-from: type=gha,scope=pi-${{ matrix.name }}",
+  "type=raw,value=sha-${{ steps.version.outputs.short_sha }}-${{ matrix.arch }}",
 );
 assertContains(
   ".github/workflows/pi-container-images.yml",
   workflow,
-  "cache-to: type=gha,mode=max,scope=pi-${{ matrix.name }}",
+  "type=raw,value=v${{ steps.version.outputs.version }}-${{ steps.version.outputs.short_sha }}-${{ matrix.arch }}",
 );
+assertContains(
+  ".github/workflows/pi-container-images.yml",
+  workflow,
+  "cache-from: type=gha,scope=pi-${{ matrix.name }}-${{ matrix.arch }}",
+);
+assertContains(
+  ".github/workflows/pi-container-images.yml",
+  workflow,
+  "cache-to: type=gha,mode=max,scope=pi-${{ matrix.name }}-${{ matrix.arch }}",
+);
+assertContains(".github/workflows/pi-container-images.yml", workflow, "Build and push native platform image");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "id: build");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "Record pushed image digest");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "steps.build.outputs.digest");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "printf '%s@%s\\n'");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "Upload pushed image digest");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "actions/upload-artifact@v4");
+assertContains(
+  ".github/workflows/pi-container-images.yml",
+  workflow,
+  "name: image-digest-${{ matrix.name }}-${{ matrix.arch }}",
+);
+assertContains(".github/workflows/pi-container-images.yml", workflow, "Publish multi-arch manifests");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "Download pushed image digests");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "actions/download-artifact@v4");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "pattern: image-digest-*");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "Missing pushed digest artifact");
+assertContains(
+  ".github/workflows/pi-container-images.yml",
+  workflow,
+  'docker buildx imagetools inspect "${amd64_ref}"',
+);
+assertContains(
+  ".github/workflows/pi-container-images.yml",
+  workflow,
+  'docker buildx imagetools inspect "${arm64_ref}"',
+);
+assertContains(".github/workflows/pi-container-images.yml", workflow, "Publish server and web multi-arch tags");
 assertContains(".github/workflows/pi-container-images.yml", workflow, "ghcr.io/the-koi-pond/de-koi-server");
 assertContains(".github/workflows/pi-container-images.yml", workflow, "ghcr.io/the-koi-pond/de-koi-web");
 assertContains(".github/workflows/pi-container-images.yml", workflow, "cancel-in-progress: true");
@@ -227,13 +268,17 @@ assertContains(
   "Confirm this run is current main HEAD before building",
 );
 assertContains(".github/workflows/pi-container-images.yml", workflow, "Promote matched server and web images");
+assertContains(".github/workflows/pi-container-images.yml", workflow, "needs: publish-manifests");
 assertContains(".github/workflows/pi-container-images.yml", workflow, "docker buildx imagetools create");
+assertNotContains(".github/workflows/pi-container-images.yml", workflow, "docker/setup-qemu-action@v3");
+assertNotContains(".github/workflows/pi-container-images.yml", workflow, "platforms: linux/amd64,linux/arm64");
+assertNotContains(".github/workflows/pi-container-images.yml", workflow, "${image}:sha-${short_sha}-amd64");
+assertNotContains(".github/workflows/pi-container-images.yml", workflow, "${image}:sha-${short_sha}-arm64");
 assertNotMatch(
   ".github/workflows/pi-container-images.yml",
   workflow,
-  /Docker metadata[\s\S]*type=raw,value=prealpha[\s\S]*Build and push ARM64 image/,
+  /Docker metadata[\s\S]*type=raw,value=prealpha[\s\S]*Build and push native platform image/,
 );
-assertContains(".github/workflows/pi-container-images.yml", workflow, "type=raw,value=sha-");
 assertNotMatch(".github/workflows/pi-container-images.yml", workflow, /type=raw,value=latest/);
 
 console.log("Container distribution config looks valid.");
