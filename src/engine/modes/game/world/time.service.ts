@@ -52,7 +52,7 @@ export function isTimeOfDayLabel(action: string): action is SceneTimeOfDayLabel 
 }
 
 /** Add a specific number of minutes to the clock. */
-function addMinutes(current: GameTime, minutes: number): GameTime {
+export function addMinutes(current: GameTime, minutes: number): GameTime {
   let totalMinutes = current.day * 24 * 60 + current.hour * 60 + current.minute + minutes;
 
   const day = Math.floor(totalMinutes / (24 * 60));

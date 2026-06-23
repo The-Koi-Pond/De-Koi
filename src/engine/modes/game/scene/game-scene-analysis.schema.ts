@@ -7,9 +7,7 @@ const nullableString = z.string().nullable();
 const finiteNumber = z.number().finite();
 
 const weatherSchema = z.enum(["clear", "cloudy", "foggy", "rainy", "stormy", "snowy", "windy", "frost"]).nullable();
-const timeOfDaySchema = z
-  .enum(["dawn", "morning", "noon", "afternoon", "evening", "night", "midnight"])
-  .nullable();
+const timeOfDaySchema = z.enum(["dawn", "morning", "noon", "afternoon", "evening", "night", "midnight"]).nullable();
 
 const directionSchema = z
   .object({
@@ -85,6 +83,7 @@ export const gameSceneAnalysisStructuredSchema = z
     background: nullableString,
     weather: weatherSchema,
     timeOfDay: timeOfDaySchema,
+    elapsedMinutes: finiteNumber.min(0).max(24 * 60).nullable().optional(),
     locationKind: z.enum(LOCATION_KINDS).nullable(),
     musicGenre: z.enum(MUSIC_GENRES).nullable().optional(),
     musicIntensity: z.enum(MUSIC_INTENSITIES).nullable().optional(),
@@ -101,8 +100,10 @@ export const GAME_SCENE_ANALYSIS_SCHEMA_DESCRIPTION = JSON.stringify({
   background: "one provided background tag string or null",
   weather: "clear | cloudy | foggy | rainy | stormy | snowy | windy | frost | null",
   timeOfDay: "dawn | morning | noon | afternoon | evening | night | midnight | null",
+  elapsedMinutes: "0-1440 estimated in-world minutes for this player action, or null",
   locationKind: "interior | exterior | underground | urban | nature | null",
-  musicGenre: "fantasy | horror | romance | mystery | scifi | modern | slice_of_life | adventure | drama | custom | null",
+  musicGenre:
+    "fantasy | horror | romance | mystery | scifi | modern | slice_of_life | adventure | drama | custom | null",
   musicIntensity: "calm | tense | intense | null",
   spotifyTrack: "one offered Spotify URI string/object or null",
   reputationChanges: [{ npcName: "non-empty string", action: "non-empty string" }],

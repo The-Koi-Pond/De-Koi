@@ -657,13 +657,16 @@ export function useWorldTick() {
       triggerKey?: string;
       enabled?: boolean;
       discriminator?: string;
+      elapsedMinutes?: number;
     }) => gameApi.runWorldTick(data),
     onSuccess: (res, variables) => {
       publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
       qc.invalidateQueries({ queryKey: [...gameKeys.all, "journal", variables.chatId] });
       const meta =
-        res.sessionChat.metadata && typeof res.sessionChat.metadata === "object" && !Array.isArray(res.sessionChat.metadata)
+        res.sessionChat.metadata &&
+        typeof res.sessionChat.metadata === "object" &&
+        !Array.isArray(res.sessionChat.metadata)
           ? (res.sessionChat.metadata as Record<string, unknown>)
           : {};
       if (Array.isArray(meta.gameNpcs)) {

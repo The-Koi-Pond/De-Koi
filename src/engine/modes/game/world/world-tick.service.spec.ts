@@ -123,6 +123,27 @@ describe("resolveGameWorldTick", () => {
     expect(result.recapLines).toContain("Conditions may shift as travel continues through North Road.");
   });
 
+  it("uses an explicit elapsed-time estimate for short manual actions without refreshing weather", () => {
+    const result = resolveGameWorldTick({
+      enabled: true,
+      trigger: "manual",
+      triggerKey: "manual:chat-1:short-action",
+      previousTriggerKeys: [],
+      time: time(1, 9),
+      elapsedMinutes: 2,
+      weather: weather("clear"),
+      location: "Market Ward",
+      journal: createJournal(),
+      npcs: [],
+      nowIso: NOW,
+    });
+
+    expect(result.changed).toBe(true);
+    expect(result.time).toEqual(time(1, 9, 2));
+    expect(result.weatherIntent).toBeNull();
+    expect(result.recapLines).toContain("Time advanced to Day 1, 09:02 (morning).");
+  });
+
   it("records a session boundary recap without advancing time", () => {
     const result = resolveGameWorldTick({
       enabled: true,
@@ -140,17 +161,14 @@ describe("resolveGameWorldTick", () => {
     expect(result.changed).toBe(true);
     expect(result.time).toEqual(time(2, 21, 30));
     expect(result.weatherIntent).toBeNull();
-    expect(result.recapLines).toEqual([
-      "World state reviewed at Day 2, 21:30 (night).",
-      "Session ended at Moon Gate.",
-    ]);
+    expect(result.recapLines).toEqual(["World state reviewed at Day 2, 21:30 (night).", "Session ended at Moon Gate."]);
     expect(result.journal.entries[0]).toMatchObject({
       type: "event",
       title: "World advanced: Session ended",
       content: result.recap,
     });
   });
-it("adds one world event journal entry when the tick changes world facts", () => {
+  it("adds one world event journal entry when the tick changes world facts", () => {
     const result = resolveGameWorldTick({
       enabled: true,
       trigger: "manual",

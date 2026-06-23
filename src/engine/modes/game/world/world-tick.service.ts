@@ -1,6 +1,6 @@
 import type { GameNpc } from "../../../contracts/types/game";
 import type { Journal } from "./journal.service";
-import { advanceTime, formatGameTime, type GameTime } from "./time.service";
+import { addMinutes, advanceTime, formatGameTime, type GameTime } from "./time.service";
 import type { WeatherState } from "./weather.service";
 
 export type GameWorldTickTrigger =
@@ -55,6 +55,7 @@ export interface GameWorldTickInput {
   journal: Journal;
   npcs: readonly GameNpc[];
   npcRules?: readonly GameWorldTickNpcRule[];
+  elapsedMinutes?: number;
   nowIso?: string;
 }
 
@@ -98,7 +99,14 @@ function normalizeTriggerKey(value: string): string {
   return value.trim();
 }
 
-function nextTimeForTrigger(time: GameTime, trigger: GameWorldTickTrigger): GameTime {
+function elapsedMinutesFromInput(value: number | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(24 * 60, Math.trunc(value)));
+}
+
+function nextTimeForTrigger(time: GameTime, trigger: GameWorldTickTrigger, elapsedMinutes?: number): GameTime {
+  const explicitMinutes = elapsedMinutesFromInput(elapsedMinutes);
+  if (explicitMinutes != null) return addMinutes(time, explicitMinutes);
   const action = TRIGGER_TIME_ACTIONS[trigger];
   return action ? advanceTime(time, action) : time;
 }
@@ -246,12 +254,13 @@ export function resolveGameWorldTick(input: GameWorldTickInput): GameWorldTickRe
     };
   }
 
-  const time = nextTimeForTrigger(input.time, input.trigger);
+  const time = nextTimeForTrigger(input.time, input.trigger, input.elapsedMinutes);
   const dayChanged = time.day > input.time.day;
   const weatherIntent = weatherIntentForTrigger(input.trigger, dayChanged);
   const npcResult = applyNpcRules(input.npcs, input.npcRules);
   const timeChanged = !sameTime(input.time, time);
-  const changed = timeChanged || weatherIntent != null || npcResult.updates.length > 0 || isSessionBoundaryTrigger(input.trigger);
+  const changed =
+    timeChanged || weatherIntent != null || npcResult.updates.length > 0 || isSessionBoundaryTrigger(input.trigger);
 
   if (!changed) {
     return {

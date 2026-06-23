@@ -105,9 +105,7 @@ const baseContext = {
   currentWeather: "clear",
   currentTimeOfDay: "morning",
   useSpotifyMusic: true,
-  availableSpotifyTracks: [
-    { uri: "spotify:track:valid", name: "Valid Song", artist: "The Testers", album: "Proof" },
-  ],
+  availableSpotifyTracks: [{ uri: "spotify:track:valid", name: "Valid Song", artist: "The Testers", album: "Proof" }],
 };
 
 function validSceneJson(overrides: JsonRecord = {}): string {
@@ -133,7 +131,7 @@ function validSceneJson(overrides: JsonRecord = {}): string {
 
 describe("analyzeGameScene structured generation", () => {
   it("returns post-processed scene analysis from valid structured JSON", async () => {
-    const llm = llmWithResponses([validSceneJson({ spotifyTrack: { uri: "spotify:track:valid" } })]);
+    const llm = llmWithResponses([validSceneJson({ spotifyTrack: { uri: "spotify:track:valid" }, elapsedMinutes: 3 })]);
 
     const result = await analyzeGameScene(
       { storage: storageGateway(), llm },
@@ -144,6 +142,7 @@ describe("analyzeGameScene structured generation", () => {
     expect(result.weather).toBe("rainy");
     expect(result.locationKind).toBe("interior");
     expect(result.spotifyTrack).toMatchObject({ uri: "spotify:track:valid", name: "Valid Song" });
+    expect(result.elapsedMinutes).toBe(3);
     expect(result.segmentEffects?.[0]?.sfx).toEqual(["sfx:door:slam"]);
     expect(llm.complete).toHaveBeenCalledTimes(1);
   });
@@ -175,9 +174,26 @@ describe("analyzeGameScene structured generation", () => {
     expect(llm.requests[1]?.messages.at(-1)?.content).toContain("weather");
     expect(llm.requests[1]?.messages.at(-1)?.content).toContain("lava");
   });
+  it("repairs out-of-range elapsed-time estimates before post-processing applies scene changes", async () => {
+    const llm = llmWithResponses([validSceneJson({ elapsedMinutes: 5000 }), validSceneJson({ elapsedMinutes: 12 })]);
+
+    const result = await analyzeGameScene(
+      { storage: storageGateway(), llm },
+      { chatId: "chat-1", narration: "The party searches the market stalls.", context: baseContext },
+    );
+
+    expect(result.elapsedMinutes).toBe(12);
+    expect(llm.complete).toHaveBeenCalledTimes(2);
+    expect(llm.requests[1]?.messages.at(-1)?.content).toContain("elapsedMinutes");
+    expect(llm.requests[1]?.messages.at(-1)?.content).toContain("5000");
+  });
+
 
   it("returns a no-op analysis after final invalid output without malformed fallback mutations", async () => {
-    const llm = llmWithResponses(["not json", validSceneJson({ weather: "lava", spotifyTrack: "spotify:track:valid" })]);
+    const llm = llmWithResponses([
+      "not json",
+      validSceneJson({ weather: "lava", spotifyTrack: "spotify:track:valid" }),
+    ]);
 
     const result = await analyzeGameScene(
       { storage: storageGateway(), llm },
