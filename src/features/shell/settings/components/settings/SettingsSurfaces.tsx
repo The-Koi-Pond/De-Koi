@@ -24,10 +24,7 @@ import { cn } from "../../../../../shared/lib/utils";
 import { stripDangerousCss } from "../../../../../shared/lib/chat-css";
 import { TEMPERATURE_UNITS } from "../../../../../shared/lib/temperature-units";
 import { QUOTE_FORMATS } from "../../../../../shared/lib/dialogue-quotes";
-import {
-  extensionHasRunnableJavaScript,
-  getInitialImportedExtensionEnabled,
-} from "../../../../../shared/lib/extension-import";
+import { buildImportedExtensionInput, extensionHasRunnableJavaScript } from "../../../../../shared/lib/extension-import";
 import { useExtensions, useCreateExtension, useDeleteExtension, useUpdateExtension } from "../../hooks/use-extensions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { gameAssetsApi } from "../../../../../shared/api/assets-api";
@@ -3104,52 +3101,13 @@ export function ExtensionsSettings() {
       const text = await file.text();
       const installedAt = new Date().toISOString();
 
-      if (file.name.endsWith(".json")) {
-        const parsed = JSON.parse(text);
-        const name = parsed.name ?? file.name.replace(/\.json$/, "");
-        const css = parsed.css ?? null;
-        const js = parsed.js ?? null;
-        await createExtension.mutateAsync({
-          name,
-          description: parsed.description ?? "",
-          css,
-          js,
-          enabled: getInitialImportedExtensionEnabled({ js }),
-          installedAt,
-        });
-        toast.success(
-          extensionHasRunnableJavaScript({ js })
-            ? `Extension "${name}" installed disabled. Review it before enabling.`
-            : `Extension "${name}" installed`,
-        );
-      } else if (file.name.endsWith(".js")) {
-        const name = file.name.replace(/\.js$/, "");
-        const hasRunnableJs = extensionHasRunnableJavaScript({ js: text });
-        await createExtension.mutateAsync({
-          name,
-          description: "JS extension imported from file",
-          js: text,
-          enabled: getInitialImportedExtensionEnabled({ js: text }),
-          installedAt,
-        });
-        toast.success(
-          hasRunnableJs
-            ? `Extension "${name}" installed disabled. Review it before enabling.`
-            : `Extension "${name}" installed`,
-        );
-      } else if (file.name.endsWith(".css")) {
-        const name = file.name.replace(/\.css$/, "");
-        await createExtension.mutateAsync({
-          name,
-          description: "CSS extension imported from file",
-          css: text,
-          enabled: true,
-          installedAt,
-        });
-        toast.success(`Extension "${name}" installed`);
-      } else {
-        toast.error("Only .json, .css, and .js extension files are supported.");
-      }
+      const result = buildImportedExtensionInput(file.name, text, installedAt);
+      await createExtension.mutateAsync(result.input);
+      toast.success(
+        result.hasRunnableJavaScript
+          ? `Extension "${result.input.name}" installed disabled. Review it before enabling.`
+          : `Extension "${result.input.name}" installed`,
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to import extension.");
     }
@@ -3202,6 +3160,13 @@ export function ExtensionsSettings() {
               <span className="truncate font-medium">{ext.name}</span>
               {ext.description && (
                 <span className="truncate text-[0.625rem] text-[var(--muted-foreground)]">{ext.description}</span>
+              )}
+              {ext.packageId && (
+                <span className="truncate text-[0.625rem] text-[var(--muted-foreground)]">
+                  {ext.packageId}
+                  {ext.packageVersion ? ` v${ext.packageVersion}` : ""}
+                  {ext.permissions?.length ? ` - ${ext.permissions.length} permissions` : ""}
+                </span>
               )}
             </div>
             <button

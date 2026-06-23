@@ -64,6 +64,30 @@
           </tbody>
         </table>
 
+        <h2>Package Manifest</h2>
+        <p>
+          De-Koi can import a JSON extension package manifest with <code>manifestVersion: 1</code>. The first package
+          slice records identity, version, compatibility, permissions, and declared UI slots; it does not grant new
+          runtime capabilities beyond the existing CSS, JavaScript, and scoped <code>plugin-memory</code> APIs.
+        </p>
+        <pre><code>{
+  "manifestVersion": 1,
+  "id": "soft-reading-mode",
+  "name": "Soft Reading Mode",
+  "description": "Makes long chats calmer to read.",
+  "version": "1.0.0",
+  "compatibility": { "deKoi": "&gt;=1.6.0 &lt;2.0.0" },
+  "permissions": ["ui:styles", "storage:plugin-memory"],
+  "ui": { "slots": ["settings", "overlay"] },
+  "entrypoints": {
+    "css": "body { line-height: 1.65; }",
+    "js": null
+  }
+}</code></pre>
+        <p>
+          Packages with JavaScript are installed disabled and must be explicitly enabled in Settings. Profile imports
+          also force extension rows disabled even when exported metadata says otherwise.
+        </p>
         <div class="callout">
           JavaScript extensions are trusted local code. They can change the page and use extension storage, so De-Koi
           imports runnable JavaScript disabled by default and asks for confirmation before enabling it.
