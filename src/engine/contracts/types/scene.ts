@@ -216,6 +216,8 @@ export interface SceneAnalysis {
   weather: string | null;
   /** Time of day update, applied immediately. */
   timeOfDay: string | null;
+  /** Estimated elapsed in-world minutes for the just-finished player action. */
+  elapsedMinutes?: number | null;
   /** Compact scene-genre hint for deterministic music scoring. */
   musicGenre?: MusicGenre | null;
   /** Compact scene-intensity hint for deterministic music scoring. */

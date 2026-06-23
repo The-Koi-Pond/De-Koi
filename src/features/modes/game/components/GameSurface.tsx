@@ -2852,6 +2852,7 @@ export function GameSurface({
 
   useEffect(() => {
     if (!latestAssistantMsg?.content || isStreaming) return;
+    if (gameWorldTickEnabled) return;
     if (latestAssistantDirectAddressMode) return;
     if (weatherMsgRef.current === latestAssistantMsg.id) return;
     weatherMsgRef.current = latestAssistantMsg.id;
@@ -2863,6 +2864,7 @@ export function GameSurface({
     latestAssistantMsg?.id,
     latestAssistantDirectAddressMode,
     isStreaming,
+    gameWorldTickEnabled,
     activeChatId,
     updateWeather,
     weatherMsgRef,
@@ -3345,6 +3347,9 @@ export function GameSurface({
     }
     if (result.timeOfDay) {
       _advanceTime.mutate({ chatId: activeChatId, action: result.timeOfDay });
+    }
+    if (result.elapsedMinutes != null) {
+      runAutomaticWorldTick("scene_end", msg.id, activeChatId, result.elapsedMinutes);
     }
     if (result.reputationChanges?.length) {
       const repActions = result.reputationChanges.map((rc) => ({
@@ -6506,9 +6511,14 @@ export function GameSurface({
   }, [activeChatId, worldTick]);
 
   const runAutomaticWorldTick = useCallback(
-    (trigger: "session_start" | "session_end" | "day_start", discriminator: string, chatId = activeChatId) => {
+    (
+      trigger: "session_start" | "session_end" | "day_start" | "scene_end",
+      discriminator: string,
+      chatId = activeChatId,
+      elapsedMinutes?: number,
+    ) => {
       if (!gameWorldTickEnabled || worldTick.isPending) return;
-      worldTick.mutate({ chatId, trigger, discriminator });
+      worldTick.mutate({ chatId, trigger, discriminator, elapsedMinutes });
     },
     [activeChatId, gameWorldTickEnabled, worldTick],
   );
