@@ -3449,7 +3449,8 @@ export function AdvancedSettings() {
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [openingUpdate, setOpeningUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResponse | null>(null);
-  const [adminSecret, setAdminSecret] = useState(readAdminSecretStorage);
+  const [savedAdminSecret, setSavedAdminSecret] = useState(readAdminSecretStorage);
+  const [adminSecret, setAdminSecret] = useState(savedAdminSecret);
   const [quickRepliesDrawerOpen, setQuickRepliesDrawerOpen] = useState(true);
   const remoteRuntimeSectionRef = useRef<HTMLDivElement>(null);
   const remoteRuntimeHealthAbortRef = useRef<AbortController | null>(null);
@@ -3521,6 +3522,7 @@ export function AdvancedSettings() {
   const backupsQuery = useQuery<ManagedBackup[]>({
     queryKey: ["backups"],
     queryFn: backupApi.listBackups,
+    enabled: !remoteRuntimeUrl.trim() || savedAdminSecret.trim().length > 0,
   });
 
   const createBackupMutation = useMutation({
@@ -3675,12 +3677,14 @@ export function AdvancedSettings() {
   const saveAdminSecret = useCallback(() => {
     const trimmed = adminSecret.trim();
     writeAdminSecretStorage(trimmed);
+    setSavedAdminSecret(trimmed);
     if (trimmed) {
       toast.success("Admin secret saved for this browser");
+      queryClient.invalidateQueries({ queryKey: ["backups"] });
     } else {
       toast.info("Admin secret cleared");
     }
-  }, [adminSecret]);
+  }, [adminSecret, queryClient]);
 
   const isClearing = clearAllData.isPending || expungeData.isPending;
   const isAllScopesSelected = selectedScopes.length === EXPUNGE_SCOPE_OPTIONS.length;
