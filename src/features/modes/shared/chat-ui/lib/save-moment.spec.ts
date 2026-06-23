@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   applySaveMomentSummaryDraft,
@@ -37,9 +37,10 @@ describe("save moment", () => {
       canCreateSummaryDraft: true,
       canBranch: true,
       canCloneScene: false,
+      canDraftLore: true,
     });
 
-    expect(items.map((item) => item.id)).toEqual(["copy-snippet", "chat-summary", "branch"]);
+    expect(items.map((item) => item.id)).toEqual(["copy-snippet", "chat-summary", "lore-draft", "branch"]);
   });
 
   it("builds a chat summary draft from source message metadata", () => {

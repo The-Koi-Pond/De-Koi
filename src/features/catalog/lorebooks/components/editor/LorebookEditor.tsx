@@ -32,7 +32,12 @@ import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { exportApi } from "../../../../../shared/api/export-api";
 import { toastExportError, triggerDownloadWithToast } from "../../../../shared/lib/export-feedback";
-import type { Lorebook, LorebookActivationTraceEntry, LorebookEntry, LorebookFolder } from "../../../../../engine/contracts/types/lorebook";
+import type {
+  Lorebook,
+  LorebookActivationTraceEntry,
+  LorebookEntry,
+  LorebookFolder,
+} from "../../../../../engine/contracts/types/lorebook";
 import { scanForActivatedEntriesWithTrace } from "../../../../../engine/generation-core/lorebooks/keyword-scanner";
 import { LorebookEditorHeader } from "./LorebookEditorHeader";
 import { LorebookEditorTabs, type LorebookEditorTabId } from "./LorebookEditorTabs";
@@ -90,7 +95,9 @@ function useDebouncedValue(value: string, delayMs: number): string {
 
 export function LorebookEditor() {
   const lorebookId = useUIStore((s) => s.lorebookDetailId);
+  const focusEntryId = useUIStore((s) => s.lorebookEntryDetailId);
   const closeDetail = useUIStore((s) => s.closeLorebookDetail);
+  const clearLorebookEntryDetail = useUIStore((s) => s.clearLorebookEntryDetail);
   const activeChat = useChatStore((s) => s.activeChat);
   const { data: rawLorebook, isLoading, isError } = useLorebook(lorebookId);
   const { data: rawLorebooks } = useLorebooks();
@@ -147,6 +154,13 @@ export function LorebookEditor() {
   const [keywordPreviewDebounced, setKeywordPreviewDebounced] = useState("");
   const [keywordPreviewTraceEntries, setKeywordPreviewTraceEntries] = useState<LorebookActivationTraceEntry[]>([]);
   const keywordPreviewScanId = useRef(0);
+  useEffect(() => {
+    if (!focusEntryId) return;
+    if (!entries.some((entry) => entry.id === focusEntryId)) return;
+    setActiveTab("entries");
+    setExpandedEntryId(focusEntryId);
+    clearLorebookEntryDetail();
+  }, [clearLorebookEntryDetail, entries, focusEntryId]);
   useEffect(() => {
     const handle = window.setTimeout(() => setKeywordPreviewDebounced(keywordPreviewText), 150);
     return () => window.clearTimeout(handle);

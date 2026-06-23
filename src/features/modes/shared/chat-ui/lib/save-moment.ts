@@ -103,15 +103,18 @@ export function buildSaveMomentMenuItems({
   canCreateSummaryDraft,
   canBranch,
   canCloneScene,
+  canDraftLore = false,
   destinations = [],
 }: {
   canCreateSummaryDraft?: boolean;
   canBranch: boolean;
   canCloneScene: boolean;
+  canDraftLore?: boolean;
   destinations?: readonly SaveMomentDestination[];
 }): SaveMomentMenuItem[] {
   const items: SaveMomentMenuItem[] = [{ id: "copy-snippet", label: "Copy snippet" }];
   if (canCreateSummaryDraft) items.push({ id: "chat-summary", label: "Chat summary draft" });
+  if (canDraftLore) items.push({ id: "lore-draft", label: "Draft lore entry" });
   if (canBranch) items.push({ id: "branch", label: "Branch from here" });
   if (canCloneScene) items.push({ id: "clone-scene", label: "Clone from here" });
   for (const destination of destinations) {

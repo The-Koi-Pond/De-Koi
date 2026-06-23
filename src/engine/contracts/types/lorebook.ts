@@ -130,6 +130,10 @@ export interface LorebookEntry {
   content: string;
   /** Short summary used by the knowledge-router agent to decide if this entry is relevant */
   description: string;
+  /** Chat id captured when this entry was drafted from a Save Moment action. */
+  sourceChatId?: string | null;
+  /** Message id captured when this entry was drafted from a Save Moment action. */
+  sourceMessageId?: string | null;
   /** Primary trigger keywords (supports regex) */
   keys: string[];
   /** Secondary / optional keywords */
