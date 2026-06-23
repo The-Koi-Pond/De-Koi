@@ -201,6 +201,7 @@ describe("HealthDiagnosticsSettings", () => {
     });
     await flushAsyncWork();
 
+    expect(connectionCommandApi.test).toHaveBeenCalledWith("conn-1");
     expect(container!.textContent).toContain("Probe completed in 10 ms.");
     expect(container!.textContent).not.toContain("Needs attention");
   });
