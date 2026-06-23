@@ -23,6 +23,8 @@ import { useAgentStore } from "../../shared/stores/agent.store";
 import { useBackgroundAutonomousPolling } from "../../features/modes/conversation/background-autonomous";
 import { useClearAutonomousUnread } from "../../features/catalog/chats/autonomous-unread";
 import { chatKeys } from "../../features/catalog/chats/index";
+import { useIsCoreModuleEnabled } from "../../features/shell/plugins/shell";
+import { SPOTIFY_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants/core-modules";
 import { useIdleDetection } from "../../shared/hooks/use-idle-detection";
 import { ImagePromptReviewHost } from "../../shared/components/ui/ImagePromptReviewHost";
 import { cn } from "../../shared/lib/utils";
@@ -248,7 +250,7 @@ export function AppShell() {
   const [notificationBubblesMounted, setNotificationBubblesMounted] = useState(false);
   const debugMode = useUIStore((s) => s.debugMode);
   const hasAgentDebugActivity = useAgentStore((s) => debugMode && (s.debugLog.length > 0 || s.lastResults.size > 0));
-  const spotifyPlayerEnabled = useUIStore((s) => s.spotifyPlayerEnabled);
+  const { data: spotifyMiniPlayerEnabled } = useIsCoreModuleEnabled(SPOTIFY_MINI_PLAYER_MODULE_ID);
   const sidebarDragWidthRef = useRef<number | null>(null);
   const rightPanelDragWidthRef = useRef<number | null>(null);
   const headerRef = useRef<HTMLElement>(null);
@@ -1329,7 +1331,7 @@ export function AppShell() {
             <AgentDebugPanel />
           </Suspense>
         )}
-        {spotifyPlayerEnabled && (
+        {spotifyMiniPlayerEnabled && (
           <Suspense fallback={null}>
             <SpotifyMobileWidget />
           </Suspense>

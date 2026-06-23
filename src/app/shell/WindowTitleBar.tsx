@@ -11,6 +11,8 @@ import {
   toggleDesktopWindowMaximize,
   type DesktopWindowVisualState,
 } from "../../shared/api/window-controls-api";
+import { SPOTIFY_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants/core-modules";
+import { useIsCoreModuleEnabled } from "../../features/shell/plugins/shell";
 import { cn } from "../../shared/lib/utils";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useUIStore } from "../../shared/stores/ui.store";
@@ -53,7 +55,7 @@ export function WindowTitleBar({
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
   const closeRightPanel = useUIStore((s) => s.closeRightPanel);
-  const spotifyPlayerEnabled = useUIStore((s) => s.spotifyPlayerEnabled);
+  const { data: spotifyMiniPlayerEnabled } = useIsCoreModuleEnabled(SPOTIFY_MINI_PLAYER_MODULE_ID);
   const hasOpenSurface = useUIStore((s) =>
     Boolean(
       s.characterDetailId ||
@@ -233,7 +235,7 @@ export function WindowTitleBar({
             )}
           </button>
         </div>
-        {spotifyPlayerEnabled && (
+        {spotifyMiniPlayerEnabled && (
           <div
             className="mari-titlebar-spotify hidden min-w-0 flex-[0_1_31rem] items-center overflow-hidden px-2 md:flex"
             onMouseDown={(event) => event.stopPropagation()}

@@ -1,3 +1,4 @@
+import { ME_NOTES_MODULE_ID, SPOTIFY_MINI_PLAYER_MODULE_ID } from "../../../../engine/contracts/constants/core-modules";
 import type {
   CoreModuleManifest,
   CoreModuleSettings,
@@ -5,15 +6,14 @@ import type {
   CoreModuleView,
 } from "../../../../engine/contracts/types/core-module";
 
-export const ME_NOTES_MODULE_ID = "me-notes";
+export { ME_NOTES_MODULE_ID } from "../../../../engine/contracts/constants/core-modules";
 
 const CORE_MODULES: readonly CoreModuleManifest[] = [
   {
     id: ME_NOTES_MODULE_ID,
     name: "ME Notes",
     slug: "me-notes",
-    description:
-      "Adds a compact movable chat notepad with global, character, chat, and branch-wide note tabs.",
+    description: "Adds a compact movable chat notepad with global, character, chat, and branch-wide note tabs.",
     version: "1.0.0",
     source: "core",
     main: "core-modules/me-notes",
@@ -21,11 +21,24 @@ const CORE_MODULES: readonly CoreModuleManifest[] = [
     defaultEnabled: false,
     runtime: "Floating chat notepad",
   },
+  {
+    id: SPOTIFY_MINI_PLAYER_MODULE_ID,
+    name: "Spotify Mini Player",
+    slug: "spotify-mini-player",
+    description: "Adds the optional Spotify playback controls to the desktop title bar and mobile floating widget.",
+    version: "1.0.0",
+    source: "core",
+    main: "core-modules/spotify-mini-player",
+    permissions: ["ui:settings", "ui:overlay"],
+    defaultEnabled: false,
+    runtime: "Desktop title-bar player and mobile floating widget",
+  },
 ] as const;
 
 const CORE_MODULE_STYLES: Record<string, string> = {};
 const CORE_MODULE_SURFACES: Record<string, number> = {
   [ME_NOTES_MODULE_ID]: 1,
+  [SPOTIFY_MINI_PLAYER_MODULE_ID]: 2,
 };
 
 function isModuleEnabled(module: CoreModuleManifest, settings: CoreModuleSettings): boolean {

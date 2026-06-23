@@ -24,7 +24,10 @@ import { cn } from "../../../../../shared/lib/utils";
 import { stripDangerousCss } from "../../../../../shared/lib/chat-css";
 import { TEMPERATURE_UNITS } from "../../../../../shared/lib/temperature-units";
 import { QUOTE_FORMATS } from "../../../../../shared/lib/dialogue-quotes";
-import { buildImportedExtensionInput, extensionHasRunnableJavaScript } from "../../../../../shared/lib/extension-import";
+import {
+  buildImportedExtensionInput,
+  extensionHasRunnableJavaScript,
+} from "../../../../../shared/lib/extension-import";
 import { useExtensions, useCreateExtension, useDeleteExtension, useUpdateExtension } from "../../hooks/use-extensions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { gameAssetsApi } from "../../../../../shared/api/assets-api";
@@ -781,8 +784,7 @@ export function GeneralSettings() {
   const setTrimIncompleteModelOutput = useUIStore((s) => s.setTrimIncompleteModelOutput);
   const speechToTextEnabled = useUIStore((s) => s.speechToTextEnabled);
   const setSpeechToTextEnabled = useUIStore((s) => s.setSpeechToTextEnabled);
-  const spotifyPlayerEnabled = useUIStore((s) => s.spotifyPlayerEnabled);
-  const setSpotifyPlayerEnabled = useUIStore((s) => s.setSpotifyPlayerEnabled);
+
   const intuitiveSwipeNavigation = useUIStore((s) => s.intuitiveSwipeNavigation);
   const setIntuitiveSwipeNavigation = useUIStore((s) => s.setIntuitiveSwipeNavigation);
   const intuitiveSwipeRerollLatest = useUIStore((s) => s.intuitiveSwipeRerollLatest);
@@ -934,13 +936,6 @@ export function GeneralSettings() {
         checked={enableStreaming}
         onChange={setEnableStreaming}
         help="When on, AI responses appear word-by-word as they're generated. When off, the full response appears at once after completion."
-      />
-
-      <ToggleSetting
-        label="Spotify mini player"
-        checked={spotifyPlayerEnabled}
-        onChange={setSpotifyPlayerEnabled}
-        help="Shows a compact Spotify player in the top bar on desktop and as a draggable floating widget on mobile. Requires the Spotify DJ agent to be connected."
       />
 
       {/* Streaming Speed */}
