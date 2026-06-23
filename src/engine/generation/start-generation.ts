@@ -2351,7 +2351,7 @@ function usageNumber(usage: unknown, keys: string[]): number | null {
   return null;
 }
 
-function buildSavedGenerationPromptSnapshot(args: {
+export function buildSavedGenerationPromptSnapshot(args: {
   connection: JsonRecord;
   promptSnapshot?: MainGenerationPromptSnapshot | null;
   usage?: unknown;
@@ -2371,6 +2371,7 @@ function buildSavedGenerationPromptSnapshot(args: {
     ...(args.promptSnapshot.lorebookActivationTrace
       ? { lorebookActivationTrace: args.promptSnapshot.lorebookActivationTrace }
       : {}),
+    ...(args.promptSnapshot.contextAttribution ? { contextAttribution: args.promptSnapshot.contextAttribution } : {}),
     generationInfo: {
       model: generationInfo.model,
       provider: generationInfo.provider,
