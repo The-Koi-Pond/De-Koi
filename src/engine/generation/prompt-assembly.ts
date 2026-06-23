@@ -32,7 +32,12 @@ import {
 import { normalizeChatSummaryMetadata } from "../shared/text/chat-summary-entries";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
 import { cleanPromptText, stripPromptComments } from "../shared/text/prompt-comments";
-import { attributionForLorebookEntries, attributionForMemoryRecall } from "./context-attribution";
+import {
+  attributionForChatHistory,
+  attributionForChatSummary,
+  attributionForLorebookEntries,
+  attributionForMemoryRecall,
+} from "./context-attribution";
 import { formatZonedDate, formatZonedTime, getZonedWeekdayName, normalizeUserTimeZone } from "../shared/time/timezone";
 import { compactQuestProgressForContext } from "../shared/game-state/player-stats";
 import type {
@@ -2904,8 +2909,20 @@ function historyMessageContent(message: JsonRecord, includePastReasoning: boolea
   return `${content}\n\n<provider_reasoning>\n${thinking}\n</provider_reasoning>`;
 }
 
-function historyMessages(storedMessages: JsonRecord[], limit: number, includePastReasoning = false): ChatMLMessage[] {
-  if (limit <= 0) return [];
+interface HistoryPromptSelection {
+  messages: ChatMLMessage[];
+  hiddenFromAiCount: number;
+  skippedByLimitCount: number;
+  requestedLimit: number;
+}
+
+function historyMessageSelection(
+  storedMessages: JsonRecord[],
+  limit: number,
+  includePastReasoning = false,
+): HistoryPromptSelection {
+  const requestedLimit = Math.max(0, limit);
+  if (requestedLimit <= 0) return { messages: [], hiddenFromAiCount: 0, skippedByLimitCount: 0, requestedLimit };
   let conversationStartIndex = 0;
   for (let index = storedMessages.length - 1; index >= 0; index -= 1) {
     if (boolish(parseRecord(storedMessages[index]!.extra).isConversationStart, false)) {
@@ -2914,22 +2931,34 @@ function historyMessages(storedMessages: JsonRecord[], limit: number, includePas
     }
   }
   const scopedMessages = conversationStartIndex > 0 ? storedMessages.slice(conversationStartIndex) : storedMessages;
-  return scopedMessages
-    .filter((message) => !hiddenFromAi(message))
-    .slice(-limit)
-    .map((message) => {
-      const role = normalizeRole(message.role);
-      const providerMetadata = role === "assistant" ? messageProviderMetadata(message) : undefined;
-      return {
-        role,
-        content: historyMessageContent(message, includePastReasoning),
-        contextKind: "history" as const,
-        characterId: readString(message.characterId).trim() || undefined,
-        name: readString(message.name).trim() || undefined,
-        ...(providerMetadata ? { providerMetadata } : {}),
-      };
-    })
-    .filter((message) => message.content.length > 0);
+  let hiddenFromAiCount = 0;
+  const visibleMessages: ChatMLMessage[] = [];
+
+  for (const message of scopedMessages) {
+    if (hiddenFromAi(message)) {
+      hiddenFromAiCount += 1;
+      continue;
+    }
+    const role = normalizeRole(message.role);
+    const content = historyMessageContent(message, includePastReasoning);
+    if (!content.length) continue;
+    const providerMetadata = role === "assistant" ? messageProviderMetadata(message) : undefined;
+    visibleMessages.push({
+      role,
+      content,
+      contextKind: "history" as const,
+      characterId: readString(message.characterId).trim() || undefined,
+      name: readString(message.name).trim() || undefined,
+      ...(providerMetadata ? { providerMetadata } : {}),
+    });
+  }
+
+  return {
+    messages: visibleMessages.slice(-requestedLimit),
+    hiddenFromAiCount,
+    skippedByLimitCount: Math.max(0, visibleMessages.length - requestedLimit),
+    requestedLimit,
+  };
 }
 
 function leadingGreetingContents(storedMessages: JsonRecord[]): string[] {
@@ -3747,17 +3776,32 @@ export async function assembleGenerationPrompt(
   const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
   const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || 300);
   const historyLimit = Math.max(1, Math.min(300, metadataHistoryLimit || requestedHistoryLimit || 300));
-  const history =
-    reusableContext?.history ??
-    historyMessages(
-      input.storedMessages,
-      compactedHistoryLimit(
-        chatMeta,
-        historyLimit,
-        shouldCompactHistoryForSummary(input.chat, selectedPreset, summary),
-      ),
-      chatMeta.excludePastReasoning === false,
-    );
+  const historyAttributionKinds = new Set<GenerationContextAttributionItem["kind"]>(["chat_history", "chat_summary"]);
+  const selectedHistoryLimit = compactedHistoryLimit(
+    chatMeta,
+    historyLimit,
+    shouldCompactHistoryForSummary(input.chat, selectedPreset, summary),
+  );
+  const historySelection = reusableContext
+    ? {
+        messages: reusableContext.history,
+        hiddenFromAiCount: 0,
+        skippedByLimitCount: 0,
+        requestedLimit: selectedHistoryLimit,
+      }
+    : historyMessageSelection(input.storedMessages, selectedHistoryLimit, chatMeta.excludePastReasoning === false);
+  const history = historySelection.messages;
+  const historyAndSummaryAttributionItems = reusableContext
+    ? reusableContext.contextAttributionItems.filter((item) => historyAttributionKinds.has(item.kind))
+    : [
+        ...attributionForChatSummary(summary),
+        ...attributionForChatHistory({
+          included: history,
+          hiddenFromAiCount: historySelection.hiddenFromAiCount,
+          skippedByLimitCount: historySelection.skippedByLimitCount,
+          requestedLimit: historySelection.requestedLimit,
+        }),
+      ];
   const agentData = input.agentData ?? {};
   let messages: ChatMLMessage[] = [];
   let insertedHistory = false;
@@ -3994,6 +4038,7 @@ export async function assembleGenerationPrompt(
   }
   const summaryFingerprint = fingerprintChatSummary(summary);
   const contextAttributionItems = [
+    ...historyAndSummaryAttributionItems,
     ...(memoryRecallContext?.attributionItems ?? []),
     ...attributionForLorebookEntries(processedLore.includedEntries.map(lorebookActivatedEntryForEvent)),
   ];
