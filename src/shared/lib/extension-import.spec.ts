@@ -82,7 +82,7 @@ describe("extension import safety", () => {
   it("supports legacy extension json without manifest metadata", () => {
     const result = buildImportedExtensionInput(
       "legacy.json",
-      JSON.stringify({ name: "Legacy", description: "Old shape", css: ".x {}", js: null }),
+      JSON.stringify({ name: "Legacy", description: "Old shape", version: "legacy-note", css: ".x {}", js: null }),
       installedAt,
     );
 

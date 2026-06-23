@@ -874,6 +874,18 @@ mod tests {
         )
         .expect_err("unsupported manifest version should reject");
         assert_eq!(bad_manifest_version.code, "invalid_input");
+
+        let bad_slot = storage_create_inner(
+            &state,
+            "extensions".to_string(),
+            json!({
+                "name": "Bad Slot",
+                "manifestVersion": 1,
+                "uiContributions": { "slots": ["shell-root"] }
+            }),
+        )
+        .expect_err("unsupported UI slot should reject");
+        assert_eq!(bad_slot.code, "invalid_input");
     }
     #[test]
     fn extension_update_validates_supported_patch_fields_only() {

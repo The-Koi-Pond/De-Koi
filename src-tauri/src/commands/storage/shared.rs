@@ -684,6 +684,7 @@ const EXTENSION_PACKAGE_PERMISSIONS: &[&str] = &[
     "prompt:read",
     "generation:request",
 ];
+const EXTENSION_UI_SLOTS: &[&str] = &["settings", "overlay", "messages", "theme"];
 const EXTENSION_SOURCES: &[&str] = &["file", "package", "profile"];
 
 fn required_extension_string(
@@ -829,6 +830,55 @@ fn optional_extension_object(object: &Map<String, Value>, field: &str) -> AppRes
         "Extension {field} must be an object or null"
     )))
 }
+
+fn optional_extension_ui_contributions(object: &Map<String, Value>) -> AppResult<Option<Value>> {
+    let Some(value) = object.get("uiContributions") else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(Some(Value::Null));
+    }
+    let Some(contributions) = value.as_object() else {
+        return Err(AppError::invalid_input(
+            "Extension uiContributions must be an object or null",
+        ));
+    };
+
+    let mut normalized = Map::new();
+    match contributions.get("slots") {
+        Some(Value::Array(slots)) => {
+            if slots.len() > 8 {
+                return Err(AppError::invalid_input(
+                    "Extension uiContributions.slots has too many entries",
+                ));
+            }
+            let mut normalized_slots = Vec::with_capacity(slots.len());
+            for slot in slots {
+                let Some(slot) = slot.as_str() else {
+                    return Err(AppError::invalid_input(
+                        "Extension uiContributions.slots entries must be strings",
+                    ));
+                };
+                if !EXTENSION_UI_SLOTS.contains(&slot) {
+                    return Err(AppError::invalid_input(format!(
+                        "Unsupported extension uiContributions.slots entry: {slot}"
+                    )));
+                }
+                normalized_slots.push(Value::String(slot.to_string()));
+            }
+            normalized.insert("slots".to_string(), Value::Array(normalized_slots));
+        }
+        Some(_) => {
+            return Err(AppError::invalid_input(
+                "Extension uiContributions.slots must be an array",
+            ));
+        }
+        None => {
+            normalized.insert("slots".to_string(), json!([]));
+        }
+    }
+    Ok(Some(Value::Object(normalized)))
+}
 fn optional_extension_installed_at(object: &Map<String, Value>) -> AppResult<Option<String>> {
     let Some(value) = object.get("installedAt") else {
         return Ok(None);
@@ -868,7 +918,7 @@ fn normalize_extension_manifest_metadata(
     {
         normalized.insert("permissions".to_string(), permissions);
     }
-    if let Some(ui_contributions) = optional_extension_object(object, "uiContributions")? {
+    if let Some(ui_contributions) = optional_extension_ui_contributions(object)? {
         normalized.insert("uiContributions".to_string(), ui_contributions);
     }
     if let Some(source) = optional_extension_string(object, "source", 32)? {

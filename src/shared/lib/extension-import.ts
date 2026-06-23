@@ -82,8 +82,7 @@ function normalizeSlots(value: unknown): ExtensionPackageUiSlot[] {
 function parseJsonExtension(fileName: string, text: string, installedAt: string): ImportedExtensionBuildResult {
   const parsed = readRecord(JSON.parse(text));
   const entrypoints = readRecord(parsed.entrypoints);
-  const isPackage =
-    parsed.manifestVersion === 1 || typeof parsed.version === "string" || typeof parsed.entrypoints === "object";
+  const isPackage = parsed.manifestVersion !== undefined || parsed.entrypoints !== undefined;
 
   if (!isPackage) {
     const js = readString(parsed.js);
