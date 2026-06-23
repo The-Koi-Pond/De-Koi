@@ -174,6 +174,20 @@ describe("analyzeGameScene structured generation", () => {
     expect(llm.requests[1]?.messages.at(-1)?.content).toContain("weather");
     expect(llm.requests[1]?.messages.at(-1)?.content).toContain("lava");
   });
+  it("repairs out-of-range elapsed-time estimates before post-processing applies scene changes", async () => {
+    const llm = llmWithResponses([validSceneJson({ elapsedMinutes: 5000 }), validSceneJson({ elapsedMinutes: 12 })]);
+
+    const result = await analyzeGameScene(
+      { storage: storageGateway(), llm },
+      { chatId: "chat-1", narration: "The party searches the market stalls.", context: baseContext },
+    );
+
+    expect(result.elapsedMinutes).toBe(12);
+    expect(llm.complete).toHaveBeenCalledTimes(2);
+    expect(llm.requests[1]?.messages.at(-1)?.content).toContain("elapsedMinutes");
+    expect(llm.requests[1]?.messages.at(-1)?.content).toContain("5000");
+  });
+
 
   it("returns a no-op analysis after final invalid output without malformed fallback mutations", async () => {
     const llm = llmWithResponses([
