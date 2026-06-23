@@ -100,6 +100,18 @@ function shouldSendOpenAiSamplingParameters(model: string): boolean {
   return !isAnthropicSamplingRestrictedModel(model);
 }
 
+function isNanoGptGlmModel(model: string): boolean {
+  return model
+    .toLowerCase()
+    .split(/[/:\s]+/)
+    .map((segment) => segment.replace(/^~+/, ""))
+    .some((segment) => segment === "glm" || segment.startsWith("glm-") || segment.startsWith("glm_"));
+}
+
+function isNanoGptGlmUnsupportedCustomParameterKey(key: string): boolean {
+  return ["top_k", "topK"].includes(key);
+}
+
 function isSamplingParameterKey(key: string): boolean {
   return [
     "temperature",
@@ -298,6 +310,7 @@ function isOpenRouterOpenAiModel(model: string): boolean {
 
 function shouldSendTopK(provider: string, model: string): boolean {
   if (provider === "openrouter") return !isOpenRouterOpenAiModel(model);
+  if (provider === "nanogpt" && isNanoGptGlmModel(model)) return false;
   return !["openai", "xai", "mistral", "cohere"].includes(provider);
 }
 
@@ -988,7 +1001,9 @@ function visibleOpenAiCompatibleParameters(
         ? isMistralUnsupportedCustomParameterKey
         : provider === "xai"
           ? (key) => isXAiUnsupportedCustomParameterKey(key, model, xaiReasoningActive)
-          : undefined,
+          : provider === "nanogpt" && isNanoGptGlmModel(model)
+            ? isNanoGptGlmUnsupportedCustomParameterKey
+            : undefined,
   });
   const openrouter = parameters.openrouter ?? parameters.openRouter;
   if (openrouter != null) body.provider = openrouter;
