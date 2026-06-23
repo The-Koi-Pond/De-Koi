@@ -6,6 +6,7 @@ import {
 } from "../contracts/types/agent";
 import type {
   DaySummaryEntry,
+  GenerationContextAttribution,
   GenerationPromptSnapshot,
   GenerationPromptSnapshotMessage,
   WeekSummaryEntry,
@@ -183,7 +184,13 @@ const internalStartGenerationOptions = new WeakMap<StartGenerationInput, Interna
 
 type MainGenerationPromptSnapshot = Pick<
   GenerationPromptSnapshot,
-  "messages" | "previewMessages" | "parameters" | "tools" | "promptPresetId" | "lorebookActivationTrace"
+  | "messages"
+  | "previewMessages"
+  | "parameters"
+  | "tools"
+  | "promptPresetId"
+  | "lorebookActivationTrace"
+  | "contextAttribution"
 >;
 
 type GenerationDryRunPromptSnapshot = MainGenerationPromptSnapshot;
@@ -2361,7 +2368,9 @@ function buildSavedGenerationPromptSnapshot(args: {
     parameters: isRecord(parameters) ? parameters : {},
     ...(tools?.length ? { tools } : {}),
     promptPresetId: args.promptSnapshot.promptPresetId ?? null,
-    ...(args.promptSnapshot.lorebookActivationTrace ? { lorebookActivationTrace: args.promptSnapshot.lorebookActivationTrace } : {}),
+    ...(args.promptSnapshot.lorebookActivationTrace
+      ? { lorebookActivationTrace: args.promptSnapshot.lorebookActivationTrace }
+      : {}),
     generationInfo: {
       model: generationInfo.model,
       provider: generationInfo.provider,
@@ -4680,6 +4689,7 @@ async function* streamMainGenerationLoop(args: {
   previewMessages?: LlmMessage[] | null;
   promptPresetId?: string | null;
   lorebookActivationTrace?: MainGenerationPromptSnapshot["lorebookActivationTrace"];
+  contextAttribution?: GenerationContextAttribution | null;
   mainTools: MainToolDefinitions | null;
   toolRuntimeInput: ToolRuntimeInput;
   signal: AbortSignal | undefined;
@@ -4704,6 +4714,7 @@ async function* streamMainGenerationLoop(args: {
     previewMessages,
     promptPresetId,
     lorebookActivationTrace,
+    contextAttribution,
     mainTools,
     toolRuntimeInput,
     signal,
@@ -4767,6 +4778,7 @@ async function* streamMainGenerationLoop(args: {
         parameters: cloneSerializableValue(visibleRequestParameters),
         promptPresetId: promptPresetId ?? null,
         ...(lorebookActivationTrace ? { lorebookActivationTrace } : {}),
+        ...(contextAttribution ? { contextAttribution } : {}),
         ...(requestTools?.length ? { tools: cloneSerializableValue(requestTools) } : {}),
       };
 
