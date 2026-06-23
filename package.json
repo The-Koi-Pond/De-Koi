@@ -21,7 +21,7 @@
     "lint:eslint:full-report": "node scripts/eslint-full-report.mjs",
     "lint:design": "impeccable detect --fast src",
     "lint:design:report": "pnpm lint:design || test $? -eq 2",
-    "check:architecture": "depcruise src --config .dependency-cruiser.cjs && node scripts/check-rust-structure.mjs",
+    "check:architecture": "depcruise src --config .dependency-cruiser.cjs && node scripts/check-rust-structure.mjs && node scripts/check-frontend-runtime-boundaries.mjs && node scripts/check-remote-runtime-dispatch.mjs",
     "check:frontend": "tsc -b",
     "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml --workspace",
     "check:rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings -A dead_code",
