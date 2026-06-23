@@ -135,6 +135,7 @@ export const useUIStore = create<UIState>()(
       chatBackgroundBlur: 0,
       characterDetailId: null,
       lorebookDetailId: null,
+      lorebookEntryDetailId: null,
       presetDetailId: null,
       connectionDetailId: null,
       agentDetailId: null,
@@ -322,8 +323,20 @@ export const useUIStore = create<UIState>()(
       openCharacterDetail: (id) => set((s) => openDetailRouteState(s, { characterDetailId: id })),
       closeCharacterDetail: () => set((s) => closeDetailRouteState(s, { characterDetailId: null })),
       openLorebookDetail: (id) =>
-        set((s) => openDetailRouteState(s, { lorebookDetailId: id, characterLibraryOpen: false })),
-      closeLorebookDetail: () => set((s) => closeDetailRouteState(s, { lorebookDetailId: null })),
+        set((s) =>
+          openDetailRouteState(s, { lorebookDetailId: id, lorebookEntryDetailId: null, characterLibraryOpen: false }),
+        ),
+      openLorebookEntryDetail: (lorebookId, entryId) =>
+        set((s) =>
+          openDetailRouteState(s, {
+            lorebookDetailId: lorebookId,
+            lorebookEntryDetailId: entryId,
+            characterLibraryOpen: false,
+          }),
+        ),
+      clearLorebookEntryDetail: () => set({ lorebookEntryDetailId: null }),
+      closeLorebookDetail: () =>
+        set((s) => closeDetailRouteState(s, { lorebookDetailId: null, lorebookEntryDetailId: null })),
       openPresetDetail: (id) =>
         set((s) => openDetailRouteState(s, { presetDetailId: id, characterLibraryOpen: false })),
       closePresetDetail: () => set((s) => closeDetailRouteState(s, { presetDetailId: null })),
@@ -373,6 +386,7 @@ export const useUIStore = create<UIState>()(
         return !!(
           s.characterDetailId ||
           s.lorebookDetailId ||
+          s.lorebookEntryDetailId ||
           s.presetDetailId ||
           s.connectionDetailId ||
           s.agentDetailId ||
@@ -388,6 +402,7 @@ export const useUIStore = create<UIState>()(
         set({
           characterDetailId: null,
           lorebookDetailId: null,
+          lorebookEntryDetailId: null,
           presetDetailId: null,
           connectionDetailId: null,
           agentDetailId: null,

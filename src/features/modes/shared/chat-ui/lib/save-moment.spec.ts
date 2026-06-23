@@ -31,8 +31,9 @@ describe("save moment", () => {
     const items = buildSaveMomentMenuItems({
       canBranch: true,
       canCloneScene: false,
+      canDraftLore: true,
     });
 
-    expect(items.map((item) => item.id)).toEqual(["copy-snippet", "branch"]);
+    expect(items.map((item) => item.id)).toEqual(["copy-snippet", "lore-draft", "branch"]);
   });
 });

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bookmark, Check, Copy, GitBranch } from "lucide-react";
+import { BookOpen, Bookmark, Check, Copy, GitBranch } from "lucide-react";
+import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { cn, copyToClipboard } from "../../../../../shared/lib/utils";
 import {
   buildSaveMomentExportText,
@@ -22,6 +23,7 @@ interface SaveMomentActionProps {
 
 function iconForItem(id: SaveMomentMenuItemId): ReactNode {
   if (id === "copy-snippet") return <Copy size="0.75rem" />;
+  if (id === "lore-draft") return <BookOpen size="0.75rem" />;
   return <GitBranch size="0.75rem" />;
 }
 
@@ -36,6 +38,7 @@ export function SaveMomentAction({
 }: SaveMomentActionProps) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const openModal = useUIStore((state) => state.openModal);
   const rootRef = useRef<HTMLSpanElement>(null);
   const resetCopiedRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -44,6 +47,7 @@ export function SaveMomentAction({
       buildSaveMomentMenuItems({
         canBranch: !!onBranch,
         canCloneScene: !!onCloneSceneFromHere,
+        canDraftLore: true,
       }),
     [onBranch, onCloneSceneFromHere],
   );
@@ -82,6 +86,11 @@ export function SaveMomentAction({
     if (id === "copy-snippet") {
       const didCopy = await copyToClipboard(buildSaveMomentExportText(source));
       if (didCopy) markCopied();
+      setOpen(false);
+      return;
+    }
+    if (id === "lore-draft") {
+      openModal("save-moment-lore-draft", { source: { ...source } });
       setOpen(false);
       return;
     }

@@ -4,7 +4,10 @@
 import { lazy, Suspense } from "react";
 import { useUIStore } from "../../shared/stores/ui.store";
 import type { AgentData } from "../../features/catalog/agents/shell";
-import type { CreateLorebookModalDefaults } from "../../features/catalog/lorebooks/shell";
+import type {
+  CreateLorebookModalDefaults,
+  SaveMomentLoreDraftModalProps,
+} from "../../features/catalog/lorebooks/shell";
 
 const CreateCharacterModal = lazy(() =>
   import("../../features/catalog/characters/shell").then((module) => ({ default: module.CreateCharacterModal })),
@@ -26,6 +29,9 @@ const LorebookMakerModal = lazy(() =>
 );
 const LorebookKeeperReviewModal = lazy(() =>
   import("../../features/catalog/lorebooks/shell").then((module) => ({ default: module.LorebookKeeperReviewModal })),
+);
+const SaveMomentLoreDraftModal = lazy(() =>
+  import("../../features/catalog/lorebooks/shell").then((module) => ({ default: module.SaveMomentLoreDraftModal })),
 );
 const CreatePresetModal = lazy(() =>
   import("../../features/catalog/presets/shell").then((module) => ({ default: module.CreatePresetModal })),
@@ -86,6 +92,15 @@ export function ModalRenderer() {
       break;
     case "lorebook-keeper-review":
       content = <LorebookKeeperReviewModal open onClose={closeModal} />;
+      break;
+    case "save-moment-lore-draft":
+      content = (
+        <SaveMomentLoreDraftModal
+          open
+          onClose={closeModal}
+          {...((modal?.props ?? {}) as Omit<SaveMomentLoreDraftModalProps, "open" | "onClose">)}
+        />
+      );
       break;
     case "create-preset":
       content = <CreatePresetModal open onClose={closeModal} />;
