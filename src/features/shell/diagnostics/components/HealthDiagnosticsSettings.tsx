@@ -47,14 +47,15 @@ function detailRecord(item: DiagnosticItem): Record<string, unknown> {
     : {};
 }
 
+function providerConnectionId(item: DiagnosticItem): string {
+  return String(detailRecord(item).connectionId ?? "").trim();
+}
+
+
 function latencySummary(result: unknown): string {
   if (!result || typeof result !== "object" || Array.isArray(result)) return "Probe completed.";
   const latencyMs = (result as { latencyMs?: unknown }).latencyMs;
   return typeof latencyMs === "number" && Number.isFinite(latencyMs) ? `Probe completed in ${latencyMs} ms.` : "Probe completed.";
-}
-
-function providerConnectionId(item: DiagnosticItem): string {
-  return String(detailRecord(item).connectionId ?? "").trim();
 }
 
 function providerProbeSummary(result: ProbeState): string {
