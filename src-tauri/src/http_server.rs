@@ -1611,9 +1611,12 @@ fn http_status_for_app_error(error: &AppError) -> StatusCode {
         "admin_access_required" => StatusCode::FORBIDDEN,
         "sprite_generation_timeout" => StatusCode::GATEWAY_TIMEOUT,
         "custom_tool_script_unsupported" => StatusCode::UNPROCESSABLE_ENTITY,
-        "embedding_network_error" | "embedding_provider_error" | "embedding_response_error" => {
-            StatusCode::BAD_GATEWAY
-        }
+        "embedding_network_error"
+        | "embedding_provider_error"
+        | "embedding_response_error"
+        | "llm_network_error"
+        | "llm_provider_error"
+        | "llm_response_error" => StatusCode::BAD_GATEWAY,
         "unsupported_command" => StatusCode::NOT_IMPLEMENTED,
         "io_error" if is_storage_unavailable_io_error(error) => StatusCode::SERVICE_UNAVAILABLE,
         _ => StatusCode::INTERNAL_SERVER_ERROR,
@@ -3504,6 +3507,34 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn llm_provider_errors_map_to_bad_gateway_with_payload() {
+        for code in [
+            "llm_network_error",
+            "llm_provider_error",
+            "llm_response_error",
+        ] {
+            let response = HttpError::from(AppError::with_details(
+                code,
+                "Provider returned HTTP 500 Internal Server Error",
+                json!({}),
+            ))
+            .into_response();
+
+            assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("LLM provider error response should be readable");
+            let payload: Value = serde_json::from_slice(&bytes)
+                .expect("LLM provider error response should be JSON");
+            assert_eq!(payload["code"], code);
+            assert_eq!(
+                payload["message"],
+                "Provider returned HTTP 500 Internal Server Error"
+            );
+            assert_eq!(payload["details"], json!({}));
+        }
+    }
     #[test]
     fn uncategorized_io_errors_keep_internal_server_error_status() {
         let error = AppError::with_details(
