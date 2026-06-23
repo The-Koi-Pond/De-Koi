@@ -1611,9 +1611,15 @@ fn http_status_for_app_error(error: &AppError) -> StatusCode {
         "admin_access_required" => StatusCode::FORBIDDEN,
         "sprite_generation_timeout" => StatusCode::GATEWAY_TIMEOUT,
         "custom_tool_script_unsupported" => StatusCode::UNPROCESSABLE_ENTITY,
-        "embedding_network_error" | "embedding_provider_error" | "embedding_response_error" => {
-            StatusCode::BAD_GATEWAY
-        }
+        "embedding_network_error"
+        | "embedding_provider_error"
+        | "embedding_response_error"
+        | "llm_network_error"
+        | "llm_provider_error"
+        | "llm_response_error"
+        | "connection_network_error"
+        | "connection_provider_error"
+        | "connection_response_error" => StatusCode::BAD_GATEWAY,
         "unsupported_command" => StatusCode::NOT_IMPLEMENTED,
         "io_error" if is_storage_unavailable_io_error(error) => StatusCode::SERVICE_UNAVAILABLE,
         _ => StatusCode::INTERNAL_SERVER_ERROR,
@@ -3418,6 +3424,99 @@ mod tests {
                 .and_then(|value| value.to_str().ok()),
             Some("5")
         );
+
+        server.abort();
+    }
+
+    async fn serve_one_llm_provider_error() -> String {
+        let listener =
+            tokio::net::TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+                .await
+                .expect("test provider server should bind");
+        let addr = listener
+            .local_addr()
+            .expect("test provider server addr should load");
+        tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("test provider server should accept one request");
+            let mut buffer = [0_u8; 4096];
+            let _ = stream
+                .read(&mut buffer)
+                .await
+                .expect("test provider server should read request");
+            let body = br#"{"error":{"message":"synthetic upstream failure"}}"#;
+            let response = format!(
+                "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("test provider server should write headers");
+            stream
+                .write_all(body)
+                .await
+                .expect("test provider server should write body");
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn api_invoke_llm_provider_failure_returns_structured_json_error() {
+        let provider_url = serve_one_llm_provider_error().await;
+        let listener =
+            tokio::net::TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+                .await
+                .expect("test server should bind");
+        let addr = listener.local_addr().expect("test server addr should load");
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                router(test_state("invoke-llm-provider-error-json"))
+                    .into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .expect("test server should run");
+        });
+
+        let response = reqwest::Client::new()
+            .post(format!("http://{addr}/api/invoke"))
+            .header(CSRF_HEADER_NAME, CSRF_HEADER_VALUE)
+            .json(&json!({
+                "command": "llm_complete",
+                "args": {
+                    "request": {
+                        "connection": {
+                            "provider": "custom",
+                            "model": "test-model",
+                            "baseUrl": provider_url,
+                            "apiKey": "sk-test-key"
+                        },
+                        "messages": [{ "role": "user", "content": "hello" }]
+                    }
+                }
+            }))
+            .send()
+            .await
+            .expect("invoke request should complete");
+
+        assert_eq!(response.status(), reqwest::StatusCode::BAD_GATEWAY);
+        let payload: Value = response
+            .json()
+            .await
+            .expect("LLM invoke errors should have a structured JSON body");
+
+        assert_eq!(payload.get("code").and_then(Value::as_str), Some("llm_provider_error"));
+        assert!(
+            payload
+                .get("message")
+                .and_then(Value::as_str)
+                .is_some_and(|message| message.contains("synthetic upstream failure")),
+            "error payload should preserve the provider diagnostic"
+        );
+        assert!(payload.get("details").is_some());
 
         server.abort();
     }
