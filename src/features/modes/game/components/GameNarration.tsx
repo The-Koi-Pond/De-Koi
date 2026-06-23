@@ -77,6 +77,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { createMessageMacroResolver, findCharacterByName } from "../../../../shared/lib/chat-macros";
 import { playTextBlip } from "../../../../shared/lib/text-blip-sound";
 import { animateTextHtml } from "./AnimatedText";
+import { SaveMomentAction, type SaveMomentDestination, type SaveMomentSource } from "../../shared/chat-ui";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import type { PartyDialogueLine, SkillCheckResult } from "../../../../engine/contracts/types/game";
 import type { CharacterMap, PersonaInfo } from "../../shared/chat-ui/types";
@@ -242,6 +243,10 @@ interface GameNarrationProps {
   onEditMessage?: (messageId: string, newContent: string) => void;
   /** Create a new Game Mode branch from a backing chat message. */
   onBranchMessage?: (messageId: string, segmentIndex?: number | null) => void;
+  /** Game-owned destinations exposed through the shared Save Moment menu. */
+  saveMomentDestinations?: readonly SaveMomentDestination[];
+  /** Handle a Game-owned Save Moment destination from a transcript segment. */
+  onSaveMomentDestination?: (destinationId: string, source: SaveMomentSource) => void | Promise<void>;
   /** Called when user edits a narration/dialogue segment. */
   onEditSegment?: (messageId: string, segmentIndex: number, edit: GameSegmentEdit) => void;
   /** Map of "messageId:segmentIndex" → segment overlay edits */
@@ -444,6 +449,8 @@ export function GameNarration({
   onDeleteSegment,
   onEditMessage,
   onBranchMessage,
+  saveMomentDestinations,
+  onSaveMomentDestination,
   onEditSegment,
   segmentEdits,
   segmentDeletes,
@@ -3829,6 +3836,24 @@ export function GameNarration({
                           ? `${sourceMessageId}:${sourceSegmentIndex}`
                           : `${entry.messageId}:${seg.id}`;
                       const copyText = seg.readableContent ?? stripGmTagsKeepReadables(seg.content);
+                      const concreteSourceMessage = sourceMessageId ? sourceMessagesById.get(sourceMessageId) : null;
+                      const sourceChatId = concreteSourceMessage?.chatId ?? sourceMessage?.chatId ?? "";
+                      const canSaveMoment =
+                        !!sourceChatId &&
+                        !!sourceMessageId &&
+                        sourceMessageId !== "party-chat" &&
+                        copyText.trim().length > 0 &&
+                        (!!onSaveMomentDestination || canBranchFromMessage);
+                      const saveMomentSource: SaveMomentSource | null = canSaveMoment
+                        ? {
+                            chatId: sourceChatId,
+                            messageId: sourceMessageId,
+                            role: sourceRole ?? concreteSourceMessage?.role ?? "message",
+                            speakerName: seg.type === "dialogue" ? seg.speaker : null,
+                            createdAt: null,
+                            content: copyText,
+                          }
+                        : null;
                       const copyButton = copyKey ? (
                         <button
                           type="button"
@@ -3839,6 +3864,20 @@ export function GameNarration({
                         >
                           {copiedMessageKey === copyKey ? <Check size={11} /> : <Copy size={11} />}
                         </button>
+                      ) : null;
+                      const saveMomentButton = saveMomentSource ? (
+                        <SaveMomentAction
+                          source={saveMomentSource}
+                          onBranch={
+                            canBranchFromMessage
+                              ? (messageId) => onBranchMessage?.(messageId, sourceSegmentIndex)
+                              : undefined
+                          }
+                          destinations={saveMomentDestinations}
+                          onDestinationSelect={onSaveMomentDestination}
+                          buttonClassName="rounded p-1 text-white/45 opacity-100 transition-all hover:bg-white/10 hover:text-white/60 md:text-white/20 md:opacity-0 md:group-hover/logseg:opacity-100"
+                          iconSize={11}
+                        />
                       ) : null;
                       const deleteButton = showDeleteButton ? (
                         <button
@@ -4032,7 +4071,7 @@ export function GameNarration({
                       );
 
                       const actionButtons =
-                        deleteButton || copyButton || branchButton || editButtons ? (
+                        deleteButton || copyButton || saveMomentButton || branchButton || editButtons ? (
                           <div
                             onPointerDown={stopLogActionPointerDown}
                             onClick={(event) => event.stopPropagation()}
@@ -4040,6 +4079,7 @@ export function GameNarration({
                           >
                             {deleteButton}
                             {copyButton}
+                            {saveMomentButton}
                             {branchButton}
                             {editButtons}
                           </div>
