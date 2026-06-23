@@ -1,6 +1,21 @@
-import type { DekiEntryRequest, DekiGatewayResponse, DekiMessage } from "../../engine/deki/deki-entry";
+import {
+  normalizeDekiEntryAction,
+  type DekiActionApplication,
+  type DekiActionEntity,
+  type DekiEntryAction,
+  type DekiEntryRequest,
+  type DekiGatewayResponse,
+  type DekiMessage,
+} from "../../engine/deki/deki-entry";
 import { EMPTY_DEKI_COMPACTION, type DekiCompactionState } from "../../engine/deki/deki-history";
 import { appSettingsResponseSchema, appSettingsUpdateSchema } from "../../engine/contracts/schemas/app-settings.schema";
+import {
+  createChoiceBlockSchema,
+  createPromptGroupSchema,
+  createPromptSectionSchema,
+  updatePromptPresetSchema,
+} from "../../engine/contracts/schemas/prompt.schema";
+import type { StorageEntity } from "../../engine/capabilities/storage";
 import { storageApi } from "./storage-api";
 import { invokeTauri } from "./tauri-client";
 
@@ -21,6 +36,29 @@ type StoredMessageRecord = {
   role?: unknown;
   content?: unknown;
   createdAt?: unknown;
+  action?: unknown;
+  actionApplication?: unknown;
+};
+
+const DEKI_ACTION_STORAGE_ENTITIES: Record<DekiActionEntity, StorageEntity> = {
+  characters: "characters",
+  "character-groups": "character-groups",
+  personas: "personas",
+  "persona-groups": "persona-groups",
+  lorebooks: "lorebooks",
+  "lorebook-entries": "lorebook-entries",
+  prompts: "prompts",
+  "prompt-sections": "prompt-sections",
+  "prompt-groups": "prompt-groups",
+  "prompt-variables": "prompt-variables",
+};
+
+const DEKI_PROMPT_CHILD_ORDER_FIELDS: Partial<
+  Record<DekiActionEntity, "sectionOrder" | "groupOrder" | "variableOrder">
+> = {
+  "prompt-sections": "sectionOrder",
+  "prompt-groups": "groupOrder",
+  "prompt-variables": "variableOrder",
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -65,18 +103,48 @@ function normalizeDekiMessage(record: StoredMessageRecord): DekiMessage | null {
   const content = typeof record.content === "string" ? record.content : null;
   const createdAt = typeof record.createdAt === "string" && record.createdAt.trim() ? record.createdAt : null;
   if (!role || !id || content === null || !createdAt) return null;
-  return { id, role, content, createdAt };
+  const action = role === "assistant" && "action" in record ? normalizeDekiEntryAction(record.action) : null;
+  return {
+    id,
+    role,
+    content,
+    createdAt,
+    ...(action && action.type !== "none" ? { action } : {}),
+    ...(action && action.type !== "none"
+      ? { actionApplication: normalizeDekiActionApplication(record.actionApplication) }
+      : {}),
+  };
 }
 
-function createDekiMessage(message: { role: "user" | "assistant"; content: string }): DekiMessage {
+function normalizeDekiActionApplication(value: unknown): DekiActionApplication | null {
+  const object = asRecord(value);
+  if (object.status !== "applied") return null;
+  const appliedAt = typeof object.appliedAt === "string" && object.appliedAt.trim() ? object.appliedAt : null;
+  if (!appliedAt) return null;
+  return {
+    status: "applied",
+    appliedAt,
+    resultId: typeof object.resultId === "string" && object.resultId.trim() ? object.resultId : null,
+  };
+}
+
+function createDekiMessage(message: {
+  role: "user" | "assistant";
+  content: string;
+  action?: DekiEntryAction | null;
+}): DekiMessage {
   const nonce =
     globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  return {
+  const next: DekiMessage = {
     id: `deki-message-${nonce}`,
     role: message.role,
     content: message.content,
     createdAt: new Date().toISOString(),
   };
+  if (message.role === "assistant" && message.action && message.action.type !== "none") {
+    next.action = message.action;
+  }
+  return next;
 }
 
 function normalizeDekiMessages(value: unknown): DekiMessage[] {
@@ -119,11 +187,166 @@ async function saveSettingsPatch(patch: Record<string, unknown>): Promise<Record
   return value;
 }
 
+function storageEntityForDekiAction(entity: DekiActionEntity): StorageEntity {
+  return DEKI_ACTION_STORAGE_ENTITIES[entity];
+}
+
+function recordId(record: unknown): string | null {
+  const object = asRecord(record);
+  return typeof object.id === "string" && object.id.trim() ? object.id : null;
+}
+
+function readTrimmedString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function parseOrderIds(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && id.trim().length > 0) : [];
+}
+
+function sanitizeDekiActionId(value: string): string {
+  const sanitized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 96);
+  return sanitized || "action";
+}
+
+function createActionRecordId(entity: DekiActionEntity, actionId: string | undefined): string | null {
+  if (!actionId?.trim()) return null;
+  return `deki-${sanitizeDekiActionId(entity)}-${sanitizeDekiActionId(actionId)}`;
+}
+
+function withCreateActionId(
+  entity: DekiActionEntity,
+  draft: Record<string, unknown>,
+  actionId: string | undefined,
+): { draft: Record<string, unknown>; generatedId: string | null } {
+  const existingId = readTrimmedString(draft.id);
+  if (existingId) return { draft: { ...draft, id: existingId }, generatedId: null };
+  const generatedId = createActionRecordId(entity, actionId);
+  return generatedId ? { draft: { ...draft, id: generatedId }, generatedId } : { draft, generatedId: null };
+}
+
+function normalizeCreateActionDraft(
+  action: Extract<DekiEntryAction, { type: "create_record" }>,
+  actionId: string | undefined,
+): { draft: Record<string, unknown>; generatedId: string | null } {
+  switch (action.entity) {
+    case "prompt-sections":
+      return withCreateActionId(action.entity, createPromptSectionSchema.parse(action.draft), actionId);
+    case "prompt-groups":
+      return withCreateActionId(action.entity, createPromptGroupSchema.parse(action.draft), actionId);
+    case "prompt-variables":
+      return withCreateActionId(action.entity, createChoiceBlockSchema.parse(action.draft), actionId);
+    default:
+      return withCreateActionId(action.entity, action.draft, actionId);
+  }
+}
+
+async function createDekiActionRecord(
+  storageEntity: StorageEntity,
+  draft: Record<string, unknown>,
+  generatedId: string | null,
+): Promise<unknown> {
+  try {
+    return await storageApi.create(storageEntity, draft);
+  } catch (error) {
+    if (generatedId) {
+      const existing = await storageApi.get(storageEntity, generatedId).catch(() => null);
+      if (existing) return existing;
+    }
+    throw error;
+  }
+}
+
+async function appendPromptChildToParentOrder(
+  entity: DekiActionEntity,
+  draft: Record<string, unknown>,
+  created: unknown,
+): Promise<void> {
+  const orderField = DEKI_PROMPT_CHILD_ORDER_FIELDS[entity];
+  if (!orderField) return;
+  const createdRecord = asRecord(created);
+  const presetId = readTrimmedString(draft.presetId) ?? readTrimmedString(createdRecord.presetId);
+  const childId = recordId(created) ?? readTrimmedString(draft.id);
+  if (!presetId) throw new Error(`${entity} actions require a presetId.`);
+  if (!childId) throw new Error(`${entity} actions must return a created record id.`);
+
+  const preset = await storageApi.get<Record<string, unknown>>("prompts", presetId);
+  if (!preset) throw new Error(`Prompt preset ${presetId} was not found.`);
+  const currentOrder = parseOrderIds(preset[orderField]);
+  if (currentOrder.includes(childId)) return;
+  await storageApi.update(
+    "prompts",
+    presetId,
+    updatePromptPresetSchema.parse({
+      [orderField]: [...currentOrder, childId],
+    }),
+  );
+}
+
+async function applyCreateDekiAction(
+  action: Extract<DekiEntryAction, { type: "create_record" }>,
+  actionId: string | undefined,
+): Promise<unknown> {
+  const storageEntity = storageEntityForDekiAction(action.entity);
+  const { draft, generatedId } = normalizeCreateActionDraft(action, actionId);
+  const result = await createDekiActionRecord(storageEntity, draft, generatedId);
+  await appendPromptChildToParentOrder(action.entity, draft, result);
+  return result;
+}
+
+async function markDekiActionApplied(
+  messageId: string,
+  application: DekiActionApplication,
+): Promise<DekiActionApplication> {
+  const settings = await readSettingsValue();
+  const messages = normalizeDekiMessages(settings);
+  const updatedMessages = messages.map((message) =>
+    message.id === messageId && message.action && message.action.type !== "none"
+      ? { ...message, actionApplication: application }
+      : message,
+  );
+  if (!messages.some((message) => message.id === messageId && message.action && message.action.type !== "none")) {
+    throw new Error("Deki-senpai action message was not found.");
+  }
+  await saveSettingsPatch({ messages: updatedMessages });
+  return application;
+}
+
 export const dekiApi = {
   prompt: (request: DekiEntryRequest) =>
     invokeTauri<DekiGatewayResponse>("deki_prompt", {
       request,
     }),
+  actions: {
+    apply: async (
+      action: DekiEntryAction,
+      options?: { actionId?: string },
+    ): Promise<{
+      entity: DekiActionEntity;
+      storageEntity: StorageEntity;
+      result: unknown;
+      resultId: string | null;
+    }> => {
+      if (action.type === "none") {
+        throw new Error("Deki-senpai did not provide an applyable action.");
+      }
+      const storageEntity = storageEntityForDekiAction(action.entity);
+      const result =
+        action.type === "create_record"
+          ? await applyCreateDekiAction(action, options?.actionId)
+          : await storageApi.update(storageEntity, action.id, action.patch);
+      return {
+        entity: action.entity,
+        storageEntity,
+        result,
+        resultId: recordId(result),
+      };
+    },
+  },
   preferences: {
     get: async (): Promise<DekiPreferences> => {
       return normalizePreferences(await readSettingsValue());
@@ -145,7 +368,11 @@ export const dekiApi = {
         compaction: normalizeDekiCompaction(settings),
       };
     },
-    appendMessage: async (message: { role: "user" | "assistant"; content: string }): Promise<DekiMessage> => {
+    appendMessage: async (message: {
+      role: "user" | "assistant";
+      content: string;
+      action?: DekiEntryAction | null;
+    }): Promise<DekiMessage> => {
       const settings = await readSettingsValue();
       const nextMessage = createDekiMessage(message);
       await saveSettingsPatch({
@@ -153,6 +380,7 @@ export const dekiApi = {
       });
       return nextMessage;
     },
+    markActionApplied: markDekiActionApplied,
     saveCompaction: async (compaction: DekiCompactionState): Promise<DekiCompactionState> =>
       normalizeDekiCompaction(
         await saveSettingsPatch({
