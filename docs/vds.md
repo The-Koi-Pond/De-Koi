@@ -24,7 +24,14 @@ browsers that open the same hosted URL use the same server-side data volume.
 
 ## HTTPS Domain Or Reverse Proxy
 
-Start the stack from the repository root:
+Create `.env` first and set the exact browser origin users will open:
+
+```env
+CORS_ORIGINS=https://de-koi.example.com
+CSRF_TRUSTED_ORIGINS=https://de-koi.example.com
+```
+
+Then start the stack from the repository root:
 
 ```sh
 docker compose -f docker-compose.vds.yml pull
@@ -36,18 +43,15 @@ By default, the web container binds to `http://127.0.0.1:7860/`. Put Caddy,
 nginx, Traefik, or another HTTPS reverse proxy in front of that local port and
 open De-Koi at your HTTPS domain.
 
-Set the exact browser origins in `.env` when the hosted domain is not one of the
-local defaults:
-
-```env
-CORS_ORIGINS=https://de-koi.example.com
-CSRF_TRUSTED_ORIGINS=https://de-koi.example.com
-```
+The shipped `de-koi-web` nginx config proxies `/api/` to the private Rust runtime
+and forwards the browser `Authorization` header on that hop. If your outer
+reverse proxy performs Basic Auth, configure it to preserve `Authorization`
+when proxying to `127.0.0.1:7860`.
 
 For a public internet VDS, protect the web shell with HTTPS and authentication.
-Reverse-proxy Basic Auth is the easiest full-page option because the browser
-sends the `Authorization` header to the web container, and the web nginx forwards
-that header to the Rust runtime.
+Reverse-proxy Basic Auth is the easiest full-page option when the outer proxy
+preserves `Authorization`, because the browser sends that header to the web
+container and the shipped web nginx forwards it to the Rust runtime.
 
 Do not expose port `8787` on the host or to the public internet. It should stay
 private on the Docker network behind `de-koi-web`.
@@ -100,7 +104,8 @@ curl -I http://127.0.0.1:7860/
   phone and PC browsers.
 - `BASIC_AUTH_USER` and `BASIC_AUTH_PASS` protect the Rust runtime. They are
   most useful when a desktop client points directly at the remote runtime URL,
-  or when a reverse proxy also supplies the same `Authorization` header.
+  or when a reverse proxy also supplies the same `Authorization` header through
+  the web container.
 - `IP_ALLOWLIST` is useful for static trusted client addresses.
 - `ADMIN_SECRET` protects privileged runtime commands when those commands are
   used remotely. Configure the same value in De-Koi Settings > Advanced.

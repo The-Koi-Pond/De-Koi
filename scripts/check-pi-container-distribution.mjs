@@ -30,6 +30,42 @@ function assertBefore(label, text, first, second) {
   }
 }
 
+function composeServiceBlock(label, text, serviceName) {
+  const pattern = new RegExp("^  " + serviceName + ":\\n([\\s\\S]*?)(?=^  [a-zA-Z0-9_-]+:|^volumes:|^networks:)", "m");
+  const match = text.match(pattern);
+  if (!match) {
+    throw new Error(label + " must define service " + serviceName);
+  }
+  return match[1];
+}
+
+function assertServiceContains(label, serviceBlock, expected) {
+  assertContains(label + " service", serviceBlock, expected);
+}
+
+function assertServiceNotContains(label, serviceBlock, unexpected) {
+  assertNotContains(label + " service", serviceBlock, unexpected);
+}
+
+function assertOnlyServicePublishesHostPort(label, text, publishingService) {
+  const servicesEnd = text.search(/^volumes:|^networks:/m);
+  const servicesText = servicesEnd === -1 ? text : text.slice(0, servicesEnd);
+  const serviceNames = [...servicesText.matchAll(/^  ([a-zA-Z0-9_-]+):$/gm)].map((match) => match[1]);
+  for (const serviceName of serviceNames) {
+    const serviceBlock = composeServiceBlock(label, text, serviceName);
+    const hasPorts = /^    ports:\s*$/m.test(serviceBlock);
+    if (serviceName === publishingService) {
+      if (!hasPorts) {
+        throw new Error(label + " service " + serviceName + " must publish the host-facing port");
+      }
+      continue;
+    }
+    if (hasPorts) {
+      throw new Error(label + " service " + serviceName + " must not publish host-facing ports");
+    }
+  }
+}
+
 const serverDockerfile = read("Dockerfile");
 const webDockerfile = read("Dockerfile.web");
 const nginx = read("docker/nginx/pi-web.conf");
@@ -131,14 +167,31 @@ assertNotContains("docker-compose.pi.yml", compose, 'ALLOW_UNAUTHENTICATED_PRIVA
 assertNotContains("docker-compose.pi.yml", compose, 'BYPASS_AUTH_DOCKER: "true"');
 assertContains("docker-compose.pi.trusted-lan.yml", trustedLanCompose, 'ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK: "true"');
 assertContains("docker-compose.pi.trusted-lan.yml", trustedLanCompose, 'BYPASS_AUTH_DOCKER: "true"');
-assertContains("docker-compose.vds.yml", vdsCompose, "ghcr.io/the-koi-pond/de-koi-server:prealpha");
-assertContains("docker-compose.vds.yml", vdsCompose, "ghcr.io/the-koi-pond/de-koi-web:prealpha");
-assertContains("docker-compose.vds.yml", vdsCompose, "DE_KOI_WEB_BIND:-127.0.0.1:7860");
-assertContains("docker-compose.vds.yml", vdsCompose, "expose:");
-assertContains("docker-compose.vds.yml", vdsCompose, '"8787"');
-assertNotContains("docker-compose.vds.yml", vdsCompose, '"8787:8787"');
-assertNotContains("docker-compose.vds.yml", vdsCompose, 'ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK: "true"');
-assertNotContains("docker-compose.vds.yml", vdsCompose, 'BYPASS_AUTH_DOCKER: "true"');
+const vdsServer = composeServiceBlock("docker-compose.vds.yml", vdsCompose, "de-koi-server");
+const vdsWeb = composeServiceBlock("docker-compose.vds.yml", vdsCompose, "de-koi-web");
+assertOnlyServicePublishesHostPort("docker-compose.vds.yml", vdsCompose, "de-koi-web");
+assertServiceContains("docker-compose.vds.yml de-koi-server", vdsServer, "ghcr.io/the-koi-pond/de-koi-server:prealpha");
+assertServiceContains("docker-compose.vds.yml de-koi-server", vdsServer, "DE_KOI_SERVER_ADDR: 0.0.0.0:8787");
+assertServiceContains("docker-compose.vds.yml de-koi-server", vdsServer, "BASIC_AUTH_USER: ${BASIC_AUTH_USER:-}");
+assertServiceContains("docker-compose.vds.yml de-koi-server", vdsServer, "BASIC_AUTH_PASS: ${BASIC_AUTH_PASS:-}");
+assertServiceContains("docker-compose.vds.yml de-koi-server", vdsServer, "IP_ALLOWLIST: ${IP_ALLOWLIST:-}");
+assertServiceContains("docker-compose.vds.yml de-koi-server", vdsServer, "ADMIN_SECRET: ${ADMIN_SECRET:-}");
+assertServiceContains("docker-compose.vds.yml de-koi-server", vdsServer, 'expose:\n      - "8787"');
+assertServiceNotContains("docker-compose.vds.yml de-koi-server", vdsServer, "ports:");
+assertServiceNotContains("docker-compose.vds.yml de-koi-server", vdsServer, "CLAUDE_CODE_OAUTH_TOKEN");
+assertServiceNotContains(
+  "docker-compose.vds.yml de-koi-server",
+  vdsServer,
+  'ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK: "true"',
+);
+assertServiceNotContains("docker-compose.vds.yml de-koi-server", vdsServer, 'BYPASS_AUTH_DOCKER: "true"');
+assertServiceContains("docker-compose.vds.yml de-koi-web", vdsWeb, "ghcr.io/the-koi-pond/de-koi-web:prealpha");
+assertServiceContains(
+  "docker-compose.vds.yml de-koi-web",
+  vdsWeb,
+  'ports:\n      - "${DE_KOI_WEB_BIND:-127.0.0.1:7860}:80"',
+);
+assertServiceNotContains("docker-compose.vds.yml de-koi-web", vdsWeb, "8787:8787");
 
 assertContains("README.md", readme, "VDS / VPS Pre-Alpha Web Shell");
 assertContains("README.md", readme, "docs/vds.md");
