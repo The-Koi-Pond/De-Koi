@@ -730,7 +730,6 @@ body {
   flex: 0 0 auto;
   border-radius: 0.18rem;
   filter: drop-shadow(0 0 0.25rem color-mix(in srgb, var(--primary) 22%, transparent));
-  animation: mari-title-heartbeat 2.4s ease-in-out infinite;
 }
 
 .mari-title-word {
@@ -780,20 +779,6 @@ body {
   }
   70% {
     transform: translateY(-1px) rotate(-4deg) scale(1.08);
-  }
-}
-
-@keyframes mari-title-heartbeat {
-  0%,
-  64%,
-  100% {
-    transform: scale(1);
-  }
-  72% {
-    transform: scale(1.22);
-  }
-  82% {
-    transform: scale(0.98);
   }
 }
 
