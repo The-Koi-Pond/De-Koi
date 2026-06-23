@@ -73,7 +73,7 @@ type ConversationSurfaceProps = {
   onCloseSettings: () => void;
   onCloseFiles: () => void;
   onCloseGallery: () => void;
-  onIllustrate?: () => void | Promise<void>;
+  onIllustrate?: ComponentProps<typeof ChatCommonOverlays>["onIllustrate"];
   onWizardFinish: () => void;
   onWizardCancel: () => void;
   onClosePeekPrompt: () => void;
@@ -191,6 +191,7 @@ export function ChatConversationSurface({
           onToggleHiddenFromAI={onToggleHiddenFromAI}
           onBranch={onBranch}
           onSaveMomentSummary={handleSaveMomentSummary}
+          onIllustrate={onIllustrate}
           lastAssistantMessageId={lastAssistantMessageId}
           onOpenSettings={onOpenSettings}
           onOpenFiles={onOpenFiles}

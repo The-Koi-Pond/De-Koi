@@ -27,6 +27,7 @@ import type {
   RegenerateOptions,
 } from "../types";
 import { resolvePromptSnapshotFromExtra } from "../lib/prompt-snapshot";
+import type { SaveMomentSource } from "../lib/save-moment";
 
 const TRACKER_AGENT_IDS = new Set(
   BUILT_IN_AGENTS.filter((agent) => agent.category === "tracker").map((agent) => agent.id),
@@ -489,9 +490,13 @@ export function useChatTimelineActions({
     [activeChatId, agentProcessing, enabledAgentTypes, isStreaming, retryAgents],
   );
 
-  const handleIllustrate = useCallback(async () => {
-    await retryAgents(activeChatId, ["illustrator"]);
-  }, [activeChatId, retryAgents]);
+  const handleIllustrate = useCallback(
+    async (source?: SaveMomentSource) => {
+      const forMessageId = readString(source?.messageId).trim();
+      await retryAgents(activeChatId, ["illustrator"], forMessageId ? { forMessageId } : undefined);
+    },
+    [activeChatId, retryAgents],
+  );
 
   const handleSetActiveSwipe = useCallback(
     (messageId: string, index: number) => {

@@ -658,7 +658,7 @@ type RoleplaySurfaceProps = {
   onCloseSettings: () => void;
   onCloseFiles: () => void;
   onCloseGallery: () => void;
-  onIllustrate?: () => void | Promise<void>;
+  onIllustrate?: ComponentProps<typeof ChatCommonOverlays>["onIllustrate"];
   onWizardFinish: () => void;
   onClosePeekPrompt: () => void;
   onResetSpritePlacements: () => void;
@@ -1222,6 +1222,7 @@ export function ChatRoleplaySurface({
                           onPeekPrompt={onPeekPrompt}
                           onBranch={messageActions.onBranch}
                           onSaveMomentSummary={handleSaveMomentSummary}
+                          onIllustrateMoment={onIllustrate}
                           onCloneSceneFromHere={messageActions.onCloneSceneFromHere}
                           isCloneSceneFromHereDisabled={isCloneSceneFromHereDisabled}
                           isLastAssistantMessage={msg.id === lastAssistantMessageId}
@@ -1252,6 +1253,7 @@ export function ChatRoleplaySurface({
                           onPeekPrompt={onPeekPrompt}
                           onBranch={messageActions.onBranch}
                           onSaveMomentSummary={handleSaveMomentSummary}
+                          onIllustrateMoment={onIllustrate}
                           onCloneSceneFromHere={messageActions.onCloneSceneFromHere}
                           isCloneSceneFromHereDisabled={isCloneSceneFromHereDisabled}
                           isLastAssistantMessage={msg.id === lastAssistantMessageId}
