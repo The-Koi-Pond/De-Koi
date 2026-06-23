@@ -55,7 +55,7 @@ export function effectiveMaxContext(connection: ContextConnection, parameters: C
   return minPositiveContext(readPositiveContext(connection?.maxContext), knownContext, parameterContext);
 }
 
-function estimatedMessageTokens(message: LlmMessage): number {
+export function estimateLlmMessageTokens(message: LlmMessage): number {
   const contentTokens = Math.ceil((message.content?.length ?? 0) / CHARS_PER_TOKEN);
   const imageTokens = (message.images?.length ?? 0) * 512;
   const toolTokens = message.tool_calls ? Math.ceil(JSON.stringify(message.tool_calls).length / CHARS_PER_TOKEN) : 0;
@@ -63,7 +63,7 @@ function estimatedMessageTokens(message: LlmMessage): number {
 }
 
 function estimatedTokens(messages: LlmMessage[]): number {
-  return messages.reduce((total, message) => total + estimatedMessageTokens(message), 0);
+  return messages.reduce((total, message) => total + estimateLlmMessageTokens(message), 0);
 }
 
 function estimatedToolDefinitionTokens(tools: LlmToolDefinition[] | null | undefined): number {
@@ -91,7 +91,7 @@ function truncateOldestHistory(messages: LlmMessage[], tokenBudget: number): Llm
   while (total > tokenBudget && historyCount(next) > 1) {
     const index = firstHistoryIndex(next);
     if (index < 0) break;
-    total -= estimatedMessageTokens(next[index]!);
+    total -= estimateLlmMessageTokens(next[index]!);
     next.splice(index, 1);
   }
 
@@ -128,7 +128,8 @@ export function fitLlmRequestToContextWindow(
   const maxTokens = Math.max(1, readNumber(parameters.maxTokens, DEFAULT_RESPONSE_TOKENS));
   const toolTokens = estimatedToolDefinitionTokens(options.tools);
   const tokenBudget = Math.max(1, maxContext - maxTokens - CONTEXT_SAFETY_TOKENS - toolTokens);
-  const fittedMessages = estimatedTokens(messages) <= tokenBudget ? messages : truncateOldestHistory(messages, tokenBudget);
+  const fittedMessages =
+    estimatedTokens(messages) <= tokenBudget ? messages : truncateOldestHistory(messages, tokenBudget);
   const outputTokenBudget = maxContext - CONTEXT_SAFETY_TOKENS - toolTokens - estimatedTokens(fittedMessages);
   const fittedMaxTokens = Math.max(1, Math.min(maxTokens, outputTokenBudget));
 

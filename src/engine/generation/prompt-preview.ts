@@ -4,9 +4,15 @@ import type { ChatMessageListOptions, StorageGateway } from "../capabilities/sto
 import type { VisualAssetGateway } from "../capabilities/visual-assets";
 import { llmParameters, loadChatMessages, requireRecord, resolveGenerationConnection } from "./context";
 import { assembleGenerationPrompt } from "./prompt-assembly";
+import { buildPromptBudgetEstimate, type PromptBudgetEstimate } from "./prompt-budget";
 import { buildGenerationPromptPresetCandidates } from "./prompt-preset-selection";
 import { generationInfoFromVisibleParameters, providerVisibleLlmParameters } from "./provider-visible-parameters";
 import { boolish, isRecord, parseRecord, readNumber, readString, type JsonRecord } from "./runtime-records";
+import {
+  getAttachmentFilename,
+  isImageAttachment,
+  type PromptAttachment,
+} from "../shared/attachments/image-attachments";
 
 type PromptPreviewChoices = Record<string, string | string[]>;
 type PromptPreviewSource = "cached" | "live_preview" | "raw_messages";
@@ -19,6 +25,9 @@ export interface PromptPreviewInput {
   forCharacterId?: string | null;
   parameters?: Record<string, unknown> | null;
   beforeMessageId?: string | null;
+  message?: string | null;
+  userMessage?: string | null;
+  attachments?: PromptAttachment[] | null;
 }
 
 export interface PromptPreviewResult {
@@ -52,6 +61,7 @@ export interface PromptPreviewResult {
     finishReason?: string | null;
   } | null;
   agentNote?: string;
+  budget?: PromptBudgetEstimate;
 }
 
 function promptPreviewMessageLoadOptions(chat: Record<string, unknown>): ChatMessageListOptions {
@@ -77,6 +87,49 @@ async function promptPresetExists(storage: StorageGateway, presetId: string): Pr
   if (isRecord(direct)) return true;
   const prompts = await storage.list<JsonRecord>("prompts").catch(() => []);
   return prompts.some((prompt) => readString(prompt.id).trim() === presetId);
+}
+
+function previewDraftText(input: PromptPreviewInput): string {
+  return readString(input.userMessage ?? input.message).trim();
+}
+
+function previewDraftMessages(input: PromptPreviewInput): ChatMLMessage[] {
+  const draft = previewDraftText(input);
+  return draft
+    ? [
+        {
+          role: "user",
+          content: draft,
+          contextKind: "history",
+          displayName: "Current Draft",
+        },
+      ]
+    : [];
+}
+
+function previewAttachmentMessages(input: PromptPreviewInput): ChatMLMessage[] {
+  const attachments = input.attachments?.filter(isRecord) as PromptAttachment[] | undefined;
+  if (!attachments?.length) return [];
+  const names = attachments.map(getAttachmentFilename).filter(Boolean);
+  const imageCount = attachments.filter(isImageAttachment).length;
+  const content = names.length
+    ? ["Attachments likely to be sent:", ...names.map((name) => "- " + name)].join("\n")
+    : String(attachments.length) + " attachment" + (attachments.length === 1 ? "" : "s");
+  return [
+    {
+      role: "user",
+      content,
+      contextKind: "injection",
+      displayName: "Attachments",
+      ...(imageCount > 0
+        ? { images: Array.from({ length: imageCount }, (_, index) => "attachment-" + (index + 1)) }
+        : {}),
+    },
+  ];
+}
+
+function previewBudgetMessages(assemblyMessages: ChatMLMessage[], input: PromptPreviewInput): ChatMLMessage[] {
+  return [...assemblyMessages, ...previewDraftMessages(input), ...previewAttachmentMessages(input)];
 }
 
 async function previewChoicesPromptPresetId(
@@ -142,15 +195,23 @@ export async function previewGenerationPrompt(
     storedMessages: previewMessages,
     connection,
     request,
-    latestUserInput: "",
+    latestUserInput: previewDraftText(input),
     visuals,
   });
   const parameters = llmParameters(connection, request, previewChat, assembly.parameters);
   const visibleParameters = providerVisibleLlmParameters(connection, parameters, { stream: true });
   const generationInfo = generationInfoFromVisibleParameters(connection, visibleParameters);
+  const budgetMessages = previewBudgetMessages(assembly.messages, input);
+  const previewBudgetDisplayMessages = previewBudgetMessages(assembly.previewMessages, input);
+  const budget = buildPromptBudgetEstimate({
+    messages: budgetMessages,
+    connection,
+    parameters,
+    budgetSkippedLorebookEntries: assembly.budgetSkippedLorebookEntries,
+  });
   return {
-    messages: assembly.messages,
-    previewMessages: assembly.previewMessages,
+    messages: budgetMessages,
+    previewMessages: previewBudgetDisplayMessages,
     parameters: visibleParameters,
     promptPresetId: assembly.promptPresetId,
     lorebookActivationTrace: assembly.lorebookActivationTrace,
@@ -179,5 +240,6 @@ export async function previewGenerationPrompt(
       finishReason: null,
     },
     agentNote: "No saved model request was available, so this is a live best-effort preview assembled without sending.",
+    budget,
   };
 }

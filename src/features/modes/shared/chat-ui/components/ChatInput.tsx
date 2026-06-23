@@ -13,6 +13,7 @@ import {
   Languages,
   Loader2,
   FileText,
+  Gauge,
   WandSparkles,
 } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -69,6 +70,7 @@ import {
   CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
   CHAT_INPUT_ICON_BUTTON_READY_CLASS,
 } from "./input-button-styles";
+import type { PeekPromptOptions } from "../types";
 
 interface Attachment {
   type: string; // MIME type
@@ -140,7 +142,7 @@ interface ChatInputProps {
     expression: string,
     options?: { immediate?: boolean },
   ) => void | Promise<void>;
-  onPeekPrompt?: () => void;
+  onPeekPrompt?: (options?: PeekPromptOptions) => void;
 }
 
 export const ChatInput = memo(function ChatInput({
@@ -472,6 +474,10 @@ export const ChatInput = memo(function ChatInput({
   // Get the current textarea value (always from the DOM directly)
   const getValue = () => textareaRef.current?.value ?? "";
 
+  const handlePromptBudget = () => {
+    onPeekPrompt?.({ userMessage: getValue().trim(), attachments });
+  };
+
   const buildContext = useCallback((): SlashCommandContext | null => {
     if (!activeChatId) return null;
     return {
@@ -541,7 +547,7 @@ export const ChatInput = memo(function ChatInput({
       setCompletions([]);
       replaceAttachments([]);
       clearInputDraft(activeChatId);
-      onPeekPrompt?.();
+      onPeekPrompt?.({ userMessage: raw.trim(), attachments });
       return;
     }
 
@@ -1531,6 +1537,22 @@ export const ChatInput = memo(function ChatInput({
         )}
 
         {/* Send / Stop button */}
+
+        <button
+          type="button"
+          onClick={handlePromptBudget}
+          disabled={!activeChatId || isReadingAttachments}
+          className={cn(
+            CHAT_INPUT_ICON_BUTTON_CLASS,
+            activeChatId && !isReadingAttachments
+              ? CHAT_INPUT_ICON_BUTTON_IDLE_CLASS
+              : CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
+          )}
+          title="Prompt budget"
+          aria-label="Prompt budget"
+        >
+          <Gauge size="1rem" />
+        </button>
 
         <button
           onClick={isStreaming ? () => useChatStore.getState().stopGeneration() : handleSend}

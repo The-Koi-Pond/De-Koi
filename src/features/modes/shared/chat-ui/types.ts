@@ -1,4 +1,6 @@
 import type { Message, MessageSwipe } from "../../../../engine/contracts/types/chat";
+import type { PromptBudgetEstimate } from "../../../../engine/generation/prompt-budget";
+import type { PromptAttachment } from "../../../../engine/shared/attachments/image-attachments";
 export type { CharacterMap, PersonaInfo } from "../../../runtime/visuals/types";
 
 type PeekPromptMessage = {
@@ -40,12 +42,16 @@ export type PeekPromptData = {
   agentNote?: string;
   loading?: boolean;
   error?: string;
+  budget?: PromptBudgetEstimate;
 };
 
 export type PeekPromptOptions = {
   forCharacterId?: string | null;
   messageId?: string | null;
   promptSnapshot?: Message["extra"]["generationPromptSnapshot"] | null;
+  message?: string | null;
+  userMessage?: string | null;
+  attachments?: PromptAttachment[] | null;
 };
 
 export type RegenerateOptions = {

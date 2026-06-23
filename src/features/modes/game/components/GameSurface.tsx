@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   BookOpen,
   Folder,
+  Gauge,
   Globe,
   HelpCircle,
   History,
@@ -1227,6 +1228,7 @@ interface GameSurfaceProps {
   personaInfo?: PersonaInfo;
   chatBackground?: string | null;
   onOpenSettings: () => void;
+  onPeekPrompt?: () => void;
   onDeleteMessage: (messageId: string) => void;
   multiSelectMode?: boolean;
   selectedMessageIds?: Set<string>;
@@ -1243,6 +1245,7 @@ export function GameSurface({
   personaInfo,
   chatBackground,
   onOpenSettings,
+  onPeekPrompt,
   onDeleteMessage,
   multiSelectMode = false,
   selectedMessageIds,
@@ -7517,6 +7520,15 @@ export function GameSurface({
                       </div>
                     )}
                   </div>
+                  <button
+                    onClick={onPeekPrompt}
+                    disabled={!onPeekPrompt}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white/80 backdrop-blur-md transition-colors hover:bg-black/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    title="Prompt Budget"
+                    aria-label="Prompt budget"
+                  >
+                    <Gauge size={14} />
+                  </button>
                   <button
                     onClick={onOpenSettings}
                     className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white/80 backdrop-blur-md transition-colors hover:bg-black/60 hover:text-white"
