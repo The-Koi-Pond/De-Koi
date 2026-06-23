@@ -15,7 +15,7 @@ export interface ExtensionPackageCompatibility {
 }
 
 export interface ExtensionUiContributions {
-  slots: ExtensionPackageUiSlot[];
+  slots?: ExtensionPackageUiSlot[];
 }
 
 export type ExtensionSource = "file" | "package" | "profile";

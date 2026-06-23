@@ -62,7 +62,7 @@ describe("extension import safety", () => {
     });
   });
 
-  it("omits UI contributions when a package declares no supported slots", () => {
+  it("preserves empty UI contributions when a package declares UI without slots", () => {
     const result = buildImportedExtensionInput(
       "no-slots.json",
       JSON.stringify({
@@ -77,7 +77,7 @@ describe("extension import safety", () => {
     );
 
     expect(result.kind).toBe("package-json");
-    expect(result.input).not.toHaveProperty("uiContributions");
+    expect(result.input).toMatchObject({ uiContributions: {} });
   });
   it("keeps package imports with JavaScript disabled", () => {
     const result = buildImportedExtensionInput(

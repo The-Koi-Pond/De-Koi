@@ -121,8 +121,8 @@ function parseJsonExtension(fileName: string, text: string, installedAt: string)
   if (compatibility?.deKoi !== undefined && typeof compatibility.deKoi !== "string") {
     throw new Error("Extension package compatibility.deKoi must be a string.");
   }
-  const ui = readOptionalRecord(parsed.ui, "ui") ?? {};
-  const declaredSlots = ui.slots === undefined ? [] : normalizeSlots(ui.slots);
+  const ui = readOptionalRecord(parsed.ui, "ui");
+  const declaredSlots = ui?.slots === undefined ? null : normalizeSlots(ui.slots);
   const input: CreateExtensionInput = {
     name,
     description: readString(parsed.description) ?? "",
@@ -135,7 +135,7 @@ function parseJsonExtension(fileName: string, text: string, installedAt: string)
     manifestVersion: 1,
     compatibility: compatibility ? { deKoi: readString(compatibility.deKoi) ?? undefined } : null,
     permissions: normalizePermissions(parsed.permissions),
-    ...(declaredSlots.length > 0 ? { uiContributions: { slots: declaredSlots } } : {}),
+    ...(ui ? { uiContributions: declaredSlots ? { slots: declaredSlots } : {} } : {}),
     source: "package",
   };
   return { kind: "package-json", input, hasRunnableJavaScript: extensionHasRunnableJavaScript({ js }) };

@@ -44,7 +44,7 @@ const compatibilitySchema = z
   .strict();
 const uiContributionsSchema = z
   .object({
-    slots: z.array(uiSlotSchema).max(12).default([]),
+    slots: z.array(uiSlotSchema).max(12).optional(),
   })
   .strict();
 const sourceSchema = z.enum(["file", "package", "profile"]);
