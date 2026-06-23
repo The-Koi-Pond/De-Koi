@@ -29,6 +29,18 @@ export interface MemoryRecallAttributionResult {
   items: GenerationContextAttributionItem[];
 }
 
+export interface ChatHistoryAttributionInput {
+  included: ReadonlyArray<{
+    role: "system" | "user" | "assistant";
+    content: string;
+    characterId?: string | null;
+    name?: string | null;
+  }>;
+  hiddenFromAiCount?: number;
+  skippedByLimitCount?: number;
+  requestedLimit?: number;
+}
+
 function snippetForText(text: string, maxChars = ATTRIBUTION_SNIPPET_MAX_CHARS): string | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
@@ -51,6 +63,73 @@ function attributionKindForAgent(agentType: string): GenerationContextAttributio
 
 function isHiddenAgentType(agentType: string): boolean {
   return HIDDEN_AGENT_TYPES.has(agentType.trim().toLowerCase());
+}
+
+function positiveCount(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+function roleLabel(role: "system" | "user" | "assistant"): string {
+  if (role === "assistant") return "Assistant message";
+  if (role === "system") return "System message";
+  return "User message";
+}
+
+export function attributionForChatSummary(summary: string | null | undefined): GenerationContextAttributionItem[] {
+  const snippet = snippetForText(summary ?? "");
+  if (!snippet) return [];
+  return [
+    {
+      kind: "chat_summary",
+      label: "Chat Summary",
+      status: "injected",
+      snippet,
+    },
+  ];
+}
+
+export function attributionForChatHistory(input: ChatHistoryAttributionInput): GenerationContextAttributionItem[] {
+  const requestedLimit = positiveCount(input.requestedLimit);
+  const items: GenerationContextAttributionItem[] = input.included.map((message, index) => ({
+    kind: "chat_history",
+    label: message.name?.trim() || roleLabel(message.role),
+    status: "injected",
+    sourceId: message.characterId?.trim() || null,
+    snippet: snippetForText(message.content),
+    metadata: {
+      role: message.role,
+      rank: index + 1,
+      ...(requestedLimit ? { requestedLimit } : {}),
+    },
+  }));
+
+  const hiddenFromAiCount = positiveCount(input.hiddenFromAiCount);
+  if (hiddenFromAiCount) {
+    items.push({
+      kind: "chat_history",
+      label: `${hiddenFromAiCount} hidden from AI`,
+      status: "skipped",
+      snippet: null,
+      metadata: { reason: "hidden_from_ai", count: hiddenFromAiCount },
+    });
+  }
+
+  const skippedByLimitCount = positiveCount(input.skippedByLimitCount);
+  if (skippedByLimitCount) {
+    items.push({
+      kind: "chat_history",
+      label: `${skippedByLimitCount} skipped by history limit`,
+      status: "skipped",
+      snippet: null,
+      metadata: {
+        reason: "history_limit",
+        count: skippedByLimitCount,
+        ...(requestedLimit ? { requestedLimit } : {}),
+      },
+    });
+  }
+
+  return items;
 }
 
 export function attributionForMemoryRecall(input: MemoryRecallAttributionInput): MemoryRecallAttributionResult {
