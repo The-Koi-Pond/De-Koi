@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bookmark, Check, Copy, GitBranch } from "lucide-react";
+import { Bookmark, Check, Copy, GitBranch, ScrollText } from "lucide-react";
 import { cn, copyToClipboard } from "../../../../../shared/lib/utils";
 import {
   buildSaveMomentExportText,
@@ -12,6 +12,7 @@ const DEFAULT_ICON_SIZE = "0.8125rem";
 
 interface SaveMomentActionProps {
   source: SaveMomentSource;
+  onCreateSummaryDraft?: (source: SaveMomentSource) => void;
   onBranch?: (messageId: string) => void;
   onCloneSceneFromHere?: (messageId: string) => void;
   buttonClassName?: string;
@@ -22,11 +23,13 @@ interface SaveMomentActionProps {
 
 function iconForItem(id: SaveMomentMenuItemId): ReactNode {
   if (id === "copy-snippet") return <Copy size="0.75rem" />;
+  if (id === "chat-summary") return <ScrollText size="0.75rem" />;
   return <GitBranch size="0.75rem" />;
 }
 
 export function SaveMomentAction({
   source,
+  onCreateSummaryDraft,
   onBranch,
   onCloneSceneFromHere,
   buttonClassName,
@@ -42,10 +45,11 @@ export function SaveMomentAction({
   const items = useMemo(
     () =>
       buildSaveMomentMenuItems({
+        canCreateSummaryDraft: !!onCreateSummaryDraft,
         canBranch: !!onBranch,
         canCloneScene: !!onCloneSceneFromHere,
       }),
-    [onBranch, onCloneSceneFromHere],
+    [onBranch, onCloneSceneFromHere, onCreateSummaryDraft],
   );
 
   useEffect(() => {
@@ -85,6 +89,11 @@ export function SaveMomentAction({
       setOpen(false);
       return;
     }
+    if (id === "chat-summary") {
+      onCreateSummaryDraft?.(source);
+      setOpen(false);
+      return;
+    }
     if (id === "branch") {
       onBranch?.(source.messageId);
       setOpen(false);
@@ -112,7 +121,7 @@ export function SaveMomentAction({
         <div
           role="menu"
           className={cn(
-            "absolute top-full z-50 mt-1 min-w-40 overflow-hidden rounded-md border border-[var(--border)] bg-[var(--card)] py-1 text-[0.75rem] shadow-xl ring-1 ring-black/5",
+            "absolute top-full z-50 mt-1 min-w-44 overflow-hidden rounded-md border border-[var(--border)] bg-[var(--card)] py-1 text-[0.75rem] shadow-xl ring-1 ring-black/5",
             align === "end" ? "right-0" : "left-0",
           )}
         >

@@ -7,6 +7,7 @@ import { cn } from "../../../../../shared/lib/utils";
 import type { Chat, ChatMetadata, DaySummaryEntry, WeekSummaryEntry } from "../../../../../engine/contracts/types/chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { chatKeys, useBackfillConversationSummaries, useUpdateChatSummaries } from "../../../../catalog/chats/index";
+import { applySaveMomentSummaryDraft, type SaveMomentSummaryDraft } from "../lib/save-moment";
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -49,6 +50,7 @@ interface SummariesEditorModalProps {
   chat: Chat;
   open: boolean;
   onClose: () => void;
+  saveMomentDraft?: SaveMomentSummaryDraft | null;
 }
 
 // ── Date helpers for weekly summary consolidation ──
@@ -110,7 +112,7 @@ function computeDelta(
   return out;
 }
 
-export function SummariesEditorModal({ chat, open, onClose }: SummariesEditorModalProps) {
+export function SummariesEditorModal({ chat, open, onClose, saveMomentDraft }: SummariesEditorModalProps) {
   const metadata = useMemo<ChatMetadata>(
     () =>
       chat.metadata && typeof chat.metadata === "object" && !Array.isArray(chat.metadata)
@@ -142,9 +144,10 @@ export function SummariesEditorModal({ chat, open, onClose }: SummariesEditorMod
           : (latest.metadata ?? {})
         : metadata;
       const fresh = cloneDrafts(latestMeta);
-      setDrafts(fresh);
+      const nextDrafts = saveMomentDraft ? applySaveMomentSummaryDraft(fresh, saveMomentDraft) : fresh;
+      setDrafts(nextDrafts);
       snapshotRef.current = fresh;
-      setExpanded(new Set());
+      setExpanded(saveMomentDraft ? new Set([`day:${saveMomentDraft.dateKey}`]) : new Set());
       setBackfillNotice(null);
       updateSummaries.reset();
       backfillSummaries.reset();
@@ -153,7 +156,7 @@ export function SummariesEditorModal({ chat, open, onClose }: SummariesEditorMod
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, saveMomentDraft]);
 
   // Build the ordered entry list: weeks first (chronological), then non-consolidated days.
   const entries = useMemo<EntryRef[]>(() => {
@@ -300,6 +303,16 @@ export function SummariesEditorModal({ chat, open, onClose }: SummariesEditorMod
 
         {/* Body */}
         <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3">
+          {saveMomentDraft && (
+            <div className="rounded-lg border border-[var(--primary)]/40 bg-[var(--primary)]/10 px-3 py-2 text-[0.6875rem] text-[var(--foreground)]">
+              <p className="font-semibold">Save Moment draft added to {saveMomentDraft.dateKey}.</p>
+              <p className="mt-1 text-[var(--muted-foreground)]">
+                Source chat {saveMomentDraft.source.chatId}, message {saveMomentDraft.source.messageId}. Review the
+                draft, edit it if needed, then save to persist it.
+              </p>
+            </div>
+          )}
+
           <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
             Days from the current week are automatically consolidated into a weekly summary once the week ends. Edits to
             the current week&apos;s days may be rewritten by that consolidation.
