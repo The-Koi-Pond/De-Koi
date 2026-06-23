@@ -295,9 +295,8 @@ function isSpotifyRestrictionError(error: unknown): boolean {
 
 export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
   const qc = useQueryClient();
-  const enabled = useUIStore((s) => s.spotifyPlayerEnabled);
   const visible = useSpotifyMiniPlayerVisible(mobile);
-  const queryEnabled = enabled && visible;
+  const queryEnabled = visible;
   const openRightPanel = useUIStore((s) => s.openRightPanel);
   const openAgentDetail = useUIStore((s) => s.openAgentDetail);
   const collapsed = useUIStore((s) => s.spotifyMobileWidgetCollapsed);
@@ -574,7 +573,9 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
             className="h-14 w-14 shrink-0 rounded-lg object-contain"
             draggable={false}
           />
-          <p className="text-sm font-medium leading-snug">Assistant DJ is composing a playlist for you, hold on tight!</p>
+          <p className="text-sm font-medium leading-snug">
+            Assistant DJ is composing a playlist for you, hold on tight!
+          </p>
         </div>
       ),
       { duration: Infinity, position: "bottom-right" },
@@ -977,7 +978,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
     ],
   );
 
-  if (!enabled || !visible) return null;
+  if (!visible) return null;
 
   if (mobile) {
     return (
@@ -1039,9 +1040,5 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
 }
 
 export function SpotifyMobileWidget() {
-  const enabled = useUIStore((s) => s.spotifyPlayerEnabled);
-
-  if (!enabled) return null;
-
   return <SpotifyMiniPlayer mobile />;
 }
