@@ -538,6 +538,32 @@ export interface GenerationPromptSnapshotInfo {
   finishReason?: string | null;
 }
 
+export type GenerationContextAttributionSource = "saved_snapshot" | "best_effort_reconstruction";
+
+export type GenerationContextAttributionKind =
+  | "memory_recall"
+  | "lorebook"
+  | "knowledge_retrieval"
+  | "knowledge_router"
+  | "agent_injection";
+
+export type GenerationContextAttributionStatus = "considered" | "injected" | "redacted" | "skipped";
+
+export interface GenerationContextAttributionItem {
+  kind: GenerationContextAttributionKind;
+  label: string;
+  status: GenerationContextAttributionStatus;
+  sourceId?: string | null;
+  sourceCollection?: string | null;
+  parentSourceId?: string | null;
+  snippet?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface GenerationContextAttribution {
+  source: GenerationContextAttributionSource;
+  items: GenerationContextAttributionItem[];
+}
 export interface GenerationPromptSnapshot {
   messages: GenerationPromptSnapshotMessage[];
   previewMessages?: GenerationPromptSnapshotMessage[];
@@ -546,6 +572,7 @@ export interface GenerationPromptSnapshot {
   generationInfo?: GenerationPromptSnapshotInfo | null;
   promptPresetId?: string | null;
   lorebookActivationTrace?: LorebookActivationTrace;
+  contextAttribution?: GenerationContextAttribution | null;
   createdAt?: string;
 }
 

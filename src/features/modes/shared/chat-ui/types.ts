@@ -1,4 +1,4 @@
-import type { Message, MessageSwipe } from "../../../../engine/contracts/types/chat";
+import type { GenerationContextAttribution, Message, MessageSwipe } from "../../../../engine/contracts/types/chat";
 import type { PromptBudgetEstimate } from "../../../../engine/generation/prompt-budget";
 import type { PromptAttachment } from "../../../../engine/shared/attachments/image-attachments";
 export type { CharacterMap, PersonaInfo } from "../../../runtime/visuals/types";
@@ -16,6 +16,7 @@ export type PeekPromptData = {
   previewMessages?: PeekPromptMessage[];
   parameters: unknown;
   promptPresetId?: string | null;
+  contextAttribution?: GenerationContextAttribution | null;
   source?: "cached" | "live_preview" | "raw_messages";
   exact?: boolean;
   generationInfo?: {

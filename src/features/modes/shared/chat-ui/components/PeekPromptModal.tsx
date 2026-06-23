@@ -2,8 +2,10 @@
 // Peek Prompt Modal — collapsible section viewer
 // ──────────────────────────────────────────────
 import { useState, useMemo } from "react";
+import type { GenerationContextAttribution } from "../../../../../engine/contracts/types/chat";
 import { X, ChevronRight, ChevronDown, Loader2, Gauge, AlertTriangle } from "lucide-react";
 import { cn } from "../../../../../shared/lib/utils";
+import { buildPromptAttributionViewModel, type PromptAttributionViewModel } from "../lib/prompt-attribution";
 import { usePresetSummaries } from "../../../../catalog/presets/index";
 import type { PromptBudgetEstimate } from "../../../../../engine/generation/prompt-budget";
 
@@ -51,6 +53,7 @@ interface PeekPromptModalProps {
     previewMessages?: PeekPromptMessage[];
     parameters: unknown;
     promptPresetId?: string | null;
+    contextAttribution?: GenerationContextAttribution | null;
     source?: "cached" | "live_preview" | "raw_messages";
     exact?: boolean;
     generationInfo?: GenerationInfo | null;
@@ -600,6 +603,60 @@ function BudgetOverview({ budget }: { budget: PromptBudgetEstimate }) {
             </div>
           );
         })}
+function attributionBadgeClass(model: PromptAttributionViewModel): string {
+  if (model.sourceTone === "exact") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+  return "border-amber-500/30 bg-amber-500/10 text-amber-300";
+}
+
+function AttributionPanel({ model }: { model: PromptAttributionViewModel }) {
+  const itemCount = model.groups.reduce((sum, group) => sum + group.items.length, 0);
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 px-4 py-3 space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[0.6875rem] font-bold uppercase text-[var(--foreground)]">Context Attribution</span>
+        <span
+          className={cn(
+            "rounded-md border px-2 py-0.5 text-[0.5625rem] font-bold uppercase",
+            attributionBadgeClass(model),
+          )}
+        >
+          {model.sourceLabel}
+        </span>
+        <span className="text-[0.625rem] text-[var(--muted-foreground)]">
+          {itemCount} source{itemCount !== 1 ? "s" : ""}
+        </span>
+      </div>
+      <div className="space-y-2">
+        {model.groups.map((group) => (
+          <div
+            key={group.label}
+            className="rounded-md border border-[var(--border)]/50 bg-[var(--background)]/35 px-3 py-2"
+          >
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="text-[0.625rem] font-bold uppercase text-[var(--muted-foreground)]">{group.label}</span>
+              <span className="text-[0.5625rem] text-[var(--muted-foreground)]">{group.items.length}</span>
+            </div>
+            <div className="space-y-1.5">
+              {group.items.map((item, index) => (
+                <div key={`${item.label}-${index}`} className="grid gap-1 text-[0.6875rem]">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="font-medium text-[var(--foreground)]">{item.label}</span>
+                    <span className="rounded bg-[var(--accent)]/60 px-1.5 py-0.5 text-[0.5625rem] uppercase text-[var(--muted-foreground)]">
+                      {item.statusLabel}
+                    </span>
+                  </div>
+                  {item.snippet ? (
+                    <p className="max-h-10 overflow-hidden text-[0.6875rem] leading-relaxed text-[var(--foreground)]/75">
+                      {item.snippet}
+                    </p>
+                  ) : (
+                    <p className="text-[0.625rem] text-[var(--muted-foreground)]">Hidden source details redacted.</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -615,6 +672,10 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
   );
   const isLoading = data.loading === true;
   const budget = data.budget;
+  const attributionModel = useMemo(
+    () => buildPromptAttributionViewModel(data.contextAttribution),
+    [data.contextAttribution],
+  );
 
   const gen = data.generationInfo;
   const params = data.parameters as Record<string, unknown> | null;
@@ -756,6 +817,7 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
               )}
             </div>
           )}
+          {!isLoading && !data.error && attributionModel && <AttributionPanel model={attributionModel} />}
           {!isLoading && !data.error && data.agentNote && (
             <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[0.6875rem] text-amber-300/80">
               Note: {data.agentNote}

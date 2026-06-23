@@ -30,6 +30,7 @@ import type {
   GameBlueprint,
 } from "../../../../engine/contracts/types/game";
 import type { Chat } from "../../../../engine/contracts/types/chat";
+import type { GameWorldTickTrigger } from "../../../../engine/modes/game/world/world-tick.service";
 
 // ── Query Keys ──
 
@@ -646,6 +647,39 @@ export function useUpdateWeather() {
   });
 }
 
+export function useWorldTick() {
+  const qc = useQueryClient();
+  const store = useGameModeStore;
+  return useMutation({
+    mutationFn: (data: {
+      chatId: string;
+      trigger: GameWorldTickTrigger;
+      triggerKey?: string;
+      enabled?: boolean;
+      discriminator?: string;
+    }) => gameApi.runWorldTick(data),
+    onSuccess: (res, variables) => {
+      publishSessionChat(qc, res.sessionChat);
+      qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
+      qc.invalidateQueries({ queryKey: [...gameKeys.all, "journal", variables.chatId] });
+      const meta =
+        res.sessionChat.metadata && typeof res.sessionChat.metadata === "object" && !Array.isArray(res.sessionChat.metadata)
+          ? (res.sessionChat.metadata as Record<string, unknown>)
+          : {};
+      if (Array.isArray(meta.gameNpcs)) {
+        store.getState().setNpcs(meta.gameNpcs as GameNpc[]);
+      }
+      const current = useGameStateStore.getState().current;
+      if (current) {
+        useGameStateStore.getState().setGameState({
+          ...current,
+          time: res.formatted,
+          ...(res.weather ? { weather: res.weather.type, temperature: `${res.weather.temperature}°C` } : {}),
+        });
+      }
+    },
+  });
+}
 export function useRollEncounter() {
   return useMutation({
     mutationFn: (data: { chatId: string; action: string; location?: string }) => gameApi.rollEncounter(data),
