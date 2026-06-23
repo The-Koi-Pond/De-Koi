@@ -126,7 +126,12 @@ export async function listCheckpoints(chatId: string) {
   });
 }
 
-export async function createCheckpoint(data: { chatId: string; label: string; triggerType: string }) {
+export async function createCheckpoint(data: {
+  chatId: string;
+  label: string;
+  triggerType: string;
+  sourceMessageId?: string | null;
+}) {
   return createGameCheckpoint(data);
 }
 

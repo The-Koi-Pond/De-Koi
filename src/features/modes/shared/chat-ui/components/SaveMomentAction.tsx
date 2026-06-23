@@ -4,6 +4,8 @@ import { cn, copyToClipboard } from "../../../../../shared/lib/utils";
 import {
   buildSaveMomentExportText,
   buildSaveMomentMenuItems,
+  type SaveMomentDestination,
+  type SaveMomentMenuItem,
   type SaveMomentMenuItemId,
   type SaveMomentSource,
 } from "../lib/save-moment";
@@ -15,15 +17,18 @@ interface SaveMomentActionProps {
   onCreateSummaryDraft?: (source: SaveMomentSource) => void;
   onBranch?: (messageId: string) => void;
   onCloneSceneFromHere?: (messageId: string) => void;
+  destinations?: readonly SaveMomentDestination[];
+  onDestinationSelect?: (destinationId: string, source: SaveMomentSource) => void | Promise<void>;
   buttonClassName?: string;
   iconSize?: string | number;
   tabIndex?: number;
   align?: "start" | "end";
 }
 
-function iconForItem(id: SaveMomentMenuItemId): ReactNode {
-  if (id === "copy-snippet") return <Copy size="0.75rem" />;
-  if (id === "chat-summary") return <ScrollText size="0.75rem" />;
+function iconForItem(item: SaveMomentMenuItem): ReactNode {
+  if (item.id === "copy-snippet") return <Copy size="0.75rem" />;
+  if (item.id === "chat-summary") return <ScrollText size="0.75rem" />;
+  if (item.destinationId) return <Bookmark size="0.75rem" />;
   return <GitBranch size="0.75rem" />;
 }
 
@@ -32,6 +37,8 @@ export function SaveMomentAction({
   onCreateSummaryDraft,
   onBranch,
   onCloneSceneFromHere,
+  destinations,
+  onDestinationSelect,
   buttonClassName,
   iconSize = DEFAULT_ICON_SIZE,
   tabIndex,
@@ -48,8 +55,9 @@ export function SaveMomentAction({
         canCreateSummaryDraft: !!onCreateSummaryDraft,
         canBranch: !!onBranch,
         canCloneScene: !!onCloneSceneFromHere,
+        destinations,
       }),
-    [onBranch, onCloneSceneFromHere, onCreateSummaryDraft],
+    [destinations, onBranch, onCloneSceneFromHere, onCreateSummaryDraft],
   );
 
   useEffect(() => {
@@ -99,7 +107,13 @@ export function SaveMomentAction({
       setOpen(false);
       return;
     }
-    onCloneSceneFromHere?.(source.messageId);
+    if (id === "clone-scene") {
+      onCloneSceneFromHere?.(source.messageId);
+      setOpen(false);
+      return;
+    }
+    const destinationId = items.find((item) => item.id === id)?.destinationId;
+    if (destinationId) await onDestinationSelect?.(destinationId, source);
     setOpen(false);
   };
 
@@ -133,7 +147,7 @@ export function SaveMomentAction({
               onClick={() => void handleSelect(item.id)}
               className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[var(--foreground)] transition-colors hover:bg-[var(--accent)]"
             >
-              <span className="text-[var(--muted-foreground)]">{iconForItem(item.id)}</span>
+              <span className="text-[var(--muted-foreground)]">{iconForItem(item)}</span>
               <span>{item.label}</span>
             </button>
           ))}
