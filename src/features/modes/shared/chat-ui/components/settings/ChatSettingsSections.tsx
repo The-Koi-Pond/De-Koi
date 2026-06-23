@@ -51,12 +51,14 @@ export function ChatSettingsSectionHeader({
 }
 
 export function ChatSettingsSection({
+  id,
   label,
   icon,
   count,
   help,
   children,
 }: {
+  id?: string;
   label: string;
   icon?: ReactNode;
   count?: number;
@@ -66,7 +68,7 @@ export function ChatSettingsSection({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="border-b border-[var(--border)]">
+    <div id={id} className="scroll-mt-3 border-b border-[var(--border)]">
       <ChatSettingsSectionHeader
         label={label}
         icon={icon}
