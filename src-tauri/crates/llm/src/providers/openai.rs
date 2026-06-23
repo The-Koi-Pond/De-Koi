@@ -1414,7 +1414,20 @@ pub(crate) fn apply_openai_parameters(body: &mut Value, request: &LlmRequest) {
             xai_reasoning_active,
         );
     } else {
-        apply_custom_parameters_to_object(body, parameters, !send_sampling, !send_sampling, &[]);
+        let skip_keys = if request.connection.provider == "nanogpt"
+            && is_nanogpt_glm_model(&request.connection.model)
+        {
+            &["top_k", "topK"][..]
+        } else {
+            &[]
+        };
+        apply_custom_parameters_to_object(
+            body,
+            parameters,
+            !send_sampling,
+            !send_sampling,
+            skip_keys,
+        );
     }
     if request.connection.provider == "mistral" {
         if let Some(body) = body.as_object_mut() {
