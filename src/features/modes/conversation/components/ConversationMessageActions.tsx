@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
+import { SaveMomentAction } from "../../shared/chat-ui";
 import { MsgAction, type ConversationMessageRenderContext } from "./ConversationMessageShared";
 
 export function ConversationMessageActions({
@@ -44,6 +45,20 @@ export function ConversationMessageActions({
         icon={context.copied ? "✓" : <Copy size="0.75rem" />}
         onClick={context.handleCopy}
         title="Copy"
+        tabIndex={tabIdx}
+      />
+      <SaveMomentAction
+        source={{
+          chatId: context.message.chatId,
+          messageId: context.message.id,
+          role: context.message.role,
+          speakerName: context.displayName,
+          createdAt: context.message.createdAt,
+          content: translationContent,
+        }}
+        onBranch={context.onBranch}
+        buttonClassName="rounded p-1 text-foreground/70 transition-colors hover:bg-foreground/20 hover:text-foreground"
+        iconSize="0.75rem"
         tabIndex={tabIdx}
       />
       <MsgAction
