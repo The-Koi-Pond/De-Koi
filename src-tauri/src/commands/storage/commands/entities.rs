@@ -849,6 +849,23 @@ mod tests {
     }
 
     #[test]
+    fn extension_create_preserves_ui_contributions_without_slots() {
+        let state = test_state("extension-create-ui-no-slots");
+
+        let created = storage_create_inner(
+            &state,
+            "extensions".to_string(),
+            json!({
+                "name": "No Slots",
+                "manifestVersion": 1,
+                "uiContributions": {}
+            }),
+        )
+        .expect("uiContributions without slots should preserve without synthesizing slots");
+
+        assert_eq!(created["uiContributions"], json!({}));
+    }
+    #[test]
     fn extension_create_rejects_unsupported_manifest_metadata() {
         let state = test_state("extension-create-bad-manifest-metadata");
 

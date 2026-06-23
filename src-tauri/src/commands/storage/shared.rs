@@ -853,7 +853,7 @@ fn optional_extension_ui_contributions(object: &Map<String, Value>) -> AppResult
         ));
     };
 
-    let mut normalized = Map::new();
+    let mut normalized = contributions.clone();
     match contributions.get("slots") {
         Some(Value::Array(slots)) => {
             if slots.len() > 8 {
@@ -882,9 +882,7 @@ fn optional_extension_ui_contributions(object: &Map<String, Value>) -> AppResult
                 "Extension uiContributions.slots must be an array",
             ));
         }
-        None => {
-            normalized.insert("slots".to_string(), json!([]));
-        }
+        None => {}
     }
     Ok(Some(Value::Object(normalized)))
 }

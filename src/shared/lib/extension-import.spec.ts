@@ -62,6 +62,23 @@ describe("extension import safety", () => {
     });
   });
 
+  it("omits UI contributions when a package declares no supported slots", () => {
+    const result = buildImportedExtensionInput(
+      "no-slots.json",
+      JSON.stringify({
+        manifestVersion: 1,
+        id: "no-slots",
+        name: "No Slots",
+        version: "1.0.0",
+        ui: {},
+        entrypoints: { css: "body {}" },
+      }),
+      installedAt,
+    );
+
+    expect(result.kind).toBe("package-json");
+    expect(result.input).not.toHaveProperty("uiContributions");
+  });
   it("keeps package imports with JavaScript disabled", () => {
     const result = buildImportedExtensionInput(
       "js-package.json",
