@@ -46,6 +46,7 @@ export interface ConversationMessageProps {
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
   onBranch?: (messageId: string) => void;
   onSaveMomentSummary?: (source: SaveMomentSource) => void;
+  onIllustrateMoment?: (source: SaveMomentSource) => void | Promise<void>;
   isLastAssistantMessage?: boolean;
   characterMap?: CharacterMap;
   personaInfo?: PersonaInfo;
@@ -158,6 +159,7 @@ export interface ConversationMessageRenderContext {
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
   onBranch?: (messageId: string) => void;
   onSaveMomentSummary?: (source: SaveMomentSource) => void;
+  onIllustrateMoment?: (source: SaveMomentSource) => void | Promise<void>;
   onDelete?: (messageId: string) => void;
   onShowGenerationReplay: () => void;
   onShowThinking: () => void;

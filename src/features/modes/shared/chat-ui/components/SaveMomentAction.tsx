@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { BookOpen, Bookmark, Check, Copy, GitBranch, ScrollText } from "lucide-react";
+import { BookOpen, Bookmark, Check, Copy, GitBranch, Paintbrush, ScrollText } from "lucide-react";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { cn, copyToClipboard } from "../../../../../shared/lib/utils";
 import {
@@ -16,6 +16,7 @@ const DEFAULT_ICON_SIZE = "0.8125rem";
 interface SaveMomentActionProps {
   source: SaveMomentSource;
   onCreateSummaryDraft?: (source: SaveMomentSource) => void;
+  onIllustrateMoment?: (source: SaveMomentSource) => void | Promise<void>;
   onBranch?: (messageId: string) => void;
   onCloneSceneFromHere?: (messageId: string) => void;
   destinations?: readonly SaveMomentDestination[];
@@ -30,6 +31,7 @@ function iconForItem(item: SaveMomentMenuItem): ReactNode {
   if (item.id === "copy-snippet") return <Copy size="0.75rem" />;
   if (item.id === "chat-summary") return <ScrollText size="0.75rem" />;
   if (item.id === "lore-draft") return <BookOpen size="0.75rem" />;
+  if (item.id === "illustrate-moment") return <Paintbrush size="0.75rem" />;
   if (item.destinationId) return <Bookmark size="0.75rem" />;
   return <GitBranch size="0.75rem" />;
 }
@@ -37,6 +39,7 @@ function iconForItem(item: SaveMomentMenuItem): ReactNode {
 export function SaveMomentAction({
   source,
   onCreateSummaryDraft,
+  onIllustrateMoment,
   onBranch,
   onCloneSceneFromHere,
   destinations,
@@ -56,12 +59,13 @@ export function SaveMomentAction({
     () =>
       buildSaveMomentMenuItems({
         canCreateSummaryDraft: !!onCreateSummaryDraft,
+        canIllustrate: !!onIllustrateMoment,
         canBranch: !!onBranch,
         canCloneScene: !!onCloneSceneFromHere,
         canDraftLore: true,
         destinations,
       }),
-    [destinations, onBranch, onCloneSceneFromHere, onCreateSummaryDraft],
+    [destinations, onBranch, onCloneSceneFromHere, onCreateSummaryDraft, onIllustrateMoment],
   );
 
   useEffect(() => {
@@ -109,6 +113,11 @@ export function SaveMomentAction({
     if (id === "lore-draft") {
       openModal("save-moment-lore-draft", { source: { ...source } });
       setOpen(false);
+      return;
+    }
+    if (id === "illustrate-moment") {
+      setOpen(false);
+      void Promise.resolve(onIllustrateMoment?.(source)).catch(() => undefined);
       return;
     }
     if (id === "branch") {

@@ -35,12 +35,26 @@ describe("save moment", () => {
   it("only exposes destinations backed by the current message surface", () => {
     const items = buildSaveMomentMenuItems({
       canCreateSummaryDraft: true,
+      canIllustrate: false,
       canBranch: true,
       canCloneScene: false,
       canDraftLore: true,
     });
 
     expect(items.map((item) => item.id)).toEqual(["copy-snippet", "chat-summary", "lore-draft", "branch"]);
+  });
+
+
+  it("exposes illustration as a source-message destination when the surface can illustrate", () => {
+    const items = buildSaveMomentMenuItems({
+      canCreateSummaryDraft: false,
+      canIllustrate: true,
+      canBranch: true,
+      canCloneScene: false,
+    });
+
+    expect(items.map((item) => item.id)).toEqual(["copy-snippet", "illustrate-moment", "branch"]);
+    expect(items.find((item) => item.id === "illustrate-moment")?.label).toBe("Illustrate this moment");
   });
 
   it("builds a chat summary draft from source message metadata", () => {

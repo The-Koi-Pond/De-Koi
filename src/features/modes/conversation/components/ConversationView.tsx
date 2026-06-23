@@ -125,6 +125,7 @@ interface ConversationViewProps {
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
   onBranch: (messageId: string) => void;
   onSaveMomentSummary?: (source: SaveMomentSource) => void;
+  onIllustrate?: (source?: SaveMomentSource) => void | Promise<void>;
   lastAssistantMessageId: string | null;
   onOpenSettings: () => void;
   onOpenFiles: () => void;
@@ -366,6 +367,7 @@ export function ConversationView({
   onToggleHiddenFromAI,
   onBranch,
   onSaveMomentSummary,
+  onIllustrate,
   lastAssistantMessageId,
   onOpenSettings,
   onOpenFiles,
@@ -1537,6 +1539,7 @@ export function ConversationView({
                         onToggleHiddenFromAI={onToggleHiddenFromAI}
                         onBranch={onBranch}
                         onSaveMomentSummary={onSaveMomentSummary}
+                        onIllustrateMoment={onIllustrate}
                         isLastAssistantMessage={msg.id === lastAssistantMessageId}
                         characterMap={characterMap}
                         personaInfo={personaInfo}

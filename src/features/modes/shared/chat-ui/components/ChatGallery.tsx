@@ -28,11 +28,12 @@ import { describeGalleryUploadFailures } from "../../../../../shared/lib/gallery
 import { ImagePromptPanel } from "./ImagePromptPanel";
 import type { ChatImage } from "../../../../../shared/types/gallery";
 import type { Chat } from "../../../../../engine/contracts/types/chat";
+import type { SaveMomentSource } from "../lib/save-moment";
 
 interface ChatGalleryProps {
   chat: Chat;
   /** Manually trigger the Illustrator agent */
-  onIllustrate?: () => void | Promise<void>;
+  onIllustrate?: (source?: SaveMomentSource) => void | Promise<void>;
 }
 
 function formatImageMeta(image: ChatImage) {

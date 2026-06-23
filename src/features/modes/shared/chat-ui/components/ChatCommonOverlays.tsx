@@ -3,6 +3,7 @@ import type { SpriteSide } from "../../../../../engine/contracts/types/chat";
 import { ChevronUp, ChevronDown, Trash2 } from "lucide-react";
 import { PinnedImageOverlay } from "../../../../runtime/visuals/index";
 import type { PeekPromptData } from "../types";
+import type { SaveMomentSource } from "../lib/save-moment";
 import type { SaveMomentSummaryDraft } from "../lib/save-moment";
 import { PeekPromptModal } from "./PeekPromptModal";
 
@@ -194,7 +195,7 @@ type ChatCommonOverlaysProps = {
   onCloseFiles: () => void;
   onCloseGallery: () => void;
   /** Manually trigger the Illustrator agent */
-  onIllustrate?: () => void | Promise<void>;
+  onIllustrate?: (source?: SaveMomentSource) => void | Promise<void>;
   onWizardFinish: () => void;
   onWizardCancel?: () => void;
   onClosePeekPrompt: () => void;

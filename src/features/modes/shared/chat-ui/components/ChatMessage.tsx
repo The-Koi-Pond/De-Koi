@@ -402,6 +402,7 @@ interface ChatMessageProps {
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
   onBranch?: (messageId: string) => void;
   onSaveMomentSummary?: (source: SaveMomentSource) => void;
+  onIllustrateMoment?: (source: SaveMomentSource) => void | Promise<void>;
   onCloneSceneFromHere?: (messageId: string) => void;
   saveMomentDestinations?: readonly SaveMomentDestination[];
   onSaveMomentDestination?: (destinationId: string, source: SaveMomentSource) => void | Promise<void>;
@@ -994,6 +995,7 @@ export const ChatMessage = memo(function ChatMessage({
   onPeekPrompt,
   onBranch,
   onSaveMomentSummary,
+  onIllustrateMoment,
   onCloneSceneFromHere,
   saveMomentDestinations,
   onSaveMomentDestination,
@@ -2330,6 +2332,7 @@ export const ChatMessage = memo(function ChatMessage({
               <SaveMomentAction
                 source={saveMomentSource}
                 onCreateSummaryDraft={onSaveMomentSummary}
+                onIllustrateMoment={onIllustrateMoment}
                 onBranch={onBranch}
                 onCloneSceneFromHere={onCloneSceneFromHere}
               destinations={saveMomentDestinations}
@@ -2810,6 +2813,7 @@ export const ChatMessage = memo(function ChatMessage({
             <SaveMomentAction
               source={saveMomentSource}
               onCreateSummaryDraft={onSaveMomentSummary}
+              onIllustrateMoment={onIllustrateMoment}
               onBranch={onBranch}
               onCloneSceneFromHere={onCloneSceneFromHere}
               destinations={saveMomentDestinations}
