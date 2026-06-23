@@ -20,6 +20,7 @@ use marinara_core::{now_iso, AppError, AppResult};
 use marinara_security::{assert_inside_dir, assert_relative_safe_path};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::env;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -68,6 +69,8 @@ const DEKI_TEXT_ATTACHMENT_EXTENSIONS: &[&str] = &[
 ];
 const DEKI_INITIAL_MAX_TOKENS: u64 = 2048;
 const DEKI_POST_TOOL_MAX_TOKENS: u64 = 8192;
+const DEKI_REPO_ROOT_ENV: &str = "DE_KOI_REPO_ROOT";
+const LEGACY_DEKI_REPO_ROOT_ENV: &str = "MARINARA_REPO_ROOT";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -314,8 +317,7 @@ impl ToolRuntime for SearchDekiCodeTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
         let args: SearchDekiCodeArgs = serde_json::from_value(args)
             .map_err(|error| deki_tool_error("deki_code_search_invalid_args", error))?;
-        search_deki_code(args)
-            .map_err(|error| deki_tool_error("deki_code_search_failed", error))
+        search_deki_code(args).map_err(|error| deki_tool_error("deki_code_search_failed", error))
     }
 }
 
@@ -941,6 +943,10 @@ fn default_agent_phase() -> String {
 }
 
 fn deki_repo_root() -> AppResult<PathBuf> {
+    if let Some((env_name, root)) = configured_deki_repo_root() {
+        return validate_deki_repo_root(root, env_name);
+    }
+
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let Some(root) = manifest_dir.parent() else {
         return Err(AppError::new(
@@ -948,13 +954,39 @@ fn deki_repo_root() -> AppResult<PathBuf> {
             "Could not resolve De-Koi repository root",
         ));
     };
-    let root = root.canonicalize().map_err(AppError::from)?;
+    validate_deki_repo_root(root.to_path_buf(), "Cargo manifest parent")
+}
+
+fn configured_deki_repo_root() -> Option<(&'static str, PathBuf)> {
+    configured_path(DEKI_REPO_ROOT_ENV)
+        .map(|root| (DEKI_REPO_ROOT_ENV, root))
+        .or_else(|| {
+            configured_path(LEGACY_DEKI_REPO_ROOT_ENV).map(|root| (LEGACY_DEKI_REPO_ROOT_ENV, root))
+        })
+}
+
+fn configured_path(env_name: &str) -> Option<PathBuf> {
+    let value = env::var(env_name).ok()?;
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+}
+
+fn validate_deki_repo_root(root: PathBuf, source: &str) -> AppResult<PathBuf> {
+    let root = root.canonicalize().map_err(|error| {
+        AppError::new(
+            "deki_repo_root_unavailable",
+            format!("Could not resolve De-Koi repository root from {source}: {error}"),
+        )
+    })?;
     if root.join("AGENTS.md").is_file() && root.join("package.json").is_file() {
         Ok(root)
     } else {
         Err(AppError::new(
             "deki_repo_root_unavailable",
-            "Deki-senpai could not find AGENTS.md and package.json at the repository root",
+            format!(
+                "Deki-senpai could not find AGENTS.md and package.json at the De-Koi repository root from {source}: {}",
+                root.display()
+            ),
         ))
     }
 }
@@ -1109,10 +1141,7 @@ fn edit_deki_code_file(path: &str, old_text: &str, new_text: &str) -> AppResult<
     }))
 }
 
-fn create_deki_extension(
-    state: &AppState,
-    args: CreateDekiExtensionArgs,
-) -> AppResult<Value> {
+fn create_deki_extension(state: &AppState, args: CreateDekiExtensionArgs) -> AppResult<Value> {
     let name = args.name.trim();
     if name.is_empty() {
         return Err(AppError::invalid_input("Extension name is required"));
@@ -1139,10 +1168,7 @@ fn create_deki_extension(
     )
 }
 
-fn create_deki_custom_agent(
-    state: &AppState,
-    args: CreateDekiCustomAgentArgs,
-) -> AppResult<Value> {
+fn create_deki_custom_agent(state: &AppState, args: CreateDekiCustomAgentArgs) -> AppResult<Value> {
     let name = args.name.trim();
     let prompt_template = args.prompt_template.trim();
     if name.is_empty() {
@@ -1457,6 +1483,8 @@ fn looks_like_encoded_blob(value: &str) -> bool {
 mod tests {
     use super::*;
 
+    static DEKI_REPO_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn test_connection(provider: &str) -> marinara_llm::LlmConnection {
         marinara_llm::LlmConnection {
             provider: provider.to_string(),
@@ -1509,6 +1537,42 @@ mod tests {
         }
     }
 
+    fn unique_test_repo_root(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "de-koi-{name}-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        fs::create_dir_all(&root).expect("create test repo root");
+        fs::write(root.join("AGENTS.md"), "# Test guidance\n").expect("write AGENTS.md");
+        fs::write(root.join("package.json"), "{}\n").expect("write package.json");
+        root
+    }
+
+    #[test]
+    fn deki_repo_root_prefers_configured_de_koi_repo_root() {
+        let _guard = DEKI_REPO_ENV_LOCK.lock().expect("lock repo env");
+        let previous_de_koi = std::env::var_os("DE_KOI_REPO_ROOT");
+        let previous_marinara = std::env::var_os("MARINARA_REPO_ROOT");
+        let root = unique_test_repo_root("configured-root");
+        let expected = root.canonicalize().expect("canonical test repo root");
+
+        std::env::set_var("DE_KOI_REPO_ROOT", &root);
+        std::env::remove_var("MARINARA_REPO_ROOT");
+        let resolved = deki_repo_root();
+
+        match previous_de_koi {
+            Some(value) => std::env::set_var("DE_KOI_REPO_ROOT", value),
+            None => std::env::remove_var("DE_KOI_REPO_ROOT"),
+        }
+        match previous_marinara {
+            Some(value) => std::env::set_var("MARINARA_REPO_ROOT", value),
+            None => std::env::remove_var("MARINARA_REPO_ROOT"),
+        }
+        fs::remove_dir_all(&root).ok();
+
+        assert_eq!(resolved.expect("resolve configured repo root"), expected);
+    }
     #[test]
     fn deki_system_prompt_blocks_assistant_label_leakage_in_character_card_examples() {
         let prompt = build_system_prompt(None);

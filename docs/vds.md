@@ -84,6 +84,8 @@ To use a host folder instead, set:
 
 ```env
 DE_KOI_HOST_DATA_DIR=./.de-koi-vds-data
+# Optional: point Deki-senpai code tools at a mounted checkout instead of the bundled /app source snapshot.
+DE_KOI_REPO_ROOT=/app
 ```
 
 The server stores records under `/data/data` inside the container. Do not bind a
