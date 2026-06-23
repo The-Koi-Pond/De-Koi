@@ -627,6 +627,8 @@ export function useChatTimelineActions({
             chatId: activeChatId,
             forCharacterId: options?.forCharacterId ?? null,
             beforeMessageId: messageId,
+            userMessage: readString(options?.userMessage ?? options?.message).trim() || null,
+            attachments: options?.attachments ?? null,
           },
           {
             onSuccess: (data) => {

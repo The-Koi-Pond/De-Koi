@@ -111,6 +111,7 @@ export function GameConversationView({ activeChatId }: GameConversationViewProps
         personaInfo={data.personaInfo}
         chatBackground={chatBackground}
         onOpenSettings={overlays.openSettings}
+        onPeekPrompt={() => timeline.handlePeekPrompt()}
         onDeleteMessage={timeline.handleDelete}
         multiSelectMode={timeline.multiSelectMode}
         selectedMessageIds={timeline.selectedMessageIds}
