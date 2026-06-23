@@ -1,6 +1,31 @@
+import type { CreateExtensionInput } from "../../engine/contracts/schemas/extension.schema";
+import type { ExtensionPackagePermission, ExtensionPackageUiSlot } from "../../engine/contracts/types/extension";
+
 type ExtensionImportPayload = {
   js?: string | null;
 };
+
+export type ExtensionImportKind = "package-json" | "legacy-json" | "css-file" | "js-file";
+
+export interface ImportedExtensionBuildResult {
+  kind: ExtensionImportKind;
+  input: CreateExtensionInput;
+  hasRunnableJavaScript: boolean;
+}
+
+const SUPPORTED_PERMISSIONS = new Set<ExtensionPackagePermission>([
+  "ui:styles",
+  "ui:settings",
+  "ui:overlay",
+  "ui:messages",
+  "storage:plugin-memory",
+  "runtime:dom",
+  "prompt:read",
+  "generation:request",
+]);
+
+const SUPPORTED_UI_SLOTS = new Set<ExtensionPackageUiSlot>(["settings", "overlay", "messages", "theme"]);
+const PACKAGE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,95}$/i;
 
 export function extensionHasRunnableJavaScript<T extends ExtensionImportPayload>(
   extension: T,
@@ -10,4 +35,125 @@ export function extensionHasRunnableJavaScript<T extends ExtensionImportPayload>
 
 export function getInitialImportedExtensionEnabled(extension: ExtensionImportPayload) {
   return !extensionHasRunnableJavaScript(extension);
+}
+
+function stripExtension(filename: string, extension: string): string {
+  return filename.replace(new RegExp(`${extension}$`, "i"), "");
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function assertPackageId(value: string): string {
+  const trimmed = value.trim();
+  if (!PACKAGE_ID_PATTERN.test(trimmed)) {
+    throw new Error("Extension package id must be a stable id using letters, numbers, dots, dashes, or underscores.");
+  }
+  return trimmed;
+}
+
+function normalizePermissions(value: unknown): ExtensionPackagePermission[] {
+  return readStringArray(value).map((permission) => {
+    if (!SUPPORTED_PERMISSIONS.has(permission as ExtensionPackagePermission)) {
+      throw new Error(`Unsupported extension permission: ${permission}`);
+    }
+    return permission as ExtensionPackagePermission;
+  });
+}
+
+function normalizeSlots(value: unknown): ExtensionPackageUiSlot[] {
+  return readStringArray(value).map((slot) => {
+    if (!SUPPORTED_UI_SLOTS.has(slot as ExtensionPackageUiSlot)) {
+      throw new Error(`Unsupported extension UI slot: ${slot}`);
+    }
+    return slot as ExtensionPackageUiSlot;
+  });
+}
+
+function parseJsonExtension(fileName: string, text: string, installedAt: string): ImportedExtensionBuildResult {
+  const parsed = readRecord(JSON.parse(text));
+  const entrypoints = readRecord(parsed.entrypoints);
+  const isPackage =
+    parsed.manifestVersion === 1 || typeof parsed.version === "string" || typeof parsed.entrypoints === "object";
+
+  if (!isPackage) {
+    const js = readString(parsed.js);
+    const input: CreateExtensionInput = {
+      name: readString(parsed.name) ?? stripExtension(fileName, "\\.json"),
+      description: readString(parsed.description) ?? "",
+      css: readString(parsed.css),
+      js,
+      enabled: getInitialImportedExtensionEnabled({ js }),
+      installedAt,
+      source: "file",
+    };
+    return { kind: "legacy-json", input, hasRunnableJavaScript: extensionHasRunnableJavaScript({ js }) };
+  }
+
+  if (parsed.manifestVersion !== 1) throw new Error("Extension package manifestVersion must be 1.");
+  const packageId = assertPackageId(readString(parsed.id) ?? "");
+  const name = readString(parsed.name) ?? packageId;
+  const packageVersion = readString(parsed.version);
+  if (!packageVersion) throw new Error("Extension package version is required.");
+
+  const js = readString(entrypoints.js);
+  const css = readString(entrypoints.css);
+  const compatibility = readRecord(parsed.compatibility);
+  const ui = readRecord(parsed.ui);
+  const input: CreateExtensionInput = {
+    name,
+    description: readString(parsed.description) ?? "",
+    css,
+    js,
+    enabled: getInitialImportedExtensionEnabled({ js }),
+    installedAt,
+    packageId,
+    packageVersion,
+    manifestVersion: 1,
+    compatibility: Object.keys(compatibility).length ? { deKoi: readString(compatibility.deKoi) ?? undefined } : null,
+    permissions: normalizePermissions(parsed.permissions),
+    uiContributions: { slots: normalizeSlots(ui.slots) },
+    source: "package",
+  };
+  return { kind: "package-json", input, hasRunnableJavaScript: extensionHasRunnableJavaScript({ js }) };
+}
+
+export function buildImportedExtensionInput(
+  fileName: string,
+  text: string,
+  installedAt: string,
+): ImportedExtensionBuildResult {
+  if (/\.json$/i.test(fileName)) return parseJsonExtension(fileName, text, installedAt);
+  if (/\.js$/i.test(fileName)) {
+    const input: CreateExtensionInput = {
+      name: stripExtension(fileName, "\\.js"),
+      description: "JS extension imported from file",
+      js: text,
+      enabled: getInitialImportedExtensionEnabled({ js: text }),
+      installedAt,
+      source: "file",
+    };
+    return { kind: "js-file", input, hasRunnableJavaScript: extensionHasRunnableJavaScript({ js: text }) };
+  }
+  if (/\.css$/i.test(fileName)) {
+    const input: CreateExtensionInput = {
+      name: stripExtension(fileName, "\\.css"),
+      description: "CSS extension imported from file",
+      css: text,
+      enabled: true,
+      installedAt,
+      source: "file",
+    };
+    return { kind: "css-file", input, hasRunnableJavaScript: false };
+  }
+  throw new Error("Only .json, .css, and .js extension files are supported.");
 }

@@ -1753,6 +1753,52 @@ mod tests {
     }
 
     #[test]
+    fn profile_import_disables_extension_rows_but_preserves_manifest_metadata() {
+        let state = test_state("profile-import-extension-manifest-disabled");
+        let mut collections = complete_empty_profile_collections();
+        collections.insert(
+            "extensions".to_string(),
+            json!([{
+                "id": "ext-package",
+                "name": "Package",
+                "description": "Imported package",
+                "enabled": true,
+                "js": "console.log('do not auto-run')",
+                "packageId": "package",
+                "packageVersion": "1.0.0",
+                "manifestVersion": 1,
+                "permissions": ["ui:styles"],
+                "uiContributions": { "slots": ["settings"] },
+                "source": "package"
+            }]),
+        );
+
+        import_profile(
+            &state,
+            json!({
+                "type": "marinara_profile",
+                "version": 1,
+                "data": {
+                    "collections": collections,
+                    "assets": []
+                }
+            }),
+        )
+        .expect("profile with extension manifest should import");
+
+        let extension = state
+            .storage
+            .get("extensions", "ext-package")
+            .expect("extension lookup should not fail")
+            .expect("extension should import");
+
+        assert_eq!(extension["enabled"], false);
+        assert_eq!(extension["packageId"], "package");
+        assert_eq!(extension["packageVersion"], "1.0.0");
+        assert_eq!(extension["permissions"], json!(["ui:styles"]));
+        assert_eq!(extension["uiContributions"]["slots"], json!(["settings"]));
+    }
+    #[test]
     fn native_profile_import_drops_masked_connection_secret_placeholders() {
         let state = test_state("native-masked-connection-secret");
         let mut collections = complete_empty_profile_collections();

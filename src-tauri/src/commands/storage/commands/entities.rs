@@ -815,6 +815,67 @@ mod tests {
     }
 
     #[test]
+    fn extension_create_preserves_package_manifest_metadata() {
+        let state = test_state("extension-create-manifest-metadata");
+
+        let created = storage_create_inner(
+            &state,
+            "extensions".to_string(),
+            json!({
+                "name": "Soft Reading Mode",
+                "description": "Calmer reading",
+                "css": "body { line-height: 1.65; }",
+                "enabled": true,
+                "packageId": "soft-reading-mode",
+                "packageVersion": "1.0.0",
+                "manifestVersion": 1,
+                "compatibility": { "deKoi": ">=1.6.0 <2.0.0" },
+                "permissions": ["ui:styles", "storage:plugin-memory"],
+                "uiContributions": { "slots": ["settings", "overlay"] },
+                "source": "package",
+                "unknownManifestField": "strip me"
+            }),
+        )
+        .expect("valid package extension should create");
+
+        assert_eq!(created["packageId"], "soft-reading-mode");
+        assert_eq!(created["packageVersion"], "1.0.0");
+        assert_eq!(created["manifestVersion"], 1);
+        assert_eq!(created["compatibility"]["deKoi"], ">=1.6.0 <2.0.0");
+        assert_eq!(created["permissions"], json!(["ui:styles", "storage:plugin-memory"]));
+        assert_eq!(created["uiContributions"]["slots"], json!(["settings", "overlay"]));
+        assert_eq!(created["source"], "package");
+        assert!(created.get("unknownManifestField").is_none());
+    }
+
+    #[test]
+    fn extension_create_rejects_unsupported_manifest_metadata() {
+        let state = test_state("extension-create-bad-manifest-metadata");
+
+        let bad_permission = storage_create_inner(
+            &state,
+            "extensions".to_string(),
+            json!({
+                "name": "Bad",
+                "manifestVersion": 1,
+                "permissions": ["storage:connections"]
+            }),
+        )
+        .expect_err("unsupported permission should reject");
+        assert_eq!(bad_permission.code, "invalid_input");
+
+        let bad_manifest_version = storage_create_inner(
+            &state,
+            "extensions".to_string(),
+            json!({
+                "name": "Bad Version",
+                "manifestVersion": 2
+            }),
+        )
+        .expect_err("unsupported manifest version should reject");
+        assert_eq!(bad_manifest_version.code, "invalid_input");
+    }
+    #[test]
     fn extension_update_validates_supported_patch_fields_only() {
         let state = test_state("extension-update-contract");
         storage_create_inner(

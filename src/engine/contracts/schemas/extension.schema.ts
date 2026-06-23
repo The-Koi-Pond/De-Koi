@@ -1,19 +1,8 @@
-// ──────────────────────────────────────────────
-// Extension Zod Schemas
-// ──────────────────────────────────────────────
 import { z } from "zod";
 
-// Generous-but-finite size caps. CSS and JS are stored as TEXT in SQLite
-// and emitted verbatim into the page, so an unbounded payload would be a
-// real DoS surface even past basicAuth.
 const MAX_EXTENSION_CSS_BYTES = 256 * 1024; // 256 KiB
 const MAX_EXTENSION_JS_BYTES = 1024 * 1024; // 1 MiB
 
-// `z.string().max(n)` counts UTF-16 code units, so a CSS file full of
-// multi-byte characters could blow past the SQLite-row budget while still
-// passing validation. Measure actual UTF-8 bytes instead. Inlined rather
-// than calling `TextEncoder` so the shared package stays runtime-agnostic
-// (the `dom`/`node` libs aren't enabled in `tsconfig.base.json`).
 function utf8ByteLength(value: string): number {
   let bytes = 0;
   for (let i = 0; i < value.length; i += 1) {
@@ -21,7 +10,6 @@ function utf8ByteLength(value: string): number {
     if (code < 0x80) bytes += 1;
     else if (code < 0x800) bytes += 2;
     else if (code >= 0xd800 && code < 0xdc00) {
-      // High surrogate — the pair encodes one supplementary code point as 4 UTF-8 bytes.
       bytes += 4;
       i += 1;
     } else bytes += 3;
@@ -37,6 +25,39 @@ const jsByteLimit = (value: string | null | undefined) =>
 const cssByteMessage = `CSS must be at most ${MAX_EXTENSION_CSS_BYTES} bytes`;
 const jsByteMessage = `JS must be at most ${MAX_EXTENSION_JS_BYTES} bytes`;
 
+const PACKAGE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,95}$/i;
+const packagePermissionSchema = z.enum([
+  "ui:styles",
+  "ui:settings",
+  "ui:overlay",
+  "ui:messages",
+  "storage:plugin-memory",
+  "runtime:dom",
+  "prompt:read",
+  "generation:request",
+]);
+const uiSlotSchema = z.enum(["settings", "overlay", "messages", "theme"]);
+const compatibilitySchema = z
+  .object({
+    deKoi: z.string().min(1).max(80).optional(),
+  })
+  .strict();
+const uiContributionsSchema = z
+  .object({
+    slots: z.array(uiSlotSchema).max(12).default([]),
+  })
+  .strict();
+const sourceSchema = z.enum(["file", "package", "profile"]);
+const extensionManifestMetadataSchema = {
+  packageId: z.string().regex(PACKAGE_ID_PATTERN).optional(),
+  packageVersion: z.string().min(1).max(80).optional(),
+  manifestVersion: z.literal(1).optional(),
+  compatibility: compatibilitySchema.nullable().optional(),
+  permissions: z.array(packagePermissionSchema).max(16).optional(),
+  uiContributions: uiContributionsSchema.nullable().optional(),
+  source: sourceSchema.optional(),
+};
+
 export const createExtensionSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(2000).default(""),
@@ -44,6 +65,7 @@ export const createExtensionSchema = z.object({
   js: z.string().nullable().optional().refine(jsByteLimit, { message: jsByteMessage }),
   enabled: z.boolean().optional(),
   installedAt: z.string().datetime().optional(),
+  ...extensionManifestMetadataSchema,
 });
 
 export const updateExtensionSchema = z
@@ -53,6 +75,7 @@ export const updateExtensionSchema = z
     css: z.string().nullable().optional().refine(cssByteLimit, { message: cssByteMessage }),
     js: z.string().nullable().optional().refine(jsByteLimit, { message: jsByteMessage }),
     enabled: z.boolean().optional(),
+    ...extensionManifestMetadataSchema,
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "Must update at least one field",
