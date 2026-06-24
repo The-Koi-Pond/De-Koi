@@ -357,8 +357,7 @@ async function writeDekiActionApplication(
   if (!savedApplication) {
     throw new Error("Deki-senpai action message was not found.");
   }
-  const nextSettings =
-    savedApplication === application ? await saveSettingsPatch({ messages: updatedMessages }) : settings;
+  const nextSettings = await saveSettingsPatch({ messages: updatedMessages });
   return {
     application: savedApplication,
     messages: normalizeDekiMessages(nextSettings),

@@ -250,6 +250,71 @@ describe("dekiApi.actions.apply", () => {
     });
   });
 
+  it("rewrites settings when the action message already has an applied marker", async () => {
+    const action: DekiEntryAction = {
+      type: "create_record",
+      entity: "personas",
+      draft: {
+        name: "Sol",
+      },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "personas" && id === "deki-personas-message-1") return null;
+      if (entity === "app-settings" && id === "deki") {
+        return {
+          id: "deki",
+          value: {
+            messages: [
+              {
+                id: "message-1",
+                role: "assistant",
+                content: "Draft ready.",
+                createdAt: "2026-06-24T00:00:00.000Z",
+                action,
+                actionApplication: {
+                  status: "applied",
+                  appliedAt: "2026-06-24T00:00:01.000Z",
+                  resultId: "deki-personas-message-1",
+                },
+              },
+            ],
+          },
+        };
+      }
+      return null;
+    });
+    storageApiMock.create.mockResolvedValue({
+      id: "deki-personas-message-1",
+      name: "Sol",
+    });
+
+    const result = await dekiApi.actions.apply(action, { actionId: "message-1", messageId: "message-1" });
+
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "app-settings",
+      "deki",
+      expect.objectContaining({
+        value: expect.objectContaining({
+          messages: [
+            expect.objectContaining({
+              id: "message-1",
+              actionApplication: {
+                status: "applied",
+                appliedAt: "2026-06-24T00:00:01.000Z",
+                resultId: "deki-personas-message-1",
+              },
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(result.application).toEqual({
+      status: "applied",
+      appliedAt: "2026-06-24T00:00:01.000Z",
+      resultId: "deki-personas-message-1",
+    });
+  });
+
   it("retries prompt child order reconciliation when the first verification misses the child", async () => {
     const action: DekiEntryAction = {
       type: "create_record",
