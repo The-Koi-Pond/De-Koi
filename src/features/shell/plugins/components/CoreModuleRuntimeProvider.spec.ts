@@ -13,4 +13,3 @@ describe("CoreModuleRuntimeProvider", () => {
     expect(providerSource).toContain('import("../notepad/MeNotepadModule")');
   });
 });
-
