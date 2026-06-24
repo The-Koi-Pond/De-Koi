@@ -16,5 +16,7 @@ describe("CoreModuleRuntimeProvider", () => {
     expect(providerSource).toContain("onRetry");
     expect(providerSource).toContain("useMemo(createMeNotepadModule");
     expect(providerSource).toContain("key={notepadLoadAttempt}");
+    expect(providerSource).not.toContain("componentDidUpdate");
+    expect(providerSource).not.toContain("resetKey");
   });
 });

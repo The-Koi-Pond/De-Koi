@@ -30,21 +30,13 @@ function CoreModuleFallback({ tone = "loading", onRetry }: { tone?: "loading" | 
   );
 }
 
-class CoreModuleErrorBoundary extends Component<
-  { children: ReactNode; onRetry: () => void; resetKey: number },
-  { hasError: boolean }
-> {
+class CoreModuleErrorBoundary extends Component<{ children: ReactNode; onRetry: () => void }, { hasError: boolean }> {
   state = { hasError: false };
 
   static getDerivedStateFromError() {
     return { hasError: true };
   }
 
-  componentDidUpdate(previousProps: { resetKey: number }) {
-    if (this.state.hasError && previousProps.resetKey !== this.props.resetKey) {
-      this.setState({ hasError: false });
-    }
-  }
 
   render() {
     if (this.state.hasError) return <CoreModuleFallback tone="error" onRetry={this.props.onRetry} />;
@@ -75,7 +67,7 @@ export function CoreModuleRuntimeProvider() {
   }, [styles]);
 
   return (
-    <CoreModuleErrorBoundary key={notepadLoadAttempt} onRetry={retryMeNotesLoad} resetKey={notepadLoadAttempt}>
+    <CoreModuleErrorBoundary key={notepadLoadAttempt} onRetry={retryMeNotesLoad}>
       <Suspense fallback={<CoreModuleFallback />}>
         {meNotesEnabled ? <MeNotepadModule /> : null}
       </Suspense>
