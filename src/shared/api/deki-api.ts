@@ -5,6 +5,7 @@ import {
   type DekiEntryAction,
   type DekiEntryRequest,
   type DekiGatewayResponse,
+  type DekiWorkspaceHistoryItem,
   type DekiMessage,
   type DekiWorkspaceAbortResult,
   type DekiWorkspaceApprovalDecisionResult,
@@ -23,7 +24,8 @@ import {
 } from "../../engine/contracts/schemas/prompt.schema";
 import type { StorageEntity } from "../../engine/capabilities/storage";
 import { storageApi } from "./storage-api";
-import { invokeTauri } from "./tauri-client";
+import { remoteRuntimeTarget } from "./remote-runtime";
+import { hasEmbeddedTauriIpc, invokeTauri } from "./tauri-client";
 
 const DEKI_SETTINGS_ID = "deki";
 const LEGACY_DEKI_SETTINGS_ID = "professor-mari";
@@ -99,6 +101,9 @@ const DEKI_WORKSPACE_HISTORY_STATUSES = new Set<DekiWorkspaceHistoryEntry["statu
   "failed",
 ]);
 
+const DEKI_WORKSPACE_UNAVAILABLE_REASON =
+  "Deki workspace runtime requires the Tauri app shell or a configured remote runtime.";
+
 function asRecord(value: unknown): Record<string, unknown> {
   if (typeof value === "string") {
     try {
@@ -144,29 +149,32 @@ function normalizeDekiMessage(record: StoredMessageRecord): DekiMessage | null {
   const action = role === "assistant" && "action" in record ? normalizeDekiEntryAction(record.action) : null;
   const workspaceTrace = normalizeDekiWorkspaceTrace(record.workspaceTrace);
   const workspaceHistory = normalizeDekiWorkspaceHistory(record.workspaceHistory);
-  return {
+  const message: DekiMessage = {
     id,
     role,
     content,
     createdAt,
-    ...(action && action.type !== "none" ? { action } : {}),
-    ...(action && action.type !== "none"
-      ? { actionApplication: normalizeDekiActionApplication(record.actionApplication) }
-      : {}),
-    ...(workspaceTrace ? { workspaceTrace } : {}),
-    ...(workspaceHistory ? { workspaceHistory } : {}),
   };
+  if (action && action.type !== "none") {
+    message.action = action;
+    message.actionApplication = normalizeDekiActionApplication(record.actionApplication);
+  }
+  if (workspaceTrace) {
+    message.workspaceTrace = workspaceTrace;
+  }
+  if (workspaceHistory) {
+    message.workspaceHistory = workspaceHistory;
+  }
+  return message;
 }
 
 function normalizeDekiWorkspaceTrace(value: unknown): DekiWorkspaceTraceItem[] | null {
   if (!Array.isArray(value)) return null;
-  const trace = value
-    .map((item) => normalizeDekiWorkspaceTraceItem(item))
-    .filter((item): item is DekiWorkspaceTraceItem => !!item);
+  const trace = value.map((item) => normalizeDekiWorkspaceTraceItem(item));
   return trace.length > 0 ? trace : null;
 }
 
-function normalizeDekiWorkspaceTraceItem(value: unknown): DekiWorkspaceTraceItem | null {
+function normalizeDekiWorkspaceTraceItem(value: unknown): DekiWorkspaceTraceItem {
   const object = asRecord(value);
   if (
     (object.type === "text" || object.type === "thinking" || object.type === "status") &&
@@ -174,12 +182,12 @@ function normalizeDekiWorkspaceTraceItem(value: unknown): DekiWorkspaceTraceItem
   ) {
     return { type: object.type, content: object.content };
   }
-  if (object.type !== "tool") return null;
+  if (object.type !== "tool") return unknownDekiWorkspaceTraceItem(value);
   const tool = asRecord(object.tool);
   const id = readTrimmedString(tool.id);
   const name = isDekiWorkspaceToolName(tool.name) ? tool.name : null;
   const status = tool.status === "running" || tool.status === "done" || tool.status === "error" ? tool.status : null;
-  if (!id || !name || !status) return null;
+  if (!id || !name || !status) return unknownDekiWorkspaceTraceItem(value);
   return {
     type: "tool",
     tool: {
@@ -193,15 +201,19 @@ function normalizeDekiWorkspaceTraceItem(value: unknown): DekiWorkspaceTraceItem
   };
 }
 
-function normalizeDekiWorkspaceHistory(value: unknown): DekiWorkspaceHistoryEntry[] | null {
+function unknownDekiWorkspaceTraceItem(value: unknown): DekiWorkspaceTraceItem {
+  return { type: "unknown", raw: value };
+}
+
+function normalizeDekiWorkspaceHistory(value: unknown): DekiWorkspaceHistoryItem[] | null {
   if (!Array.isArray(value)) return null;
   const history = value
     .map((item) => normalizeDekiWorkspaceHistoryEntry(item))
-    .filter((item): item is DekiWorkspaceHistoryEntry => !!item);
+    .filter((item): item is DekiWorkspaceHistoryItem => !!item);
   return history.length > 0 ? history : null;
 }
 
-function normalizeDekiWorkspaceHistoryEntry(value: unknown): DekiWorkspaceHistoryEntry | null {
+function normalizeDekiWorkspaceHistoryEntry(value: unknown): DekiWorkspaceHistoryItem | null {
   const object = asRecord(value);
   const id = readTrimmedString(object.id);
   const sessionId = readTrimmedString(object.sessionId);
@@ -210,7 +222,9 @@ function normalizeDekiWorkspaceHistoryEntry(value: unknown): DekiWorkspaceHistor
   const validationStatus =
     object.validationStatus === "passed" || object.validationStatus === "blocked" ? object.validationStatus : null;
   const createdAt = readTrimmedString(object.createdAt);
-  if (!id || !sessionId || !command || !status || !validationStatus || !createdAt) return null;
+  if (!id || !sessionId || !command || !status || !validationStatus || !createdAt) {
+    return unknownDekiWorkspaceHistoryItem(value);
+  }
   const operationHash = readTrimmedString(object.operationHash);
   const completedAt = readTrimmedString(object.completedAt);
   return {
@@ -227,6 +241,18 @@ function normalizeDekiWorkspaceHistoryEntry(value: unknown): DekiWorkspaceHistor
     journalPath: typeof object.journalPath === "string" && object.journalPath.trim() ? object.journalPath : null,
     createdAt,
     ...(completedAt ? { completedAt } : {}),
+  };
+}
+
+function unknownDekiWorkspaceHistoryItem(value: unknown): DekiWorkspaceHistoryItem {
+  const object = asRecord(value);
+  const id = readTrimmedString(object.id);
+  const createdAt = readTrimmedString(object.createdAt);
+  return {
+    status: "unknown",
+    raw: value,
+    ...(id ? { id } : {}),
+    ...(createdAt ? { createdAt } : {}),
   };
 }
 
@@ -247,6 +273,38 @@ function isDekiWorkspaceHistoryStatus(value: unknown): value is DekiWorkspaceHis
   return typeof value === "string" && DEKI_WORKSPACE_HISTORY_STATUSES.has(value as DekiWorkspaceHistoryEntry["status"]);
 }
 
+function hasDekiWorkspaceRuntime(): boolean {
+  return hasEmbeddedTauriIpc() || remoteRuntimeTarget() !== null;
+}
+
+function unavailableDekiWorkspaceStatus(connectionId?: string | null): DekiWorkspaceStatus {
+  const requestedConnection = readTrimmedString(connectionId);
+  return {
+    enabled: false,
+    workspace: null,
+    dataDir: null,
+    tools: Array.from(DEKI_WORKSPACE_TOOL_NAMES),
+    dataAccess: "server-managed",
+    connection: null,
+    active: false,
+    pendingApprovals: [],
+    history: [],
+    error: requestedConnection
+      ? `${DEKI_WORKSPACE_UNAVAILABLE_REASON} Requested connection: ${requestedConnection}.`
+      : DEKI_WORKSPACE_UNAVAILABLE_REASON,
+  };
+}
+
+function unavailableDekiWorkspaceApprovalDecision(id: string): DekiWorkspaceApprovalDecisionResult {
+  return {
+    id,
+    status: "unsupported",
+    pendingApprovals: [],
+    history: [],
+    reason: DEKI_WORKSPACE_UNAVAILABLE_REASON,
+  };
+}
+
 function normalizeDekiActionApplication(value: unknown): DekiActionApplication | null {
   const object = asRecord(value);
   if (object.status !== "applied") return null;
@@ -264,7 +322,7 @@ function createDekiMessage(message: {
   content: string;
   action?: DekiEntryAction | null;
   workspaceTrace?: DekiWorkspaceTraceItem[];
-  workspaceHistory?: DekiWorkspaceHistoryEntry[];
+  workspaceHistory?: DekiWorkspaceHistoryItem[];
 }): DekiMessage {
   const nonce =
     globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -502,15 +560,30 @@ export const dekiApi = {
       request,
     }),
   workspace: {
-    status: (connectionId?: string | null): Promise<DekiWorkspaceStatus> =>
-      invokeTauri<DekiWorkspaceStatus>("deki_workspace_status", {
+    status: async (connectionId?: string | null): Promise<DekiWorkspaceStatus> => {
+      if (!hasDekiWorkspaceRuntime()) return unavailableDekiWorkspaceStatus(connectionId);
+      return invokeTauri<DekiWorkspaceStatus>("deki_workspace_status", {
         connectionId: connectionId ?? null,
-      }),
-    abort: (): Promise<DekiWorkspaceAbortResult> => invokeTauri<DekiWorkspaceAbortResult>("deki_workspace_abort"),
-    approve: (id: string): Promise<DekiWorkspaceApprovalDecisionResult> =>
-      invokeTauri<DekiWorkspaceApprovalDecisionResult>("deki_workspace_approve", { id }),
-    reject: (id: string): Promise<DekiWorkspaceApprovalDecisionResult> =>
-      invokeTauri<DekiWorkspaceApprovalDecisionResult>("deki_workspace_reject", { id }),
+      });
+    },
+    abort: async (): Promise<DekiWorkspaceAbortResult> => {
+      if (!hasDekiWorkspaceRuntime()) {
+        return {
+          aborted: false,
+          active: false,
+          reason: DEKI_WORKSPACE_UNAVAILABLE_REASON,
+        };
+      }
+      return invokeTauri<DekiWorkspaceAbortResult>("deki_workspace_abort");
+    },
+    approve: async (id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {
+      if (!hasDekiWorkspaceRuntime()) return unavailableDekiWorkspaceApprovalDecision(id);
+      return invokeTauri<DekiWorkspaceApprovalDecisionResult>("deki_workspace_approve", { id });
+    },
+    reject: async (id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {
+      if (!hasDekiWorkspaceRuntime()) return unavailableDekiWorkspaceApprovalDecision(id);
+      return invokeTauri<DekiWorkspaceApprovalDecisionResult>("deki_workspace_reject", { id });
+    },
   },
   actions: {
     apply: async (
@@ -570,7 +643,7 @@ export const dekiApi = {
       content: string;
       action?: DekiEntryAction | null;
       workspaceTrace?: DekiWorkspaceTraceItem[];
-      workspaceHistory?: DekiWorkspaceHistoryEntry[];
+      workspaceHistory?: DekiWorkspaceHistoryItem[];
     }): Promise<DekiMessage> => {
       const settings = await readSettingsValue();
       const nextMessage = createDekiMessage(message);

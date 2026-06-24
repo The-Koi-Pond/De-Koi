@@ -1,18 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dekiApi } from "./deki-api";
-import { invokeTauri } from "./tauri-client";
+import { remoteRuntimeTarget } from "./remote-runtime";
+import { hasEmbeddedTauriIpc, invokeTauri } from "./tauri-client";
 
 vi.mock("./tauri-client", () => ({
+  hasEmbeddedTauriIpc: vi.fn(),
   invokeTauri: vi.fn(),
 }));
 
+vi.mock("./remote-runtime", () => ({
+  remoteRuntimeTarget: vi.fn(),
+}));
+
+const embeddedMock = vi.mocked(hasEmbeddedTauriIpc);
 const invokeMock = vi.mocked(invokeTauri);
+const remoteRuntimeTargetMock = vi.mocked(remoteRuntimeTarget);
 
 describe("dekiApi settings persistence", () => {
   let appSettings: Map<string, Record<string, unknown>>;
 
   beforeEach(() => {
     appSettings = new Map<string, Record<string, unknown>>();
+    embeddedMock.mockReset();
+    invokeMock.mockReset();
+    remoteRuntimeTargetMock.mockReset();
+    embeddedMock.mockReturnValue(true);
+    remoteRuntimeTargetMock.mockReturnValue(null);
     invokeMock.mockImplementation(async (command, args) => {
       const request = args as {
         entity?: string;
@@ -127,6 +140,12 @@ describe("dekiApi settings persistence", () => {
             workspaceTrace: [
               { type: "status", content: "Reading files" },
               {
+                type: "future_event",
+                payload: {
+                  message: "Runtime added a new trace item",
+                },
+              },
+              {
                 type: "tool",
                 tool: {
                   id: "tool-1",
@@ -139,6 +158,12 @@ describe("dekiApi settings persistence", () => {
               },
             ],
             workspaceHistory: [
+              {
+                kind: "future_history",
+                payload: {
+                  message: "Runtime added a new history item",
+                },
+              },
               {
                 id: "history-1",
                 sessionId: "session-1",
@@ -166,6 +191,15 @@ describe("dekiApi settings persistence", () => {
         workspaceTrace: [
           { type: "status", content: "Reading files" },
           {
+            type: "unknown",
+            raw: {
+              type: "future_event",
+              payload: {
+                message: "Runtime added a new trace item",
+              },
+            },
+          },
+          {
             type: "tool",
             tool: expect.objectContaining({
               id: "tool-1",
@@ -175,6 +209,15 @@ describe("dekiApi settings persistence", () => {
           },
         ],
         workspaceHistory: [
+          {
+            status: "unknown",
+            raw: {
+              kind: "future_history",
+              payload: {
+                message: "Runtime added a new history item",
+              },
+            },
+          },
           expect.objectContaining({
             id: "history-1",
             command: "deki code grep Deki",
@@ -183,5 +226,121 @@ describe("dekiApi settings persistence", () => {
         ],
       }),
     ]);
+  });
+
+  it("keeps a valid message when workspace metadata contains malformed entries", async () => {
+    appSettings.set("deki", {
+      id: "deki",
+      value: {
+        messages: [
+          {
+            id: "message-1",
+            role: "assistant",
+            content: "Visible answer survives.",
+            createdAt: "2026-06-24T00:00:00.000Z",
+            workspaceTrace: [
+              {
+                type: "tool",
+                tool: {
+                  id: "",
+                  name: "shell",
+                  status: "finished",
+                },
+              },
+            ],
+            workspaceHistory: [
+              {
+                id: "history-1",
+                command: "",
+                status: "future_status",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const result = await dekiApi.history.get();
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0]).toMatchObject({
+      id: "message-1",
+      content: "Visible answer survives.",
+      workspaceTrace: [
+        {
+          type: "unknown",
+          raw: expect.objectContaining({
+            type: "tool",
+          }),
+        },
+      ],
+      workspaceHistory: [
+        {
+          status: "unknown",
+          id: "history-1",
+          raw: expect.objectContaining({
+            status: "future_status",
+          }),
+        },
+      ],
+    });
+  });
+
+  it("returns an explicit unsupported workspace status when no runtime is configured", async () => {
+    embeddedMock.mockReturnValue(false);
+    remoteRuntimeTargetMock.mockReturnValue(null);
+
+    const status = await dekiApi.workspace.status("conn-1");
+    const approval = await dekiApi.workspace.approve("approval-1");
+
+    expect(status).toMatchObject({
+      enabled: false,
+      connection: null,
+      active: false,
+      error: expect.stringContaining("requires the Tauri app shell or a configured remote runtime"),
+    });
+    expect(approval).toEqual({
+      id: "approval-1",
+      status: "unsupported",
+      pendingApprovals: [],
+      history: [],
+      reason: "Deki workspace runtime requires the Tauri app shell or a configured remote runtime.",
+    });
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("routes workspace calls through the embedded runtime when Tauri is available", async () => {
+    embeddedMock.mockReturnValue(true);
+    remoteRuntimeTargetMock.mockReturnValue(null);
+    invokeMock.mockResolvedValueOnce({
+      enabled: false,
+      workspace: "C:\\De-Koi",
+      dataDir: "C:\\De-Koi\\data",
+      tools: ["read"],
+      dataAccess: "server-managed",
+      connection: null,
+      active: false,
+      pendingApprovals: [],
+      history: [],
+    });
+
+    await dekiApi.workspace.status("conn-1");
+
+    expect(invokeMock).toHaveBeenCalledWith("deki_workspace_status", { connectionId: "conn-1" });
+  });
+
+  it("routes workspace approval calls through the remote runtime when configured", async () => {
+    embeddedMock.mockReturnValue(false);
+    remoteRuntimeTargetMock.mockReturnValue({ baseUrl: "http://127.0.0.1:3080" });
+    invokeMock.mockResolvedValueOnce({
+      id: "approval-1",
+      status: "not_found",
+      pendingApprovals: [],
+      history: [],
+    });
+
+    await dekiApi.workspace.reject("approval-1");
+
+    expect(invokeMock).toHaveBeenCalledWith("deki_workspace_reject", { id: "approval-1" });
   });
 });

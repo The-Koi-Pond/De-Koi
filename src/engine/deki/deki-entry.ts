@@ -13,7 +13,8 @@ export type DekiWorkspaceTraceItem =
   | { type: "text"; content: string }
   | { type: "thinking"; content: string }
   | { type: "status"; content: string }
-  | { type: "tool"; tool: DekiWorkspaceToolTrace };
+  | { type: "tool"; tool: DekiWorkspaceToolTrace }
+  | { type: "unknown"; raw: unknown };
 
 export type DekiWorkspaceConnectionSummary = {
   id: string;
@@ -102,6 +103,15 @@ export type DekiWorkspaceHistoryEntry = {
   completedAt?: string | null;
 };
 
+export type DekiWorkspaceUnknownHistoryEntry = {
+  status: "unknown";
+  raw: unknown;
+  id?: string;
+  createdAt?: string | null;
+};
+
+export type DekiWorkspaceHistoryItem = DekiWorkspaceHistoryEntry | DekiWorkspaceUnknownHistoryEntry;
+
 export type DekiWorkspaceStatus = {
   enabled: boolean;
   workspace: string | null;
@@ -144,9 +154,10 @@ export type DekiWorkspaceAbortResult = {
 
 export type DekiWorkspaceApprovalDecisionResult = {
   id: string;
-  status: "approved" | "rejected" | "not_found";
+  status: "approved" | "rejected" | "not_found" | "unsupported";
   pendingApprovals: DekiWorkspacePendingApproval[];
   history: DekiWorkspaceHistoryEntry[];
+  reason?: string | null;
 };
 
 export type DekiMessage = {
@@ -157,7 +168,7 @@ export type DekiMessage = {
   action?: DekiEntryAction | null;
   actionApplication?: DekiActionApplication | null;
   workspaceTrace?: DekiWorkspaceTraceItem[];
-  workspaceHistory?: DekiWorkspaceHistoryEntry[];
+  workspaceHistory?: DekiWorkspaceHistoryItem[];
 };
 
 export type DekiAttachment = {

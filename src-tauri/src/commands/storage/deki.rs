@@ -560,22 +560,68 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
 
 pub(crate) async fn deki_workspace_status(
     state: &AppState,
-    _connection_id: Option<String>,
+    connection_id: Option<String>,
 ) -> AppResult<Value> {
     let workspace = deki_repo_root()
         .ok()
         .map(|path| path.to_string_lossy().to_string());
+    let requested_connection_id = connection_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    let (connection, error) = match requested_connection_id {
+        Some(connection_id) => match deki_workspace_connection_summary(state, connection_id) {
+            Ok(connection) => (
+                connection,
+                "Deki workspace runtime is not implemented yet for the selected connection."
+                    .to_string(),
+            ),
+            Err(error) => (
+                Value::Null,
+                format!(
+                    "Deki workspace runtime is not implemented yet. Requested connection {connection_id} could not be summarized: {}",
+                    error.message
+                ),
+            ),
+        },
+        None => (
+            Value::Null,
+            "Deki workspace runtime is not implemented yet.".to_string(),
+        ),
+    };
     Ok(json!({
         "enabled": false,
         "workspace": workspace,
         "dataDir": state.data_dir.to_string_lossy(),
         "tools": DEKI_WORKSPACE_TOOLS,
         "dataAccess": "server-managed",
-        "connection": Value::Null,
+        "connection": connection,
         "active": false,
         "pendingApprovals": [],
         "history": [],
-        "error": "Deki workspace runtime is not implemented yet.",
+        "error": error,
+    }))
+}
+
+fn deki_workspace_connection_summary(state: &AppState, connection_id: &str) -> AppResult<Value> {
+    let connection_value = resolve_llm_connection_for_request(
+        state,
+        &json!({
+            "connectionId": connection_id,
+        }),
+    )?;
+    let connection = llm_connection_from_value(&connection_value)?;
+    let name = connection_value
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(connection_id);
+    Ok(json!({
+        "id": connection_id,
+        "name": name,
+        "provider": connection.provider,
+        "model": connection.model,
     }))
 }
 
@@ -1779,6 +1825,15 @@ mod tests {
         root
     }
 
+    fn test_state(name: &str) -> AppState {
+        let path = std::env::temp_dir().join(format!(
+            "de-koi-deki-{name}-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
+    }
+
     #[test]
     fn deki_repo_root_prefers_configured_de_koi_repo_root() {
         let _guard = DEKI_REPO_ENV_LOCK.lock().expect("lock repo env");
@@ -1803,6 +1858,39 @@ mod tests {
 
         assert_eq!(resolved.expect("resolve configured repo root"), expected);
     }
+
+    #[tokio::test]
+    async fn deki_workspace_status_reflects_requested_connection() {
+        let state = test_state("workspace-status-connection");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "conn-1",
+                    "name": "Workspace Test",
+                    "provider": "openai",
+                    "model": "gpt-4.1",
+                    "apiKey": "",
+                }),
+            )
+            .expect("connection should be saved");
+
+        let status = deki_workspace_status(&state, Some("conn-1".to_string()))
+            .await
+            .expect("workspace status should return");
+
+        assert_eq!(status["enabled"], json!(false));
+        assert_eq!(status["connection"]["id"], json!("conn-1"));
+        assert_eq!(status["connection"]["name"], json!("Workspace Test"));
+        assert_eq!(status["connection"]["provider"], json!("openai"));
+        assert_eq!(status["connection"]["model"], json!("gpt-4.1"));
+        assert!(status["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("selected connection"));
+    }
+
     #[test]
     fn deki_system_prompt_blocks_assistant_label_leakage_in_character_card_examples() {
         let prompt = build_system_prompt(None);
@@ -1895,8 +1983,8 @@ mod tests {
 <deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol"}}</deki_action>
 Extra visible text."#;
 
-        let error =
-            deki_response_content_and_action(raw).expect_err("trailing text after action should fail");
+        let error = deki_response_content_and_action(raw)
+            .expect_err("trailing text after action should fail");
 
         assert_eq!(error.code, "deki_action_invalid");
     }
