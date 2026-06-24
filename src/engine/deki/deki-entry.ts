@@ -110,18 +110,7 @@ export type DekiWorkspaceUnknownHistoryEntry = {
   createdAt?: string | null;
 };
 
-export type DekiWorkspaceMalformedHistoryEntry = {
-  status: "malformed";
-  raw: unknown;
-  reason: string;
-  id?: string;
-  createdAt?: string | null;
-};
-
-export type DekiWorkspaceHistoryItem =
-  | DekiWorkspaceHistoryEntry
-  | DekiWorkspaceUnknownHistoryEntry
-  | DekiWorkspaceMalformedHistoryEntry;
+export type DekiWorkspaceHistoryItem = DekiWorkspaceHistoryEntry | DekiWorkspaceUnknownHistoryEntry;
 
 export type DekiWorkspaceStatus = {
   enabled: boolean;

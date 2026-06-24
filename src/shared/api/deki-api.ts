@@ -216,6 +216,7 @@ function normalizeDekiWorkspaceHistory(value: unknown): DekiWorkspaceHistoryItem
 
 function normalizeDekiWorkspaceHistoryEntry(value: unknown): DekiWorkspaceHistoryItem | null {
   const object = asRecord(value);
+  if (!hasCurrentDekiWorkspaceHistoryKeys(object)) return unknownDekiWorkspaceHistoryItem(value);
   const id = readTrimmedString(object.id);
   const sessionId = readTrimmedString(object.sessionId);
   const command = readTrimmedString(object.command);
@@ -223,10 +224,9 @@ function normalizeDekiWorkspaceHistoryEntry(value: unknown): DekiWorkspaceHistor
   const validationStatus =
     object.validationStatus === "passed" || object.validationStatus === "blocked" ? object.validationStatus : null;
   const createdAt = readTrimmedString(object.createdAt);
-  if (!id || !sessionId || !command || !status || !validationStatus || !createdAt) {
-    return isCurrentDekiWorkspaceHistoryShape(object)
-      ? malformedDekiWorkspaceHistoryItem(value, "Workspace history entry is missing required current-contract fields.")
-      : unknownDekiWorkspaceHistoryItem(value);
+  if (!id || !sessionId || !command || !createdAt) return null;
+  if (!status || !validationStatus) {
+    return hasFutureDekiWorkspaceHistoryStatus(object) ? unknownDekiWorkspaceHistoryItem(value) : null;
   }
   const operationHash = readTrimmedString(object.operationHash);
   const completedAt = readTrimmedString(object.completedAt);
@@ -259,31 +259,14 @@ function unknownDekiWorkspaceHistoryItem(value: unknown): DekiWorkspaceHistoryIt
   };
 }
 
-function malformedDekiWorkspaceHistoryItem(value: unknown, reason: string): DekiWorkspaceHistoryItem {
-  const object = asRecord(value);
-  const id = readTrimmedString(object.id);
-  const createdAt = readTrimmedString(object.createdAt);
-  return {
-    status: "malformed",
-    raw: value,
-    reason,
-    ...(id ? { id } : {}),
-    ...(createdAt ? { createdAt } : {}),
-  };
+function hasCurrentDekiWorkspaceHistoryKeys(object: Record<string, unknown>): boolean {
+  return ["id", "sessionId", "command", "status", "validationStatus", "createdAt"].every((key) => key in object);
 }
 
-function isCurrentDekiWorkspaceHistoryShape(object: Record<string, unknown>): boolean {
-  return [
-    "sessionId",
-    "command",
-    "reason",
-    "operationHash",
-    "affectedEntities",
-    "affectedRows",
-    "validationStatus",
-    "journalPath",
-    "completedAt",
-  ].some((key) => key in object);
+function hasFutureDekiWorkspaceHistoryStatus(object: Record<string, unknown>): boolean {
+  const status = readTrimmedString(object.status);
+  const validationStatus = readTrimmedString(object.validationStatus);
+  return !!status && !!validationStatus;
 }
 
 function normalizeDekiWorkspaceCountRecord(value: unknown): Record<string, number> {

@@ -228,7 +228,7 @@ describe("dekiApi settings persistence", () => {
     ]);
   });
 
-  it("keeps a valid message when workspace metadata contains malformed entries", async () => {
+  it("keeps a valid message while separating partial legacy history from malformed current rows", async () => {
     appSettings.set("deki", {
       id: "deki",
       value: {
@@ -250,9 +250,17 @@ describe("dekiApi settings persistence", () => {
             ],
             workspaceHistory: [
               {
+                id: "partial-legacy",
+                command: "legacy command",
+                createdAt: "2026-06-24T00:00:00.000Z",
+              },
+              {
                 id: "history-1",
+                sessionId: "session-1",
                 command: "",
-                status: "future_status",
+                status: "dry-run",
+                validationStatus: "passed",
+                createdAt: "2026-06-24T00:00:00.000Z",
               },
             ],
           },
@@ -276,11 +284,11 @@ describe("dekiApi settings persistence", () => {
       ],
       workspaceHistory: [
         {
-          status: "malformed",
-          id: "history-1",
-          reason: expect.stringContaining("missing required current-contract fields"),
+          status: "unknown",
+          id: "partial-legacy",
+          createdAt: "2026-06-24T00:00:00.000Z",
           raw: expect.objectContaining({
-            status: "future_status",
+            command: "legacy command",
           }),
         },
       ],
