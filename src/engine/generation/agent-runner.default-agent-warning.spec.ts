@@ -70,6 +70,22 @@ const llm = {
 
 const integrations = {} as IntegrationGateway;
 
+const illustratorLlm = {
+  async *stream() {
+    yield {
+      type: "token",
+      text: JSON.stringify({
+        shouldGenerate: true,
+        prompt: "Mira catches a candle in a moonlit library.",
+      }),
+    };
+    yield { type: "done" };
+  },
+  async listModels() {
+    return [];
+  },
+} as unknown as LlmGateway;
+
 describe("default agent connection warnings", () => {
   it("includes a connection-scoped dismissal key for the default agent warning", async () => {
     const runtime = await createGenerationAgentRuntime(
@@ -115,5 +131,42 @@ describe("default agent connection warnings", () => {
         agentNames: ["One", "Two"],
       }),
     );
+  });
+
+  it("uses the built-in fallback for an explicit Illustrator retry when the stored row is disabled", async () => {
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: runtimeStorage({
+          connections: [],
+          agents: [{ id: "illustrator", type: "illustrator", name: "Illustrator", enabled: false }],
+        }),
+        llm: illustratorLlm,
+        integrations,
+      },
+      {
+        chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+        connection: { id: "chat-conn", name: "Chat", provider: "openai", model: "chat-model" },
+        storedMessages: [{ id: "user-1", role: "user", content: "I reach for the falling candle." }],
+        characters: [],
+        persona: null,
+        activatedLorebookEntries: [],
+        chatSummary: null,
+        agentTypes: new Set(["illustrator"]),
+        bypassCustomAgentActivation: true,
+      },
+    );
+
+    const results = await runtime.runPost("Mira catches the candle before it hits the floor.");
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        agentType: "illustrator",
+        success: true,
+        data: expect.objectContaining({
+          shouldGenerate: true,
+          prompt: "Mira catches a candle in a moonlit library.",
+        }),
+      }),
+    ]);
   });
 });
