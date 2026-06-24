@@ -3235,7 +3235,7 @@ export function ImportSettings() {
       }
     } catch (err) {
       if (err instanceof Error && err.message === "parse") {
-        toast.error("Import failed. Make sure this is a valid .marinara or .json file.");
+        toast.error("Import failed. Make sure this is a valid .dekoi.json, .marinara, or .json file.");
       } else {
         toast.error(`Import failed: ${err instanceof Error ? err.message : "local import error"}`);
       }
@@ -3246,17 +3246,17 @@ export function ImportSettings() {
   return (
     <div className="flex flex-col gap-3">
       <div className="text-xs text-[var(--muted-foreground)]">
-        Import data from De-Koi/Marinara exports, SillyTavern, or other tools. Full profile imports also restore custom
-        themes.
+        Import data from De-Koi exports, legacy Marinara exports, SillyTavern, or other tools. Full profile imports also
+        restore custom themes.
       </div>
 
       <ProfileImportSection />
 
-      {/* Marinara import */}
+      {/* De-Koi and legacy Marinara import */}
       <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-pink-500/20 to-orange-500/20 px-3 py-3 text-xs font-semibold ring-1 ring-pink-500/30 transition-all hover:ring-pink-500/50 active:scale-[0.98]">
         <Download size="1rem" />
-        Import Marinara File (.marinara / .json)
-        <input type="file" accept=".json,.marinara" onChange={handleMarinaraImport} className="hidden" />
+        Import De-Koi/Legacy File (.dekoi.json / .marinara / .json)
+        <input type="file" accept=".json,.dekoi.json,.marinara" onChange={handleMarinaraImport} className="hidden" />
       </label>
 
       <div className="retro-divider" />

@@ -15,9 +15,9 @@ import {
 export type ProfileExportFormat = "native" | "compatible" | "zip";
 
 const PROFILE_EXPORT_FALLBACKS: Record<ProfileExportFormat, { filename: string; contentType: string }> = {
-  native: { filename: "marinara-profile.json", contentType: "application/json" },
-  compatible: { filename: "marinara-compatible-export.zip", contentType: "application/zip" },
-  zip: { filename: "marinara-profile.zip", contentType: "application/zip" },
+  native: { filename: "de-koi-profile.json", contentType: "application/json" },
+  compatible: { filename: "de-koi-compatible-export.zip", contentType: "application/zip" },
+  zip: { filename: "de-koi-profile.zip", contentType: "application/zip" },
 };
 
 const PROFILE_IMPORT_MANAGED_ASSET_KINDS: RemoteManagedAssetKind[] = [
@@ -333,7 +333,7 @@ async function deleteBackup(name: string): Promise<{ success: boolean; deleted: 
 
 async function downloadBackup(name?: string): Promise<DownloadPayload> {
   const value = await invokeTauri("backup_download", name ? { name } : undefined);
-  return downloadPayloadFromApiValue(value, "marinara-backup.zip", "application/zip");
+  return downloadPayloadFromApiValue(value, "de-koi-backup.zip", "application/zip");
 }
 
 export const profileApi = {

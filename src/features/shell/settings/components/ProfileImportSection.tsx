@@ -94,6 +94,12 @@ type ProfileImportConversion = {
   to?: string;
 };
 
+export const PROFILE_IMPORT_IDLE_LABEL = "Import Profile (JSON/ZIP/DB)";
+export const PROFILE_IMPORT_DIALOG_FILTER: { name: string; extensions: string[] } = {
+  name: "De-Koi Profile",
+  extensions: ["json", "zip", "db", "sqlite", "sqlite3"],
+};
+
 const PROFILE_IMPORT_STAT_LABELS: Array<{ key: string; aliases?: string[]; singular: string; plural: string }> = [
   { key: "characters", singular: "character", plural: "characters" },
   { key: "character-groups", singular: "character group", plural: "character groups" },
@@ -506,7 +512,7 @@ export function ProfileImportSection() {
     try {
       const selected = await openDialog({
         multiple: false,
-        filters: [{ name: "Marinara Profile", extensions: ["json", "zip", "db", "sqlite", "sqlite3"] }],
+        filters: [PROFILE_IMPORT_DIALOG_FILTER],
       });
       if (typeof selected !== "string" || !selected.trim()) {
         setProfileImportProgress(null);
@@ -573,7 +579,7 @@ export function ProfileImportSection() {
           ? profileImportProgress?.status === "reading" || profileImportProgress?.status === "preview"
             ? "Scanning Profile..."
             : "Importing Profile..."
-          : "Import Profile (JSON/ZIP/DB)"}
+          : PROFILE_IMPORT_IDLE_LABEL}
       </button>
 
       {profileImportProgress && (
