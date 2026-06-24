@@ -15,11 +15,11 @@ use autoagents::llm::embedding::EmbeddingProvider;
 use autoagents::llm::error::LLMError;
 use autoagents::llm::models::{ModelListRequest, ModelListResponse, ModelsProvider};
 use autoagents::llm::{FunctionCall, LLMProvider, ToolCall};
-use autoagents::prelude::{agent, tool, AgentHooks, ToolInput, ToolInputT, ToolT};
-use marinara_core::{now_iso, AppError, AppResult};
+use autoagents::prelude::{AgentHooks, ToolInput, ToolInputT, ToolT, agent, tool};
+use marinara_core::{AppError, AppResult, now_iso};
 use marinara_security::{assert_inside_dir, assert_relative_safe_path};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::env;
 use std::fmt;
 use std::fs;
@@ -378,9 +378,6 @@ struct EditDekiCodeFileTool {}
 #[async_trait]
 impl ToolRuntime for EditDekiCodeFileTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        if !deki_write_tools_enabled() {
-            return Err(deki_write_requires_approval_error());
-        }
         let args: EditDekiCodeFileArgs = serde_json::from_value(args)
             .map_err(|error| deki_tool_error("deki_code_edit_invalid_args", error))?;
         edit_deki_code_file(&args.path, &args.old_text, &args.new_text)
@@ -415,9 +412,6 @@ struct CreateDekiExtensionTool {
 #[async_trait]
 impl ToolRuntime for CreateDekiExtensionTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        if !deki_write_tools_enabled() {
-            return Err(deki_write_requires_approval_error());
-        }
         let args: CreateDekiExtensionArgs = serde_json::from_value(args)
             .map_err(|error| deki_tool_error("deki_extension_invalid_args", error))?;
         create_deki_extension(&self.state, args)
@@ -465,9 +459,6 @@ struct CreateDekiCustomAgentTool {
 #[async_trait]
 impl ToolRuntime for CreateDekiCustomAgentTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        if !deki_write_tools_enabled() {
-            return Err(deki_write_requires_approval_error());
-        }
         let args: CreateDekiCustomAgentArgs = serde_json::from_value(args)
             .map_err(|error| deki_tool_error("deki_agent_invalid_args", error))?;
         create_deki_custom_agent(&self.state, args)
@@ -557,11 +548,11 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
     }))
 }
 
-fn read_only_deki_action_contract() -> Value {
+fn deki_no_action_contract() -> Value {
     json!({
         "type": "none",
-        "capability": "workspace_agent",
-        "reason": "Deki-senpai can inspect De-Koi's codebase and creative library. Write tools require an explicit approval flow and are disabled for autonomous tool runs.",
+        "capability": "read_only",
+        "reason": "Deki-senpai returned a plain response with no pending UI approval action.",
     })
 }
 
@@ -575,10 +566,7 @@ fn deki_response_content_and_action(raw_content: &str) -> AppResult<(String, Val
                 "Deki-senpai returned an action close tag without an opening tag.",
             ));
         }
-        return Ok((
-            raw_content.trim().to_string(),
-            read_only_deki_action_contract(),
-        ));
+        return Ok((raw_content.trim().to_string(), deki_no_action_contract()));
     }
     if open_count != 1 || close_count != 1 {
         return Err(AppError::new(
@@ -637,7 +625,7 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
         .and_then(Value::as_str)
         .unwrap_or_default();
     if action_type == "none" {
-        return Ok(read_only_deki_action_contract());
+        return Ok(deki_no_action_contract());
     }
     let entity = object
         .get("entity")
@@ -1076,7 +1064,8 @@ fn ensure_connection_supports_native_tools(
     connection: &marinara_llm::LlmConnection,
 ) -> AppResult<()> {
     match connection.provider.as_str() {
-        "openai" | "openai_chatgpt" | "openrouter" | "custom" | "xai" | "mistral" | "cohere" | "nanogpt" => Ok(()),
+        "openai" | "openai_chatgpt" | "openrouter" | "custom" | "xai" | "mistral" | "cohere"
+        | "nanogpt" => Ok(()),
         provider => Err(AppError::invalid_input(format!(
             "Deki-senpai requires a connection with native tool-call support. The selected provider '{provider}' is not enabled for native tools in De-Koi's Rust LLM transport yet. Use an OpenAI-compatible, OpenRouter, OpenAI, xAI, Mistral, Cohere, NanoGPT, or custom OpenAI-compatible connection with a tool-capable chat model."
         ))),
@@ -1101,17 +1090,6 @@ fn creative_library_snapshot(state: &AppState) -> AppResult<Value> {
 
 fn deki_tool_error(code: &str, error: impl ToString) -> ToolCallError {
     ToolCallError::RuntimeError(Box::new(AppError::new(code, error.to_string())))
-}
-
-fn deki_write_tools_enabled() -> bool {
-    false
-}
-
-fn deki_write_requires_approval_error() -> ToolCallError {
-    deki_tool_error(
-        "deki_write_requires_approval",
-        "Deki-senpai write tools require explicit user approval and are disabled for autonomous tool runs.",
-    )
 }
 
 fn default_agent_phase() -> String {
@@ -1749,6 +1727,122 @@ mod tests {
 
         assert_eq!(resolved.expect("resolve configured repo root"), expected);
     }
+
+    #[test]
+    fn deki_edit_tool_applies_exact_source_edits() {
+        let _guard = DEKI_REPO_ENV_LOCK.lock().expect("lock repo env");
+        let previous_de_koi = std::env::var_os("DE_KOI_REPO_ROOT");
+        let previous_marinara = std::env::var_os("MARINARA_REPO_ROOT");
+        let root = unique_test_repo_root("edit-tool");
+        fs::create_dir_all(root.join("src")).expect("create src");
+        let source_path = root.join("src").join("sample.ts");
+        fs::write(&source_path, "export const label = 'before';\n").expect("write source");
+
+        std::env::set_var("DE_KOI_REPO_ROOT", &root);
+        std::env::remove_var("MARINARA_REPO_ROOT");
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build test runtime")
+            .block_on(EditDekiCodeFileTool {}.execute(json!({
+                "path": "src/sample.ts",
+                "old_text": "before",
+                "new_text": "after"
+            })));
+
+        match previous_de_koi {
+            Some(value) => std::env::set_var("DE_KOI_REPO_ROOT", value),
+            None => std::env::remove_var("DE_KOI_REPO_ROOT"),
+        }
+        match previous_marinara {
+            Some(value) => std::env::set_var("MARINARA_REPO_ROOT", value),
+            None => std::env::remove_var("MARINARA_REPO_ROOT"),
+        }
+        let updated = fs::read_to_string(&source_path).expect("read updated source");
+        fs::remove_dir_all(&root).ok();
+
+        let payload = result.expect("edit tool should apply exact source edit");
+        assert_eq!(payload["path"], "src/sample.ts");
+        assert_eq!(payload["replacements"], 1);
+        assert_eq!(updated, "export const label = 'after';\n");
+    }
+
+    #[test]
+    fn deki_edit_tool_leaves_file_unchanged_when_old_text_is_absent() {
+        let _guard = DEKI_REPO_ENV_LOCK.lock().expect("lock repo env");
+        let previous_de_koi = std::env::var_os("DE_KOI_REPO_ROOT");
+        let previous_marinara = std::env::var_os("MARINARA_REPO_ROOT");
+        let root = unique_test_repo_root("edit-tool-missing-text");
+        fs::create_dir_all(root.join("src")).expect("create src");
+        let source_path = root.join("src").join("sample.ts");
+        let original = "export const label = 'before';\n";
+        fs::write(&source_path, original).expect("write source");
+
+        std::env::set_var("DE_KOI_REPO_ROOT", &root);
+        std::env::remove_var("MARINARA_REPO_ROOT");
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build test runtime")
+            .block_on(EditDekiCodeFileTool {}.execute(json!({
+                "path": "src/sample.ts",
+                "old_text": "missing",
+                "new_text": "after"
+            })));
+
+        match previous_de_koi {
+            Some(value) => std::env::set_var("DE_KOI_REPO_ROOT", value),
+            None => std::env::remove_var("DE_KOI_REPO_ROOT"),
+        }
+        match previous_marinara {
+            Some(value) => std::env::set_var("MARINARA_REPO_ROOT", value),
+            None => std::env::remove_var("MARINARA_REPO_ROOT"),
+        }
+        let updated = fs::read_to_string(&source_path).expect("read source after failed edit");
+        fs::remove_dir_all(&root).ok();
+
+        assert!(result.is_err(), "missing old_text should reject the edit");
+        assert_eq!(updated, original);
+    }
+
+    #[test]
+    fn deki_edit_tool_leaves_file_unchanged_when_old_text_is_duplicated() {
+        let _guard = DEKI_REPO_ENV_LOCK.lock().expect("lock repo env");
+        let previous_de_koi = std::env::var_os("DE_KOI_REPO_ROOT");
+        let previous_marinara = std::env::var_os("MARINARA_REPO_ROOT");
+        let root = unique_test_repo_root("edit-tool-duplicate-text");
+        fs::create_dir_all(root.join("src")).expect("create src");
+        let source_path = root.join("src").join("sample.ts");
+        let original = "export const first = 'same';\nexport const second = 'same';\n";
+        fs::write(&source_path, original).expect("write source");
+
+        std::env::set_var("DE_KOI_REPO_ROOT", &root);
+        std::env::remove_var("MARINARA_REPO_ROOT");
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build test runtime")
+            .block_on(EditDekiCodeFileTool {}.execute(json!({
+                "path": "src/sample.ts",
+                "old_text": "same",
+                "new_text": "after"
+            })));
+
+        match previous_de_koi {
+            Some(value) => std::env::set_var("DE_KOI_REPO_ROOT", value),
+            None => std::env::remove_var("DE_KOI_REPO_ROOT"),
+        }
+        match previous_marinara {
+            Some(value) => std::env::set_var("MARINARA_REPO_ROOT", value),
+            None => std::env::remove_var("MARINARA_REPO_ROOT"),
+        }
+        let updated = fs::read_to_string(&source_path).expect("read source after failed edit");
+        fs::remove_dir_all(&root).ok();
+
+        assert!(result.is_err(), "duplicate old_text should reject the edit");
+        assert_eq!(updated, original);
+    }
+
     #[test]
     fn deki_system_prompt_blocks_assistant_label_leakage_in_character_card_examples() {
         let prompt = build_system_prompt(None);
@@ -1798,6 +1892,51 @@ mod tests {
     }
 
     #[test]
+    fn deki_plain_response_returns_no_pending_action_contract() {
+        let (content, action) =
+            deki_response_content_and_action("Plain answer.").expect("plain response should parse");
+
+        assert_eq!(content, "Plain answer.");
+        assert_eq!(action["type"], "none");
+        assert_eq!(action["capability"], "read_only");
+        assert!(
+            action["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("no pending UI approval action")
+        );
+        assert!(
+            !action["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("source edits")
+        );
+    }
+
+    #[test]
+    fn deki_none_action_normalizes_to_no_pending_action_contract() {
+        let raw = r#"No change needed.<deki_action>{"type":"none"}</deki_action>"#;
+
+        let (content, action) =
+            deki_response_content_and_action(raw).expect("none action should parse");
+
+        assert_eq!(content, "No change needed.");
+        assert_eq!(action["type"], "none");
+        assert!(
+            action["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("no pending UI approval action")
+        );
+        assert!(
+            !action["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("source edits")
+        );
+    }
+
+    #[test]
     fn deki_response_extracts_pending_create_action_without_visible_json() {
         let raw = r#"I drafted Sol for approval.
 
@@ -1841,8 +1980,8 @@ mod tests {
 <deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol"}}</deki_action>
 Extra visible text."#;
 
-        let error =
-            deki_response_content_and_action(raw).expect_err("trailing text after action should fail");
+        let error = deki_response_content_and_action(raw)
+            .expect_err("trailing text after action should fail");
 
         assert_eq!(error.code, "deki_action_invalid");
     }
