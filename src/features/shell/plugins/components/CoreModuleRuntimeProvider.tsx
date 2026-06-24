@@ -1,9 +1,11 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { useEnabledCoreModuleStyles, useIsCoreModuleEnabled } from "../hooks/use-core-modules";
 import { ME_NOTES_MODULE_ID } from "../lib/core-module-registry";
-import { MeNotepadModule } from "../notepad/MeNotepadModule";
 
 const STYLE_PREFIX = "marinara-core-module-";
+const MeNotepadModule = lazy(() =>
+  import("../notepad/MeNotepadModule").then((module) => ({ default: module.MeNotepadModule })),
+);
 
 export function CoreModuleRuntimeProvider() {
   const { data: styles = [] } = useEnabledCoreModuleStyles();
@@ -24,5 +26,5 @@ export function CoreModuleRuntimeProvider() {
     };
   }, [styles]);
 
-  return <>{meNotesEnabled ? <MeNotepadModule /> : null}</>;
+  return <Suspense fallback={null}>{meNotesEnabled ? <MeNotepadModule /> : null}</Suspense>;
 }
