@@ -15,7 +15,6 @@ import {
   Languages,
   Loader2,
   FileText,
-  Gauge,
   RefreshCw,
   Bookmark,
   Trash2,
@@ -559,9 +558,6 @@ export function ConversationInput({
     [activeChatId, mentionStartPos, setInputDraft, syncInputState],
   );
 
-  const handlePromptBudget = useCallback(() => {
-    onPeekPrompt?.({ userMessage: textareaRef.current?.value.trim() ?? "", attachments });
-  }, [attachments, onPeekPrompt]);
 
   const handleSend = useCallback(async () => {
     if (!activeChatId) return;
@@ -1988,21 +1984,6 @@ export function ConversationInput({
             />
           )}
 
-          <button
-            type="button"
-            onClick={handlePromptBudget}
-            disabled={!activeChatId || isReadingAttachments}
-            className={cn(
-              CHAT_INPUT_ICON_BUTTON_CLASS,
-              activeChatId && !isReadingAttachments
-                ? CHAT_INPUT_ICON_BUTTON_IDLE_CLASS
-                : CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
-            )}
-            title="Prompt budget"
-            aria-label="Prompt budget"
-          >
-            <Gauge size="1rem" />
-          </button>
 
           <button
             onClick={isActuallyGenerating ? () => useChatStore.getState().stopGeneration() : handleSend}

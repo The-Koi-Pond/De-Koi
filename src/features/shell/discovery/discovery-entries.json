@@ -336,10 +336,10 @@
     "id": "prompt-inspector",
     "title": "Prompt Inspector",
     "category": "Advanced",
-    "summary": "Inspect live prompt budget estimates, context attribution, section token counts, warnings, assembled prompt sections, roles, variables, generation parameters, and replay details before or after generation.",
-    "keywords": ["prompt inspector", "peek prompt", "prompt preview", "prompt budget", "context budget", "context attribution", "memory attribution", "knowledge attribution", "lorebook attribution", "tokens", "gauge", "replay", "generation details", "variables"],
+    "summary": "Inspect advanced prompt details including budget estimates, context attribution, section token counts, warnings, assembled prompt sections, roles, variables, generation parameters, and replay details before or after generation.",
+    "keywords": ["prompt inspector", "peek prompt", "prompt preview", "prompt budget", "context budget", "context attribution", "memory attribution", "knowledge attribution", "lorebook attribution", "tokens", "replay", "generation details", "variables"],
     "audience": "Power users checking context usage before sending or debugging why a model answered a certain way.",
-    "where": "Gauge prompt budget buttons, context attribution, and prompt/replay controls in Conversation, Roleplay, and Game chats.",
+    "where": "Assistant message Peek Prompt actions, context attribution controls, replay controls, and the Game More menu.",
     "actions": [{ "type": "go-home", "label": "Open a chat" }],
     "coverage": "advanced"
   },
