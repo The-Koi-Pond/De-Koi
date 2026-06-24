@@ -5,6 +5,8 @@ use std::path::Path;
 
 const MARINARA_PRESET_ID: &str = "7huDl_SOx3a5EZtMeKqSR";
 const MARINARA_PRESET_NAME: &str = "De-Koi's Universal Preset";
+const UNIVERSAL_V2_PRESET_ID: &str = "preset_universal_v2";
+const UNIVERSAL_V2_PRESET_NAME: &str = "De-Koi Universal Preset V2";
 const LEGACY_MARINARA_UNIVERSAL_PRESET_NAME: &str = "Marinara's Universal Preset";
 const LEGACY_MARINARA_PRESET_NAME: &str = "Default";
 const MARINARA_PRESET_AUTHOR: &str = "De-Koi";
@@ -15,6 +17,8 @@ const OUTPUT_FORMAT_SECTION_ID: &str = "YX9D0XS7-4_Xx0s9MVPZE";
 const OUTPUT_FORMAT_SECTION_IDENTIFIER: &str = "section_1772657928072";
 const BUNDLED_MARINARA_PRESET_JSON: &str =
     include_str!("../resources/default-data/db/default-preset.json");
+const BUNDLED_UNIVERSAL_V2_PRESET_JSON: &str =
+    include_str!("../resources/default-data/db/default-preset-v2.json");
 
 pub fn seed_bundled_defaults(storage: &FileStorage, default_data: &Path) -> AppResult<()> {
     let db_root = default_data.join("db");
@@ -36,19 +40,56 @@ fn seed_marinara_preset(storage: &FileStorage, db_root: &Path) -> AppResult<()> 
 
     let envelope: Value = serde_json::from_str(&raw_preset)?;
     let data = envelope.get("data").cloned().unwrap_or(Value::Null);
+    rename_legacy_default_preset(storage)?;
+
+    seed_prompt_preset_bundle(
+        storage,
+        &data,
+        MARINARA_PRESET_ID,
+        &[
+            (MARINARA_PRESET_NAME, MARINARA_PRESET_AUTHOR),
+            (
+                LEGACY_MARINARA_UNIVERSAL_PRESET_NAME,
+                LEGACY_MARINARA_PRESET_AUTHOR,
+            ),
+        ],
+    )?;
+    patch_legacy_output_format_prompt_section(storage, &data)?;
+
+    let v2_path = db_root.join("default-preset-v2.json");
+    let raw_v2_preset = if v2_path.exists() {
+        std::fs::read_to_string(v2_path)?
+    } else {
+        BUNDLED_UNIVERSAL_V2_PRESET_JSON.to_string()
+    };
+    let v2_envelope: Value = serde_json::from_str(&raw_v2_preset)?;
+    let v2_data = v2_envelope.get("data").cloned().unwrap_or(Value::Null);
+    seed_prompt_preset_bundle(
+        storage,
+        &v2_data,
+        UNIVERSAL_V2_PRESET_ID,
+        &[(UNIVERSAL_V2_PRESET_NAME, MARINARA_PRESET_AUTHOR)],
+    )?;
+    set_bundled_prompt_default(storage)?;
+    Ok(())
+}
+
+fn seed_prompt_preset_bundle(
+    storage: &FileStorage,
+    data: &Value,
+    preset_id: &str,
+    known_names: &[(&str, &str)],
+) -> AppResult<()> {
     let Some(preset) = data.get("preset").and_then(Value::as_object) else {
         return Ok(());
     };
-
-    rename_legacy_default_preset(storage)?;
-
-    let has_bundled = storage.get("prompts", MARINARA_PRESET_ID)?.is_some()
+    let has_bundled = storage.get("prompts", preset_id)?.is_some()
         || storage.list("prompts")?.into_iter().any(|row| {
             let name = row.get("name").and_then(Value::as_str);
             let author = row.get("author").and_then(Value::as_str);
-            (name == Some(MARINARA_PRESET_NAME) && author == Some(MARINARA_PRESET_AUTHOR))
-                || (name == Some(LEGACY_MARINARA_UNIVERSAL_PRESET_NAME)
-                    && author == Some(LEGACY_MARINARA_PRESET_AUTHOR))
+            known_names.iter().any(|(known_name, known_author)| {
+                name == Some(*known_name) && author == Some(*known_author)
+            })
         });
     if !has_bundled {
         storage.create("prompts", Value::Object(preset.clone()))?;
@@ -57,7 +98,20 @@ fn seed_marinara_preset(storage: &FileStorage, db_root: &Path) -> AppResult<()> 
     seed_related_prompt_rows_if_missing(storage, "prompt-groups", data.get("groups"))?;
     seed_related_prompt_rows_if_missing(storage, "prompt-sections", data.get("sections"))?;
     seed_related_prompt_rows_if_missing(storage, "prompt-variables", data.get("choiceBlocks"))?;
-    patch_legacy_output_format_prompt_section(storage, &data)?;
+    Ok(())
+}
+
+fn set_bundled_prompt_default(storage: &FileStorage) -> AppResult<()> {
+    if storage.get("prompts", MARINARA_PRESET_ID)?.is_some() {
+        storage.patch("prompts", MARINARA_PRESET_ID, json!({ "isDefault": false }))?;
+    }
+    if storage.get("prompts", UNIVERSAL_V2_PRESET_ID)?.is_some() {
+        storage.patch(
+            "prompts",
+            UNIVERSAL_V2_PRESET_ID,
+            json!({ "isDefault": true }),
+        )?;
+    }
     Ok(())
 }
 
@@ -420,6 +474,53 @@ mod tests {
         assert!(sections.iter().any(|section| {
             section.get("presetId").and_then(Value::as_str) == Some(MARINARA_PRESET_ID)
         }));
+    }
+
+    #[test]
+    fn seeds_marinara_and_v2_presets_with_v2_as_default() {
+        let (storage, root) = temp_storage();
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        let prompts = storage.list("prompts").expect("prompts should list");
+        let marinara = prompts
+            .iter()
+            .find(|preset| {
+                preset.get("name").and_then(Value::as_str) == Some(MARINARA_PRESET_NAME)
+                    && preset.get("author").and_then(Value::as_str) == Some(MARINARA_PRESET_AUTHOR)
+            })
+            .expect("Marinara preset should remain available");
+        let v2 = prompts
+            .iter()
+            .find(|preset| {
+                preset.get("name").and_then(Value::as_str) == Some("De-Koi Universal Preset V2")
+                    && preset.get("author").and_then(Value::as_str) == Some("De-Koi")
+            })
+            .expect("De-Koi Universal Preset V2 should be seeded");
+
+        assert!(!is_truthy(marinara.get("isDefault")));
+        assert!(is_truthy(v2.get("isDefault")));
+        assert_eq!(
+            prompts
+                .iter()
+                .filter(|preset| is_truthy(preset.get("isDefault")))
+                .count(),
+            1,
+            "exactly one prompt preset should be the bundled default"
+        );
+
+        for preset_id in [MARINARA_PRESET_ID, "preset_universal_v2"] {
+            assert!(
+                storage
+                    .list("prompt-sections")
+                    .expect("prompt sections should list")
+                    .iter()
+                    .any(|section| section.get("presetId").and_then(Value::as_str)
+                        == Some(preset_id)),
+                "preset {preset_id} should seed prompt sections"
+            );
+        }
     }
 
     #[test]
