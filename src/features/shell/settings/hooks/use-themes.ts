@@ -35,8 +35,16 @@ export function useCreateTheme() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: CreateThemeInput) => storageApi.create<Theme>("themes", createThemeSchema.parse(data)),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: themeKeys.all });
+    onSuccess: (createdTheme) => {
+      qc.setQueryData<Theme[]>(themeKeys.list(), (themes) => {
+        if (!themes) return [createdTheme];
+        const existingTheme = themes.some((theme) => theme.id === createdTheme.id);
+        if (existingTheme) {
+          return themes.map((theme) => (theme.id === createdTheme.id ? { ...theme, ...createdTheme } : theme));
+        }
+        return [...themes, createdTheme];
+      });
+      void qc.invalidateQueries({ queryKey: themeKeys.all });
     },
   });
 }

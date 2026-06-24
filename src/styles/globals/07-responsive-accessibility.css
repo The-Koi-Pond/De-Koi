@@ -1,8 +1,6 @@
 /* Responsive/mobile, touch targets, reduced motion, performance hints. */
 
-/* ─────────────────────────────────────────────
-   18. RESPONSIVE / MOBILE
-   ───────────────────────────────────────────── */
+/* 18. RESPONSIVE / MOBILE */
 @media (max-width: 1023px) {
   .right-panel-overlay {
     width: 100% !important;
@@ -178,14 +176,42 @@
     font-size: 1rem; /* prevents iOS zoom on focus */
   }
 }
+/* 19. SILLYTAVERN VISUAL THEME (separate file) */
 
-/* ─────────────────────────────────────────────
-   19. SILLYTAVERN VISUAL THEME (separate file)
-   ───────────────────────────────────────────── */
+/* 20. ACCESSIBILITY - LOW-POWER SHELL + REDUCED MOTION */
+[data-de-koi-shell-performance="low"] .mari-app,
+[data-de-koi-shell-performance="low"] .mari-sidebar,
+[data-de-koi-shell-performance="low"] .mari-sidebar-header,
+[data-de-koi-shell-performance="low"] .mari-sidebar-footer,
+[data-de-koi-shell-performance="low"] .mari-right-panel,
+[data-de-koi-shell-performance="low"] .mari-right-panel-header,
+[data-de-koi-shell-performance="low"] .mari-mobile-tab-bar,
+[data-de-koi-shell-performance="low"] .mari-tracker-panel {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
 
-/* ─────────────────────────────────────────────
-   20. ACCESSIBILITY — REDUCED MOTION
-   ───────────────────────────────────────────── */
+[data-de-koi-shell-performance="low"] .mari-sidebar,
+[data-de-koi-shell-performance="low"] .mari-right-panel {
+  background: var(--sidebar) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--sidebar-border) 72%, transparent) !important;
+}
+
+[data-de-koi-shell-performance="low"] .mari-sidebar-header,
+[data-de-koi-shell-performance="low"] .mari-sidebar-footer,
+[data-de-koi-shell-performance="low"] .mari-right-panel-header {
+  background: var(--card) !important;
+}
+
+[data-de-koi-shell-performance="low"] .noise-bg::before,
+[data-de-koi-shell-performance="low"] .retro-scanlines::after,
+[data-de-koi-shell-performance="low"] .y2k-star,
+[data-de-koi-shell-performance="low"] .y2k-star-md,
+[data-de-koi-shell-performance="low"] .y2k-star-lg {
+  display: none !important;
+  animation: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -196,9 +222,7 @@
   }
 }
 
-/* ─────────────────────────────────────────────
-   21. PERFORMANCE — GPU COMPOSITING HINTS
-   ───────────────────────────────────────────── */
+/* 21. PERFORMANCE - GPU COMPOSITING HINTS */
 .rpg-sprite-container img,
 .rpg-avatar-glow img,
 .rpg-avatar-panel img,

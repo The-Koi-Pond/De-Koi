@@ -4,13 +4,14 @@
 import { X } from "lucide-react";
 import { ChatGallery } from "./ChatGallery";
 import type { Chat } from "../../../../../engine/contracts/types/chat";
+import type { SaveMomentSource } from "../lib/save-moment";
 
 interface ChatGalleryDrawerProps {
   chat: Chat;
   open: boolean;
   onClose: () => void;
   /** Manually trigger the Illustrator agent */
-  onIllustrate?: () => void | Promise<void>;
+  onIllustrate?: (source?: SaveMomentSource) => void | Promise<void>;
 }
 
 export function ChatGalleryDrawer({ chat, open, onClose, onIllustrate }: ChatGalleryDrawerProps) {

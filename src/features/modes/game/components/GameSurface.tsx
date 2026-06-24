@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   BookOpen,
   Folder,
+  Gauge,
   Globe,
   HelpCircle,
   History,
@@ -196,6 +197,7 @@ import type {
   SceneAnalysis,
   SceneSpotifyTrackCandidate,
 } from "../../../../engine/contracts/types/scene";
+import { resolveSceneClockUpdate } from "../../../../engine/modes/game/scene/scene-clock.service";
 import { scoreMusic, scoreAmbient } from "../../../../engine/shared/scoring/music-score";
 import {
   applyMapUpdateCommandsToMeta,
@@ -231,6 +233,37 @@ import {
 import { ChatGalleryDrawer } from "../../shared/chat-ui/index";
 import type { DirectionCommand, GameNpc } from "../../../../engine/contracts/types/game";
 import type { CharacterMap, PersonaInfo } from "../../shared/chat-ui/types";
+import type { SaveMomentDestination, SaveMomentSource } from "../../shared/chat-ui";
+
+const GAME_SAVE_MOMENT_DESTINATIONS = [
+  { id: "game-journal-note", label: "Add journal note" },
+  { id: "game-checkpoint", label: "Create checkpoint" },
+] as const satisfies readonly SaveMomentDestination[];
+
+function compactSaveMomentText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function truncateSaveMomentLabel(value: string, fallback: string): string {
+  const normalized = compactSaveMomentText(value) || fallback;
+  return normalized.length > 72 ? normalized.slice(0, 69).trimEnd() + "..." : normalized;
+}
+
+function saveMomentTitle(source: SaveMomentSource): string {
+  const speaker = source.speakerName?.trim();
+  const prefix = speaker ? speaker + ": " : "";
+  return truncateSaveMomentLabel(prefix + source.content, "Saved moment");
+}
+
+function saveMomentCheckpointLabel(source: SaveMomentSource): string {
+  return truncateSaveMomentLabel(source.content, "Manual checkpoint");
+}
+
+function saveMomentJournalBody(source: SaveMomentSource): string {
+  const speaker = source.speakerName?.trim();
+  const content = source.content.trim();
+  return speaker ? speaker + ":\n" + content : content;
+}
 
 type GameAssetManifestMap = Record<string, { path: string; absolutePath?: string }> | null;
 
@@ -1228,6 +1261,7 @@ interface GameSurfaceProps {
   personaInfo?: PersonaInfo;
   chatBackground?: string | null;
   onOpenSettings: () => void;
+  onPeekPrompt?: () => void;
   onDeleteMessage: (messageId: string) => void;
   multiSelectMode?: boolean;
   selectedMessageIds?: Set<string>;
@@ -1244,6 +1278,7 @@ export function GameSurface({
   personaInfo,
   chatBackground,
   onOpenSettings,
+  onPeekPrompt,
   onDeleteMessage,
   multiSelectMode = false,
   selectedMessageIds,
@@ -2818,6 +2853,7 @@ export function GameSurface({
 
   useEffect(() => {
     if (!latestAssistantMsg?.content || isStreaming) return;
+    if (gameWorldTickEnabled) return;
     if (latestAssistantDirectAddressMode) return;
     if (weatherMsgRef.current === latestAssistantMsg.id) return;
     weatherMsgRef.current = latestAssistantMsg.id;
@@ -2829,6 +2865,7 @@ export function GameSurface({
     latestAssistantMsg?.id,
     latestAssistantDirectAddressMode,
     isStreaming,
+    gameWorldTickEnabled,
     activeChatId,
     updateWeather,
     weatherMsgRef,
@@ -3268,6 +3305,7 @@ export function GameSurface({
   }
 
   async function applySceneResult(result: SceneAnalysis, msg: { id: string }) {
+    const sceneClock = resolveSceneClockUpdate(result);
 
     setSceneAnalysisFailed(false);
     // NOTE: Game state transitions are owned exclusively by the GM model via [state: ...] tags.
@@ -3277,7 +3315,7 @@ export function GameSurface({
     // The mutations below also persist to DB, but may race with snapshot creation.
     // If no snapshot exists yet (first turn), create a minimal one.
     const currentGS = useGameStateStore.getState().current;
-    if (result.weather || result.timeOfDay) {
+    if (result.weather || sceneClock.shouldAdvanceTimeOfDay) {
       const base = currentGS ?? {
         id: "",
         chatId: activeChatId,
@@ -3297,7 +3335,7 @@ export function GameSurface({
       useGameStateStore.getState().setGameState({
         ...base,
         ...(result.weather ? { weather: result.weather } : {}),
-        ...(result.timeOfDay ? { time: result.timeOfDay } : {}),
+        ...(sceneClock.shouldAdvanceTimeOfDay ? { time: sceneClock.timeOfDay } : {}),
       });
     }
 
@@ -3309,8 +3347,11 @@ export function GameSurface({
         location: gameSnapshot?.location ?? "",
       });
     }
-    if (result.timeOfDay) {
-      _advanceTime.mutate({ chatId: activeChatId, action: result.timeOfDay });
+    if (sceneClock.shouldAdvanceTimeOfDay && sceneClock.timeOfDay) {
+      _advanceTime.mutate({ chatId: activeChatId, action: sceneClock.timeOfDay });
+    }
+    if (sceneClock.elapsedMinutes != null) {
+      runAutomaticWorldTick("scene_end", msg.id, activeChatId, sceneClock.elapsedMinutes);
     }
     if (result.reputationChanges?.length) {
       const repActions = result.reputationChanges.map((rc) => ({
@@ -4704,6 +4745,49 @@ export function GameSurface({
       );
     },
     [activeChatId, branchChat, isStreaming],
+  );
+
+  const handleSaveMomentDestination = useCallback(
+    async (destinationId: string, source: SaveMomentSource) => {
+      const chatId = source.chatId.trim();
+      const messageId = source.messageId.trim();
+      if (!chatId || !messageId) {
+        toast.error("This moment is missing its source message.");
+        return;
+      }
+      try {
+        if (destinationId === "game-journal-note") {
+          const res = await gameApi.addJournalEntry({
+            chatId,
+            type: "note",
+            data: {
+              title: saveMomentTitle(source),
+              content: saveMomentJournalBody(source),
+              readableType: "note",
+              sourceMessageId: messageId,
+            },
+          });
+          publishSessionChat(res.sessionChat);
+          queryClient.invalidateQueries({ queryKey: [...gameKeys.all, "journal", chatId] });
+          toast.success("Journal note saved.");
+          return;
+        }
+        if (destinationId === "game-checkpoint") {
+          await gameApi.createCheckpoint({
+            chatId,
+            label: saveMomentCheckpointLabel(source),
+            triggerType: "manual",
+            sourceMessageId: messageId,
+          });
+          queryClient.invalidateQueries({ queryKey: [...gameKeys.all, "checkpoints", chatId] });
+          toast.success("Checkpoint saved.");
+          return;
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to save moment.");
+      }
+    },
+    [publishSessionChat, queryClient],
   );
 
   const [gameInputFocusToken, setGameInputFocusToken] = useState(0);
@@ -6429,9 +6513,14 @@ export function GameSurface({
   }, [activeChatId, worldTick]);
 
   const runAutomaticWorldTick = useCallback(
-    (trigger: "session_start" | "session_end" | "day_start", discriminator: string, chatId = activeChatId) => {
+    (
+      trigger: "session_start" | "session_end" | "day_start" | "scene_end",
+      discriminator: string,
+      chatId = activeChatId,
+      elapsedMinutes?: number,
+    ) => {
       if (!gameWorldTickEnabled || worldTick.isPending) return;
-      worldTick.mutate({ chatId, trigger, discriminator });
+      worldTick.mutate({ chatId, trigger, discriminator, elapsedMinutes });
     },
     [activeChatId, gameWorldTickEnabled, worldTick],
   );
@@ -7570,6 +7659,15 @@ export function GameSurface({
                     )}
                   </div>
                   <button
+                    onClick={onPeekPrompt}
+                    disabled={!onPeekPrompt}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white/80 backdrop-blur-md transition-colors hover:bg-black/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    title="Prompt Budget"
+                    aria-label="Prompt budget"
+                  >
+                    <Gauge size={14} />
+                  </button>
+                  <button
                     onClick={onOpenSettings}
                     className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white/80 backdrop-blur-md transition-colors hover:bg-black/60 hover:text-white"
                     title="Chat Settings"
@@ -8186,6 +8284,8 @@ export function GameSurface({
                           onDeleteSegment={handleDeleteSegment}
                           onEditMessage={handleEditMessage}
                           onBranchMessage={handleBranchMessage}
+                          saveMomentDestinations={GAME_SAVE_MOMENT_DESTINATIONS}
+                          onSaveMomentDestination={handleSaveMomentDestination}
                           segmentEdits={segmentEdits}
                           segmentDeletes={segmentDeletes}
                           onEditSegment={handleEditSegment}
@@ -8268,6 +8368,8 @@ export function GameSurface({
                       onDeleteSegment={handleDeleteSegment}
                       onEditMessage={handleEditMessage}
                       onBranchMessage={handleBranchMessage}
+                      saveMomentDestinations={GAME_SAVE_MOMENT_DESTINATIONS}
+                      onSaveMomentDestination={handleSaveMomentDestination}
                       segmentEdits={segmentEdits}
                       segmentDeletes={segmentDeletes}
                       onEditSegment={handleEditSegment}

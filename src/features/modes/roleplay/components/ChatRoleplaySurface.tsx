@@ -38,7 +38,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useIsMobile } from "../../../../shared/hooks/use-is-mobile";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useGameStateStore } from "../../../runtime/world-state/index";
-import { ChatMessage, getTranscriptRenderWindow, TRANSCRIPT_RENDER_WINDOW_STEP } from "../../shared/chat-ui/index";
+import { buildSaveMomentSummaryDraft, ChatMessage, getTranscriptRenderWindow, TRANSCRIPT_RENDER_WINDOW_STEP } from "../../shared/chat-ui/index";
 import { ChatInput } from "../../shared/chat-ui/index";
 import { CyoaChoices } from "./CyoaChoices";
 import { ChatBranchSelector, type ChatBranchSelectorHandle } from "../../shared/chat-ui/index";
@@ -56,6 +56,7 @@ import type {
   PersonaInfo,
   RegenerateOptions,
 } from "../../shared/chat-ui/types";
+import type { SaveMomentSource, SaveMomentSummaryDraft } from "../../shared/chat-ui/index";
 
 type ChatData = ComponentProps<typeof ChatCommonOverlays>["chat"];
 
@@ -657,7 +658,7 @@ type RoleplaySurfaceProps = {
   onCloseSettings: () => void;
   onCloseFiles: () => void;
   onCloseGallery: () => void;
-  onIllustrate?: () => void | Promise<void>;
+  onIllustrate?: ComponentProps<typeof ChatCommonOverlays>["onIllustrate"];
   onWizardFinish: () => void;
   onClosePeekPrompt: () => void;
   onResetSpritePlacements: () => void;
@@ -777,6 +778,11 @@ export function ChatRoleplaySurface({
   onSelectAllBelowSelection,
   isGrouped,
 }: RoleplaySurfaceProps) {
+  const [summaryDraft, setSummaryDraft] = useState<SaveMomentSummaryDraft | null>(null);
+  const handleSaveMomentSummary = (source: SaveMomentSource) => {
+    setSummaryDraft(buildSaveMomentSummaryDraft(source));
+  };
+
   const linkedChatName = chat?.connectedChatId
     ? getConnectedChatDisplayName(allChats?.find((c) => c.id === chat.connectedChatId))
     : undefined;
@@ -1215,6 +1221,8 @@ export function ChatRoleplaySurface({
                           onToggleHiddenFromAI={messageActions.onToggleHiddenFromAI}
                           onPeekPrompt={onPeekPrompt}
                           onBranch={messageActions.onBranch}
+                          onSaveMomentSummary={handleSaveMomentSummary}
+                          onIllustrateMoment={onIllustrate}
                           onCloneSceneFromHere={messageActions.onCloneSceneFromHere}
                           isCloneSceneFromHereDisabled={isCloneSceneFromHereDisabled}
                           isLastAssistantMessage={msg.id === lastAssistantMessageId}
@@ -1244,6 +1252,8 @@ export function ChatRoleplaySurface({
                           onToggleHiddenFromAI={messageActions.onToggleHiddenFromAI}
                           onPeekPrompt={onPeekPrompt}
                           onBranch={messageActions.onBranch}
+                          onSaveMomentSummary={handleSaveMomentSummary}
+                          onIllustrateMoment={onIllustrate}
                           onCloneSceneFromHere={messageActions.onCloneSceneFromHere}
                           isCloneSceneFromHereDisabled={isCloneSceneFromHereDisabled}
                           isLastAssistantMessage={msg.id === lastAssistantMessageId}
@@ -1570,6 +1580,7 @@ export function ChatRoleplaySurface({
         galleryOpen={galleryOpen}
         wizardOpen={wizardOpen}
         peekPromptData={peekPromptData}
+        summaryDraft={summaryDraft}
         deleteDialogMessageId={isConcludedScene ? null : deleteDialogMessageId}
         deleteDialogCanDeleteSwipe={deleteDialogCanDeleteSwipe}
         deleteDialogActiveSwipeIndex={deleteDialogActiveSwipeIndex}
@@ -1588,6 +1599,7 @@ export function ChatRoleplaySurface({
         onIllustrate={onIllustrate}
         onWizardFinish={onWizardFinish}
         onClosePeekPrompt={onClosePeekPrompt}
+        onCloseSummaryDraft={() => setSummaryDraft(null)}
         onDeleteConfirm={onDeleteConfirm}
         onDeleteSwipe={onDeleteSwipe}
         onDeleteMore={onDeleteMore}

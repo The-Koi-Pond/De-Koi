@@ -1,8 +1,8 @@
-import type { ComponentProps } from "react";
+import { useState, type ComponentProps } from "react";
 import type { Message, SpriteSide } from "../../../../engine/contracts/types/chat";
 import { ConversationView } from "./ConversationView";
 import { AgentThoughtBubbles } from "../../../catalog/agents/activity";
-import { ChatCommonOverlays } from "../../shared/chat-ui/index";
+import { buildSaveMomentSummaryDraft, ChatCommonOverlays } from "../../shared/chat-ui/index";
 import type {
   CharacterMap,
   MessageSelectionToggle,
@@ -10,6 +10,7 @@ import type {
   PeekPromptOptions,
   PersonaInfo,
 } from "../../shared/chat-ui/types";
+import type { SaveMomentSource, SaveMomentSummaryDraft } from "../../shared/chat-ui/index";
 
 type SceneInfo =
   | {
@@ -72,7 +73,7 @@ type ConversationSurfaceProps = {
   onCloseSettings: () => void;
   onCloseFiles: () => void;
   onCloseGallery: () => void;
-  onIllustrate?: () => void | Promise<void>;
+  onIllustrate?: ComponentProps<typeof ChatCommonOverlays>["onIllustrate"];
   onWizardFinish: () => void;
   onWizardCancel: () => void;
   onClosePeekPrompt: () => void;
@@ -157,6 +158,11 @@ export function ChatConversationSurface({
   onSelectAllBelowSelection,
   lastAssistantMessageId,
 }: ConversationSurfaceProps) {
+  const [summaryDraft, setSummaryDraft] = useState<SaveMomentSummaryDraft | null>(null);
+  const handleSaveMomentSummary = (source: SaveMomentSource) => {
+    setSummaryDraft(buildSaveMomentSummaryDraft(source));
+  };
+
   return (
     <div data-component="ChatArea.Conversation" className="flex flex-1 overflow-hidden">
       <div className="relative flex flex-1 flex-col overflow-hidden">
@@ -184,6 +190,8 @@ export function ChatConversationSurface({
           onPeekPrompt={onPeekPrompt}
           onToggleHiddenFromAI={onToggleHiddenFromAI}
           onBranch={onBranch}
+          onSaveMomentSummary={handleSaveMomentSummary}
+          onIllustrate={onIllustrate}
           lastAssistantMessageId={lastAssistantMessageId}
           onOpenSettings={onOpenSettings}
           onOpenFiles={onOpenFiles}
@@ -207,6 +215,7 @@ export function ChatConversationSurface({
         galleryOpen={galleryOpen}
         wizardOpen={wizardOpen}
         peekPromptData={peekPromptData}
+        summaryDraft={summaryDraft}
         deleteDialogMessageId={deleteDialogMessageId}
         deleteDialogCanDeleteSwipe={deleteDialogCanDeleteSwipe}
         deleteDialogActiveSwipeIndex={deleteDialogActiveSwipeIndex}
@@ -226,6 +235,7 @@ export function ChatConversationSurface({
         onWizardFinish={onWizardFinish}
         onWizardCancel={onWizardCancel}
         onClosePeekPrompt={onClosePeekPrompt}
+        onCloseSummaryDraft={() => setSummaryDraft(null)}
         onDeleteConfirm={onDeleteConfirm}
         onDeleteSwipe={onDeleteSwipe}
         onDeleteMore={onDeleteMore}

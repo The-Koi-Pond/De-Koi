@@ -317,6 +317,7 @@ export type FullPageRoutePatch = Partial<
     UIState,
     | "characterDetailId"
     | "lorebookDetailId"
+    | "lorebookEntryDetailId"
     | "presetDetailId"
     | "connectionDetailId"
     | "agentDetailId"
@@ -336,6 +337,7 @@ export type FullPageRoutePatch = Partial<
 export const CLEARED_DETAIL_IDS = {
   characterDetailId: null,
   lorebookDetailId: null,
+  lorebookEntryDetailId: null,
   presetDetailId: null,
   connectionDetailId: null,
   agentDetailId: null,
@@ -410,6 +412,8 @@ export interface UIState {
   characterDetailId: string | null;
   /** When set, the main area shows the full-page lorebook editor instead of chat */
   lorebookDetailId: string | null;
+  /** Entry id the lorebook editor should expand once loaded. */
+  lorebookEntryDetailId: string | null;
   /** When set, the main area shows the full-page preset editor instead of chat */
   presetDetailId: string | null;
   /** When set, the main area shows the full-page connection editor instead of chat */
@@ -661,6 +665,8 @@ export interface UIState {
   openCharacterDetail: (id: string) => void;
   closeCharacterDetail: () => void;
   openLorebookDetail: (id: string) => void;
+  openLorebookEntryDetail: (lorebookId: string, entryId: string) => void;
+  clearLorebookEntryDetail: () => void;
   closeLorebookDetail: () => void;
   openPresetDetail: (id: string) => void;
   closePresetDetail: () => void;

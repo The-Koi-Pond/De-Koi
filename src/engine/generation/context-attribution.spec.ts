@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { GenerationContextAttributionItem } from "../contracts/types/chat";
 import {
   attributionForAgentInjections,
+  attributionForChatHistory,
+  attributionForChatSummary,
   attributionForLorebookEntries,
   attributionForMemoryRecall,
   generationContextAttribution,
@@ -104,6 +106,72 @@ describe("generation context attribution", () => {
     ]);
   });
 
+  it("records chat history continuity with hidden and limit-skipped counts", () => {
+    const items = attributionForChatHistory({
+      included: [
+        {
+          role: "user",
+          name: "Celia",
+          characterId: "persona-1",
+          content: "Remember the moon gate password.",
+        },
+        {
+          role: "assistant",
+          name: "Deki",
+          characterId: "char-1",
+          content: "The password is moonlit tea.",
+        },
+      ],
+      hiddenFromAiCount: 1,
+      skippedByLimitCount: 3,
+      requestedLimit: 2,
+    });
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        kind: "chat_history",
+        label: "Celia",
+        status: "injected",
+        sourceId: "persona-1",
+        snippet: "Remember the moon gate password.",
+        metadata: expect.objectContaining({ role: "user", rank: 1, requestedLimit: 2 }),
+      }),
+      expect.objectContaining({
+        kind: "chat_history",
+        label: "Deki",
+        status: "injected",
+        sourceId: "char-1",
+        snippet: "The password is moonlit tea.",
+        metadata: expect.objectContaining({ role: "assistant", rank: 2, requestedLimit: 2 }),
+      }),
+      expect.objectContaining({
+        kind: "chat_history",
+        label: "1 hidden from AI",
+        status: "skipped",
+        snippet: null,
+        metadata: expect.objectContaining({ reason: "hidden_from_ai", count: 1 }),
+      }),
+      expect.objectContaining({
+        kind: "chat_history",
+        label: "3 skipped by history limit",
+        status: "skipped",
+        snippet: null,
+        metadata: expect.objectContaining({ reason: "history_limit", count: 3, requestedLimit: 2 }),
+      }),
+    ]);
+  });
+
+  it("records injected chat summary continuity", () => {
+    expect(attributionForChatSummary("Celia and Deki agreed to meet at the koi pond.")).toEqual([
+      expect.objectContaining({
+        kind: "chat_summary",
+        label: "Chat Summary",
+        status: "injected",
+        snippet: "Celia and Deki agreed to meet at the koi pond.",
+      }),
+    ]);
+    expect(attributionForChatSummary("   ")).toEqual([]);
+  });
   it("omits empty attributions from saved snapshots", () => {
     const attribution = generationContextAttribution([
       [],

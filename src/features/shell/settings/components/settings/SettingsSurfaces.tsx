@@ -25,8 +25,8 @@ import { stripDangerousCss } from "../../../../../shared/lib/chat-css";
 import { TEMPERATURE_UNITS } from "../../../../../shared/lib/temperature-units";
 import { QUOTE_FORMATS } from "../../../../../shared/lib/dialogue-quotes";
 import {
+  buildImportedExtensionInput,
   extensionHasRunnableJavaScript,
-  getInitialImportedExtensionEnabled,
 } from "../../../../../shared/lib/extension-import";
 import { useExtensions, useCreateExtension, useDeleteExtension, useUpdateExtension } from "../../hooks/use-extensions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -784,8 +784,7 @@ export function GeneralSettings() {
   const setTrimIncompleteModelOutput = useUIStore((s) => s.setTrimIncompleteModelOutput);
   const speechToTextEnabled = useUIStore((s) => s.speechToTextEnabled);
   const setSpeechToTextEnabled = useUIStore((s) => s.setSpeechToTextEnabled);
-  const spotifyPlayerEnabled = useUIStore((s) => s.spotifyPlayerEnabled);
-  const setSpotifyPlayerEnabled = useUIStore((s) => s.setSpotifyPlayerEnabled);
+
   const intuitiveSwipeNavigation = useUIStore((s) => s.intuitiveSwipeNavigation);
   const setIntuitiveSwipeNavigation = useUIStore((s) => s.setIntuitiveSwipeNavigation);
   const intuitiveSwipeRerollLatest = useUIStore((s) => s.intuitiveSwipeRerollLatest);
@@ -937,13 +936,6 @@ export function GeneralSettings() {
         checked={enableStreaming}
         onChange={setEnableStreaming}
         help="When on, AI responses appear word-by-word as they're generated. When off, the full response appears at once after completion."
-      />
-
-      <ToggleSetting
-        label="Spotify mini player"
-        checked={spotifyPlayerEnabled}
-        onChange={setSpotifyPlayerEnabled}
-        help="Shows a compact Spotify player in the top bar on desktop and as a draggable floating widget on mobile. Requires the Spotify DJ agent to be connected."
       />
 
       {/* Streaming Speed */}
@@ -3104,52 +3096,13 @@ export function ExtensionsSettings() {
       const text = await file.text();
       const installedAt = new Date().toISOString();
 
-      if (file.name.endsWith(".json")) {
-        const parsed = JSON.parse(text);
-        const name = parsed.name ?? file.name.replace(/\.json$/, "");
-        const css = parsed.css ?? null;
-        const js = parsed.js ?? null;
-        await createExtension.mutateAsync({
-          name,
-          description: parsed.description ?? "",
-          css,
-          js,
-          enabled: getInitialImportedExtensionEnabled({ js }),
-          installedAt,
-        });
-        toast.success(
-          extensionHasRunnableJavaScript({ js })
-            ? `Extension "${name}" installed disabled. Review it before enabling.`
-            : `Extension "${name}" installed`,
-        );
-      } else if (file.name.endsWith(".js")) {
-        const name = file.name.replace(/\.js$/, "");
-        const hasRunnableJs = extensionHasRunnableJavaScript({ js: text });
-        await createExtension.mutateAsync({
-          name,
-          description: "JS extension imported from file",
-          js: text,
-          enabled: getInitialImportedExtensionEnabled({ js: text }),
-          installedAt,
-        });
-        toast.success(
-          hasRunnableJs
-            ? `Extension "${name}" installed disabled. Review it before enabling.`
-            : `Extension "${name}" installed`,
-        );
-      } else if (file.name.endsWith(".css")) {
-        const name = file.name.replace(/\.css$/, "");
-        await createExtension.mutateAsync({
-          name,
-          description: "CSS extension imported from file",
-          css: text,
-          enabled: true,
-          installedAt,
-        });
-        toast.success(`Extension "${name}" installed`);
-      } else {
-        toast.error("Only .json, .css, and .js extension files are supported.");
-      }
+      const result = buildImportedExtensionInput(file.name, text, installedAt);
+      await createExtension.mutateAsync(result.input);
+      toast.success(
+        result.hasRunnableJavaScript
+          ? `Extension "${result.input.name}" installed disabled. Review it before enabling.`
+          : `Extension "${result.input.name}" installed`,
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to import extension.");
     }
@@ -3202,6 +3155,13 @@ export function ExtensionsSettings() {
               <span className="truncate font-medium">{ext.name}</span>
               {ext.description && (
                 <span className="truncate text-[0.625rem] text-[var(--muted-foreground)]">{ext.description}</span>
+              )}
+              {ext.packageId && (
+                <span className="truncate text-[0.625rem] text-[var(--muted-foreground)]">
+                  {ext.packageId}
+                  {ext.packageVersion ? ` v${ext.packageVersion}` : ""}
+                  {ext.permissions?.length ? ` - ${ext.permissions.length} permissions` : ""}
+                </span>
               )}
             </div>
             <button
@@ -3484,7 +3444,8 @@ export function AdvancedSettings() {
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [openingUpdate, setOpeningUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResponse | null>(null);
-  const [adminSecret, setAdminSecret] = useState(readAdminSecretStorage);
+  const [savedAdminSecret, setSavedAdminSecret] = useState(readAdminSecretStorage);
+  const [adminSecret, setAdminSecret] = useState(savedAdminSecret);
   const [quickRepliesDrawerOpen, setQuickRepliesDrawerOpen] = useState(true);
   const remoteRuntimeSectionRef = useRef<HTMLDivElement>(null);
   const remoteRuntimeHealthAbortRef = useRef<AbortController | null>(null);
@@ -3556,6 +3517,7 @@ export function AdvancedSettings() {
   const backupsQuery = useQuery<ManagedBackup[]>({
     queryKey: ["backups"],
     queryFn: backupApi.listBackups,
+    enabled: !remoteRuntimeUrl.trim() || savedAdminSecret.trim().length > 0,
   });
 
   const createBackupMutation = useMutation({
@@ -3710,12 +3672,14 @@ export function AdvancedSettings() {
   const saveAdminSecret = useCallback(() => {
     const trimmed = adminSecret.trim();
     writeAdminSecretStorage(trimmed);
+    setSavedAdminSecret(trimmed);
     if (trimmed) {
       toast.success("Admin secret saved for this browser");
+      queryClient.invalidateQueries({ queryKey: ["backups"] });
     } else {
       toast.info("Admin secret cleared");
     }
-  }, [adminSecret]);
+  }, [adminSecret, queryClient]);
 
   const isClearing = clearAllData.isPending || expungeData.isPending;
   const isAllScopesSelected = selectedScopes.length === EXPUNGE_SCOPE_OPTIONS.length;

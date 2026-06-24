@@ -181,4 +181,28 @@ describe("HealthDiagnosticsSettings", () => {
     await flushAsyncWork();
     expect(connectionCommandApi.test).toHaveBeenCalledWith("conn-1");
   });
+
+  it("clears provider attention status after a successful explicit probe", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<HealthDiagnosticsSettings />);
+    });
+    await flushAsyncWork();
+
+    expect(container!.textContent).toContain("Needs attention");
+
+    const probeButton = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Probe"),
+    );
+    expect(probeButton).toBeTruthy();
+
+    await act(async () => {
+      probeButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushAsyncWork();
+
+    expect(connectionCommandApi.test).toHaveBeenCalledWith("conn-1");
+    expect(container!.textContent).toContain("Probe completed in 10 ms.");
+    expect(container!.textContent).not.toContain("Needs attention");
+  });
 });

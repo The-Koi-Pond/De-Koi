@@ -64,12 +64,14 @@ export async function createGameCheckpoint(data: {
   chatId: string;
   label: string;
   triggerType: string;
+  sourceMessageId?: string | null;
 }): Promise<{ id: string }> {
   const chat = await g.getChat(data.chatId);
   const meta = g.chatMeta(chat);
   const gameState = g.asRecord((chat as { gameState?: unknown }).gameState);
   const messages = await g.listMessages(data.chatId);
-  const messageId = checkpointAnchorFromMeta(meta, latestMessage(messages));
+  const selectedMessageId = g.readTrimmed(data.sourceMessageId);
+  const messageId = selectedMessageId || checkpointAnchorFromMeta(meta, latestMessage(messages));
   const snapshot = await g.storageApi.create<{ id: string }>("game-state-snapshots", {
     kind: CHECKPOINT_SNAPSHOT_KIND,
     chatId: data.chatId,

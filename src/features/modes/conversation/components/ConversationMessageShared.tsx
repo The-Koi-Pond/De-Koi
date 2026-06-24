@@ -9,6 +9,7 @@ import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../../../shared/lib/markdown";
 import type { ConversationMessageStyle } from "../../../../shared/stores/ui.store";
 import type { CharacterMap, MessageSelectionToggle, PeekPromptOptions, PersonaInfo } from "../../shared/chat-ui/types";
+import type { SaveMomentSource } from "../../shared/chat-ui/index";
 import {
   GenerationReplayDetailsModal,
   ImagePromptPanel,
@@ -44,6 +45,8 @@ export interface ConversationMessageProps {
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
   onBranch?: (messageId: string) => void;
+  onSaveMomentSummary?: (source: SaveMomentSource) => void;
+  onIllustrateMoment?: (source: SaveMomentSource) => void | Promise<void>;
   isLastAssistantMessage?: boolean;
   characterMap?: CharacterMap;
   personaInfo?: PersonaInfo;
@@ -155,6 +158,8 @@ export interface ConversationMessageRenderContext {
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
   onBranch?: (messageId: string) => void;
+  onSaveMomentSummary?: (source: SaveMomentSource) => void;
+  onIllustrateMoment?: (source: SaveMomentSource) => void | Promise<void>;
   onDelete?: (messageId: string) => void;
   onShowGenerationReplay: () => void;
   onShowThinking: () => void;

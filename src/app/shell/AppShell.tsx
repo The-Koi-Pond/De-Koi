@@ -23,12 +23,15 @@ import { useAgentStore } from "../../shared/stores/agent.store";
 import { useBackgroundAutonomousPolling } from "../../features/modes/conversation/background-autonomous";
 import { useClearAutonomousUnread } from "../../features/catalog/chats/autonomous-unread";
 import { chatKeys } from "../../features/catalog/chats/index";
+import { useIsCoreModuleEnabled } from "../../features/shell/plugins/shell";
+import { SPOTIFY_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants/core-modules";
 import { useIdleDetection } from "../../shared/hooks/use-idle-detection";
 import { ImagePromptReviewHost } from "../../shared/components/ui/ImagePromptReviewHost";
 import { cn } from "../../shared/lib/utils";
 import { parseChatMetadata } from "../../shared/lib/chat-display";
 import { watchVisualViewportHeightVar } from "../../shared/lib/visual-viewport";
 import { getDetailRouteView } from "./detail-route-registry";
+import { shouldUseLowPowerShellMode } from "./shell-performance";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -122,6 +125,18 @@ const FOCUSABLE_SELECTOR = [
   "select:not([disabled])",
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
+
+const loadRightPanelShell = () => import("./RightPanel");
+
+function requestIdleWork(callback: () => void) {
+  if (typeof window.requestIdleCallback === "function") {
+    const id = window.requestIdleCallback(callback, { timeout: 1800 });
+    return () => window.cancelIdleCallback(id);
+  }
+
+  const id = window.setTimeout(callback, 900);
+  return () => window.clearTimeout(id);
+}
 
 function getFocusableElements(root: HTMLElement) {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((element) => {
@@ -248,7 +263,7 @@ export function AppShell() {
   const [notificationBubblesMounted, setNotificationBubblesMounted] = useState(false);
   const debugMode = useUIStore((s) => s.debugMode);
   const hasAgentDebugActivity = useAgentStore((s) => debugMode && (s.debugLog.length > 0 || s.lastResults.size > 0));
-  const spotifyPlayerEnabled = useUIStore((s) => s.spotifyPlayerEnabled);
+  const { data: spotifyMiniPlayerEnabled } = useIsCoreModuleEnabled(SPOTIFY_MINI_PLAYER_MODULE_ID);
   const sidebarDragWidthRef = useRef<number | null>(null);
   const rightPanelDragWidthRef = useRef<number | null>(null);
   const headerRef = useRef<HTMLElement>(null);
@@ -257,6 +272,32 @@ export function AppShell() {
   const liveRightPanelWidth = rightPanelDragWidth ?? sidebarDragWidth ?? sharedPanelWidth;
   const trackerPanelWidth = getTrackerPanelWidthForProfile(trackerPanelSizeProfile);
   const mobileTrackerPanelWidth = getMobileTrackerPanelWidthForProfile(trackerPanelSizeProfile);
+  const lowPowerShellMode = shouldUseLowPowerShellMode({
+    hostname: typeof window === "undefined" ? "" : window.location.hostname,
+    updateSlow:
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(update: slow)").matches,
+  });
+
+  useEffect(() => {
+    return requestIdleWork(() => {
+      void loadRightPanelShell();
+    });
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (lowPowerShellMode) {
+      root.dataset.deKoiShellPerformance = "low";
+      return () => {
+        if (root.dataset.deKoiShellPerformance === "low") delete root.dataset.deKoiShellPerformance;
+      };
+    }
+
+    if (root.dataset.deKoiShellPerformance === "low") delete root.dataset.deKoiShellPerformance;
+    return undefined;
+  }, [lowPowerShellMode]);
 
   useEffect(() => {
     if (chatNotificationCount > 0) {
@@ -1043,11 +1084,12 @@ export function AppShell() {
         data-component="AppShell"
         className={cn(
           "mari-app fixed left-0 right-0 top-0 flex h-[var(--mari-visual-viewport-height,100dvh)] flex-col overflow-hidden bg-[var(--background)] max-md:pt-[env(safe-area-inset-top)]",
-          showAmbientDecor && "retro-scanlines noise-bg geometric-grid",
+          lowPowerShellMode && "mari-low-power-shell",
+          showAmbientDecor && !lowPowerShellMode && "retro-scanlines noise-bg geometric-grid",
         )}
       >
       {/* Y2K decorative stars */}
-      {showAmbientDecor && (
+      {showAmbientDecor && !lowPowerShellMode && (
         <>
           <div className="y2k-star hidden md:block" style={{ top: "10%", left: "5%", animationDelay: "0s" }} />
           <div className="y2k-star-md hidden md:block" style={{ top: "25%", right: "8%", animationDelay: "1.5s" }} />
@@ -1329,7 +1371,7 @@ export function AppShell() {
             <AgentDebugPanel />
           </Suspense>
         )}
-        {spotifyPlayerEnabled && (
+        {spotifyMiniPlayerEnabled && (
           <Suspense fallback={null}>
             <SpotifyMobileWidget />
           </Suspense>

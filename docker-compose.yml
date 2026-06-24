@@ -9,6 +9,7 @@ services:
     environment:
       DE_KOI_SERVER_ADDR: 0.0.0.0:8787
       DE_KOI_DATA_DIR: /data
+      DE_KOI_REPO_ROOT: /app
       # Claude Subscription (Pro/Max) is optional. Set CLAUDE_CODE_OAUTH_TOKEN
       # in your .env or shell env to enable the claude_subscription provider
       # without an sk-ant-* API key. Empty value is fine; the provider can still

@@ -36,6 +36,9 @@ Start with the smallest path that matches your setup:
   debug-signed, so test them with throwaway data first.
 - **Run from source when you deliberately want the current development line.**
   Install the prerequisites, then run `pnpm install` and `pnpm tauri dev`.
+- **Use the VDS guide for self-hosted phone and PC browser access.** VDS/VPS
+  users can run the pre-alpha web shell plus Rust runtime behind HTTPS or a
+  private network. See [VDS / VPS Pre-Alpha Web Shell](#vds--vps-pre-alpha-web-shell).
 - **Use the Pi guide only for Raspberry Pi installs.** Pi users should prefer
   prebuilt ARM64 images instead of local Rust/frontend builds. See
   [Raspberry Pi Pre-Alpha Web Shell](#raspberry-pi-pre-alpha-web-shell).
@@ -51,12 +54,12 @@ Current release-build screenshots are checked in under
 web-shell setup path before a remote runtime and provider connection are
 configured.
 
-| Conversation | Roleplay | Game mode |
-| --- | --- | --- |
+| Conversation                                                                                 | Roleplay                                                                             | Game mode                                                                         |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
 | ![Conversation setup in the De-Koi release build](docs/screenshots/release/conversation.png) | ![Roleplay setup in the De-Koi release build](docs/screenshots/release/roleplay.png) | ![Game setup in the De-Koi release build](docs/screenshots/release/game-mode.png) |
 
-| Settings | Connections |
-| --- | --- |
+| Settings                                                                             | Connections                                                                                |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
 | ![Settings panel in the De-Koi release build](docs/screenshots/release/settings.png) | ![Connections panel in the De-Koi release build](docs/screenshots/release/connections.png) |
 
 ## What You Can Do
@@ -170,6 +173,16 @@ configure access control such as basic auth, an IP allowlist, or another trusted
 private-network opt-in. See the
 [run and build guide](./docs/developer/run-build.html) for remote runtime,
 Docker, CORS, CSRF, proxy, and data-directory details.
+
+## VDS / VPS Pre-Alpha Web Shell
+
+VDS/VPS users can run the same web-shell plus Rust-runtime container pair on a
+normal self-hosted server. The VDS path is intended for one trusted personal
+instance that can be opened from a phone and PC against the same data volume.
+
+Start with the [VDS fast install and update guide](docs/vds.md). It covers
+multi-arch pre-alpha images, reverse-proxy HTTPS, Tailscale/VPN use, auth, and
+why port `8787` should stay private behind the web container.
 
 ## Raspberry Pi Pre-Alpha Web Shell
 

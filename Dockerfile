@@ -47,11 +47,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY LICENSE.txt NOTICE.md README.md /app/
+COPY AGENTS.md package.json pnpm-lock.yaml tsconfig.json tsconfig.node.json ./
+COPY docs ./docs
+COPY scripts ./scripts
+COPY skills ./skills
+COPY src ./src
+COPY src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/build.rs src-tauri/tauri.conf.json ./src-tauri/
+COPY src-tauri/capabilities ./src-tauri/capabilities
+COPY src-tauri/crates ./src-tauri/crates
+COPY src-tauri/src ./src-tauri/src
 COPY --from=builder /usr/local/bin/de-koi-server /usr/local/bin/de-koi-server
 COPY --from=builder /app/src-tauri/resources /app/src-tauri/resources
 
 ENV DE_KOI_SERVER_ADDR=0.0.0.0:8787
 ENV DE_KOI_DATA_DIR=/data
+ENV DE_KOI_REPO_ROOT=/app
 
 EXPOSE 8787
 VOLUME ["/data"]

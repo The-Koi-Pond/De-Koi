@@ -134,7 +134,7 @@ const collectionMetadata = {
   extensions: {
     model: "`InstalledExtension`",
     confidence: "Schema-backed",
-    notes: "User-installed extension CSS/JS payloads; imported rows are disabled on profile import.",
+    notes: "User-installed extension CSS/JS payloads; imported rows are disabled on profile import. Optional package metadata fields include `packageId`, `packageVersion`, `manifestVersion`, `compatibility`, `permissions`, `uiContributions`, and `source`.",
   },
   "plugin-memory": {
     model: "`PluginMemoryRecord`",

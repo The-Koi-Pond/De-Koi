@@ -60,6 +60,7 @@ import { invalidateCharacterCollectionQueries } from "../../../catalog/character
 import { getConversationStatus } from "../../../../engine/modes/chat/autonomous/autonomous.service";
 import { storageApi } from "../../../../shared/api/storage-api";
 import type { CharacterMap, MessageSelectionToggle, PeekPromptOptions, PersonaInfo } from "../../shared/chat-ui/types";
+import type { SaveMomentSource } from "../../shared/chat-ui/index";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { useUpdateChatMetadata } from "../../../catalog/chats/index";
 
@@ -123,6 +124,8 @@ interface ConversationViewProps {
   onPeekPrompt: (options?: PeekPromptOptions) => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
   onBranch: (messageId: string) => void;
+  onSaveMomentSummary?: (source: SaveMomentSource) => void;
+  onIllustrate?: (source?: SaveMomentSource) => void | Promise<void>;
   lastAssistantMessageId: string | null;
   onOpenSettings: () => void;
   onOpenFiles: () => void;
@@ -363,6 +366,8 @@ export function ConversationView({
   onPeekPrompt,
   onToggleHiddenFromAI,
   onBranch,
+  onSaveMomentSummary,
+  onIllustrate,
   lastAssistantMessageId,
   onOpenSettings,
   onOpenFiles,
@@ -1533,6 +1538,8 @@ export function ConversationView({
                         onPeekPrompt={onPeekPrompt}
                         onToggleHiddenFromAI={onToggleHiddenFromAI}
                         onBranch={onBranch}
+                        onSaveMomentSummary={onSaveMomentSummary}
+                        onIllustrateMoment={onIllustrate}
                         isLastAssistantMessage={msg.id === lastAssistantMessageId}
                         characterMap={characterMap}
                         personaInfo={personaInfo}

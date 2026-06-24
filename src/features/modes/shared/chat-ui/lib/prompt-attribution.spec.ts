@@ -35,6 +35,48 @@ describe("prompt attribution view model", () => {
     });
   });
 
+  it("groups chat history and summary sources with continuity labels", () => {
+    const attribution: GenerationContextAttribution = {
+      source: "saved_snapshot",
+      items: [
+        {
+          kind: "chat_history",
+          label: "Celia",
+          status: "injected",
+          snippet: "Remember the moon gate password.",
+        },
+        {
+          kind: "chat_summary",
+          label: "Chat Summary",
+          status: "injected",
+          snippet: "Celia and Deki agreed to meet at the koi pond.",
+        },
+      ],
+    };
+
+    expect(buildPromptAttributionViewModel(attribution)?.groups).toEqual([
+      {
+        label: "Recent Chat",
+        items: [
+          expect.objectContaining({
+            label: "Celia",
+            statusLabel: "Injected",
+            snippet: "Remember the moon gate password.",
+          }),
+        ],
+      },
+      {
+        label: "Chat Summary",
+        items: [
+          expect.objectContaining({
+            label: "Chat Summary",
+            statusLabel: "Injected",
+            snippet: "Celia and Deki agreed to meet at the koi pond.",
+          }),
+        ],
+      },
+    ]);
+  });
   it("keeps redacted hidden sources out of snippets", () => {
     const attribution: GenerationContextAttribution = {
       source: "best_effort_reconstruction",

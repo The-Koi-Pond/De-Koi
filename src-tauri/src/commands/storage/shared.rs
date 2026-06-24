@@ -674,6 +674,27 @@ const MAX_EXTENSION_NAME_CHARS: usize = 200;
 const MAX_EXTENSION_DESCRIPTION_CHARS: usize = 2000;
 const MAX_EXTENSION_CSS_BYTES: usize = 256 * 1024;
 const MAX_EXTENSION_JS_BYTES: usize = 1024 * 1024;
+const EXTENSION_PACKAGE_PERMISSIONS: &[&str] = &[
+    "ui:styles",
+    "ui:settings",
+    "ui:overlay",
+    "ui:messages",
+    "storage:plugin-memory",
+    "runtime:dom",
+    "prompt:read",
+    "generation:request",
+];
+const EXTENSION_UI_SLOTS: &[&str] = &["settings", "overlay", "messages", "theme"];
+const EXTENSION_SOURCES: &[&str] = &["file", "package", "profile"];
+
+fn is_valid_extension_package_id(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_alphanumeric()
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+}
 
 fn required_extension_string(
     object: &Map<String, Value>,
@@ -758,6 +779,113 @@ fn optional_extension_enabled(object: &Map<String, Value>) -> AppResult<Option<b
         .ok_or_else(|| AppError::invalid_input("Extension enabled must be a boolean"))
 }
 
+fn optional_extension_number(object: &Map<String, Value>, field: &str) -> AppResult<Option<i64>> {
+    let Some(value) = object.get(field) else {
+        return Ok(None);
+    };
+    value
+        .as_i64()
+        .map(Some)
+        .ok_or_else(|| AppError::invalid_input(format!("Extension {field} must be a number")))
+}
+
+fn optional_extension_string_array(
+    object: &Map<String, Value>,
+    field: &str,
+    allowed: &[&str],
+    max_items: usize,
+) -> AppResult<Option<Value>> {
+    let Some(value) = object.get(field) else {
+        return Ok(None);
+    };
+    let Some(items) = value.as_array() else {
+        return Err(AppError::invalid_input(format!(
+            "Extension {field} must be an array"
+        )));
+    };
+    if items.len() > max_items {
+        return Err(AppError::invalid_input(format!(
+            "Extension {field} has too many entries"
+        )));
+    }
+    let mut normalized = Vec::with_capacity(items.len());
+    for item in items {
+        let Some(item) = item.as_str() else {
+            return Err(AppError::invalid_input(format!(
+                "Extension {field} entries must be strings"
+            )));
+        };
+        if !allowed.contains(&item) {
+            return Err(AppError::invalid_input(format!(
+                "Unsupported extension {field} entry: {item}"
+            )));
+        }
+        normalized.push(Value::String(item.to_string()));
+    }
+    Ok(Some(Value::Array(normalized)))
+}
+
+fn optional_extension_object(object: &Map<String, Value>, field: &str) -> AppResult<Option<Value>> {
+    let Some(value) = object.get(field) else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(Some(Value::Null));
+    }
+    if value.is_object() {
+        return Ok(Some(value.clone()));
+    }
+    Err(AppError::invalid_input(format!(
+        "Extension {field} must be an object or null"
+    )))
+}
+
+fn optional_extension_ui_contributions(object: &Map<String, Value>) -> AppResult<Option<Value>> {
+    let Some(value) = object.get("uiContributions") else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(Some(Value::Null));
+    }
+    let Some(contributions) = value.as_object() else {
+        return Err(AppError::invalid_input(
+            "Extension uiContributions must be an object or null",
+        ));
+    };
+
+    let mut normalized = contributions.clone();
+    match contributions.get("slots") {
+        Some(Value::Array(slots)) => {
+            if slots.len() > 8 {
+                return Err(AppError::invalid_input(
+                    "Extension uiContributions.slots has too many entries",
+                ));
+            }
+            let mut normalized_slots = Vec::with_capacity(slots.len());
+            for slot in slots {
+                let Some(slot) = slot.as_str() else {
+                    return Err(AppError::invalid_input(
+                        "Extension uiContributions.slots entries must be strings",
+                    ));
+                };
+                if !EXTENSION_UI_SLOTS.contains(&slot) {
+                    return Err(AppError::invalid_input(format!(
+                        "Unsupported extension uiContributions.slots entry: {slot}"
+                    )));
+                }
+                normalized_slots.push(Value::String(slot.to_string()));
+            }
+            normalized.insert("slots".to_string(), Value::Array(normalized_slots));
+        }
+        Some(_) => {
+            return Err(AppError::invalid_input(
+                "Extension uiContributions.slots must be an array",
+            ));
+        }
+        None => {}
+    }
+    Ok(Some(Value::Object(normalized)))
+}
 fn optional_extension_installed_at(object: &Map<String, Value>) -> AppResult<Option<String>> {
     let Some(value) = object.get("installedAt") else {
         return Ok(None);
@@ -773,6 +901,47 @@ fn optional_extension_installed_at(object: &Map<String, Value>) -> AppResult<Opt
     Ok(Some(value.to_string()))
 }
 
+fn normalize_extension_manifest_metadata(
+    object: &Map<String, Value>,
+    normalized: &mut Map<String, Value>,
+) -> AppResult<()> {
+    if let Some(package_id) = optional_extension_string(object, "packageId", 96)? {
+        let package_id = package_id.trim();
+        if !is_valid_extension_package_id(package_id) {
+            return Err(AppError::invalid_input(
+                "Extension packageId must be a stable id using letters, numbers, dots, dashes, or underscores",
+            ));
+        }
+        normalized.insert("packageId".to_string(), Value::String(package_id.to_string()));
+    }
+    if let Some(package_version) = optional_extension_string(object, "packageVersion", 80)? {
+        normalized.insert("packageVersion".to_string(), Value::String(package_version));
+    }
+    if let Some(manifest_version) = optional_extension_number(object, "manifestVersion")? {
+        if manifest_version != 1 {
+            return Err(AppError::invalid_input("Extension manifestVersion must be 1"));
+        }
+        normalized.insert("manifestVersion".to_string(), json!(manifest_version));
+    }
+    if let Some(compatibility) = optional_extension_object(object, "compatibility")? {
+        normalized.insert("compatibility".to_string(), compatibility);
+    }
+    if let Some(permissions) =
+        optional_extension_string_array(object, "permissions", EXTENSION_PACKAGE_PERMISSIONS, 16)?
+    {
+        normalized.insert("permissions".to_string(), permissions);
+    }
+    if let Some(ui_contributions) = optional_extension_ui_contributions(object)? {
+        normalized.insert("uiContributions".to_string(), ui_contributions);
+    }
+    if let Some(source) = optional_extension_string(object, "source", 32)? {
+        if !EXTENSION_SOURCES.contains(&source.as_str()) {
+            return Err(AppError::invalid_input("Extension source is not supported"));
+        }
+        normalized.insert("source".to_string(), Value::String(source));
+    }
+    Ok(())
+}
 pub(crate) fn normalize_extension_for_create(value: Value) -> AppResult<Value> {
     let object = ensure_object(value)?;
     let mut normalized = Map::new();
@@ -809,6 +978,7 @@ pub(crate) fn normalize_extension_for_create(value: Value) -> AppResult<Value> {
         "installedAt".to_string(),
         Value::String(optional_extension_installed_at(&object)?.unwrap_or_else(now_iso)),
     );
+    normalize_extension_manifest_metadata(&object, &mut normalized)?;
 
     Ok(Value::Object(normalized))
 }
@@ -838,6 +1008,7 @@ pub(crate) fn normalize_extension_for_update(patch: Value) -> AppResult<Value> {
     if let Some(enabled) = optional_extension_enabled(&object)? {
         normalized.insert("enabled".to_string(), Value::Bool(enabled));
     }
+    normalize_extension_manifest_metadata(&object, &mut normalized)?;
     if normalized.is_empty() {
         return Err(AppError::invalid_input(
             "Extension update must include at least one supported field",

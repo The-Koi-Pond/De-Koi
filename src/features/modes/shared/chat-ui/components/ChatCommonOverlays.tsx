@@ -3,11 +3,18 @@ import type { SpriteSide } from "../../../../../engine/contracts/types/chat";
 import { ChevronUp, ChevronDown, Trash2 } from "lucide-react";
 import { PinnedImageOverlay } from "../../../../runtime/visuals/index";
 import type { PeekPromptData } from "../types";
+import type { SaveMomentSource } from "../lib/save-moment";
+import type { SaveMomentSummaryDraft } from "../lib/save-moment";
 import { PeekPromptModal } from "./PeekPromptModal";
 
 const ChatSettingsDrawer = lazy(async () => {
   const module = await import("./ChatSettingsDrawer");
   return { default: module.ChatSettingsDrawer };
+});
+
+const SummariesEditorModal = lazy(async () => {
+  const module = await import("./SummariesEditorModal");
+  return { default: module.SummariesEditorModal };
 });
 
 const ChatFilesDrawer = lazy(async () => {
@@ -176,6 +183,7 @@ type ChatCommonOverlaysProps = {
   galleryOpen: boolean;
   wizardOpen: boolean;
   peekPromptData: PeekPromptData | null;
+  summaryDraft?: SaveMomentSummaryDraft | null;
   deleteDialogMessageId: string | null;
   deleteDialogCanDeleteSwipe: boolean;
   deleteDialogActiveSwipeIndex: number;
@@ -187,10 +195,11 @@ type ChatCommonOverlaysProps = {
   onCloseFiles: () => void;
   onCloseGallery: () => void;
   /** Manually trigger the Illustrator agent */
-  onIllustrate?: () => void | Promise<void>;
+  onIllustrate?: (source?: SaveMomentSource) => void | Promise<void>;
   onWizardFinish: () => void;
   onWizardCancel?: () => void;
   onClosePeekPrompt: () => void;
+  onCloseSummaryDraft?: () => void;
   onDeleteConfirm: () => void;
   onDeleteSwipe: () => void;
   onDeleteMore: () => void;
@@ -210,6 +219,7 @@ export function ChatCommonOverlays({
   galleryOpen,
   wizardOpen,
   peekPromptData,
+  summaryDraft,
   deleteDialogMessageId,
   deleteDialogCanDeleteSwipe,
   deleteDialogActiveSwipeIndex,
@@ -224,6 +234,7 @@ export function ChatCommonOverlays({
   onWizardFinish,
   onWizardCancel,
   onClosePeekPrompt,
+  onCloseSummaryDraft,
   onDeleteConfirm,
   onDeleteSwipe,
   onDeleteMore,
@@ -249,6 +260,16 @@ export function ChatCommonOverlays({
               onSpriteSideChange={sceneSettings.onSpriteSideChange}
             />
           )}
+        </Suspense>
+      )}
+      {chat && summaryDraft && (
+        <Suspense fallback={null}>
+          <SummariesEditorModal
+            chat={chat}
+            open={!!summaryDraft}
+            onClose={onCloseSummaryDraft ?? (() => undefined)}
+            saveMomentDraft={summaryDraft}
+          />
         </Suspense>
       )}
       {chat && (

@@ -89,6 +89,7 @@ export async function runWorldTick(data: {
   triggerKey?: string;
   enabled?: boolean;
   discriminator?: string;
+  elapsedMinutes?: number;
   npcRules?: readonly GameWorldTickNpcRule[];
 }): Promise<GameWorldTickResponse> {
   const chat = await g.getChat(data.chatId);
@@ -120,6 +121,7 @@ export async function runWorldTick(data: {
     journal: journalFromChat(chat, meta, { includeCurrentLocation: true }),
     npcs: Array.isArray(meta.gameNpcs) ? (meta.gameNpcs as g.GameNpc[]) : [],
     npcRules: npcRulesFromInput(data.npcRules),
+    elapsedMinutes: data.elapsedMinutes,
   });
 
   if (!result.changed) {

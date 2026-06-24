@@ -5,7 +5,13 @@ import { connectionCommandApi } from "../../../../shared/api/connection-command-
 import { localSidecarApi } from "../../../../shared/api/local-sidecar-api";
 import { recordClientDiagnostic } from "../../../../shared/lib/client-diagnostics";
 import { cn } from "../../../../shared/lib/utils";
-import { buildTroubleshootingPacket, type DiagnosticItem, type DiagnosticStatus } from "../lib/diagnostics-model";
+import {
+  buildTroubleshootingPacket,
+  diagnosticsOverallStatus,
+  type DiagnosticItem,
+  type DiagnosticsSnapshot,
+  type DiagnosticStatus,
+} from "../lib/diagnostics-model";
 import { useDiagnosticsSnapshot } from "../hooks/use-diagnostics-snapshot";
 
 type ProbeState = {
@@ -41,10 +47,57 @@ function detailRecord(item: DiagnosticItem): Record<string, unknown> {
     : {};
 }
 
+function providerConnectionId(item: DiagnosticItem): string {
+  return String(detailRecord(item).connectionId ?? "").trim();
+}
+
+
 function latencySummary(result: unknown): string {
   if (!result || typeof result !== "object" || Array.isArray(result)) return "Probe completed.";
   const latencyMs = (result as { latencyMs?: unknown }).latencyMs;
   return typeof latencyMs === "number" && Number.isFinite(latencyMs) ? `Probe completed in ${latencyMs} ms.` : "Probe completed.";
+}
+
+function providerProbeSummary(result: ProbeState): string {
+  return result.status === "ok"
+    ? "Provider probe succeeded for this connection."
+    : "Provider probe failed. Check connection settings or provider availability.";
+}
+
+function applyProviderProbeResults(
+  snapshot: DiagnosticsSnapshot,
+  providerProbeResults: Record<string, ProbeState>,
+): DiagnosticsSnapshot {
+  if (Object.keys(providerProbeResults).length === 0) return snapshot;
+
+  let changed = false;
+  const sections = snapshot.sections.map((section) => {
+    if (section.id !== "providers") return section;
+
+    let sectionChanged = false;
+    const items = section.items.map((item) => {
+      const connectionId = providerConnectionId(item);
+      const probeResult = connectionId ? providerProbeResults[connectionId] : null;
+      if (!probeResult) return item;
+
+      changed = true;
+      sectionChanged = true;
+      return {
+        ...item,
+        status: probeResult.status,
+        summary: providerProbeSummary(probeResult),
+        details: {
+          ...detailRecord(item),
+          lastProbeStatus: probeResult.status,
+          lastProbeMessage: probeResult.message,
+        },
+      };
+    });
+
+    return sectionChanged ? { ...section, status: diagnosticsOverallStatus(items), items } : section;
+  });
+
+  return changed ? { ...snapshot, sections, overallStatus: diagnosticsOverallStatus(sections) } : snapshot;
 }
 
 function SectionIcon({ id }: { id: string }) {
@@ -62,10 +115,15 @@ export function HealthDiagnosticsSettings() {
   const [providerBusy, setProviderBusy] = useState<Record<string, boolean>>({});
   const [providerProbeResults, setProviderProbeResults] = useState<Record<string, ProbeState>>({});
 
+  const effectiveSnapshot = useMemo(
+    () => (snapshot ? applyProviderProbeResults(snapshot, providerProbeResults) : null),
+    [providerProbeResults, snapshot],
+  );
+
   const packetText = useMemo(() => {
-    if (!snapshot) return "";
-    return JSON.stringify(buildTroubleshootingPacket(snapshot), null, 2);
-  }, [snapshot]);
+    if (!effectiveSnapshot) return "";
+    return JSON.stringify(buildTroubleshootingPacket(effectiveSnapshot), null, 2);
+  }, [effectiveSnapshot]);
 
   const copyPacket = async () => {
     if (!packetText) return;
@@ -110,7 +168,7 @@ export function HealthDiagnosticsSettings() {
   };
 
   const runProviderProbe = async (item: DiagnosticItem) => {
-    const connectionId = String(detailRecord(item).connectionId ?? "").trim();
+    const connectionId = providerConnectionId(item);
     if (!connectionId || providerBusy[connectionId]) return;
     setProviderBusy((current) => ({ ...current, [connectionId]: true }));
     try {
@@ -143,7 +201,7 @@ export function HealthDiagnosticsSettings() {
     }
   };
 
-  const overall = snapshot?.overallStatus ?? (loading ? "unknown" : "error");
+  const overall = effectiveSnapshot?.overallStatus ?? (loading ? "unknown" : "error");
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
@@ -176,14 +234,14 @@ export function HealthDiagnosticsSettings() {
               ? "Checking diagnostics..."
               : error
                 ? error
-                : snapshot
-                  ? `Snapshot generated ${new Date(snapshot.generatedAt).toLocaleString()}.`
+                : effectiveSnapshot
+                  ? `Snapshot generated ${new Date(effectiveSnapshot.generatedAt).toLocaleString()}.`
                   : "No diagnostics snapshot loaded."}
           </span>
         </div>
       </div>
 
-      {snapshot?.sections.map((section) => (
+      {effectiveSnapshot?.sections.map((section) => (
         <section key={section.id} className="rounded-lg bg-[var(--secondary)]/25 p-2.5 ring-1 ring-[var(--border)]">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-1.5">
@@ -199,7 +257,7 @@ export function HealthDiagnosticsSettings() {
 
           <div className="flex flex-col gap-1.5">
             {section.items.map((item) => {
-              const connectionId = String(detailRecord(item).connectionId ?? "").trim();
+              const connectionId = providerConnectionId(item);
               const providerResult = connectionId ? providerProbeResults[connectionId] : null;
               const isSidecar = section.id === "sidecar" && item.id === "local-sidecar";
               return (
@@ -267,9 +325,9 @@ export function HealthDiagnosticsSettings() {
 
       <section className="rounded-lg bg-[var(--secondary)]/25 p-2.5 ring-1 ring-[var(--border)]">
         <div className="mb-2 text-xs font-semibold text-[var(--foreground)]">Recent Diagnostics</div>
-        {snapshot && snapshot.recentDiagnostics.length > 0 ? (
+        {effectiveSnapshot && effectiveSnapshot.recentDiagnostics.length > 0 ? (
           <div className="flex flex-col gap-1.5">
-            {snapshot.recentDiagnostics.slice(0, 5).map((entry) => (
+            {effectiveSnapshot.recentDiagnostics.slice(0, 5).map((entry) => (
               <div key={entry.id} className="rounded-md bg-[var(--background)]/55 p-2 text-[0.6875rem] ring-1 ring-[var(--border)]/70">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="font-semibold text-[var(--foreground)]">{entry.source}</span>

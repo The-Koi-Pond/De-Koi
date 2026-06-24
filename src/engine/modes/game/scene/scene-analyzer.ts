@@ -227,6 +227,7 @@ export function buildSceneAnalyzerUserPrompt(
         ]),
     `- locationKind describes the physical space for ambience: interior, exterior, underground, urban, or nature. Use null if unclear.`,
     `- timeOfDay is calendar time, not lighting mood. Do NOT change it for indoor shadows, lamps, dark rooms, or atmosphere; keep null unless the story clearly moved to a new time of day.`,
+    `- elapsedMinutes estimates how much in-world time the player action and resulting narration consumed. Use 0-2 for instant actions like drawing a weapon or grabbing an apple, 3-10 for brief exchanges or a few combat beats, 10-60 for searches/shopping/crafting, and larger values only for explicit travel/rest/time skips; never exceed 1440.`,
     `- segmentEffects can be an EMPTY array [] when nothing changed.`,
     `- Cinematic directions are spice, not punctuation. Use at most 2 total directions per turn, and never more than 1 direction in any 3-beat span. Prefer none for routine dialogue.`,
     `- Use directions for real visual beats: a door slamming, a blade impact, thunder, a memory fracture, a kiss/reveal close-up, a panic spike, a scene transition, or a major emotional turn. Do not attach directions to every line.`,
@@ -289,6 +290,7 @@ export function buildSceneAnalyzerUserPrompt(
     `  "background": "<one BACKGROUND OPTIONS value | null>",`,
     `  "weather": "<clear | cloudy | foggy | rainy | stormy | snowy | windy | frost | null>",`,
     `  "timeOfDay": "<dawn | morning | noon | afternoon | evening | night | midnight | null>",`,
+    `  "elapsedMinutes": <number | null>,`,
     `  "locationKind": "<${locationKindOptions}>",`,
     ...(useSpotifyMusic
       ? [

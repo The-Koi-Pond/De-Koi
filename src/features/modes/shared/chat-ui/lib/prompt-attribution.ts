@@ -26,6 +26,8 @@ export interface PromptAttributionViewModel {
 }
 
 const GROUP_LABELS: Record<GenerationContextAttributionKind, string> = {
+  chat_history: "Recent Chat",
+  chat_summary: "Chat Summary",
   memory_recall: "Memory",
   lorebook: "Lorebook",
   knowledge_retrieval: "Knowledge Retrieval",

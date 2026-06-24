@@ -46,6 +46,7 @@ function defaultGameSceneAnalysis(): SceneAnalysis {
     ambient: null,
     weather: null,
     timeOfDay: null,
+    elapsedMinutes: null,
     musicGenre: null,
     musicIntensity: null,
     locationKind: null,
@@ -105,6 +106,10 @@ function sanitizeSegmentEffects(value: unknown): SceneSegmentEffect[] {
     .filter((effect): effect is SceneSegmentEffect => effect !== null);
 }
 
+function readElapsedMinutes(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(24 * 60, Math.trunc(value)));
+}
 function sanitizeGameSceneAnalysis(parsed: JsonRecord): SceneAnalysis {
   return {
     ...defaultGameSceneAnalysis(),
@@ -113,6 +118,7 @@ function sanitizeGameSceneAnalysis(parsed: JsonRecord): SceneAnalysis {
     ambient: readNullableString(parsed.ambient),
     weather: readNullableString(parsed.weather),
     timeOfDay: readNullableString(parsed.timeOfDay),
+    elapsedMinutes: readElapsedMinutes(parsed.elapsedMinutes),
     musicGenre: readNullableString(parsed.musicGenre) as SceneAnalysis["musicGenre"],
     musicIntensity: readNullableString(parsed.musicIntensity) as SceneAnalysis["musicIntensity"],
     locationKind: readNullableString(parsed.locationKind) as SceneAnalysis["locationKind"],

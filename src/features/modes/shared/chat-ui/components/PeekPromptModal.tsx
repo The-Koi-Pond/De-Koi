@@ -3,10 +3,11 @@
 // ──────────────────────────────────────────────
 import { useState, useMemo } from "react";
 import type { GenerationContextAttribution } from "../../../../../engine/contracts/types/chat";
-import { X, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
+import { X, ChevronRight, ChevronDown, Loader2, Gauge, AlertTriangle } from "lucide-react";
 import { cn } from "../../../../../shared/lib/utils";
 import { buildPromptAttributionViewModel, type PromptAttributionViewModel } from "../lib/prompt-attribution";
 import { usePresetSummaries } from "../../../../catalog/presets/index";
+import type { PromptBudgetEstimate } from "../../../../../engine/generation/prompt-budget";
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -59,6 +60,7 @@ interface PeekPromptModalProps {
     agentNote?: string;
     loading?: boolean;
     error?: string;
+    budget?: PromptBudgetEstimate;
   };
   onClose: () => void;
 }
@@ -483,6 +485,129 @@ function ChatHistoryMessage({ entry, roleColor }: { entry: ChatHistoryEntry; rol
 //  Main Modal
 // ═══════════════════════════════════════════════
 
+function budgetPercent(budget: PromptBudgetEstimate): number | null {
+  if (!budget.contextLimit || budget.contextLimit <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round((budget.estimatedPromptTokens / budget.contextLimit) * 100)));
+}
+
+function budgetToneClass(budget: PromptBudgetEstimate): string {
+  if (budget.remainingTokens != null && budget.remainingTokens < 0) return "text-red-300";
+  if (budget.warnings.some((warning) => warning.kind === "near_limit" || warning.kind === "large_section")) {
+    return "text-amber-300";
+  }
+  return "text-emerald-300";
+}
+
+function budgetFillClass(budget: PromptBudgetEstimate): string {
+  if (budget.remainingTokens != null && budget.remainingTokens < 0) return "bg-red-400";
+  if (budget.warnings.some((warning) => warning.kind === "near_limit" || warning.kind === "large_section")) {
+    return "bg-amber-300";
+  }
+  return "bg-emerald-300";
+}
+
+function trimRiskLabel(risk: string): string | null {
+  if (risk === "high") return "trim risk";
+  if (risk === "medium") return "watch";
+  return null;
+}
+
+function BudgetOverview({ budget }: { budget: PromptBudgetEstimate }) {
+  const percent = budgetPercent(budget);
+  const sectionTotal = Math.max(1, budget.estimatedPromptTokens);
+  const remainingLabel =
+    budget.remainingTokens == null
+      ? "unknown remaining"
+      : budget.remainingTokens < 0
+        ? `${fmtTokens(Math.abs(budget.remainingTokens))} over`
+        : `${fmtTokens(budget.remainingTokens)} left`;
+
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 px-4 py-3 space-y-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--foreground)]">
+          <Gauge size="0.875rem" />
+          Prompt Budget
+        </span>
+        <span className={cn("text-[0.6875rem] font-medium", budgetToneClass(budget))}>{remainingLabel}</span>
+        <span className="text-[0.6875rem] text-[var(--muted-foreground)]">
+          ~{fmtTokens(budget.estimatedPromptTokens)} prompt tokens
+          {budget.contextLimit != null ? <> / {fmtTokens(budget.contextLimit)} context</> : <> / unknown context</>}
+        </span>
+      </div>
+
+      {percent != null && (
+        <div className="h-2 overflow-hidden rounded-full bg-[var(--muted)]/50">
+          <div
+            className={cn("h-full rounded-full transition-all", budgetFillClass(budget))}
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      )}
+
+      <div className="grid gap-2 text-[0.6875rem] sm:grid-cols-3">
+        <div className="rounded-md bg-[var(--background)]/45 px-3 py-2">
+          <div className="text-[var(--muted-foreground)]">Input budget</div>
+          <div className="font-semibold text-[var(--foreground)]">
+            {budget.inputBudgetTokens == null ? "Unknown" : fmtTokens(budget.inputBudgetTokens)}
+          </div>
+        </div>
+        <div className="rounded-md bg-[var(--background)]/45 px-3 py-2">
+          <div className="text-[var(--muted-foreground)]">Output reserve</div>
+          <div className="font-semibold text-[var(--foreground)]">
+            {budget.outputReserveTokens == null ? "Unknown" : fmtTokens(budget.outputReserveTokens)}
+          </div>
+        </div>
+        <div className="rounded-md bg-[var(--background)]/45 px-3 py-2">
+          <div className="text-[var(--muted-foreground)]">Safety reserve</div>
+          <div className="font-semibold text-[var(--foreground)]">
+            {budget.safetyReserveTokens == null ? "Unknown" : fmtTokens(budget.safetyReserveTokens)}
+          </div>
+        </div>
+      </div>
+
+      {budget.warnings.length > 0 && (
+        <div className="space-y-1.5">
+          {budget.warnings.slice(0, 4).map((warning, index) => (
+            <div
+              key={`${warning.kind}-${index}`}
+              className="flex gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-2.5 py-1.5 text-[0.6875rem] text-amber-200/90"
+            >
+              <AlertTriangle size="0.75rem" className="mt-0.5 shrink-0" />
+              <span>{warning.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        {budget.sections.map((section) => {
+          const share = Math.max(2, Math.min(100, Math.round((section.estimatedTokens / sectionTotal) * 100)));
+          const risk = trimRiskLabel(section.trimRisk);
+          return (
+            <div key={section.kind} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-[0.6875rem]">
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate font-medium text-[var(--foreground)]">{section.label}</span>
+                  {risk && (
+                    <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.5625rem] text-amber-200">
+                      {risk}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 h-1 overflow-hidden rounded-full bg-[var(--muted)]/45">
+                  <div className="h-full rounded-full bg-[var(--foreground)]/45" style={{ width: `${share}%` }} />
+                </div>
+              </div>
+              <span className="text-[var(--muted-foreground)]">~{fmtTokens(section.estimatedTokens)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function attributionBadgeClass(model: PromptAttributionViewModel): string {
   if (model.sourceTone === "exact") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
   return "border-amber-500/30 bg-amber-500/10 text-amber-300";
@@ -546,8 +671,12 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
   const { data: presetSummaries } = usePresetSummaries();
   const displayMessages = data.previewMessages?.length ? data.previewMessages : data.messages;
   const sections = useMemo(() => buildDisplaySections(displayMessages), [displayMessages]);
-  const totalTokens = useMemo(() => estimateTokens(data.messages.map((m) => m.content).join("")), [data.messages]);
+  const totalTokens = useMemo(
+    () => data.budget?.estimatedPromptTokens ?? estimateTokens(data.messages.map((m) => m.content).join("")),
+    [data.budget?.estimatedPromptTokens, data.messages],
+  );
   const isLoading = data.loading === true;
+  const budget = data.budget;
   const attributionModel = useMemo(
     () => buildPromptAttributionViewModel(data.contextAttribution),
     [data.contextAttribution],
@@ -651,7 +780,7 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
               {data.error}
             </div>
           )}
-          {/* Generation info panel */}
+          {!isLoading && !data.error && budget && <BudgetOverview budget={budget} />}
           {!isLoading && !data.error && (gen || paramPills.length > 0) && (
             <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 px-4 py-3 space-y-2">
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.6875rem]">
@@ -671,10 +800,10 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
                 )}
                 <span className="text-[var(--muted-foreground)]">
                   ~{fmtTokens(totalTokens)} est. tokens
-                  {gen?.tokensPrompt != null && <> · {fmtTokens(gen.tokensPrompt)} actual prompt tokens</>}
-                  {(gen?.tokensCachedPrompt ?? 0) > 0 && <> · {fmtTokens(gen?.tokensCachedPrompt ?? 0)} cached</>}
+                  {gen?.tokensPrompt != null && <> | {fmtTokens(gen.tokensPrompt)} actual prompt tokens</>}
+                  {(gen?.tokensCachedPrompt ?? 0) > 0 && <> | {fmtTokens(gen?.tokensCachedPrompt ?? 0)} cached</>}
                   {(gen?.tokensCacheWritePrompt ?? 0) > 0 && (
-                    <> · {fmtTokens(gen?.tokensCacheWritePrompt ?? 0)} cache write</>
+                    <> | {fmtTokens(gen?.tokensCacheWritePrompt ?? 0)} cache write</>
                   )}
                 </span>
               </div>

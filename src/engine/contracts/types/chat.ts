@@ -541,6 +541,8 @@ export interface GenerationPromptSnapshotInfo {
 export type GenerationContextAttributionSource = "saved_snapshot" | "best_effort_reconstruction";
 
 export type GenerationContextAttributionKind =
+  | "chat_history"
+  | "chat_summary"
   | "memory_recall"
   | "lorebook"
   | "knowledge_retrieval"

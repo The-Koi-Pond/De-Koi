@@ -1,12 +1,7 @@
 // ──────────────────────────────────────────────
 // Chat: Message — mode-aware rendering
 // ──────────────────────────────────────────────
-import {
-  cn,
-  copyToClipboard,
-  normalizeAvatarCropValue,
-  type AvatarCropValue,
-} from "../../../../../shared/lib/utils";
+import { cn, copyToClipboard, normalizeAvatarCropValue, type AvatarCropValue } from "../../../../../shared/lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks, applyInlineMarkdownHTML } from "../../../../../shared/lib/markdown";
 import {
   User,
@@ -82,6 +77,8 @@ import type {
 } from "../types";
 import { GenerationReplayDetailsModal, hasGenerationReplayDetails } from "./GenerationReplayDetailsModal";
 import { ImagePromptPanel } from "./ImagePromptPanel";
+import { IllustrateMomentAction, SaveMomentAction } from "./SaveMomentAction";
+import { buildSaveMomentSource, type SaveMomentDestination, type SaveMomentSource } from "../lib/save-moment";
 import { SwipeJumpControl } from "./SwipeJumpControl";
 import { readStoredThinking } from "../lib/message-thinking";
 import { isImageMessageAttachment, messageAttachmentsFromExtra } from "../lib/message-attachments";
@@ -404,7 +401,11 @@ interface ChatMessageProps {
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
   onBranch?: (messageId: string) => void;
+  onSaveMomentSummary?: (source: SaveMomentSource) => void;
+  onIllustrateMoment?: (source: SaveMomentSource) => void | Promise<void>;
   onCloneSceneFromHere?: (messageId: string) => void;
+  saveMomentDestinations?: readonly SaveMomentDestination[];
+  onSaveMomentDestination?: (destinationId: string, source: SaveMomentSource) => void | Promise<void>;
   isCloneSceneFromHereDisabled?: boolean;
   isLastAssistantMessage?: boolean;
   characterMap?: CharacterMap;
@@ -993,7 +994,11 @@ export const ChatMessage = memo(function ChatMessage({
   onToggleHiddenFromAI,
   onPeekPrompt,
   onBranch,
+  onSaveMomentSummary,
+  onIllustrateMoment,
   onCloneSceneFromHere,
+  saveMomentDestinations,
+  onSaveMomentDestination,
   isCloneSceneFromHereDisabled,
   characterMap,
   chatMode,
@@ -1725,6 +1730,18 @@ export const ChatMessage = memo(function ChatMessage({
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
+  const saveMomentSource = useMemo(
+    () =>
+      buildSaveMomentSource({
+        chatId: message.chatId,
+        messageId: message.id,
+        role: message.role,
+        speakerName: displayName,
+        createdAt: message.createdAt,
+        content: text,
+      }),
+    [displayName, message.chatId, message.createdAt, message.id, message.role, text],
+  );
 
   // ─── Swipe navigation ───
   const swipeCount = message.swipeCount ?? 0;
@@ -2313,6 +2330,25 @@ export const ChatMessage = memo(function ChatMessage({
                 title="Copy"
                 dark
               />
+              <SaveMomentAction
+                source={saveMomentSource}
+                onCreateSummaryDraft={onSaveMomentSummary}
+                onBranch={onBranch}
+                onCloneSceneFromHere={onCloneSceneFromHere}
+                destinations={saveMomentDestinations}
+                onDestinationSelect={onSaveMomentDestination}
+                buttonClassName="rounded-md p-[0.35em] text-[0.8125rem] text-white/40 transition-all hover:bg-white/10 hover:text-white/70 active:scale-90"
+                iconSize={MESSAGE_ACTION_ICON_SIZE}
+                align="start"
+              />
+              {onIllustrateMoment && (
+                <IllustrateMomentAction
+                  source={saveMomentSource}
+                  onIllustrateMoment={onIllustrateMoment}
+                  buttonClassName="rounded-md p-[0.35em] text-[0.8125rem] text-white/40 transition-all hover:bg-white/10 hover:text-white/70 active:scale-90"
+                  iconSize={MESSAGE_ACTION_ICON_SIZE}
+                />
+              )}
               <ActionBtn
                 icon={<Languages size={MESSAGE_ACTION_ICON_SIZE} />}
                 onClick={() => void translate(message.id, message.content, message.chatId)}
@@ -2778,10 +2814,28 @@ export const ChatMessage = memo(function ChatMessage({
             )}
           >
             <ActionBtn
-              icon={copied ? "✓" : <Copy size={MESSAGE_ACTION_ICON_SIZE} />}
+              icon={copied ? "\u2713" : <Copy size={MESSAGE_ACTION_ICON_SIZE} />}
               onClick={handleCopy}
               title="Copy"
             />
+            <SaveMomentAction
+              source={saveMomentSource}
+              onCreateSummaryDraft={onSaveMomentSummary}
+              onBranch={onBranch}
+              onCloneSceneFromHere={onCloneSceneFromHere}
+              destinations={saveMomentDestinations}
+              onDestinationSelect={onSaveMomentDestination}
+              buttonClassName="rounded-md p-[0.35em] text-[0.8125rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] active:scale-90"
+              iconSize={MESSAGE_ACTION_ICON_SIZE}
+            />
+            {onIllustrateMoment && (
+              <IllustrateMomentAction
+                source={saveMomentSource}
+                onIllustrateMoment={onIllustrateMoment}
+                buttonClassName="rounded-md p-[0.35em] text-[0.8125rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] active:scale-90"
+                iconSize={MESSAGE_ACTION_ICON_SIZE}
+              />
+            )}
             <ActionBtn
               icon={<Languages size={MESSAGE_ACTION_ICON_SIZE} />}
               onClick={() => void translate(message.id, message.content, message.chatId)}

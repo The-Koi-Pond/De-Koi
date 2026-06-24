@@ -15,6 +15,7 @@ import {
   Languages,
   Loader2,
   FileText,
+  Gauge,
   RefreshCw,
   Bookmark,
   Trash2,
@@ -87,6 +88,7 @@ import { GifPicker } from "../../../../shared/components/ui/GifPicker";
 import { SpeechToTextButton } from "../../../../shared/components/ui/SpeechToTextButton";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { buildGuidedGenerationInstructionMessage } from "../../../../engine/shared/text/generation-guide";
+import type { PeekPromptOptions } from "../../shared/chat-ui";
 
 interface Attachment {
   type: string;
@@ -186,7 +188,7 @@ interface ConversationInputProps {
     conversationStatus?: "online" | "idle" | "dnd" | "offline";
     conversationActivity?: string;
   }>;
-  onPeekPrompt?: () => void;
+  onPeekPrompt?: (options?: PeekPromptOptions) => void;
 }
 
 export function ConversationInput({
@@ -557,6 +559,10 @@ export function ConversationInput({
     [activeChatId, mentionStartPos, setInputDraft, syncInputState],
   );
 
+  const handlePromptBudget = useCallback(() => {
+    onPeekPrompt?.({ userMessage: textareaRef.current?.value.trim() ?? "", attachments });
+  }, [attachments, onPeekPrompt]);
+
   const handleSend = useCallback(async () => {
     if (!activeChatId) return;
     if (isReadingAttachments) {
@@ -584,7 +590,7 @@ export function ConversationInput({
       clearInputDraft(activeChatId);
       syncInputState("");
       replaceAttachments([]);
-      onPeekPrompt?.();
+      onPeekPrompt?.({ userMessage: raw.trim(), attachments });
       return;
     }
 
@@ -1981,6 +1987,22 @@ export function ConversationInput({
               disabled={quickReplyActions.every((action) => action.disabled)}
             />
           )}
+
+          <button
+            type="button"
+            onClick={handlePromptBudget}
+            disabled={!activeChatId || isReadingAttachments}
+            className={cn(
+              CHAT_INPUT_ICON_BUTTON_CLASS,
+              activeChatId && !isReadingAttachments
+                ? CHAT_INPUT_ICON_BUTTON_IDLE_CLASS
+                : CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
+            )}
+            title="Prompt budget"
+            aria-label="Prompt budget"
+          >
+            <Gauge size="1rem" />
+          </button>
 
           <button
             onClick={isActuallyGenerating ? () => useChatStore.getState().stopGeneration() : handleSend}
