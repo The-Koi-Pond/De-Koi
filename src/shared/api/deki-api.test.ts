@@ -228,7 +228,7 @@ describe("dekiApi settings persistence", () => {
     ]);
   });
 
-  it("keeps a valid message while separating partial legacy history from malformed current rows", async () => {
+  it("keeps legacy and future history visible while flagging malformed current rows", async () => {
     appSettings.set("deki", {
       id: "deki",
       value: {
@@ -250,18 +250,35 @@ describe("dekiApi settings persistence", () => {
             ],
             workspaceHistory: [
               {
-                id: "partial-legacy",
+                id: "legacy-missing-validation",
+                sessionId: "legacy-session",
                 command: "legacy command",
+                status: "dry-run",
                 createdAt: "2026-06-24T00:00:00.000Z",
               },
               {
-                id: "history-1",
+                id: "legacy-missing-status",
+                command: "legacy command",
+                validationStatus: "passed",
+                createdAt: "2026-06-24T00:01:00.000Z",
+              },
+              {
+                id: "future-history",
+                sessionId: "session-1",
+                command: "future command",
+                status: "archived",
+                validationStatus: "reviewing",
+                createdAt: "2026-06-24T00:02:00.000Z",
+              },
+              {
+                id: "malformed-current",
                 sessionId: "session-1",
                 command: "",
                 status: "dry-run",
                 validationStatus: "passed",
-                createdAt: "2026-06-24T00:00:00.000Z",
+                createdAt: "2026-06-24T00:03:00.000Z",
               },
+              "unrecoverable junk",
             ],
           },
         ],
@@ -285,10 +302,36 @@ describe("dekiApi settings persistence", () => {
       workspaceHistory: [
         {
           status: "unknown",
-          id: "partial-legacy",
+          id: "legacy-missing-validation",
           createdAt: "2026-06-24T00:00:00.000Z",
           raw: expect.objectContaining({
             command: "legacy command",
+          }),
+        },
+        {
+          status: "unknown",
+          id: "legacy-missing-status",
+          createdAt: "2026-06-24T00:01:00.000Z",
+          raw: expect.objectContaining({
+            validationStatus: "passed",
+          }),
+        },
+        {
+          status: "unknown",
+          id: "future-history",
+          createdAt: "2026-06-24T00:02:00.000Z",
+          raw: expect.objectContaining({
+            status: "archived",
+            validationStatus: "reviewing",
+          }),
+        },
+        {
+          status: "malformed",
+          id: "malformed-current",
+          createdAt: "2026-06-24T00:03:00.000Z",
+          reason: "invalid current history required field",
+          raw: expect.objectContaining({
+            command: "",
           }),
         },
       ],

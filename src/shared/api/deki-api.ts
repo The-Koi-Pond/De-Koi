@@ -102,6 +102,8 @@ const DEKI_WORKSPACE_HISTORY_STATUSES = new Set<DekiWorkspaceHistoryEntry["statu
   "failed",
 ]);
 
+const DEKI_WORKSPACE_HISTORY_CURRENT_KEYS = ["id", "sessionId", "command", "status", "validationStatus", "createdAt"];
+
 const DEKI_WORKSPACE_UNAVAILABLE_REASON =
   "Deki workspace runtime requires the Tauri app shell or a configured remote runtime.";
 
@@ -216,7 +218,7 @@ function normalizeDekiWorkspaceHistory(value: unknown): DekiWorkspaceHistoryItem
 
 function normalizeDekiWorkspaceHistoryEntry(value: unknown): DekiWorkspaceHistoryItem | null {
   const object = asRecord(value);
-  if (!hasCurrentDekiWorkspaceHistoryKeys(object)) return unknownDekiWorkspaceHistoryItem(value);
+  if (Object.keys(object).length === 0) return null;
   const id = readTrimmedString(object.id);
   const sessionId = readTrimmedString(object.sessionId);
   const command = readTrimmedString(object.command);
@@ -224,9 +226,20 @@ function normalizeDekiWorkspaceHistoryEntry(value: unknown): DekiWorkspaceHistor
   const validationStatus =
     object.validationStatus === "passed" || object.validationStatus === "blocked" ? object.validationStatus : null;
   const createdAt = readTrimmedString(object.createdAt);
-  if (!id || !sessionId || !command || !createdAt) return null;
+
+  if (!hasCurrentDekiWorkspaceHistoryKeys(object)) {
+    return isPartialCurrentDekiWorkspaceHistory(object, { id, sessionId, command, createdAt })
+      ? malformedDekiWorkspaceHistoryItem(value, "invalid current history required field")
+      : unknownDekiWorkspaceHistoryItem(value);
+  }
+
+  if (!id || !sessionId || !command || !createdAt) {
+    return malformedDekiWorkspaceHistoryItem(value, "invalid current history required field");
+  }
   if (!status || !validationStatus) {
-    return hasFutureDekiWorkspaceHistoryStatus(object) ? unknownDekiWorkspaceHistoryItem(value) : null;
+    return hasFutureDekiWorkspaceHistoryStatus(object)
+      ? unknownDekiWorkspaceHistoryItem(value)
+      : malformedDekiWorkspaceHistoryItem(value, "invalid current history status");
   }
   const operationHash = readTrimmedString(object.operationHash);
   const completedAt = readTrimmedString(object.completedAt);
@@ -247,6 +260,19 @@ function normalizeDekiWorkspaceHistoryEntry(value: unknown): DekiWorkspaceHistor
   };
 }
 
+function malformedDekiWorkspaceHistoryItem(value: unknown, reason: string): DekiWorkspaceHistoryItem {
+  const object = asRecord(value);
+  const id = readTrimmedString(object.id);
+  const createdAt = readTrimmedString(object.createdAt);
+  return {
+    status: "malformed",
+    reason,
+    raw: value,
+    ...(id ? { id } : {}),
+    ...(createdAt ? { createdAt } : {}),
+  };
+}
+
 function unknownDekiWorkspaceHistoryItem(value: unknown): DekiWorkspaceHistoryItem {
   const object = asRecord(value);
   const id = readTrimmedString(object.id);
@@ -260,7 +286,15 @@ function unknownDekiWorkspaceHistoryItem(value: unknown): DekiWorkspaceHistoryIt
 }
 
 function hasCurrentDekiWorkspaceHistoryKeys(object: Record<string, unknown>): boolean {
-  return ["id", "sessionId", "command", "status", "validationStatus", "createdAt"].every((key) => key in object);
+  return DEKI_WORKSPACE_HISTORY_CURRENT_KEYS.every((key) => key in object);
+}
+
+function isPartialCurrentDekiWorkspaceHistory(
+  object: Record<string, unknown>,
+  values: { id: string | null; sessionId: string | null; command: string | null; createdAt: string | null },
+): boolean {
+  if (!("status" in object) || !("validationStatus" in object)) return false;
+  return !values.id || !values.sessionId || !values.command || !values.createdAt;
 }
 
 function hasFutureDekiWorkspaceHistoryStatus(object: Record<string, unknown>): boolean {
