@@ -513,6 +513,10 @@ pub(crate) async fn generate_image(state: &AppState, body: Value) -> AppResult<V
     }))
 }
 
+fn test_image_generation_prompt() -> &'static str {
+    "koi pond with colorful koi fish, water lilies, and gentle ripples"
+}
+
 pub(crate) async fn test_image_generation(state: &AppState, id: &str) -> AppResult<Value> {
     let connection = connection_secrets::connection_for_runtime(state, id)?;
     if connection.get("provider").and_then(Value::as_str) != Some("image_generation") {
@@ -520,7 +524,7 @@ pub(crate) async fn test_image_generation(state: &AppState, id: &str) -> AppResu
             "Not an image-generation connection",
         ));
     }
-    let prompt = "plate of spaghetti with marinara sauce";
+    let prompt = test_image_generation_prompt();
     let start = now_millis();
     match generate_image_with_connection(&connection, prompt, 512, 512).await {
         Ok((base64, mime_type)) => Ok(json!({
@@ -640,5 +644,13 @@ mod tests {
         assert_eq!(null.prompt, "null prompt");
         assert_eq!(null.negative_prompt, None);
         assert!(!null.has_negative_prompt);
+    }
+
+    #[test]
+    fn test_image_generation_prompt_depicts_koi_pond() {
+        assert_eq!(
+            test_image_generation_prompt(),
+            "koi pond with colorful koi fish, water lilies, and gentle ripples"
+        );
     }
 }
