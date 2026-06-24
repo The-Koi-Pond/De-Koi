@@ -1140,7 +1140,7 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
   const fallbackRows = [...explicitAgentTypes]
     .filter((type) => BUILT_IN_AGENT_TYPES.has(type))
     .filter((type) => !resolvedBuiltInTypes.has(type))
-    .filter((type) => !configuredBuiltInTypes.has(type))
+    .filter((type) => requestedAgentTypes?.has(type) || !configuredBuiltInTypes.has(type))
     .filter((type) => requestedAgentTypes || type !== "lorebook-keeper")
     .map((type) => buildBuiltInAgentFallback(type, { allowDisabled: true }))
     .filter((agent): agent is JsonRecord => !!agent);
