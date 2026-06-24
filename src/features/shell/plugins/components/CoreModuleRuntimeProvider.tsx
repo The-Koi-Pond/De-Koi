@@ -1,11 +1,27 @@
-import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Component,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 import { useEnabledCoreModuleStyles, useIsCoreModuleEnabled } from "../hooks/use-core-modules";
 import { ME_NOTES_MODULE_ID } from "../lib/core-module-registry";
 
 const STYLE_PREFIX = "marinara-core-module-";
 
+export function createCoreModuleLazy(load: () => Promise<{ default: ComponentType }>) {
+  return lazy(load);
+}
+
 function createMeNotepadModule() {
-  return lazy(() => import("../notepad/MeNotepadModule").then((module) => ({ default: module.MeNotepadModule })));
+  return createCoreModuleLazy(() =>
+    import("../notepad/MeNotepadModule").then((module) => ({ default: module.MeNotepadModule })),
+  );
 }
 
 function CoreModuleFallback({ tone = "loading", onRetry }: { tone?: "loading" | "error"; onRetry?: () => void }) {
