@@ -79,11 +79,11 @@ export type DekiActionApplication = {
 };
 
 const DEKI_DEFAULT_ACTION_REASON =
-  "Deki-senpai can inspect De-Koi's codebase, create extension/custom-agent records, and apply exact code edits through approved workspace tools.";
+  "Deki-senpai returned a plain response with no pending UI approval action.";
 
 const DEKI_DEFAULT_ACTION: DekiEntryAction = {
   type: "none",
-  capability: "workspace_agent",
+  capability: "read_only",
   reason: DEKI_DEFAULT_ACTION_REASON,
 };
 

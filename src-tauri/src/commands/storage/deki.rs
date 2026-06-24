@@ -551,7 +551,7 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
 fn deki_no_action_contract() -> Value {
     json!({
         "type": "none",
-        "capability": "workspace_agent",
+        "capability": "read_only",
         "reason": "Deki-senpai returned a plain response with no pending UI approval action.",
     })
 }
@@ -1806,6 +1806,44 @@ mod tests {
     }
 
     #[test]
+    fn deki_edit_tool_leaves_file_unchanged_when_old_text_is_duplicated() {
+        let _guard = DEKI_REPO_ENV_LOCK.lock().expect("lock repo env");
+        let previous_de_koi = std::env::var_os("DE_KOI_REPO_ROOT");
+        let previous_marinara = std::env::var_os("MARINARA_REPO_ROOT");
+        let root = unique_test_repo_root("edit-tool-duplicate-text");
+        fs::create_dir_all(root.join("src")).expect("create src");
+        let source_path = root.join("src").join("sample.ts");
+        let original = "export const first = 'same';\nexport const second = 'same';\n";
+        fs::write(&source_path, original).expect("write source");
+
+        std::env::set_var("DE_KOI_REPO_ROOT", &root);
+        std::env::remove_var("MARINARA_REPO_ROOT");
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build test runtime")
+            .block_on(EditDekiCodeFileTool {}.execute(json!({
+                "path": "src/sample.ts",
+                "old_text": "same",
+                "new_text": "after"
+            })));
+
+        match previous_de_koi {
+            Some(value) => std::env::set_var("DE_KOI_REPO_ROOT", value),
+            None => std::env::remove_var("DE_KOI_REPO_ROOT"),
+        }
+        match previous_marinara {
+            Some(value) => std::env::set_var("MARINARA_REPO_ROOT", value),
+            None => std::env::remove_var("MARINARA_REPO_ROOT"),
+        }
+        let updated = fs::read_to_string(&source_path).expect("read source after failed edit");
+        fs::remove_dir_all(&root).ok();
+
+        assert!(result.is_err(), "duplicate old_text should reject the edit");
+        assert_eq!(updated, original);
+    }
+
+    #[test]
     fn deki_system_prompt_blocks_assistant_label_leakage_in_character_card_examples() {
         let prompt = build_system_prompt(None);
 
@@ -1860,7 +1898,7 @@ mod tests {
 
         assert_eq!(content, "Plain answer.");
         assert_eq!(action["type"], "none");
-        assert_eq!(action["capability"], "workspace_agent");
+        assert_eq!(action["capability"], "read_only");
         assert!(
             action["reason"]
                 .as_str()
