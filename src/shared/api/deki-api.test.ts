@@ -276,8 +276,9 @@ describe("dekiApi settings persistence", () => {
       ],
       workspaceHistory: [
         {
-          status: "unknown",
+          status: "malformed",
           id: "history-1",
+          reason: expect.stringContaining("missing required current-contract fields"),
           raw: expect.objectContaining({
             status: "future_status",
           }),
@@ -286,12 +287,12 @@ describe("dekiApi settings persistence", () => {
     });
   });
 
-  it("returns an explicit unsupported workspace status when no runtime is configured", async () => {
+  it("returns unsupported status but fails approval actions when no runtime is configured", async () => {
     embeddedMock.mockReturnValue(false);
     remoteRuntimeTargetMock.mockReturnValue(null);
 
     const status = await dekiApi.workspace.status("conn-1");
-    const approval = await dekiApi.workspace.approve("approval-1");
+    const approval = dekiApi.workspace.approve("approval-1");
 
     expect(status).toMatchObject({
       enabled: false,
@@ -299,12 +300,13 @@ describe("dekiApi settings persistence", () => {
       active: false,
       error: expect.stringContaining("requires the Tauri app shell or a configured remote runtime"),
     });
-    expect(approval).toEqual({
-      id: "approval-1",
-      status: "unsupported",
-      pendingApprovals: [],
-      history: [],
-      reason: "Deki workspace runtime requires the Tauri app shell or a configured remote runtime.",
+    await expect(approval).rejects.toMatchObject({
+      message: "Deki workspace runtime requires the Tauri app shell or a configured remote runtime.",
+      status: 400,
+      details: expect.objectContaining({
+        code: "deki_workspace_runtime_unavailable",
+        command: "deki_workspace_approve",
+      }),
     });
     expect(invokeMock).not.toHaveBeenCalled();
   });

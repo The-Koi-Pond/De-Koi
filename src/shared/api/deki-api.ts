@@ -23,6 +23,7 @@ import {
   updatePromptPresetSchema,
 } from "../../engine/contracts/schemas/prompt.schema";
 import type { StorageEntity } from "../../engine/capabilities/storage";
+import { ApiError } from "./api-errors";
 import { storageApi } from "./storage-api";
 import { remoteRuntimeTarget } from "./remote-runtime";
 import { hasEmbeddedTauriIpc, invokeTauri } from "./tauri-client";
@@ -223,7 +224,9 @@ function normalizeDekiWorkspaceHistoryEntry(value: unknown): DekiWorkspaceHistor
     object.validationStatus === "passed" || object.validationStatus === "blocked" ? object.validationStatus : null;
   const createdAt = readTrimmedString(object.createdAt);
   if (!id || !sessionId || !command || !status || !validationStatus || !createdAt) {
-    return unknownDekiWorkspaceHistoryItem(value);
+    return isCurrentDekiWorkspaceHistoryShape(object)
+      ? malformedDekiWorkspaceHistoryItem(value, "Workspace history entry is missing required current-contract fields.")
+      : unknownDekiWorkspaceHistoryItem(value);
   }
   const operationHash = readTrimmedString(object.operationHash);
   const completedAt = readTrimmedString(object.completedAt);
@@ -256,6 +259,33 @@ function unknownDekiWorkspaceHistoryItem(value: unknown): DekiWorkspaceHistoryIt
   };
 }
 
+function malformedDekiWorkspaceHistoryItem(value: unknown, reason: string): DekiWorkspaceHistoryItem {
+  const object = asRecord(value);
+  const id = readTrimmedString(object.id);
+  const createdAt = readTrimmedString(object.createdAt);
+  return {
+    status: "malformed",
+    raw: value,
+    reason,
+    ...(id ? { id } : {}),
+    ...(createdAt ? { createdAt } : {}),
+  };
+}
+
+function isCurrentDekiWorkspaceHistoryShape(object: Record<string, unknown>): boolean {
+  return [
+    "sessionId",
+    "command",
+    "reason",
+    "operationHash",
+    "affectedEntities",
+    "affectedRows",
+    "validationStatus",
+    "journalPath",
+    "completedAt",
+  ].some((key) => key in object);
+}
+
 function normalizeDekiWorkspaceCountRecord(value: unknown): Record<string, number> {
   const object = asRecord(value);
   return Object.fromEntries(
@@ -277,6 +307,14 @@ function hasDekiWorkspaceRuntime(): boolean {
   return hasEmbeddedTauriIpc() || remoteRuntimeTarget() !== null;
 }
 
+function requireDekiWorkspaceRuntime(command: string): void {
+  if (hasDekiWorkspaceRuntime()) return;
+  throw new ApiError(DEKI_WORKSPACE_UNAVAILABLE_REASON, 400, {
+    code: "deki_workspace_runtime_unavailable",
+    command,
+  });
+}
+
 function unavailableDekiWorkspaceStatus(connectionId?: string | null): DekiWorkspaceStatus {
   const requestedConnection = readTrimmedString(connectionId);
   return {
@@ -292,16 +330,6 @@ function unavailableDekiWorkspaceStatus(connectionId?: string | null): DekiWorks
     error: requestedConnection
       ? `${DEKI_WORKSPACE_UNAVAILABLE_REASON} Requested connection: ${requestedConnection}.`
       : DEKI_WORKSPACE_UNAVAILABLE_REASON,
-  };
-}
-
-function unavailableDekiWorkspaceApprovalDecision(id: string): DekiWorkspaceApprovalDecisionResult {
-  return {
-    id,
-    status: "unsupported",
-    pendingApprovals: [],
-    history: [],
-    reason: DEKI_WORKSPACE_UNAVAILABLE_REASON,
   };
 }
 
@@ -577,11 +605,11 @@ export const dekiApi = {
       return invokeTauri<DekiWorkspaceAbortResult>("deki_workspace_abort");
     },
     approve: async (id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {
-      if (!hasDekiWorkspaceRuntime()) return unavailableDekiWorkspaceApprovalDecision(id);
+      requireDekiWorkspaceRuntime("deki_workspace_approve");
       return invokeTauri<DekiWorkspaceApprovalDecisionResult>("deki_workspace_approve", { id });
     },
     reject: async (id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {
-      if (!hasDekiWorkspaceRuntime()) return unavailableDekiWorkspaceApprovalDecision(id);
+      requireDekiWorkspaceRuntime("deki_workspace_reject");
       return invokeTauri<DekiWorkspaceApprovalDecisionResult>("deki_workspace_reject", { id });
     },
   },

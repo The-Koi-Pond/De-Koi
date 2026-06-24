@@ -110,7 +110,18 @@ export type DekiWorkspaceUnknownHistoryEntry = {
   createdAt?: string | null;
 };
 
-export type DekiWorkspaceHistoryItem = DekiWorkspaceHistoryEntry | DekiWorkspaceUnknownHistoryEntry;
+export type DekiWorkspaceMalformedHistoryEntry = {
+  status: "malformed";
+  raw: unknown;
+  reason: string;
+  id?: string;
+  createdAt?: string | null;
+};
+
+export type DekiWorkspaceHistoryItem =
+  | DekiWorkspaceHistoryEntry
+  | DekiWorkspaceUnknownHistoryEntry
+  | DekiWorkspaceMalformedHistoryEntry;
 
 export type DekiWorkspaceStatus = {
   enabled: boolean;
@@ -154,10 +165,9 @@ export type DekiWorkspaceAbortResult = {
 
 export type DekiWorkspaceApprovalDecisionResult = {
   id: string;
-  status: "approved" | "rejected" | "not_found" | "unsupported";
+  status: "approved" | "rejected" | "not_found";
   pendingApprovals: DekiWorkspacePendingApproval[];
   history: DekiWorkspaceHistoryEntry[];
-  reason?: string | null;
 };
 
 export type DekiMessage = {
