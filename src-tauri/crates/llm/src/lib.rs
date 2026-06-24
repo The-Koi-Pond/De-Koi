@@ -929,7 +929,22 @@ fn is_nanogpt_glm_model(model: &str) -> bool {
         .to_ascii_lowercase()
         .split(['/', ':', ' ', '\t'])
         .map(|segment| segment.trim_start_matches('~'))
-        .any(|segment| segment == "glm" || segment.starts_with("glm-") || segment.starts_with("glm_"))
+        .any(|segment| {
+            segment == "glm"
+                || segment
+                    .strip_prefix("glm-")
+                    .is_some_and(starts_with_ascii_digit)
+                || segment
+                    .strip_prefix("glm_")
+                    .is_some_and(starts_with_ascii_digit)
+        })
+}
+
+fn starts_with_ascii_digit(value: &str) -> bool {
+    value
+        .as_bytes()
+        .first()
+        .is_some_and(|byte| byte.is_ascii_digit())
 }
 
 fn should_send_temperature(request: &LlmRequest) -> bool {
@@ -3622,37 +3637,41 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
     }
 
     #[test]
-    fn nanogpt_glm_strips_top_k_from_openai_compatible_body() {
-        let request = request_for(
-            "nanogpt",
-            "glm-5.2",
-            json!({
-                "temperature": 0.8,
-                "topP": 0.9,
-                "topK": 40,
-                "customParameters": { "top_k": 99 }
-            }),
-        );
-        let mut body = json!({});
-        apply_openai_parameters(&mut body, &request);
+    fn nanogpt_glm_models_strip_top_k_from_openai_compatible_body() {
+        for model in ["z-ai/glm-5.2", "glm-5.1", "glm"] {
+            let request = request_for(
+                "nanogpt",
+                model,
+                json!({
+                    "temperature": 0.8,
+                    "topP": 0.9,
+                    "topK": 40,
+                    "customParameters": { "top_k": 99 }
+                }),
+            );
+            let mut body = json!({});
+            apply_openai_parameters(&mut body, &request);
 
-        assert_eq!(body["top_p"], json!(0.9));
-        assert!(body.get("top_k").is_none());
+            assert_eq!(body["top_p"], json!(0.9));
+            assert!(body.get("top_k").is_none(), "model {model} should strip top_k");
+        }
     }
 
     #[test]
     fn nanogpt_non_glm_keeps_top_k_in_openai_compatible_body() {
-        let request = request_for(
-            "nanogpt",
-            "not-glm-model",
-            json!({
-                "topK": 40
-            }),
-        );
-        let mut body = json!({});
-        apply_openai_parameters(&mut body, &request);
+        for model in ["not-glm-model", "glm-router-test"] {
+            let request = request_for(
+                "nanogpt",
+                model,
+                json!({
+                    "topK": 40
+                }),
+            );
+            let mut body = json!({});
+            apply_openai_parameters(&mut body, &request);
 
-        assert_eq!(body["top_k"], json!(40));
+            assert_eq!(body["top_k"], json!(40));
+        }
     }
     #[tokio::test]
     async fn provider_http_client_redacts_query_secret() {

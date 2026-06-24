@@ -77,46 +77,52 @@ describe("providerVisibleLlmParameters", () => {
     expect(visible).not.toHaveProperty("frequency_penalty");
   });
 
-  it("strips top_k for NanoGPT GLM chat completions", () => {
-    const visible = providerVisibleLlmParameters(
-      {
-        provider: "nanogpt",
-        model: "glm-5.2",
-      },
-      {
-        maxTokens: 4096,
+  it.each(["z-ai/glm-5.2", "glm-5.1", "glm"])(
+    "strips top_k for NanoGPT GLM chat completions: %s",
+    (model) => {
+      const visible = providerVisibleLlmParameters(
+        {
+          provider: "nanogpt",
+          model,
+        },
+        {
+          maxTokens: 4096,
+          temperature: 0.8,
+          topP: 0.9,
+          topK: 40,
+          customParameters: { top_k: 99 },
+        },
+      );
+
+      expect(visible).toMatchObject({
+        max_tokens: 4096,
         temperature: 0.8,
-        topP: 0.9,
-        topK: 40,
-        customParameters: { top_k: 99 },
-      },
-    );
+        top_p: 0.9,
+      });
+      expect(visible).not.toHaveProperty("top_k");
+    },
+  );
 
-    expect(visible).toMatchObject({
-      max_tokens: 4096,
-      temperature: 0.8,
-      top_p: 0.9,
-    });
-    expect(visible).not.toHaveProperty("top_k");
-  });
+  it.each(["not-glm-model", "glm-router-test"])(
+    "keeps top_k for NanoGPT models that are not GLM ids: %s",
+    (model) => {
+      const visible = providerVisibleLlmParameters(
+        {
+          provider: "nanogpt",
+          model,
+        },
+        {
+          maxTokens: 4096,
+          topK: 40,
+        },
+      );
 
-  it("keeps top_k for NanoGPT models that are not GLM ids", () => {
-    const visible = providerVisibleLlmParameters(
-      {
-        provider: "nanogpt",
-        model: "not-glm-model",
-      },
-      {
-        maxTokens: 4096,
-        topK: 40,
-      },
-    );
-
-    expect(visible).toMatchObject({
-      max_tokens: 4096,
-      top_k: 40,
-    });
-  });
+      expect(visible).toMatchObject({
+        max_tokens: 4096,
+        top_k: 40,
+      });
+    },
+  );
   it("mirrors capped Gemini 2.5 thinking budgets for small output ceilings", () => {
     const visible = providerVisibleLlmParameters(
       {
