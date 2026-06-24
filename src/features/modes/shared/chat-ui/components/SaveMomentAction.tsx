@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { BookOpen, Bookmark, Check, Copy, GitBranch, Paintbrush, ScrollText } from "lucide-react";
+import { BookOpen, Bookmark, GitBranch, Paintbrush, ScrollText } from "lucide-react";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
-import { cn, copyToClipboard } from "../../../../../shared/lib/utils";
+import { cn } from "../../../../../shared/lib/utils";
 import {
-  buildSaveMomentExportText,
   buildSaveMomentMenuItems,
   type SaveMomentDestination,
   type SaveMomentMenuItem,
@@ -16,7 +15,6 @@ const DEFAULT_ICON_SIZE = "0.8125rem";
 interface SaveMomentActionProps {
   source: SaveMomentSource;
   onCreateSummaryDraft?: (source: SaveMomentSource) => void;
-  onIllustrateMoment?: (source: SaveMomentSource) => void | Promise<void>;
   onBranch?: (messageId: string) => void;
   onCloneSceneFromHere?: (messageId: string) => void;
   destinations?: readonly SaveMomentDestination[];
@@ -27,19 +25,48 @@ interface SaveMomentActionProps {
   align?: "start" | "end";
 }
 
+interface IllustrateMomentActionProps {
+  source: SaveMomentSource;
+  onIllustrateMoment: (source: SaveMomentSource) => void | Promise<void>;
+  buttonClassName?: string;
+  iconSize?: string | number;
+  tabIndex?: number;
+}
+
 function iconForItem(item: SaveMomentMenuItem): ReactNode {
-  if (item.id === "copy-snippet") return <Copy size="0.75rem" />;
   if (item.id === "chat-summary") return <ScrollText size="0.75rem" />;
   if (item.id === "lore-draft") return <BookOpen size="0.75rem" />;
-  if (item.id === "illustrate-moment") return <Paintbrush size="0.75rem" />;
   if (item.destinationId) return <Bookmark size="0.75rem" />;
   return <GitBranch size="0.75rem" />;
+}
+
+export function IllustrateMomentAction({
+  source,
+  onIllustrateMoment,
+  buttonClassName,
+  iconSize = DEFAULT_ICON_SIZE,
+  tabIndex,
+}: IllustrateMomentActionProps) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        void Promise.resolve(onIllustrateMoment(source)).catch(() => undefined);
+      }}
+      title="Illustrate this message"
+      aria-label="Illustrate this message"
+      tabIndex={tabIndex}
+      className={buttonClassName}
+    >
+      <Paintbrush size={iconSize} />
+    </button>
+  );
 }
 
 export function SaveMomentAction({
   source,
   onCreateSummaryDraft,
-  onIllustrateMoment,
   onBranch,
   onCloneSceneFromHere,
   destinations,
@@ -50,22 +77,19 @@ export function SaveMomentAction({
   align = "end",
 }: SaveMomentActionProps) {
   const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
   const openModal = useUIStore((state) => state.openModal);
   const rootRef = useRef<HTMLSpanElement>(null);
-  const resetCopiedRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const items = useMemo(
     () =>
       buildSaveMomentMenuItems({
         canCreateSummaryDraft: !!onCreateSummaryDraft,
-        canIllustrate: !!onIllustrateMoment,
         canBranch: !!onBranch,
         canCloneScene: !!onCloneSceneFromHere,
         canDraftLore: true,
         destinations,
       }),
-    [destinations, onBranch, onCloneSceneFromHere, onCreateSummaryDraft, onIllustrateMoment],
+    [destinations, onBranch, onCloneSceneFromHere, onCreateSummaryDraft],
   );
 
   useEffect(() => {
@@ -86,25 +110,7 @@ export function SaveMomentAction({
     };
   }, [open]);
 
-  useEffect(() => {
-    return () => {
-      if (resetCopiedRef.current) clearTimeout(resetCopiedRef.current);
-    };
-  }, []);
-
-  const markCopied = () => {
-    setCopied(true);
-    if (resetCopiedRef.current) clearTimeout(resetCopiedRef.current);
-    resetCopiedRef.current = setTimeout(() => setCopied(false), 1500);
-  };
-
   const handleSelect = async (id: SaveMomentMenuItemId) => {
-    if (id === "copy-snippet") {
-      const didCopy = await copyToClipboard(buildSaveMomentExportText(source));
-      if (didCopy) markCopied();
-      setOpen(false);
-      return;
-    }
     if (id === "chat-summary") {
       onCreateSummaryDraft?.(source);
       setOpen(false);
@@ -113,11 +119,6 @@ export function SaveMomentAction({
     if (id === "lore-draft") {
       openModal("save-moment-lore-draft", { source: { ...source } });
       setOpen(false);
-      return;
-    }
-    if (id === "illustrate-moment") {
-      setOpen(false);
-      void Promise.resolve(onIllustrateMoment?.(source)).catch(() => undefined);
       return;
     }
     if (id === "branch") {
@@ -140,14 +141,14 @@ export function SaveMomentAction({
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        title="Save Moment..."
-        aria-label="Save Moment..."
+        title="Remember this..."
+        aria-label="Remember this..."
         aria-haspopup="menu"
         aria-expanded={open}
         tabIndex={tabIndex}
         className={buttonClassName}
       >
-        {copied ? <Check size={iconSize} /> : <Bookmark size={iconSize} />}
+        <Bookmark size={iconSize} />
       </button>
       {open && (
         <div

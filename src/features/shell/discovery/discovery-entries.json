@@ -356,12 +356,12 @@
   },
   {
     "id": "save-moment-actions",
-    "title": "Save Moment Actions",
+    "title": "Message Moment Actions",
     "category": "Advanced",
-    "summary": "Start from a chat message and route the moment to durable actions, including illustrating the selected beat, lorebook entry drafts, chat summary drafts, source-tagged snippets, branching, or Game journal notes and checkpoints when supported.",
-    "keywords": ["save moment", "moment", "message action", "illustrate", "illustration", "image prompt", "gallery", "lorebook draft", "draft lore entry", "lore entry", "world info draft", "chat summary", "summary draft", "copy snippet", "source message", "branch from here", "clone from here", "game journal", "checkpoint", "manual save", "durable", "export snippet"],
-    "audience": "Users who notice an important chat beat and want to preserve it as lore, summary material, Game notes or checkpoints, or a branch without first choosing a separate destination screen.",
-    "where": "Hover or tap a message action bar in Conversation, Roleplay, or Game transcripts, then choose Save Moment and pick a destination such as Illustrate this moment.",
+    "summary": "Start from a chat message and route it to continuity actions, including remembering the beat in chat summaries, drafting lorebook entries, branching, or adding Game journal notes and checkpoints when supported. Use the adjacent paintbrush action to illustrate that exact message.",
+    "keywords": ["save moment", "remember this", "moment", "message action", "illustrate", "illustration", "image prompt", "gallery", "lorebook draft", "draft lore entry", "lore entry", "world info draft", "chat summary", "summary draft", "source message", "branch from here", "clone from here", "game journal", "checkpoint", "manual save", "durable"],
+    "audience": "Users who notice an important chat beat and want to preserve it as summary memory, lore, Game notes, checkpoints, a branch, or a targeted illustration without first choosing a separate destination screen.",
+    "where": "Hover or tap a message action bar in Conversation, Roleplay, or Game transcripts, then choose Remember this for continuity actions or the paintbrush to illustrate that exact message.",
     "actions": [{ "type": "go-home", "label": "Open a chat" }],
     "coverage": "advanced"
   },
