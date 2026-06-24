@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronUp, CircleUser, FileText, Link, Plus, Send, X } from "lucide-react";
-import { runDekiEntry, type DekiAttachment, type DekiMessage } from "../../../../engine/deki/deki-entry";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { Check, ChevronUp, CircleUser, FileText, Link, Loader2, Plus, Send, Sparkles, X } from "lucide-react";
+import {
+  runDekiEntry,
+  type DekiActionEntity,
+  type DekiAttachment,
+  type DekiEntryAction,
+  type DekiMessage,
+} from "../../../../engine/deki/deki-entry";
 import {
   compactDekiHistory,
   EMPTY_DEKI_COMPACTION,
@@ -33,6 +40,38 @@ const DEKI_NO_CONNECTION_SELECTED_ERROR =
 const DEKI_INPUT_PLACEHOLDER = "Message Deki-senpai, /reset to reset the conversation and only then clear it";
 const DEKI_ATTACHMENT_CLIENT_TEXT_BYTES = 64 * 1024;
 const DEKI_IMAGE_ATTACHMENT_EXTENSIONS = new Set(["avif", "gif", "jpeg", "jpg", "png", "webp"]);
+const DEKI_ACTION_ENTITY_LABELS: Record<DekiActionEntity, string> = {
+  characters: "character",
+  "character-groups": "character group",
+  personas: "persona",
+  "persona-groups": "persona group",
+  lorebooks: "lorebook",
+  "lorebook-entries": "lorebook entry",
+  prompts: "prompt preset",
+  "prompt-sections": "prompt section",
+  "prompt-groups": "prompt group",
+  "prompt-variables": "prompt variable",
+};
+const DEKI_ACTION_QUERY_KEYS: Record<DekiActionEntity, readonly (readonly unknown[])[]> = {
+  characters: [["characters"]],
+  "character-groups": [["character-groups"], ["characters"]],
+  personas: [["personas"]],
+  "persona-groups": [["persona-groups"], ["personas"]],
+  lorebooks: [["lorebooks"]],
+  "lorebook-entries": [["lorebooks"]],
+  prompts: [["presets"]],
+  "prompt-sections": [["presets"]],
+  "prompt-groups": [["presets"]],
+  "prompt-variables": [["presets"]],
+};
+const DEKI_CREATIVE_LIBRARY_QUERY_KEYS: readonly (readonly unknown[])[] = [
+  ["characters"],
+  ["character-groups"],
+  ["personas"],
+  ["persona-groups"],
+  ["lorebooks"],
+  ["presets"],
+];
 
 type ClientDekiAttachment = DekiAttachment & { id: string };
 
@@ -104,7 +143,89 @@ function toConversationMessage(message: DekiMessage): Message {
   };
 }
 
+function actionPayload(action: DekiEntryAction): Record<string, unknown> {
+  if (action.type === "create_record") return action.draft;
+  if (action.type === "edit_record") return action.patch;
+  return {};
+}
+
+function actionTitle(action: DekiEntryAction) {
+  if (action.type === "none") return "Deki-senpai action";
+  if (action.label?.trim()) return action.label.trim();
+  const verb = action.type === "create_record" ? "Create" : "Update";
+  return `${verb} ${DEKI_ACTION_ENTITY_LABELS[action.entity]}`;
+}
+
+function previewValue(value: unknown): string | null {
+  if (typeof value === "string") return value.trim() || null;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    const text = value
+      .filter(
+        (item): item is string | number | boolean =>
+          typeof item === "string" || typeof item === "number" || typeof item === "boolean",
+      )
+      .slice(0, 4)
+      .join(", ");
+    return text || null;
+  }
+  return null;
+}
+
+function formatActionPayload(action: DekiEntryAction): string {
+  const payload = actionPayload(action);
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
+function actionPreviewRows(action: DekiEntryAction): Array<{ label: string; value: string }> {
+  if (action.type === "none") return [];
+  const payload = actionPayload(action);
+  const nestedData =
+    payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)
+      ? (payload.data as Record<string, unknown>)
+      : null;
+  const fields: Array<[string, unknown]> = [
+    ["Name", payload.name ?? nestedData?.name],
+    ["Description", payload.description ?? nestedData?.description],
+    ["Preset", payload.presetId],
+    ["Lorebook", payload.lorebookId],
+    ["Content", payload.content ?? nestedData?.personality ?? nestedData?.scenario],
+    ["Tags", payload.tags ?? nestedData?.tags],
+  ];
+  if (action.type === "edit_record") fields.unshift(["Record", action.id]);
+  return fields
+    .map(([label, value]) => ({ label, value: previewValue(value) }))
+    .filter((row): row is { label: string; value: string } => !!row.value)
+    .slice(0, 4);
+}
+
+function uniqueQueryKeys(queryKeys: readonly (readonly unknown[])[]): readonly (readonly unknown[])[] {
+  const seen = new Set<string>();
+  return queryKeys.filter((queryKey) => {
+    const key = JSON.stringify(queryKey);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function invalidateDekiActionQueries(queryClient: QueryClient, action: DekiEntryAction) {
+  if (action.type === "none") return;
+  await Promise.all(
+    uniqueQueryKeys([...DEKI_CREATIVE_LIBRARY_QUERY_KEYS, ...DEKI_ACTION_QUERY_KEYS[action.entity]]).map((queryKey) =>
+      queryClient.invalidateQueries({
+        queryKey,
+      }),
+    ),
+  );
+}
+
 export function DekiSurface() {
+  const queryClient = useQueryClient();
   const { data: rawConnections } = useConnections();
   const { data: rawPersonas } = usePersonaSummaries();
   const convoGradient = useUIStore((s) => s.convoGradient);
@@ -124,6 +245,8 @@ export function DekiSurface() {
   const [connectionSetupPromptOpen, setConnectionSetupPromptOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [applyingActionMessageId, setApplyingActionMessageId] = useState<string | null>(null);
+  const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -425,7 +548,11 @@ export function DekiSurface() {
         },
         dekiApi,
       );
-      const assistant = await dekiApi.history.appendMessage({ role: "assistant", content: response.content });
+      const assistant = await dekiApi.history.appendMessage({
+        role: "assistant",
+        content: response.content,
+        action: response.action,
+      });
       setMessages((current) => [...current, assistant]);
     } catch (error) {
       setSendError(error instanceof Error ? error.message : "Deki-senpai failed to respond.");
@@ -434,6 +561,46 @@ export function DekiSurface() {
     }
     setSending(false);
     requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const applyDekiAction = async (message: DekiMessage) => {
+    const action = message.action;
+    if (!action || action.type === "none" || message.actionApplication?.status === "applied") return;
+    setApplyingActionMessageId(message.id);
+    setActionErrors((current) => {
+      const { [message.id]: _removed, ...rest } = current;
+      return rest;
+    });
+    try {
+      const result = await dekiApi.actions.apply(action, { actionId: message.id, messageId: message.id });
+      if (result.messages && result.compaction) {
+        setMessages(result.messages);
+        setCompaction(result.compaction);
+      } else if (result.application) {
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === message.id ? { ...item, actionApplication: result.application } : item,
+          ),
+        );
+      }
+      await invalidateDekiActionQueries(queryClient, action).catch((error) => {
+        setActionErrors((current) => ({
+          ...current,
+          [message.id]:
+            error instanceof Error
+              ? `The action was applied, but catalog refresh failed: ${error.message}`
+              : "The action was applied, but catalog refresh failed.",
+        }));
+      });
+    } catch (error) {
+      setActionErrors((current) => ({
+        ...current,
+        [message.id]: error instanceof Error ? error.message : "Deki-senpai could not apply that action.",
+      }));
+    } finally {
+      setApplyingActionMessageId(null);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
   };
 
   const openConnectionsPanel = () => {
@@ -503,6 +670,12 @@ export function DekiSurface() {
                   chatCharacterIds={[DEKI_CHARACTER_ID]}
                   messageIndex={index + 1}
                   messageOrderIndex={index}
+                />
+                <DekiActionCard
+                  message={visibleMessages[index]}
+                  applying={applyingActionMessageId === visibleMessages[index]?.id}
+                  error={visibleMessages[index] ? actionErrors[visibleMessages[index].id] : undefined}
+                  onApply={applyDekiAction}
                 />
               </div>
             );
@@ -698,6 +871,81 @@ export function DekiSurface() {
         </div>
       </div>
     </section>
+  );
+}
+
+function DekiActionCard({
+  message,
+  applying,
+  error,
+  onApply,
+}: {
+  message?: DekiMessage;
+  applying: boolean;
+  error?: string;
+  onApply: (message: DekiMessage) => void;
+}) {
+  const action = message?.action;
+  if (!message || !action || action.type === "none") return null;
+  const applied = message.actionApplication?.status === "applied";
+  const rows = actionPreviewRows(action);
+  const payloadText = formatActionPayload(action);
+  return (
+    <div className="mx-4 mb-3 ml-14 max-w-[min(42rem,calc(100%-4rem))] rounded-xl border border-sky-400/30 bg-[var(--card)] px-3 py-3 text-xs text-[var(--foreground)] shadow-lg shadow-sky-500/10">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-400">
+          <Sparkles size="0.875rem" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold">{actionTitle(action)}</div>
+          <div className="text-[0.6875rem] text-[var(--muted-foreground)]">
+            {action.type === "create_record" ? "Create" : "Update"} {DEKI_ACTION_ENTITY_LABELS[action.entity]}
+          </div>
+        </div>
+        {applied && (
+          <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-lg bg-emerald-500/10 px-2 font-semibold text-emerald-500">
+            <Check size="0.75rem" />
+            Applied
+          </span>
+        )}
+      </div>
+      {action.rationale && <p className="mt-2 leading-relaxed text-[var(--foreground)]/75">{action.rationale}</p>}
+      {rows.length > 0 && (
+        <dl className="mt-2 grid gap-1.5">
+          {rows.map((row) => (
+            <div key={row.label} className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
+              <dt className="text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">{row.label}</dt>
+              <dd className="min-w-0 truncate text-[var(--foreground)]/85">{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      <div className="mt-3 rounded-lg border border-[var(--border)]/70 bg-[var(--secondary)]/55">
+        <div className="border-b border-[var(--border)]/70 px-2.5 py-1.5 text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">
+          Full payload to apply
+        </div>
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words px-2.5 py-2 font-mono text-[0.6875rem] leading-relaxed text-[var(--foreground)]/85">
+          {payloadText}
+        </pre>
+      </div>
+      {error && <div className="mt-2 rounded-lg bg-red-500/10 px-2 py-1.5 text-[0.6875rem] text-red-500">{error}</div>}
+      <div className="mt-3 flex justify-end">
+        <button
+          type="button"
+          disabled={applied || applying}
+          onClick={() => onApply(message)}
+          className={cn(
+            "inline-flex h-8 items-center gap-1.5 rounded-lg px-3 font-semibold transition-all active:scale-95",
+            applied
+              ? "cursor-default bg-emerald-500/10 text-emerald-500"
+              : "bg-sky-500 text-white hover:bg-sky-400 disabled:cursor-wait disabled:bg-sky-500/60",
+          )}
+        >
+          {applying ? <Loader2 size="0.8125rem" className="animate-spin" /> : <Check size="0.8125rem" />}
+          {applied ? "Applied" : "Apply"}
+        </button>
+      </div>
+    </div>
   );
 }
 

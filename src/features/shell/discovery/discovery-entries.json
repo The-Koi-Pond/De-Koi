@@ -212,9 +212,9 @@
     "id": "deki",
     "title": "Deki-senpai",
     "category": "Help",
-    "summary": "A dedicated Deki-senpai surface for app questions, codebase help, and guided changes separate from active chats.",
-    "keywords": ["help", "assistant", "deki", "senpai", "ask", "support", "customize", "codebase"],
-    "audience": "Users who want help understanding or customizing De-Koi without interrupting a chat.",
+    "summary": "A dedicated Deki-senpai surface for app questions, codebase help, creative-library drafts with approval cards, and guided changes separate from active chats.",
+    "keywords": ["help", "assistant", "deki", "senpai", "ask", "support", "customize", "codebase", "approval", "draft", "character maker", "persona maker", "lorebook maker", "preset review"],
+    "audience": "Users who want help understanding, customizing, or drafting De-Koi library records without interrupting a chat.",
     "where": "Deki-senpai button in the title bar or mobile top bar.",
     "actions": [{ "type": "open-deki", "label": "Open Deki-senpai" }],
     "coverage": "core"

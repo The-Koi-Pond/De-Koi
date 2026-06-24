@@ -38,29 +38,36 @@ The Drizzle SQLite schema still defines the table and column contract. SQLite is
 | `message_swipes`           | `messageSwipes`          | yes         | 6       | `id`        | `message-swipes`                                | Legacy has no denormalized `chatId`; De-Koi sidecars include it.                                                 |
 | `characters`               | `characters`             | yes         | 7       | `id`        | `characters`                                    | CharacterData V2 JSON is the durable payload in both systems.                                                    |
 | `character_card_versions`  | `characterCardVersions`  | yes         | 9       | `id`        | `character-versions`                            | Character snapshot history.                                                                                      |
-| `personas`                 | `personas`               | yes         | 21      | `id`        | `personas`                                      | Persona fields are mostly first-class columns in legacy and object fields in De-Koi.                             |
+| `personas`                 | `personas`               | yes         | 23      | `id`        | `personas`                                      | Persona fields are mostly first-class columns in legacy and object fields in De-Koi.                             |
+| `persona_card_versions`    | `personaCardVersions`    | yes         | 9       | `id`        | -                                               | -                                                                                                                |
 | `character_groups`         | `characterGroups`        | yes         | 7       | `id`        | `character-groups`                              | Stores character IDs as a JSON array.                                                                            |
 | `persona_groups`           | `personaGroups`          | yes         | 6       | `id`        | `persona-groups`                                | Stores persona IDs as a JSON array.                                                                              |
-| `lorebooks`                | `lorebooks`              | yes         | 21      | `id`        | `lorebooks`                                     | Legacy also has link tables for character/persona scope.                                                         |
+| `lorebooks`                | `lorebooks`              | yes         | 22      | `id`        | `lorebooks`                                     | Legacy also has link tables for character/persona scope.                                                         |
 | `lorebook_character_links` | `lorebookCharacterLinks` | yes         | 4       | `id`        | `lorebooks` scope data                          | Legacy join table; De-Koi import/profile flows collapse scope into lorebook-compatible JSON fields.              |
 | `lorebook_persona_links`   | `lorebookPersonaLinks`   | yes         | 4       | `id`        | `lorebooks` scope data                          | Legacy join table; De-Koi import/profile flows collapse scope into lorebook-compatible JSON fields.              |
 | `lorebook_folders`         | `lorebookFolders`        | yes         | 8       | `id`        | `lorebook-folders`                              | Folder rows remain a separate collection.                                                                        |
-| `lorebook_entries`         | `lorebookEntries`        | yes         | 45      | `id`        | `lorebook-entries`                              | Entry fields are close to De-Koi, with JSON text columns normalized on import.                                   |
-| `prompt_presets`           | `promptPresets`          | yes         | 14      | `id`        | `prompts`                                       | Legacy table name differs from De-Koi's collection name.                                                         |
+| `lorebook_entries`         | `lorebookEntries`        | yes         | 47      | `id`        | `lorebook-entries`                              | Entry fields are close to De-Koi, with JSON text columns normalized on import.                                   |
+| `prompt_presets`           | `promptPresets`          | yes         | 16      | `id`        | `prompts`                                       | Legacy table name differs from De-Koi's collection name.                                                         |
 | `prompt_groups`            | `promptGroups`           | yes         | 7       | `id`        | `prompt-groups`                                 | Prompt preset child table.                                                                                       |
 | `prompt_sections`          | `promptSections`         | yes         | 16      | `id`        | `prompt-sections`                               | Contains legacy wrapping columns that De-Koi preserves as compatibility data where relevant.                     |
-| `choice_blocks`            | `choiceBlocks`           | yes         | 10      | `id`        | `prompt-variables`                              | Legacy choice blocks become prompt variables in De-Koi.                                                          |
-| `api_connections`          | `apiConnections`         | yes         | 30      | `id`        | `connections`                                   | Secrets and provider-specific fields need special handling during profile import/export.                         |
+| `choice_blocks`            | `choiceBlocks`           | yes         | 12      | `id`        | `prompt-variables`                              | Legacy choice blocks become prompt variables in De-Koi.                                                          |
+| `api_connections`          | `apiConnections`         | yes         | 31      | `id`        | `connections`                                   | Secrets and provider-specific fields need special handling during profile import/export.                         |
 | `assets`                   | `assets`                 | yes         | 7       | `id`        | `background-metadata`, `sprites`, managed files | Legacy combines background and sprite asset metadata in one table.                                               |
 | `agent_configs`            | `agentConfigs`           | yes         | 12      | `id`        | `agents`                                        | Legacy custom script-tool affordances are intentionally unsupported in De-Koi execution.                         |
 | `agent_runs`               | `agentRuns`              | yes         | 11      | `id`        | `agent-runs`                                    | Legacy snake_case row shape is accepted by De-Koi repair/import paths.                                           |
 | `agent_memory`             | `agentMemory`            | yes         | 6       | `id`        | `agent-memory`                                  | Per-agent, per-chat key/value state.                                                                             |
-| `custom_tools`             | `customTools`            | yes         | 11      | `id`        | `custom-tools`                                  | Legacy script tools are preserved for review but cannot execute in De-Koi.                                       |
+| `custom_tools`             | `customTools`            | yes         | 12      | `id`        | `custom-tools`                                  | Legacy script tools are preserved for review but cannot execute in De-Koi.                                       |
 | `game_state_snapshots`     | `gameStateSnapshots`     | yes         | 17      | `id`        | `game-state-snapshots`                          | Per-message/swipe tracker state.                                                                                 |
+| `game_engine_state`        | `gameEngineState`        | yes         | 9       | `id`        | -                                               | -                                                                                                                |
 | `game_checkpoints`         | `gameCheckpoints`        | yes         | 12      | `id`        | `game-checkpoints`                              | Game rollback/checkpoint rows.                                                                                   |
 | `regex_scripts`            | `regexScripts`           | yes         | 15      | `id`        | `regex-scripts`                                 | Find/replace script rows.                                                                                        |
 | `chat_images`              | `chatImages`             | yes         | 9       | `id`        | `gallery`                                       | Legacy chat images map to De-Koi shared/chat gallery rows and managed gallery files.                             |
-| `character_images`         | `characterImages`        | yes         | 9       | `id`        | `character-gallery`                             | Legacy character images map to character gallery rows and managed gallery files.                                 |
+| `character_images`         | `characterImages`        | yes         | 11      | `id`        | `character-gallery`                             | Legacy character images map to character gallery rows and managed gallery files.                                 |
+| `persona_images`           | `personaImages`          | yes         | 11      | `id`        | -                                               | -                                                                                                                |
+| `gallery_folders`          | `galleryFolders`         | yes         | 3       | `id`        | -                                               | -                                                                                                                |
+| `global_images`            | `globalImages`           | yes         | 11      | `id`        | -                                               | -                                                                                                                |
+| `custom_emojis`            | `customEmojis`           | yes         | 7       | `id`        | -                                               | -                                                                                                                |
+| `custom_stickers`          | `customStickers`         | yes         | 7       | `id`        | -                                               | -                                                                                                                |
 | `ooc_influences`           | `oocInfluences`          | yes         | 7       | `id`        | `chats.notes[]`                                 | Imported as embedded one-shot influence notes on the target chat.                                                |
 | `conversation_notes`       | `conversationNotes`      | yes         | 6       | `id`        | `chats.notes[]`                                 | Imported as embedded durable conversation notes on the target chat.                                              |
 | `memory_chunks`            | `memoryChunks`           | yes         | 9       | `id`        | `chats.memories[]`                              | Imported as embedded memory chunks; De-Koi has no standalone `chat-memory` collection.                           |
@@ -68,6 +75,7 @@ The Drizzle SQLite schema still defines the table and column contract. SQLite is
 | `api_connection_folders`   | `apiConnectionFolders`   | yes         | 7       | `id`        | `connection-folders`                            | Folder rows remain a separate collection.                                                                        |
 | `custom_themes`            | `customThemes`           | yes         | 7       | `id`        | `themes`                                        | Legacy table name differs from De-Koi's collection name.                                                         |
 | `app_settings`             | `appSettings`            | yes         | 3       | `key`       | `app-settings`                                  | Loose settings key/value payload.                                                                                |
+| `achievement_unlocks`      | `achievementUnlocks`     | yes         | 3       | `id`        | -                                               | -                                                                                                                |
 | `chat_presets`             | `chatPresets`            | yes         | 8       | `id`        | `chat-presets`                                  | Reusable mode/generation defaults.                                                                               |
 | `prompt_overrides`         | `promptOverrides`        | yes         | 4       | `key`       | `prompt-overrides`                              | Compatibility rows for prompt-section override behavior.                                                         |
 | `installed_extensions`     | `installedExtensions`    | yes         | 9       | `id`        | `extensions`                                    | Imported extension rows are disabled by De-Koi profile import.                                                   |
@@ -84,10 +92,13 @@ The file-backed store emulates important SQLite cascades in source code.
 | `chats`          | `chat_images`              | `id -> chatId`        |
 | `chats`          | `memory_chunks`            | `id -> chatId`        |
 | `chats`          | `game_state_snapshots`     | `id -> chatId`        |
+| `chats`          | `game_engine_state`        | `id -> chatId`        |
 | `chats`          | `game_checkpoints`         | `id -> chatId`        |
 | `messages`       | `message_swipes`           | `id -> messageId`     |
 | `characters`     | `character_card_versions`  | `id -> characterId`   |
 | `characters`     | `character_images`         | `id -> characterId`   |
+| `personas`       | `persona_images`           | `id -> personaId`     |
+| `personas`       | `persona_card_versions`    | `id -> personaId`     |
 | `lorebooks`      | `lorebook_character_links` | `id -> lorebookId`    |
 | `lorebooks`      | `lorebook_persona_links`   | `id -> lorebookId`    |
 | `lorebooks`      | `lorebook_folders`         | `id -> lorebookId`    |
@@ -209,6 +220,9 @@ Source: `<legacy-root>/packages/server/src/db/schema/characters.ts`
 | `id`                 | `id`                   | text | no       | yes     | -                   | -    | -         |
 | `name`               | `name`                 | text | no       | -       | -                   | -    | -         |
 | `comment`            | `comment`              | text | no       | -       | `""`                | -    | -         |
+| `creator`            | `creator`              | text | no       | -       | `""`                | -    | -         |
+| `personaVersion`     | `persona_version`      | text | no       | -       | `"1.0"`             | -    | -         |
+| `creatorNotes`       | `creator_notes`        | text | no       | -       | `""`                | -    | -         |
 | `description`        | `description`          | text | no       | -       | `""`                | -    | -         |
 | `personality`        | `personality`          | text | no       | -       | `""`                | -    | -         |
 | `scenario`           | `scenario`             | text | no       | -       | `""`                | -    | -         |
@@ -222,11 +236,26 @@ Source: `<legacy-root>/packages/server/src/db/schema/characters.ts`
 | `boxColor`           | `box_color`            | text | no       | -       | `""`                | -    | -         |
 | `trackerCardColors`  | `tracker_card_colors`  | text | no       | -       | `'{"mode":"chat"}'` | -    | -         |
 | `personaStats`       | `persona_stats`        | text | no       | -       | `""`                | -    | -         |
-| `altDescriptions`    | `alt_descriptions`     | text | no       | -       | `"[]"`              | -    | -         |
 | `tags`               | `tags`                 | text | no       | -       | `"[]"`              | -    | -         |
 | `savedStatusOptions` | `saved_status_options` | text | no       | -       | `"[]"`              | -    | -         |
 | `createdAt`          | `created_at`           | text | no       | -       | -                   | -    | -         |
 | `updatedAt`          | `updated_at`           | text | no       | -       | -                   | -    | -         |
+
+### persona_card_versions
+
+Source: `<legacy-root>/packages/server/src/db/schema/characters.ts`
+
+| Key          | DB column     | Type | Nullable | Primary | Default    | Enum | Reference                       |
+| ------------ | ------------- | ---- | -------- | ------- | ---------- | ---- | ------------------------------- |
+| `id`         | `id`          | text | no       | yes     | -          | -    | -                               |
+| `personaId`  | `persona_id`  | text | no       | -       | -          | -    | `personas.id` on delete cascade |
+| `data`       | `data`        | text | no       | -       | -          | -    | -                               |
+| `comment`    | `comment`     | text | no       | -       | `""`       | -    | -                               |
+| `avatarPath` | `avatar_path` | text | yes      | -       | -          | -    | -                               |
+| `version`    | `version`     | text | no       | -       | `""`       | -    | -                               |
+| `source`     | `source`      | text | no       | -       | `"manual"` | -    | -                               |
+| `reason`     | `reason`      | text | no       | -       | `""`       | -    | -                               |
+| `createdAt`  | `created_at`  | text | no       | -       | -          | -    | -                               |
 
 ### character_groups
 
@@ -268,6 +297,7 @@ Source: `<legacy-root>/packages/server/src/db/schema/lorebooks.ts`
 | `imagePath`                | `image_path`                 | text    | yes      | -       | -                               | -    | -         |
 | `scanDepth`                | `scan_depth`                 | integer | no       | -       | `2`                             | -    | -         |
 | `tokenBudget`              | `token_budget`               | integer | no       | -       | `2048`                          | -    | -         |
+| `entryLimit`               | `entry_limit`                | integer | no       | -       | `100`                           | -    | -         |
 | `recursiveScanning`        | `recursive_scanning`         | text    | no       | -       | `"false"`                       | -    | -         |
 | `maxRecursionDepth`        | `max_recursion_depth`        | integer | no       | -       | `3`                             | -    | -         |
 | `excludeFromVectorization` | `exclude_from_vectorization` | text    | no       | -       | `"false"`                       | -    | -         |
@@ -324,74 +354,78 @@ Source: `<legacy-root>/packages/server/src/db/schema/lorebooks.ts`
 
 Source: `<legacy-root>/packages/server/src/db/schema/lorebooks.ts`
 
-| Key                           | DB column                        | Type    | Nullable | Primary | Default    | Enum                          | Reference                        |
-| ----------------------------- | -------------------------------- | ------- | -------- | ------- | ---------- | ----------------------------- | -------------------------------- |
-| `id`                          | `id`                             | text    | no       | yes     | -          | -                             | -                                |
-| `lorebookId`                  | `lorebook_id`                    | text    | no       | -       | -          | -                             | `lorebooks.id` on delete cascade |
-| `folderId`                    | `folder_id`                      | text    | yes      | -       | -          | -                             | -                                |
-| `name`                        | `name`                           | text    | no       | -       | -          | -                             | -                                |
-| `content`                     | `content`                        | text    | no       | -       | `""`       | -                             | -                                |
-| `description`                 | `description`                    | text    | no       | -       | `""`       | -                             | -                                |
-| `keys`                        | `keys`                           | text    | no       | -       | `"[]"`     | -                             | -                                |
-| `secondaryKeys`               | `secondary_keys`                 | text    | no       | -       | `"[]"`     | -                             | -                                |
-| `enabled`                     | `enabled`                        | text    | no       | -       | `"true"`   | -                             | -                                |
-| `constant`                    | `constant`                       | text    | no       | -       | `"false"`  | -                             | -                                |
-| `selective`                   | `selective`                      | text    | no       | -       | `"false"`  | -                             | -                                |
-| `selectiveLogic`              | `selective_logic`                | text    | no       | -       | `"and"`    | `and`, `or`, `not`            | -                                |
-| `probability`                 | `probability`                    | integer | yes      | -       | -          | -                             | -                                |
-| `scanDepth`                   | `scan_depth`                     | integer | yes      | -       | -          | -                             | -                                |
-| `matchWholeWords`             | `match_whole_words`              | text    | no       | -       | `"false"`  | -                             | -                                |
-| `caseSensitive`               | `case_sensitive`                 | text    | no       | -       | `"false"`  | -                             | -                                |
-| `useRegex`                    | `use_regex`                      | text    | no       | -       | `"false"`  | -                             | -                                |
-| `characterFilterMode`         | `character_filter_mode`          | text    | no       | -       | `"any"`    | `any`, `include`, `exclude`   | -                                |
-| `characterFilterIds`          | `character_filter_ids`           | text    | no       | -       | `"[]"`     | -                             | -                                |
-| `characterTagFilterMode`      | `character_tag_filter_mode`      | text    | no       | -       | `"any"`    | `any`, `include`, `exclude`   | -                                |
-| `characterTagFilters`         | `character_tag_filters`          | text    | no       | -       | `"[]"`     | -                             | -                                |
-| `generationTriggerFilterMode` | `generation_trigger_filter_mode` | text    | no       | -       | `"any"`    | `any`, `include`, `exclude`   | -                                |
-| `generationTriggerFilters`    | `generation_trigger_filters`     | text    | no       | -       | `"[]"`     | -                             | -                                |
-| `additionalMatchingSources`   | `additional_matching_sources`    | text    | no       | -       | `"[]"`     | -                             | -                                |
-| `position`                    | `position`                       | integer | no       | -       | `0`        | -                             | -                                |
-| `depth`                       | `depth`                          | integer | no       | -       | `4`        | -                             | -                                |
-| `order`                       | `order`                          | integer | no       | -       | `100`      | -                             | -                                |
-| `role`                        | `role`                           | text    | no       | -       | `"system"` | `system`, `user`, `assistant` | -                                |
-| `sticky`                      | `sticky`                         | integer | yes      | -       | -          | -                             | -                                |
-| `cooldown`                    | `cooldown`                       | integer | yes      | -       | -          | -                             | -                                |
-| `delay`                       | `delay`                          | integer | yes      | -       | -          | -                             | -                                |
-| `ephemeral`                   | `ephemeral`                      | integer | yes      | -       | -          | -                             | -                                |
-| `group`                       | `group`                          | text    | no       | -       | `""`       | -                             | -                                |
-| `groupWeight`                 | `group_weight`                   | integer | yes      | -       | -          | -                             | -                                |
-| `locked`                      | `locked`                         | text    | no       | -       | `"false"`  | -                             | -                                |
-| `tag`                         | `tag`                            | text    | no       | -       | `""`       | -                             | -                                |
-| `relationships`               | `relationships`                  | text    | no       | -       | `"{}"`     | -                             | -                                |
-| `dynamicState`                | `dynamic_state`                  | text    | no       | -       | `"{}"`     | -                             | -                                |
-| `activationConditions`        | `activation_conditions`          | text    | no       | -       | `"[]"`     | -                             | -                                |
-| `schedule`                    | `schedule`                       | text    | yes      | -       | -          | -                             | -                                |
-| `preventRecursion`            | `prevent_recursion`              | text    | no       | -       | `"false"`  | -                             | -                                |
-| `excludeFromVectorization`    | `exclude_from_vectorization`     | text    | no       | -       | `"false"`  | -                             | -                                |
-| `embedding`                   | `embedding`                      | text    | yes      | -       | -          | -                             | -                                |
-| `createdAt`                   | `created_at`                     | text    | no       | -       | -          | -                             | -                                |
-| `updatedAt`                   | `updated_at`                     | text    | no       | -       | -          | -                             | -                                |
+| Key                           | DB column                        | Type    | Nullable | Primary | Default    | Enum                                     | Reference                        |
+| ----------------------------- | -------------------------------- | ------- | -------- | ------- | ---------- | ---------------------------------------- | -------------------------------- |
+| `id`                          | `id`                             | text    | no       | yes     | -          | -                                        | -                                |
+| `lorebookId`                  | `lorebook_id`                    | text    | no       | -       | -          | -                                        | `lorebooks.id` on delete cascade |
+| `folderId`                    | `folder_id`                      | text    | yes      | -       | -          | -                                        | -                                |
+| `name`                        | `name`                           | text    | no       | -       | -          | -                                        | -                                |
+| `content`                     | `content`                        | text    | no       | -       | `""`       | -                                        | -                                |
+| `description`                 | `description`                    | text    | no       | -       | `""`       | -                                        | -                                |
+| `keys`                        | `keys`                           | text    | no       | -       | `"[]"`     | -                                        | -                                |
+| `secondaryKeys`               | `secondary_keys`                 | text    | no       | -       | `"[]"`     | -                                        | -                                |
+| `enabled`                     | `enabled`                        | text    | no       | -       | `"true"`   | -                                        | -                                |
+| `constant`                    | `constant`                       | text    | no       | -       | `"false"`  | -                                        | -                                |
+| `selective`                   | `selective`                      | text    | no       | -       | `"false"`  | -                                        | -                                |
+| `selectiveLogic`              | `selective_logic`                | text    | no       | -       | `"and"`    | `and`, `and_all`, `or`, `not`, `not_all` | -                                |
+| `probability`                 | `probability`                    | integer | yes      | -       | -          | -                                        | -                                |
+| `scanDepth`                   | `scan_depth`                     | integer | yes      | -       | -          | -                                        | -                                |
+| `matchWholeWords`             | `match_whole_words`              | text    | no       | -       | `"false"`  | -                                        | -                                |
+| `caseSensitive`               | `case_sensitive`                 | text    | no       | -       | `"false"`  | -                                        | -                                |
+| `useRegex`                    | `use_regex`                      | text    | no       | -       | `"false"`  | -                                        | -                                |
+| `characterFilterMode`         | `character_filter_mode`          | text    | no       | -       | `"any"`    | `any`, `include`, `exclude`              | -                                |
+| `characterFilterIds`          | `character_filter_ids`           | text    | no       | -       | `"[]"`     | -                                        | -                                |
+| `characterTagFilterMode`      | `character_tag_filter_mode`      | text    | no       | -       | `"any"`    | `any`, `include`, `exclude`              | -                                |
+| `characterTagFilters`         | `character_tag_filters`          | text    | no       | -       | `"[]"`     | -                                        | -                                |
+| `generationTriggerFilterMode` | `generation_trigger_filter_mode` | text    | no       | -       | `"any"`    | `any`, `include`, `exclude`              | -                                |
+| `generationTriggerFilters`    | `generation_trigger_filters`     | text    | no       | -       | `"[]"`     | -                                        | -                                |
+| `additionalMatchingSources`   | `additional_matching_sources`    | text    | no       | -       | `"[]"`     | -                                        | -                                |
+| `position`                    | `position`                       | integer | no       | -       | `0`        | -                                        | -                                |
+| `depth`                       | `depth`                          | integer | no       | -       | `4`        | -                                        | -                                |
+| `order`                       | `order`                          | integer | no       | -       | `100`      | -                                        | -                                |
+| `role`                        | `role`                           | text    | no       | -       | `"system"` | `system`, `user`, `assistant`            | -                                |
+| `sticky`                      | `sticky`                         | integer | yes      | -       | -          | -                                        | -                                |
+| `cooldown`                    | `cooldown`                       | integer | yes      | -       | -          | -                                        | -                                |
+| `delay`                       | `delay`                          | integer | yes      | -       | -          | -                                        | -                                |
+| `ephemeral`                   | `ephemeral`                      | integer | yes      | -       | -          | -                                        | -                                |
+| `group`                       | `group`                          | text    | no       | -       | `""`       | -                                        | -                                |
+| `groupWeight`                 | `group_weight`                   | integer | yes      | -       | -          | -                                        | -                                |
+| `locked`                      | `locked`                         | text    | no       | -       | `"false"`  | -                                        | -                                |
+| `tag`                         | `tag`                            | text    | no       | -       | `""`       | -                                        | -                                |
+| `relationships`               | `relationships`                  | text    | no       | -       | `"{}"`     | -                                        | -                                |
+| `dynamicState`                | `dynamic_state`                  | text    | no       | -       | `"{}"`     | -                                        | -                                |
+| `activationConditions`        | `activation_conditions`          | text    | no       | -       | `"[]"`     | -                                        | -                                |
+| `schedule`                    | `schedule`                       | text    | yes      | -       | -          | -                                        | -                                |
+| `preventRecursion`            | `prevent_recursion`              | text    | no       | -       | `"false"`  | -                                        | -                                |
+| `excludeRecursion`            | `exclude_recursion`              | text    | no       | -       | `"false"`  | -                                        | -                                |
+| `delayUntilRecursion`         | `delay_until_recursion`          | text    | no       | -       | `"false"`  | -                                        | -                                |
+| `excludeFromVectorization`    | `exclude_from_vectorization`     | text    | no       | -       | `"false"`  | -                                        | -                                |
+| `embedding`                   | `embedding`                      | text    | yes      | -       | -          | -                                        | -                                |
+| `createdAt`                   | `created_at`                     | text    | no       | -       | -          | -                                        | -                                |
+| `updatedAt`                   | `updated_at`                     | text    | no       | -       | -          | -                                        | -                                |
 
 ### prompt_presets
 
 Source: `<legacy-root>/packages/server/src/db/schema/prompts.ts`
 
-| Key              | DB column         | Type | Nullable | Primary | Default   | Enum | Reference |
-| ---------------- | ----------------- | ---- | -------- | ------- | --------- | ---- | --------- |
-| `id`             | `id`              | text | no       | yes     | -         | -    | -         |
-| `name`           | `name`            | text | no       | -       | -         | -    | -         |
-| `description`    | `description`     | text | no       | -       | `""`      | -    | -         |
-| `sectionOrder`   | `section_order`   | text | no       | -       | `"[]"`    | -    | -         |
-| `groupOrder`     | `group_order`     | text | no       | -       | `"[]"`    | -    | -         |
-| `variableGroups` | `variable_groups` | text | no       | -       | `"[]"`    | -    | -         |
-| `variableValues` | `variable_values` | text | no       | -       | `"{}"`    | -    | -         |
-| `parameters`     | `parameters`      | text | no       | -       | `"{}"`    | -    | -         |
-| `wrapFormat`     | `wrap_format`     | text | no       | -       | `"xml"`   | -    | -         |
-| `defaultChoices` | `default_choices` | text | no       | -       | `"{}"`    | -    | -         |
-| `isDefault`      | `is_default`      | text | no       | -       | `"false"` | -    | -         |
-| `author`         | `author`          | text | no       | -       | `""`      | -    | -         |
-| `createdAt`      | `created_at`      | text | no       | -       | -         | -    | -         |
-| `updatedAt`      | `updated_at`      | text | no       | -       | -         | -    | -         |
+| Key                  | DB column             | Type | Nullable | Primary | Default   | Enum | Reference |
+| -------------------- | --------------------- | ---- | -------- | ------- | --------- | ---- | --------- |
+| `id`                 | `id`                  | text | no       | yes     | -         | -    | -         |
+| `name`               | `name`                | text | no       | -       | -         | -    | -         |
+| `description`        | `description`         | text | no       | -       | `""`      | -    | -         |
+| `conversationPrompt` | `conversation_prompt` | text | no       | -       | `""`      | -    | -         |
+| `gamePrompt`         | `game_prompt`         | text | no       | -       | `""`      | -    | -         |
+| `sectionOrder`       | `section_order`       | text | no       | -       | `"[]"`    | -    | -         |
+| `groupOrder`         | `group_order`         | text | no       | -       | `"[]"`    | -    | -         |
+| `variableGroups`     | `variable_groups`     | text | no       | -       | `"[]"`    | -    | -         |
+| `variableValues`     | `variable_values`     | text | no       | -       | `"{}"`    | -    | -         |
+| `parameters`         | `parameters`          | text | no       | -       | `"{}"`    | -    | -         |
+| `wrapFormat`         | `wrap_format`         | text | no       | -       | `"xml"`   | -    | -         |
+| `defaultChoices`     | `default_choices`     | text | no       | -       | `"{}"`    | -    | -         |
+| `isDefault`          | `is_default`          | text | no       | -       | `"false"` | -    | -         |
+| `author`             | `author`              | text | no       | -       | `""`      | -    | -         |
+| `createdAt`          | `created_at`          | text | no       | -       | -         | -    | -         |
+| `updatedAt`          | `updated_at`          | text | no       | -       | -         | -    | -         |
 
 ### prompt_groups
 
@@ -434,18 +468,20 @@ Source: `<legacy-root>/packages/server/src/db/schema/prompts.ts`
 
 Source: `<legacy-root>/packages/server/src/db/schema/prompts.ts`
 
-| Key            | DB column       | Type    | Nullable | Primary | Default   | Enum | Reference                             |
-| -------------- | --------------- | ------- | -------- | ------- | --------- | ---- | ------------------------------------- |
-| `id`           | `id`            | text    | no       | yes     | -         | -    | -                                     |
-| `presetId`     | `preset_id`     | text    | no       | -       | -         | -    | `prompt_presets.id` on delete cascade |
-| `variableName` | `variable_name` | text    | no       | -       | -         | -    | -                                     |
-| `question`     | `question`      | text    | no       | -       | -         | -    | -                                     |
-| `options`      | `options`       | text    | no       | -       | `"[]"`    | -    | -                                     |
-| `multiSelect`  | `multi_select`  | text    | no       | -       | `"false"` | -    | -                                     |
-| `separator`    | `separator`     | text    | no       | -       | `", "`    | -    | -                                     |
-| `randomPick`   | `random_pick`   | text    | no       | -       | `"false"` | -    | -                                     |
-| `sortOrder`    | `sort_order`    | integer | no       | -       | `0`       | -    | -                                     |
-| `createdAt`    | `created_at`    | text    | no       | -       | -         | -    | -                                     |
+| Key            | DB column       | Type    | Nullable | Primary | Default    | Enum | Reference                             |
+| -------------- | --------------- | ------- | -------- | ------- | ---------- | ---- | ------------------------------------- |
+| `id`           | `id`            | text    | no       | yes     | -          | -    | -                                     |
+| `presetId`     | `preset_id`     | text    | no       | -       | -          | -    | `prompt_presets.id` on delete cascade |
+| `variableName` | `variable_name` | text    | no       | -       | -          | -    | -                                     |
+| `question`     | `question`      | text    | no       | -       | -          | -    | -                                     |
+| `options`      | `options`       | text    | no       | -       | `"[]"`     | -    | -                                     |
+| `multiSelect`  | `multi_select`  | text    | no       | -       | `"false"`  | -    | -                                     |
+| `separator`    | `separator`     | text    | no       | -       | `", "`     | -    | -                                     |
+| `randomPick`   | `random_pick`   | text    | no       | -       | `"false"`  | -    | -                                     |
+| `displayMode`  | `display_mode`  | text    | no       | -       | `"auto"`   | -    | -                                     |
+| `optionSort`   | `option_sort`   | text    | no       | -       | `"manual"` | -    | -                                     |
+| `sortOrder`    | `sort_order`    | integer | no       | -       | `0`        | -    | -                                     |
+| `createdAt`    | `created_at`    | text    | no       | -       | -          | -    | -                                     |
 
 ### api_connections
 
@@ -478,6 +514,7 @@ Source: `<legacy-root>/packages/server/src/db/schema/connections.ts`
 | `promptPresetId`        | `prompt_preset_id`        | text    | yes      | -       | -         | -                                                                                                                                                                            | -         |
 | `maxTokensOverride`     | `max_tokens_override`     | integer | yes      | -       | -         | -                                                                                                                                                                            | -         |
 | `maxParallelJobs`       | `max_parallel_jobs`       | integer | no       | -       | `1`       | -                                                                                                                                                                            | -         |
+| `treatAsLocalEndpoint`  | `treat_as_local_endpoint` | text    | no       | -       | `"false"` | -                                                                                                                                                                            | -         |
 | `claudeFastMode`        | `claude_fast_mode`        | text    | no       | -       | `"false"` | -                                                                                                                                                                            | -         |
 | `folderId`              | `folder_id`               | text    | yes      | -       | -         | -                                                                                                                                                                            | -         |
 | `sortOrder`             | `sort_order`              | integer | no       | -       | `0`       | -                                                                                                                                                                            | -         |
@@ -552,19 +589,20 @@ Source: `<legacy-root>/packages/server/src/db/schema/agents.ts`
 
 Source: `<legacy-root>/packages/server/src/db/schema/custom-tools.ts`
 
-| Key                | DB column           | Type | Nullable | Primary | Default    | Enum | Reference |
-| ------------------ | ------------------- | ---- | -------- | ------- | ---------- | ---- | --------- |
-| `id`               | `id`                | text | no       | yes     | -          | -    | -         |
-| `name`             | `name`              | text | no       | -       | -          | -    | -         |
-| `description`      | `description`       | text | no       | -       | `""`       | -    | -         |
-| `parametersSchema` | `parameters_schema` | text | no       | -       | `"{}"`     | -    | -         |
-| `executionType`    | `execution_type`    | text | no       | -       | `"static"` | -    | -         |
-| `webhookUrl`       | `webhook_url`       | text | yes      | -       | -          | -    | -         |
-| `staticResult`     | `static_result`     | text | yes      | -       | -          | -    | -         |
-| `scriptBody`       | `script_body`       | text | yes      | -       | -          | -    | -         |
-| `enabled`          | `enabled`           | text | no       | -       | `"true"`   | -    | -         |
-| `createdAt`        | `created_at`        | text | no       | -       | -          | -    | -         |
-| `updatedAt`        | `updated_at`        | text | no       | -       | -          | -    | -         |
+| Key                    | DB column                | Type | Nullable | Primary | Default    | Enum | Reference |
+| ---------------------- | ------------------------ | ---- | -------- | ------- | ---------- | ---- | --------- |
+| `id`                   | `id`                     | text | no       | yes     | -          | -    | -         |
+| `name`                 | `name`                   | text | no       | -       | -          | -    | -         |
+| `description`          | `description`            | text | no       | -       | `""`       | -    | -         |
+| `parametersSchema`     | `parameters_schema`      | text | no       | -       | `"{}"`     | -    | -         |
+| `executionType`        | `execution_type`         | text | no       | -       | `"static"` | -    | -         |
+| `webhookUrl`           | `webhook_url`            | text | yes      | -       | -          | -    | -         |
+| `staticResult`         | `static_result`          | text | yes      | -       | -          | -    | -         |
+| `scriptBody`           | `script_body`            | text | yes      | -       | -          | -    | -         |
+| `includeHiddenContext` | `include_hidden_context` | text | no       | -       | `"false"`  | -    | -         |
+| `enabled`              | `enabled`                | text | no       | -       | `"true"`   | -    | -         |
+| `createdAt`            | `created_at`             | text | no       | -       | -          | -    | -         |
+| `updatedAt`            | `updated_at`             | text | no       | -       | -          | -    | -         |
 
 ### game_state_snapshots
 
@@ -589,6 +627,22 @@ Source: `<legacy-root>/packages/server/src/db/schema/game-state.ts`
 | `fieldLocks`        | `field_locks`        | text    | yes      | -       | -       | -    | -         |
 | `committed`         | `committed`          | integer | no       | -       | `0`     | -    | -         |
 | `createdAt`         | `created_at`         | text    | no       | -       | -       | -    | -         |
+
+### game_engine_state
+
+Source: `<legacy-root>/packages/server/src/db/schema/game-engine-state.ts`
+
+| Key             | DB column        | Type    | Nullable | Primary | Default | Enum | Reference |
+| --------------- | ---------------- | ------- | -------- | ------- | ------- | ---- | --------- |
+| `id`            | `id`             | text    | no       | yes     | -       | -    | -         |
+| `chatId`        | `chat_id`        | text    | no       | -       | -       | -    | -         |
+| `messageId`     | `message_id`     | text    | no       | -       | `""`    | -    | -         |
+| `swipeIndex`    | `swipe_index`    | integer | no       | -       | `0`     | -    | -         |
+| `gameType`      | `game_type`      | text    | no       | -       | -       | -    | -         |
+| `schemaVersion` | `schema_version` | integer | no       | -       | `1`     | -    | -         |
+| `state`         | `state`          | text    | no       | -       | -       | -    | -         |
+| `committed`     | `committed`      | integer | no       | -       | `0`     | -    | -         |
+| `createdAt`     | `created_at`     | text    | no       | -       | -       | -    | -         |
 
 ### game_checkpoints
 
@@ -661,7 +715,83 @@ Source: `<legacy-root>/packages/server/src/db/schema/gallery.ts`
 | `model`       | `model`        | text    | no       | -       | `""`    | -    | -                                 |
 | `width`       | `width`        | integer | yes      | -       | -       | -    | -                                 |
 | `height`      | `height`       | integer | yes      | -       | -       | -    | -                                 |
+| `customKind`  | `custom_kind`  | text    | yes      | -       | -       | -    | -                                 |
+| `customName`  | `custom_name`  | text    | yes      | -       | -       | -    | -                                 |
 | `createdAt`   | `created_at`   | text    | no       | -       | -       | -    | -                                 |
+
+### persona_images
+
+Source: `<legacy-root>/packages/server/src/db/schema/gallery.ts`
+
+| Key          | DB column     | Type    | Nullable | Primary | Default | Enum | Reference                       |
+| ------------ | ------------- | ------- | -------- | ------- | ------- | ---- | ------------------------------- |
+| `id`         | `id`          | text    | no       | yes     | -       | -    | -                               |
+| `personaId`  | `persona_id`  | text    | no       | -       | -       | -    | `personas.id` on delete cascade |
+| `filePath`   | `file_path`   | text    | no       | -       | -       | -    | -                               |
+| `prompt`     | `prompt`      | text    | no       | -       | `""`    | -    | -                               |
+| `provider`   | `provider`    | text    | no       | -       | `""`    | -    | -                               |
+| `model`      | `model`       | text    | no       | -       | `""`    | -    | -                               |
+| `width`      | `width`       | integer | yes      | -       | -       | -    | -                               |
+| `height`     | `height`      | integer | yes      | -       | -       | -    | -                               |
+| `customKind` | `custom_kind` | text    | yes      | -       | -       | -    | -                               |
+| `customName` | `custom_name` | text    | yes      | -       | -       | -    | -                               |
+| `createdAt`  | `created_at`  | text    | no       | -       | -       | -    | -                               |
+
+### gallery_folders
+
+Source: `<legacy-root>/packages/server/src/db/schema/gallery.ts`
+
+| Key         | DB column    | Type | Nullable | Primary | Default | Enum | Reference |
+| ----------- | ------------ | ---- | -------- | ------- | ------- | ---- | --------- |
+| `id`        | `id`         | text | no       | yes     | -       | -    | -         |
+| `name`      | `name`       | text | no       | -       | -       | -    | -         |
+| `createdAt` | `created_at` | text | no       | -       | -       | -    | -         |
+
+### global_images
+
+Source: `<legacy-root>/packages/server/src/db/schema/gallery.ts`
+
+| Key          | DB column     | Type    | Nullable | Primary | Default | Enum | Reference                               |
+| ------------ | ------------- | ------- | -------- | ------- | ------- | ---- | --------------------------------------- |
+| `id`         | `id`          | text    | no       | yes     | -       | -    | -                                       |
+| `folderId`   | `folder_id`   | text    | yes      | -       | -       | -    | `gallery_folders.id` on delete set null |
+| `filePath`   | `file_path`   | text    | no       | -       | -       | -    | -                                       |
+| `prompt`     | `prompt`      | text    | no       | -       | `""`    | -    | -                                       |
+| `provider`   | `provider`    | text    | no       | -       | `""`    | -    | -                                       |
+| `model`      | `model`       | text    | no       | -       | `""`    | -    | -                                       |
+| `width`      | `width`       | integer | yes      | -       | -       | -    | -                                       |
+| `height`     | `height`      | integer | yes      | -       | -       | -    | -                                       |
+| `customKind` | `custom_kind` | text    | yes      | -       | -       | -    | -                                       |
+| `customName` | `custom_name` | text    | yes      | -       | -       | -    | -                                       |
+| `createdAt`  | `created_at`  | text    | no       | -       | -       | -    | -                                       |
+
+### custom_emojis
+
+Source: `<legacy-root>/packages/server/src/db/schema/custom-emojis.ts`
+
+| Key         | DB column    | Type    | Nullable | Primary | Default | Enum | Reference |
+| ----------- | ------------ | ------- | -------- | ------- | ------- | ---- | --------- |
+| `id`        | `id`         | text    | no       | yes     | -       | -    | -         |
+| `name`      | `name`       | text    | no       | -       | -       | -    | -         |
+| `filePath`  | `file_path`  | text    | no       | -       | -       | -    | -         |
+| `width`     | `width`      | integer | yes      | -       | -       | -    | -         |
+| `height`    | `height`     | integer | yes      | -       | -       | -    | -         |
+| `createdAt` | `created_at` | text    | no       | -       | -       | -    | -         |
+| `updatedAt` | `updated_at` | text    | no       | -       | -       | -    | -         |
+
+### custom_stickers
+
+Source: `<legacy-root>/packages/server/src/db/schema/custom-stickers.ts`
+
+| Key         | DB column    | Type    | Nullable | Primary | Default | Enum | Reference |
+| ----------- | ------------ | ------- | -------- | ------- | ------- | ---- | --------- |
+| `id`        | `id`         | text    | no       | yes     | -       | -    | -         |
+| `name`      | `name`       | text    | no       | -       | -       | -    | -         |
+| `filePath`  | `file_path`  | text    | no       | -       | -       | -    | -         |
+| `width`     | `width`      | integer | yes      | -       | -       | -    | -         |
+| `height`    | `height`     | integer | yes      | -       | -       | -    | -         |
+| `createdAt` | `created_at` | text    | no       | -       | -       | -    | -         |
+| `updatedAt` | `updated_at` | text    | no       | -       | -       | -    | -         |
 
 ### ooc_influences
 
@@ -758,6 +888,16 @@ Source: `<legacy-root>/packages/server/src/db/schema/app-settings.ts`
 | `key`       | `key`        | text | no       | yes     | -       | -    | -         |
 | `value`     | `value`      | text | no       | -       | `""`    | -    | -         |
 | `updatedAt` | `updated_at` | text | no       | -       | -       | -    | -         |
+
+### achievement_unlocks
+
+Source: `<legacy-root>/packages/server/src/db/schema/achievements.ts`
+
+| Key          | DB column     | Type | Nullable | Primary | Default | Enum | Reference |
+| ------------ | ------------- | ---- | -------- | ------- | ------- | ---- | --------- |
+| `id`         | `id`          | text | no       | yes     | -       | -    | -         |
+| `unlockedAt` | `unlocked_at` | text | no       | -       | -       | -    | -         |
+| `updatedAt`  | `updated_at`  | text | no       | -       | -       | -    | -         |
 
 ### chat_presets
 
