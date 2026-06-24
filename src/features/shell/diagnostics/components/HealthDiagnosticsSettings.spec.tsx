@@ -205,4 +205,38 @@ describe("HealthDiagnosticsSettings", () => {
     expect(container!.textContent).toContain("Probe completed in 10 ms.");
     expect(container!.textContent).not.toContain("Needs attention");
   });
+
+  it("summarizes the failing diagnostic in the top status detail", async () => {
+    vi.mocked(storageApi.list).mockImplementation(async (entity) => {
+      if (entity === "connections") {
+        return [
+          {
+            id: "conn-1",
+            name: "Main Model",
+            provider: "openai",
+            model: "gpt-test",
+            baseUrl: "https://api.example.test/v1",
+          },
+        ];
+      }
+      if (entity === "chats") {
+        throw new Error("Storage unavailable");
+      }
+      return [];
+    });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<HealthDiagnosticsSettings />);
+    });
+    await flushAsyncWork();
+
+    const statusDetail = Array.from(container!.querySelectorAll("span")).find((span) =>
+      span.textContent?.includes("Snapshot generated"),
+    );
+
+    expect(statusDetail?.textContent).toContain("Storage");
+    expect(statusDetail?.textContent).toContain("Chats");
+    expect(statusDetail?.textContent).toContain("Storage unavailable");
+  });
 });

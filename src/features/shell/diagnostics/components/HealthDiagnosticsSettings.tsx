@@ -64,6 +64,31 @@ function providerProbeSummary(result: ProbeState): string {
     : "Provider probe failed. Check connection settings or provider availability.";
 }
 
+function statusRank(status: DiagnosticStatus): number {
+  if (status === "error") return 4;
+  if (status === "warning" || status === "degraded") return 3;
+  if (status === "unknown") return 2;
+  return 1;
+}
+
+function snapshotAttentionSummary(snapshot: DiagnosticsSnapshot): string | null {
+  const targetRank = statusRank(snapshot.overallStatus);
+  if (targetRank <= statusRank("ok")) return null;
+
+  for (const section of snapshot.sections) {
+    const item = section.items.find((candidate) => statusRank(candidate.status) === targetRank);
+    if (item) return `${section.title}: ${item.label} - ${item.summary}`;
+  }
+
+  return null;
+}
+
+function snapshotStatusDetail(snapshot: DiagnosticsSnapshot): string {
+  const generated = `Snapshot generated ${new Date(snapshot.generatedAt).toLocaleString()}.`;
+  const attentionSummary = snapshotAttentionSummary(snapshot);
+  return attentionSummary ? `${attentionSummary} ${generated}` : generated;
+}
+
 function applyProviderProbeResults(
   snapshot: DiagnosticsSnapshot,
   providerProbeResults: Record<string, ProbeState>,
@@ -235,7 +260,7 @@ export function HealthDiagnosticsSettings() {
               : error
                 ? error
                 : effectiveSnapshot
-                  ? `Snapshot generated ${new Date(effectiveSnapshot.generatedAt).toLocaleString()}.`
+                  ? snapshotStatusDetail(effectiveSnapshot)
                   : "No diagnostics snapshot loaded."}
           </span>
         </div>
