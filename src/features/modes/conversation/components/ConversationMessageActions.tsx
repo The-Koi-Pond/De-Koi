@@ -58,7 +58,6 @@ export function ConversationMessageActions({
       <SaveMomentAction
         source={saveMomentSource}
         onCreateSummaryDraft={context.onSaveMomentSummary}
-        onBranch={context.onBranch}
         buttonClassName="rounded p-1 text-foreground/70 transition-colors hover:bg-foreground/20 hover:text-foreground"
         iconSize="0.75rem"
         tabIndex={tabIdx}
