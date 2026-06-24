@@ -105,7 +105,7 @@ function isNanoGptGlmModel(model: string): boolean {
     .toLowerCase()
     .split(/[/:\s]+/)
     .map((segment) => segment.replace(/^~+/, ""))
-    .some((segment) => segment === "glm" || segment.startsWith("glm-") || segment.startsWith("glm_"));
+    .some((segment) => segment === "glm" || /^glm[-_]\d/.test(segment));
 }
 
 function isNanoGptGlmUnsupportedCustomParameterKey(key: string): boolean {
