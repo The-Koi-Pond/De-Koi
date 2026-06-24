@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { BookOpen, Bookmark, GitBranch, Paintbrush, ScrollText } from "lucide-react";
+import { BookOpen, Bookmark, Brain, GitBranch, Paintbrush, ScrollText } from "lucide-react";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { cn } from "../../../../../shared/lib/utils";
 import {
@@ -15,7 +15,6 @@ const DEFAULT_ICON_SIZE = "0.8125rem";
 interface SaveMomentActionProps {
   source: SaveMomentSource;
   onCreateSummaryDraft?: (source: SaveMomentSource) => void;
-  onBranch?: (messageId: string) => void;
   onCloneSceneFromHere?: (messageId: string) => void;
   destinations?: readonly SaveMomentDestination[];
   onDestinationSelect?: (destinationId: string, source: SaveMomentSource) => void | Promise<void>;
@@ -67,7 +66,6 @@ export function IllustrateMomentAction({
 export function SaveMomentAction({
   source,
   onCreateSummaryDraft,
-  onBranch,
   onCloneSceneFromHere,
   destinations,
   onDestinationSelect,
@@ -84,12 +82,12 @@ export function SaveMomentAction({
     () =>
       buildSaveMomentMenuItems({
         canCreateSummaryDraft: !!onCreateSummaryDraft,
-        canBranch: !!onBranch,
+        canBranch: false,
         canCloneScene: !!onCloneSceneFromHere,
         canDraftLore: true,
         destinations,
       }),
-    [destinations, onBranch, onCloneSceneFromHere, onCreateSummaryDraft],
+    [destinations, onCloneSceneFromHere, onCreateSummaryDraft],
   );
 
   useEffect(() => {
@@ -121,11 +119,6 @@ export function SaveMomentAction({
       setOpen(false);
       return;
     }
-    if (id === "branch") {
-      onBranch?.(source.messageId);
-      setOpen(false);
-      return;
-    }
     if (id === "clone-scene") {
       onCloneSceneFromHere?.(source.messageId);
       setOpen(false);
@@ -148,7 +141,7 @@ export function SaveMomentAction({
         tabIndex={tabIndex}
         className={buttonClassName}
       >
-        <Bookmark size={iconSize} />
+        <Brain size={iconSize} />
       </button>
       {open && (
         <div

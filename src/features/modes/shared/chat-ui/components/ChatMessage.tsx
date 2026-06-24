@@ -2333,7 +2333,6 @@ export const ChatMessage = memo(function ChatMessage({
               <SaveMomentAction
                 source={saveMomentSource}
                 onCreateSummaryDraft={onSaveMomentSummary}
-                onBranch={onBranch}
                 onCloneSceneFromHere={onCloneSceneFromHere}
                 destinations={saveMomentDestinations}
                 onDestinationSelect={onSaveMomentDestination}
@@ -2821,7 +2820,6 @@ export const ChatMessage = memo(function ChatMessage({
             <SaveMomentAction
               source={saveMomentSource}
               onCreateSummaryDraft={onSaveMomentSummary}
-              onBranch={onBranch}
               onCloneSceneFromHere={onCloneSceneFromHere}
               destinations={saveMomentDestinations}
               onDestinationSelect={onSaveMomentDestination}

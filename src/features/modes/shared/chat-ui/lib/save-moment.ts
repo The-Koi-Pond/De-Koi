@@ -112,7 +112,6 @@ export function applySaveMomentSummaryDraft(
 
 export function buildSaveMomentMenuItems({
   canCreateSummaryDraft,
-  canBranch,
   canCloneScene,
   canDraftLore = false,
   destinations = [],
@@ -127,7 +126,6 @@ export function buildSaveMomentMenuItems({
   const items: SaveMomentMenuItem[] = [];
   if (canCreateSummaryDraft) items.push({ id: "chat-summary", label: "Remember in chat summary" });
   if (canDraftLore) items.push({ id: "lore-draft", label: "Draft lorebook entry" });
-  if (canBranch) items.push({ id: "branch", label: "Branch from here" });
   if (canCloneScene) items.push({ id: "clone-scene", label: "Clone from here" });
   for (const destination of destinations) {
     const id = destination.id.trim();
