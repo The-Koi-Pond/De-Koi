@@ -85,6 +85,7 @@ const DEKI_INITIAL_MAX_TOKENS: u64 = 2048;
 const DEKI_POST_TOOL_MAX_TOKENS: u64 = 8192;
 const DEKI_REPO_ROOT_ENV: &str = "DE_KOI_REPO_ROOT";
 const LEGACY_DEKI_REPO_ROOT_ENV: &str = "MARINARA_REPO_ROOT";
+const DEKI_WORKSPACE_TOOLS: &[&str] = &["read", "grep", "find", "ls", "deki_data", "deki_code"];
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -555,6 +556,59 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
         "createdAt": chrono::Utc::now().to_rfc3339(),
         "action": action,
     }))
+}
+
+pub(crate) async fn deki_workspace_status(
+    state: &AppState,
+    _connection_id: Option<String>,
+) -> AppResult<Value> {
+    let workspace = deki_repo_root()
+        .ok()
+        .map(|path| path.to_string_lossy().to_string());
+    Ok(json!({
+        "enabled": false,
+        "workspace": workspace,
+        "dataDir": state.data_dir.to_string_lossy(),
+        "tools": DEKI_WORKSPACE_TOOLS,
+        "dataAccess": "server-managed",
+        "connection": Value::Null,
+        "active": false,
+        "pendingApprovals": [],
+        "history": [],
+        "error": "Deki workspace runtime is not implemented yet.",
+    }))
+}
+
+pub(crate) async fn deki_workspace_abort(_state: &AppState) -> AppResult<Value> {
+    Ok(json!({
+        "aborted": false,
+        "active": false,
+        "reason": "Deki workspace runtime is not running.",
+    }))
+}
+
+pub(crate) async fn deki_workspace_approve(_state: &AppState, id: String) -> AppResult<Value> {
+    validate_workspace_approval_id(&id)?;
+    Err(deki_workspace_not_implemented("approval apply"))
+}
+
+pub(crate) async fn deki_workspace_reject(_state: &AppState, id: String) -> AppResult<Value> {
+    validate_workspace_approval_id(&id)?;
+    Err(deki_workspace_not_implemented("approval reject"))
+}
+
+fn validate_workspace_approval_id(id: &str) -> AppResult<()> {
+    if id.trim().is_empty() {
+        return Err(AppError::invalid_input("Workspace approval id is required"));
+    }
+    Ok(())
+}
+
+fn deki_workspace_not_implemented(action: &str) -> AppError {
+    AppError::new(
+        "deki_workspace_not_implemented",
+        format!("Deki workspace {action} is not implemented yet."),
+    )
 }
 
 fn read_only_deki_action_contract() -> Value {

@@ -113,4 +113,75 @@ describe("dekiApi settings persistence", () => {
       },
     });
   });
+
+  it("preserves Deki workspace trace and history on stored messages", async () => {
+    appSettings.set("deki", {
+      id: "deki",
+      value: {
+        messages: [
+          {
+            id: "message-1",
+            role: "assistant",
+            content: "Checked the workspace.",
+            createdAt: "2026-06-24T00:00:00.000Z",
+            workspaceTrace: [
+              { type: "status", content: "Reading files" },
+              {
+                type: "tool",
+                tool: {
+                  id: "tool-1",
+                  name: "deki_code",
+                  status: "done",
+                  input: { command: "grep Deki" },
+                  output: "src/engine/deki/deki-entry.ts",
+                  updatedAt: 1760000000000,
+                },
+              },
+            ],
+            workspaceHistory: [
+              {
+                id: "history-1",
+                sessionId: "session-1",
+                command: "deki code grep Deki",
+                reason: null,
+                status: "dry-run",
+                operationHash: "hash-1",
+                affectedEntities: {},
+                affectedRows: 0,
+                validationStatus: "passed",
+                journalPath: null,
+                createdAt: "2026-06-24T00:00:00.000Z",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const result = await dekiApi.history.get();
+
+    expect(result.messages).toEqual([
+      expect.objectContaining({
+        id: "message-1",
+        workspaceTrace: [
+          { type: "status", content: "Reading files" },
+          {
+            type: "tool",
+            tool: expect.objectContaining({
+              id: "tool-1",
+              name: "deki_code",
+              status: "done",
+            }),
+          },
+        ],
+        workspaceHistory: [
+          expect.objectContaining({
+            id: "history-1",
+            command: "deki code grep Deki",
+            status: "dry-run",
+          }),
+        ],
+      }),
+    ]);
+  });
 });
