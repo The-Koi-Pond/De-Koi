@@ -40,6 +40,16 @@ type StoredMessageRecord = {
   actionApplication?: unknown;
 };
 
+type DekiActionApplyResult = {
+  entity: DekiActionEntity;
+  storageEntity: StorageEntity;
+  result: unknown;
+  resultId: string | null;
+  application: DekiActionApplication | null;
+  messages: DekiMessage[] | null;
+  compaction: DekiCompactionState | null;
+};
+
 const DEKI_ACTION_STORAGE_ENTITIES: Record<DekiActionEntity, StorageEntity> = {
   characters: "characters",
   "character-groups": "character-groups",
@@ -204,6 +214,11 @@ function parseOrderIds(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && id.trim().length > 0) : [];
 }
 
+async function waitForDekiStorageRetry(attempt: number): Promise<void> {
+  if (attempt === 0) return;
+  await new Promise((resolve) => setTimeout(resolve, attempt * 25));
+}
+
 function sanitizeDekiActionId(value: string): string {
   const sanitized = value
     .toLowerCase()
@@ -282,17 +297,23 @@ async function appendPromptChildToParentOrder(
   if (!presetId) throw new Error(`${entity} actions require a presetId.`);
   if (!childId) throw new Error(`${entity} actions must return a created record id.`);
 
-  const preset = await storageApi.get<Record<string, unknown>>("prompts", presetId);
-  if (!preset) throw new Error(`Prompt preset ${presetId} was not found.`);
-  const currentOrder = parseOrderIds(preset[orderField]);
-  if (currentOrder.includes(childId)) return;
-  await storageApi.update(
-    "prompts",
-    presetId,
-    updatePromptPresetSchema.parse({
-      [orderField]: [...currentOrder, childId],
-    }),
-  );
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await waitForDekiStorageRetry(attempt);
+    const preset = await storageApi.get<Record<string, unknown>>("prompts", presetId);
+    if (!preset) throw new Error(`Prompt preset ${presetId} was not found.`);
+    const currentOrder = parseOrderIds(preset[orderField]);
+    if (currentOrder.includes(childId)) return;
+    await storageApi.update(
+      "prompts",
+      presetId,
+      updatePromptPresetSchema.parse({
+        [orderField]: [...currentOrder, childId],
+      }),
+    );
+    const refreshed = await storageApi.get<Record<string, unknown>>("prompts", presetId).catch(() => null);
+    if (parseOrderIds(refreshed?.[orderField]).includes(childId)) return;
+  }
+  throw new Error(`${entity} action could not reconcile ${orderField} for prompt preset ${presetId}.`);
 }
 
 async function applyCreateDekiAction(
@@ -310,18 +331,39 @@ async function markDekiActionApplied(
   messageId: string,
   application: DekiActionApplication,
 ): Promise<DekiActionApplication> {
+  const status = await writeDekiActionApplication(messageId, application);
+  return status.application;
+}
+
+async function writeDekiActionApplication(
+  messageId: string,
+  application: DekiActionApplication,
+): Promise<{
+  application: DekiActionApplication;
+  messages: DekiMessage[];
+  compaction: DekiCompactionState;
+}> {
   const settings = await readSettingsValue();
   const messages = normalizeDekiMessages(settings);
+  let savedApplication: DekiActionApplication | null = null;
   const updatedMessages = messages.map((message) =>
     message.id === messageId && message.action && message.action.type !== "none"
-      ? { ...message, actionApplication: application }
+      ? (() => {
+          savedApplication = message.actionApplication?.status === "applied" ? message.actionApplication : application;
+          return { ...message, actionApplication: savedApplication };
+        })()
       : message,
   );
-  if (!messages.some((message) => message.id === messageId && message.action && message.action.type !== "none")) {
+  if (!savedApplication) {
     throw new Error("Deki-senpai action message was not found.");
   }
-  await saveSettingsPatch({ messages: updatedMessages });
-  return application;
+  const nextSettings =
+    savedApplication === application ? await saveSettingsPatch({ messages: updatedMessages }) : settings;
+  return {
+    application: savedApplication,
+    messages: normalizeDekiMessages(nextSettings),
+    compaction: normalizeDekiCompaction(nextSettings),
+  };
 }
 
 export const dekiApi = {
@@ -330,15 +372,7 @@ export const dekiApi = {
       request,
     }),
   actions: {
-    apply: async (
-      action: DekiEntryAction,
-      options?: { actionId?: string },
-    ): Promise<{
-      entity: DekiActionEntity;
-      storageEntity: StorageEntity;
-      result: unknown;
-      resultId: string | null;
-    }> => {
+    apply: async (action: DekiEntryAction, options?: { actionId?: string; messageId?: string }): Promise<DekiActionApplyResult> => {
       if (action.type === "none") {
         throw new Error("Deki-senpai did not provide an applyable action.");
       }
@@ -347,11 +381,22 @@ export const dekiApi = {
         action.type === "create_record"
           ? await applyCreateDekiAction(action, options?.actionId)
           : await storageApi.update(storageEntity, action.id, action.patch);
+      const resultId = recordId(result);
+      const appliedStatus = options?.messageId
+        ? await writeDekiActionApplication(options.messageId, {
+            status: "applied",
+            appliedAt: new Date().toISOString(),
+            resultId,
+          })
+        : null;
       return {
         entity: action.entity,
         storageEntity,
         result,
-        resultId: recordId(result),
+        resultId,
+        application: appliedStatus?.application ?? null,
+        messages: appliedStatus?.messages ?? null,
+        compaction: appliedStatus?.compaction ?? null,
       };
     },
   },

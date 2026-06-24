@@ -566,10 +566,30 @@ fn read_only_deki_action_contract() -> Value {
 }
 
 fn deki_response_content_and_action(raw_content: &str) -> AppResult<(String, Value)> {
-    let Some(start) = raw_content.find(DEKI_ACTION_OPEN_TAG) else {
+    let open_count = raw_content.matches(DEKI_ACTION_OPEN_TAG).count();
+    let close_count = raw_content.matches(DEKI_ACTION_CLOSE_TAG).count();
+    if open_count == 0 {
+        if close_count > 0 {
+            return Err(AppError::new(
+                "deki_action_invalid",
+                "Deki-senpai returned an action close tag without an opening tag.",
+            ));
+        }
         return Ok((
             raw_content.trim().to_string(),
             read_only_deki_action_contract(),
+        ));
+    }
+    if open_count != 1 || close_count != 1 {
+        return Err(AppError::new(
+            "deki_action_invalid",
+            "Deki-senpai must return exactly one action block.",
+        ));
+    }
+    let Some(start) = raw_content.find(DEKI_ACTION_OPEN_TAG) else {
+        return Err(AppError::new(
+            "deki_action_invalid",
+            "Deki-senpai returned an action block without an opening tag.",
         ));
     };
     let after_open = start + DEKI_ACTION_OPEN_TAG.len();
@@ -580,10 +600,11 @@ fn deki_response_content_and_action(raw_content: &str) -> AppResult<(String, Val
         ));
     };
     let end = after_open + relative_end;
-    if raw_content[end + DEKI_ACTION_CLOSE_TAG.len()..].contains(DEKI_ACTION_OPEN_TAG) {
+    let trailing = raw_content[end + DEKI_ACTION_CLOSE_TAG.len()..].trim();
+    if !trailing.is_empty() {
         return Err(AppError::new(
             "deki_action_invalid",
-            "Deki-senpai returned more than one action block.",
+            "Deki-senpai must place the action block after the visible response.",
         ));
     }
     let action_json = raw_content[after_open..end].trim();
@@ -596,11 +617,6 @@ fn deki_response_content_and_action(raw_content: &str) -> AppResult<(String, Val
     let action = normalize_deki_response_action(parsed)?;
     let mut content = String::new();
     content.push_str(raw_content[..start].trim());
-    let trailing = raw_content[end + DEKI_ACTION_CLOSE_TAG.len()..].trim();
-    if !content.is_empty() && !trailing.is_empty() {
-        content.push_str("\n\n");
-    }
-    content.push_str(trailing);
     let content = if content.trim().is_empty() {
         "I drafted a creative-library change for review.".to_string()
     } else {
@@ -1803,6 +1819,30 @@ mod tests {
 
         let error =
             deki_response_content_and_action(raw).expect_err("malformed action should fail");
+
+        assert_eq!(error.code, "deki_action_invalid");
+    }
+
+    #[test]
+    fn deki_response_rejects_multiple_action_blocks() {
+        let raw = r#"Draft ready.
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol"}}</deki_action>
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Luna"}}</deki_action>"#;
+
+        let error =
+            deki_response_content_and_action(raw).expect_err("duplicate actions should fail");
+
+        assert_eq!(error.code, "deki_action_invalid");
+    }
+
+    #[test]
+    fn deki_response_rejects_visible_text_after_action_block() {
+        let raw = r#"Draft ready.
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol"}}</deki_action>
+Extra visible text."#;
+
+        let error =
+            deki_response_content_and_action(raw).expect_err("trailing text after action should fail");
 
         assert_eq!(error.code, "deki_action_invalid");
     }

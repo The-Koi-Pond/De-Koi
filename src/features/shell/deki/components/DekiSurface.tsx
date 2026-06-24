@@ -64,6 +64,14 @@ const DEKI_ACTION_QUERY_KEYS: Record<DekiActionEntity, readonly (readonly unknow
   "prompt-groups": [["presets"]],
   "prompt-variables": [["presets"]],
 };
+const DEKI_CREATIVE_LIBRARY_QUERY_KEYS: readonly (readonly unknown[])[] = [
+  ["characters"],
+  ["character-groups"],
+  ["personas"],
+  ["persona-groups"],
+  ["lorebooks"],
+  ["presets"],
+];
 
 type ClientDekiAttachment = DekiAttachment & { id: string };
 
@@ -195,9 +203,20 @@ function actionPreviewRows(action: DekiEntryAction): Array<{ label: string; valu
     .slice(0, 4);
 }
 
-async function invalidateDekiActionQueries(queryClient: QueryClient, entity: DekiActionEntity) {
+function uniqueQueryKeys(queryKeys: readonly (readonly unknown[])[]): readonly (readonly unknown[])[] {
+  const seen = new Set<string>();
+  return queryKeys.filter((queryKey) => {
+    const key = JSON.stringify(queryKey);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function invalidateDekiActionQueries(queryClient: QueryClient, action: DekiEntryAction) {
+  if (action.type === "none") return;
   await Promise.all(
-    DEKI_ACTION_QUERY_KEYS[entity].map((queryKey) =>
+    uniqueQueryKeys([...DEKI_CREATIVE_LIBRARY_QUERY_KEYS, ...DEKI_ACTION_QUERY_KEYS[action.entity]]).map((queryKey) =>
       queryClient.invalidateQueries({
         queryKey,
       }),
@@ -553,51 +572,18 @@ export function DekiSurface() {
       return rest;
     });
     try {
-      const result = await dekiApi.actions.apply(action, { actionId: message.id });
-      const application = {
-        status: "applied" as const,
-        appliedAt: new Date().toISOString(),
-        resultId: result.resultId,
-      };
-      try {
-        await dekiApi.history.markActionApplied(message.id, application);
-      } catch (error) {
-        let reloadedMessages: DekiMessage[] | null = null;
-        let reloadError: unknown = null;
-        try {
-          const history = await dekiApi.history.get();
-          reloadedMessages = history.messages;
-          setMessages(history.messages);
-          setCompaction(history.compaction);
-        } catch (historyError) {
-          reloadError = historyError;
-        }
-        const persistedMessage = reloadedMessages?.find((item) => item.id === message.id);
-        if (persistedMessage?.actionApplication?.status === "applied") {
-          await invalidateDekiActionQueries(queryClient, action.entity).catch(() => undefined);
-          return;
-        }
-        const statusMessage =
-          error instanceof Error
-            ? `The change was applied, but the action card status could not be saved: ${error.message}.`
-            : "The change was applied, but the action card status could not be saved.";
-        const reloadMessage =
-          reloadError instanceof Error
-            ? ` Saved history could not be refreshed: ${reloadError.message}.`
-            : reloadError
-              ? " Saved history could not be refreshed."
-              : " Saved history was refreshed and the action is still pending there.";
-        setActionErrors((current) => ({
-          ...current,
-          [message.id]: `${statusMessage}${reloadMessage} Retry Apply to reconcile the card status.`,
-        }));
-        await invalidateDekiActionQueries(queryClient, action.entity).catch(() => undefined);
-        return;
+      const result = await dekiApi.actions.apply(action, { actionId: message.id, messageId: message.id });
+      if (result.messages && result.compaction) {
+        setMessages(result.messages);
+        setCompaction(result.compaction);
+      } else if (result.application) {
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === message.id ? { ...item, actionApplication: result.application } : item,
+          ),
+        );
       }
-      setMessages((current) =>
-        current.map((item) => (item.id === message.id ? { ...item, actionApplication: application } : item)),
-      );
-      await invalidateDekiActionQueries(queryClient, action.entity).catch((error) => {
+      await invalidateDekiActionQueries(queryClient, action).catch((error) => {
         setActionErrors((current) => ({
           ...current,
           [message.id]:
