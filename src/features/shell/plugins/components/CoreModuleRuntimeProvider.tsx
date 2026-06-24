@@ -75,7 +75,7 @@ export function CoreModuleRuntimeProvider() {
   }, [styles]);
 
   return (
-    <CoreModuleErrorBoundary onRetry={retryMeNotesLoad} resetKey={notepadLoadAttempt}>
+    <CoreModuleErrorBoundary key={notepadLoadAttempt} onRetry={retryMeNotesLoad} resetKey={notepadLoadAttempt}>
       <Suspense fallback={<CoreModuleFallback />}>
         {meNotesEnabled ? <MeNotepadModule /> : null}
       </Suspense>

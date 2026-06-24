@@ -15,5 +15,6 @@ describe("CoreModuleRuntimeProvider", () => {
     expect(providerSource).toContain("CoreModuleFallback");
     expect(providerSource).toContain("onRetry");
     expect(providerSource).toContain("useMemo(createMeNotepadModule");
+    expect(providerSource).toContain("key={notepadLoadAttempt}");
   });
 });
