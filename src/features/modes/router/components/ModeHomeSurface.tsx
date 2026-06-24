@@ -46,6 +46,22 @@ export function pickHomeSplashText(random = Math.random): string {
   return HOME_SPLASH_TEXTS[index] ?? HOME_SPLASH_TEXTS[0];
 }
 
+function HomeSplashLetters({ text }: { text: string }) {
+  return (
+    <span aria-hidden="true" className="koi-home-splash-text">
+      {Array.from(text).map((letter, index) => (
+        <span
+          key={`${letter}-${index}`}
+          className="koi-home-splash-letter"
+          style={{ "--splash-letter-index": index } as CSSProperties}
+        >
+          {letter === " " ? "\u00A0" : letter}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function ModeHomeSurface({
   discoverySurface = null,
   onOpenNoModelShowcase,
@@ -123,7 +139,7 @@ export function ModeHomeSurface({
             </div>
 
             <p className="koi-home-splash" aria-label={`Launch splash: ${homeSplashText}`}>
-              {homeSplashText}
+              <HomeSplashLetters text={homeSplashText} />
             </p>
 
             <div className="text-center">

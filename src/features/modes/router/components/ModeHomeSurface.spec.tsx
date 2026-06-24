@@ -85,7 +85,10 @@ describe("ModeHomeSurface launch splash", () => {
 
     const splash = container!.querySelector(".koi-home-splash");
     expect(splash).toBeTruthy();
-    expect([...HOME_SPLASH_TEXTS]).toContain(splash?.textContent ?? "");
+    expect([...HOME_SPLASH_TEXTS].map((text) => `Launch splash: ${text}`)).toContain(
+      splash?.getAttribute("aria-label") ?? "",
+    );
+    expect(splash?.querySelectorAll(".koi-home-splash-letter").length).toBeGreaterThan(0);
   });
 });
 
