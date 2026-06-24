@@ -1,13 +1,14 @@
-import { Component, lazy, Suspense, useEffect, type ReactNode } from "react";
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useEnabledCoreModuleStyles, useIsCoreModuleEnabled } from "../hooks/use-core-modules";
 import { ME_NOTES_MODULE_ID } from "../lib/core-module-registry";
 
 const STYLE_PREFIX = "marinara-core-module-";
-const MeNotepadModule = lazy(() =>
-  import("../notepad/MeNotepadModule").then((module) => ({ default: module.MeNotepadModule })),
-);
 
-function CoreModuleFallback({ tone = "loading" }: { tone?: "loading" | "error" }) {
+function createMeNotepadModule() {
+  return lazy(() => import("../notepad/MeNotepadModule").then((module) => ({ default: module.MeNotepadModule })));
+}
+
+function CoreModuleFallback({ tone = "loading", onRetry }: { tone?: "loading" | "error"; onRetry?: () => void }) {
   const isError = tone === "error";
   return (
     <div
@@ -15,24 +16,38 @@ function CoreModuleFallback({ tone = "loading" }: { tone?: "loading" | "error" }
       data-core-module="me-notes"
       className="fixed bottom-4 right-4 z-[90] max-w-64 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-medium text-[var(--foreground)] shadow-lg"
     >
-      {isError ? "ME Notes could not load." : "Loading ME Notes..."}
+      <div>{isError ? "ME Notes could not load." : "Loading ME Notes..."}</div>
+      {isError && onRetry ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-2 rounded-md bg-[var(--secondary)] px-2 py-1 text-[0.6875rem] font-semibold text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
+        >
+          Retry
+        </button>
+      ) : null}
     </div>
   );
 }
 
-class CoreModuleErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+class CoreModuleErrorBoundary extends Component<
+  { children: ReactNode; onRetry: () => void; resetKey: number },
+  { hasError: boolean }
+> {
   state = { hasError: false };
 
   static getDerivedStateFromError() {
     return { hasError: true };
   }
 
-  componentDidCatch(error: unknown) {
-    console.error("Core module failed to load", error);
+  componentDidUpdate(previousProps: { resetKey: number }) {
+    if (this.state.hasError && previousProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false });
+    }
   }
 
   render() {
-    if (this.state.hasError) return <CoreModuleFallback tone="error" />;
+    if (this.state.hasError) return <CoreModuleFallback tone="error" onRetry={this.props.onRetry} />;
     return this.props.children;
   }
 }
@@ -40,6 +55,9 @@ class CoreModuleErrorBoundary extends Component<{ children: ReactNode }, { hasEr
 export function CoreModuleRuntimeProvider() {
   const { data: styles = [] } = useEnabledCoreModuleStyles();
   const { data: meNotesEnabled } = useIsCoreModuleEnabled(ME_NOTES_MODULE_ID);
+  const [notepadLoadAttempt, setNotepadLoadAttempt] = useState(0);
+  const MeNotepadModule = useMemo(createMeNotepadModule, [notepadLoadAttempt]);
+  const retryMeNotesLoad = useCallback(() => setNotepadLoadAttempt((attempt) => attempt + 1), []);
 
   useEffect(() => {
     document.querySelectorAll(`style[id^="${STYLE_PREFIX}"]`).forEach((element) => element.remove());
@@ -57,7 +75,7 @@ export function CoreModuleRuntimeProvider() {
   }, [styles]);
 
   return (
-    <CoreModuleErrorBoundary key={meNotesEnabled ? "me-notes-enabled" : "me-notes-disabled"}>
+    <CoreModuleErrorBoundary onRetry={retryMeNotesLoad} resetKey={notepadLoadAttempt}>
       <Suspense fallback={<CoreModuleFallback />}>
         {meNotesEnabled ? <MeNotepadModule /> : null}
       </Suspense>

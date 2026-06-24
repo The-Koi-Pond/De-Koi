@@ -13,5 +13,7 @@ describe("CoreModuleRuntimeProvider", () => {
     expect(providerSource).toContain('import("../notepad/MeNotepadModule")');
     expect(providerSource).not.toContain("<Suspense fallback={null}>");
     expect(providerSource).toContain("CoreModuleFallback");
+    expect(providerSource).toContain("onRetry");
+    expect(providerSource).toContain("useMemo(createMeNotepadModule");
   });
 });
