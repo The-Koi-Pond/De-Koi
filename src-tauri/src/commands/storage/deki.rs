@@ -378,9 +378,6 @@ struct EditDekiCodeFileTool {}
 #[async_trait]
 impl ToolRuntime for EditDekiCodeFileTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        if !deki_write_tools_enabled() {
-            return Err(deki_write_requires_approval_error());
-        }
         let args: EditDekiCodeFileArgs = serde_json::from_value(args)
             .map_err(|error| deki_tool_error("deki_code_edit_invalid_args", error))?;
         edit_deki_code_file(&args.path, &args.old_text, &args.new_text)
@@ -415,9 +412,6 @@ struct CreateDekiExtensionTool {
 #[async_trait]
 impl ToolRuntime for CreateDekiExtensionTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        if !deki_write_tools_enabled() {
-            return Err(deki_write_requires_approval_error());
-        }
         let args: CreateDekiExtensionArgs = serde_json::from_value(args)
             .map_err(|error| deki_tool_error("deki_extension_invalid_args", error))?;
         create_deki_extension(&self.state, args)
@@ -465,9 +459,6 @@ struct CreateDekiCustomAgentTool {
 #[async_trait]
 impl ToolRuntime for CreateDekiCustomAgentTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        if !deki_write_tools_enabled() {
-            return Err(deki_write_requires_approval_error());
-        }
         let args: CreateDekiCustomAgentArgs = serde_json::from_value(args)
             .map_err(|error| deki_tool_error("deki_agent_invalid_args", error))?;
         create_deki_custom_agent(&self.state, args)
@@ -557,11 +548,11 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
     }))
 }
 
-fn read_only_deki_action_contract() -> Value {
+fn deki_workspace_action_contract() -> Value {
     json!({
         "type": "none",
         "capability": "workspace_agent",
-        "reason": "Deki-senpai can inspect De-Koi's codebase and creative library. Write tools require an explicit approval flow and are disabled for autonomous tool runs.",
+        "reason": "Deki-senpai can inspect De-Koi's codebase and creative library, apply constrained exact-match source edits, and create approved extension or custom-agent drafts through focused tools.",
     })
 }
 
@@ -577,7 +568,7 @@ fn deki_response_content_and_action(raw_content: &str) -> AppResult<(String, Val
         }
         return Ok((
             raw_content.trim().to_string(),
-            read_only_deki_action_contract(),
+            deki_workspace_action_contract(),
         ));
     }
     if open_count != 1 || close_count != 1 {
@@ -637,7 +628,7 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
         .and_then(Value::as_str)
         .unwrap_or_default();
     if action_type == "none" {
-        return Ok(read_only_deki_action_contract());
+        return Ok(deki_workspace_action_contract());
     }
     let entity = object
         .get("entity")
@@ -1101,17 +1092,6 @@ fn creative_library_snapshot(state: &AppState) -> AppResult<Value> {
 
 fn deki_tool_error(code: &str, error: impl ToString) -> ToolCallError {
     ToolCallError::RuntimeError(Box::new(AppError::new(code, error.to_string())))
-}
-
-fn deki_write_tools_enabled() -> bool {
-    false
-}
-
-fn deki_write_requires_approval_error() -> ToolCallError {
-    deki_tool_error(
-        "deki_write_requires_approval",
-        "Deki-senpai write tools require explicit user approval and are disabled for autonomous tool runs.",
-    )
 }
 
 fn default_agent_phase() -> String {
@@ -1749,6 +1729,44 @@ mod tests {
 
         assert_eq!(resolved.expect("resolve configured repo root"), expected);
     }
+
+    #[tokio::test]
+    async fn deki_edit_tool_applies_exact_source_edits() {
+        let _guard = DEKI_REPO_ENV_LOCK.lock().expect("lock repo env");
+        let previous_de_koi = std::env::var_os("DE_KOI_REPO_ROOT");
+        let previous_marinara = std::env::var_os("MARINARA_REPO_ROOT");
+        let root = unique_test_repo_root("edit-tool");
+        fs::create_dir_all(root.join("src")).expect("create src");
+        let source_path = root.join("src").join("sample.ts");
+        fs::write(&source_path, "export const label = 'before';\n").expect("write source");
+
+        std::env::set_var("DE_KOI_REPO_ROOT", &root);
+        std::env::remove_var("MARINARA_REPO_ROOT");
+        let result = EditDekiCodeFileTool {}
+            .execute(json!({
+                "path": "src/sample.ts",
+                "old_text": "before",
+                "new_text": "after"
+            }))
+            .await;
+
+        match previous_de_koi {
+            Some(value) => std::env::set_var("DE_KOI_REPO_ROOT", value),
+            None => std::env::remove_var("DE_KOI_REPO_ROOT"),
+        }
+        match previous_marinara {
+            Some(value) => std::env::set_var("MARINARA_REPO_ROOT", value),
+            None => std::env::remove_var("MARINARA_REPO_ROOT"),
+        }
+        let updated = fs::read_to_string(&source_path).expect("read updated source");
+        fs::remove_dir_all(&root).ok();
+
+        let payload = result.expect("edit tool should apply exact source edit");
+        assert_eq!(payload["path"], "src/sample.ts");
+        assert_eq!(payload["replacements"], 1);
+        assert_eq!(updated, "export const label = 'after';\n");
+    }
+
     #[test]
     fn deki_system_prompt_blocks_assistant_label_leakage_in_character_card_examples() {
         let prompt = build_system_prompt(None);
@@ -1841,8 +1859,8 @@ mod tests {
 <deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol"}}</deki_action>
 Extra visible text."#;
 
-        let error =
-            deki_response_content_and_action(raw).expect_err("trailing text after action should fail");
+        let error = deki_response_content_and_action(raw)
+            .expect_err("trailing text after action should fail");
 
         assert_eq!(error.code, "deki_action_invalid");
     }
