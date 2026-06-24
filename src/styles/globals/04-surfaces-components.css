@@ -275,6 +275,62 @@
     inset 0 1px rgba(255, 225, 190, 0.14);
 }
 
+.koi-home-hero {
+  isolation: isolate;
+}
+
+.koi-home-splash {
+  position: absolute;
+  top: 3.8rem;
+  left: calc(50% + 1rem);
+  z-index: 2;
+  max-width: 9rem;
+  color: #f6dd5b;
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  opacity: 0.86;
+  pointer-events: none;
+  text-align: center;
+  text-shadow:
+    0.055rem 0.055rem 0 #3a2608,
+    0 0 0.24rem rgba(255, 226, 88, 0.26);
+  transform: rotate(-8deg);
+  transform-origin: left center;
+  user-select: none;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 640px) {
+  .koi-home-splash {
+    top: 5.25rem;
+    left: calc(50% + 1.5rem);
+    max-width: 13rem;
+    font-size: 0.74rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .koi-home-splash {
+    left: calc(50% + 1.8rem);
+    max-width: 15rem;
+    font-size: 0.82rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .koi-home-splash {
+    top: 4rem;
+    left: calc(50% + 0.45rem);
+    max-width: 7.75rem;
+    font-size: 0.56rem;
+  }
+}
+
 .koi-start-card {
   background:
     radial-gradient(circle at 50% 8%, color-mix(in srgb, var(--quick-start-border) 10%, transparent), transparent 38%)

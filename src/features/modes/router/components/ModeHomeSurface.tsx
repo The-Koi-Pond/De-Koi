@@ -26,6 +26,25 @@ function prewarmQuickStartMode(mode: QuickStartMode): void {
   quickStartModePreloads[mode]().catch(() => preloadedQuickStartModes.delete(mode));
 }
 
+export const HOME_SPLASH_TEXTS = [
+  "Where's my pizza?",
+  "Sponsored by Donkey Kong",
+  "How'd you find this repo?!",
+  "Lamp oil? Rope? Bombs?",
+  "Cloner? I hardly know-er.",
+  '"We have AI roleplay at home!" (AI roleplay at home:)',
+  "Vibe code go BRRRRRRRR",
+  "No rules just (CODE BREAKING SOUNDS)",
+  "8008135",
+] as const;
+
+export function pickHomeSplashText(random = Math.random): string {
+  const index = Math.min(
+    HOME_SPLASH_TEXTS.length - 1,
+    Math.max(0, Math.floor(random() * HOME_SPLASH_TEXTS.length)),
+  );
+  return HOME_SPLASH_TEXTS[index] ?? HOME_SPLASH_TEXTS[0];
+}
 
 export function ModeHomeSurface({
   discoverySurface = null,
@@ -39,6 +58,7 @@ export function ModeHomeSurface({
   const applyUserStarredChatPreset = useApplyUserStarredChatPreset();
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
   const [creditsOpen, setCreditsOpen] = useState(false);
+  const [homeSplashText] = useState(() => pickHomeSplashText());
   const languageConnections = useMemo(
     () =>
       filterLanguageGenerationConnections(
@@ -86,7 +106,7 @@ export function ModeHomeSurface({
         className="koi-pond-surface flex min-w-0 flex-1 flex-col items-center overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-6"
       >
         <div className="flex w-full max-w-3xl min-w-0 flex-col items-center gap-4 py-3 sm:gap-5 sm:py-5 lg:pt-6 lg:pb-7">
-          <div className="relative">
+          <div className="koi-home-hero relative flex flex-col items-center gap-4 sm:gap-5">
             <div
               className={cn(
                 "koi-logo-tile flex h-16 w-16 items-center justify-center overflow-hidden rounded-[1.35rem] sm:h-24 sm:w-24",
@@ -101,22 +121,26 @@ export function ModeHomeSurface({
                 className="h-full w-full object-contain p-1.5 sm:p-2"
               />
             </div>
-          </div>
 
-          <div className="text-center">
-            <h3 className="koi-glow-text inline-flex items-center justify-center gap-1 text-2xl font-black sm:gap-2 sm:text-4xl">
-              <img src="/koi-mark.svg" alt="" aria-hidden="true" className="h-4 w-8 shrink-0 sm:h-5 sm:w-12" />
-              <span>De-Koi</span>
-              <img
-                src="/koi-mark.svg"
-                alt=""
-                aria-hidden="true"
-                className="h-4 w-8 shrink-0 -scale-x-100 sm:h-5 sm:w-12"
-              />
-            </h3>
-            <p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--foreground)]/80 sm:mt-3 sm:text-lg">
-              To get started, choose the type of chat you'd like to have with the AI
+            <p className="koi-home-splash" aria-label={`Launch splash: ${homeSplashText}`}>
+              {homeSplashText}
             </p>
+
+            <div className="text-center">
+              <h3 className="koi-glow-text inline-flex items-center justify-center gap-1 text-2xl font-black sm:gap-2 sm:text-4xl">
+                <img src="/koi-mark.svg" alt="" aria-hidden="true" className="h-4 w-8 shrink-0 sm:h-5 sm:w-12" />
+                <span>De-Koi</span>
+                <img
+                  src="/koi-mark.svg"
+                  alt=""
+                  aria-hidden="true"
+                  className="h-4 w-8 shrink-0 -scale-x-100 sm:h-5 sm:w-12"
+                />
+              </h3>
+              <p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--foreground)]/80 sm:mt-3 sm:text-lg">
+                To get started, choose the type of chat you'd like to have with the AI
+              </p>
+            </div>
           </div>
 
           <div
