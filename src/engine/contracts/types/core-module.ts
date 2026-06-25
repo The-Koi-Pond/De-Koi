@@ -4,7 +4,8 @@ export type CoreModulePermission =
   | "ui:styles"
   | "ui:overlay"
   | "storage:browser"
-  | "storage:plugin-memory";
+  | "storage:plugin-memory"
+  | "network:discord-webhook";
 
 type CoreModuleSource = "core";
 
