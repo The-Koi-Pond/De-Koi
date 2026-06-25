@@ -10,6 +10,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   "ui:overlay": "Overlay UI",
   "storage:browser": "Browser storage",
   "storage:plugin-memory": "Module memory",
+  "network:discord-webhook": "Discord webhook",
 };
 
 function permissionLabel(permission: string) {

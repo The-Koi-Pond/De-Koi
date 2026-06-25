@@ -1,4 +1,8 @@
-import { ME_NOTES_MODULE_ID, SPOTIFY_MINI_PLAYER_MODULE_ID } from "../../../../engine/contracts/constants/core-modules";
+import {
+  DISCORD_MIRROR_MODULE_ID,
+  ME_NOTES_MODULE_ID,
+  SPOTIFY_MINI_PLAYER_MODULE_ID,
+} from "../../../../engine/contracts/constants/core-modules";
 import type {
   CoreModuleManifest,
   CoreModuleSettings,
@@ -32,6 +36,19 @@ const CORE_MODULES: readonly CoreModuleManifest[] = [
     permissions: ["ui:settings", "ui:overlay"],
     defaultEnabled: false,
     runtime: "Desktop title-bar player and mobile floating widget",
+  },
+  {
+    id: DISCORD_MIRROR_MODULE_ID,
+    name: "Discord Mirror",
+    slug: "discord-mirror",
+    description: "Mirrors saved chat and game messages to a configured Discord webhook.",
+    version: "1.0.0",
+    source: "core",
+    main: "core-modules/discord-mirror",
+    permissions: ["ui:settings", "network:discord-webhook"],
+    defaultEnabled: false,
+    runtime: "Chat and game message webhook mirror",
+    configurable: true,
   },
 ] as const;
 
