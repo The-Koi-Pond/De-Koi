@@ -1083,11 +1083,11 @@ export function ChatSidebar({
                     event.stopPropagation();
                     void handleDeleteDekiSession(session);
                   }}
-                  className="shrink-0 rounded-md p-1 opacity-0 transition-all hover:bg-[var(--destructive)]/20 group-hover:opacity-100 max-md:opacity-100"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] opacity-0 transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--destructive)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--destructive)]/35 active:scale-90 group-hover:opacity-100 max-md:opacity-100"
                   title="Delete Deki chat"
                   aria-label={`Delete ${session.title}`}
                 >
-                  <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
+                  <Trash2 size="0.8125rem" strokeWidth={1.9} aria-hidden="true" />
                 </button>
               </div>
             );
