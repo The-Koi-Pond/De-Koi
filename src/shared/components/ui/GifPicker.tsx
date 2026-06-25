@@ -43,6 +43,8 @@ export function GifPicker({ open, onClose, onSelect, anchorRef, containerRef }: 
   const scrollRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchingRef = useRef(false);
+  const setupPanelActiveRef = useRef(false);
+  const configHydratedRef = useRef(false);
 
   // Position state for portal
   const [pos, setPos] = useState<{ bottom: number; right?: number; left?: number }>({ bottom: 0 });
@@ -96,12 +98,13 @@ export function GifPicker({ open, onClose, onSelect, anchorRef, containerRef }: 
   }, [open, onClose]);
 
   const fetchGifs = useCallback(async (q: string, pos?: string) => {
-    if (fetchingRef.current) return;
+    if (fetchingRef.current || setupPanelActiveRef.current) return;
     fetchingRef.current = true;
     setLoading(true);
     setError(null);
     try {
       const data = await gifsApi.search({ q, limit: 20, pos });
+      setupPanelActiveRef.current = false;
       if (pos) {
         setResults((prev) => [...prev, ...data.results]);
       } else {
@@ -112,10 +115,14 @@ export function GifPicker({ open, onClose, onSelect, anchorRef, containerRef }: 
       const message = err instanceof Error ? err.message : "Failed to fetch GIFs";
       setError(message);
       if (isGiphyConfigError(message)) {
-        try {
-          setGifConfig(await gifsApi.config());
-        } catch (configErr) {
-          setConfigError(configErr instanceof Error ? configErr.message : "Failed to load GIPHY settings");
+        setupPanelActiveRef.current = true;
+        if (!configHydratedRef.current) {
+          try {
+            setGifConfig(await gifsApi.config());
+            configHydratedRef.current = true;
+          } catch (configErr) {
+            setConfigError(configErr instanceof Error ? configErr.message : "Failed to load GIPHY settings");
+          }
         }
       }
     } finally {
@@ -132,6 +139,8 @@ export function GifPicker({ open, onClose, onSelect, anchorRef, containerRef }: 
       setNextPos("");
       setApiKeyDraft("");
       setConfigError(null);
+      setupPanelActiveRef.current = false;
+      configHydratedRef.current = false;
       fetchGifs("");
     }
   }, [open, fetchGifs]);
@@ -177,6 +186,8 @@ export function GifPicker({ open, onClose, onSelect, anchorRef, containerRef }: 
     setConfigError(null);
     try {
       setGifConfig(await gifsApi.updateConfig({ apiKey }));
+      configHydratedRef.current = true;
+      setupPanelActiveRef.current = false;
       setApiKeyDraft("");
       setError(null);
       fetchGifs(query);
@@ -192,13 +203,17 @@ export function GifPicker({ open, onClose, onSelect, anchorRef, containerRef }: 
     setConfigError(null);
     try {
       setGifConfig(await gifsApi.updateConfig({ apiKey: "" }));
+      configHydratedRef.current = true;
+      setupPanelActiveRef.current = false;
       setApiKeyDraft("");
+      setError(null);
+      fetchGifs(query);
     } catch (err) {
       setConfigError(err instanceof Error ? err.message : "Failed to clear GIPHY settings");
     } finally {
       setConfigSaving(false);
     }
-  }, []);
+  }, [fetchGifs, query]);
 
   if (!open) return null;
 

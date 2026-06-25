@@ -505,7 +505,9 @@ fn stored_giphy_api_key(state: &AppState) -> AppResult<Option<String>> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        return connection_secrets::decrypt_secret(state, encrypted).map(Some);
+        return Ok(connection_secrets::decrypt_secret(state, encrypted)
+            .ok()
+            .filter(|value| validate_giphy_api_key(value).is_ok()));
     }
     let Some(plain) = record
         .get(GIPHY_API_KEY_FIELD)
@@ -516,14 +518,9 @@ fn stored_giphy_api_key(state: &AppState) -> AppResult<Option<String>> {
     else {
         return Ok(None);
     };
-    validate_giphy_api_key(&plain)?;
-    state.storage.upsert_with_id(
-        "app-settings",
-        GIPHY_SETTINGS_KEY,
-        json!({
-            GIPHY_API_KEY_ENCRYPTED_FIELD: connection_secrets::encrypt_secret(state, &plain)?,
-        }),
-    )?;
+    if validate_giphy_api_key(&plain).is_err() {
+        return Ok(None);
+    }
     Ok(Some(plain))
 }
 
@@ -845,55 +842,164 @@ mod tests {
     }
     #[test]
     fn giphy_config_stores_api_key_encrypted_and_masks_reads() {
-        let state = test_state("giphy-config-secret");
+        with_giphy_env(None, || {
+            let state = test_state("giphy-config-secret");
 
-        let saved = giphy_update_config(&state, json!({ "apiKey": "giphy-secret-key" }))
-            .expect("giphy key should save");
+            let saved = giphy_update_config(&state, json!({ "apiKey": "giphy-secret-key" }))
+                .expect("giphy key should save");
 
-        assert_eq!(saved.get("hasApiKey").and_then(Value::as_bool), Some(true));
-        assert_eq!(
-            saved.get("apiKey").and_then(Value::as_str),
-            Some(connection_secrets::API_KEY_MASK)
-        );
-        let raw = state
-            .storage
-            .get("app-settings", GIPHY_SETTINGS_KEY)
-            .expect("giphy setting should read")
-            .expect("giphy setting should exist");
-        assert_ne!(
-            raw.get("apiKeyEncrypted").and_then(Value::as_str),
-            Some("giphy-secret-key")
-        );
-        assert_eq!(
-            stored_giphy_api_key(&state).expect("stored key should decrypt"),
-            Some("giphy-secret-key".to_string())
-        );
+            assert_eq!(saved.get("hasApiKey").and_then(Value::as_bool), Some(true));
+            assert_eq!(
+                saved.get("apiKey").and_then(Value::as_str),
+                Some(connection_secrets::API_KEY_MASK)
+            );
+            let raw = state
+                .storage
+                .get("app-settings", GIPHY_SETTINGS_KEY)
+                .expect("giphy setting should read")
+                .expect("giphy setting should exist");
+            assert_ne!(
+                raw.get("apiKeyEncrypted").and_then(Value::as_str),
+                Some("giphy-secret-key")
+            );
+            assert_eq!(
+                stored_giphy_api_key(&state).expect("stored key should decrypt"),
+                Some("giphy-secret-key".to_string())
+            );
 
-        let public = giphy_config(&state).expect("public config should read");
-        assert_eq!(public.get("hasApiKey").and_then(Value::as_bool), Some(true));
-        assert_eq!(
-            public.get("apiKey").and_then(Value::as_str),
-            Some(connection_secrets::API_KEY_MASK)
-        );
+            let public = giphy_config(&state).expect("public config should read");
+            assert_eq!(public.get("hasApiKey").and_then(Value::as_bool), Some(true));
+            assert_eq!(
+                public.get("apiKey").and_then(Value::as_str),
+                Some(connection_secrets::API_KEY_MASK)
+            );
+        });
     }
 
     #[test]
     fn giphy_config_clear_removes_stored_key() {
-        let state = test_state("giphy-config-clear");
+        with_giphy_env(None, || {
+            let state = test_state("giphy-config-clear");
 
-        giphy_update_config(&state, json!({ "apiKey": "giphy-secret-key" }))
-            .expect("giphy key should save");
-        let cleared =
-            giphy_update_config(&state, json!({ "apiKey": "" })).expect("giphy key should clear");
+            giphy_update_config(&state, json!({ "apiKey": "giphy-secret-key" }))
+                .expect("giphy key should save");
+            let cleared = giphy_update_config(&state, json!({ "apiKey": "" }))
+                .expect("giphy key should clear");
 
-        assert_eq!(
-            cleared.get("hasApiKey").and_then(Value::as_bool),
-            Some(false)
-        );
-        assert!(state
-            .storage
-            .get("app-settings", GIPHY_SETTINGS_KEY)
-            .expect("giphy setting should read")
-            .is_none());
+            assert_eq!(
+                cleared.get("hasApiKey").and_then(Value::as_bool),
+                Some(false)
+            );
+            assert!(state
+                .storage
+                .get("app-settings", GIPHY_SETTINGS_KEY)
+                .expect("giphy setting should read")
+                .is_none());
+        });
+    }
+    static GIPHY_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn with_giphy_env<T>(value: Option<&str>, action: impl FnOnce() -> T) -> T {
+        let _guard = GIPHY_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let previous_giphy = std::env::var("GIPHY_API_KEY").ok();
+        let previous_vite = std::env::var("VITE_GIPHY_API_KEY").ok();
+        match value {
+            Some(value) => std::env::set_var("GIPHY_API_KEY", value),
+            None => std::env::remove_var("GIPHY_API_KEY"),
+        }
+        std::env::remove_var("VITE_GIPHY_API_KEY");
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(action));
+        match previous_giphy {
+            Some(value) => std::env::set_var("GIPHY_API_KEY", value),
+            None => std::env::remove_var("GIPHY_API_KEY"),
+        }
+        match previous_vite {
+            Some(value) => std::env::set_var("VITE_GIPHY_API_KEY", value),
+            None => std::env::remove_var("VITE_GIPHY_API_KEY"),
+        }
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    #[test]
+    fn malformed_stored_giphy_key_falls_back_to_env_without_repair_write() {
+        with_giphy_env(Some("env-giphy-key"), || {
+            let state = test_state("giphy-malformed-encrypted");
+            state
+                .storage
+                .upsert_with_id(
+                    "app-settings",
+                    GIPHY_SETTINGS_KEY,
+                    json!({ GIPHY_API_KEY_ENCRYPTED_FIELD: "not-an-encrypted-secret" }),
+                )
+                .expect("malformed setting should store");
+
+            assert_eq!(
+                effective_giphy_api_key(&state).expect("env fallback should be used"),
+                "env-giphy-key"
+            );
+            let raw = state
+                .storage
+                .get("app-settings", GIPHY_SETTINGS_KEY)
+                .expect("giphy setting should read")
+                .expect("giphy setting should remain present");
+            assert_eq!(
+                raw.get(GIPHY_API_KEY_ENCRYPTED_FIELD).and_then(Value::as_str),
+                Some("not-an-encrypted-secret")
+            );
+        });
+    }
+
+    #[test]
+    fn invalid_plaintext_giphy_key_falls_back_to_env_without_repair_write() {
+        with_giphy_env(Some("env-giphy-key"), || {
+            let state = test_state("giphy-invalid-plain");
+            state
+                .storage
+                .upsert_with_id(
+                    "app-settings",
+                    GIPHY_SETTINGS_KEY,
+                    json!({ GIPHY_API_KEY_FIELD: "bad key with spaces" }),
+                )
+                .expect("invalid setting should store");
+
+            assert_eq!(
+                effective_giphy_api_key(&state).expect("env fallback should be used"),
+                "env-giphy-key"
+            );
+            let raw = state
+                .storage
+                .get("app-settings", GIPHY_SETTINGS_KEY)
+                .expect("giphy setting should read")
+                .expect("giphy setting should remain present");
+            assert_eq!(
+                raw.get(GIPHY_API_KEY_FIELD).and_then(Value::as_str),
+                Some("bad key with spaces")
+            );
+            assert!(raw.get(GIPHY_API_KEY_ENCRYPTED_FIELD).is_none());
+        });
+    }
+
+    #[test]
+    fn clearing_stored_giphy_key_exposes_env_fallback() {
+        with_giphy_env(Some("env-giphy-key"), || {
+            let state = test_state("giphy-clear-env");
+            giphy_update_config(&state, json!({ "apiKey": "stored-giphy-key" }))
+                .expect("giphy key should save");
+
+            let cleared = giphy_update_config(&state, json!({ "apiKey": "" }))
+                .expect("giphy key should clear");
+
+            assert_eq!(cleared.get("hasApiKey").and_then(Value::as_bool), Some(true));
+            assert_eq!(cleared.get("source").and_then(Value::as_str), Some("env"));
+            assert_eq!(
+                effective_giphy_api_key(&state).expect("env fallback should be used"),
+                "env-giphy-key"
+            );
+        });
     }
 }
