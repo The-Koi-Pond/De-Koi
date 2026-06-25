@@ -96,6 +96,7 @@ jobs:
               '- macOS Intel and Apple Silicon Tauri bundles, unsigned/unnotarized, using the pre-alpha app identity.',
               '- Linux x64 desktop Tauri bundles, unsigned, using the pre-alpha app identity.',
               '- Android universal debug APK, debug-signed by Android tooling, using `com.de_koi.prealpha` as the test application id.',
+              '- Raspberry Pi OS Lite ARM64 bare-metal web/runtime tarball for Caddy or nginx deployment.',
               '',
               '## Build identity',
               '',
@@ -317,6 +318,72 @@ jobs:
           TAG_NAME: ${{ needs.create-prealpha-release.outputs.tag_name }}
         run: gh release upload "${TAG_NAME}" release-assets/* --repo "${GITHUB_REPOSITORY}" --clobber
 
+  build-pi-bare-metal:
+    name: Raspberry Pi bare-metal ARM64 package
+    runs-on: ubuntu-24.04-arm
+    needs: create-prealpha-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web shell
+        run: pnpm build
+
+      - name: Build hostable runtime
+        env:
+          DE_KOI_SOURCE_COMMIT: ${{ github.sha }}
+        run: cargo build --manifest-path src-tauri/Cargo.toml --release --bin de-koi-server --no-default-features --features server
+
+      - name: Package Pi bare-metal release asset
+        shell: bash
+        env:
+          DE_KOI_SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          short_sha="${GITHUB_SHA::7}"
+          mkdir -p release-assets
+          asset="release-assets/De-Koi-PreAlpha-pi-bare-metal-arm64-v${version}-${short_sha}.tar.gz"
+          sh scripts/pi-bare-metal-package.sh "${asset}"
+          test -s "${asset}"
+          test -s "${asset}.sha256"
+
+      - name: Upload Pi bare-metal workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: prealpha-pi-bare-metal-arm64-release-assets
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Pi bare-metal assets to draft pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.create-prealpha-release.outputs.tag_name }}
+        run: gh release upload "${TAG_NAME}" release-assets/* --repo "${GITHUB_REPOSITORY}" --clobber
+
   publish-prealpha-release:
     name: Publish pre-release as not latest
     runs-on: ubuntu-latest
@@ -324,6 +391,7 @@ jobs:
       - create-prealpha-release
       - build-desktop
       - build-android
+      - build-pi-bare-metal
     permissions:
       contents: write
     steps:

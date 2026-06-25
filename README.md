@@ -42,6 +42,9 @@ Start with the smallest path that matches your setup:
 - **Use the Pi guide only for Raspberry Pi installs.** Pi users should prefer
   prebuilt ARM64 images instead of local Rust/frontend builds. See
   [Raspberry Pi Pre-Alpha Web Shell](#raspberry-pi-pre-alpha-web-shell).
+  Raspberry Pi OS Lite 64-bit users who want systemd plus Caddy/nginx without
+  Docker can use the bare-metal package path in
+  [docs/pi-bare-metal.md](docs/pi-bare-metal.md).
 
 Most first-time desktop users do not need the Remote Runtime, Docker Compose,
 Raspberry Pi setup, or validation commands. Those are for self-hosting, Pi
@@ -189,6 +192,11 @@ why port `8787` should stay private behind the web container.
 Raspberry Pi users should use the prebuilt Pi container images instead of
 building De-Koi from source on the Pi. For the shortest copy-paste path, see the
 [Pi fast install and update guide](docs/pi.md).
+
+For Raspberry Pi OS Lite 64-bit without Docker, use the
+[bare-metal Pi guide](docs/pi-bare-metal.md). It installs the prebuilt ARM64
+hostable runtime as a systemd service and serves the web shell through your own
+Caddy or nginx reverse proxy.
 
 Start or update a trusted home LAN/Tailscale Pi from the repository root:
 

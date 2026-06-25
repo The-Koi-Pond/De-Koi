@@ -22,7 +22,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .join("target")
                 .join("de-koi-server-data")
         });
-    let state = AppState::from_data_dir(data_dir, AppState::server_default_roots())?;
+    let state = AppState::from_data_dir_with_resource_dir(
+        data_dir,
+        AppState::server_default_roots(),
+        AppState::server_resource_dir(),
+    )?;
     println!("de-koi-server listening on http://{addr}");
     http_server::serve(state, addr).await?;
     Ok(())

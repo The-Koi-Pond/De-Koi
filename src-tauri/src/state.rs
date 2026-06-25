@@ -95,9 +95,37 @@ impl AppState {
     }
 
     pub fn server_default_roots() -> Vec<PathBuf> {
-        vec![PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("resources")
-            .join("default-data")]
+        let mut roots = Vec::new();
+        if let Some(resource_dir) = Self::server_resource_dir() {
+            roots.push(resource_dir.join("resources").join("default-data"));
+            roots.push(resource_dir.join("default-data"));
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(exe_dir) = exe.parent() {
+                roots.push(exe_dir.join("resources").join("default-data"));
+                roots.push(
+                    exe_dir
+                        .join("..")
+                        .join("share")
+                        .join("de-koi")
+                        .join("resources")
+                        .join("default-data"),
+                );
+            }
+        }
+        roots.push(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("resources")
+                .join("default-data"),
+        );
+        roots
+    }
+
+    pub fn server_resource_dir() -> Option<PathBuf> {
+        std::env::var_os("DE_KOI_RESOURCE_DIR")
+            .or_else(|| std::env::var_os("MARINARA_RESOURCE_DIR"))
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
     }
 
     #[cfg(feature = "desktop")]

@@ -3,6 +3,11 @@
 Use the prebuilt De-Koi Pi images. Do not run `cargo build`, `pnpm build`, or
 `docker compose build` on the Pi for normal updates.
 
+For Raspberry Pi OS Lite 64-bit installs that should run without Docker, use
+the [bare-metal Pi guide](pi-bare-metal.md). That path installs the prebuilt
+ARM64 `de-koi-server` binary as a systemd service and serves the web shell from
+Caddy or nginx.
+
 ## Home LAN Or Tailscale
 
 For a trusted home LAN or Tailscale Pi, run this from the De-Koi repository
