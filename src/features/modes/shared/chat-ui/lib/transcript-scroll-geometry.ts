@@ -51,10 +51,13 @@ export function resolveTranscriptScrollState({
   let nextUserScrolledAway = wasUserScrolledAway;
   let nextUserScrolledAt = userScrolledAt;
 
+  const scrolledTowardBottomDuringStreaming =
+    isStreaming && metrics.scrollTop > lastScrollTop + upwardScrollThresholdPx;
+
   if (scrolledUpDuringStreaming) {
     nextUserScrolledAway = true;
     nextUserScrolledAt = now;
-  } else if (isNearBottom && now - userScrolledAt > reengageDelayMs) {
+  } else if (isNearBottom && scrolledTowardBottomDuringStreaming && now - userScrolledAt > reengageDelayMs) {
     nextUserScrolledAway = false;
   }
 
@@ -81,8 +84,9 @@ export function shouldFollowTranscriptBottom({
   isStreamingWithUserTail,
   userScrolledAway,
 }: TranscriptFollowBottomInput): boolean {
+  if (userScrolledAway) return false;
   if (hasFreshForcedBottomScroll || isOptimisticTail) return true;
-  return !userScrolledAway && (isStreamingWithUserTail || isNearBottom);
+  return isStreamingWithUserTail || isNearBottom;
 }
 
 export function scheduleTranscriptScrollWrite(write: () => void): () => void {

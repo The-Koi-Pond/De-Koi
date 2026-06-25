@@ -64,6 +64,26 @@ describe("transcript scroll geometry", () => {
 
     expect(writeBottom).toHaveBeenCalledTimes(2);
   });
+  it("does not let forced or optimistic bottom jumps bypass user scroll-away", () => {
+    expect(
+      shouldFollowTranscriptBottom({
+        hasFreshForcedBottomScroll: true,
+        isNearBottom: false,
+        isOptimisticTail: false,
+        isStreamingWithUserTail: false,
+        userScrolledAway: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldFollowTranscriptBottom({
+        hasFreshForcedBottomScroll: false,
+        isNearBottom: false,
+        isOptimisticTail: true,
+        isStreamingWithUserTail: false,
+        userScrolledAway: true,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("transcript scroll state", () => {
@@ -83,10 +103,26 @@ describe("transcript scroll state", () => {
     expect(state.lastScrollTop).toBe(860);
   });
 
-  it("re-engages auto-scroll near the bottom after the user-scroll cooldown", () => {
+  it("keeps auto-scroll disengaged on stale near-bottom noise", () => {
     const state = resolveTranscriptScrollState({
       metrics: { scrollHeight: 1000, scrollTop: 920, clientHeight: 100 },
       lastScrollTop: 920,
+      wasUserScrolledAway: true,
+      userScrolledAt: 500,
+      isStreaming: true,
+      now: 900,
+    });
+
+    expect(state.isNearBottom).toBe(true);
+    expect(state.userScrolledAway).toBe(true);
+    expect(state.userScrolledAt).toBe(500);
+    expect(state.lastScrollTop).toBe(920);
+  });
+
+  it("re-engages auto-scroll after a confirmed return toward the bottom", () => {
+    const state = resolveTranscriptScrollState({
+      metrics: { scrollHeight: 1000, scrollTop: 920, clientHeight: 100 },
+      lastScrollTop: 860,
       wasUserScrolledAway: true,
       userScrolledAt: 500,
       isStreaming: true,
@@ -117,7 +153,7 @@ describe("transcript scroll state", () => {
         isNearBottom: false,
         isOptimisticTail: true,
         isStreamingWithUserTail: false,
-        userScrolledAway: true,
+        userScrolledAway: false,
       }),
     ).toBe(true);
     expect(
@@ -126,8 +162,28 @@ describe("transcript scroll state", () => {
         isNearBottom: false,
         isOptimisticTail: false,
         isStreamingWithUserTail: false,
-        userScrolledAway: true,
+        userScrolledAway: false,
       }),
     ).toBe(true);
+  });
+  it("does not let forced or optimistic bottom jumps bypass user scroll-away", () => {
+    expect(
+      shouldFollowTranscriptBottom({
+        hasFreshForcedBottomScroll: true,
+        isNearBottom: false,
+        isOptimisticTail: false,
+        isStreamingWithUserTail: false,
+        userScrolledAway: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldFollowTranscriptBottom({
+        hasFreshForcedBottomScroll: false,
+        isNearBottom: false,
+        isOptimisticTail: true,
+        isStreamingWithUserTail: false,
+        userScrolledAway: true,
+      }),
+    ).toBe(false);
   });
 });
