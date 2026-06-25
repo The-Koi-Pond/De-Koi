@@ -48,7 +48,9 @@ function normalizeChatSummaryContent(value: unknown): string {
       const summary = (parsed as Record<string, unknown>).summary;
       if (typeof summary === "string" && summary.trim()) return summary.trim();
     }
-  } catch {}
+  } catch {
+    return content;
+  }
 
   return content;
 }
