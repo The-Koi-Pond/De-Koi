@@ -70,6 +70,8 @@ const SCENE_GUIDELINES = [
   "- Continue naturally until the scene concludes or returns to the origin conversation.",
 ].join("\n");
 
+const SCENE_FALLBACK_SUMMARY_MAX_CHARS = 1200;
+
 export async function planRoleplayScene(
   capabilities: RoleplaySceneCapabilities,
   input: ScenePlanRequest,
@@ -263,6 +265,32 @@ export async function concludeRoleplayScene(
   return { summary, originChatId };
 }
 
+export async function reopenRoleplayScene(
+  storage: StorageGateway,
+  input: { sceneChatId: string },
+): Promise<{ originChatId: string }> {
+  const sceneChat = await requireChat(storage, input.sceneChatId);
+  const sceneMeta = parseJsonObject(sceneChat.metadata);
+  const originChatId = stringValue(sceneMeta.sceneOriginChatId);
+  if (!originChatId) throw new Error("Not a scene chat");
+
+  const originChat = await requireChat(storage, originChatId);
+  const originMeta = parseJsonObject(originChat.metadata);
+  const activeSceneChatId = stringValue(originMeta.activeSceneChatId);
+  if (activeSceneChatId && activeSceneChatId !== input.sceneChatId) {
+    throw new Error("The origin conversation already has another active scene");
+  }
+
+  await patchChatMetadata(storage, input.sceneChatId, { sceneStatus: "active" });
+  await patchChatMetadata(storage, originChatId, {
+    activeSceneChatId: input.sceneChatId,
+    sceneBusyCharIds: stringArray(sceneChat.characterIds),
+  });
+  await storage.update("chats", input.sceneChatId, { connectedChatId: originChatId });
+  await storage.update("chats", originChatId, { connectedChatId: input.sceneChatId });
+  return { originChatId };
+}
+
 export async function abandonRoleplayScene(
   storage: StorageGateway,
   input: { sceneChatId: string },
@@ -378,9 +406,7 @@ async function summarizeScene(
     })
     .filter(Boolean)
     .join("\n\n");
-  const fallback = transcript
-    ? `Scene summary: ${transcript.slice(0, 1200)}`
-    : "The scene ended before any substantial roleplay occurred.";
+  const fallback = fallbackSceneSummary(sceneChat, sceneMeta, messages);
 
   try {
     const connectionId = await resolveConnectionId(capabilities.storage, sceneChat, connectionOverride ?? null);
@@ -415,7 +441,7 @@ async function summarizeScene(
       ],
       parameters: { temperature: 0.7, maxTokens: 800 },
     });
-    return summary.trim() || fallback;
+    return sanitizeSceneSummary(summary, fallback);
   } catch {
     return fallback;
   }
@@ -622,6 +648,66 @@ function appendLabeledLine(lines: string[], label: string, value: string): void 
 function compactPromptText(value: unknown, limit: number): string {
   const text = stringValue(value).replace(/\s+/g, " ").trim();
   return text.length > limit ? `${text.slice(0, limit - 3).trimEnd()}...` : text;
+}
+
+function fallbackSceneSummary(sceneChat: JsonRecord, sceneMeta: JsonRecord, messages: StoredMessage[]): string {
+  const description = sentenceBoundaryTrim(stripSummaryLabels(stringValue(sceneMeta.sceneDescription)), 320);
+  const recentBeats = sentenceBoundaryTrim(
+    messages
+      .map((message) => stripSummaryLabels(stringValue(message.content)))
+      .map((content) => content.replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .join(" "),
+    SCENE_FALLBACK_SUMMARY_MAX_CHARS,
+  );
+  const lines: string[] = [];
+  if (description) lines.push(ensureTerminalPunctuation(description));
+  if (recentBeats) lines.push(`Recent scene beats: ${ensureTerminalPunctuation(recentBeats)}`);
+
+  const fallback = lines.join("\n\n").trim();
+  if (fallback) return fallback;
+
+  const sceneName = stringValue(sceneChat.name)
+    .replace(/^Scene:\s*/i, "")
+    .trim();
+  return sceneName
+    ? `The scene "${sceneName}" ended before any substantial roleplay occurred.`
+    : "The scene ended before any substantial roleplay occurred.";
+}
+
+function sanitizeSceneSummary(raw: string, fallback: string): string {
+  const summary = sentenceBoundaryTrim(stripSummaryLabels(raw), 2400);
+  return summary ? ensureTerminalPunctuation(summary) : fallback;
+}
+
+function stripSummaryLabels(value: string): string {
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/^\s*(?:scene\s+summary|summary)\s*:\s*/i, "")
+    .replace(/(^|\n)\s*(?:assistant|narrator|user|system|tool)\s*:\s*/gi, "$1")
+    .trim();
+}
+
+function sentenceBoundaryTrim(value: string, limit: number): string {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (!text || text.length <= limit) return text;
+
+  const candidate = text.slice(0, limit).trimEnd();
+  const sentenceEndings = Array.from(candidate.matchAll(/[.!?](?=\s|$)/g));
+  const lastSentence = sentenceEndings.at(-1);
+  if (lastSentence?.index !== undefined && lastSentence.index > limit * 0.45) {
+    return candidate.slice(0, lastSentence.index + 1).trim();
+  }
+
+  const lastSpace = candidate.lastIndexOf(" ");
+  const wordBoundary = lastSpace > limit * 0.45 ? candidate.slice(0, lastSpace) : candidate;
+  return `${wordBoundary.trimEnd()}...`;
+}
+
+function ensureTerminalPunctuation(value: string): string {
+  const text = value.trim();
+  if (!text) return text;
+  return /[.!?]$/.test(text) ? text : `${text}.`;
 }
 
 function uniqueStrings(values: string[]): string[] {

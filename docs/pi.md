@@ -140,3 +140,9 @@ ghcr.io/the-koi-pond/de-koi-web:prealpha
 
 The Pi only pulls images and recreates containers. Source builds are still
 available for contributors, but they can take 30-40+ minutes on Pi hardware.
+
+The server image includes a read-only source snapshot at /app, and the Pi
+compose file sets DE_KOI_REPO_ROOT=/app so Deki-senpai can inspect current
+De-Koi code. If you mount a different checkout into the container, point
+DE_KOI_REPO_ROOT at that repository root; it must contain AGENTS.md and
+package.json.

@@ -3,6 +3,8 @@ export type DekiMessage = {
   role: "user" | "assistant";
   content: string;
   createdAt: string;
+  action?: DekiEntryAction | null;
+  actionApplication?: DekiActionApplication | null;
 };
 
 export type DekiAttachment = {
@@ -70,12 +72,18 @@ export type DekiEntryAction =
       rationale?: string;
     };
 
+export type DekiActionApplication = {
+  status: "applied";
+  appliedAt: string;
+  resultId?: string | null;
+};
+
 const DEKI_DEFAULT_ACTION_REASON =
-  "Deki-senpai can inspect De-Koi's codebase, create extension/custom-agent records, and apply exact code edits through approved workspace tools.";
+  "Deki-senpai returned a plain response with no pending UI approval action.";
 
 const DEKI_DEFAULT_ACTION: DekiEntryAction = {
   type: "none",
-  capability: "workspace_agent",
+  capability: "read_only",
   reason: DEKI_DEFAULT_ACTION_REASON,
 };
 
@@ -105,9 +113,7 @@ export async function runDekiEntry(input: DekiEntryRequest, gateway: DekiGateway
   });
   const content = typeof response.content === "string" ? response.content : "";
   if (!content.trim()) {
-    throw new Error(
-      "Deki-senpai returned an empty response. Try again or select a different tool-capable connection.",
-    );
+    throw new Error("Deki-senpai returned an empty response. Try again or select a different tool-capable connection.");
   }
   return {
     ...response,
@@ -116,7 +122,7 @@ export async function runDekiEntry(input: DekiEntryRequest, gateway: DekiGateway
   };
 }
 
-function normalizeDekiEntryAction(value: unknown): DekiEntryAction {
+export function normalizeDekiEntryAction(value: unknown): DekiEntryAction {
   if (!isRecord(value)) return DEKI_DEFAULT_ACTION;
   if (value.type === "none" && (value.capability === "read_only" || value.capability === "workspace_agent")) {
     return {

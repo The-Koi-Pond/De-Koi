@@ -779,6 +779,20 @@ async function illustratorAgentSettings(storage: StorageGateway, agentId: string
   return isRecord(agent) ? parseRecord(agent.settings) : {};
 }
 
+export async function resolveIllustrationImageConnectionId(args: {
+  storage: StorageGateway;
+  chat: JsonRecord;
+  agentId: string;
+}): Promise<string> {
+  const meta = parseRecord(args.chat.metadata);
+  const settings = await illustratorAgentSettings(args.storage, args.agentId);
+  return (
+    readString(settings.imageConnectionId).trim() ||
+    readString(meta.illustrationImageConnectionId).trim() ||
+    (await defaultAgentImageConnectionId(args.storage))
+  );
+}
+
 async function illustrationImageSettings(args: {
   storage: StorageGateway;
   chat: JsonRecord;
@@ -786,11 +800,11 @@ async function illustrationImageSettings(args: {
 }): Promise<IllustrationImageSettings> {
   const meta = parseRecord(args.chat.metadata);
   const settings = await illustratorAgentSettings(args.storage, args.item.agentId);
-  const connectionId =
-    readString(settings.imageConnectionId).trim() ||
-    readString(meta.illustrationImageConnectionId).trim() ||
-    readString(meta.imageGenConnectionId).trim() ||
-    (await defaultAgentImageConnectionId(args.storage));
+  const connectionId = await resolveIllustrationImageConnectionId({
+    storage: args.storage,
+    chat: args.chat,
+    agentId: args.item.agentId,
+  });
   return {
     connectionId,
     positivePrompt:

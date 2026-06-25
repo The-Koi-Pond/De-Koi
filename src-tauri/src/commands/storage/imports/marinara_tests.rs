@@ -1119,3 +1119,135 @@ fn marinara_preset_import_remaps_root_child_order_arrays() {
         );
     }
 }
+
+#[test]
+fn marinara_preset_imports_universal_v2_artifact() {
+    let state = test_state("universal-v2-preset");
+    let envelope: Value = serde_json::from_str(include_str!(
+        "../../../../../docs/presets/de-koi-universal-preset-v2.marinara.json"
+    ))
+    .expect("universal preset v2 fixture should parse");
+    let imported =
+        import_marinara_envelope(&state, envelope).expect("universal preset v2 should import");
+    let preset_id = test_string(&imported, "id");
+
+    let preset = state
+        .storage
+        .get("prompts", preset_id)
+        .expect("preset should be readable")
+        .expect("preset should exist");
+    assert_eq!(
+        preset.get("name").and_then(Value::as_str),
+        Some("De-Koi Universal Preset V2")
+    );
+    assert_eq!(preset.get("isDefault"), Some(&json!(false)));
+
+    let sections = state
+        .storage
+        .list("prompt-sections")
+        .expect("sections should be readable")
+        .into_iter()
+        .filter(|section| section.get("presetId").and_then(Value::as_str) == Some(preset_id))
+        .collect::<Vec<_>>();
+    let groups = state
+        .storage
+        .list("prompt-groups")
+        .expect("groups should be readable")
+        .into_iter()
+        .filter(|group| group.get("presetId").and_then(Value::as_str) == Some(preset_id))
+        .collect::<Vec<_>>();
+    let variables = state
+        .storage
+        .list("prompt-variables")
+        .expect("variables should be readable")
+        .into_iter()
+        .filter(|variable| variable.get("presetId").and_then(Value::as_str) == Some(preset_id))
+        .collect::<Vec<_>>();
+
+    assert_eq!(sections.len(), 13);
+    assert_eq!(groups.len(), 1);
+    assert_eq!(variables.len(), 10);
+
+    let marker_types = sections
+        .iter()
+        .filter_map(|section| {
+            section
+                .get("markerConfig")
+                .and_then(|config| config.get("type"))
+                .and_then(Value::as_str)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        marker_types,
+        vec![
+            "lorebook",
+            "character",
+            "persona",
+            "chat_summary",
+            "dialogue_examples",
+            "chat_history"
+        ]
+    );
+
+    let default_choices = preset
+        .get("defaultChoices")
+        .and_then(Value::as_object)
+        .expect("default choices should remain an object");
+    for variable_name in [
+        "mode",
+        "contentBoundary",
+        "agencyStrictness",
+        "pacing",
+        "styleFlavor",
+        "narration",
+        "pov",
+        "tense",
+        "length",
+        "language",
+    ] {
+        assert!(
+            variables.iter().any(
+                |variable| variable.get("variableName").and_then(Value::as_str)
+                    == Some(variable_name)
+            ),
+            "choice variable {variable_name} should import"
+        );
+        assert!(
+            default_choices.contains_key(variable_name),
+            "default choice {variable_name} should import"
+        );
+    }
+
+    for (field, records) in [
+        ("sectionOrder", &sections),
+        ("groupOrder", &groups),
+        ("variableOrder", &variables),
+    ] {
+        let imported_ids = records
+            .iter()
+            .map(|record| test_string(record, "id"))
+            .collect::<Vec<_>>();
+        let order = preset
+            .get(field)
+            .and_then(Value::as_array)
+            .expect("order field should remain an array")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            order.len(),
+            imported_ids.len(),
+            "{field} should include every imported child"
+        );
+        assert!(
+            order.iter().all(|id| imported_ids.contains(id)),
+            "{field} should reference remapped child ids"
+        );
+        assert!(
+            !order.iter().any(|id| id.starts_with("section_v2_")
+                || id.starts_with("group_v2_")
+                || id.starts_with("choice_v2_")),
+            "{field} should not keep fixture ids"
+        );
+    }
+}

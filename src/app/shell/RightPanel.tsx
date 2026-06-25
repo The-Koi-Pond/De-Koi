@@ -1,37 +1,18 @@
-// ──────────────────────────────────────────────
 // Layout: Right Panel (polished with panel transitions)
-// ──────────────────────────────────────────────
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
 import { X, Users, BookOpen, FileText, Link, Sparkles, Settings, User, Bot, Images } from "lucide-react";
 import { useUIStore } from "../../shared/stores/ui.store";
+import { RIGHT_PANEL_LOADERS } from "./right-panel-loaders";
 
-const CharactersPanel = lazy(() =>
-  import("../../features/catalog/characters/panel").then((module) => ({ default: module.CharactersPanel })),
-);
-const LorebooksPanel = lazy(() =>
-  import("../../features/catalog/lorebooks/shell").then((module) => ({ default: module.LorebooksPanel })),
-);
-const PresetsPanel = lazy(() =>
-  import("../../features/catalog/presets/shell").then((module) => ({ default: module.PresetsPanel })),
-);
-const ConnectionsPanel = lazy(() =>
-  import("../../features/shell/connections/shell").then((module) => ({ default: module.ConnectionsPanel })),
-);
-const AgentsPanel = lazy(() =>
-  import("../../features/catalog/agents/shell").then((module) => ({ default: module.AgentsPanel })),
-);
-const PersonasPanel = lazy(() =>
-  import("../../features/catalog/personas/shell").then((module) => ({ default: module.PersonasPanel })),
-);
-const GlobalGalleryPanel = lazy(() =>
-  import("../../features/catalog/gallery/shell").then((module) => ({ default: module.GlobalGalleryPanel })),
-);
-const SettingsPanel = lazy(() =>
-  import("../../features/shell/settings/shell").then((module) => ({ default: module.SettingsPanel })),
-);
-const BotBrowserPanel = lazy(() =>
-  import("../../features/shell/bot-browser/shell").then((module) => ({ default: module.BotBrowserPanel })),
-);
+const BotBrowserPanel = lazy(RIGHT_PANEL_LOADERS["bot-browser"]);
+const CharactersPanel = lazy(RIGHT_PANEL_LOADERS.characters);
+const LorebooksPanel = lazy(RIGHT_PANEL_LOADERS.lorebooks);
+const PresetsPanel = lazy(RIGHT_PANEL_LOADERS.presets);
+const ConnectionsPanel = lazy(RIGHT_PANEL_LOADERS.connections);
+const AgentsPanel = lazy(RIGHT_PANEL_LOADERS.agents);
+const PersonasPanel = lazy(RIGHT_PANEL_LOADERS.personas);
+const GlobalGalleryPanel = lazy(RIGHT_PANEL_LOADERS.gallery);
+const SettingsPanel = lazy(RIGHT_PANEL_LOADERS.settings);
 
 const PANEL_CONFIG: Record<string, { title: string; icon: ReactNode; gradient: string }> = {
   "bot-browser": { title: "Browser", icon: <Bot size="0.875rem" />, gradient: "from-cyan-400 to-blue-500" },

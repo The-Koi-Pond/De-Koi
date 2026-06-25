@@ -8,6 +8,7 @@ import {
   LOCAL_SIDECAR_CONNECTION_ID,
   type LocalSidecarStatusResponse,
 } from "../../../../engine/contracts/types/sidecar";
+import { ApiError } from "../../../../shared/api/api-errors";
 import { localSidecarApi } from "../../../../shared/api/local-sidecar-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { cn } from "../../../../shared/lib/utils";
@@ -43,6 +44,12 @@ type TrackerAssignmentSummary = {
   failedAgents: Array<{ name: string; message: string }>;
 };
 
+function isAdminAccessError(error: unknown): boolean {
+  if (!(error instanceof ApiError) || !error.details || typeof error.details !== "object") return false;
+  const code = (error.details as { code?: unknown }).code;
+  return code === "admin_access_required" || code === "admin_access_invalid";
+}
+
 export function LocalSidecarCard() {
   const queryClient = useQueryClient();
   const { data: agentConfigs } = useAgentConfigs();
@@ -55,9 +62,11 @@ export function LocalSidecarCard() {
   const [busy, setBusy] = useState<string | null>(null);
   const [assigningTrackers, setAssigningTrackers] = useState(false);
   const [trackerAssignmentSummary, setTrackerAssignmentSummary] = useState<TrackerAssignmentSummary | null>(null);
+  const [statusLoadError, setStatusLoadError] = useState<string | null>(null);
 
   const applyStatus = useCallback(
     (next: LocalSidecarStatusResponse) => {
+      setStatusLoadError(null);
       setStatus(next);
       void queryClient.invalidateQueries({ queryKey: connectionKeys.list() });
     },
@@ -79,7 +88,11 @@ export function LocalSidecarCard() {
         if (!cancelled) applyStatus(next);
       })
       .catch((error) => {
-        if (!cancelled) toast.error(error instanceof Error ? error.message : "Failed to load Local AI Model status");
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : "Failed to load Local AI Model status";
+          setStatusLoadError(isAdminAccessError(error) ? "Admin Access required for remote Local Model status" : message);
+          if (!isAdminAccessError(error)) toast.error(message);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -119,7 +132,9 @@ export function LocalSidecarCard() {
   const downloadPercent = progressPercent(status?.download?.downloaded ?? 0, status?.download?.total ?? 0);
   const modelSummary = hasModel
     ? `${status?.modelDisplayName ?? "Model"} - GGUF${status?.modelSize ? ` - ${formatBytes(status.modelSize)}` : ""}`
-    : "Not downloaded";
+    : statusLoadError
+      ? statusLoadError
+      : "Not downloaded";
   const runtimeSummary = hasRuntime
     ? status?.runtime?.installed
       ? (runtimeVariantLabel(status.runtime.variant) ?? "runtime installed")

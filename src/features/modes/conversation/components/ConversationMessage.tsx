@@ -349,6 +349,18 @@ export const ConversationMessage = memo(function ConversationMessage({
     return map;
   }, [scopedCharacterMap, message.characterId]);
 
+  const charIdByName = useMemo(() => {
+    if (!scopedCharacterMap) return null;
+    const map = new Map<string, string>();
+    for (const [id, v] of scopedCharacterMap) {
+      if (v) {
+        const key = v.name.toLowerCase();
+        if (id === message.characterId) map.set(key, id);
+        else if (!map.has(key)) map.set(key, id);
+      }
+    }
+    return map;
+  }, [scopedCharacterMap, message.characterId]);
   const mentionNames = useMemo(() => {
     if (!scopedCharacterMap) return [] as string[];
     const names: string[] = [];
@@ -613,6 +625,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     groupedSegments,
     visibleSegments,
     charByName,
+    charIdByName,
     attachments,
     translatedText,
     isTranslating,

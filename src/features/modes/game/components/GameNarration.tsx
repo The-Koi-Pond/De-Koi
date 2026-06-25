@@ -3868,11 +3868,6 @@ export function GameNarration({
                       const saveMomentButton = saveMomentSource ? (
                         <SaveMomentAction
                           source={saveMomentSource}
-                          onBranch={
-                            canBranchFromMessage
-                              ? (messageId) => onBranchMessage?.(messageId, sourceSegmentIndex)
-                              : undefined
-                          }
                           destinations={saveMomentDestinations}
                           onDestinationSelect={onSaveMomentDestination}
                           buttonClassName="rounded p-1 text-white/45 opacity-100 transition-all hover:bg-white/10 hover:text-white/60 md:text-white/20 md:opacity-0 md:group-hover/logseg:opacity-100"

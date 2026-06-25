@@ -136,6 +136,7 @@ export interface ConversationMessageRenderContext {
   groupedSegments: GroupedSegment[] | null;
   visibleSegments: number;
   charByName: Map<string, ConversationCharacterInfo> | null;
+  charIdByName: Map<string, string> | null;
   attachments: MessageAttachment[];
   translatedText?: string | null;
   isTranslating: boolean;
@@ -467,7 +468,7 @@ export function MessageSelectCheckbox({ isSelected }: { isSelected?: boolean }) 
   );
 }
 
-export function StreamingPendingIndicator({
+function StreamingPendingIndicator({
   label,
   displayName,
   className,

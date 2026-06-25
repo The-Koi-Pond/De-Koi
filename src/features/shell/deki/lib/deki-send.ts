@@ -1,6 +1,7 @@
 import {
   runDekiEntry,
   type DekiAttachment,
+  type DekiEntryAction,
   type DekiGateway,
   type DekiMessage,
   type DekiPersonaContext,
@@ -18,6 +19,7 @@ type DekiHistoryWriter = {
     sessionId?: string | null;
     role: "user" | "assistant";
     content: string;
+    action?: DekiEntryAction | null;
   }): Promise<DekiMessage>;
   saveCompaction(sessionId: string | null | undefined, compaction: DekiCompactionState): Promise<DekiCompactionState>;
 };
@@ -86,6 +88,7 @@ export async function runDetachedDekiSend(input: DetachedDekiSendInput): Promise
     sessionId: input.sessionId,
     role: "assistant",
     content: response.content,
+    action: response.action,
   });
   const messagesWithAssistant = [...messagesWithUser, assistant];
   await input.onAssistantMessagePersisted?.(assistant, messagesWithAssistant);

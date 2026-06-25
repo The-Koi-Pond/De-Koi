@@ -305,6 +305,37 @@
   overflow-wrap: anywhere;
 }
 
+.koi-home-splash-text {
+  display: inline-block;
+}
+
+.koi-home-splash-letter {
+  display: inline-block;
+  transform: translateY(0);
+  animation: koi-home-splash-letter-bounce 3.2s ease-in-out infinite;
+  animation-delay: calc(var(--splash-letter-index) * 42ms);
+}
+
+@keyframes koi-home-splash-letter-bounce {
+  0%,
+  74%,
+  100% {
+    transform: translateY(0);
+  }
+  82% {
+    transform: translateY(-0.06em);
+  }
+  90% {
+    transform: translateY(0.025em);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .koi-home-splash-letter {
+    animation: none;
+  }
+}
+
 @media (min-width: 640px) {
   .koi-home-splash {
     top: 5.25rem;

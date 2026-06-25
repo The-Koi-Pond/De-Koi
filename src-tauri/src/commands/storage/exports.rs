@@ -271,7 +271,7 @@ pub(crate) fn export_lorebooks(state: &AppState, body: Value) -> AppResult<Value
                 if format == Some("compatible") {
                     "json"
                 } else {
-                    "marinara.json"
+                    "dekoi.json"
                 }
             ),
             &item,
@@ -287,7 +287,7 @@ pub(crate) fn export_lorebooks(state: &AppState, body: Value) -> AppResult<Value
         if format == Some("compatible") {
             "compatible-lorebooks.zip"
         } else {
-            "marinara-lorebooks.zip"
+            "de-koi-lorebooks.zip"
         },
     ))
 }
@@ -296,7 +296,7 @@ pub(crate) fn export_compatible_profile(state: &AppState) -> AppResult<Value> {
     Ok(binary_download(
         export_compatible_profile_bytes(state)?,
         "application/zip",
-        "marinara-compatible-export.zip",
+        "de-koi-compatible-export.zip",
     ))
 }
 
@@ -510,7 +510,7 @@ fn export_named_records(
             &format!(
                 "{}.{}",
                 safe_export_name(&name, &fallback),
-                if compatible { "json" } else { "marinara.json" }
+                if compatible { "json" } else { "dekoi.json" }
             ),
             &item,
         )?;
@@ -866,11 +866,11 @@ fn singular_export_name(collection: &str) -> &'static str {
 fn named_zip_filename(collection: &str, compatible: bool) -> &'static str {
     match (collection, compatible) {
         ("characters", true) => "compatible-characters.zip",
-        ("characters", false) => "marinara-characters.zip",
+        ("characters", false) => "de-koi-characters.zip",
         ("personas", true) => "compatible-personas.zip",
-        ("personas", false) => "marinara-personas.zip",
-        ("prompts", _) => "marinara-presets.zip",
-        _ => "marinara-records.zip",
+        ("personas", false) => "de-koi-personas.zip",
+        ("prompts", _) => "de-koi-presets.zip",
+        _ => "de-koi-records.zip",
     }
 }
 
@@ -1452,7 +1452,7 @@ mod tests {
         );
         assert_eq!(
             export.get("filename").and_then(Value::as_str),
-            Some("marinara-characters.zip")
+            Some("de-koi-characters.zip")
         );
     }
 

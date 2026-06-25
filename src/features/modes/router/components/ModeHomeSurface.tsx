@@ -39,11 +39,24 @@ export const HOME_SPLASH_TEXTS = [
 ] as const;
 
 export function pickHomeSplashText(random = Math.random): string {
-  const index = Math.min(
-    HOME_SPLASH_TEXTS.length - 1,
-    Math.max(0, Math.floor(random() * HOME_SPLASH_TEXTS.length)),
-  );
+  const index = Math.min(HOME_SPLASH_TEXTS.length - 1, Math.max(0, Math.floor(random() * HOME_SPLASH_TEXTS.length)));
   return HOME_SPLASH_TEXTS[index] ?? HOME_SPLASH_TEXTS[0];
+}
+
+function HomeSplashLetters({ text }: { text: string }) {
+  return (
+    <span aria-hidden="true" className="koi-home-splash-text">
+      {Array.from(text).map((letter, index) => (
+        <span
+          key={`${letter}-${index}`}
+          className="koi-home-splash-letter"
+          style={{ "--splash-letter-index": index } as CSSProperties}
+        >
+          {letter === " " ? "\u00A0" : letter}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 export function ModeHomeSurface({
@@ -61,9 +74,9 @@ export function ModeHomeSurface({
   const [homeSplashText] = useState(() => pickHomeSplashText());
   const languageConnections = useMemo(
     () =>
-      filterLanguageGenerationConnections(
-        (connections ?? []) as Array<{ id: string; provider?: string }>,
-      ).filter((connection) => !!connection.id),
+      filterLanguageGenerationConnections((connections ?? []) as Array<{ id: string; provider?: string }>).filter(
+        (connection) => !!connection.id,
+      ),
     [connections],
   );
   const hasLanguageConnections = languageConnections.length > 0;
@@ -123,7 +136,7 @@ export function ModeHomeSurface({
             </div>
 
             <p className="koi-home-splash" aria-label={`Launch splash: ${homeSplashText}`}>
-              {homeSplashText}
+              <HomeSplashLetters text={homeSplashText} />
             </p>
 
             <div className="text-center">

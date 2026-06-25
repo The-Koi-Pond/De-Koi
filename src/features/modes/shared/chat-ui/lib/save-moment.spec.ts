@@ -3,11 +3,32 @@ import { describe, expect, it } from "vitest";
 import {
   applySaveMomentSummaryDraft,
   buildSaveMomentExportText,
+  buildSaveMomentSource,
   buildSaveMomentMenuItems,
   buildSaveMomentSummaryDraft,
 } from "./save-moment";
 
 describe("save moment", () => {
+  it("builds a canonical source payload for message actions", () => {
+    expect(
+      buildSaveMomentSource({
+        chatId: "chat-7",
+        messageId: "msg-42",
+        role: "assistant",
+        speakerName: undefined,
+        createdAt: undefined,
+        content: "The lighthouse finally answered back.",
+      }),
+    ).toEqual({
+      chatId: "chat-7",
+      messageId: "msg-42",
+      role: "assistant",
+      speakerName: null,
+      createdAt: null,
+      content: "The lighthouse finally answered back.",
+    });
+  });
+
   it("builds an export snippet with source message metadata", () => {
     const text = buildSaveMomentExportText({
       chatId: "chat-7",
@@ -32,29 +53,27 @@ describe("save moment", () => {
     );
   });
 
-  it("only exposes destinations backed by the current message surface", () => {
+  it("omits duplicate copy and branch actions already exposed by the parent message surface", () => {
     const items = buildSaveMomentMenuItems({
       canCreateSummaryDraft: true,
-      canIllustrate: false,
       canBranch: true,
       canCloneScene: false,
       canDraftLore: true,
     });
 
-    expect(items.map((item) => item.id)).toEqual(["copy-snippet", "chat-summary", "lore-draft", "branch"]);
+    expect(items.map((item) => item.id)).toEqual(["chat-summary", "lore-draft"]);
+    expect(items.find((item) => item.id === "chat-summary")?.label).toBe("Remember in chat summary");
+    expect(items.find((item) => item.id === "lore-draft")?.label).toBe("Draft lorebook entry");
   });
 
-
-  it("exposes illustration as a source-message destination when the surface can illustrate", () => {
+  it("leaves illustration out of the remember menu", () => {
     const items = buildSaveMomentMenuItems({
       canCreateSummaryDraft: false,
-      canIllustrate: true,
       canBranch: true,
       canCloneScene: false,
     });
 
-    expect(items.map((item) => item.id)).toEqual(["copy-snippet", "illustrate-moment", "branch"]);
-    expect(items.find((item) => item.id === "illustrate-moment")?.label).toBe("Illustrate this moment");
+    expect(items.map((item) => item.id)).toEqual([]);
   });
 
   it("builds a chat summary draft from source message metadata", () => {
@@ -115,7 +134,6 @@ describe("save moment", () => {
     });
 
     expect(items.map((item) => item.id)).toEqual([
-      "copy-snippet",
       "clone-scene",
       "destination:game-journal-note",
       "destination:game-checkpoint",

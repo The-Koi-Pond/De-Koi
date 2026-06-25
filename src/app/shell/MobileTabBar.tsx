@@ -4,6 +4,7 @@ import { TOOLS_PANELS, type MobileToolsPanel } from "../../shared/components/mob
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 import { cn } from "../../shared/lib/utils";
+import { preloadRightPanelPanel } from "./right-panel-loaders";
 
 export function MobileTabBar({
   dekiOpen,
@@ -58,6 +59,7 @@ export function MobileTabBar({
   };
 
   const openPanel = (panel: MobileToolsPanel) => {
+    preloadRightPanelPanel(panel);
     const wasThisPanel = rightPanelOpen && rightPanel === panel;
     closeAll();
     if (!wasThisPanel) openRightPanel(panel);
@@ -87,7 +89,11 @@ export function MobileTabBar({
           aria-label="Tools panels"
           tabIndex={-1}
           className="fixed left-0 right-0 max-h-[70dvh] overflow-y-auto rounded-t-3xl border-t border-[var(--border)]/50 bg-[var(--card)] shadow-2xl backdrop-blur-2xl animate-fade-in-up md:hidden"
-          style={{ zIndex: 70, bottom: "calc(3.5rem + env(safe-area-inset-bottom))", paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))" }}
+          style={{
+            zIndex: 70,
+            bottom: "calc(3.5rem + env(safe-area-inset-bottom))",
+            paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))",
+          }}
         >
           <p className="px-5 pt-6 pb-3 text-[0.7rem] font-semibold uppercase tracking-widest text-[var(--muted-foreground)]/60">
             Panels
@@ -99,6 +105,9 @@ export function MobileTabBar({
                 <button
                   key={panel}
                   type="button"
+                  onFocus={() => preloadRightPanelPanel(panel)}
+                  onPointerEnter={() => preloadRightPanelPanel(panel)}
+                  onPointerDown={() => preloadRightPanelPanel(panel)}
                   onClick={() => openPanel(panel)}
                   className={cn(
                     "flex items-center gap-3 rounded-2xl border p-4 text-left transition-all active:scale-95",
@@ -115,7 +124,12 @@ export function MobileTabBar({
                   >
                     <Icon size="1rem" />
                   </div>
-                  <span className={cn("text-sm font-semibold", isActive ? "text-[var(--primary)]" : "text-[var(--foreground)]")}>
+                  <span
+                    className={cn(
+                      "text-sm font-semibold",
+                      isActive ? "text-[var(--primary)]" : "text-[var(--foreground)]",
+                    )}
+                  >
                     {label}
                   </span>
                 </button>

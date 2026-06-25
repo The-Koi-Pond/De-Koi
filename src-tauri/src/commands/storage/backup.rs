@@ -469,7 +469,7 @@ pub(crate) fn download_profile_zip(state: &AppState) -> AppResult<Value> {
     let bytes = download_profile_zip_bytes(state)?;
     Ok(json!({
         "base64": general_purpose::STANDARD.encode(bytes),
-        "filename": "marinara-profile.zip",
+        "filename": "de-koi-profile.zip",
         "contentType": "application/zip",
     }))
 }

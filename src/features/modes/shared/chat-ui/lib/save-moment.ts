@@ -9,6 +9,17 @@ export interface SaveMomentSource {
   content: string;
 }
 
+export function buildSaveMomentSource(source: SaveMomentSource): SaveMomentSource {
+  return {
+    chatId: source.chatId,
+    messageId: source.messageId,
+    role: source.role,
+    speakerName: source.speakerName ?? null,
+    createdAt: source.createdAt ?? null,
+    content: source.content,
+  };
+}
+
 export interface SaveMomentDestination {
   id: string;
   label: string;
@@ -101,24 +112,20 @@ export function applySaveMomentSummaryDraft(
 
 export function buildSaveMomentMenuItems({
   canCreateSummaryDraft,
-  canIllustrate,
-  canBranch,
   canCloneScene,
   canDraftLore = false,
   destinations = [],
 }: {
   canCreateSummaryDraft?: boolean;
-  canIllustrate?: boolean;
   canBranch: boolean;
   canCloneScene: boolean;
   canDraftLore?: boolean;
   destinations?: readonly SaveMomentDestination[];
 }): SaveMomentMenuItem[] {
-  const items: SaveMomentMenuItem[] = [{ id: "copy-snippet", label: "Copy snippet" }];
-  if (canCreateSummaryDraft) items.push({ id: "chat-summary", label: "Chat summary draft" });
-  if (canDraftLore) items.push({ id: "lore-draft", label: "Draft lore entry" });
-  if (canIllustrate) items.push({ id: "illustrate-moment", label: "Illustrate this moment" });
-  if (canBranch) items.push({ id: "branch", label: "Branch from here" });
+  // Plain copy stays as the adjacent message toolbar Copy action; this menu only routes durable moment uses.
+  const items: SaveMomentMenuItem[] = [];
+  if (canCreateSummaryDraft) items.push({ id: "chat-summary", label: "Remember in chat summary" });
+  if (canDraftLore) items.push({ id: "lore-draft", label: "Draft lorebook entry" });
   if (canCloneScene) items.push({ id: "clone-scene", label: "Clone from here" });
   for (const destination of destinations) {
     const id = destination.id.trim();

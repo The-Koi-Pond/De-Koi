@@ -6,6 +6,7 @@ import {
   isNearTranscriptBottom,
   preserveTranscriptScrollAfterPrepend,
   readTranscriptScrollMetrics,
+  scheduleTranscriptBottomLock,
   scheduleTranscriptScrollWrite,
   scrollTranscriptToBottom,
 } from "../../shared/chat-ui";
@@ -101,10 +102,10 @@ export function useRoleplayTranscriptScroll({
 
   const scheduleScrollToMessagesBottom = useCallback(
     (behavior: ScrollBehavior = "auto") => {
-      scrollToMessagesBottom(behavior);
-      requestAnimationFrame(() => {
+      return scheduleTranscriptBottomLock(() => {
+        if (userScrolledAwayRef.current) return false;
         scrollToMessagesBottom(behavior);
-        requestAnimationFrame(() => scrollToMessagesBottom(behavior));
+        return !userScrolledAwayRef.current;
       });
     },
     [scrollToMessagesBottom],

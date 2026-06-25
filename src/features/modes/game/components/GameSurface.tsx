@@ -8,7 +8,6 @@ import {
   AlertTriangle,
   BookOpen,
   Folder,
-  Gauge,
   Globe,
   HelpCircle,
   History,
@@ -7658,15 +7657,40 @@ export function GameSurface({
                       </div>
                     )}
                   </div>
-                  <button
-                    onClick={onPeekPrompt}
-                    disabled={!onPeekPrompt}
-                    className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white/80 backdrop-blur-md transition-colors hover:bg-black/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    title="Prompt Budget"
-                    aria-label="Prompt budget"
-                  >
-                    <Gauge size={14} />
-                  </button>
+                  <div className="relative">
+                    <button
+                      onClick={() => {
+                        setToolsSheetOpen(false);
+                        setRetryMenuOpen(false);
+                        setVolumePopoverOpen(false);
+                        setMoreSheetOpen((open) => !open);
+                      }}
+                      className={cn(
+                        "flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white/80 backdrop-blur-md transition-colors hover:bg-black/60 hover:text-white",
+                        moreSheetOpen && "bg-black/65 text-white",
+                      )}
+                      title="More options"
+                      aria-label="More options"
+                      aria-expanded={moreSheetOpen}
+                    >
+                      <MoreVertical size={14} />
+                    </button>
+                    {moreSheetOpen && (
+                      <div className="absolute right-0 top-11 z-50 flex w-56 max-w-[calc(100vw-2rem)] flex-col gap-1 rounded-xl border border-white/15 bg-black/80 p-1.5 shadow-xl backdrop-blur-md">
+                        <button
+                          onClick={() => {
+                            setMoreSheetOpen(false);
+                            onPeekPrompt?.();
+                          }}
+                          disabled={!onPeekPrompt}
+                          className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-white/85 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
+                        >
+                          <ScrollText size={13} />
+                          <span>Prompt Inspector</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <button
                     onClick={onOpenSettings}
                     className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white/80 backdrop-blur-md transition-colors hover:bg-black/60 hover:text-white"
@@ -7890,6 +7914,19 @@ export function GameSurface({
                             <RotateCcw size="0.9rem" className={sceneAnalysis.isPending || spotifyRetryPending ? "animate-spin" : ""} />
                           </div>
                           <span className="text-sm font-medium text-[var(--foreground)]">Retry</span>
+                        </button>
+
+                        {/* Prompt Inspector */}
+                        <button
+                          type="button"
+                          onClick={() => { setMoreSheetOpen(false); onPeekPrompt?.(); }}
+                          disabled={!onPeekPrompt}
+                          className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20 disabled:opacity-50"
+                        >
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-500 to-zinc-500 text-white shadow-sm">
+                            <ScrollText size="0.9rem" />
+                          </div>
+                          <span className="text-sm font-medium text-[var(--foreground)]">Prompt Inspector</span>
                         </button>
 
                         {/* Chat Settings */}

@@ -77,8 +77,8 @@ import type {
 } from "../types";
 import { GenerationReplayDetailsModal, hasGenerationReplayDetails } from "./GenerationReplayDetailsModal";
 import { ImagePromptPanel } from "./ImagePromptPanel";
-import { SaveMomentAction } from "./SaveMomentAction";
-import type { SaveMomentDestination, SaveMomentSource } from "../lib/save-moment";
+import { IllustrateMomentAction, SaveMomentAction } from "./SaveMomentAction";
+import { buildSaveMomentSource, type SaveMomentDestination, type SaveMomentSource } from "../lib/save-moment";
 import { SwipeJumpControl } from "./SwipeJumpControl";
 import { readStoredThinking } from "../lib/message-thinking";
 import { isImageMessageAttachment, messageAttachmentsFromExtra } from "../lib/message-attachments";
@@ -1731,14 +1731,15 @@ export const ChatMessage = memo(function ChatMessage({
     setTimeout(() => setCopied(false), 1500);
   };
   const saveMomentSource = useMemo(
-    () => ({
-      chatId: message.chatId,
-      messageId: message.id,
-      role: message.role,
-      speakerName: displayName,
-      createdAt: message.createdAt,
-      content: text,
-    }),
+    () =>
+      buildSaveMomentSource({
+        chatId: message.chatId,
+        messageId: message.id,
+        role: message.role,
+        speakerName: displayName,
+        createdAt: message.createdAt,
+        content: text,
+      }),
     [displayName, message.chatId, message.createdAt, message.id, message.role, text],
   );
 
@@ -1833,18 +1834,17 @@ export const ChatMessage = memo(function ChatMessage({
     <>
       <div className={cn("mari-message-content break-words", !isHtmlContent && "whitespace-pre-wrap")}>
         {isStreaming && !message.content ? (
-          <div className="mari-message-typing flex items-center gap-1 py-0.5">
-            <span className="h-2 w-2 animate-bounce rounded-full bg-blue-400/60 [animation-delay:0ms]" />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-blue-400/60 [animation-delay:150ms]" />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-blue-400/60 [animation-delay:300ms]" />
+          <div
+            className="mari-streaming-pending mari-message-typing inline-flex items-center gap-2 py-0.5"
+            aria-label="Assistant response is starting"
+          >
+            <span className="mari-streaming-pending-glow" aria-hidden="true" />
+            <span className="mari-streaming-pending-line" aria-hidden="true" />
           </div>
+        ) : isStreaming ? (
+          <div className="mari-streaming-reveal">{renderedContent}</div>
         ) : (
-          <>
-            {renderedContent}
-            {isStreaming && (
-              <span className="ml-0.5 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-blue-400" />
-            )}
-          </>
+          renderedContent
         )}
       </div>
       {(translatedText || isTranslating) && (
@@ -2332,15 +2332,21 @@ export const ChatMessage = memo(function ChatMessage({
               <SaveMomentAction
                 source={saveMomentSource}
                 onCreateSummaryDraft={onSaveMomentSummary}
-                onIllustrateMoment={onIllustrateMoment}
-                onBranch={onBranch}
                 onCloneSceneFromHere={onCloneSceneFromHere}
-              destinations={saveMomentDestinations}
-              onDestinationSelect={onSaveMomentDestination}
+                destinations={saveMomentDestinations}
+                onDestinationSelect={onSaveMomentDestination}
                 buttonClassName="rounded-md p-[0.35em] text-[0.8125rem] text-white/40 transition-all hover:bg-white/10 hover:text-white/70 active:scale-90"
                 iconSize={MESSAGE_ACTION_ICON_SIZE}
                 align="start"
               />
+              {onIllustrateMoment && (
+                <IllustrateMomentAction
+                  source={saveMomentSource}
+                  onIllustrateMoment={onIllustrateMoment}
+                  buttonClassName="rounded-md p-[0.35em] text-[0.8125rem] text-white/40 transition-all hover:bg-white/10 hover:text-white/70 active:scale-90"
+                  iconSize={MESSAGE_ACTION_ICON_SIZE}
+                />
+              )}
               <ActionBtn
                 icon={<Languages size={MESSAGE_ACTION_ICON_SIZE} />}
                 onClick={() => void translate(message.id, message.content, message.chatId)}
@@ -2705,18 +2711,17 @@ export const ChatMessage = memo(function ChatMessage({
               <>
                 <div className={cn("mari-message-content break-words", !isHtmlContent && "whitespace-pre-wrap")}>
                   {isStreaming && !message.content ? (
-                    <div className="mari-message-typing flex items-center gap-1 py-0.5">
-                      <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:0ms]" />
-                      <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:150ms]" />
-                      <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:300ms]" />
+                    <div
+                      className="mari-streaming-pending mari-message-typing inline-flex items-center gap-2 py-0.5"
+                      aria-label="Assistant response is starting"
+                    >
+                      <span className="mari-streaming-pending-glow" aria-hidden="true" />
+                      <span className="mari-streaming-pending-line" aria-hidden="true" />
                     </div>
+                  ) : isStreaming ? (
+                    <div className="mari-streaming-reveal">{renderedContent}</div>
                   ) : (
-                    <>
-                      {renderedContent}
-                      {isStreaming && (
-                        <span className="ml-0.5 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-white/70" />
-                      )}
-                    </>
+                    renderedContent
                   )}
                 </div>
                 {/* Translation */}
@@ -2813,14 +2818,20 @@ export const ChatMessage = memo(function ChatMessage({
             <SaveMomentAction
               source={saveMomentSource}
               onCreateSummaryDraft={onSaveMomentSummary}
-              onIllustrateMoment={onIllustrateMoment}
-              onBranch={onBranch}
               onCloneSceneFromHere={onCloneSceneFromHere}
               destinations={saveMomentDestinations}
               onDestinationSelect={onSaveMomentDestination}
               buttonClassName="rounded-md p-[0.35em] text-[0.8125rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] active:scale-90"
               iconSize={MESSAGE_ACTION_ICON_SIZE}
             />
+            {onIllustrateMoment && (
+              <IllustrateMomentAction
+                source={saveMomentSource}
+                onIllustrateMoment={onIllustrateMoment}
+                buttonClassName="rounded-md p-[0.35em] text-[0.8125rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] active:scale-90"
+                iconSize={MESSAGE_ACTION_ICON_SIZE}
+              />
+            )}
             <ActionBtn
               icon={<Languages size={MESSAGE_ACTION_ICON_SIZE} />}
               onClick={() => void translate(message.id, message.content, message.chatId)}
