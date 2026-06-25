@@ -55,6 +55,8 @@ function areConversationMessagePropsEqual(prev: ConversationMessageProps, next: 
     prev.noHoverGroup === next.noHoverGroup &&
     prev.plainUserMessages === next.plainUserMessages &&
     prev.forceShowActions === next.forceShowActions &&
+    prev.forceCanRegenerate === next.forceCanRegenerate &&
+    prev.regenerateButtonTitle === next.regenerateButtonTitle &&
     prev.onDelete === next.onDelete &&
     prev.onRegenerate === next.onRegenerate &&
     prev.onEdit === next.onEdit &&
@@ -94,6 +96,8 @@ export const ConversationMessage = memo(function ConversationMessage({
   noHoverGroup,
   plainUserMessages,
   forceShowActions,
+  forceCanRegenerate,
+  regenerateButtonTitle,
   onDelete,
   onRegenerate,
   onEdit,
@@ -142,7 +146,8 @@ export const ConversationMessage = memo(function ConversationMessage({
   const collapseHiddenMessages = useUIStore((s) => s.summaryPopoverSettings.collapseHiddenMessages);
   const editMessagesOnDoubleClick = useUIStore((s) => s.editMessagesOnDoubleClick);
   const messageTextStyle = useMemo<CSSProperties>(() => ({ fontSize: `${chatFontSize}px` }), [chatFontSize]);
-  const regenerateButtonTitle = guideGenerations ? "Regenerate (guided)" : "Regenerate";
+  const resolvedRegenerateButtonTitle =
+    regenerateButtonTitle ?? (guideGenerations ? "Regenerate (guided)" : "Regenerate");
   const regenerateGuidedClass = guideGenerations
     ? "text-[var(--primary)] bg-[var(--primary)]/15 ring-1 ring-[var(--primary)]/30 hover:text-[var(--primary)] hover:bg-[var(--primary)]/20"
     : undefined;
@@ -180,7 +185,7 @@ export const ConversationMessage = memo(function ConversationMessage({
       onToggle={() => setManuallyExpandedHidden((value) => !value)}
     />
   ) : null;
-  const canRegenerate = !isUser || generationReplay !== null;
+  const canRegenerate = forceCanRegenerate === true || !isUser || generationReplay !== null;
 
   useEffect(() => {
     if (!generationReplay) setShowGenerationReplay(false);
@@ -616,7 +621,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     bubbleCornerClass,
     generationDurationLabel,
     generationDurationTitle,
-    regenerateButtonTitle,
+    regenerateButtonTitle: resolvedRegenerateButtonTitle,
     regenerateGuidedClass,
     thinking,
     generationReplay,

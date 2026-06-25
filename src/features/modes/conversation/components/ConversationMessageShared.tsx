@@ -38,6 +38,8 @@ export interface ConversationMessageProps {
   noHoverGroup?: boolean;
   plainUserMessages?: boolean;
   forceShowActions?: boolean;
+  forceCanRegenerate?: boolean;
+  regenerateButtonTitle?: string;
   onDelete?: (messageId: string) => void;
   onRegenerate?: (messageId: string) => void;
   onEdit?: (messageId: string, content: string) => void | Promise<void>;
@@ -465,6 +467,35 @@ export function MessageSelectCheckbox({ isSelected }: { isSelected?: boolean }) 
   );
 }
 
+export function StreamingPendingIndicator({
+  label,
+  displayName,
+  className,
+}: {
+  label?: string;
+  displayName?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "mari-streaming-pending inline-flex items-center gap-2 py-0.5",
+        label && "mari-typing-indicator",
+        className,
+      )}
+      data-typing-name={label ? displayName : undefined}
+      aria-label={label ?? "Assistant response is starting"}
+    >
+      <span className="mari-streaming-pending-glow" aria-hidden="true" />
+      <span className="mari-streaming-pending-line" aria-hidden="true" />
+      {label && <span className="mari-typing-text text-[0.8125rem] italic text-[var(--text-secondary)]">{label}</span>}
+    </div>
+  );
+}
+
+export function StreamingReveal({ children }: { children: ReactNode }) {
+  return <div className="mari-streaming-reveal">{children}</div>;
+}
 function ConversationMessageEditForm({ context }: { context: ConversationMessageRenderContext }) {
   return (
     <div className="space-y-2">
@@ -536,25 +567,36 @@ export function ConversationMessageBodyContent({
       style={context.messageTextStyle}
     >
       {!context.hasRenderedContent && context.typingLabel ? (
-        <div className="mari-typing-indicator flex items-center gap-2" data-typing-name={context.displayName}>
-          <span className="mari-typing-dots flex items-center gap-1">
-            <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:0ms]" />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:150ms]" />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:300ms]" />
-          </span>
-          <span className="mari-typing-text text-[0.8125rem] italic text-[var(--text-secondary)]">
-            {context.typingLabel}
-          </span>
-        </div>
+        <StreamingPendingIndicator label={context.typingLabel} displayName={context.displayName} />
       ) : context.isStreaming && !context.hasRenderedContent ? (
-        <div className="flex items-center gap-1">
-          <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:0ms]" />
-          <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:150ms]" />
-          <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:300ms]" />
-        </div>
+        <StreamingPendingIndicator />
       ) : (
         <>
-          {groupedBubbleContent ? (
+          {context.isStreaming ? (
+            <StreamingReveal>
+              {groupedBubbleContent ? (
+                groupedBubbleContent
+              ) : context.renderedContentParts ? (
+                <div className="space-y-1.5">
+                  {context.renderedContentParts.map((part, index) => (
+                    <div key={index} className="animate-[fadeSlideIn_0.4s_ease-out]">
+                      <MessageContent
+                        content={part}
+                        mentionNames={context.mentionNames}
+                        onImageOpen={context.onImageOpen}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <MessageContent
+                  content={context.renderedContent}
+                  mentionNames={context.mentionNames}
+                  onImageOpen={context.onImageOpen}
+                />
+              )}
+            </StreamingReveal>
+          ) : groupedBubbleContent ? (
             groupedBubbleContent
           ) : context.renderedContentParts ? (
             <div className="space-y-1.5">
@@ -574,9 +616,6 @@ export function ConversationMessageBodyContent({
               mentionNames={context.mentionNames}
               onImageOpen={context.onImageOpen}
             />
-          )}
-          {context.isStreaming && (
-            <span className="ml-0.5 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-[var(--foreground)]/50" />
           )}
         </>
       )}
