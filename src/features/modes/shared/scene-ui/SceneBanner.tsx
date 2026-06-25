@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // SceneBanner — inline message-style indicators for active scenes
 // ──────────────────────────────────────────────
-import { Film, ArrowRight, ArrowLeft, Trash2, ArrowRightLeft } from "lucide-react";
+import { Film, ArrowRight, ArrowLeft, Trash2, ArrowRightLeft, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
@@ -14,9 +14,10 @@ interface SceneBannerProps {
   sceneChatName?: string;
   originChatId?: string;
   description?: string;
+  onReopen?: (sceneChatId: string) => void | Promise<void>;
 }
 
-export function SceneBanner({ variant, sceneChatId, sceneChatName, originChatId, description }: SceneBannerProps) {
+export function SceneBanner({ variant, sceneChatId, sceneChatName, originChatId, description, onReopen }: SceneBannerProps) {
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
 
   if (variant === "scene") {
@@ -42,20 +43,36 @@ export function SceneBanner({ variant, sceneChatId, sceneChatName, originChatId,
             {description}
           </p>
         )}
-        {originChatId && (
-          <button
-            onClick={() => setActiveChatId(originChatId)}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all hover:opacity-80"
-            style={{
-              background: "var(--muted)",
-              color: "var(--muted-foreground)",
-            }}
-            title="Return to conversation"
-          >
-            <ArrowLeft size={12} />
-            Back to conversation
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {originChatId && (
+            <button
+              onClick={() => setActiveChatId(originChatId)}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all hover:opacity-80"
+              style={{
+                background: "var(--muted)",
+                color: "var(--muted-foreground)",
+              }}
+              title="Return to conversation"
+            >
+              <ArrowLeft size={12} />
+              Back to conversation
+            </button>
+          )}
+          {sceneChatId && onReopen && (
+            <button
+              onClick={() => onReopen(sceneChatId)}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all hover:opacity-90"
+              style={{
+                background: "var(--primary)",
+                color: "var(--primary-foreground)",
+              }}
+              title="Reopen this scene"
+            >
+              <RotateCcw size={12} />
+              Reopen scene
+            </button>
+          )}
+        </div>
       </div>
     );
   }
