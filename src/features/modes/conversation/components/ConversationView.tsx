@@ -54,6 +54,7 @@ import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { TOOLS_PANELS, useTopBarActions } from "../../../../shared/components/mobile-shell-actions";
 import { usePageActivity } from "../../../../shared/hooks/use-page-activity";
+import { useIsMobile } from "../../../../shared/hooks/use-is-mobile";
 import { ActiveWorldInfoButton, ActiveWorldInfoModal } from "../../../runtime/visuals/index";
 import { invalidateCharacterCollectionQueries } from "../../../catalog/characters/index";
 
@@ -556,6 +557,7 @@ export function ConversationView({
   }, [convoGradient, theme]);
   const hasAutonomousMessaging = !!chatMeta.autonomousMessages || !!chatMeta.characterExchanges;
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const isMobile = useIsMobile();
   const [mobileWorldInfoOpen, setMobileWorldInfoOpen] = useState(false);
   const [toolsSheetOpen, setToolsSheetOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
@@ -1404,14 +1406,29 @@ export function ConversationView({
             {/* Desktop toolbar */}
             <div className="flex items-center gap-1.5">
               <ChatBranchSelector activeChatId={chatId} activeChatName={chatName} groupId={chatGroupId} />
-              <button
-                onClick={() => setSummaryOpen(true)}
-                className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
-                title="Chat Summary"
-                aria-label="Chat Summary"
-              >
-                <ScrollText size="0.875rem" />
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setSummaryOpen(true)}
+                  className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
+                  title="Chat Summary"
+                  aria-label="Chat Summary"
+                >
+                  <ScrollText size="0.875rem" />
+                </button>
+                {summaryOpen && !isMobile && (
+                  <Suspense fallback={null}>
+                    <SummaryPopover
+                      chatId={chatId}
+                      summary={chatMetaString(chatMeta.summary, "") || null}
+                      contextSize={summaryContextSize}
+                      totalMessageCount={totalMessageCount}
+                      onContextSizeChange={(size) => updateMeta.mutate({ id: chatId, summaryContextSize: size })}
+                      onClose={() => setSummaryOpen(false)}
+                    />
+                  </Suspense>
+                )}
+              </div>
               <ActiveWorldInfoButton chatId={chatId} />
               <button
                 onClick={onOpenGallery}
@@ -1845,18 +1862,20 @@ export function ConversationView({
           </div>
         </>
       )}
-      {summaryOpen && (
-        <Suspense fallback={null}>
-          <SummaryPopover
-            chatId={chatId}
-            summary={chatMetaString(chatMeta.summary, "") || null}
-            contextSize={summaryContextSize}
-            totalMessageCount={totalMessageCount}
-            onContextSizeChange={(size) => updateMeta.mutate({ id: chatId, summaryContextSize: size })}
-            onClose={() => setSummaryOpen(false)}
-          />
-        </Suspense>
-      )}
+      <div className="md:hidden">
+        {summaryOpen && isMobile && (
+          <Suspense fallback={null}>
+            <SummaryPopover
+              chatId={chatId}
+              summary={chatMetaString(chatMeta.summary, "") || null}
+              contextSize={summaryContextSize}
+              totalMessageCount={totalMessageCount}
+              onContextSizeChange={(size) => updateMeta.mutate({ id: chatId, summaryContextSize: size })}
+              onClose={() => setSummaryOpen(false)}
+            />
+          </Suspense>
+        )}
+      </div>
       <ActiveWorldInfoModal chatId={chatId} open={mobileWorldInfoOpen} onClose={() => setMobileWorldInfoOpen(false)} />
     </div>
   );
