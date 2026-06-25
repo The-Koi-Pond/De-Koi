@@ -23,6 +23,8 @@ import { useAgentStore } from "../../shared/stores/agent.store";
 import { useBackgroundAutonomousPolling } from "../../features/modes/conversation/background-autonomous";
 import { useClearAutonomousUnread } from "../../features/catalog/chats/autonomous-unread";
 import { chatKeys } from "../../features/catalog/chats/index";
+import { dekiApi } from "../../shared/api/deki-api";
+import type { DekiSession, DekiSessionsState } from "../../engine/deki/deki-history";
 import { useIsCoreModuleEnabled } from "../../features/shell/plugins/shell";
 import { SPOTIFY_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants/core-modules";
 import { useIdleDetection } from "../../shared/hooks/use-idle-detection";
@@ -259,6 +261,8 @@ export function AppShell() {
   const [rightPanelDragWidth, setRightPanelDragWidth] = useState<number | null>(null);
   const [activeChatSidebarTab, setActiveChatSidebarTab] = useState<ChatSidebarTab>("conversation");
   const [dekiOpen, setDekiOpen] = useState(false);
+  const [dekiSessions, setDekiSessions] = useState<DekiSession[]>([]);
+  const [activeDekiSessionId, setActiveDekiSessionId] = useState<string | null>(null);
   const chatNotificationCount = useChatStore((s) => s.chatNotifications.size);
   const [notificationBubblesMounted, setNotificationBubblesMounted] = useState(false);
   const debugMode = useUIStore((s) => s.debugMode);
@@ -429,6 +433,84 @@ export function AppShell() {
   const [trackerPanelToggleAnchorY, setTrackerPanelToggleAnchorY] = useState<number | null>(null);
   const trackerPanelWasActiveRef = useRef(false);
   const lastAutonomousUnreadClearRef = useRef<string | null>(null);
+
+  const syncDekiSessionState = useCallback((state: DekiSessionsState) => {
+    setDekiSessions(state.sessions);
+    setActiveDekiSessionId(state.activeSessionId);
+  }, []);
+
+  const refreshDekiSessions = useCallback(async () => {
+    const state = await dekiApi.sessions.list();
+    syncDekiSessionState(state);
+  }, [syncDekiSessionState]);
+
+  useEffect(() => {
+    let active = true;
+    void dekiApi.sessions
+      .list()
+      .then((state) => {
+        if (active) syncDekiSessionState(state);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : "Deki-senpai chats could not be loaded.";
+        toast.error(message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [syncDekiSessionState]);
+
+  const openDekiShell = useCallback(() => {
+    useChatStore.getState().setActiveChatId(null);
+    useUIStore.getState().closeAllDetails();
+    closeRightPanel();
+    setTrackerPanelOpen(false);
+    setDekiOpen(true);
+  }, [closeRightPanel, setTrackerPanelOpen]);
+
+  const openDekiSession = useCallback(
+    async (sessionId: string) => {
+      try {
+        const state = await dekiApi.sessions.select(sessionId);
+        syncDekiSessionState(state);
+        openDekiShell();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Deki-senpai chat could not be opened.";
+        toast.error(message);
+      }
+    },
+    [openDekiShell, syncDekiSessionState],
+  );
+
+  const createDekiSession = useCallback(async () => {
+    try {
+      const state = await dekiApi.sessions.create();
+      syncDekiSessionState(state);
+      openDekiShell();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Deki-senpai chat could not be created.";
+      toast.error(message);
+    }
+  }, [openDekiShell, syncDekiSessionState]);
+
+  const deleteDekiSession = useCallback(
+    async (sessionId: string) => {
+      try {
+        const state = await dekiApi.sessions.delete(sessionId);
+        syncDekiSessionState(state);
+        if (dekiOpen) setDekiOpen(true);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Deki-senpai chat could not be deleted.";
+        toast.error(message);
+      }
+    },
+    [dekiOpen, syncDekiSessionState],
+  );
+
+  const openActiveDeki = useCallback(() => {
+    openDekiShell();
+    if (!activeDekiSessionId) void refreshDekiSessions();
+  }, [activeDekiSessionId, openDekiShell, refreshDekiSessions]);
 
   const openNoModelShowcase = useCallback(() => {
     void ensureNoModelGameShowcase()
@@ -1109,12 +1191,12 @@ export function AppShell() {
       >
         <WindowTitleBar
           dekiOpen={dekiOpen}
-          onOpenDeki={() => setDekiOpen(true)}
+          onOpenDeki={() => openActiveDeki()}
           onGoHome={() => setDekiOpen(false)}
         />
         <TopBar
           dekiOpen={dekiOpen}
-          onOpenDeki={() => setDekiOpen(true)}
+          onOpenDeki={() => openActiveDeki()}
           onGoHome={() => setDekiOpen(false)}
         />
       </header>
@@ -1148,7 +1230,16 @@ export function AppShell() {
           style={{ width: sidebarOpen ? (isMobile ? "min(18.75rem, 85vw)" : liveSidebarWidth) : 0, bottom: isMobile && sidebarOpen ? "calc(4.5rem + env(safe-area-inset-bottom))" : 0 }}
         >
           <div className="h-full" style={{ width: isMobile ? "min(18.75rem, 85vw)" : liveSidebarWidth }}>
-            <ChatSidebar activeTab={activeChatSidebarTab} onActiveTabChange={setActiveChatSidebarTab} />
+            <ChatSidebar
+              activeTab={activeChatSidebarTab}
+              onActiveTabChange={setActiveChatSidebarTab}
+              dekiSessions={dekiSessions}
+              activeDekiSessionId={activeDekiSessionId}
+              dekiOpen={dekiOpen}
+              onOpenDekiSession={(sessionId) => void openDekiSession(sessionId)}
+              onCreateDekiSession={() => void createDekiSession()}
+              onDeleteDekiSession={(sessionId) => void deleteDekiSession(sessionId)}
+            />
           </div>
         </aside>
         {!isMobile && sidebarOpen && (
@@ -1200,7 +1291,11 @@ export function AppShell() {
               <GameAssetsBrowserView />
             </MountOnceWhenOpened>
             <MountOnceWhenOpened open={dekiOpen} overlay hideOverlayWhenClosed slideFromBottom={isMobile}>
-              <DekiSurface />
+              <DekiSurface
+                sessionId={activeDekiSessionId}
+                onCreateSession={createDekiSession}
+                onSessionsChanged={refreshDekiSessions}
+              />
             </MountOnceWhenOpened>
             <div
               className={
