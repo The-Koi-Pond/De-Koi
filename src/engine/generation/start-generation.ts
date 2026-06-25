@@ -1407,7 +1407,7 @@ function targetBelongsToChat(target: JsonRecord | null, chatId: string): target 
   return !!target && readString(target.chatId).trim() === chatId;
 }
 
-async function loadMessagesForGenerationTarget(args: {
+export async function loadMessagesForGenerationTarget(args: {
   storage: StorageGateway;
   chatId: string;
   chat: JsonRecord;
@@ -1419,10 +1419,10 @@ async function loadMessagesForGenerationTarget(args: {
   if (!targetId) return loadChatMessages(args.storage, args.chatId, options);
 
   const target = await loadChatMessage(args.storage, targetId).catch(() => null);
-  if (!targetBelongsToChat(target, args.chatId)) return loadChatMessages(args.storage, args.chatId);
+  if (!targetBelongsToChat(target, args.chatId)) return loadChatMessages(args.storage, args.chatId, options);
 
   const before = messageCursor(target);
-  if (!before) return loadChatMessages(args.storage, args.chatId);
+  if (!before) return loadChatMessages(args.storage, args.chatId, options);
 
   const previousMessages = await loadChatMessages(args.storage, args.chatId, { ...options, before });
   return [...previousMessages, target];

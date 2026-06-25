@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentResult } from "../contracts/types/agent";
-import { patchMessageExtrasForGeneration, spriteExpressionPatchesForTarget } from "./start-generation";
+import {
+  loadMessagesForGenerationTarget,
+  patchMessageExtrasForGeneration,
+  spriteExpressionPatchesForTarget,
+} from "./start-generation";
 
 const expressionResult = (expressions: Array<{ characterId: string; expression: string }>): AgentResult =>
   ({
@@ -375,5 +379,32 @@ describe("patchMessageExtrasForGeneration", () => {
       stable: "kept",
       fresh: "interleaved",
     });
+  });
+});
+describe("loadMessagesForGenerationTarget", () => {
+  it("keeps targeted retry fallback message loads bounded when the clicked message is missing", async () => {
+    const listCalls: unknown[] = [];
+    const messages = await loadMessagesForGenerationTarget({
+      chatId: "chat-1",
+      chat: { id: "chat-1", metadata: { contextMessageLimit: 12 } },
+      input: { chatId: "chat-1" },
+      targetMessageId: "deleted-message",
+      storage: {
+        async getChatMessage() {
+          return null;
+        },
+        async listChatMessages(_chatId: string, options?: unknown) {
+          listCalls.push(options);
+          return [];
+        },
+      } as never,
+    });
+
+    expect(messages).toEqual([]);
+    expect(listCalls).toEqual([
+      expect.objectContaining({
+        limit: expect.any(Number),
+      }),
+    ]);
   });
 });
