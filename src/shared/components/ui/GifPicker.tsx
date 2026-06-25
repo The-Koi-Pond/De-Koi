@@ -117,9 +117,9 @@ export function GifPicker({ open, onClose, onSelect, anchorRef, containerRef }: 
       if (isGiphyConfigError(message)) {
         setupPanelActiveRef.current = true;
         if (!configHydratedRef.current) {
+          configHydratedRef.current = true;
           try {
             setGifConfig(await gifsApi.config());
-            configHydratedRef.current = true;
           } catch (configErr) {
             setConfigError(configErr instanceof Error ? configErr.message : "Failed to load GIPHY settings");
           }

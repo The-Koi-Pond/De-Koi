@@ -75,4 +75,26 @@ describe("GifPicker", () => {
     expect(gifApiMock.search).toHaveBeenCalledTimes(1);
     expect(gifApiMock.config).toHaveBeenCalledTimes(1);
   });
+  it("does not retry config hydration when the first config load fails", async () => {
+    gifApiMock.config.mockRejectedValue(new Error("Config unavailable"));
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(<GifPicker open onClose={vi.fn()} onSelect={vi.fn()} />);
+    });
+
+    await flushAsyncWork();
+
+    expect(gifApiMock.search).toHaveBeenCalledTimes(1);
+    expect(gifApiMock.config).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).toContain("Config unavailable");
+
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    await flushAsyncWork();
+
+    expect(gifApiMock.search).toHaveBeenCalledTimes(1);
+    expect(gifApiMock.config).toHaveBeenCalledTimes(1);
+  });
 });
