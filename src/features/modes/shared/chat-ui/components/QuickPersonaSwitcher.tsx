@@ -3,7 +3,7 @@
 // with persona group support (collapsible folders)
 // ──────────────────────────────────────────────
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { ChevronDown, ChevronRight, FolderOpen, Folder } from "lucide-react";
+import { ChevronDown, ChevronRight, FolderOpen, Folder, UserRound } from "lucide-react";
 import {
   PersonaAvatarImage,
   usePersona,
@@ -228,7 +228,7 @@ export function QuickPersonaSwitcher({ className }: { className?: string }) {
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center rounded-full bg-[var(--secondary)] text-[0.75rem] font-semibold text-[var(--muted-foreground)]">
-            {activePersona ? (activePersona.name || "?")[0].toUpperCase() : "?"}
+            {activePersona ? (activePersona.name || "?")[0].toUpperCase() : <UserRound size="1rem" aria-hidden />}
           </div>
         )}
       </button>
@@ -252,7 +252,7 @@ export function QuickPersonaSwitcher({ className }: { className?: string }) {
               )}
             >
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--secondary)] text-xs font-semibold text-[var(--muted-foreground)]">
-                ?
+                <UserRound size="1rem" aria-hidden />
               </div>
               <div className="flex min-w-0 flex-1 flex-col">
                 <span className={cn("text-xs font-semibold", !activePersonaId && "text-foreground")}>None</span>
