@@ -429,7 +429,7 @@ describe("illustrationReferenceImagesForRequest", () => {
     expect(images).not.toContain(tooLargeImage);
   });
 
-  it("keeps duplicate subject names aligned with the surviving reference image", () => {
+  it("does not add subject names for rejected duplicate reference images", () => {
     const sharedImage = dataUrl(128);
     const tooLargeImage = dataUrl(8 * 1024 * 1024 + 4);
 
@@ -440,6 +440,6 @@ describe("illustrationReferenceImagesForRequest", () => {
     ]);
 
     expect(references.referenceImages).toEqual([sharedImage]);
-    expect(references.referenceSubjectNames).toEqual(["Mira", "Player"]);
+    expect(references.referenceSubjectNames).toEqual(["Mira"]);
   });
 });

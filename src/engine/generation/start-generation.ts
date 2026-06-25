@@ -735,10 +735,7 @@ export function illustrationReferencesForRequest(
     const image = usableReferenceImage(value.image);
     if (!image) continue;
     const key = image.replace(/\s+/g, "");
-    if (seen.has(key)) {
-      addSubjectName(value.subjectName);
-      continue;
-    }
+    if (seen.has(key)) continue;
     const bytes = estimateIllustrationReferenceImageBytes(image);
     if (referenceImages.length >= MAX_ILLUSTRATION_REFERENCE_IMAGES) continue;
     if (totalBytes + bytes > ILLUSTRATION_REFERENCE_IMAGES_TOTAL_BYTE_LIMIT) continue;
