@@ -48,7 +48,7 @@ required_package_paths=(
   app/src-tauri/Cargo.toml
   app/src-tauri/src/bin/de-koi-server.rs
   app/src-tauri/src/state.rs
-  app/src-tauri/resources/default-data/db/default-preset.json
+  app/src-tauri/resources/default-data/db/default-preset-v2.json
   app/src-tauri/resources/default-data/game-assets/manifest.json
 )
 
