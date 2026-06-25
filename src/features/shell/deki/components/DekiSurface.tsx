@@ -37,7 +37,7 @@ const DEKI_CONNECTION_SETUP_CONTENT =
   "Oh, whoops! Looks like you're trying to talk to Deki-senpai without having a model connection set up yet. I'm afraid I need the sweet GPU juice to run. Let me take you to the Connections tab first…";
 const DEKI_NO_CONNECTION_SELECTED_ERROR =
   'No connection set for Deki-senpai! Click the "chains" icon in the input box to select one.';
-const DEKI_INPUT_PLACEHOLDER = "Message Deki-senpai, /reset to reset the conversation and only then clear it";
+const DEKI_INPUT_PLACEHOLDER = "Message Deki-senpai";
 const DEKI_ATTACHMENT_CLIENT_TEXT_BYTES = 64 * 1024;
 const DEKI_IMAGE_ATTACHMENT_EXTENSIONS = new Set(["avif", "gif", "jpeg", "jpg", "png", "webp"]);
 const DEKI_ACTION_ENTITY_LABELS: Record<DekiActionEntity, string> = {
@@ -224,7 +224,13 @@ async function invalidateDekiActionQueries(queryClient: QueryClient, action: Dek
   );
 }
 
-export function DekiSurface() {
+type DekiSurfaceProps = {
+  sessionId: string | null;
+  onCreateSession?: () => void | Promise<void>;
+  onSessionsChanged?: () => void | Promise<void>;
+};
+
+export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: DekiSurfaceProps) {
   const queryClient = useQueryClient();
   const { data: rawConnections } = useConnections();
   const { data: rawPersonas } = usePersonaSummaries();
@@ -326,12 +332,14 @@ export function DekiSurface() {
 
   useEffect(() => {
     let active = true;
+    setHistoryLoaded(false);
     void dekiApi.history
-      .get()
+      .get(sessionId)
       .then((history) => {
         if (!active) return;
         setMessages(history.messages);
         setCompaction(history.compaction);
+        setSendError(null);
       })
       .catch((error) => {
         if (!active) return;
@@ -343,7 +351,7 @@ export function DekiSurface() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     let active = true;
@@ -466,11 +474,16 @@ export function DekiSurface() {
       setSendError(null);
       setSending(true);
       try {
-        await dekiApi.history.reset();
+        if (onCreateSession) {
+          await onCreateSession();
+        } else {
+          await dekiApi.history.reset(sessionId);
+          await onSessionsChanged?.();
+        }
         setMessages([]);
         setCompaction(EMPTY_DEKI_COMPACTION);
       } catch (error) {
-        setSendError(error instanceof Error ? error.message : "Deki-senpai history could not be reset.");
+        setSendError(error instanceof Error ? error.message : "Deki-senpai chat could not be created.");
       } finally {
         setSending(false);
         requestAnimationFrame(() => inputRef.current?.focus());
@@ -502,9 +515,10 @@ export function DekiSurface() {
     setSending(true);
     requestAnimationFrame(() => inputRef.current?.focus());
     try {
-      const user = await dekiApi.history.appendMessage({ role: "user", content: userMessage });
+      const user = await dekiApi.history.appendMessage({ sessionId, role: "user", content: userMessage });
       const messagesWithUser = [...messages, user];
       setMessages(messagesWithUser);
+      void onSessionsChanged?.();
 
       const compactionResult = await compactDekiHistory({
         messages: messagesWithUser,
@@ -514,7 +528,7 @@ export function DekiSurface() {
       });
       const nextCompaction = compactionResult.compaction;
       if (compactionResult.compacted) {
-        setCompaction(await dekiApi.history.saveCompaction(nextCompaction));
+        setCompaction(await dekiApi.history.saveCompaction(sessionId, nextCompaction));
       }
       const contextMessages = dekiContextMessages(messagesWithUser, nextCompaction).filter(
         (message) => message.id !== user.id,
@@ -549,11 +563,13 @@ export function DekiSurface() {
         dekiApi,
       );
       const assistant = await dekiApi.history.appendMessage({
+        sessionId,
         role: "assistant",
         content: response.content,
         action: response.action,
       });
       setMessages((current) => [...current, assistant]);
+      void onSessionsChanged?.();
     } catch (error) {
       setSendError(error instanceof Error ? error.message : "Deki-senpai failed to respond.");
       setSending(false);
@@ -572,10 +588,11 @@ export function DekiSurface() {
       return rest;
     });
     try {
-      const result = await dekiApi.actions.apply(action, { actionId: message.id, messageId: message.id });
+      const result = await dekiApi.actions.apply(action, { actionId: message.id, messageId: message.id, sessionId });
       if (result.messages && result.compaction) {
         setMessages(result.messages);
         setCompaction(result.compaction);
+        void onSessionsChanged?.();
       } else if (result.application) {
         setMessages((current) =>
           current.map((item) =>

@@ -22,6 +22,20 @@ export type DekiCompactionConnection = {
   maxContext?: unknown;
 };
 
+export type DekiSession = {
+  id: string;
+  title: string;
+  messages: DekiMessage[];
+  compaction: DekiCompactionState;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DekiSessionsState = {
+  activeSessionId: string;
+  sessions: DekiSession[];
+};
+
 export const EMPTY_DEKI_COMPACTION: DekiCompactionState = {
   compactedSummary: null,
   compactedAt: null,
@@ -30,6 +44,34 @@ export const EMPTY_DEKI_COMPACTION: DekiCompactionState = {
 
 export function isDekiResetCommand(value: string): boolean {
   return value.trim().toLowerCase() === "/reset";
+}
+
+export function createDekiSession({
+  id,
+  title,
+  messages = [],
+  compaction = EMPTY_DEKI_COMPACTION,
+  now = new Date().toISOString(),
+}: {
+  id: string;
+  title?: string | null;
+  messages?: DekiMessage[];
+  compaction?: DekiCompactionState;
+  now?: string;
+}): DekiSession {
+  const trimmedTitle = typeof title === "string" ? title.trim() : "";
+  return {
+    id,
+    title: trimmedTitle || "New Deki Chat",
+    messages,
+    compaction,
+    createdAt: now,
+    updatedAt: messages.at(-1)?.createdAt ?? now,
+  };
+}
+
+export function getActiveDekiSession(state: DekiSessionsState): DekiSession {
+  return state.sessions.find((session) => session.id === state.activeSessionId) ?? state.sessions[0]!;
 }
 
 function estimateDekiTextTokens(text: string): number {
