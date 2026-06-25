@@ -220,13 +220,19 @@ describe("dekiApi.actions.apply", () => {
       "deki",
       expect.objectContaining({
         value: expect.objectContaining({
-          messages: [
+          activeSessionId: "deki-session-default",
+          sessions: [
             expect.objectContaining({
-              id: "message-1",
-              actionApplication: expect.objectContaining({
-                status: "applied",
-                resultId: "deki-personas-message-1",
-              }),
+              id: "deki-session-default",
+              messages: [
+                expect.objectContaining({
+                  id: "message-1",
+                  actionApplication: expect.objectContaining({
+                    status: "applied",
+                    resultId: "deki-personas-message-1",
+                  }),
+                }),
+              ],
             }),
           ],
         }),
@@ -239,13 +245,13 @@ describe("dekiApi.actions.apply", () => {
         resultId: "deki-personas-message-1",
       },
       messages: [
-        {
+        expect.objectContaining({
           id: "message-1",
-          actionApplication: {
+          actionApplication: expect.objectContaining({
             status: "applied",
             resultId: "deki-personas-message-1",
-          },
-        },
+          }),
+        }),
       ],
     });
   });
@@ -295,14 +301,20 @@ describe("dekiApi.actions.apply", () => {
       "deki",
       expect.objectContaining({
         value: expect.objectContaining({
-          messages: [
+          activeSessionId: "deki-session-default",
+          sessions: [
             expect.objectContaining({
-              id: "message-1",
-              actionApplication: {
-                status: "applied",
-                appliedAt: "2026-06-24T00:00:01.000Z",
-                resultId: "deki-personas-message-1",
-              },
+              id: "deki-session-default",
+              messages: [
+                expect.objectContaining({
+                  id: "message-1",
+                  actionApplication: {
+                    status: "applied",
+                    appliedAt: "2026-06-24T00:00:01.000Z",
+                    resultId: "deki-personas-message-1",
+                  },
+                }),
+              ],
             }),
           ],
         }),

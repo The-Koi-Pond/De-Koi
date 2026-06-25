@@ -274,13 +274,36 @@ async function saveSettingsPatch(patch: Record<string, unknown>): Promise<Record
   return value;
 }
 
+async function saveSettingsValue(value: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const existing = await storageApi.get<DekiSettingsRecord>("app-settings", DEKI_SETTINGS_ID);
+  const payload = appSettingsUpdateSchema.parse({ value });
+  if (existing) {
+    await storageApi.update("app-settings", DEKI_SETTINGS_ID, payload);
+  } else {
+    await storageApi.create("app-settings", {
+      id: DEKI_SETTINGS_ID,
+      ...payload,
+    });
+  }
+  return value;
+}
+
 async function readSessionsState(): Promise<DekiSessionsState> {
   return normalizeDekiSessionsState(await readSettingsValue());
 }
 
 async function saveSessionsState(state: DekiSessionsState): Promise<DekiSessionsState> {
+  const settings = await readSettingsValue();
+  const {
+    messages: _messages,
+    compactedSummary: _compactedSummary,
+    compactedAt: _compactedAt,
+    compactedThroughMessageId: _compactedThroughMessageId,
+    ...rest
+  } = settings;
   return normalizeDekiSessionsState(
-    await saveSettingsPatch({
+    await saveSettingsValue({
+      ...rest,
       activeSessionId: state.activeSessionId,
       sessions: state.sessions,
     }),

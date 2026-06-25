@@ -63,16 +63,21 @@ describe("dekiApi settings persistence", () => {
       entity: "app-settings",
       id: "deki",
       patch: {
-        value: {
+        value: expect.objectContaining({
           selectedConnectionId: "conn-1",
           selectedPersonaId: null,
-          messages: [
+          activeSessionId: expect.any(String),
+          sessions: [
             expect.objectContaining({
-              role: "user",
-              content: "Hello, Deki.",
+              messages: [
+                expect.objectContaining({
+                  role: "user",
+                  content: "Hello, Deki.",
+                }),
+              ],
             }),
           ],
-        },
+        }),
       },
     });
   });
@@ -103,14 +108,20 @@ describe("dekiApi settings persistence", () => {
 
     expect(appSettings.get("deki")).toMatchObject({
       id: "deki",
-      value: {
+      value: expect.objectContaining({
         selectedConnectionId: "legacy-conn",
         selectedPersonaId: null,
-        messages: [
-          expect.objectContaining({ id: "legacy-message", content: "Old hello" }),
-          expect.objectContaining({ role: "assistant", content: "Migrated hello" }),
+        activeSessionId: "deki-session-default",
+        sessions: [
+          expect.objectContaining({
+            id: "deki-session-default",
+            messages: [
+              expect.objectContaining({ id: "legacy-message", content: "Old hello" }),
+              expect.objectContaining({ role: "assistant", content: "Migrated hello" }),
+            ],
+          }),
         ],
-      },
+      }),
     });
   });
 });
