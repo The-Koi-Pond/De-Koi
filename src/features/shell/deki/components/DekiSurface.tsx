@@ -2,18 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Check, ChevronUp, CircleUser, FileText, Link, Loader2, Plus, Send, Sparkles, X } from "lucide-react";
 import {
-  runDekiEntry,
   type DekiActionEntity,
   type DekiAttachment,
   type DekiEntryAction,
   type DekiMessage,
 } from "../../../../engine/deki/deki-entry";
 import {
-  compactDekiHistory,
   EMPTY_DEKI_COMPACTION,
   DEKI_CHAT_ID,
   isDekiResetCommand,
-  dekiContextMessages,
   type DekiCompactionState,
 } from "../../../../engine/deki/deki-history";
 import { llmApi } from "../../../../shared/api/llm-api";
@@ -27,6 +24,7 @@ import { filterLanguageGenerationConnections } from "../../../../shared/lib/conn
 import { isSendShortcut } from "../../../../shared/lib/send-shortcuts";
 import { cn, normalizeAvatarCropValue } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { runDetachedDekiSend } from "../lib/deki-send";
 
 const DEKI_AVATAR_URL = "/icon-192.png";
 const DEKI_CHIBI_URL = "/logo.png";
@@ -258,6 +256,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const persistedConnectionIdRef = useRef<DekiPreferences["selectedConnectionId"] | undefined>(undefined);
   const persistedPersonaIdRef = useRef<DekiPreferences["selectedPersonaId"] | undefined>(undefined);
+  const mountedRef = useRef(false);
   const connectionSelectionTouchedRef = useRef(false);
   const personaSelectionTouchedRef = useRef(false);
   const preferencesReady = preferencesLoaded;
@@ -325,6 +324,13 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
     return messages.length > 0 ? messages : [welcomeMessage];
   }, [historyLoaded, messages, welcomeMessage]);
   const conversationMessages = useMemo(() => visibleMessages.map(toConversationMessage), [visibleMessages]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -515,68 +521,57 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
     setSending(true);
     requestAnimationFrame(() => inputRef.current?.focus());
     try {
-      const user = await dekiApi.history.appendMessage({ sessionId, role: "user", content: userMessage });
-      const messagesWithUser = [...messages, user];
-      setMessages(messagesWithUser);
-      void onSessionsChanged?.();
-
-      const compactionResult = await compactDekiHistory({
-        messages: messagesWithUser,
+      await runDetachedDekiSend({
+        sessionId,
+        userMessage,
+        messages,
         compaction,
         connection: selectedConnection,
         llm: llmApi,
-      });
-      const nextCompaction = compactionResult.compaction;
-      if (compactionResult.compacted) {
-        setCompaction(await dekiApi.history.saveCompaction(sessionId, nextCompaction));
-      }
-      const contextMessages = dekiContextMessages(messagesWithUser, nextCompaction).filter(
-        (message) => message.id !== user.id,
-      );
-
-      const response = await runDekiEntry(
-        {
-          userMessage,
-          messages: contextMessages,
-          compactedSummary: nextCompaction.compactedSummary,
-          connectionId: selectedConnection?.id ?? null,
-          persona: selectedPersona
-            ? {
-                id: selectedPersona.id,
-                name: selectedPersona.name,
-                comment: selectedPersona.comment ?? null,
-                description: selectedPersona.description ?? null,
-                personality: selectedPersona.personality ?? null,
-                scenario: selectedPersona.scenario ?? null,
-                backstory: selectedPersona.backstory ?? null,
-                appearance: selectedPersona.appearance ?? null,
-              }
-            : null,
-          attachments: currentAttachments.map((attachment) => ({
-            id: attachment.id,
-            name: attachment.name,
-            type: attachment.type,
-            size: attachment.size,
-            content: attachment.content,
-          })),
+        gateway: dekiApi,
+        history: dekiApi.history,
+        persona: selectedPersona
+          ? {
+              id: selectedPersona.id,
+              name: selectedPersona.name,
+              comment: selectedPersona.comment ?? null,
+              description: selectedPersona.description ?? null,
+              personality: selectedPersona.personality ?? null,
+              scenario: selectedPersona.scenario ?? null,
+              backstory: selectedPersona.backstory ?? null,
+              appearance: selectedPersona.appearance ?? null,
+            }
+          : null,
+        attachments: currentAttachments.map((attachment) => ({
+          id: attachment.id,
+          name: attachment.name,
+          type: attachment.type,
+          size: attachment.size,
+          content: attachment.content,
+        })),
+        onUserMessagePersisted: (_user, messagesWithUser) => {
+          if (mountedRef.current) setMessages(messagesWithUser);
+          void onSessionsChanged?.();
         },
-        dekiApi,
-      );
-      const assistant = await dekiApi.history.appendMessage({
-        sessionId,
-        role: "assistant",
-        content: response.content,
-        action: response.action,
+        onCompactionSaved: (nextCompaction) => {
+          if (mountedRef.current) setCompaction(nextCompaction);
+        },
+        onAssistantMessagePersisted: (_assistant, messagesWithAssistant) => {
+          if (mountedRef.current) setMessages(messagesWithAssistant);
+          void onSessionsChanged?.();
+        },
       });
-      setMessages((current) => [...current, assistant]);
-      void onSessionsChanged?.();
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : "Deki-senpai failed to respond.");
-      setSending(false);
+      if (mountedRef.current) {
+        setSendError(error instanceof Error ? error.message : "Deki-senpai failed to respond.");
+        setSending(false);
+      }
       return;
     }
-    setSending(false);
-    requestAnimationFrame(() => inputRef.current?.focus());
+    if (mountedRef.current) {
+      setSending(false);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
   };
 
   const applyDekiAction = async (message: DekiMessage) => {
