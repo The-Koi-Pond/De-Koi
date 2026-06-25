@@ -605,18 +605,18 @@ pub(crate) fn export_profile_download(
             let snapshot = native_profile_export(state)?;
             Ok(ProfileExportDownload {
                 bytes: serde_json::to_vec(&snapshot)?,
-                filename: "marinara-profile.json",
+                filename: "de-koi-profile.json",
                 content_type: "application/json",
             })
         }
         Some("compatible") => Ok(ProfileExportDownload {
             bytes: super::exports::export_compatible_profile_bytes(state)?,
-            filename: "marinara-compatible-export.zip",
+            filename: "de-koi-compatible-export.zip",
             content_type: "application/zip",
         }),
         Some("zip") => Ok(ProfileExportDownload {
             bytes: super::backup::download_profile_zip_bytes(state)?,
-            filename: "marinara-profile.zip",
+            filename: "de-koi-profile.zip",
             content_type: "application/zip",
         }),
         Some(_) => Err(AppError::invalid_input(
@@ -2929,7 +2929,7 @@ mod tests {
             Value::Null,
         )
         .expect("compatible profile export should succeed");
-        assert_eq!(compatible["filename"], "marinara-compatible-export.zip");
+        assert_eq!(compatible["filename"], "de-koi-compatible-export.zip");
         assert_eq!(compatible["contentType"], "application/zip");
         assert!(compatible["base64"].as_str().unwrap_or_default().len() > 16);
 
@@ -2941,7 +2941,7 @@ mod tests {
             Value::Null,
         )
         .expect("profile ZIP export should succeed");
-        assert_eq!(zip["filename"], "marinara-profile.zip");
+        assert_eq!(zip["filename"], "de-koi-profile.zip");
         assert_eq!(zip["contentType"], "application/zip");
         assert!(zip["base64"].as_str().unwrap_or_default().len() > 16);
     }

@@ -21,6 +21,6 @@ describe("exportApi.prompt", () => {
     const payload = await exportApi.prompt("preset-1");
 
     expect(invokeTauri).toHaveBeenCalledWith("prompt_export", { presetId: "preset-1" });
-    expect(payload.filename).toBe("preset.marinara.json");
+    expect(payload.filename).toBe("preset.dekoi.json");
   });
 });
