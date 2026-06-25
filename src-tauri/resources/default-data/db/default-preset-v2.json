@@ -6,7 +6,7 @@
     "preset": {
       "id": "preset_universal_v2",
       "name": "De-Koi Universal Preset V2",
-      "description": "Benchmark-focused universal De-Koi roleplay and fiction preset. Built from an audit of Marinara's Universal Preset with cleaner controls for agency, pacing, style, continuity, adult-safe boundaries, and less AI-coded prose.",
+      "description": "Benchmark-focused universal De-Koi roleplay and fiction preset with cleaner controls for agency, pacing, style, continuity, adult-safe boundaries, and less AI-coded prose.",
       "sectionOrder": [
         "section_v2_role",
         "section_v2_lorebook",
