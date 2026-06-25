@@ -120,8 +120,12 @@ For each new pre-alpha package, rerun:
 
 ```sh
 asset=De-Koi-PreAlpha-pi-bare-metal-arm64-v<version>-<sha>.tar.gz
-sudo bash scripts/pi-bare-metal-update.sh "/tmp/$asset"
+sudo DE_KOI_PUBLIC_ORIGIN=https://de-koi.example.duckdns.org \
+  bash scripts/pi-bare-metal-update.sh "/tmp/$asset"
 ```
 
 The script installs each package into a new release directory and moves
 `/opt/de-koi/current` atomically. Your data stays in `/var/lib/de-koi`.
+If the existing env file was configured with a public origin, later updates must
+provide the same `DE_KOI_PUBLIC_ORIGIN` or use `--refresh-env` to intentionally
+change the managed origin fields.

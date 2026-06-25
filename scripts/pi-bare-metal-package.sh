@@ -18,7 +18,41 @@ web_dir="${DE_KOI_WEB_DIST:-dist}"
 staging="${DE_KOI_PI_PACKAGE_STAGING:-dist-pi-bare-metal/staging}"
 package_name="de-koi"
 package_root="${staging}/${package_name}"
-snapshot_entries="AGENTS.md LICENSE.txt NOTICE.md README.md package.json pnpm-lock.yaml tsconfig.json tsconfig.node.json deploy docs scripts skills src src-tauri"
+snapshot_entries=(
+  AGENTS.md
+  LICENSE.txt
+  NOTICE.md
+  README.md
+  package.json
+  pnpm-lock.yaml
+  tsconfig.json
+  tsconfig.node.json
+  deploy
+  docs
+  scripts
+  skills
+  src
+  src-tauri
+)
+required_snapshot_paths=(
+  package.json
+  scripts/pi-bare-metal-update.sh
+  docs/pi-bare-metal.md
+  src-tauri/Cargo.toml
+  src-tauri/src/bin/de-koi-server.rs
+  src-tauri/src/state.rs
+  src-tauri/resources/default-data/db/default-preset.json
+  src-tauri/resources/default-data/game-assets/manifest.json
+)
+
+require_manifest_path() {
+  required_path="$1"
+  manifest_file="$2"
+  if ! grep -Fqx "$required_path" "$manifest_file"; then
+    echo "Package manifest is missing required runtime path: $required_path" >&2
+    exit 1
+  fi
+}
 
 case "$staging" in
   ""|"/"|".")
@@ -51,8 +85,12 @@ cp "$server_bin" "$package_root/bin/de-koi-server"
 chmod 0755 "$package_root/bin/de-koi-server"
 cp -R "$web_dir"/. "$package_root/web/"
 
-git archive --format=tar HEAD -- $snapshot_entries | tar -xf - -C "$package_root/app"
-git ls-tree -r --name-only HEAD -- $snapshot_entries > "$package_root/PACKAGE-MANIFEST.txt"
+git ls-tree -r --name-only HEAD -- "${snapshot_entries[@]}" > "$package_root/PACKAGE-MANIFEST.txt"
+for required_path in "${required_snapshot_paths[@]}"; do
+  require_manifest_path "$required_path" "$package_root/PACKAGE-MANIFEST.txt"
+done
+
+git archive --format=tar HEAD -- "${snapshot_entries[@]}" | tar -xf - -C "$package_root/app"
 
 {
   printf 'package_schema=1\n'

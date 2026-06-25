@@ -62,9 +62,20 @@ install_root="${DE_KOI_INSTALL_ROOT:-/opt/de-koi}"
 data_dir="${DE_KOI_DATA_DIR:-/var/lib/de-koi}"
 service_user="${DE_KOI_SERVICE_USER:-de-koi}"
 public_origin="${DE_KOI_PUBLIC_ORIGIN:-}"
+package_name="de-koi"
 env_dir="/etc/de-koi"
 env_file="$env_dir/de-koi-server.env"
 service_file="/etc/systemd/system/de-koi-server.service"
+required_manifest_entries="
+package.json
+scripts/pi-bare-metal-update.sh
+docs/pi-bare-metal.md
+src-tauri/Cargo.toml
+src-tauri/src/bin/de-koi-server.rs
+src-tauri/src/state.rs
+src-tauri/resources/default-data/db/default-preset.json
+src-tauri/resources/default-data/game-assets/manifest.json
+"
 
 tmp_dir="$(mktemp -d)"
 cleanup() {
@@ -100,10 +111,17 @@ if [ -n "${DE_KOI_PI_PACKAGE_SHA256:-}" ]; then
   fi
 fi
 
-extract_dir="$tmp_dir/extract"
-mkdir -p "$extract_dir"
-tar -xzf "$package_file" -C "$extract_dir"
-top_levels="$(tar -tzf "$package_file" | awk -F/ 'NF > 0 && $1 != "" { print $1 }' | sort -u)"
+listing_file="$tmp_dir/package-listing.txt"
+tar -tzf "$package_file" > "$listing_file"
+if awk 'BEGIN { bad = 0 } $0 ~ /^\// || $0 ~ /(^|\/)\.\.(\/|$)/ { print; bad = 1 } END { exit bad }' "$listing_file" >/dev/null; then
+  :
+else
+  echo "Package contains unsafe archive paths." >&2
+  awk '$0 ~ /^\// || $0 ~ /(^|\/)\.\.(\/|$)/ { print }' "$listing_file" >&2
+  exit 1
+fi
+
+top_levels="$(awk -F/ 'NF > 0 && $1 != "" { print $1 }' "$listing_file" | sort -u)"
 top_level_count="$(printf '%s\n' "$top_levels" | sed '/^$/d' | wc -l | tr -d ' ')"
 if [ "$top_level_count" != "1" ]; then
   echo "Package must contain exactly one top-level directory; found:" >&2
@@ -112,17 +130,43 @@ if [ "$top_level_count" != "1" ]; then
 fi
 
 package_root_name="$(printf '%s\n' "$top_levels" | sed -n '1p')"
-package_root="$extract_dir/$package_root_name"
+if [ "$package_root_name" != "$package_name" ]; then
+  echo "Package root contract mismatch." >&2
+  echo "top-level: $package_root_name" >&2
+  echo "expected top-level: $package_name" >&2
+  exit 1
+fi
 
-manifest_root="$(awk -F= '$1 == "package_root" { print $2 }' "$package_root/VERSION" 2>/dev/null || true)"
-manifest_schema="$(awk -F= '$1 == "package_schema" { print $2 }' "$package_root/VERSION" 2>/dev/null || true)"
-if [ "$package_root_name" != "de-koi" ] || [ "$manifest_root" != "de-koi" ] || [ "$manifest_schema" != "1" ]; then
+for required_entry in "$package_name/VERSION" "$package_name/PACKAGE-MANIFEST.txt" "$package_name/bin/de-koi-server" "$package_name/web/index.html"; do
+  if ! grep -Fqx "$required_entry" "$listing_file"; then
+    echo "Package is missing required archive entry: $required_entry" >&2
+    exit 1
+  fi
+done
+
+version_contract="$(tar -xOzf "$package_file" "$package_name/VERSION" 2>/dev/null || true)"
+manifest_root="$(printf '%s\n' "$version_contract" | awk -F= '$1 == "package_root" { print $2 }')"
+manifest_schema="$(printf '%s\n' "$version_contract" | awk -F= '$1 == "package_schema" { print $2 }')"
+if [ "$manifest_root" != "$package_name" ] || [ "$manifest_schema" != "1" ]; then
   echo "Package root contract mismatch." >&2
   echo "top-level: $package_root_name" >&2
   echo "manifest package_root: ${manifest_root:-missing}" >&2
   echo "manifest package_schema: ${manifest_schema:-missing}" >&2
   exit 1
 fi
+
+package_manifest="$(tar -xOzf "$package_file" "$package_name/PACKAGE-MANIFEST.txt" 2>/dev/null || true)"
+for required_manifest_entry in $required_manifest_entries; do
+  if ! printf '%s\n' "$package_manifest" | grep -Fqx "$required_manifest_entry"; then
+    echo "Package manifest is missing required runtime path: $required_manifest_entry" >&2
+    exit 1
+  fi
+done
+
+extract_dir="$tmp_dir/extract"
+mkdir -p "$extract_dir"
+tar -xzf "$package_file" -C "$extract_dir"
+package_root="$extract_dir/$package_root_name"
 
 if [ ! -x "$package_root/bin/de-koi-server" ]; then
   echo "Package is missing bin/de-koi-server" >&2
@@ -159,10 +203,16 @@ release_dir="$install_root/releases/$release_id"
 
 cors_origin="${public_origin:-http://127.0.0.1:7860}"
 csrf_origin="${public_origin:-http://127.0.0.1:7860}"
-if [ -f "$env_file" ] && [ "$refresh_env" != true ] && [ -n "$public_origin" ]; then
+if [ -f "$env_file" ] && [ "$refresh_env" != true ]; then
   existing_cors="$(awk -F= '$1 == "CORS_ORIGINS" { print substr($0, index($0, "=") + 1) }' "$env_file")"
   existing_csrf="$(awk -F= '$1 == "CSRF_TRUSTED_ORIGINS" { print substr($0, index($0, "=") + 1) }' "$env_file")"
-  if [ "$existing_cors" != "$cors_origin" ] || [ "$existing_csrf" != "$csrf_origin" ]; then
+  existing_managed_origin="$(awk -F= '$1 == "DE_KOI_MANAGED_PUBLIC_ORIGIN" { print substr($0, index($0, "=") + 1) }' "$env_file")"
+  if [ -z "$public_origin" ] && [ -n "$existing_managed_origin" ]; then
+    echo "Existing runtime env was configured with DE_KOI_PUBLIC_ORIGIN=$existing_managed_origin." >&2
+    echo "Set DE_KOI_PUBLIC_ORIGIN on this run, or run with --refresh-env to intentionally update managed origin settings." >&2
+    exit 1
+  fi
+  if [ -n "$public_origin" ] && { [ "$existing_cors" != "$cors_origin" ] || [ "$existing_csrf" != "$csrf_origin" ] || [ "$existing_managed_origin" != "$public_origin" ]; }; then
     echo "Existing runtime env origin differs from DE_KOI_PUBLIC_ORIGIN." >&2
     echo "Run again with --refresh-env to update CORS_ORIGINS and CSRF_TRUSTED_ORIGINS while preserving secrets." >&2
     exit 1
@@ -183,32 +233,44 @@ chown -R root:root "$release_dir"
 ln -sfn "$release_dir" "$install_root/current.tmp"
 mv -Tf "$install_root/current.tmp" "$install_root/current"
 
-if [ ! -f "$env_file" ] || [ "$refresh_env" = true ]; then
-  admin_secret=""
-  basic_auth_user=""
-  basic_auth_pass=""
-  ip_allowlist=""
-  trusted_proxies=""
-  if [ -f "$env_file" ]; then
-    admin_secret="$(awk -F= '$1 == "ADMIN_SECRET" { print substr($0, index($0, "=") + 1) }' "$env_file")"
-    basic_auth_user="$(awk -F= '$1 == "BASIC_AUTH_USER" { print substr($0, index($0, "=") + 1) }' "$env_file")"
-    basic_auth_pass="$(awk -F= '$1 == "BASIC_AUTH_PASS" { print substr($0, index($0, "=") + 1) }' "$env_file")"
-    ip_allowlist="$(awk -F= '$1 == "IP_ALLOWLIST" { print substr($0, index($0, "=") + 1) }' "$env_file")"
-    trusted_proxies="$(awk -F= '$1 == "TRUSTED_PROXIES" { print substr($0, index($0, "=") + 1) }' "$env_file")"
-  fi
+set_env_value() {
+  key="$1"
+  value="$2"
+  file="$3"
+  tmp_env="$tmp_dir/env.$key"
+  awk -v key="$key" -v value="$value" '
+    BEGIN { found = 0 }
+    index($0, key "=") == 1 { print key "=" value; found = 1; next }
+    { print }
+    END { if (found == 0) print key "=" value }
+  ' "$file" > "$tmp_env"
+  cat "$tmp_env" > "$file"
+}
+
+if [ ! -f "$env_file" ]; then
   cat > "$env_file" <<EOF
 DE_KOI_SERVER_ADDR=127.0.0.1:8787
 DE_KOI_DATA_DIR=$data_dir
 DE_KOI_REPO_ROOT=$install_root/current/app
 DE_KOI_RESOURCE_DIR=$install_root/current/app/src-tauri
+DE_KOI_MANAGED_PUBLIC_ORIGIN=$public_origin
 CORS_ORIGINS=$cors_origin
 CSRF_TRUSTED_ORIGINS=$csrf_origin
-ADMIN_SECRET=$admin_secret
-BASIC_AUTH_USER=$basic_auth_user
-BASIC_AUTH_PASS=$basic_auth_pass
-IP_ALLOWLIST=$ip_allowlist
-TRUSTED_PROXIES=$trusted_proxies
+ADMIN_SECRET=
+BASIC_AUTH_USER=
+BASIC_AUTH_PASS=
+IP_ALLOWLIST=
+TRUSTED_PROXIES=
 EOF
+  chmod 0640 "$env_file"
+elif [ "$refresh_env" = true ]; then
+  set_env_value DE_KOI_SERVER_ADDR "127.0.0.1:8787" "$env_file"
+  set_env_value DE_KOI_DATA_DIR "$data_dir" "$env_file"
+  set_env_value DE_KOI_REPO_ROOT "$install_root/current/app" "$env_file"
+  set_env_value DE_KOI_RESOURCE_DIR "$install_root/current/app/src-tauri" "$env_file"
+  set_env_value DE_KOI_MANAGED_PUBLIC_ORIGIN "$public_origin" "$env_file"
+  set_env_value CORS_ORIGINS "$cors_origin" "$env_file"
+  set_env_value CSRF_TRUSTED_ORIGINS "$csrf_origin" "$env_file"
   chmod 0640 "$env_file"
 fi
 
