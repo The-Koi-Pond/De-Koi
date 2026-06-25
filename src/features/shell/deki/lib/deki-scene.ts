@@ -12,7 +12,7 @@ export const DEKI_SCENE_POSES: Record<DekiSceneMood, string> = {
 };
 
 export function getDekiSceneMood({ historyLoaded, sending }: DekiSceneStateInput): DekiSceneMood {
-  if (sending) return "responding";
   if (!historyLoaded) return "thinking";
+  if (sending) return "responding";
   return "idle";
 }
