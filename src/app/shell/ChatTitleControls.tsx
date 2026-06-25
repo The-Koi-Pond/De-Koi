@@ -76,7 +76,7 @@ export function ChatTitleControls({
           aria-label="Home"
         >
           <img
-            src="/favicon.png"
+            src="/koi-mark.svg"
             alt=""
             className="h-[0.95rem] w-[0.95rem] rounded-[0.2rem] object-cover"
             draggable={false}

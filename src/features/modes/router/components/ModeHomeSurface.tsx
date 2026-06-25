@@ -126,7 +126,7 @@ export function ModeHomeSurface({
               )}
             >
               <img
-                src="/logo.png"
+                src="/koi-mark.svg"
                 alt="De-Koi"
                 width={80}
                 height={80}

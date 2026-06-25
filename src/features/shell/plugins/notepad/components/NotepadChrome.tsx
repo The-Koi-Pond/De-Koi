@@ -11,7 +11,7 @@ export function NotepadBrand({ heading = false }: { heading?: boolean }) {
   const content = (
     <>
       <img
-        src="/favicon.png"
+        src="/koi-mark.svg"
         alt=""
         draggable={false}
         aria-hidden="true"

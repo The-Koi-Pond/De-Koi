@@ -141,7 +141,7 @@ const REPEAT_TRACK_END_GRACE_MS = 15_000;
 const REPEAT_TRACK_REPLAY_COOLDOWN_MS = 8_000;
 const MANUAL_CONTROL_REPEAT_SUPPRESS_MS = 15_000;
 const DJ_DEKI_PLAYLIST_READY_TOAST_MS = 20_000;
-const DOTTOR_SUPPORT_GIF = "/sprites/dottore/dottore_jumping.gif";
+const ASSISTANT_MARK_URL = "/koi-mark.svg";
 const MOBILE_WIDGET_COLLAPSED_SIZE = 48;
 const MOBILE_WIDGET_EXPANDED_MAX_WIDTH = 320;
 const MOBILE_WIDGET_EXPANDED_HORIZONTAL_GUTTER = 24;
@@ -568,7 +568,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
             <X size="0.875rem" />
           </button>
           <img
-            src={DOTTOR_SUPPORT_GIF}
+            src={ASSISTANT_MARK_URL}
             alt=""
             className="h-14 w-14 shrink-0 rounded-lg object-contain"
             draggable={false}

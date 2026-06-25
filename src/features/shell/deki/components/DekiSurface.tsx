@@ -27,7 +27,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { runDetachedDekiSend } from "../lib/deki-send";
 import { DEKI_SCENE_POSES, getDekiSceneMood, type DekiSceneMood } from "../lib/deki-scene";
 
-const DEKI_AVATAR_URL = "/icon-192.png";
+const DEKI_AVATAR_URL = "/koi-mark.svg";
 const DEKI_CHARACTER_ID = "__deki_shell__";
 const DEKI_WELCOME_CONTENT =
   "Howdy, welcome to De-Koi!\n\nThe pond is calm, and I'm Deki-senpai. Feeling a little lost? It's not a skill issue yet! Ask me anything about how the app works, or have me edit it to fit what you need. Am I not the best? 😎";
@@ -1102,7 +1102,7 @@ function DekiPondScene({ mood }: { mood: DekiSceneMood }) {
         <span />
         <span />
       </div>
-      <img src={poseUrl} alt="Deki-senpai" className="deki-pond-sprite" draggable={false} />
+      <img src={poseUrl} alt="Koi fish" className="deki-pond-sprite" draggable={false} />
     </div>
   );
 }
