@@ -27,6 +27,7 @@ type DekiHistoryWriter = {
 export type DetachedDekiSendInput = {
   sessionId: string | null;
   userMessage: string;
+  existingUser?: DekiMessage;
   messages: DekiMessage[];
   compaction: DekiCompactionState;
   connection: DekiCompactionConnection;
@@ -52,14 +53,15 @@ export type DetachedDekiSendResult = {
 };
 
 export async function runDetachedDekiSend(input: DetachedDekiSendInput): Promise<DetachedDekiSendResult> {
-  const user = await input.history.appendMessage({
-    sessionId: input.sessionId,
-    role: "user",
-    content: input.userMessage,
-  });
-  const messagesWithUser = [...input.messages, user];
+  const user =
+    input.existingUser ??
+    (await input.history.appendMessage({
+      sessionId: input.sessionId,
+      role: "user",
+      content: input.userMessage,
+    }));
+  const messagesWithUser = input.existingUser ? input.messages : [...input.messages, user];
   await input.onUserMessagePersisted?.(user, messagesWithUser);
-
   const compactionResult = await compactDekiHistory({
     messages: messagesWithUser,
     compaction: input.compaction,
@@ -71,7 +73,6 @@ export async function runDetachedDekiSend(input: DetachedDekiSendInput): Promise
     ? await input.history.saveCompaction(input.sessionId, nextCompaction)
     : nextCompaction;
   await input.onCompactionSaved?.(savedCompaction);
-
   const contextMessages = dekiContextMessages(messagesWithUser, savedCompaction).filter(
     (message) => message.id !== user.id,
   );
@@ -94,7 +95,6 @@ export async function runDetachedDekiSend(input: DetachedDekiSendInput): Promise
   });
   const messagesWithAssistant = [...messagesWithUser, assistant];
   await input.onAssistantMessagePersisted?.(assistant, messagesWithAssistant);
-
   return {
     user,
     assistant,

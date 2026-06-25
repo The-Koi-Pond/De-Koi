@@ -38,6 +38,8 @@ export interface ConversationMessageProps {
   noHoverGroup?: boolean;
   plainUserMessages?: boolean;
   forceShowActions?: boolean;
+  forceCanRegenerate?: boolean;
+  regenerateButtonTitle?: string;
   onDelete?: (messageId: string) => void;
   onRegenerate?: (messageId: string) => void;
   onEdit?: (messageId: string, content: string) => void | Promise<void>;
@@ -134,6 +136,7 @@ export interface ConversationMessageRenderContext {
   groupedSegments: GroupedSegment[] | null;
   visibleSegments: number;
   charByName: Map<string, ConversationCharacterInfo> | null;
+  charIdByName: Map<string, string> | null;
   attachments: MessageAttachment[];
   translatedText?: string | null;
   isTranslating: boolean;

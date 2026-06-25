@@ -57,6 +57,12 @@ type DekiActionApplyResult = {
   compaction: DekiCompactionState | null;
 };
 
+type DekiHistorySnapshot = {
+  session: DekiSession;
+  messages: DekiMessage[];
+  compaction: DekiCompactionState;
+};
+
 const DEKI_ACTION_STORAGE_ENTITIES: Record<DekiActionEntity, StorageEntity> = {
   characters: "characters",
   "character-groups": "character-groups",
@@ -181,7 +187,10 @@ function createEmptyDekiSession(): DekiSession {
 }
 
 function titleFromMessages(messages: DekiMessage[]): string {
-  const firstUserMessage = messages.find((message) => message.role === "user")?.content.trim().replace(/\s+/g, " ");
+  const firstUserMessage = messages
+    .find((message) => message.role === "user")
+    ?.content.trim()
+    .replace(/\s+/g, " ");
   if (!firstUserMessage) return "New Deki Chat";
   return firstUserMessage.length > 48 ? `${firstUserMessage.slice(0, 45)}...` : firstUserMessage;
 }
@@ -331,6 +340,31 @@ function updateSession(
   };
 }
 
+function sessionFromState(state: DekiSessionsState, sessionId: string | null | undefined): DekiSession {
+  return sessionId
+    ? (state.sessions.find((item) => item.id === sessionId) ?? getActiveDekiSession(state))
+    : getActiveDekiSession(state);
+}
+
+function historySnapshot(state: DekiSessionsState, sessionId: string | null | undefined): DekiHistorySnapshot {
+  const session = sessionFromState(state, sessionId);
+  return {
+    session,
+    messages: session.messages,
+    compaction: session.compaction,
+  };
+}
+
+function compactionForMessages(messages: DekiMessage[], compaction: DekiCompactionState): DekiCompactionState {
+  const throughMessageId = compaction.compactedThroughMessageId;
+  if (!throughMessageId || messages.some((message) => message.id === throughMessageId)) return compaction;
+  return {
+    compactedSummary: null,
+    compactedAt: null,
+    compactedThroughMessageId: null,
+  };
+}
+
 function storageEntityForDekiAction(entity: DekiActionEntity): StorageEntity {
   return DEKI_ACTION_STORAGE_ENTITIES[entity];
 }
@@ -375,7 +409,9 @@ function withCreateActionId(
   const existingId = readTrimmedString(draft.id);
   if (existingId) return { draft: { ...draft, id: existingId }, idempotencyId: existingId };
   const generatedId = createActionRecordId(entity, actionId);
-  return generatedId ? { draft: { ...draft, id: generatedId }, idempotencyId: generatedId } : { draft, idempotencyId: null };
+  return generatedId
+    ? { draft: { ...draft, id: generatedId }, idempotencyId: generatedId }
+    : { draft, idempotencyId: null };
 }
 
 function normalizeCreateActionDraft(
@@ -486,7 +522,8 @@ async function writeDekiActionApplication(
     messages: session.messages.map((message) =>
       message.id === messageId && message.action && message.action.type !== "none"
         ? (() => {
-            savedApplication = message.actionApplication?.status === "applied" ? message.actionApplication : application;
+            savedApplication =
+              message.actionApplication?.status === "applied" ? message.actionApplication : application;
             return { ...message, actionApplication: savedApplication };
           })()
         : message,
@@ -496,7 +533,7 @@ async function writeDekiActionApplication(
     throw new Error("Deki-senpai action message was not found.");
   }
   const saved = await saveSessionsState(nextState);
-  const session = sessionId ? (saved.sessions.find((item) => item.id === sessionId) ?? getActiveDekiSession(saved)) : getActiveDekiSession(saved);
+  const session = sessionFromState(saved, sessionId);
   return {
     application: savedApplication,
     messages: session.messages,
@@ -580,18 +617,8 @@ export const dekiApi = {
     },
   },
   history: {
-    get: async (
-      sessionId?: string | null,
-    ): Promise<{ session: DekiSession; messages: DekiMessage[]; compaction: DekiCompactionState }> => {
-      const state = await readSessionsState();
-      const session = sessionId
-        ? (state.sessions.find((item) => item.id === sessionId) ?? getActiveDekiSession(state))
-        : getActiveDekiSession(state);
-      return {
-        session,
-        messages: session.messages,
-        compaction: session.compaction,
-      };
+    get: async (sessionId?: string | null): Promise<DekiHistorySnapshot> => {
+      return historySnapshot(await readSessionsState(), sessionId);
     },
     appendMessage: async (message: {
       sessionId?: string | null;
@@ -614,13 +641,63 @@ export const dekiApi = {
       await saveSessionsState(nextState);
       return nextMessage;
     },
+    replaceMessages: async ({
+      sessionId,
+      messages,
+      compaction,
+    }: {
+      sessionId?: string | null;
+      messages: DekiMessage[];
+      compaction: DekiCompactionState;
+    }): Promise<DekiHistorySnapshot> => {
+      const state = await readSessionsState();
+      const nextCompaction = compactionForMessages(messages, compaction);
+      const nextState = updateSession(state, sessionId, (session) => ({
+        ...session,
+        title: titleFromMessages(messages),
+        messages,
+        compaction: nextCompaction,
+        updatedAt: messages.at(-1)?.createdAt ?? new Date().toISOString(),
+      }));
+      return historySnapshot(await saveSessionsState(nextState), sessionId);
+    },
+    updateMessage: async ({
+      sessionId,
+      messageId,
+      content,
+    }: {
+      sessionId?: string | null;
+      messageId: string;
+      content: string;
+    }): Promise<DekiMessage> => {
+      const state = await readSessionsState();
+      let updatedMessage: DekiMessage | null = null;
+      const nextState = updateSession(state, sessionId, (session) => {
+        const messages = session.messages.map((message) => {
+          if (message.id !== messageId) return message;
+          updatedMessage = { ...message, content };
+          return updatedMessage;
+        });
+        return {
+          ...session,
+          title: titleFromMessages(messages),
+          messages,
+          updatedAt: updatedMessage?.createdAt ?? session.updatedAt,
+        };
+      });
+      if (!updatedMessage) throw new Error("Deki-senpai message could not be found.");
+      await saveSessionsState(nextState);
+      return updatedMessage;
+    },
     markActionApplied: markDekiActionApplied,
-    saveCompaction: async (sessionId: string | null | undefined, compaction: DekiCompactionState): Promise<DekiCompactionState> => {
+    saveCompaction: async (
+      sessionId: string | null | undefined,
+      compaction: DekiCompactionState,
+    ): Promise<DekiCompactionState> => {
       const state = await readSessionsState();
       const nextState = updateSession(state, sessionId, (session) => ({ ...session, compaction }));
       const saved = await saveSessionsState(nextState);
-      const session = sessionId ? (saved.sessions.find((item) => item.id === sessionId) ?? getActiveDekiSession(saved)) : getActiveDekiSession(saved);
-      return session.compaction;
+      return sessionFromState(saved, sessionId).compaction;
     },
     reset: async (_sessionId?: string | null): Promise<DekiSessionsState> => {
       const state = await readSessionsState();

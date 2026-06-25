@@ -1067,7 +1067,9 @@ export function ChatSidebar({
                     : "text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-accent)]/60",
                 )}
               >
-                {isActive && <span className="absolute -left-0.5 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-sky-400" />}
+                {isActive && (
+                  <span className="absolute -left-0.5 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-sky-400" />
+                )}
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-500">
                   <MessageSquare size="0.8125rem" />
                 </div>
@@ -1357,7 +1359,9 @@ export function ChatSidebar({
             className={cn(
               "flex flex-col gap-0.5 rounded-lg transition-colors",
               draggedChatId && "min-h-8",
-              chatDropTarget && chatDropTarget.folderId === null && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+              chatDropTarget &&
+                chatDropTarget.folderId === null &&
+                "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
             )}
           >
             {unfiledChats.map(renderChatRow)}

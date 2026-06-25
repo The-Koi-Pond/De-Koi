@@ -282,6 +282,52 @@ describe("ConversationMessage memo subscriptions", () => {
     expect(container!.querySelector(".mari-streaming-pending")).not.toBeNull();
     expect(container!.querySelector(".mari-typing-dots")).toBeNull();
   });
+  it("keeps character CSS hooks on grouped speaker messages", () => {
+    const groupedMessage: Message = {
+      ...message,
+      id: "message-grouped-speakers",
+      characterId: null,
+      content: "Aster: hello there\nBram: pancakes?",
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+    const groupedCharacterMap = new Map([
+      ...characterMap,
+      [
+        "character-2",
+        {
+          name: "Bram",
+          avatarUrl: null,
+        },
+      ] as const,
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={groupedMessage}
+            characterMap={groupedCharacterMap}
+            chatCharacterIds={["character-1", "character-2"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const asterContent = container!.querySelector<HTMLElement>(
+      '[data-card-css="character-1"] .mari-message-content',
+    );
+    const bramContent = container!.querySelector<HTMLElement>(
+      '[data-card-css="character-2"] .mari-message-content',
+    );
+    expect(asterContent?.textContent).toContain("hello there");
+    expect(bramContent?.textContent).toContain("pancakes?");
+  });
   it("keeps child button keyboard events isolated from message-level toggles", () => {
     const onRegenerate = vi.fn();
 

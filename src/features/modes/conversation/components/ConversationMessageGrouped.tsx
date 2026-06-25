@@ -19,7 +19,9 @@ function ConversationGroupedSegments({ context }: { context: ConversationMessage
   return (
     <>
       {context.groupedSegments?.slice(0, context.visibleSegments).map((grp, i) => {
-        const segChar = grp.speaker && context.charByName ? context.charByName.get(grp.speaker.toLowerCase()) : null;
+        const speakerKey = grp.speaker?.toLowerCase();
+        const segChar = speakerKey && context.charByName ? context.charByName.get(speakerKey) : null;
+        const segCardCssId = speakerKey && context.charIdByName ? context.charIdByName.get(speakerKey) : undefined;
         const segAvatar = segChar?.avatarUrl ?? null;
         const segName = segChar?.name ?? grp.speaker ?? "";
         const segColor = segChar?.nameColor;
@@ -40,7 +42,11 @@ function ConversationGroupedSegments({ context }: { context: ConversationMessage
         }
 
         return (
-          <div key={i} className={cn("animate-[fadeSlideIn_0.4s_ease-out]", i > 0 && "mt-3")}>
+          <div
+            key={i}
+            className={cn("animate-[fadeSlideIn_0.4s_ease-out]", i > 0 && "mt-3")}
+            data-card-css={segCardCssId}
+          >
             {(() => {
               const paragraphs = combinedText
                 .split(/\n{2,}/)
@@ -98,7 +104,7 @@ function ConversationGroupedSegments({ context }: { context: ConversationMessage
                         )}
                       </div>
                       <div
-                        className="text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap"
+                        className="mari-message-content text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap"
                         style={context.messageTextStyle}
                       >
                         {renderInlineMessageText(paragraphs[0]!, context.mentionNames, `gs${i}_0`)}
@@ -108,7 +114,7 @@ function ConversationGroupedSegments({ context }: { context: ConversationMessage
                   {paragraphs.slice(1).map((para, pi) => (
                     <div
                       key={pi}
-                      className="pl-14 mt-0.5 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap"
+                      className="mari-message-content pl-14 mt-0.5 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap"
                       style={context.messageTextStyle}
                     >
                       {renderInlineMessageText(para, context.mentionNames, `gs${i}_${pi + 1}`)}

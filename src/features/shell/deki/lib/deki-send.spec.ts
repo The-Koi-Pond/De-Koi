@@ -14,15 +14,15 @@ describe("detached Deki send", () => {
     } satisfies DekiEntryAction;
     const appendMessage = vi.fn(
       async (message: { role: "user" | "assistant"; content: string; action?: DekiEntryAction | null }) => {
-      const saved = {
-        id: `${message.role}-${savedMessages.length + 1}`,
-        role: message.role,
-        content: message.content,
-        createdAt: `2026-06-25T12:00:0${savedMessages.length}.000Z`,
-        action: "action" in message ? message.action : null,
-      } satisfies DekiMessage;
-      savedMessages.push(saved);
-      return saved;
+        const saved = {
+          id: `${message.role}-${savedMessages.length + 1}`,
+          role: message.role,
+          content: message.content,
+          createdAt: `2026-06-25T12:00:0${savedMessages.length}.000Z`,
+          action: "action" in message ? message.action : null,
+        } satisfies DekiMessage;
+        savedMessages.push(saved);
+        return saved;
       },
     );
     const prompt = vi.fn(async () => ({

@@ -39,10 +39,7 @@ export const HOME_SPLASH_TEXTS = [
 ] as const;
 
 export function pickHomeSplashText(random = Math.random): string {
-  const index = Math.min(
-    HOME_SPLASH_TEXTS.length - 1,
-    Math.max(0, Math.floor(random() * HOME_SPLASH_TEXTS.length)),
-  );
+  const index = Math.min(HOME_SPLASH_TEXTS.length - 1, Math.max(0, Math.floor(random() * HOME_SPLASH_TEXTS.length)));
   return HOME_SPLASH_TEXTS[index] ?? HOME_SPLASH_TEXTS[0];
 }
 
@@ -77,9 +74,9 @@ export function ModeHomeSurface({
   const [homeSplashText] = useState(() => pickHomeSplashText());
   const languageConnections = useMemo(
     () =>
-      filterLanguageGenerationConnections(
-        (connections ?? []) as Array<{ id: string; provider?: string }>,
-      ).filter((connection) => !!connection.id),
+      filterLanguageGenerationConnections((connections ?? []) as Array<{ id: string; provider?: string }>).filter(
+        (connection) => !!connection.id,
+      ),
     [connections],
   );
   const hasLanguageConnections = languageConnections.length > 0;
