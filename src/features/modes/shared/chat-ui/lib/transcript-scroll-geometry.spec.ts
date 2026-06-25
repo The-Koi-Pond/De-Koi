@@ -39,4 +39,25 @@ describe("transcript scroll geometry", () => {
     expect(cancelFrame).toHaveBeenCalledWith(1);
     expect(cancelFrame).toHaveBeenCalledWith(2);
   });
+
+  it("stops queued bottom locks when the write declines continuation", () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    let shouldContinue = true;
+    const writeBottom = vi.fn(() => shouldContinue);
+
+    scheduleTranscriptBottomLock(writeBottom);
+
+    expect(writeBottom).toHaveBeenCalledTimes(1);
+
+    shouldContinue = false;
+    frames.shift()?.(16);
+    frames.shift()?.(32);
+
+    expect(writeBottom).toHaveBeenCalledTimes(2);
+  });
 });
