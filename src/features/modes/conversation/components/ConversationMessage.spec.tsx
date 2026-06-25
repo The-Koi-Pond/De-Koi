@@ -325,6 +325,16 @@ describe("ConversationMessage memo subscriptions", () => {
     const bramContent = container!.querySelector<HTMLElement>(
       '[data-card-css="character-2"] .mari-message-content',
     );
+    const asterWrapper = container!.querySelector<HTMLElement>('[data-card-css="character-1"]');
+    const bramWrapper = container!.querySelector<HTMLElement>('[data-card-css="character-2"]');
+
+    expect(asterWrapper?.classList.contains("mari-message")).toBe(true);
+    expect(asterWrapper?.classList.contains("mari-message-assistant")).toBe(true);
+    expect(asterWrapper?.querySelector(".mari-message-avatar")).not.toBeNull();
+    expect(asterWrapper?.querySelector(".mari-message-body")).not.toBeNull();
+    expect(asterWrapper?.querySelector(".mari-message-meta")).not.toBeNull();
+    expect(asterWrapper?.querySelector(".mari-message-name")).not.toBeNull();
+    expect(bramWrapper?.querySelector(".mari-message-body")).not.toBeNull();
     expect(asterContent?.textContent).toContain("hello there");
     expect(bramContent?.textContent).toContain("pancakes?");
   });
