@@ -717,7 +717,11 @@ export function ConversationView({
 
   const scheduleScrollToMessagesBottom = useCallback(
     (behavior: ScrollBehavior = "auto") => {
-      return scheduleTranscriptBottomLock(() => scrollToMessagesBottom(behavior));
+      return scheduleTranscriptBottomLock(() => {
+        if (userScrolledAwayRef.current) return false;
+        scrollToMessagesBottom(behavior);
+        return !userScrolledAwayRef.current;
+      });
     },
     [scrollToMessagesBottom],
   );

@@ -26,8 +26,10 @@ export function scheduleTranscriptScrollWrite(write: () => void): () => void {
   return () => window.cancelAnimationFrame(frame);
 }
 
-export function scheduleTranscriptBottomLock(writeBottom: () => void, frameCount = 2): () => void {
-  writeBottom();
+export function scheduleTranscriptBottomLock(writeBottom: () => boolean | void, frameCount = 2): () => void {
+  if (writeBottom() === false) {
+    return () => {};
+  }
 
   if (typeof window === "undefined") {
     return () => {};
@@ -40,7 +42,7 @@ export function scheduleTranscriptBottomLock(writeBottom: () => void, frameCount
     if (remainingFrames <= 0) return;
     const frame = window.requestAnimationFrame(() => {
       if (cancelled) return;
-      writeBottom();
+      if (writeBottom() === false) return;
       scheduleNextFrame(remainingFrames - 1);
     });
     frames.push(frame);
