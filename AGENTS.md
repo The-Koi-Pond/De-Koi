@@ -93,7 +93,7 @@ For code changes, final responses must include behavior changed, primary files/m
 - `src-tauri/src/commands/storage/sidecar.rs`: Thin Tauri/AppState adapter for Local Model sidecar commands and constants.
 - `src-tauri/crates/sidecar`: Local Model sidecar capability implementation, including config, curated GGUF/runtime downloader, loopback process management, synthetic `sidecar:local` connection materialization, and smoke-test helpers. The Tauri command module stays as the app-state adapter.
 - `docs/uml/Refactor`: PlantUML architecture diagrams for current refactor-era boundaries, hotspots, and decision context; consult these for architecture-sensitive changes. The `Refactor` name reflects De-Koi's origin as a Marinara Engine refactor.
-- `public/sprites/deki`: Deki-senpai visual assets used by onboarding, FAQ, title controls, and the Deki-senpai shell surface.
+- `public/koi-mark.svg` and `public/koi-bg.svg`: De-Koi brand and pond marks used by the shell, Deki pond, onboarding helpers, notifications, and app metadata.
 - `.github/workflows/bunny-review.yml`, `.github/workflows/bunny-review-auto.yml`, `.github/workflows/bunny-review-command.yml`, `.github/bunny-review`: Bunny Review PR comment automation, trusted auto and slash-command dispatchers, review packet builder, CI dependencies, path rules, and model reviewer prompt.
 - `skills/frontend-design`: Repo-local frontend concept, layout, visual direction, and first-pass UI implementation workflow that pairs with Impeccable.
 - `skills/impeccable`: Repo-local frontend design, critique, polish, accessibility, responsive, and live-iteration workflow for UI craft passes.

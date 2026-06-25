@@ -61,7 +61,7 @@ The main branch is layered by ownership:
 
 - `src/app` owns React bootstrap, app shell, providers, and startup effects.
 - `src/features` owns user-facing React workflows.
-- `src/features/shell` owns settings, imports, onboarding, Professor Mari, and integrations surfaces.
+- `src/features/shell` owns settings, imports, onboarding, Deki-senpai, and integrations surfaces.
 - `src/features/modes` owns chat, roleplay, game, shared transcript UI, and the mode router.
 - `src/features/runtime` owns shared runtime systems such as generation, world-state, visuals, and tracker.
 - `src/features/catalog` owns resource-library UI and hooks for chats, characters, personas, sprites, lorebooks, presets, connections, agents, gallery, and knowledge sources.

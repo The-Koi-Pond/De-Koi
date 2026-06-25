@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { cn } from "../../lib/utils";
 
-const DOTTOR_SUPPORT_GIF = "/sprites/dottore/dottore_jumping.gif";
+const DEKI_WORKING_MARK_URL = "/koi-mark.svg";
 
 interface DekiWorkingWindowProps {
   visible: boolean;
@@ -42,14 +42,14 @@ export function DekiWorkingWindow({ visible, className }: DekiWorkingWindowProps
       <div className="flex flex-col items-center gap-3 px-4 pb-4 pt-5 text-center">
         {!imageFailed && (
           <img
-            src={DOTTOR_SUPPORT_GIF}
-            alt="Dottore providing moral support"
+            src={DEKI_WORKING_MARK_URL}
+            alt="Koi mark"
             className="h-28 w-28 object-contain [image-rendering:pixelated]"
             onError={() => setImageFailed(true)}
           />
         )}
         <p className="text-xs font-medium leading-relaxed">
-          Deki-senpai is working (and Dottore is providing moral support)…
+          Deki-senpai is working...
         </p>
       </div>
     </div>

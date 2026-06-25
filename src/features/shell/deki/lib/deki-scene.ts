@@ -6,9 +6,9 @@ export type DekiSceneStateInput = {
 };
 
 export const DEKI_SCENE_POSES: Record<DekiSceneMood, string> = {
-  idle: "/sprites/deki/Deki_greet.png",
-  thinking: "/sprites/deki/Deki_thinking.png",
-  responding: "/sprites/deki/Deki_explaining.png",
+  idle: "/koi-mark.svg",
+  thinking: "/koi-mark.svg",
+  responding: "/koi-mark.svg",
 };
 
 export function getDekiSceneMood({ historyLoaded, sending }: DekiSceneStateInput): DekiSceneMood {

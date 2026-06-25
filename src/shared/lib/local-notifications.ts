@@ -106,7 +106,7 @@ export async function showConversationLocalNotification({
 
   const notification = new window.Notification(title, {
     body,
-    icon: "/icon-192.png",
+    icon: "/koi-mark.svg",
     tag,
   });
 

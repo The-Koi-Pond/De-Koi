@@ -8,7 +8,7 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight } from "lucide-react";
 
-const ASSISTANT_MARK_URL = "/icon-192.png";
+const ASSISTANT_MARK_URL = "/koi-mark.svg";
 
 // ─── Step definitions ─────────────────────────
 
