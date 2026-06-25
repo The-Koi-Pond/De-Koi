@@ -7,6 +7,10 @@ use std::path::{Path, PathBuf};
 
 const MAX_BINARY_RESPONSE_BYTES: u64 = 25 * 1024 * 1024;
 const MAX_BINARY_REDIRECTS: usize = 5;
+const GIPHY_SETTINGS_KEY: &str = "giphy";
+const GIPHY_API_KEY_ENCRYPTED_FIELD: &str = "apiKeyEncrypted";
+const GIPHY_API_KEY_FIELD: &str = "apiKey";
+const GIPHY_API_KEY_MAX_LEN: usize = 256;
 
 pub(crate) async fn http_json(url: &str) -> AppResult<Value> {
     let client = reqwest::Client::builder()
@@ -440,15 +444,108 @@ fn hex_value(byte: u8) -> Option<u8> {
         _ => None,
     }
 }
-pub(crate) async fn gifs_search(route: &ParsedPath) -> AppResult<Value> {
-    let api_key = std::env::var("GIPHY_API_KEY")
-        .or_else(|_| std::env::var("VITE_GIPHY_API_KEY"))
-        .map_err(|_| {
+pub(crate) fn giphy_config(state: &AppState) -> AppResult<Value> {
+    let stored = stored_giphy_api_key(state)?;
+    let env = env_giphy_api_key();
+    let source = if stored.is_some() {
+        "stored"
+    } else if env.is_some() {
+        "env"
+    } else {
+        "missing"
+    };
+    Ok(json!({
+        "hasApiKey": stored.is_some() || env.is_some(),
+        "apiKey": if stored.is_some() { json!(connection_secrets::API_KEY_MASK) } else { Value::Null },
+        "source": source,
+        "envConfigured": env.is_some(),
+    }))
+}
+
+pub(crate) fn giphy_update_config(state: &AppState, body: Value) -> AppResult<Value> {
+    let object = ensure_object(body)?;
+    let api_key = object
+        .get(GIPHY_API_KEY_FIELD)
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::invalid_input("apiKey is required"))?
+        .trim();
+    if api_key.is_empty() {
+        let _ = state.storage.delete("app-settings", GIPHY_SETTINGS_KEY)?;
+        return giphy_config(state);
+    }
+    validate_giphy_api_key(api_key)?;
+    state.storage.upsert_with_id(
+        "app-settings",
+        GIPHY_SETTINGS_KEY,
+        json!({
+            GIPHY_API_KEY_ENCRYPTED_FIELD: connection_secrets::encrypt_secret(state, api_key)?,
+        }),
+    )?;
+    giphy_config(state)
+}
+
+fn effective_giphy_api_key(state: &AppState) -> AppResult<String> {
+    stored_giphy_api_key(state)?
+        .or_else(env_giphy_api_key)
+        .ok_or_else(|| {
             AppError::new(
                 "external_service_unavailable",
-                "GIF search requires GIPHY_API_KEY",
+                "GIF search requires a GIPHY API key",
             )
-        })?;
+        })
+}
+
+fn stored_giphy_api_key(state: &AppState) -> AppResult<Option<String>> {
+    let Some(record) = state.storage.get("app-settings", GIPHY_SETTINGS_KEY)? else {
+        return Ok(None);
+    };
+    if let Some(encrypted) = record
+        .get(GIPHY_API_KEY_ENCRYPTED_FIELD)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return connection_secrets::decrypt_secret(state, encrypted).map(Some);
+    }
+    let Some(plain) = record
+        .get(GIPHY_API_KEY_FIELD)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+    else {
+        return Ok(None);
+    };
+    validate_giphy_api_key(&plain)?;
+    state.storage.upsert_with_id(
+        "app-settings",
+        GIPHY_SETTINGS_KEY,
+        json!({
+            GIPHY_API_KEY_ENCRYPTED_FIELD: connection_secrets::encrypt_secret(state, &plain)?,
+        }),
+    )?;
+    Ok(Some(plain))
+}
+
+fn env_giphy_api_key() -> Option<String> {
+    std::env::var("GIPHY_API_KEY")
+        .or_else(|_| std::env::var("VITE_GIPHY_API_KEY"))
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn validate_giphy_api_key(api_key: &str) -> AppResult<()> {
+    if api_key.len() > GIPHY_API_KEY_MAX_LEN || api_key.chars().any(char::is_whitespace) {
+        return Err(AppError::invalid_input(
+            "Paste only the GIPHY API key, without spaces or line breaks.",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) async fn gifs_search(state: &AppState, route: &ParsedPath) -> AppResult<Value> {
+    let api_key = effective_giphy_api_key(state)?;
     let query = route.query.get("q").cloned().unwrap_or_default();
     let limit = route
         .query
@@ -745,5 +842,58 @@ mod tests {
             .await
             .expect_err("a host that resolves to a reserved IP must be rejected");
         assert_eq!(error.code, "invalid_input");
+    }
+    #[test]
+    fn giphy_config_stores_api_key_encrypted_and_masks_reads() {
+        let state = test_state("giphy-config-secret");
+
+        let saved = giphy_update_config(&state, json!({ "apiKey": "giphy-secret-key" }))
+            .expect("giphy key should save");
+
+        assert_eq!(saved.get("hasApiKey").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            saved.get("apiKey").and_then(Value::as_str),
+            Some(connection_secrets::API_KEY_MASK)
+        );
+        let raw = state
+            .storage
+            .get("app-settings", GIPHY_SETTINGS_KEY)
+            .expect("giphy setting should read")
+            .expect("giphy setting should exist");
+        assert_ne!(
+            raw.get("apiKeyEncrypted").and_then(Value::as_str),
+            Some("giphy-secret-key")
+        );
+        assert_eq!(
+            stored_giphy_api_key(&state).expect("stored key should decrypt"),
+            Some("giphy-secret-key".to_string())
+        );
+
+        let public = giphy_config(&state).expect("public config should read");
+        assert_eq!(public.get("hasApiKey").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            public.get("apiKey").and_then(Value::as_str),
+            Some(connection_secrets::API_KEY_MASK)
+        );
+    }
+
+    #[test]
+    fn giphy_config_clear_removes_stored_key() {
+        let state = test_state("giphy-config-clear");
+
+        giphy_update_config(&state, json!({ "apiKey": "giphy-secret-key" }))
+            .expect("giphy key should save");
+        let cleared =
+            giphy_update_config(&state, json!({ "apiKey": "" })).expect("giphy key should clear");
+
+        assert_eq!(
+            cleared.get("hasApiKey").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert!(state
+            .storage
+            .get("app-settings", GIPHY_SETTINGS_KEY)
+            .expect("giphy setting should read")
+            .is_none());
     }
 }

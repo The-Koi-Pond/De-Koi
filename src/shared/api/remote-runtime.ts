@@ -50,6 +50,8 @@ const REMOTE_COMMANDS = new Set([
   "game_assets_file_info",
   "game_assets_folder_description",
   "game_assets_upload",
+  "gif_config",
+  "gif_update_config",
   "gif_search",
   "tts_config",
   "tts_update_config",

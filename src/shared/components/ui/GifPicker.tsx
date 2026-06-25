@@ -3,8 +3,8 @@
 // ──────────────────────────────────────────────
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
-import { Search, Loader2, ImageOff } from "lucide-react";
-import { gifsApi } from "../../api/integration-utility-api";
+import { Search, Loader2, ImageOff, ExternalLink, KeyRound, Save, Trash2 } from "lucide-react";
+import { gifsApi, type GifConfigResponse } from "../../api/integration-utility-api";
 
 interface GifResult {
   id: string;
@@ -24,11 +24,20 @@ interface GifPickerProps {
   containerRef?: React.RefObject<HTMLElement | null>;
 }
 
+function isGiphyConfigError(message: string | null): boolean {
+  const normalized = message?.toLowerCase() ?? "";
+  return normalized.includes("giphy api key") || normalized.includes("giphy_api_key");
+}
+
 export function GifPicker({ open, onClose, onSelect, anchorRef, containerRef }: GifPickerProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<GifResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [gifConfig, setGifConfig] = useState<GifConfigResponse | null>(null);
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
   const [nextPos, setNextPos] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -100,7 +109,15 @@ export function GifPicker({ open, onClose, onSelect, anchorRef, containerRef }: 
       }
       setNextPos(data.next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch GIFs");
+      const message = err instanceof Error ? err.message : "Failed to fetch GIFs";
+      setError(message);
+      if (isGiphyConfigError(message)) {
+        try {
+          setGifConfig(await gifsApi.config());
+        } catch (configErr) {
+          setConfigError(configErr instanceof Error ? configErr.message : "Failed to load GIPHY settings");
+        }
+      }
     } finally {
       setLoading(false);
       fetchingRef.current = false;
@@ -113,6 +130,8 @@ export function GifPicker({ open, onClose, onSelect, anchorRef, containerRef }: 
       setQuery("");
       setResults([]);
       setNextPos("");
+      setApiKeyDraft("");
+      setConfigError(null);
       fetchGifs("");
     }
   }, [open, fetchGifs]);
@@ -148,6 +167,39 @@ export function GifPicker({ open, onClose, onSelect, anchorRef, containerRef }: 
     [onSelect, onClose],
   );
 
+  const handleSaveApiKey = useCallback(async () => {
+    const apiKey = apiKeyDraft.trim();
+    if (!apiKey) {
+      setConfigError("Paste a GIPHY API key before saving.");
+      return;
+    }
+    setConfigSaving(true);
+    setConfigError(null);
+    try {
+      setGifConfig(await gifsApi.updateConfig({ apiKey }));
+      setApiKeyDraft("");
+      setError(null);
+      fetchGifs(query);
+    } catch (err) {
+      setConfigError(err instanceof Error ? err.message : "Failed to save GIPHY settings");
+    } finally {
+      setConfigSaving(false);
+    }
+  }, [apiKeyDraft, fetchGifs, query]);
+
+  const handleClearApiKey = useCallback(async () => {
+    setConfigSaving(true);
+    setConfigError(null);
+    try {
+      setGifConfig(await gifsApi.updateConfig({ apiKey: "" }));
+      setApiKeyDraft("");
+    } catch (err) {
+      setConfigError(err instanceof Error ? err.message : "Failed to clear GIPHY settings");
+    } finally {
+      setConfigSaving(false);
+    }
+  }, []);
+
   if (!open) return null;
 
   return createPortal(
@@ -177,9 +229,73 @@ export function GifPicker({ open, onClose, onSelect, anchorRef, containerRef }: 
 
       {/* Error state */}
       {error && (
-        <div className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
-          <ImageOff size="1.5rem" className="text-[var(--muted-foreground)]" />
-          <p className="text-xs text-[var(--muted-foreground)]">{error}</p>
+        <div className="flex flex-col items-center justify-center gap-3 px-4 py-6 text-center">
+          {isGiphyConfigError(error) ? (
+            <>
+              <KeyRound size="1.5rem" className="text-[var(--muted-foreground)]" />
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-[var(--foreground)]">GIPHY key required</p>
+                <p className="text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
+                  Save a GIPHY API key to search GIFs in De-Koi.
+                </p>
+              </div>
+              <form
+                className="flex w-full flex-col gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handleSaveApiKey();
+                }}
+              >
+                <input
+                  type="password"
+                  value={apiKeyDraft}
+                  onChange={(event) => setApiKeyDraft(event.target.value)}
+                  placeholder={gifConfig?.source === "stored" ? "Saved key" : "Paste GIPHY API key"}
+                  className="w-full rounded-md bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)]/50 focus:ring-[var(--ring)]"
+                />
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void gifsApi.openApiKeyPage()}
+                    className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-colors hover:text-[var(--foreground)]"
+                  >
+                    <ExternalLink size="0.75rem" />
+                    Get key
+                  </button>
+                  {gifConfig?.source === "stored" && (
+                    <button
+                      type="button"
+                      onClick={() => void handleClearApiKey()}
+                      disabled={configSaving}
+                      className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-colors hover:text-[var(--foreground)] disabled:opacity-50"
+                    >
+                      <Trash2 size="0.75rem" />
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={configSaving || !apiKeyDraft.trim()}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-[var(--primary)] px-2.5 py-1.5 text-[0.6875rem] font-medium text-[var(--primary-foreground)] transition-opacity disabled:opacity-50"
+                  >
+                    {configSaving ? <Loader2 size="0.75rem" className="animate-spin" /> : <Save size="0.75rem" />}
+                    Save
+                  </button>
+                </div>
+              </form>
+              {configError && <p className="text-[0.6875rem] text-[var(--destructive)]">{configError}</p>}
+              {gifConfig?.envConfigured && (
+                <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                  Environment key detected; a saved key overrides it.
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <ImageOff size="1.5rem" className="text-[var(--muted-foreground)]" />
+              <p className="text-xs text-[var(--muted-foreground)]">{error}</p>
+            </>
+          )}
         </div>
       )}
 

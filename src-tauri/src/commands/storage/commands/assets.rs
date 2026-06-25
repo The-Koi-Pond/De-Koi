@@ -300,7 +300,18 @@ pub fn managed_asset_thumbnail_file_path(
 }
 
 #[tauri::command]
+pub fn gif_config(state: State<'_, AppState>) -> Result<Value, AppError> {
+    http::giphy_config(&state)
+}
+
+#[tauri::command]
+pub fn gif_update_config(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    http::giphy_update_config(&state, body)
+}
+
+#[tauri::command]
 pub async fn gif_search(
+    state: State<'_, AppState>,
     q: Option<String>,
     limit: Option<u32>,
     pos: Option<String>,
@@ -315,9 +326,12 @@ pub async fn gif_search(
     if let Some(pos) = pos {
         query.insert("pos".to_string(), pos);
     }
-    http::gifs_search(&shared::ParsedPath {
-        parts: Vec::new(),
-        query,
-    })
+    http::gifs_search(
+        &state,
+        &shared::ParsedPath {
+            parts: Vec::new(),
+            query,
+        },
+    )
     .await
 }
