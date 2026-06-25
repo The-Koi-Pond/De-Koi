@@ -135,9 +135,20 @@ assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "bi
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "$web_dir/index.html");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "$package_root/app");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "src-tauri");
-assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "--exclude='src-tauri/target'");
+assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "#!/usr/bin/env bash");
+assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "git archive --format=tar HEAD -- $snapshot_entries");
+assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "PACKAGE-MANIFEST.txt");
+assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "package_schema=1");
+assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "package_root=%s");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "DE_KOI_PUBLIC_ORIGIN");
+assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "#!/usr/bin/env bash");
+assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "--refresh-env");
+assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "--validate-only");
+assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "top_level_count");
+assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "Package root contract mismatch.");
+assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "PACKAGE-MANIFEST.txt");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "DE_KOI_RESOURCE_DIR=$install_root/current/app/src-tauri");
+assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "preserving secrets");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "ExecStart=$install_root/current/bin/de-koi-server");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "ReadWritePaths=$data_dir");
 assertContains("scripts/pi-image-guard.mjs", piImageGuard, "same cooked batch");
@@ -165,7 +176,10 @@ assertContains(
   "docker compose -f docker-compose.pi.yml -f docker-compose.pi.trusted-lan.yml pull",
 );
 assertContains("docs/pi-bare-metal.md", piBareMetalDocs, "De-Koi-PreAlpha-pi-bare-metal-arm64");
+assertContains("docs/pi-bare-metal.md", piBareMetalDocs, "asset=De-Koi-PreAlpha-pi-bare-metal-arm64-v<version>-<sha>.tar.gz");
 assertContains("docs/pi-bare-metal.md", piBareMetalDocs, "DE_KOI_PUBLIC_ORIGIN");
+assertContains("docs/pi-bare-metal.md", piBareMetalDocs, "--refresh-env");
+assertContains("docs/pi-bare-metal.md", piBareMetalDocs, "--validate-only");
 assertContains("docs/pi-bare-metal.md", piBareMetalDocs, "/opt/de-koi/current/web");
 assertContains("docs/pi-bare-metal.md", piBareMetalDocs, "127.0.0.1:8787");
 assertContains("deploy/pi/bare-metal/Caddyfile.example", piBareMetalCaddy, "root * /opt/de-koi/current/web");
@@ -323,6 +337,7 @@ assertContains(
   "cargo build --manifest-path src-tauri/Cargo.toml --release --bin de-koi-server --no-default-features --features server",
 );
 assertContains(".github/workflows/prealpha-platform-builds.yml", prealphaWorkflow, "scripts/pi-bare-metal-package.sh");
+assertContains(".github/workflows/prealpha-platform-builds.yml", prealphaWorkflow, "bash scripts/pi-bare-metal-package.sh");
 assertContains(".github/workflows/prealpha-platform-builds.yml", prealphaWorkflow, "De-Koi-PreAlpha-pi-bare-metal-arm64");
 assertContains(".github/workflows/prealpha-platform-builds.yml", prealphaWorkflow, "gh release upload");
 

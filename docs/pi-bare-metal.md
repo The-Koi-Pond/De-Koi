@@ -37,8 +37,18 @@ The asset contains:
 Download the tarball to the Pi, then run the updater script as root:
 
 ```sh
+asset=De-Koi-PreAlpha-pi-bare-metal-arm64-v<version>-<sha>.tar.gz
 sudo DE_KOI_PUBLIC_ORIGIN=https://de-koi.example.duckdns.org \
-  sh scripts/pi-bare-metal-update.sh /tmp/De-Koi-PreAlpha-pi-bare-metal-arm64.tar.gz
+  bash scripts/pi-bare-metal-update.sh "/tmp/$asset"
+```
+
+The downloaded filename includes the De-Koi version and short source SHA, matching
+the asset name emitted by the pre-alpha workflow.
+
+To validate the package layout before installing:
+
+```sh
+bash scripts/pi-bare-metal-update.sh --validate-only "/tmp/$asset"
 ```
 
 The script installs to:
@@ -72,6 +82,13 @@ Then restart:
 sudo systemctl restart de-koi-server.service
 ```
 
+Or refresh only the managed safe defaults while preserving secrets:
+
+```sh
+sudo DE_KOI_PUBLIC_ORIGIN=https://de-koi.example.duckdns.org \
+  bash scripts/pi-bare-metal-update.sh --refresh-env "/tmp/$asset"
+```
+
 ## Caddy
 
 Serve the static web shell from:
@@ -102,7 +119,8 @@ proxying to the runtime. The runtime stays on loopback; do not expose port
 For each new pre-alpha package, rerun:
 
 ```sh
-sudo sh scripts/pi-bare-metal-update.sh /tmp/De-Koi-PreAlpha-pi-bare-metal-arm64.tar.gz
+asset=De-Koi-PreAlpha-pi-bare-metal-arm64-v<version>-<sha>.tar.gz
+sudo bash scripts/pi-bare-metal-update.sh "/tmp/$asset"
 ```
 
 The script installs each package into a new release directory and moves

@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 set -eu
 
 version="$(node -p "require('./package.json').version")"
@@ -16,8 +16,9 @@ output="${1:-dist-pi-bare-metal/de-koi-pi-bare-metal-linux-arm64-v${version}-${s
 server_bin="${DE_KOI_SERVER_BIN:-src-tauri/target/release/de-koi-server}"
 web_dir="${DE_KOI_WEB_DIST:-dist}"
 staging="${DE_KOI_PI_PACKAGE_STAGING:-dist-pi-bare-metal/staging}"
-package_name="${DE_KOI_PI_PACKAGE_DIR_NAME:-de-koi}"
+package_name="de-koi"
 package_root="${staging}/${package_name}"
+snapshot_entries="AGENTS.md LICENSE.txt NOTICE.md README.md package.json pnpm-lock.yaml tsconfig.json tsconfig.node.json deploy docs scripts skills src src-tauri"
 
 case "$staging" in
   ""|"/"|".")
@@ -38,6 +39,11 @@ if [ ! -d "$web_dir" ] || [ ! -f "$web_dir/index.html" ]; then
   exit 1
 fi
 
+if ! command -v git >/dev/null 2>&1 || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "A git checkout is required so the package includes only tracked runtime snapshot files." >&2
+  exit 1
+fi
+
 rm -rf "$staging"
 mkdir -p "$package_root/bin" "$package_root/web" "$package_root/app" "$(dirname "$output")"
 
@@ -45,19 +51,12 @@ cp "$server_bin" "$package_root/bin/de-koi-server"
 chmod 0755 "$package_root/bin/de-koi-server"
 cp -R "$web_dir"/. "$package_root/web/"
 
-tar \
-  --exclude='.git' \
-  --exclude='node_modules' \
-  --exclude='dist' \
-  --exclude='dist-pi-bare-metal' \
-  --exclude='src-tauri/target' \
-  --exclude='target' \
-  -cf - \
-  AGENTS.md LICENSE.txt NOTICE.md README.md package.json pnpm-lock.yaml tsconfig.json tsconfig.node.json \
-  deploy docs scripts skills src src-tauri \
-  | tar -xf - -C "$package_root/app"
+git archive --format=tar HEAD -- $snapshot_entries | tar -xf - -C "$package_root/app"
+git ls-tree -r --name-only HEAD -- $snapshot_entries > "$package_root/PACKAGE-MANIFEST.txt"
 
 {
+  printf 'package_schema=1\n'
+  printf 'package_root=%s\n' "$package_name"
   printf 'version=%s\n' "$version"
   printf 'source_commit=%s\n' "$commit"
   printf 'target=linux-arm64\n'

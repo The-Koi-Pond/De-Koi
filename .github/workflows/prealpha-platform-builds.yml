@@ -365,7 +365,7 @@ jobs:
           short_sha="${GITHUB_SHA::7}"
           mkdir -p release-assets
           asset="release-assets/De-Koi-PreAlpha-pi-bare-metal-arm64-v${version}-${short_sha}.tar.gz"
-          sh scripts/pi-bare-metal-package.sh "${asset}"
+          bash scripts/pi-bare-metal-package.sh "${asset}"
           test -s "${asset}"
           test -s "${asset}.sha256"
 
