@@ -667,12 +667,16 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
         },
       });
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : "Deki-senpai failed to respond.");
-      setSending(false);
+      if (mountedRef.current) {
+        setSendError(error instanceof Error ? error.message : "Deki-senpai failed to respond.");
+        setSending(false);
+      }
       return;
     }
-    setSending(false);
-    requestAnimationFrame(() => inputRef.current?.focus());
+    if (mountedRef.current) {
+      setSending(false);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
   };
 
   const applyDekiAction = async (message: DekiMessage) => {

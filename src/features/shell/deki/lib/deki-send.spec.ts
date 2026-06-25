@@ -1,25 +1,34 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { DekiEntryAction, DekiMessage } from "../../../../engine/deki/deki-entry";
 import { EMPTY_DEKI_COMPACTION } from "../../../../engine/deki/deki-history";
 import { runDetachedDekiSend } from "./deki-send";
-import type { DekiMessage } from "../../../../engine/deki/deki-entry";
 
 describe("detached Deki send", () => {
   it("persists the user and assistant messages even without UI observers", async () => {
     const savedMessages: DekiMessage[] = [];
-    const appendMessage = vi.fn(async (message: { role: "user" | "assistant"; content: string }) => {
-      const saved = {
-        id: `${message.role}-${savedMessages.length + 1}`,
-        role: message.role,
-        content: message.content,
-        createdAt: `2026-06-25T12:00:0${savedMessages.length}.000Z`,
-      } satisfies DekiMessage;
-      savedMessages.push(saved);
-      return saved;
-    });
+    const assistantAction = {
+      type: "none",
+      capability: "workspace_agent",
+      reason: "Test response.",
+    } satisfies DekiEntryAction;
+    const appendMessage = vi.fn(
+      async (message: { role: "user" | "assistant"; content: string; action?: DekiEntryAction | null }) => {
+        const saved = {
+          id: `${message.role}-${savedMessages.length + 1}`,
+          role: message.role,
+          content: message.content,
+          createdAt: `2026-06-25T12:00:0${savedMessages.length}.000Z`,
+          action: "action" in message ? message.action : null,
+        } satisfies DekiMessage;
+        savedMessages.push(saved);
+        return saved;
+      },
+    );
     const prompt = vi.fn(async () => ({
       content: "Still here.",
       createdAt: "2026-06-25T12:00:02.000Z",
+      action: assistantAction,
     }));
 
     const result = await runDetachedDekiSend({
@@ -46,6 +55,7 @@ describe("detached Deki send", () => {
 
     expect(result.user.content).toBe("Are you still there?");
     expect(result.assistant.content).toBe("Still here.");
+    expect(result.assistant.action).toEqual(assistantAction);
     expect(appendMessage).toHaveBeenCalledTimes(2);
     expect(savedMessages.map((message) => message.role)).toEqual(["user", "assistant"]);
     expect(prompt).toHaveBeenCalledWith(

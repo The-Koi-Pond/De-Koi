@@ -855,6 +855,7 @@ export function ConversationInput({
       return;
     }
 
+    let userMessageAccepted = false;
     try {
       await generate({
         chatId: submittingChatId,
@@ -862,8 +863,12 @@ export function ConversationInput({
         userMessage: message,
         ...(pendingAttachments.length ? { attachments: pendingAttachments } : {}),
         ...(mentioned.length ? { mentionedCharacterNames: mentioned } : {}),
+        onUserMessageAccepted: () => {
+          userMessageAccepted = true;
+        },
       });
     } catch {
+      if (!userMessageAccepted) restoreSubmittedDraft();
       // useGenerate owns provider-failure UI feedback; aborts are an expected Stop generating path.
     } finally {
       if (pendingAttachments.length) invalidateGalleryImagesForChat(qc, submittingChatId);

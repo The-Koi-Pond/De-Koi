@@ -1,0 +1,131 @@
+{
+  "coreClaim": "Messages submitted from Deki and conversation inputs continue through user-message persistence even when the originating UI surface navigates away or stops observing the send.",
+  "scope": {
+    "inScope": [
+      "Deki shell send lifecycle",
+      "Conversation input accepted-message failure handling",
+      "Focused regression proof for detached Deki sends"
+    ],
+    "outOfScope": [
+      "Provider transport changes",
+      "Rust command changes",
+      "Schema or migration changes",
+      "Browser visual redesign"
+    ],
+    "intendedFiles": [
+      "src/features/shell/deki/components/DekiSurface.tsx",
+      "src/features/shell/deki/lib/deki-send.ts",
+      "src/features/shell/deki/lib/deki-send.spec.ts",
+      "src/features/modes/conversation/components/ConversationInput.tsx"
+    ],
+    "riskFlags": ["cross-entrypoint send lifecycle"]
+  },
+  "claimBoundary": {
+    "coreClaim": "Deki send work is durable after UI unmount, and conversation draft restoration only happens when the user message was not accepted.",
+    "riskType": "cross-entrypoint async lifecycle",
+    "entrypoints": [
+      "DekiSurface send button and Enter shortcut",
+      "ConversationInput send button and Enter shortcut",
+      "runGenerationWithUi user_message event callback"
+    ],
+    "currentPathsOrFormats": [
+      "Deki session history through dekiApi.history append/saveCompaction",
+      "Deki prompt through runDekiEntry/dekiApi.prompt",
+      "Conversation generation through useGenerate({ onUserMessageAccepted })"
+    ],
+    "legacyPathsOrFormats": [],
+    "outOfScopeClaims": [
+      "No browser navigation recording was captured in this PR.",
+      "No changes to provider request transport or Rust command routing."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "src/features Deki UI owned the full async send chain, so unmount/navigation could remove the observer before persisted completion was reflected back into the session UI.",
+    "producer": "src/features/shell/deki/lib/deki-send.ts",
+    "consumer": "src/features/shell/deki/components/DekiSurface.tsx and src/features/modes/conversation/components/ConversationInput.tsx",
+    "impliedContract": "Once a send starts, user-message persistence and assistant persistence continue independently from component mount state; UI callbacks are observers, not owners.",
+    "actualEnforcement": "runDetachedDekiSend performs append, compaction, Deki prompt, and assistant append before returning; DekiSurface callbacks check mountedRef before local state writes; ConversationInput tracks onUserMessageAccepted before restoring drafts.",
+    "primaryOwnerLane": "src/features",
+    "primaryOwnerDetail": "Feature-level orchestration around existing engine Deki contracts and shared API wrappers.",
+    "consumerOnlyLanes": ["src/features"],
+    "wrongLaneFixToAvoid": "Do not move this into src-tauri or src/engine because the bug is feature UI lifecycle ownership, not native persistence or product generation rules.",
+    "regressionProof": [
+      "src/features/shell/deki/lib/deki-send.spec.ts persists the user and assistant messages without UI observers",
+      "src/features/runtime/generation/hooks/use-generate.spec.ts guards existing generation UI behavior",
+      "pnpm check validates architecture and full repo gates"
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Detached Deki send persists both user and assistant messages without UI observers.",
+        "evidence": "pnpm test src/features/shell/deki/lib/deki-send.spec.ts passed with 1 test."
+      },
+      {
+        "claim": "Existing generation UI behavior remains intact around stream flushing and page visibility.",
+        "evidence": "pnpm test src/features/runtime/generation/hooks/use-generate.spec.ts passed with 7 tests."
+      },
+      {
+        "claim": "The PR preserves repo architecture boundaries and broad validation gates.",
+        "evidence": "pnpm check passed after the final diff, including check:architecture, check:frontend, check:rust, check:docs, check:agent-workflow, and warning-only unused-code reporting."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Draft restoration should not run after the backend accepted the user message.",
+        "evidence": "ConversationInput now sets userMessageAccepted from onUserMessageAccepted and only calls restoreSubmittedDraft when it remains false."
+      },
+      {
+        "claim": "Unmounted Deki UI must not receive local setState calls after detached work completes.",
+        "evidence": "DekiSurface wraps local message/compaction/sending/error writes from send completion callbacks in mountedRef checks."
+      }
+    ],
+    "legacyDefaultRows": [],
+    "untestedRows": [
+      "No browser navigation recording was captured; command proof covers the durable helper and shared generation regression surface."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Deki assistant messages on mainline carry response.action into dekiApi.history.appendMessage, and the detached runner preserves that action.",
+      "sourceType": "derived",
+      "evidence": "src/shared/api/deki-api.ts appendMessage accepts action; src/features/shell/deki/lib/deki-send.ts passes response.action."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Browser navigation recording not captured",
+      "blockingCoreClaim": false,
+      "reason": "The core persistence invariant is covered by the detached send unit test and full local gate; browser recording would be additional UX evidence."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Deki detached send without UI observers",
+      "Conversation accepted-message callback before draft restoration"
+    ],
+    "negativeRowsTested": [
+      "Conversation draft restore is suppressed once userMessageAccepted is true"
+    ],
+    "afterEvidence": [
+      "pnpm test src/features/shell/deki/lib/deki-send.spec.ts",
+      "pnpm test src/features/runtime/generation/hooks/use-generate.spec.ts",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "pnpm check",
+      "node .agents/automation/scripts/workflow-health.mjs --repo The-Koi-Pond/De-Koi --json"
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "pr": {
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/639",
+    "evidencePublished": true,
+    "checks": "local pnpm check passed; CI pending at ledger creation",
+    "automatedReview": "Bunny pending at ledger creation"
+  },
+  "finalGate": {
+    "coreClaimProven": true
+  }
+}
