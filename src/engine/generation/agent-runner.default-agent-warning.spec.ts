@@ -133,7 +133,7 @@ describe("default agent connection warnings", () => {
     );
   });
 
-  it("uses the built-in fallback for an explicit Illustrator retry when the stored row is disabled", async () => {
+  it("hydrates and runs an explicitly requested disabled Illustrator row", async () => {
     const runtime = await createGenerationAgentRuntime(
       {
         storage: runtimeStorage({
@@ -160,6 +160,7 @@ describe("default agent connection warnings", () => {
 
     expect(results).toEqual([
       expect.objectContaining({
+        agentId: "illustrator",
         agentType: "illustrator",
         success: true,
         data: expect.objectContaining({
