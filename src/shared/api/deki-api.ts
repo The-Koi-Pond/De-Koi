@@ -256,7 +256,8 @@ async function readSettingsValue(): Promise<Record<string, unknown>> {
 
 async function saveSettingsPatch(patch: Record<string, unknown>): Promise<Record<string, unknown>> {
   const existing = await storageApi.get<DekiSettingsRecord>("app-settings", DEKI_SETTINGS_ID);
-  const source = existing ?? (await readSettingsRecord());
+  const legacy = existing ? null : await storageApi.get<DekiSettingsRecord>("app-settings", LEGACY_DEKI_SETTINGS_ID);
+  const source = existing ?? legacy;
   const parsed = appSettingsResponseSchema.safeParse(source ?? { value: null });
   const value = {
     ...asRecord(parsed.success ? parsed.data.value : null),
@@ -271,11 +272,20 @@ async function saveSettingsPatch(patch: Record<string, unknown>): Promise<Record
       ...payload,
     });
   }
+  if (!existing && legacy) {
+    await storageApi.delete("app-settings", LEGACY_DEKI_SETTINGS_ID);
+  }
   return value;
 }
 
-async function saveSettingsValue(value: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function saveSettingsTransform(
+  transform: (settings: Record<string, unknown>) => Record<string, unknown>,
+): Promise<Record<string, unknown>> {
   const existing = await storageApi.get<DekiSettingsRecord>("app-settings", DEKI_SETTINGS_ID);
+  const legacy = existing ? null : await storageApi.get<DekiSettingsRecord>("app-settings", LEGACY_DEKI_SETTINGS_ID);
+  const source = existing ?? legacy;
+  const parsed = appSettingsResponseSchema.safeParse(source ?? { value: null });
+  const value = transform(asRecord(parsed.success ? parsed.data.value : null));
   const payload = appSettingsUpdateSchema.parse({ value });
   if (existing) {
     await storageApi.update("app-settings", DEKI_SETTINGS_ID, payload);
@@ -285,6 +295,9 @@ async function saveSettingsValue(value: Record<string, unknown>): Promise<Record
       ...payload,
     });
   }
+  if (!existing && legacy) {
+    await storageApi.delete("app-settings", LEGACY_DEKI_SETTINGS_ID);
+  }
   return value;
 }
 
@@ -293,19 +306,14 @@ async function readSessionsState(): Promise<DekiSessionsState> {
 }
 
 async function saveSessionsState(state: DekiSessionsState): Promise<DekiSessionsState> {
-  const settings = await readSettingsValue();
-  const {
-    messages: _messages,
-    compactedSummary: _compactedSummary,
-    compactedAt: _compactedAt,
-    compactedThroughMessageId: _compactedThroughMessageId,
-    ...rest
-  } = settings;
   return normalizeDekiSessionsState(
-    await saveSettingsValue({
-      ...rest,
-      activeSessionId: state.activeSessionId,
-      sessions: state.sessions,
+    await saveSettingsTransform((settings) => {
+      const { messages: _messages, ...rest } = settings;
+      return {
+        ...rest,
+        activeSessionId: state.activeSessionId,
+        sessions: state.sessions,
+      };
     }),
   );
 }

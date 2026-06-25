@@ -5,6 +5,7 @@ import { dekiApi } from "./deki-api";
 const { storageApiMock } = vi.hoisted(() => ({
   storageApiMock: {
     create: vi.fn(),
+    delete: vi.fn(),
     get: vi.fn(),
     update: vi.fn(),
   },
@@ -17,6 +18,7 @@ vi.mock("./storage-api", () => ({
 describe("dekiApi.actions.apply", () => {
   beforeEach(() => {
     storageApiMock.create.mockReset();
+    storageApiMock.delete.mockReset();
     storageApiMock.get.mockReset();
     storageApiMock.update.mockReset();
   });

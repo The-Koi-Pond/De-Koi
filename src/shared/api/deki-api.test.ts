@@ -46,6 +46,13 @@ describe("dekiApi settings persistence", () => {
         return next;
       }
 
+      if (command === "storage_delete") {
+        const id = request.id;
+        if (typeof id !== "string") throw new Error("Missing delete id");
+        appSettings.delete(id);
+        return null;
+      }
+
       throw new Error(`Unexpected command ${command}`);
     });
   });
@@ -88,6 +95,10 @@ describe("dekiApi settings persistence", () => {
       value: {
         selectedConnectionId: "legacy-conn",
         selectedPersonaId: null,
+        layoutDensity: "compact",
+        compactedSummary: "Earlier Deki summary",
+        compactedAt: "2026-01-01T00:05:00.000Z",
+        compactedThroughMessageId: "legacy-message",
         messages: [
           {
             id: "legacy-message",
@@ -111,10 +122,19 @@ describe("dekiApi settings persistence", () => {
       value: expect.objectContaining({
         selectedConnectionId: "legacy-conn",
         selectedPersonaId: null,
+        layoutDensity: "compact",
+        compactedSummary: "Earlier Deki summary",
+        compactedAt: "2026-01-01T00:05:00.000Z",
+        compactedThroughMessageId: "legacy-message",
         activeSessionId: "deki-session-default",
         sessions: [
           expect.objectContaining({
             id: "deki-session-default",
+            compaction: {
+              compactedSummary: "Earlier Deki summary",
+              compactedAt: "2026-01-01T00:05:00.000Z",
+              compactedThroughMessageId: "legacy-message",
+            },
             messages: [
               expect.objectContaining({ id: "legacy-message", content: "Old hello" }),
               expect.objectContaining({ role: "assistant", content: "Migrated hello" }),
@@ -123,5 +143,55 @@ describe("dekiApi settings persistence", () => {
         ],
       }),
     });
+    expect(appSettings.get("deki")?.value).not.toHaveProperty("messages");
+    expect(appSettings.has("professor-mari")).toBe(false);
+  });
+
+  it("preserves unrelated settings fields when saving session state", async () => {
+    appSettings.set("deki", {
+      id: "deki",
+      value: {
+        selectedConnectionId: "conn-2",
+        selectedPersonaId: "persona-2",
+        layoutDensity: "comfortable",
+        activeSessionId: "session-1",
+        sessions: [
+          {
+            id: "session-1",
+            title: "Existing chat",
+            createdAt: "2026-01-02T00:00:00.000Z",
+            updatedAt: "2026-01-02T00:00:00.000Z",
+            messages: [],
+            compaction: {
+              compactedSummary: "Existing summary",
+              compactedAt: "2026-01-02T00:01:00.000Z",
+              compactedThroughMessageId: "message-0",
+            },
+          },
+        ],
+      },
+    });
+
+    await dekiApi.history.appendMessage({ sessionId: "session-1", role: "user", content: "Keep the rest." });
+
+    expect(appSettings.get("deki")?.value).toEqual(
+      expect.objectContaining({
+        selectedConnectionId: "conn-2",
+        selectedPersonaId: "persona-2",
+        layoutDensity: "comfortable",
+        activeSessionId: "session-1",
+        sessions: [
+          expect.objectContaining({
+            id: "session-1",
+            compaction: {
+              compactedSummary: "Existing summary",
+              compactedAt: "2026-01-02T00:01:00.000Z",
+              compactedThroughMessageId: "message-0",
+            },
+            messages: [expect.objectContaining({ role: "user", content: "Keep the rest." })],
+          }),
+        ],
+      }),
+    );
   });
 });
