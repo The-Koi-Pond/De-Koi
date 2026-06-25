@@ -67,14 +67,16 @@ env_dir="/etc/de-koi"
 env_file="$env_dir/de-koi-server.env"
 service_file="/etc/systemd/system/de-koi-server.service"
 required_manifest_entries="
-package.json
-scripts/pi-bare-metal-update.sh
-docs/pi-bare-metal.md
-src-tauri/Cargo.toml
-src-tauri/src/bin/de-koi-server.rs
-src-tauri/src/state.rs
-src-tauri/resources/default-data/db/default-preset.json
-src-tauri/resources/default-data/game-assets/manifest.json
+bin/de-koi-server
+web/index.html
+app/package.json
+app/scripts/pi-bare-metal-update.sh
+app/docs/pi-bare-metal.md
+app/src-tauri/Cargo.toml
+app/src-tauri/src/bin/de-koi-server.rs
+app/src-tauri/src/state.rs
+app/src-tauri/resources/default-data/db/default-preset.json
+app/src-tauri/resources/default-data/game-assets/manifest.json
 "
 
 tmp_dir="$(mktemp -d)"
@@ -156,6 +158,14 @@ if [ "$manifest_root" != "$package_name" ] || [ "$manifest_schema" != "1" ]; the
 fi
 
 package_manifest="$(tar -xOzf "$package_file" "$package_name/PACKAGE-MANIFEST.txt" 2>/dev/null || true)"
+tar -tzf "$package_file" \
+  | awk -v root="$package_name/" 'index($0, root) == 1 && $0 !~ /\/$/ { print substr($0, length(root) + 1) }' \
+  | sort > "$tmp_dir/tar-members.txt"
+printf '%s\n' "$package_manifest" | sed '/^$/d' | sort > "$tmp_dir/package-manifest.txt"
+if ! cmp -s "$tmp_dir/package-manifest.txt" "$tmp_dir/tar-members.txt"; then
+  echo "Package manifest does not match archive members." >&2
+  exit 1
+fi
 for required_manifest_entry in $required_manifest_entries; do
   if ! printf '%s\n' "$package_manifest" | grep -Fqx "$required_manifest_entry"; then
     echo "Package manifest is missing required runtime path: $required_manifest_entry" >&2
@@ -166,7 +176,19 @@ done
 extract_dir="$tmp_dir/extract"
 mkdir -p "$extract_dir"
 tar -xzf "$package_file" -C "$extract_dir"
+extracted_top_levels="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
+extracted_top_level_count="$(printf '%s\n' "$extracted_top_levels" | sed '/^$/d' | wc -l | tr -d ' ')"
+if [ "$extracted_top_level_count" != "1" ] || [ "$extracted_top_levels" != "$package_name" ]; then
+  echo "Extracted package root contract mismatch." >&2
+  echo "extracted top-level:" >&2
+  printf '%s\n' "$extracted_top_levels" >&2
+  exit 1
+fi
 package_root="$extract_dir/$package_root_name"
+if [ ! -d "$package_root" ] || [ -L "$package_root" ]; then
+  echo "Extracted package root is not a normal directory: $package_root_name" >&2
+  exit 1
+fi
 
 if [ ! -x "$package_root/bin/de-koi-server" ]; then
   echo "Package is missing bin/de-koi-server" >&2
@@ -207,6 +229,11 @@ if [ -f "$env_file" ] && [ "$refresh_env" != true ]; then
   existing_cors="$(awk -F= '$1 == "CORS_ORIGINS" { print substr($0, index($0, "=") + 1) }' "$env_file")"
   existing_csrf="$(awk -F= '$1 == "CSRF_TRUSTED_ORIGINS" { print substr($0, index($0, "=") + 1) }' "$env_file")"
   existing_managed_origin="$(awk -F= '$1 == "DE_KOI_MANAGED_PUBLIC_ORIGIN" { print substr($0, index($0, "=") + 1) }' "$env_file")"
+  if [ -z "$existing_managed_origin" ] && { [ -n "$existing_cors" ] || [ -n "$existing_csrf" ]; }; then
+    echo "Existing runtime env has origin settings but no DE_KOI_MANAGED_PUBLIC_ORIGIN marker." >&2
+    echo "Run again with --refresh-env to backfill the managed origin contract while preserving secrets." >&2
+    exit 1
+  fi
   if [ -z "$public_origin" ] && [ -n "$existing_managed_origin" ]; then
     echo "Existing runtime env was configured with DE_KOI_PUBLIC_ORIGIN=$existing_managed_origin." >&2
     echo "Set DE_KOI_PUBLIC_ORIGIN on this run, or run with --refresh-env to intentionally update managed origin settings." >&2

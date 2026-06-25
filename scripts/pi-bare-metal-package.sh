@@ -34,15 +34,17 @@ snapshot_entries=(
   src
   src-tauri
 )
-required_snapshot_paths=(
-  package.json
-  scripts/pi-bare-metal-update.sh
-  docs/pi-bare-metal.md
-  src-tauri/Cargo.toml
-  src-tauri/src/bin/de-koi-server.rs
-  src-tauri/src/state.rs
-  src-tauri/resources/default-data/db/default-preset.json
-  src-tauri/resources/default-data/game-assets/manifest.json
+required_package_paths=(
+  bin/de-koi-server
+  web/index.html
+  app/package.json
+  app/scripts/pi-bare-metal-update.sh
+  app/docs/pi-bare-metal.md
+  app/src-tauri/Cargo.toml
+  app/src-tauri/src/bin/de-koi-server.rs
+  app/src-tauri/src/state.rs
+  app/src-tauri/resources/default-data/db/default-preset.json
+  app/src-tauri/resources/default-data/game-assets/manifest.json
 )
 
 require_manifest_path() {
@@ -85,11 +87,6 @@ cp "$server_bin" "$package_root/bin/de-koi-server"
 chmod 0755 "$package_root/bin/de-koi-server"
 cp -R "$web_dir"/. "$package_root/web/"
 
-git ls-tree -r --name-only HEAD -- "${snapshot_entries[@]}" > "$package_root/PACKAGE-MANIFEST.txt"
-for required_path in "${required_snapshot_paths[@]}"; do
-  require_manifest_path "$required_path" "$package_root/PACKAGE-MANIFEST.txt"
-done
-
 git archive --format=tar HEAD -- "${snapshot_entries[@]}" | tar -xf - -C "$package_root/app"
 
 {
@@ -101,7 +98,23 @@ git archive --format=tar HEAD -- "${snapshot_entries[@]}" | tar -xf - -C "$packa
   printf 'created_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 } > "$package_root/VERSION"
 
+(cd "$package_root" && find . -type f ! -name PACKAGE-MANIFEST.txt -printf '%P\n' | sort > PACKAGE-MANIFEST.txt)
+printf 'PACKAGE-MANIFEST.txt\n' >> "$package_root/PACKAGE-MANIFEST.txt"
+sort -o "$package_root/PACKAGE-MANIFEST.txt" "$package_root/PACKAGE-MANIFEST.txt"
+for required_path in "${required_package_paths[@]}"; do
+  require_manifest_path "$required_path" "$package_root/PACKAGE-MANIFEST.txt"
+done
+
 tar -C "$staging" -czf "$output" "$package_name"
+
+tar -tzf "$output" \
+  | awk -v root="$package_name/" 'index($0, root) == 1 && $0 !~ /\/$/ { print substr($0, length(root) + 1) }' \
+  | sort > "$staging/tar-members.txt"
+if ! cmp -s "$package_root/PACKAGE-MANIFEST.txt" "$staging/tar-members.txt"; then
+  echo "Package manifest does not match final tarball members." >&2
+  diff -u "$package_root/PACKAGE-MANIFEST.txt" "$staging/tar-members.txt" >&2 || true
+  exit 1
+fi
 
 if command -v sha256sum >/dev/null 2>&1; then
   sha256sum "$output" > "$output.sha256"
