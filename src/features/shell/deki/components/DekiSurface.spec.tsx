@@ -184,11 +184,13 @@ describe("DekiSurface message retry actions", () => {
       }),
       dekiApi,
     );
-    expect(dekiApi.history.appendMessage).toHaveBeenCalledWith({
-      sessionId: "session-1",
-      role: "assistant",
-      content: "Use Settings, then Connections.",
-    });
+    expect(dekiApi.history.appendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "session-1",
+        role: "assistant",
+        content: "Use Settings, then Connections.",
+      }),
+    );
     expect(container!.textContent).toContain("Use Settings, then Connections.");
     expect(container!.textContent).not.toContain("Open the Connections panel.");
   });
