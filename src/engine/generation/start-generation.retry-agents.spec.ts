@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentResult } from "../contracts/types/agent";
 import {
+  illustrationReferenceImagesForRequest,
   loadMessagesForGenerationTarget,
   patchMessageExtrasForGeneration,
   spriteExpressionPatchesForTarget,
@@ -406,5 +407,24 @@ describe("loadMessagesForGenerationTarget", () => {
         limit: expect.any(Number),
       }),
     ]);
+  });
+});
+
+describe("illustrationReferenceImagesForRequest", () => {
+  const dataUrl = (encodedLength: number) => `data:image/png;base64,${"A".repeat(encodedLength)}`;
+
+  it("drops oversized and excess image references before image generation requests", () => {
+    const nearLimitImage = dataUrl(8 * 1024 * 1024);
+    const tooLargeImage = dataUrl(8 * 1024 * 1024 + 4);
+
+    const images = illustrationReferenceImagesForRequest([
+      nearLimitImage,
+      tooLargeImage,
+      ...Array.from({ length: 10 }, (_, index) => dataUrl(128 + index)),
+    ]);
+
+    expect(images).toHaveLength(8);
+    expect(images).toContain(nearLimitImage);
+    expect(images).not.toContain(tooLargeImage);
   });
 });
