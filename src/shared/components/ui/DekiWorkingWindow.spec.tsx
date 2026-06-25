@@ -41,4 +41,23 @@ describe("DekiWorkingWindow", () => {
     expect(image?.getAttribute("src")).toBe("/koi-mark.svg");
     expect(container.textContent).not.toMatch(/Dottore|Professor Mari/i);
   });
+
+  it("falls back to a koi PNG when the SVG mark fails", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<DekiWorkingWindow visible />);
+    });
+
+    const image = container.querySelector<HTMLImageElement>("img");
+    expect(image?.getAttribute("src")).toBe("/koi-mark.svg");
+
+    await act(async () => {
+      image?.dispatchEvent(new Event("error", { bubbles: true }));
+    });
+
+    expect(container.querySelector<HTMLImageElement>("img")?.getAttribute("src")).toBe("/koi-mark-192.png");
+  });
 });
