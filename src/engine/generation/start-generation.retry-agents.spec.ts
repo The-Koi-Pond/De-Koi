@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentResult } from "../contracts/types/agent";
 import {
   illustrationReferenceImagesForRequest,
+  illustrationReferencesForRequest,
   loadMessagesForGenerationTarget,
   patchMessageExtrasForGeneration,
   spriteExpressionPatchesForTarget,
@@ -426,5 +427,19 @@ describe("illustrationReferenceImagesForRequest", () => {
     expect(images).toHaveLength(8);
     expect(images).toContain(nearLimitImage);
     expect(images).not.toContain(tooLargeImage);
+  });
+
+  it("keeps duplicate subject names aligned with the surviving reference image", () => {
+    const sharedImage = dataUrl(128);
+    const tooLargeImage = dataUrl(8 * 1024 * 1024 + 4);
+
+    const references = illustrationReferencesForRequest([
+      { image: sharedImage, subjectName: "Mira" },
+      { image: sharedImage, subjectName: "Player" },
+      { image: tooLargeImage, subjectName: "Oversized" },
+    ]);
+
+    expect(references.referenceImages).toEqual([sharedImage]);
+    expect(references.referenceSubjectNames).toEqual(["Mira", "Player"]);
   });
 });

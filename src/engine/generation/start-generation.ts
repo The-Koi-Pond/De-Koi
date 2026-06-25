@@ -718,23 +718,41 @@ function usableReferenceImage(value: unknown): string {
   return estimateIllustrationReferenceImageBytes(image) <= ILLUSTRATION_REFERENCE_IMAGE_BYTE_LIMIT ? image : "";
 }
 
-export function illustrationReferenceImagesForRequest(images: readonly unknown[]): string[] {
-  const result: string[] = [];
+export function illustrationReferencesForRequest(
+  references: readonly { image: unknown; subjectName?: unknown }[],
+): IllustrationReferenceData {
+  const referenceImages: string[] = [];
+  const referenceSubjectNames: string[] = [];
   const seen = new Set<string>();
   let totalBytes = 0;
-  for (const value of images) {
-    const image = usableReferenceImage(value);
+
+  const addSubjectName = (value: unknown) => {
+    const name = readString(value).trim();
+    if (name && !referenceSubjectNames.includes(name)) referenceSubjectNames.push(name);
+  };
+
+  for (const value of references) {
+    const image = usableReferenceImage(value.image);
     if (!image) continue;
     const key = image.replace(/\s+/g, "");
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      addSubjectName(value.subjectName);
+      continue;
+    }
     const bytes = estimateIllustrationReferenceImageBytes(image);
-    if (result.length >= MAX_ILLUSTRATION_REFERENCE_IMAGES) break;
+    if (referenceImages.length >= MAX_ILLUSTRATION_REFERENCE_IMAGES) continue;
     if (totalBytes + bytes > ILLUSTRATION_REFERENCE_IMAGES_TOTAL_BYTE_LIMIT) continue;
-    result.push(image);
+    referenceImages.push(image);
     seen.add(key);
     totalBytes += bytes;
+    addSubjectName(value.subjectName);
   }
-  return result;
+
+  return { referenceImages, referenceSubjectNames };
+}
+
+export function illustrationReferenceImagesForRequest(images: readonly unknown[]): string[] {
+  return illustrationReferencesForRequest(images.map((image) => ({ image }))).referenceImages;
 }
 
 function recordName(record: JsonRecord): string {
@@ -894,8 +912,7 @@ async function illustrationReferenceData(args: {
   useAvatarReferences: boolean;
 }): Promise<IllustrationReferenceData> {
   const subjects = await loadIllustrationReferenceSubjects(args.storage, args.chat);
-  const referenceImages: string[] = [];
-  const referenceSubjectNames: string[] = [];
+  const referenceCandidates: Array<{ image: string; subjectName: string }> = [];
   const referenceSubjects = subjects.filter((subject) => matchesIllustrationSubject(subject, args.item));
   for (const subject of referenceSubjects) {
     if (!args.useAvatarReferences) continue;
@@ -911,13 +928,9 @@ async function illustrationReferenceData(args: {
         avatarFilePath: subject.avatarFilePath,
         avatarFilename: subject.avatarFilename,
       }));
-    if (!reference) continue;
-    const nextReferences = illustrationReferenceImagesForRequest([...referenceImages, reference]);
-    if (nextReferences.length === referenceImages.length) continue;
-    referenceImages.push(reference);
-    if (!referenceSubjectNames.includes(subject.name)) referenceSubjectNames.push(subject.name);
+    if (reference) referenceCandidates.push({ image: reference, subjectName: subject.name });
   }
-  return { referenceImages, referenceSubjectNames };
+  return illustrationReferencesForRequest(referenceCandidates);
 }
 
 function promptAlreadyMentionsReferences(prompt: string): boolean {
