@@ -13,9 +13,12 @@ describe("Deki scene mood", () => {
     expect(DEKI_SCENE_POSES.thinking).toBe("/sprites/deki/Deki_thinking.png");
   });
 
+  it("keeps the thinking pose while restoring history even if sending overlaps", () => {
+    expect(getDekiSceneMood({ historyLoaded: false, sending: true })).toBe("thinking");
+  });
+
   it("uses an explaining pose while Deki is responding", () => {
     expect(getDekiSceneMood({ historyLoaded: true, sending: true })).toBe("responding");
-    expect(getDekiSceneMood({ historyLoaded: false, sending: true })).toBe("responding");
     expect(DEKI_SCENE_POSES.responding).toBe("/sprites/deki/Deki_explaining.png");
   });
 });
