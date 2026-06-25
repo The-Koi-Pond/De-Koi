@@ -221,6 +221,67 @@ describe("ConversationMessage memo subscriptions", () => {
     expect(container!.textContent).toContain("\u201chello\u201d");
   });
 
+  it("uses the soft reveal treatment while assistant text streams", () => {
+    const streamingMessage: Message = {
+      ...message,
+      id: "message-streaming-reveal",
+      content: "The first words are here.",
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={streamingMessage}
+            isStreaming
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container!.querySelector(".mari-streaming-reveal")).not.toBeNull();
+    expect(container!.querySelector(".mari-streaming-caret")).toBeNull();
+  });
+
+  it("uses a quiet pending shimmer before streamed assistant text exists", () => {
+    const pendingMessage: Message = {
+      ...message,
+      id: "message-streaming-pending",
+      content: "",
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={pendingMessage}
+            isStreaming
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container!.querySelector(".mari-streaming-pending")).not.toBeNull();
+    expect(container!.querySelector(".mari-typing-dots")).toBeNull();
+  });
   it("keeps child button keyboard events isolated from message-level toggles", () => {
     const onRegenerate = vi.fn();
 

@@ -1834,18 +1834,17 @@ export const ChatMessage = memo(function ChatMessage({
     <>
       <div className={cn("mari-message-content break-words", !isHtmlContent && "whitespace-pre-wrap")}>
         {isStreaming && !message.content ? (
-          <div className="mari-message-typing flex items-center gap-1 py-0.5">
-            <span className="h-2 w-2 animate-bounce rounded-full bg-blue-400/60 [animation-delay:0ms]" />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-blue-400/60 [animation-delay:150ms]" />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-blue-400/60 [animation-delay:300ms]" />
+          <div
+            className="mari-streaming-pending mari-message-typing inline-flex items-center gap-2 py-0.5"
+            aria-label="Assistant response is starting"
+          >
+            <span className="mari-streaming-pending-glow" aria-hidden="true" />
+            <span className="mari-streaming-pending-line" aria-hidden="true" />
           </div>
+        ) : isStreaming ? (
+          <div className="mari-streaming-reveal">{renderedContent}</div>
         ) : (
-          <>
-            {renderedContent}
-            {isStreaming && (
-              <span className="ml-0.5 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-blue-400" />
-            )}
-          </>
+          renderedContent
         )}
       </div>
       {(translatedText || isTranslating) && (
@@ -2712,18 +2711,17 @@ export const ChatMessage = memo(function ChatMessage({
               <>
                 <div className={cn("mari-message-content break-words", !isHtmlContent && "whitespace-pre-wrap")}>
                   {isStreaming && !message.content ? (
-                    <div className="mari-message-typing flex items-center gap-1 py-0.5">
-                      <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:0ms]" />
-                      <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:150ms]" />
-                      <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:300ms]" />
+                    <div
+                      className="mari-streaming-pending mari-message-typing inline-flex items-center gap-2 py-0.5"
+                      aria-label="Assistant response is starting"
+                    >
+                      <span className="mari-streaming-pending-glow" aria-hidden="true" />
+                      <span className="mari-streaming-pending-line" aria-hidden="true" />
                     </div>
+                  ) : isStreaming ? (
+                    <div className="mari-streaming-reveal">{renderedContent}</div>
                   ) : (
-                    <>
-                      {renderedContent}
-                      {isStreaming && (
-                        <span className="ml-0.5 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-white/70" />
-                      )}
-                    </>
+                    renderedContent
                   )}
                 </div>
                 {/* Translation */}

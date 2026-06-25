@@ -10,63 +10,14 @@ import {
   nameColorStyle,
   renderInlineMessageText,
   resolveConversationAvatar,
+  StreamingReveal,
   type ConversationMessageRenderContext,
 } from "./ConversationMessageShared";
 import { ResolvedAvatarImage } from "../../shared/chat-ui/index";
 
-export function ConversationMessageGrouped({ context }: { context: ConversationMessageRenderContext }) {
-  if (context.isHiddenCollapsed) {
-    return (
-      <div
-        className={cn(
-          "relative px-4 py-0.5 transition-colors hover:bg-[var(--secondary)]/30",
-          !context.noHoverGroup && "group",
-          context.isGrouped ? "mt-0" : "mt-3",
-        )}
-        data-message-id={context.message.id}
-        data-message-role={context.message.role}
-      >
-        <div className="ml-14 flex items-center gap-2 py-1">{context.hiddenFromAIHeader}</div>
-      </div>
-    );
-  }
-
+function ConversationGroupedSegments({ context }: { context: ConversationMessageRenderContext }) {
   return (
-    <div
-      className={cn(
-        "relative px-4 py-0.5 transition-colors hover:bg-[var(--secondary)]/30",
-        !context.noHoverGroup && "group",
-        context.isGrouped ? "mt-0" : "mt-3",
-        context.isStreaming && "bg-[var(--secondary)]/20",
-        context.multiSelectMode && context.isSelected && "bg-[var(--destructive)]/10",
-      )}
-      data-message-id={context.message.id}
-      data-message-role={context.message.role}
-      data-card-css={context.cardCssId}
-      data-grouped={context.isGrouped || undefined}
-      tabIndex={context.hideActions ? undefined : 0}
-      onClick={context.handleMessageClick}
-      onKeyDown={context.handleMessageKeyDown}
-      onDoubleClick={context.handleMessageDoubleClick}
-    >
-      {context.multiSelectMode && (
-        <div className="absolute left-1 top-1/2 -translate-y-1/2 z-10">
-          <button
-            type="button"
-            role="checkbox"
-            aria-checked={context.isSelected}
-            aria-label={context.isSelected ? "Deselect message" : "Select message"}
-            className="block border-0 bg-transparent p-0 text-inherit"
-            onClick={(e) => {
-              e.stopPropagation();
-              context.onToggleSelect?.(e.shiftKey);
-            }}
-          >
-            <MessageSelectCheckbox isSelected={context.isSelected} />
-          </button>
-        </div>
-      )}
-
+    <>
       {context.groupedSegments?.slice(0, context.visibleSegments).map((grp, i) => {
         const segChar = grp.speaker && context.charByName ? context.charByName.get(grp.speaker.toLowerCase()) : null;
         const segAvatar = segChar?.avatarUrl ?? null;
@@ -169,10 +120,66 @@ export function ConversationMessageGrouped({ context }: { context: ConversationM
           </div>
         );
       })}
+    </>
+  );
+}
 
-      {context.isStreaming && (
-        <span className="ml-14 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-[var(--foreground)]/50" />
+export function ConversationMessageGrouped({ context }: { context: ConversationMessageRenderContext }) {
+  if (context.isHiddenCollapsed) {
+    return (
+      <div
+        className={cn(
+          "relative px-4 py-0.5 transition-colors hover:bg-[var(--secondary)]/30",
+          !context.noHoverGroup && "group",
+          context.isGrouped ? "mt-0" : "mt-3",
+        )}
+        data-message-id={context.message.id}
+        data-message-role={context.message.role}
+      >
+        <div className="ml-14 flex items-center gap-2 py-1">{context.hiddenFromAIHeader}</div>
+      </div>
+    );
+  }
+
+  const groupedContent = <ConversationGroupedSegments context={context} />;
+
+  return (
+    <div
+      className={cn(
+        "relative px-4 py-0.5 transition-colors hover:bg-[var(--secondary)]/30",
+        !context.noHoverGroup && "group",
+        context.isGrouped ? "mt-0" : "mt-3",
+        context.isStreaming && "bg-[var(--secondary)]/20",
+        context.multiSelectMode && context.isSelected && "bg-[var(--destructive)]/10",
       )}
+      data-message-id={context.message.id}
+      data-message-role={context.message.role}
+      data-card-css={context.cardCssId}
+      data-grouped={context.isGrouped || undefined}
+      tabIndex={context.hideActions ? undefined : 0}
+      onClick={context.handleMessageClick}
+      onKeyDown={context.handleMessageKeyDown}
+      onDoubleClick={context.handleMessageDoubleClick}
+    >
+      {context.multiSelectMode && (
+        <div className="absolute left-1 top-1/2 -translate-y-1/2 z-10">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={context.isSelected}
+            aria-label={context.isSelected ? "Deselect message" : "Select message"}
+            className="block border-0 bg-transparent p-0 text-inherit"
+            onClick={(e) => {
+              e.stopPropagation();
+              context.onToggleSelect?.(e.shiftKey);
+            }}
+          >
+            <MessageSelectCheckbox isSelected={context.isSelected} />
+          </button>
+        </div>
+      )}
+
+      {context.isStreaming ? <StreamingReveal>{groupedContent}</StreamingReveal> : groupedContent}
 
       <div className="ml-14">
         <ConversationMessageTranslation context={context} />
