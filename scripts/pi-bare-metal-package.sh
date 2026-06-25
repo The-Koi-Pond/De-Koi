@@ -18,6 +18,8 @@ web_dir="${DE_KOI_WEB_DIST:-dist}"
 staging="${DE_KOI_PI_PACKAGE_STAGING:-dist-pi-bare-metal/staging}"
 package_name="de-koi"
 package_root="${staging}/${package_name}"
+manifest_tmp="$(mktemp -d)"
+trap 'rm -rf "$manifest_tmp"' EXIT
 snapshot_entries=(
   AGENTS.md
   LICENSE.txt
@@ -34,6 +36,9 @@ snapshot_entries=(
   src
   src-tauri
 )
+contract_tar="$manifest_tmp/package-contract.tar.gz"
+contract_members="$manifest_tmp/package-members.txt"
+final_members="$manifest_tmp/final-members.txt"
 required_package_paths=(
   bin/de-koi-server
   web/index.html
@@ -98,9 +103,12 @@ git archive --format=tar HEAD -- "${snapshot_entries[@]}" | tar -xf - -C "$packa
   printf 'created_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 } > "$package_root/VERSION"
 
-(cd "$package_root" && find . -type f ! -name PACKAGE-MANIFEST.txt -printf '%P\n' | sort > PACKAGE-MANIFEST.txt)
-printf 'PACKAGE-MANIFEST.txt\n' >> "$package_root/PACKAGE-MANIFEST.txt"
-sort -o "$package_root/PACKAGE-MANIFEST.txt" "$package_root/PACKAGE-MANIFEST.txt"
+> "$package_root/PACKAGE-MANIFEST.txt"
+tar -C "$staging" -czf "$contract_tar" "$package_name"
+tar -tzf "$contract_tar" \
+  | awk -v root="$package_name/" 'index($0, root) == 1 && $0 !~ /\/$/ { print substr($0, length(root) + 1) }' \
+  | sort > "$contract_members"
+cp "$contract_members" "$package_root/PACKAGE-MANIFEST.txt"
 for required_path in "${required_package_paths[@]}"; do
   require_manifest_path "$required_path" "$package_root/PACKAGE-MANIFEST.txt"
 done
@@ -109,10 +117,10 @@ tar -C "$staging" -czf "$output" "$package_name"
 
 tar -tzf "$output" \
   | awk -v root="$package_name/" 'index($0, root) == 1 && $0 !~ /\/$/ { print substr($0, length(root) + 1) }' \
-  | sort > "$staging/tar-members.txt"
-if ! cmp -s "$package_root/PACKAGE-MANIFEST.txt" "$staging/tar-members.txt"; then
+  | sort > "$final_members"
+if ! cmp -s "$package_root/PACKAGE-MANIFEST.txt" "$final_members"; then
   echo "Package manifest does not match final tarball members." >&2
-  diff -u "$package_root/PACKAGE-MANIFEST.txt" "$staging/tar-members.txt" >&2 || true
+  diff -u "$package_root/PACKAGE-MANIFEST.txt" "$final_members" >&2 || true
   exit 1
 fi
 

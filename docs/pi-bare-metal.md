@@ -129,3 +129,5 @@ The script installs each package into a new release directory and moves
 If the existing env file was configured with a public origin, later updates must
 provide the same `DE_KOI_PUBLIC_ORIGIN` or use `--refresh-env` to intentionally
 change the managed origin fields.
+Older env files without `DE_KOI_MANAGED_PUBLIC_ORIGIN` can be migrated by
+rerunning with `--refresh-env` and the current `DE_KOI_PUBLIC_ORIGIN`.

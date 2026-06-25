@@ -139,7 +139,8 @@ assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "#!
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "required_package_paths");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "require_manifest_path");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, 'git archive --format=tar HEAD -- "${snapshot_entries[@]}"');
-assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "tar-members.txt");
+assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "contract_members");
+assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "final_members");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "Package manifest does not match final tarball members.");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "PACKAGE-MANIFEST.txt");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "package_schema=1");
@@ -155,10 +156,12 @@ assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "requ
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "Package manifest does not match archive members.");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "extracted_top_levels");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "Extracted package root contract mismatch.");
+assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "extracted-members.txt");
+assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "Extracted package files do not match package manifest.");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "Package root contract mismatch.");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "PACKAGE-MANIFEST.txt");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "DE_KOI_MANAGED_PUBLIC_ORIGIN");
-assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "Run again with --refresh-env to backfill the managed origin contract");
+assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "Rerun with --refresh-env and DE_KOI_PUBLIC_ORIGIN");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "set_env_value");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "DE_KOI_RESOURCE_DIR=$install_root/current/app/src-tauri");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "preserving secrets");

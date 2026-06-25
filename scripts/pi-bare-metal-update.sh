@@ -189,6 +189,11 @@ if [ ! -d "$package_root" ] || [ -L "$package_root" ]; then
   echo "Extracted package root is not a normal directory: $package_root_name" >&2
   exit 1
 fi
+(cd "$package_root" && find . -type f -printf '%P\n' | sort > "$tmp_dir/extracted-members.txt")
+if ! cmp -s "$tmp_dir/package-manifest.txt" "$tmp_dir/extracted-members.txt"; then
+  echo "Extracted package files do not match package manifest." >&2
+  exit 1
+fi
 
 if [ ! -x "$package_root/bin/de-koi-server" ]; then
   echo "Package is missing bin/de-koi-server" >&2
@@ -230,9 +235,13 @@ if [ -f "$env_file" ] && [ "$refresh_env" != true ]; then
   existing_csrf="$(awk -F= '$1 == "CSRF_TRUSTED_ORIGINS" { print substr($0, index($0, "=") + 1) }' "$env_file")"
   existing_managed_origin="$(awk -F= '$1 == "DE_KOI_MANAGED_PUBLIC_ORIGIN" { print substr($0, index($0, "=") + 1) }' "$env_file")"
   if [ -z "$existing_managed_origin" ] && { [ -n "$existing_cors" ] || [ -n "$existing_csrf" ]; }; then
-    echo "Existing runtime env has origin settings but no DE_KOI_MANAGED_PUBLIC_ORIGIN marker." >&2
-    echo "Run again with --refresh-env to backfill the managed origin contract while preserving secrets." >&2
-    exit 1
+    if [ -n "$public_origin" ] && [ "$existing_cors" = "$cors_origin" ] && [ "$existing_csrf" = "$csrf_origin" ]; then
+      refresh_env=true
+    else
+      echo "Existing runtime env has origin settings but no DE_KOI_MANAGED_PUBLIC_ORIGIN marker." >&2
+      echo "Rerun with --refresh-env and DE_KOI_PUBLIC_ORIGIN set to the current browser URL to backfill the managed origin contract while preserving secrets." >&2
+      exit 1
+    fi
   fi
   if [ -z "$public_origin" ] && [ -n "$existing_managed_origin" ]; then
     echo "Existing runtime env was configured with DE_KOI_PUBLIC_ORIGIN=$existing_managed_origin." >&2
