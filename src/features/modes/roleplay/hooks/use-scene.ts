@@ -15,6 +15,7 @@ import {
   createRoleplayScene,
   forkRoleplayScene,
   planRoleplayScene,
+  reopenRoleplayScene,
 } from "../../../../engine/modes/roleplay/scene/scene-service";
 import type {
   SceneCreateRequest,
@@ -136,7 +137,28 @@ export function useScene() {
     [qc, setActiveChatId],
   );
 
-  /** Abandon a scene — clean up and delete without generating a summary. */
+  /** Reopen a concluded scene and make it editable again. */
+  const reopenScene = useCallback(
+    async (sceneChatId: string): Promise<void> => {
+      try {
+        const res = await reopenRoleplayScene(storageApi, { sceneChatId });
+
+        qc.invalidateQueries({ queryKey: chatKeys.all });
+        qc.invalidateQueries({ queryKey: chatKeys.detail(sceneChatId) });
+        qc.invalidateQueries({ queryKey: chatKeys.detail(res.originChatId) });
+
+        setActiveChatId(sceneChatId);
+
+        toast.success("Scene reopened", { icon: "RP" });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to reopen scene";
+        toast.error(msg);
+      }
+    },
+    [qc, setActiveChatId],
+  );
+
+  /** Abandon a scene - clean up and delete without generating a summary. */
   const abandonScene = useCallback(
     async (sceneChatId: string): Promise<void> => {
       try {
@@ -219,5 +241,5 @@ export function useScene() {
     [qc, setActiveChatId],
   );
 
-  return { planScene, createScene, concludeScene, abandonScene, forkScene, isForking };
+  return { planScene, createScene, concludeScene, reopenScene, abandonScene, forkScene, isForking };
 }

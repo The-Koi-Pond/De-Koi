@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { LlmGateway } from "../../../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../../../capabilities/storage";
-import { concludeRoleplayScene } from "./scene-service";
+import { concludeRoleplayScene, reopenRoleplayScene } from "./scene-service";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -187,5 +187,70 @@ describe("roleplay scene conclusion summaries", () => {
     const result = await concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" });
 
     expect(result.summary).toBe("The Trapper waited in the fog while the persona held their ground.");
+  });
+});
+
+
+describe("reopenRoleplayScene", () => {
+  it("restores a concluded scene as the active scene on its origin conversation", async () => {
+    const { storage } = storageForScene({
+      chats: [
+        {
+          id: "origin-1",
+          connectedChatId: null,
+          metadata: { activeSceneChatId: null, sceneBusyCharIds: null },
+        },
+        {
+          id: "scene-1",
+          connectedChatId: null,
+          characterIds: ["char-1", "char-2"],
+          metadata: { sceneOriginChatId: "origin-1", sceneStatus: "concluded" },
+        },
+      ],
+      messages: {},
+    });
+
+    const result = await reopenRoleplayScene(storage, { sceneChatId: "scene-1" });
+
+    expect(result).toEqual({ originChatId: "origin-1" });
+    await expect(storage.get("chats", "scene-1")).resolves.toMatchObject({
+      connectedChatId: "origin-1",
+      metadata: { sceneStatus: "active" },
+    });
+    await expect(storage.get("chats", "origin-1")).resolves.toMatchObject({
+      connectedChatId: "scene-1",
+      metadata: {
+        activeSceneChatId: "scene-1",
+        sceneBusyCharIds: ["char-1", "char-2"],
+      },
+    });
+  });
+
+  it("does not replace another active scene on the origin conversation", async () => {
+    const { storage } = storageForScene({
+      chats: [
+        {
+          id: "origin-1",
+          connectedChatId: "scene-2",
+          metadata: { activeSceneChatId: "scene-2", sceneBusyCharIds: ["char-3"] },
+        },
+        {
+          id: "scene-1",
+          connectedChatId: null,
+          characterIds: ["char-1"],
+          metadata: { sceneOriginChatId: "origin-1", sceneStatus: "concluded" },
+        },
+      ],
+      messages: {},
+    });
+
+    await expect(reopenRoleplayScene(storage, { sceneChatId: "scene-1" })).rejects.toThrow(
+      "The origin conversation already has another active scene",
+    );
+
+    await expect(storage.get("chats", "origin-1")).resolves.toMatchObject({
+      connectedChatId: "scene-2",
+      metadata: { activeSceneChatId: "scene-2", sceneBusyCharIds: ["char-3"] },
+    });
   });
 });

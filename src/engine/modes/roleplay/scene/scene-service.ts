@@ -265,6 +265,32 @@ export async function concludeRoleplayScene(
   return { summary, originChatId };
 }
 
+export async function reopenRoleplayScene(
+  storage: StorageGateway,
+  input: { sceneChatId: string },
+): Promise<{ originChatId: string }> {
+  const sceneChat = await requireChat(storage, input.sceneChatId);
+  const sceneMeta = parseJsonObject(sceneChat.metadata);
+  const originChatId = stringValue(sceneMeta.sceneOriginChatId);
+  if (!originChatId) throw new Error("Not a scene chat");
+
+  const originChat = await requireChat(storage, originChatId);
+  const originMeta = parseJsonObject(originChat.metadata);
+  const activeSceneChatId = stringValue(originMeta.activeSceneChatId);
+  if (activeSceneChatId && activeSceneChatId !== input.sceneChatId) {
+    throw new Error("The origin conversation already has another active scene");
+  }
+
+  await patchChatMetadata(storage, input.sceneChatId, { sceneStatus: "active" });
+  await patchChatMetadata(storage, originChatId, {
+    activeSceneChatId: input.sceneChatId,
+    sceneBusyCharIds: stringArray(sceneChat.characterIds),
+  });
+  await storage.update("chats", input.sceneChatId, { connectedChatId: originChatId });
+  await storage.update("chats", originChatId, { connectedChatId: input.sceneChatId });
+  return { originChatId };
+}
+
 export async function abandonRoleplayScene(
   storage: StorageGateway,
   input: { sceneChatId: string },
