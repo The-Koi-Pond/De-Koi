@@ -25,9 +25,9 @@ import { isSendShortcut } from "../../../../shared/lib/send-shortcuts";
 import { cn, normalizeAvatarCropValue } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { runDetachedDekiSend } from "../lib/deki-send";
+import { DEKI_SCENE_POSES, getDekiSceneMood, type DekiSceneMood } from "../lib/deki-scene";
 
 const DEKI_AVATAR_URL = "/icon-192.png";
-const DEKI_CHIBI_URL = "/logo.png";
 const DEKI_CHARACTER_ID = "__deki_shell__";
 const DEKI_WELCOME_CONTENT =
   "Howdy, welcome to De-Koi!\n\nThe pond is calm, and I'm Deki-senpai. Feeling a little lost? It's not a skill issue yet! Ask me anything about how the app works, or have me edit it to fit what you need. Am I not the best? 😎";
@@ -324,6 +324,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
     return messages.length > 0 ? messages : [welcomeMessage];
   }, [historyLoaded, messages, welcomeMessage]);
   const conversationMessages = useMemo(() => visibleMessages.map(toConversationMessage), [visibleMessages]);
+  const dekiSceneMood = getDekiSceneMood({ historyLoaded, sending });
 
   useEffect(() => {
     mountedRef.current = true;
@@ -590,9 +591,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
         void onSessionsChanged?.();
       } else if (result.application) {
         setMessages((current) =>
-          current.map((item) =>
-            item.id === message.id ? { ...item, actionApplication: result.application } : item,
-          ),
+          current.map((item) => (item.id === message.id ? { ...item, actionApplication: result.application } : item)),
         );
       }
       await invalidateDekiActionQueries(queryClient, action).catch((error) => {
@@ -647,7 +646,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
     >
       <div className="mari-messages-scroll flex-1 overflow-y-auto overflow-x-hidden">
         <div className="deki-hero mx-auto flex w-full max-w-3xl justify-center px-4 pb-2 pt-5 sm:pt-7">
-          <DekiPixelScene active={sending || !historyLoaded} />
+          <DekiPondScene mood={dekiSceneMood} />
         </div>
 
         <div className="mx-auto w-full max-w-3xl px-0 pb-4 pt-1">
@@ -975,27 +974,25 @@ function DekiLoadingState() {
   );
 }
 
-function DekiPixelScene({ active }: { active: boolean }) {
+function DekiPondScene({ mood }: { mood: DekiSceneMood }) {
+  const poseUrl = DEKI_SCENE_POSES[mood];
+
   return (
-    <div className={cn("deki-pixel-scene", active ? "deki-pixel-scene-active" : "deki-pixel-scene-idle")}>
-      <div className="deki-pixel-glow" aria-hidden />
-      <div className="deki-pixel-desk" aria-hidden />
-      <img src={DEKI_CHIBI_URL} alt="Deki-senpai" className="deki-pixel-sprite" draggable={false} />
-      <div className="deki-laptop" aria-hidden>
-        <div className="deki-laptop-screen">
-          <span />
-          <span />
-          <span />
-        </div>
-        <div className="deki-laptop-base">
-          <i />
-          <i />
-          <i />
-          <i />
-          <i />
-          <i />
-        </div>
+    <div className={cn("deki-pond-scene", `deki-pond-scene-${mood}`)}>
+      <div className="deki-pond-aura" aria-hidden />
+      <div className="deki-pond-water" aria-hidden>
+        <span className="deki-pond-ripple deki-pond-ripple-one" />
+        <span className="deki-pond-ripple deki-pond-ripple-two" />
+        <span className="deki-pond-ripple deki-pond-ripple-three" />
       </div>
+      <div className="deki-pond-lilypad deki-pond-lilypad-left" aria-hidden />
+      <div className="deki-pond-lilypad deki-pond-lilypad-right" aria-hidden />
+      <div className="deki-pond-thoughts" aria-hidden>
+        <span />
+        <span />
+        <span />
+      </div>
+      <img src={poseUrl} alt="Deki-senpai" className="deki-pond-sprite" draggable={false} />
     </div>
   );
 }
