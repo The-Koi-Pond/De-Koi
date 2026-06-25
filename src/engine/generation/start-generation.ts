@@ -96,6 +96,17 @@ import { applyRuntimeRegexScripts } from "./regex-runtime";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
 import { illustrationSubjectMatches } from "../generation-core/images/illustration-reference-matching";
 import {
+  illustrationImageRequestWireBytes,
+  illustrationReferencesForRequest,
+  usableIllustrationReferenceImage,
+  type IllustrationReferenceData,
+} from "../generation-core/images/illustration-reference-selection";
+export {
+  illustrationImageRequestWireBytes,
+  illustrationReferenceImagesForRequest,
+  illustrationReferencesForRequest,
+} from "../generation-core/images/illustration-reference-selection";
+import {
   normalizeStartGenerationInput,
   type AgentInjectionOverride,
   type StartGenerationInput,
@@ -167,9 +178,6 @@ const MIN_GENERATION_MESSAGE_LOAD_LIMIT = 40;
 const MAX_GENERATION_MESSAGE_LOAD_LIMIT = DEFAULT_GENERATION_HISTORY_LIMIT + GENERATION_MESSAGE_LOAD_MARGIN;
 const LOREBOOK_KEEPER_BACKFILL_TARGET_SCAN_FIELDS = ["id", "chatId", "role", "extra", "createdAt"];
 
-const MAX_ILLUSTRATION_REFERENCE_IMAGES = 8;
-const ILLUSTRATION_REFERENCE_IMAGE_BYTE_LIMIT = 6 * 1024 * 1024;
-const ILLUSTRATION_REFERENCE_IMAGES_TOTAL_BYTE_LIMIT = 48 * 1024 * 1024;
 const LOREBOOK_KEEPER_AGENT_TYPE = "lorebook-keeper";
 const DEFAULT_LOREBOOK_KEEPER_RUN_INTERVAL = BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS[LOREBOOK_KEEPER_AGENT_TYPE] ?? 8;
 
@@ -639,10 +647,6 @@ type IllustrationReferenceSubject = {
   spriteOwnerType: SpriteOwnerType;
 };
 
-type IllustrationReferenceData = {
-  referenceImages: string[];
-  referenceSubjectNames: string[];
-};
 
 function promptContainsTag(prompt: string, tag: string): boolean {
   const normalizedPrompt = prompt.toLowerCase();
@@ -695,63 +699,6 @@ export function buildIllustrationNegativePrompt(args: {
   ]);
 }
 
-function estimateIllustrationReferenceImageBytes(value: string): number {
-  const commaIndex = value.indexOf(",");
-  if (value.startsWith("data:") && commaIndex >= 0) {
-    const payload = value.slice(commaIndex + 1).replace(/\s+/g, "");
-    const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
-    return Math.max(0, Math.floor((payload.length * 3) / 4) - padding);
-  }
-  const base64 = value.replace(/\s+/g, "");
-  if (/^[A-Za-z0-9+/=]+$/.test(base64) && base64.length > 80) {
-    const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
-    return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
-  }
-  return new TextEncoder().encode(value).length;
-}
-
-function usableReferenceImage(value: unknown): string {
-  const text = readString(value).trim();
-  if (!text) return "";
-  const image = text.startsWith("data:image/") || /^[A-Za-z0-9+/=\s]+$/.test(text) ? text : "";
-  if (!image || image.replace(/\s+/g, "").length <= 80) return "";
-  return estimateIllustrationReferenceImageBytes(image) <= ILLUSTRATION_REFERENCE_IMAGE_BYTE_LIMIT ? image : "";
-}
-
-export function illustrationReferencesForRequest(
-  references: readonly { image: unknown; subjectName?: unknown }[],
-): IllustrationReferenceData {
-  const referenceImages: string[] = [];
-  const referenceSubjectNames: string[] = [];
-  const seen = new Set<string>();
-  let totalBytes = 0;
-
-  const addSubjectName = (value: unknown) => {
-    const name = readString(value).trim();
-    if (name && !referenceSubjectNames.includes(name)) referenceSubjectNames.push(name);
-  };
-
-  for (const value of references) {
-    const image = usableReferenceImage(value.image);
-    if (!image) continue;
-    const key = image.replace(/\s+/g, "");
-    if (seen.has(key)) continue;
-    const bytes = estimateIllustrationReferenceImageBytes(image);
-    if (referenceImages.length >= MAX_ILLUSTRATION_REFERENCE_IMAGES) continue;
-    if (totalBytes + bytes > ILLUSTRATION_REFERENCE_IMAGES_TOTAL_BYTE_LIMIT) continue;
-    referenceImages.push(image);
-    seen.add(key);
-    totalBytes += bytes;
-    addSubjectName(value.subjectName);
-  }
-
-  return { referenceImages, referenceSubjectNames };
-}
-
-export function illustrationReferenceImagesForRequest(images: readonly unknown[]): string[] {
-  return illustrationReferencesForRequest(images.map((image) => ({ image }))).referenceImages;
-}
-
 function recordName(record: JsonRecord): string {
   const data = parseRecord(record.data);
   return readString(data.name).trim() || readString(record.name).trim();
@@ -783,7 +730,9 @@ async function resolveIllustrationReferenceImage(
   },
 ): Promise<string> {
   const inline =
-    usableReferenceImage(source.image) || usableReferenceImage(source.url) || usableReferenceImage(source.base64);
+    usableIllustrationReferenceImage(source.image) ||
+    usableIllustrationReferenceImage(source.url) ||
+    usableIllustrationReferenceImage(source.base64);
   if (inline) return inline;
   return (
     (visuals?.resolveReferenceImage
@@ -966,6 +915,17 @@ function illustratorPromptData(result: AgentResult): IllustrationPromptData | nu
   };
 }
 
+export function shouldReturnManualIllustratorRetryWithoutCommit(args: {
+  hasTarget: boolean;
+  illustratorManualRequest: boolean;
+  agentTypes: ReadonlySet<string>;
+  results: readonly AgentResult[];
+}): boolean {
+  if (!args.hasTarget || !args.illustratorManualRequest || !args.agentTypes.has("illustrator")) return false;
+  if (args.results.some((result) => illustratorPromptData(result) !== null)) return false;
+  return args.results.every((result) => result.agentType === "illustrator");
+}
+
 async function generateIllustrationAttachments(args: {
   deps: GenerationEngineDeps;
   chat: JsonRecord;
@@ -1007,14 +967,7 @@ async function generateIllustrationAttachments(args: {
         appendMissingPositiveTags(item.prompt, settings.positivePrompt),
         referenceData.referenceSubjectNames,
       );
-      const image = await args.deps.integrations.image.generate<{
-        base64?: string;
-        mimeType?: string;
-        image?: string;
-        ext?: string;
-        provider?: string;
-        model?: string;
-      }>({
+      const imageRequest = {
         connectionId: settings.connectionId,
         kind: "illustration",
         reviewId: `illustration:${readString(args.chat.id)}:${index}`,
@@ -1024,7 +977,18 @@ async function generateIllustrationAttachments(args: {
         width: size.width,
         height: size.height,
         ...(referenceData.referenceImages.length > 0 ? { referenceImages: referenceData.referenceImages } : {}),
-      });
+      };
+      if (illustrationImageRequestWireBytes(imageRequest) > 16 * 1024 * 1024) {
+        throw new Error("Illustration reference payload is too large for the remote runtime request.");
+      }
+      const image = await args.deps.integrations.image.generate<{
+        base64?: string;
+        mimeType?: string;
+        image?: string;
+        ext?: string;
+        provider?: string;
+        model?: string;
+      }>(imageRequest);
       throwIfAborted(args.signal);
       const mimeType = image.mimeType || "image/png";
       const base64 = readString(image.base64).trim();
@@ -3568,7 +3532,33 @@ async function runGenerationAgentsForTarget(args: {
   for (const result of [...runtime.preResults, ...results]) {
     unique.set(resultKey(result), result);
   }
-  let finalResults = [...unique.values()];
+  const speculativeResults = [...unique.values()];
+  const isManualIllustratorRetryWithoutPrompt =
+    target !== null &&
+    input.options?.illustratorManualRequest === true &&
+    agentTypes.has("illustrator") &&
+    !speculativeResults.some((result) => illustratorPromptData(result) !== null);
+  if (
+    shouldReturnManualIllustratorRetryWithoutCommit({
+      hasTarget: target !== null,
+      illustratorManualRequest: input.options?.illustratorManualRequest === true,
+      agentTypes,
+      results: speculativeResults,
+    })
+  ) {
+    return {
+      results: speculativeResults,
+      events: [
+        ...runtime.agentWarnings.map((warning): GenerationEvent => ({ type: "agent_warning", data: warning })),
+        {
+          type: "illustration_error",
+          data: { error: "Illustrator did not return an image prompt for this message." },
+        },
+      ],
+    };
+  }
+
+  let finalResults = speculativeResults;
   finalResults = await generateTrackerAvatarsForResults({
     deps,
     chat: chatForAgents,
@@ -3606,6 +3596,12 @@ async function runGenerationAgentsForTarget(args: {
     events.push({ type: "message", data: savedGenerationEventData(patched) });
   }
   const hasIllustrationRequest = finalResults.some((result) => illustratorPromptData(result) !== null);
+  if (isManualIllustratorRetryWithoutPrompt && !hasIllustrationRequest) {
+    events.push({
+      type: "illustration_error",
+      data: { error: "Illustrator did not return an image prompt for this message." },
+    });
+  }
   if (target && hasIllustrationRequest) {
     const illustration = await generateIllustrationAttachments({
       deps,
