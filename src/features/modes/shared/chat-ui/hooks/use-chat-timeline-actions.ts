@@ -493,7 +493,10 @@ export function useChatTimelineActions({
   const handleIllustrate = useCallback(
     async (source?: SaveMomentSource) => {
       const forMessageId = readString(source?.messageId).trim();
-      await retryAgents(activeChatId, ["illustrator"], forMessageId ? { forMessageId } : undefined);
+      await retryAgents(activeChatId, ["illustrator"], {
+        ...(forMessageId ? { forMessageId } : {}),
+        illustratorManualRequest: true,
+      });
     },
     [activeChatId, retryAgents],
   );

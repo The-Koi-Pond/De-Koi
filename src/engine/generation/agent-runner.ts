@@ -57,6 +57,7 @@ import {
 import { llmParameters } from "./context";
 import { loadAgentMemory, secretPlotPromptGuidanceFromData, secretPlotStateFromMemory } from "./agent-memory-runtime";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
+import { illustrationReferencesForRequest } from "../generation-core/images/illustration-reference-selection";
 import {
   buildAvailableSpriteCharacter,
   normalizeSpriteDisplayModes,
@@ -116,6 +117,7 @@ export interface GenerationAgentRuntimeInput {
   agentInjectionOverrides?: AgentInjection[];
   spotifyDjManualRetry?: boolean;
   spotifyDjForceFreshPick?: boolean;
+  illustratorManualRequest?: boolean;
 }
 
 export interface GenerationAgentRuntime {
@@ -1456,7 +1458,14 @@ async function loadAgentIllustratorReferences(
   }
 
   if (references.length > 0) {
-    context.memory._illustratorReferenceImages = references;
+    const selected = illustrationReferencesForRequest(
+      references.map((reference) => ({ image: reference.image, subjectName: reference.name })),
+    );
+    context.memory._illustratorReferenceImages = selected.selectedReferences.map((reference) => ({
+      name: reference.subjectName,
+      ownerType: references.find((candidate) => candidate.name === reference.subjectName)?.ownerType ?? "character",
+      image: reference.image,
+    }));
   }
 }
 
@@ -1587,6 +1596,7 @@ async function buildAgentContext(
   if (secretPlotState) memory._secretPlotState = secretPlotState;
   const personaId = readString(input.chat.personaId).trim();
   if (personaId) memory._personaId = personaId;
+  if (input.illustratorManualRequest === true) memory._illustratorManualRequest = true;
   memory._spotifyDjConstraints = buildSpotifyDjConstraints(chatMode, chatMeta, {
     manualRetry: input.spotifyDjManualRetry === true,
     forceFreshPick: input.spotifyDjForceFreshPick === true,

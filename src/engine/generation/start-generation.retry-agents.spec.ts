@@ -1,14 +1,117 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentResult } from "../contracts/types/agent";
+import type { LlmGateway, LlmRequest } from "../capabilities/llm";
+import type { IntegrationGateway } from "../capabilities/integrations";
 import {
+  illustrationImageRequestWireBytes,
   illustrationReferenceImagesForRequest,
   illustrationReferencesForRequest,
   loadMessagesForGenerationTarget,
+  retryGenerationAgents,
+  shouldReturnManualIllustratorRetryWithoutCommit,
   patchMessageExtrasForGeneration,
   spriteExpressionPatchesForTarget,
 } from "./start-generation";
 
+
+function retryIllustrationStorage() {
+  const chat = {
+    id: "chat-1",
+    mode: "conversation",
+    connectionId: "conn-1",
+    metadata: {},
+    characterIds: [],
+  };
+  const connection = { id: "conn-1", provider: "openai", model: "chat-model" };
+  const target = {
+    id: "assistant-1",
+    chatId: "chat-1",
+    role: "assistant",
+    content: "Mira catches the candle before it hits the floor.",
+    createdAt: "2026-01-01T00:01:00.000Z",
+    updatedAt: "2026-01-01T00:01:00.000Z",
+    extra: {},
+  };
+  const user = {
+    id: "user-1",
+    chatId: "chat-1",
+    role: "user",
+    content: "I reach for the falling candle.",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    extra: {},
+  };
+  const state = new Map<string, Record<string, unknown>>([[target.id, { ...target }]]);
+  const writes: Array<{ type: string; entity?: string; messageId?: string }> = [];
+  return {
+    state,
+    writes,
+    storage: {
+      async get(entity: string, id: string) {
+        if (entity === "chats" && id === chat.id) return chat;
+        if (entity === "connections" && id === connection.id) return connection;
+        return null;
+      },
+      async list(entity: string) {
+        if (entity === "agents") return [{ id: "illustrator", type: "illustrator", name: "Illustrator", enabled: true }];
+        if (entity === "connections") return [connection, { id: "image-conn", provider: "image_generation", defaultForAgents: true }];
+        return [];
+      },
+      async listChatMessages(_chatId: string, options?: { before?: unknown }) {
+        return options?.before ? [user] : [user, state.get(target.id)!];
+      },
+      async getChatMessage(messageId: string) {
+        if (messageId === target.id) return state.get(target.id)!;
+        if (messageId === user.id) return user;
+        return null;
+      },
+      async patchChatMessageExtra(messageId: string, patch: Record<string, unknown>) {
+        writes.push({ type: "patchChatMessageExtra", messageId });
+        const current = state.get(messageId);
+        if (!current) throw new Error("missing message");
+        const next = { ...current, extra: { ...(current.extra as Record<string, unknown>), ...patch } };
+        state.set(messageId, next);
+        return next;
+      },
+      async create(entity: string, value?: Record<string, unknown>) {
+        writes.push({ type: "create", entity });
+        return { id: `${entity}-1`, url: value?.url, ...(value ?? {}) };
+      },
+      async update(entity?: string) {
+        writes.push({ type: "update", entity });
+        return {};
+      },
+      async delete(entity?: string) {
+        writes.push({ type: "delete", entity });
+        return { deleted: false };
+      },
+      async createChatMessage() {
+        writes.push({ type: "createChatMessage" });
+        return {};
+      },
+      async updateChatMessage() {
+        writes.push({ type: "updateChatMessage" });
+        return {};
+      },
+      async deleteChatMessage() {
+        writes.push({ type: "deleteChatMessage" });
+        return { deleted: false };
+      },
+      async addChatMessageSwipe() {
+        writes.push({ type: "addChatMessageSwipe" });
+        return {};
+      },
+      async patchChatMetadata() {
+        writes.push({ type: "patchChatMetadata" });
+        return {};
+      },
+      async listLorebookEntries() {
+        return [];
+      },
+    },
+  };
+}
 const expressionResult = (expressions: Array<{ characterId: string; expression: string }>): AgentResult =>
   ({
     agentId: "expression",
@@ -412,7 +515,14 @@ describe("loadMessagesForGenerationTarget", () => {
 });
 
 describe("illustrationReferenceImagesForRequest", () => {
-  const dataUrl = (encodedLength: number) => `data:image/png;base64,${"A".repeat(encodedLength)}`;
+  const dataUrl = (encodedLength: number, variant = 0) => {
+    const pngHeader = "iVBORw0KGgoA";
+    const normalizedLength = encodedLength + ((4 - (encodedLength % 4)) % 4);
+    const marker = `${"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"[variant % 64]}AAA`;
+    const fillerLength = Math.max(0, normalizedLength - pngHeader.length - marker.length);
+    return `data:image/png;base64,${pngHeader}${"A".repeat(fillerLength)}${marker}`;
+  };
+
 
   it("drops oversized and excess image references before image generation requests", () => {
     const nearLimitImage = dataUrl(8 * 1024 * 1024);
@@ -421,7 +531,7 @@ describe("illustrationReferenceImagesForRequest", () => {
     const images = illustrationReferenceImagesForRequest([
       nearLimitImage,
       tooLargeImage,
-      ...Array.from({ length: 10 }, (_, index) => dataUrl(128 + index)),
+      ...Array.from({ length: 10 }, (_, index) => dataUrl(128 + index * 4, index)),
     ]);
 
     expect(images).toHaveLength(8);
@@ -441,5 +551,164 @@ describe("illustrationReferenceImagesForRequest", () => {
 
     expect(references.referenceImages).toEqual([sharedImage]);
     expect(references.referenceSubjectNames).toEqual(["Mira"]);
+    expect(references.selectedReferences).toEqual([{ image: sharedImage, subjectName: "Mira" }]);
+  });
+
+  it("keeps selected reference images and subject names paired after filtering", () => {
+    const keptImage = dataUrl(128, 1);
+    const duplicateImage = dataUrl(128, 1);
+    const tooLargeImage = dataUrl(8 * 1024 * 1024 + 4, 2);
+
+    const references = illustrationReferencesForRequest([
+      { image: keptImage, subjectName: "Mira" },
+      { image: duplicateImage, subjectName: "Duplicate Mira" },
+      { image: tooLargeImage, subjectName: "Oversized" },
+      { image: dataUrl(132, 3), subjectName: "Player" },
+    ]);
+
+    expect(references.selectedReferences).toEqual([
+      { image: keptImage, subjectName: "Mira" },
+      { image: dataUrl(132, 3), subjectName: "Player" },
+    ]);
+    expect(references.referenceSubjectNames).toEqual(["Mira", "Player"]);
+  });
+
+  it("rejects malformed payloads and normalizes raw base64 image references", () => {
+    const valid = dataUrl(128);
+    const rawBase64Image = valid.split(",")[1]!;
+    const malformedDataUrl = `data:image/png;base64,${"A".repeat(84)}!`;
+    const decodedButNotImage = `data:image/png;base64,${"A".repeat(84)}`;
+
+    expect(illustrationReferenceImagesForRequest([malformedDataUrl, rawBase64Image, decodedButNotImage, valid])).toEqual([
+      valid,
+    ]);
+    expect(illustrationReferenceImagesForRequest([rawBase64Image])).toEqual([valid]);
+  });
+
+  it("caps selected references by serialized illustration request payload", () => {
+    const images = illustrationReferenceImagesForRequest(
+      Array.from({ length: 6 }, (_, index) => dataUrl(4 * 1024 * 1024 + index * 4, index)),
+    );
+
+    expect(illustrationImageRequestWireBytes({ referenceImages: images })).toBeLessThanOrEqual(16 * 1024 * 1024);
+    expect(images.length).toBeGreaterThan(1);
+    expect(images.length).toBeLessThan(6);
+  });
+});
+
+describe("retryGenerationAgents manual Illustrator retries", () => {
+  it("only short-circuits no-prompt manual paintbrush retries when results are Illustrator-only", () => {
+    const illustratorNoPrompt = {
+      agentId: "illustrator",
+      agentType: "illustrator",
+      type: "image_prompt",
+      success: true,
+      error: null,
+      data: { shouldGenerate: false },
+      tokensUsed: 0,
+      durationMs: 0,
+    } as AgentResult;
+    const nonIllustratorResult = {
+      agentId: "summary",
+      agentType: "chat-summary",
+      type: "chat_summary",
+      success: true,
+      error: null,
+      data: { summary: "Mira caught the candle." },
+      tokensUsed: 0,
+      durationMs: 0,
+    } as AgentResult;
+    const agentTypes = new Set(["illustrator", "chat-summary"]);
+
+    expect(
+      shouldReturnManualIllustratorRetryWithoutCommit({
+        hasTarget: true,
+        illustratorManualRequest: true,
+        agentTypes,
+        results: [illustratorNoPrompt],
+      }),
+    ).toBe(true);
+    expect(
+      shouldReturnManualIllustratorRetryWithoutCommit({
+        hasTarget: true,
+        illustratorManualRequest: true,
+        agentTypes,
+        results: [illustratorNoPrompt, nonIllustratorResult],
+      }),
+    ).toBe(false);
+  });
+  it("emits a visible illustration error without persisting when a manual paintbrush retry returns no image prompt", async () => {
+    const { storage, writes } = retryIllustrationStorage();
+    const llm = {
+      async *stream(_request: LlmRequest) {
+        yield {
+          type: "token",
+          text: JSON.stringify({ shouldGenerate: false, reason: "not visually significant" }),
+        };
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    } as unknown as LlmGateway;
+
+    const result = await retryGenerationAgents(
+      { storage: storage as never, llm, integrations: {} as IntegrationGateway },
+      {
+        chatId: "chat-1",
+        agentTypes: ["illustrator"],
+        options: { forMessageId: "assistant-1", bypassActivation: true, illustratorManualRequest: true },
+      },
+    );
+
+    expect(result.events).toContainEqual({
+      type: "illustration_error",
+      data: { error: "Illustrator did not return an image prompt for this message." },
+    });
+    expect(writes).toEqual([]);
+  });
+
+  it("persists gallery attachments and agent results when a manual paintbrush retry returns an image prompt", async () => {
+    const { storage, writes, state } = retryIllustrationStorage();
+    const llm = {
+      async *stream(_request: LlmRequest) {
+        yield {
+          type: "token",
+          text: JSON.stringify({ shouldGenerate: true, prompt: "Mira catches a candle in warm light.", reason: "Scene moment" }),
+        };
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    } as unknown as LlmGateway;
+    const integrations = {
+      image: {
+        async generate() {
+          return { base64: "QUJD", mimeType: "image/png", provider: "test-image", model: "test-model" };
+        },
+      },
+    } as unknown as IntegrationGateway;
+
+    const result = await retryGenerationAgents(
+      { storage: storage as never, llm, integrations },
+      {
+        chatId: "chat-1",
+        agentTypes: ["illustrator"],
+        options: { forMessageId: "assistant-1", bypassActivation: true, illustratorManualRequest: true },
+      },
+    );
+
+    expect(result.events.some((event) => event.type === "illustration")).toBe(true);
+    expect(writes).toEqual(
+      expect.arrayContaining([
+        { type: "create", entity: "agent-runs" },
+        { type: "create", entity: "gallery" },
+        { type: "patchChatMessageExtra", messageId: "assistant-1" },
+      ]),
+    );
+    expect((state.get("assistant-1")?.extra as { attachments?: unknown[] }).attachments).toEqual([
+      expect.objectContaining({ type: "image", galleryId: "gallery-1" }),
+    ]);
   });
 });
