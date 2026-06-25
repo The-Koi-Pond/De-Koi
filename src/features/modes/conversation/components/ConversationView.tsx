@@ -36,9 +36,9 @@ import {
   ChatBranchSelector,
   type ChatBranchSelectorHandle,
   getTranscriptRenderWindow,
-  isNearTranscriptBottom,
   preserveTranscriptScrollAfterPrepend,
   readTranscriptScrollMetrics,
+  resolveTranscriptScrollState,
   scheduleTranscriptBottomLock,
   scheduleTranscriptScrollWrite,
   scrollTranscriptToBottom,
@@ -672,19 +672,17 @@ export function ConversationView({
     if (!el) return;
     const onScroll = () => {
       const metrics = readTranscriptScrollMetrics(el);
-      const nearBottom = isNearTranscriptBottom(metrics);
-      if (isStreaming && metrics.scrollTop < lastScrollTopRef.current - 10) {
-        userScrolledAwayRef.current = true;
-      }
-      // Re-engage auto-scroll when the user returns to the bottom,
-      // but only if enough time has passed since their last wheel/touch
-      // input. Without this cooldown, in-flight smooth-scroll animations
-      // fire scroll events that immediately re-engage auto-scroll.
-      if (nearBottom && Date.now() - userScrolledAtRef.current > 300) {
-        userScrolledAwayRef.current = false;
-      }
-      lastScrollTopRef.current = metrics.scrollTop;
-      isNearBottomRef.current = nearBottom;
+      const scrollState = resolveTranscriptScrollState({
+        metrics,
+        lastScrollTop: lastScrollTopRef.current,
+        wasUserScrolledAway: userScrolledAwayRef.current,
+        userScrolledAt: userScrolledAtRef.current,
+        isStreaming,
+      });
+      lastScrollTopRef.current = scrollState.lastScrollTop;
+      isNearBottomRef.current = scrollState.isNearBottom;
+      userScrolledAwayRef.current = scrollState.userScrolledAway;
+      userScrolledAtRef.current = scrollState.userScrolledAt;
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     const onUserScroll = () => {
