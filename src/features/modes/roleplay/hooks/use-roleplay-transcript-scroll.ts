@@ -3,12 +3,13 @@ import { toast } from "sonner";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { CHAT_SCROLL_TO_BOTTOM_EVENT, type ChatScrollToBottomDetail } from "../../../../shared/lib/chat-scroll-events";
 import {
-  isNearTranscriptBottom,
   preserveTranscriptScrollAfterPrepend,
   readTranscriptScrollMetrics,
+  resolveTranscriptScrollState,
   scheduleTranscriptBottomLock,
   scheduleTranscriptScrollWrite,
   scrollTranscriptToBottom,
+  shouldFollowTranscriptBottom,
 } from "../../shared/chat-ui";
 import type { MessageWithSwipes } from "../../shared/chat-ui/types";
 
@@ -55,17 +56,18 @@ export function useRoleplayTranscriptScroll({
     if (!element) return;
     const onScroll = () => {
       const metrics = readTranscriptScrollMetrics(element);
-      const nearBottom = isNearTranscriptBottom(metrics);
+      const scrollState = resolveTranscriptScrollState({
+        metrics,
+        lastScrollTop: lastScrollTopRef.current,
+        wasUserScrolledAway: userScrolledAwayRef.current,
+        userScrolledAt: userScrolledAtRef.current,
+        isStreaming,
+      });
 
-      if (isStreaming && metrics.scrollTop < lastScrollTopRef.current - 10) {
-        userScrolledAwayRef.current = true;
-      }
-      if (nearBottom && Date.now() - userScrolledAtRef.current > 300) {
-        userScrolledAwayRef.current = false;
-      }
-
-      lastScrollTopRef.current = metrics.scrollTop;
-      isNearBottomRef.current = nearBottom;
+      lastScrollTopRef.current = scrollState.lastScrollTop;
+      isNearBottomRef.current = scrollState.isNearBottom;
+      userScrolledAwayRef.current = scrollState.userScrolledAway;
+      userScrolledAtRef.current = scrollState.userScrolledAt;
     };
 
     const onUserScroll = () => {
@@ -151,8 +153,14 @@ export function useRoleplayTranscriptScroll({
     if (forcedBottomScroll && !hasFreshForcedBottomScroll) {
       forcedBottomScrollRef.current = null;
     }
-    const forceScrollToNewest = isOptimistic || (isStreaming && newestMsgRole === "user") || hasFreshForcedBottomScroll;
-    if (forceScrollToNewest || (isNearBottomRef.current && !userScrolledAwayRef.current)) {
+    const shouldFollowBottom = shouldFollowTranscriptBottom({
+      hasFreshForcedBottomScroll,
+      isNearBottom: isNearBottomRef.current,
+      isOptimisticTail: !!isOptimistic,
+      isStreamingWithUserTail: isStreaming && newestMsgRole === "user",
+      userScrolledAway: userScrolledAwayRef.current,
+    });
+    if (shouldFollowBottom) {
       const behavior = forcedBottomScroll?.behavior ?? "auto";
       forcedBottomScrollRef.current = null;
       const element = scrollRef.current;
