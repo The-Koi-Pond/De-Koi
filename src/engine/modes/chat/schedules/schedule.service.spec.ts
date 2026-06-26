@@ -330,7 +330,7 @@ describe("generateConversationSchedules availability output", () => {
       { time: "17:00-23:59", activity: "open chat", status: "online" },
     ]);
   });
-  it("prefers availability labels over conflicting legacy statuses", async () => {
+  it("rejects conflicting availability and legacy status rows", async () => {
     const storage = scheduleStorageGateway();
     const blocks = [{ time: "09:00-17:00", activity: "focused research", availability: "busy", status: "online" }];
     const llm = llmWithSchedule(
@@ -349,16 +349,17 @@ describe("generateConversationSchedules availability output", () => {
       }),
     );
 
-    const result = await generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true });
-
-    expect(result.schedules["char-1"]?.days.Monday).toEqual([
-      { time: "09:00-17:00", activity: "focused research", status: "dnd" },
-    ]);
+    await expect(
+      generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true }),
+    ).rejects.toThrow("Schedule block availability/status mismatch");
   });
 
-  it("preserves legacy status-only schedule responses", async () => {
+  it("supports mixed availability and status-only schedule rows", async () => {
     const storage = scheduleStorageGateway();
-    const blocks = [{ time: "09:00-17:00", activity: "focused research", status: "idle" }];
+    const blocks = [
+      { time: "09:00-12:00", activity: "breakfast", availability: "delayed" },
+      { time: "12:00-17:00", activity: "focused research", status: "offline" },
+    ];
     const llm = llmWithSchedule(
       JSON.stringify({
         talkativeness: 65,
@@ -378,7 +379,8 @@ describe("generateConversationSchedules availability output", () => {
     const result = await generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true });
 
     expect(result.schedules["char-1"]?.days.Monday).toEqual([
-      { time: "09:00-17:00", activity: "focused research", status: "idle" },
+      { time: "09:00-12:00", activity: "breakfast", status: "idle" },
+      { time: "12:00-17:00", activity: "focused research", status: "offline" },
     ]);
   });
 });

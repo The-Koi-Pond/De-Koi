@@ -10,7 +10,7 @@ import { resolveActiveLorebookScopeReason } from "../../../generation-core/loreb
 import { lorebookEntryPassesContextFilters } from "../../../generation-core/lorebooks/keyword-scanner";
 import { readString as stringValue } from "../../../shared/value-readers";
 
-// â”€â”€ Types â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬ Types Ã¢â€â‚¬Ã¢â€â‚¬
 
 /** A single time block in a character's daily schedule */
 interface ScheduleBlock {
@@ -37,7 +37,7 @@ export interface WeekSchedule {
   idleResponseDelayMinutes?: number;
   /** Optional exact response delay in minutes while busy / DND */
   dndResponseDelayMinutes?: number;
-  /** How chatty the character is â€” affects autonomous messaging frequency (0-100) */
+  /** How chatty the character is Ã¢â‚¬â€ affects autonomous messaging frequency (0-100) */
   talkativeness: number;
 }
 
@@ -65,7 +65,7 @@ export interface GenerateConversationSchedulesResult {
   schedules: CharacterSchedules;
 }
 
-// â”€â”€ Constants â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬ Constants Ã¢â€â‚¬Ã¢â€â‚¬
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const SCHEDULE_CONTINUITY_MAX_CHARS = 6000;
@@ -232,7 +232,7 @@ export async function generateConversationSchedules(
   return { results, schedules: newSchedules };
 }
 
-// â”€â”€ Schedule Generation â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬ Schedule Generation Ã¢â€â‚¬Ã¢â€â‚¬
 
 /**
  * Generate a weekly schedule for a character using the LLM.
@@ -384,7 +384,7 @@ function parseScheduleResponse(content: string): Omit<WeekSchedule, "weekStart">
   try {
     data = normalizeScheduleData(JSON.parse(jsonStr));
   } catch (firstError) {
-    // Second pass: more aggressive repair â€” remove any lines that aren't valid JSON structure
+    // Second pass: more aggressive repair Ã¢â‚¬â€ remove any lines that aren't valid JSON structure
     // This catches things like "// ..." or bare text the LLM added inside the JSON
     const repairedLines = jsonStr.split("\n").filter((line) => {
       const trimmed = line.trim();
@@ -412,14 +412,15 @@ function parseScheduleResponse(content: string): Omit<WeekSchedule, "weekStart">
     const dayData = getDaySchedule(data.days, day);
     days[day] = dayData.map((block) => {
       const availabilityStatus = statusFromAvailabilityLabel(block.availability);
+      const legacyStatus =
+        block.status && VALID_STATUSES.has(block.status as ValidStatus) ? (block.status as ValidStatus) : null;
+      if (availabilityStatus && legacyStatus && availabilityStatus !== legacyStatus) {
+        throw new Error(`Schedule block availability/status mismatch for ${day} ${block.time}`);
+      }
       return {
         time: block.time,
         activity: block.activity,
-        status:
-          availabilityStatus ??
-          (block.status && VALID_STATUSES.has(block.status as ValidStatus)
-            ? (block.status as ValidStatus)
-            : inferStatusFromActivity(block.activity)),
+        status: availabilityStatus ?? legacyStatus ?? inferStatusFromActivity(block.activity),
       };
     });
   }
@@ -477,7 +478,7 @@ function inferStatusFromActivity(activity: string): "online" | "idle" | "dnd" | 
   return "online";
 }
 
-// â”€â”€ Status Derivation â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬ Status Derivation Ã¢â€â‚¬Ã¢â€â‚¬
 
 /**
  * Get the current status and activity for a character based on their schedule.

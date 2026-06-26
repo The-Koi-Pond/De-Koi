@@ -170,6 +170,26 @@ describe("getConversationStatus", () => {
     expect(extensions.conversationActivity).toBeUndefined();
     expect(extensions.conversationStatusSource).toBeUndefined();
     expect(extensions.conversationAvailabilityExplanation).toBeUndefined();
+
+    const schedule = allDaySchedule("commuting", "idle");
+    await storage.update("chats", "chat-1", {
+      metadata: {
+        conversationSchedulesEnabled: true,
+        characterSchedules: { "char-1": schedule },
+      },
+    });
+    await getConversationStatus(storage, "chat-1");
+
+    await expect(storage.get<JsonRecord>("characters", "char-1")).resolves.toMatchObject({
+      data: {
+        extensions: {
+          conversationStatus: "idle",
+          conversationActivity: "commuting",
+          conversationStatusSource: "schedule",
+          conversationAvailabilityExplanation: "Delayed: commuting.",
+        },
+      },
+    });
   });
   it("syncs the plain-language availability explanation into character extensions", async () => {
     const schedule = allDaySchedule("commuting", "idle");
