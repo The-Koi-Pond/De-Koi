@@ -101,6 +101,7 @@ assertContains("Dockerfile.web", webDockerfile, "COPY docker/nginx/pi-web.conf /
 assertContains("Dockerfile.web", webDockerfile, "COPY --from=builder /app/dist /usr/share/nginx/html");
 assertContains("docker/nginx/pi-web.conf", nginx, "proxy_pass http://de-koi-server:8787/health;");
 assertContains("docker/nginx/pi-web.conf", nginx, "proxy_pass http://de-koi-server:8787;");
+assertContains("docker/nginx/pi-web.conf", nginx, "client_max_body_size 256m;");
 assertContains("docker/nginx/pi-web.conf", nginx, "proxy_set_header Authorization $http_authorization;");
 assertContains("docker/nginx/pi-web.conf", nginx, "try_files $uri $uri/ /index.html;");
 assertContains("scripts/pi-update.sh", piUpdateScript, "--trusted-lan");
