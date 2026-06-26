@@ -924,7 +924,8 @@ function illustrationShouldGenerate(data: JsonRecord): boolean {
     data.createImage ??
     data.create_image ??
     data.generate;
-  if (flag === undefined || flag === null || readString(flag).trim() === "") return false;
+  if (flag === undefined || flag === null) return false;
+  if (typeof flag === "string" && flag.trim() === "") return false;
   return boolish(flag, false);
 }
 
