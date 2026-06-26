@@ -1005,45 +1005,12 @@
 .deki-pond-sprite {
   position: absolute;
   left: 50%;
-  bottom: 16%;
+  bottom: 11%;
   z-index: 2;
-  width: clamp(8.5rem, 38%, 12rem);
+  width: clamp(10rem, 45%, 14rem);
   transform: translateX(-50%) translateY(0) rotate(-1deg);
   transform-origin: 50% 100%;
-  filter: drop-shadow(0.35rem 0.45rem 0 rgba(0, 0, 0, 0.16));
-}
-
-.deki-pond-thoughts {
-  position: absolute;
-  right: 10%;
-  top: 19%;
-  z-index: 1;
-  display: grid;
-  gap: 0.38rem;
-  width: clamp(4.4rem, 18%, 5.4rem);
-}
-
-.deki-pond-thoughts span {
-  display: block;
-  height: 0.7rem;
-  border: 2px solid #25202a;
-  background: linear-gradient(90deg, #ffd26c 0 36%, transparent 36%), linear-gradient(180deg, #fff3c4, #f7b2bd);
-  box-shadow: 0 0.2rem 0 rgba(0, 0, 0, 0.12);
-  transform: translateY(0);
-}
-
-.deki-pond-thoughts span:nth-child(2) {
-  width: 76%;
-  margin-left: 14%;
-  background: linear-gradient(90deg, #6de6be 0 44%, transparent 44%), linear-gradient(180deg, #f7ffef, #b4e1d3);
-  animation-delay: 0.18s;
-}
-
-.deki-pond-thoughts span:nth-child(3) {
-  width: 58%;
-  margin-left: 29%;
-  background: linear-gradient(90deg, #eb6988 0 42%, transparent 42%), linear-gradient(180deg, #fff7cf, #ffd26c);
-  animation-delay: 0.34s;
+  filter: drop-shadow(0.45rem 0.7rem 0.12rem rgba(0, 0, 0, 0.18)) drop-shadow(0 0 1.1rem rgba(255, 202, 118, 0.28));
 }
 
 .deki-pond-scene-idle .deki-pond-sprite {
@@ -1064,15 +1031,6 @@
   animation: deki-pond-ripple 2.4s ease-out infinite;
 }
 
-.deki-pond-scene-thinking .deki-pond-thoughts span,
-.deki-pond-scene-responding .deki-pond-thoughts span {
-  animation: deki-pond-card-float 1.55s ease-in-out infinite;
-}
-
-.deki-pond-scene-responding .deki-pond-thoughts {
-  transform: rotate(2deg);
-}
-
 @media (max-width: 640px) {
   .deki-hero {
     min-height: clamp(10.5rem, 25vh, 13rem);
@@ -1081,12 +1039,6 @@
   .deki-pond-scene {
     width: min(100%, 20rem);
   }
-
-  .deki-pond-thoughts {
-    right: 5%;
-    top: 15%;
-    width: 4.1rem;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1094,10 +1046,8 @@
   .deki-pond-scene-idle .deki-pond-ripple,
   .deki-pond-scene-thinking .deki-pond-sprite,
   .deki-pond-scene-thinking .deki-pond-ripple,
-  .deki-pond-scene-thinking .deki-pond-thoughts span,
   .deki-pond-scene-responding .deki-pond-sprite,
-  .deki-pond-scene-responding .deki-pond-ripple,
-  .deki-pond-scene-responding .deki-pond-thoughts span {
+  .deki-pond-scene-responding .deki-pond-ripple {
     animation: none;
   }
 }
@@ -1133,15 +1083,5 @@
   100% {
     opacity: 0;
     transform: scale(1.35);
-  }
-}
-
-@keyframes deki-pond-card-float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-0.22rem);
   }
 }

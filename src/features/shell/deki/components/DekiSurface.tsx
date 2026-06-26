@@ -1097,11 +1097,6 @@ function DekiPondScene({ mood }: { mood: DekiSceneMood }) {
       </div>
       <div className="deki-pond-lilypad deki-pond-lilypad-left" aria-hidden />
       <div className="deki-pond-lilypad deki-pond-lilypad-right" aria-hidden />
-      <div className="deki-pond-thoughts" aria-hidden>
-        <span />
-        <span />
-        <span />
-      </div>
       <img src={poseUrl} alt="Koi fish" className="deki-pond-sprite" draggable={false} />
     </div>
   );
