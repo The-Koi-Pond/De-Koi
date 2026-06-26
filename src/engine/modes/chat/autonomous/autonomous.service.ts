@@ -1,6 +1,9 @@
 import type { StorageGateway } from "../../../capabilities/storage";
 import {
-  getBusyDelay,
+  getAvailabilityAutonomousPolicy,
+  getAvailabilityDecision,
+  getAvailabilityExplanation,
+  getAvailabilityResponseDelay,
   getCurrentStatus,
   getEnabledConversationSchedules,
   getMonday,
@@ -8,7 +11,7 @@ import {
   type WeekSchedule,
 } from "../schedules/schedule.service.js";
 
-// ── Types ──
+// Ã¢â€â‚¬Ã¢â€â‚¬ Types Ã¢â€â‚¬Ã¢â€â‚¬
 
 export interface AutonomousCheckResult {
   /** Whether an autonomous message should be triggered */
@@ -22,7 +25,15 @@ export interface AutonomousCheckResult {
 }
 
 export interface ConversationStatusResult {
-  statuses: Record<string, { status: string; activity: string; schedule?: unknown }>;
+  statuses: Record<
+    string,
+    {
+      status: string;
+      activity: string;
+      schedule?: unknown;
+      availabilityExplanation: ReturnType<typeof getAvailabilityExplanation>;
+    }
+  >;
   needsRefresh: boolean;
 }
 
@@ -89,7 +100,7 @@ function characterSchedules(meta: Record<string, unknown>): Record<string, WeekS
 async function syncStoredConversationStatus(
   storage: StorageGateway,
   characterId: string,
-  status: { status: string; activity: string } | null,
+  status: { status: string; activity: string; availabilityExplanation?: string } | null,
 ): Promise<void> {
   const character = await storage.get<Record<string, unknown>>("characters", characterId);
   if (!character) return;
@@ -100,15 +111,22 @@ async function syncStoredConversationStatus(
     nextExtensions.conversationStatus = status.status;
     nextExtensions.conversationActivity = status.activity;
     nextExtensions.conversationStatusSource = "schedule";
+    if (status.availabilityExplanation) {
+      nextExtensions.conversationAvailabilityExplanation = status.availabilityExplanation;
+    } else {
+      delete nextExtensions.conversationAvailabilityExplanation;
+    }
   } else {
     delete nextExtensions.conversationStatus;
     delete nextExtensions.conversationActivity;
     delete nextExtensions.conversationStatusSource;
+    delete nextExtensions.conversationAvailabilityExplanation;
   }
   if (
     nextExtensions.conversationStatus === extensions.conversationStatus &&
     nextExtensions.conversationActivity === extensions.conversationActivity &&
-    nextExtensions.conversationStatusSource === extensions.conversationStatusSource
+    nextExtensions.conversationStatusSource === extensions.conversationStatusSource &&
+    nextExtensions.conversationAvailabilityExplanation === extensions.conversationAvailabilityExplanation
   ) {
     return;
   }
@@ -119,7 +137,6 @@ async function syncStoredConversationStatus(
     },
   });
 }
-
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
@@ -185,12 +202,24 @@ export async function getConversationStatus(
       }
     }
     const status = schedule ? getCurrentStatus(schedule) : null;
+    const fallbackActivity = status?.activity ?? (schedule ? "scheduled" : "unknown (no schedule)");
+    const availability = getAvailabilityDecision(schedule, new Date(), fallbackActivity);
+    const availabilityExplanation = getAvailabilityExplanation(availability);
     statuses[characterId] = {
-      status: status?.status ?? "online",
-      activity: status?.activity ?? (schedule ? "scheduled" : "unknown (no schedule)"),
+      status: availability.status,
+      activity: availability.activity,
       schedule,
+      availabilityExplanation,
     };
-    await syncStoredConversationStatus(storage, characterId, status);
+    if (availability.source === "schedule") {
+      await syncStoredConversationStatus(storage, characterId, {
+        status: availability.status,
+        activity: availability.activity,
+        availabilityExplanation: availabilityExplanation.message,
+      });
+    } else {
+      await syncStoredConversationStatus(storage, characterId, null);
+    }
   }
 
   if (inheritedFreshSchedule) {
@@ -277,8 +306,8 @@ export async function checkConversationAutonomous(
     if (last?.role === "user") {
       const onlineIds = ids.filter((characterId) => {
         if (sceneBusyIds.has(characterId)) return false;
-        const status = getCurrentStatus(schedules[characterId] ?? autonomySchedules[characterId]!);
-        return status.status !== "offline";
+        const decision = getAvailabilityDecision(schedules[characterId] ?? autonomySchedules[characterId]!);
+        return getAvailabilityAutonomousPolicy(decision).canMessageFirst;
       });
       if (onlineIds.length > 0) {
         return {
@@ -300,12 +329,11 @@ export async function getConversationBusyDelay(
 ): Promise<BusyDelayResult> {
   const chat = await requireChat(storage, input.chatId);
   const schedule = characterSchedules(metadataRecord(chat.metadata))[input.characterId];
-  const current = schedule ? getCurrentStatus(schedule) : null;
-  const status = current?.status ?? "online";
+  const decision = getAvailabilityDecision(schedule ?? null, new Date(), schedule ? "scheduled" : "unknown");
   return {
-    delayMs: getBusyDelay(status, schedule),
-    status,
-    activity: current?.activity ?? (schedule ? "scheduled" : "unknown"),
+    delayMs: getAvailabilityResponseDelay(decision, schedule),
+    status: decision.status,
+    activity: decision.activity,
   };
 }
 
@@ -339,7 +367,7 @@ interface ChatActivityState {
   clientPresence?: { status: AutonomousClientPresenceStatus; updatedAt: number };
 }
 
-// ── In-memory activity tracker ──
+// Ã¢â€â‚¬Ã¢â€â‚¬ In-memory activity tracker Ã¢â€â‚¬Ã¢â€â‚¬
 // Keyed by chatId. This is intentionally in-memory since it's just timing state.
 const activityStates = new Map<string, ChatActivityState>();
 
@@ -351,7 +379,7 @@ export function recordUserActivity(chatId: string, opts: { preserveGenerationInP
   const existing = activityStates.get(chatId);
   if (existing) {
     existing.lastUserMessageAt = now;
-    existing.autonomousMessages.clear(); // Reset — user is active again
+    existing.autonomousMessages.clear(); // Reset Ã¢â‚¬â€ user is active again
     if (!opts.preserveGenerationInProgress) {
       existing.generationInProgressSince = null;
     }
@@ -416,14 +444,14 @@ export function clearGenerationInProgress(chatId: string, startedAt?: number): v
 
 /**
  * Initialize activity state from DB messages if not already tracked in memory.
- * This handles server restarts and fresh page loads — we look at the most recent
+ * This handles server restarts and fresh page loads Ã¢â‚¬â€ we look at the most recent
  * messages to reconstruct timing state so autonomous messaging can resume.
  */
 function initializeActivityFromMessages(
   chatId: string,
   messages: Array<{ role: string; createdAt?: string; characterId?: string | null }>,
 ): void {
-  // Already tracked — don't overwrite
+  // Already tracked Ã¢â‚¬â€ don't overwrite
   if (activityStates.has(chatId)) return;
   if (messages.length === 0) return;
 
@@ -439,7 +467,7 @@ function initializeActivityFromMessages(
     if (lastUserAt && lastAssistantAt) break;
   }
 
-  if (!lastUserAt) return; // No user messages — can't initialize
+  if (!lastUserAt) return; // No user messages Ã¢â‚¬â€ can't initialize
 
   activityStates.set(chatId, {
     lastUserMessageAt: lastUserAt,
@@ -503,40 +531,38 @@ function checkAutonomousMessaging(
   // Don't trigger if user has never sent a message (fresh chat)
   if (state.lastUserMessageAt === 0) return noTrigger;
 
-  // ── Check each character for inactivity threshold ──
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Check each character for inactivity threshold Ã¢â€â‚¬Ã¢â€â‚¬
   const eligibleCharacters: Array<{ id: string; priority: number }> = [];
 
   // Maximum autonomous follow-ups before a character stops messaging
   const maxFollowups = Math.max(1, Math.min(3, Math.floor(opts.maxFollowups ?? 3)));
 
   for (const [charId, schedule] of Object.entries(characterSchedules)) {
-    const { status } = getCurrentStatus(schedule);
+    const decision = getAvailabilityDecision(schedule);
+    const policy = getAvailabilityAutonomousPolicy(decision);
 
-    // Can't send if offline or sleeping
-    if (status === "offline") continue;
+    // Can't send if unavailable or blocked by the availability layer.
+    if (!policy.canMessageFirst) continue;
 
     // Base inactivity threshold
-    const baseThresholdMs =
-      status === "dnd"
-        ? schedule.inactivityThresholdMinutes * 60 * 1000 * 3 // 3x threshold when busy
-        : schedule.inactivityThresholdMinutes * 60 * 1000;
+    const baseThresholdMs = schedule.inactivityThresholdMinutes * 60 * 1000 * policy.inactivityThresholdMultiplier;
 
     const prevAutonomous = state.autonomousMessages.get(charId);
     const sentCount = prevAutonomous?.count ?? 0;
 
-    // Cap follow-ups — don't spam the user endlessly
+    // Cap follow-ups Ã¢â‚¬â€ don't spam the user endlessly
     if (sentCount >= maxFollowups) continue;
 
     if (sentCount === 0) {
-      // First autonomous message — use normal inactivity from user's last message
+      // First autonomous message Ã¢â‚¬â€ use normal inactivity from user's last message
       if (inactivityMs >= baseThresholdMs) {
         eligibleCharacters.push({
           id: charId,
-          priority: schedule.talkativeness + (status === "online" ? 20 : 0),
+          priority: schedule.talkativeness + (decision.status === "online" ? 20 : 0),
         });
       }
     } else {
-      // Follow-up messages — measure from the last autonomous message, with escalating cooldown
+      // Follow-up messages Ã¢â‚¬â€ measure from the last autonomous message, with escalating cooldown
       // Each follow-up doubles the cooldown: 2x, 4x base threshold
       const cooldownMultiplier = Math.pow(2, sentCount);
       const followUpThresholdMs = baseThresholdMs * cooldownMultiplier;
@@ -545,7 +571,7 @@ function checkAutonomousMessaging(
       if (timeSinceLastAutonomous >= followUpThresholdMs) {
         eligibleCharacters.push({
           id: charId,
-          priority: schedule.talkativeness + (status === "online" ? 20 : 0) - sentCount * 10, // Lower priority for repeat messages
+          priority: schedule.talkativeness + (decision.status === "online" ? 20 : 0) - sentCount * 10, // Lower priority for repeat messages
         });
       }
     }
@@ -612,11 +638,10 @@ function checkCharacterExchange(
   for (const [charId, schedule] of Object.entries(characterSchedules)) {
     if (charId === lastSpeakerCharId) continue;
 
-    const { status } = getCurrentStatus(schedule);
-    if (status === "offline") continue;
-    if (status === "dnd") continue; // Busy characters don't join casual exchanges
+    const decision = getAvailabilityDecision(schedule);
+    if (!getAvailabilityAutonomousPolicy(decision).canJoinCharacterExchange) continue;
 
-    // Weight based on talkativeness — more talkative characters more likely to jump in
+    // Weight based on talkativeness Ã¢â‚¬â€ more talkative characters more likely to jump in
     eligible.push({ id: charId, weight: schedule.talkativeness });
   }
 

@@ -512,15 +512,40 @@ export function ConversationView({
               typeof extensions.conversationStatus === "string" ? extensions.conversationStatus : "";
             const currentActivity =
               typeof extensions.conversationActivity === "string" ? extensions.conversationActivity : "";
-            if (currentStatus !== info.status || currentActivity !== info.activity) {
+            const currentAvailabilityExplanation =
+              typeof extensions.conversationAvailabilityExplanation === "string"
+                ? extensions.conversationAvailabilityExplanation
+                : "";
+            const nextAvailabilityExplanation =
+              info.availabilityExplanation && typeof info.availabilityExplanation.message === "string"
+                ? info.availabilityExplanation.message
+                : null;
+            const availabilityExplanationChanged =
+              nextAvailabilityExplanation !== null &&
+              currentAvailabilityExplanation !== nextAvailabilityExplanation;
+            const staleAvailabilityExplanation =
+              nextAvailabilityExplanation === null &&
+              currentAvailabilityExplanation !== "";
+            if (
+              currentStatus !== info.status ||
+              currentActivity !== info.activity ||
+              availabilityExplanationChanged ||
+              staleAvailabilityExplanation
+            ) {
+              const nextExtensions: Record<string, unknown> = {
+                ...extensions,
+                conversationStatus: info.status,
+                conversationActivity: info.activity,
+              };
+              if (nextAvailabilityExplanation !== null) {
+                nextExtensions.conversationAvailabilityExplanation = nextAvailabilityExplanation;
+              } else {
+                delete nextExtensions.conversationAvailabilityExplanation;
+              }
               await storageApi.update("characters", characterId, {
                 data: {
                   ...row.data,
-                  extensions: {
-                    ...extensions,
-                    conversationStatus: info.status,
-                    conversationActivity: info.activity,
-                  },
+                  extensions: nextExtensions,
                 },
               });
               changed = true;
@@ -1291,6 +1316,7 @@ export function ConversationView({
                 avatarCrop?: AvatarCropValue | null;
                 conversationStatus?: "online" | "idle" | "dnd" | "offline";
                 conversationActivity?: string;
+                conversationAvailabilityExplanation?: string;
               }>;
               if (chars.length === 0) return <div />;
 
@@ -1307,13 +1333,15 @@ export function ConversationView({
 
               if (chars.length === 1) {
                 const c = chars[0]!;
+                const statusExplanation = c.conversationAvailabilityExplanation;
+                const statusTitle = statusExplanation ? `${c.name}: ${statusExplanation}` : "View schedule";
                 return (
                   <button
                     type="button"
                     className="flex items-center gap-2 rounded-lg bg-[var(--card)]/80 px-2.5 py-1.5 backdrop-blur-sm dark:bg-black/30 cursor-pointer hover:bg-[var(--card)] transition-colors"
                     onClick={() => setTrackerPanelOpen(true)}
-                    title="View schedule"
-                    aria-label={c.name}
+                    title={statusTitle}
+                    aria-label={statusTitle}
                   >
                     <div className="relative flex-shrink-0">
                       {c.avatarUrl ? (
@@ -1332,7 +1360,9 @@ export function ConversationView({
                     <div className="flex flex-col leading-tight">
                       <span className="text-[0.75rem] font-medium text-foreground/90">{c.name}</span>
                       {c.conversationActivity && (
-                        <span className="text-[0.5625rem] text-foreground/50">{c.conversationActivity}</span>
+                        <span className="text-[0.5625rem] text-foreground/50" title={statusExplanation}>
+                          {c.conversationActivity}
+                        </span>
                       )}
                     </div>
                   </button>
@@ -1361,7 +1391,12 @@ export function ConversationView({
                               setCharActivityPopupId(isOpen ? null : c.id);
                             }}
                             className="relative block transition-transform active:scale-90"
-                            aria-label={c.name}
+                            title={c.conversationAvailabilityExplanation ?? c.conversationActivity ?? c.name}
+                            aria-label={
+                              c.conversationAvailabilityExplanation
+                                ? `${c.name}: ${c.conversationAvailabilityExplanation}`
+                                : c.name
+                            }
                           >
                             {c.avatarUrl ? (
                               <span className="relative block h-5 w-5 overflow-hidden rounded-full ring-1 ring-[var(--border)]">
@@ -1381,9 +1416,9 @@ export function ConversationView({
                               <p className="text-[0.7rem] font-semibold text-[var(--foreground)] leading-tight">
                                 {c.name}
                               </p>
-                              {c.conversationActivity && (
+                              {(c.conversationAvailabilityExplanation || c.conversationActivity) && (
                                 <p className="mt-0.5 text-[0.6rem] text-[var(--muted-foreground)]/70 leading-tight">
-                                  {c.conversationActivity}
+                                  {c.conversationAvailabilityExplanation || c.conversationActivity}
                                 </p>
                               )}
                             </div>
@@ -1683,6 +1718,7 @@ export function ConversationView({
                       avatarCrop: info.avatarCrop ?? null,
                       conversationStatus: info.conversationStatus,
                       conversationActivity: info.conversationActivity,
+                      conversationAvailabilityExplanation: info.conversationAvailabilityExplanation,
                     };
                   })
               : undefined
