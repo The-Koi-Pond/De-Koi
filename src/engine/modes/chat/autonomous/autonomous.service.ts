@@ -11,7 +11,7 @@ import {
   type WeekSchedule,
 } from "../schedules/schedule.service.js";
 
-// ── Types ──
+// â”€â”€ Types â”€â”€
 
 export interface AutonomousCheckResult {
   /** Whether an autonomous message should be triggered */
@@ -211,11 +211,14 @@ export async function getConversationStatus(
       schedule,
       availabilityExplanation,
     };
-    const storedStatus = {
-      status: availability.status,
-      activity: availability.activity,
-      availabilityExplanation: availabilityExplanation.message,
-    };
+    const storedStatus =
+      availability.source === "schedule"
+        ? {
+            status: availability.status,
+            activity: availability.activity,
+            availabilityExplanation: availabilityExplanation.message,
+          }
+        : null;
     await syncStoredConversationStatus(
       storage,
       characterId,
@@ -368,7 +371,7 @@ interface ChatActivityState {
   clientPresence?: { status: AutonomousClientPresenceStatus; updatedAt: number };
 }
 
-// ── In-memory activity tracker ──
+// â”€â”€ In-memory activity tracker â”€â”€
 // Keyed by chatId. This is intentionally in-memory since it's just timing state.
 const activityStates = new Map<string, ChatActivityState>();
 
@@ -380,7 +383,7 @@ export function recordUserActivity(chatId: string, opts: { preserveGenerationInP
   const existing = activityStates.get(chatId);
   if (existing) {
     existing.lastUserMessageAt = now;
-    existing.autonomousMessages.clear(); // Reset — user is active again
+    existing.autonomousMessages.clear(); // Reset â€” user is active again
     if (!opts.preserveGenerationInProgress) {
       existing.generationInProgressSince = null;
     }
@@ -445,14 +448,14 @@ export function clearGenerationInProgress(chatId: string, startedAt?: number): v
 
 /**
  * Initialize activity state from DB messages if not already tracked in memory.
- * This handles server restarts and fresh page loads — we look at the most recent
+ * This handles server restarts and fresh page loads â€” we look at the most recent
  * messages to reconstruct timing state so autonomous messaging can resume.
  */
 function initializeActivityFromMessages(
   chatId: string,
   messages: Array<{ role: string; createdAt?: string; characterId?: string | null }>,
 ): void {
-  // Already tracked — don't overwrite
+  // Already tracked â€” don't overwrite
   if (activityStates.has(chatId)) return;
   if (messages.length === 0) return;
 
@@ -468,7 +471,7 @@ function initializeActivityFromMessages(
     if (lastUserAt && lastAssistantAt) break;
   }
 
-  if (!lastUserAt) return; // No user messages — can't initialize
+  if (!lastUserAt) return; // No user messages â€” can't initialize
 
   activityStates.set(chatId, {
     lastUserMessageAt: lastUserAt,
@@ -532,7 +535,7 @@ function checkAutonomousMessaging(
   // Don't trigger if user has never sent a message (fresh chat)
   if (state.lastUserMessageAt === 0) return noTrigger;
 
-  // ── Check each character for inactivity threshold ──
+  // â”€â”€ Check each character for inactivity threshold â”€â”€
   const eligibleCharacters: Array<{ id: string; priority: number }> = [];
 
   // Maximum autonomous follow-ups before a character stops messaging
@@ -551,11 +554,11 @@ function checkAutonomousMessaging(
     const prevAutonomous = state.autonomousMessages.get(charId);
     const sentCount = prevAutonomous?.count ?? 0;
 
-    // Cap follow-ups — don't spam the user endlessly
+    // Cap follow-ups â€” don't spam the user endlessly
     if (sentCount >= maxFollowups) continue;
 
     if (sentCount === 0) {
-      // First autonomous message — use normal inactivity from user's last message
+      // First autonomous message â€” use normal inactivity from user's last message
       if (inactivityMs >= baseThresholdMs) {
         eligibleCharacters.push({
           id: charId,
@@ -563,7 +566,7 @@ function checkAutonomousMessaging(
         });
       }
     } else {
-      // Follow-up messages — measure from the last autonomous message, with escalating cooldown
+      // Follow-up messages â€” measure from the last autonomous message, with escalating cooldown
       // Each follow-up doubles the cooldown: 2x, 4x base threshold
       const cooldownMultiplier = Math.pow(2, sentCount);
       const followUpThresholdMs = baseThresholdMs * cooldownMultiplier;
@@ -642,7 +645,7 @@ function checkCharacterExchange(
     const decision = getAvailabilityDecision(schedule);
     if (!getAvailabilityAutonomousPolicy(decision).canJoinCharacterExchange) continue;
 
-    // Weight based on talkativeness — more talkative characters more likely to jump in
+    // Weight based on talkativeness â€” more talkative characters more likely to jump in
     eligible.push({ id: charId, weight: schedule.talkativeness });
   }
 

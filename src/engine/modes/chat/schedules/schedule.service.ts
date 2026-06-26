@@ -10,7 +10,7 @@ import { resolveActiveLorebookScopeReason } from "../../../generation-core/loreb
 import { lorebookEntryPassesContextFilters } from "../../../generation-core/lorebooks/keyword-scanner";
 import { readString as stringValue } from "../../../shared/value-readers";
 
-// ── Types ──
+// â”€â”€ Types â”€â”€
 
 /** A single time block in a character's daily schedule */
 interface ScheduleBlock {
@@ -37,7 +37,7 @@ export interface WeekSchedule {
   idleResponseDelayMinutes?: number;
   /** Optional exact response delay in minutes while busy / DND */
   dndResponseDelayMinutes?: number;
-  /** How chatty the character is — affects autonomous messaging frequency (0-100) */
+  /** How chatty the character is â€” affects autonomous messaging frequency (0-100) */
   talkativeness: number;
 }
 
@@ -65,7 +65,7 @@ export interface GenerateConversationSchedulesResult {
   schedules: CharacterSchedules;
 }
 
-// ── Constants ──
+// â”€â”€ Constants â”€â”€
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const SCHEDULE_CONTINUITY_MAX_CHARS = 6000;
@@ -232,7 +232,7 @@ export async function generateConversationSchedules(
   return { results, schedules: newSchedules };
 }
 
-// ── Schedule Generation ──
+// â”€â”€ Schedule Generation â”€â”€
 
 /**
  * Generate a weekly schedule for a character using the LLM.
@@ -384,7 +384,7 @@ function parseScheduleResponse(content: string): Omit<WeekSchedule, "weekStart">
   try {
     data = normalizeScheduleData(JSON.parse(jsonStr));
   } catch (firstError) {
-    // Second pass: more aggressive repair — remove any lines that aren't valid JSON structure
+    // Second pass: more aggressive repair â€” remove any lines that aren't valid JSON structure
     // This catches things like "// ..." or bare text the LLM added inside the JSON
     const repairedLines = jsonStr.split("\n").filter((line) => {
       const trimmed = line.trim();
@@ -410,14 +410,18 @@ function parseScheduleResponse(content: string): Omit<WeekSchedule, "weekStart">
   const days: Record<string, DaySchedule> = {};
   for (const day of DAYS) {
     const dayData = getDaySchedule(data.days, day);
-    days[day] = dayData.map((block) => ({
-      time: block.time,
-      activity: block.activity,
-      status:
-        block.status && VALID_STATUSES.has(block.status as ValidStatus)
-          ? (block.status as ValidStatus)
-          : (statusFromAvailabilityLabel(block.availability) ?? inferStatusFromActivity(block.activity)),
-    }));
+    days[day] = dayData.map((block) => {
+      const availabilityStatus = statusFromAvailabilityLabel(block.availability);
+      return {
+        time: block.time,
+        activity: block.activity,
+        status:
+          availabilityStatus ??
+          (block.status && VALID_STATUSES.has(block.status as ValidStatus)
+            ? (block.status as ValidStatus)
+            : inferStatusFromActivity(block.activity)),
+      };
+    });
   }
   if (Object.values(days).every((day) => day.length === 0)) {
     throw new Error("Schedule response did not include any daily time blocks");
@@ -473,7 +477,7 @@ function inferStatusFromActivity(activity: string): "online" | "idle" | "dnd" | 
   return "online";
 }
 
-// ── Status Derivation ──
+// â”€â”€ Status Derivation â”€â”€
 
 /**
  * Get the current status and activity for a character based on their schedule.

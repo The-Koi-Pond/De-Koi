@@ -330,4 +330,55 @@ describe("generateConversationSchedules availability output", () => {
       { time: "17:00-23:59", activity: "open chat", status: "online" },
     ]);
   });
+  it("prefers availability labels over conflicting legacy statuses", async () => {
+    const storage = scheduleStorageGateway();
+    const blocks = [{ time: "09:00-17:00", activity: "focused research", availability: "busy", status: "online" }];
+    const llm = llmWithSchedule(
+      JSON.stringify({
+        talkativeness: 65,
+        inactivityThresholdMinutes: 45,
+        days: {
+          Monday: blocks,
+          Tuesday: blocks,
+          Wednesday: blocks,
+          Thursday: blocks,
+          Friday: blocks,
+          Saturday: blocks,
+          Sunday: blocks,
+        },
+      }),
+    );
+
+    const result = await generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true });
+
+    expect(result.schedules["char-1"]?.days.Monday).toEqual([
+      { time: "09:00-17:00", activity: "focused research", status: "dnd" },
+    ]);
+  });
+
+  it("preserves legacy status-only schedule responses", async () => {
+    const storage = scheduleStorageGateway();
+    const blocks = [{ time: "09:00-17:00", activity: "focused research", status: "idle" }];
+    const llm = llmWithSchedule(
+      JSON.stringify({
+        talkativeness: 65,
+        inactivityThresholdMinutes: 45,
+        days: {
+          Monday: blocks,
+          Tuesday: blocks,
+          Wednesday: blocks,
+          Thursday: blocks,
+          Friday: blocks,
+          Saturday: blocks,
+          Sunday: blocks,
+        },
+      }),
+    );
+
+    const result = await generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true });
+
+    expect(result.schedules["char-1"]?.days.Monday).toEqual([
+      { time: "09:00-17:00", activity: "focused research", status: "idle" },
+    ]);
+  });
 });

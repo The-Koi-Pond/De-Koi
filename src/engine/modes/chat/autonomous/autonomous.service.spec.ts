@@ -125,7 +125,7 @@ describe("getConversationStatus", () => {
       },
     });
   });
-  it("syncs fallback availability when a character has no schedule", async () => {
+  it("keeps fallback availability response-only when a character has no schedule", async () => {
     const storage = storageGateway({
       chats: [
         {
@@ -145,6 +145,7 @@ describe("getConversationStatus", () => {
             extensions: {
               conversationStatus: "offline",
               conversationActivity: "asleep",
+              conversationStatusSource: "schedule",
               conversationAvailabilityExplanation: "Unavailable: asleep.",
             },
           },
@@ -163,15 +164,12 @@ describe("getConversationStatus", () => {
         message: "Available: unknown (no schedule).",
       },
     });
-    await expect(storage.get<JsonRecord>("characters", "char-1")).resolves.toMatchObject({
-      data: {
-        extensions: {
-          conversationStatus: "online",
-          conversationActivity: "unknown (no schedule)",
-          conversationAvailabilityExplanation: "Available: unknown (no schedule).",
-        },
-      },
-    });
+    const character = await storage.get<JsonRecord>("characters", "char-1");
+    const extensions = ((character?.data as JsonRecord | undefined)?.extensions ?? {}) as JsonRecord;
+    expect(extensions.conversationStatus).toBeUndefined();
+    expect(extensions.conversationActivity).toBeUndefined();
+    expect(extensions.conversationStatusSource).toBeUndefined();
+    expect(extensions.conversationAvailabilityExplanation).toBeUndefined();
   });
   it("syncs the plain-language availability explanation into character extensions", async () => {
     const schedule = allDaySchedule("commuting", "idle");
@@ -195,6 +193,9 @@ describe("getConversationStatus", () => {
     await expect(storage.get<JsonRecord>("characters", "char-1")).resolves.toMatchObject({
       data: {
         extensions: {
+          conversationStatus: "idle",
+          conversationActivity: "commuting",
+          conversationStatusSource: "schedule",
           conversationAvailabilityExplanation: "Delayed: commuting.",
         },
       },
