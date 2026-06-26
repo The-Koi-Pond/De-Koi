@@ -5,6 +5,7 @@ import {
   buildModePromptMetadataPatch,
   hasSecretPlotMemory,
   toggleChatAgent,
+  toggleConversationStatusMessages,
 } from "./chat-settings-actions";
 
 function chatWithAgents(activeAgentIds: string[]): Chat {
@@ -104,6 +105,38 @@ describe("chat settings actions", () => {
     );
   });
 
+  it("refreshes status blurbs immediately after enabling the setting", async () => {
+    const events: string[] = [];
+    const updateMeta = {
+      mutateAsync: vi.fn(async (patch: Record<string, unknown>) => {
+        events.push(`save:${String(patch.conversationStatusMessagesEnabled)}`);
+      }),
+    };
+    const refreshStatusMessages = vi.fn(async (chatId: string) => {
+      events.push(`refresh:${chatId}`);
+      return { refreshed: ["char-1"], skipped: [] };
+    });
+    const invalidateCharacters = vi.fn(() => {
+      events.push("invalidateCharacters");
+    });
+    const invalidateChat = vi.fn(async () => {
+      events.push("invalidateChat");
+    });
+
+    await toggleConversationStatusMessages({
+      chat: { id: "chat-1", mode: "conversation", metadata: {} } as Chat,
+      enabled: false,
+      updateMeta,
+      refreshStatusMessages,
+      invalidateCharacters,
+      invalidateChat,
+      showRefreshFailure: vi.fn(),
+    });
+
+    expect(updateMeta.mutateAsync).toHaveBeenCalledWith({ id: "chat-1", conversationStatusMessagesEnabled: true });
+    expect(refreshStatusMessages).toHaveBeenCalledWith("chat-1");
+    expect(events).toEqual(["save:true", "refresh:chat-1", "invalidateCharacters", "invalidateChat"]);
+  });
   it("preserves mode-specific prompt persistence semantics", () => {
     expect(
       buildModePromptMetadataPatch({

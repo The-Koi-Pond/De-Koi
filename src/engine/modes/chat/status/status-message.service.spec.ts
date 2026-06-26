@@ -249,6 +249,57 @@ describe("maybeRefreshConversationStatusMessages", () => {
     });
   });
 
+  it("asks for a character-authored custom status in default Conversation style", async () => {
+    const seed = {
+      chats: {
+        chat1: {
+          id: "chat1",
+          mode: "conversation",
+          connectionId: "conn1",
+          characterIds: ["char1"],
+          metadata: {
+            conversationStatusMessagesEnabled: true,
+            summary: "Ari has been teasing the user about procrastinating on homework.",
+          },
+        },
+      },
+      connections: {
+        conn1: { id: "conn1", model: "test-model" },
+      },
+      characters: {
+        char1: {
+          id: "char1",
+          data: {
+            name: "Ari",
+            description: "A focused student.",
+            personality: "Careful and dryly funny.",
+            extensions: { conversationStatus: "online", conversationActivity: "studying chemistry" },
+          },
+        },
+      },
+    };
+    let systemPrompt = "";
+
+    await maybeRefreshConversationStatusMessages(
+      {
+        storage: memoryStorage(seed),
+        llm: {
+          async complete(request: Parameters<LlmGateway["complete"]>[0]) {
+            systemPrompt = request.messages.find((message) => message.role === "system")?.content ?? "";
+            return JSON.stringify({ message: "i'm pretending chemistry is fun" });
+          },
+        } as unknown as LlmGateway,
+      },
+      { chatId: "chat1", now: new Date("2026-06-26T12:00:00.000Z") },
+    );
+
+    expect(systemPrompt).toContain("first-person");
+    expect(systemPrompt).toContain("custom status");
+    expect(systemPrompt).toContain("Sound like a person texting");
+    expect(systemPrompt).toContain("Do not sound like an assistant, therapist, narrator, or writing partner");
+    expect(systemPrompt).toContain("no *actions*, no narration, no quoted dialogue, no stage directions");
+    expect(systemPrompt).toContain("Do not write a schedule label or third-person activity summary");
+  });
   it("does not resolve connections when no character needs a refresh", async () => {
     const seed = {
       chats: {

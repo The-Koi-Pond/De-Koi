@@ -2,6 +2,7 @@ type ConversationStatusKind = "online" | "idle" | "dnd" | "offline";
 
 import type { LlmGateway, LlmMessage } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
+import { DEFAULT_CONVERSATION_SYSTEM_PROMPT } from "../../../contracts/constants/conversation-prompt";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
 import { getCurrentStatus, getEnabledConversationSchedules } from "../schedules/schedule.service";
 
@@ -123,13 +124,21 @@ function buildStatusMessagePrompt(args: {
   currentActivity: string;
   recentContext: string;
 }): LlmMessage[] {
+  const conversationStyle = DEFAULT_CONVERSATION_SYSTEM_PROMPT.replaceAll("{{charName}}", args.name).replaceAll(
+    "{{userName}}",
+    "the user",
+  );
   const system = [
-    "Generate one short present-tense status blurb for a fictional chat character.",
-    "The blurb appears under their name like a social status message.",
-    "Use the character's personality, current availability, current activity, and recent continuity.",
+    "Generate one short first-person custom status for a fictional chat character.",
+    "Write it as if the character typed it themselves as a Discord-style custom status under their own name.",
+    "Use the character's personality, current availability, current activity, and recent continuity as context only.",
+    "Follow the default Conversation mode style reference: casual DM text, specific, reactive, and natural to the character.",
+    "Do not write a schedule label or third-person activity summary. Do not narrate what the character is doing from outside.",
     "Do not invent a major life event. Do not mention being an AI or mention this instruction.",
     'Return JSON only: {"message":"short status blurb"}.',
     "The message must be 2-10 words, lowercase or sentence case, with no emoji unless character-appropriate.",
+    "",
+    `<conversation_style_reference>\n${conversationStyle}\n</conversation_style_reference>`,
     "",
     `Character: ${args.name}`,
     `Description: ${args.description}`,

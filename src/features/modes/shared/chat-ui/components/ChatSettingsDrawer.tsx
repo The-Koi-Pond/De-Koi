@@ -78,7 +78,7 @@ import {
   metadataStringArray,
   metadataTranslationProvider,
 } from "../lib/chat-settings-metadata";
-import { toggleChatAgent } from "../lib/chat-settings-actions";
+import { toggleChatAgent, toggleConversationStatusMessages } from "../lib/chat-settings-actions";
 import { buildContinuityOverviewViewModel } from "../lib/continuity-overview";
 import {
   AgentCategorySection,
@@ -91,6 +91,7 @@ import {
   useCharacterSummaries,
   useCharacterSummariesByIds,
   useCharacterGroups,
+  invalidateCharacterCollectionQueries,
 } from "../../../../catalog/characters/index";
 import { spriteKeys, type SpriteInfo } from "../../../../catalog/sprites/index";
 import { usePersonaSummaries } from "../../../../catalog/personas/index";
@@ -108,6 +109,7 @@ import {
   chatKeys,
 } from "../../../../catalog/chats/index";
 import { generateConversationSchedules as runGenerateConversationSchedules } from "../../../../../engine/modes/chat/schedules/schedule.service";
+import { maybeRefreshConversationStatusMessages } from "../../../../../engine/modes/chat/status/status-message.service";
 import { conversationCommandPromptEnabled } from "../../../../../engine/modes/chat/commands/activation";
 import { agentApi } from "../../../../../shared/api/agent-api";
 import { llmApi } from "../../../../../shared/api/llm-api";
@@ -1400,6 +1402,20 @@ function ChatSettingsDrawerInner({
     },
     [chat.id, chatCharIds, qc],
   );
+  const handleToggleConversationStatusMessages = useCallback(() => {
+    void toggleConversationStatusMessages({
+      chat,
+      enabled: conversationStatusMessagesEnabled,
+      updateMeta,
+      refreshStatusMessages: (chatId) => maybeRefreshConversationStatusMessages({ storage: storageApi, llm: llmApi }, { chatId }),
+      invalidateCharacters: () => invalidateCharacterCollectionQueries(qc),
+      invalidateChat: () => qc.invalidateQueries({ queryKey: chatKeys.detail(chat.id) }),
+      showRefreshFailure: (message) => {
+        toast.error(message);
+      },
+    });
+  }, [chat, conversationStatusMessagesEnabled, qc, updateMeta]);
+
   const [scenePromptExpanded, setScenePromptExpanded] = useState(false);
   const [scenePromptDraft, setScenePromptDraft] = useState(sceneSystemPrompt);
   const [narratorStyleDraft, setNarratorStyleDraft] = useState(narratorStyleInstructions);
@@ -3045,12 +3061,7 @@ function ChatSettingsDrawerInner({
                 </button>
 
                 <button
-                  onClick={() => {
-                    updateMeta.mutate({
-                      id: chat.id,
-                      conversationStatusMessagesEnabled: !conversationStatusMessagesEnabled,
-                    });
-                  }}
+                  onClick={handleToggleConversationStatusMessages}
                   className={cn(
                     "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
                     conversationStatusMessagesEnabled
