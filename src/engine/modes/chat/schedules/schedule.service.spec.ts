@@ -354,6 +354,29 @@ describe("generateConversationSchedules availability output", () => {
     ).rejects.toThrow("Schedule block availability/status mismatch");
   });
 
+  it("rejects invalid availability labels instead of falling back to legacy status", async () => {
+    const storage = scheduleStorageGateway();
+    const blocks = [{ time: "09:00-17:00", activity: "focused research", availability: "maybe", status: "online" }];
+    const llm = llmWithSchedule(
+      JSON.stringify({
+        talkativeness: 65,
+        inactivityThresholdMinutes: 45,
+        days: {
+          Monday: blocks,
+          Tuesday: blocks,
+          Wednesday: blocks,
+          Thursday: blocks,
+          Friday: blocks,
+          Saturday: blocks,
+          Sunday: blocks,
+        },
+      }),
+    );
+
+    await expect(
+      generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true }),
+    ).rejects.toThrow("Schedule block has unsupported availability");
+  });
   it("supports mixed availability and status-only schedule rows", async () => {
     const storage = scheduleStorageGateway();
     const blocks = [

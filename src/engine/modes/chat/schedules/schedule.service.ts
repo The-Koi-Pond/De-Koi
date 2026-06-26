@@ -10,7 +10,7 @@ import { resolveActiveLorebookScopeReason } from "../../../generation-core/loreb
 import { lorebookEntryPassesContextFilters } from "../../../generation-core/lorebooks/keyword-scanner";
 import { readString as stringValue } from "../../../shared/value-readers";
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Types Ã¢â€â‚¬Ã¢â€â‚¬
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Types ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
 /** A single time block in a character's daily schedule */
 interface ScheduleBlock {
@@ -37,7 +37,7 @@ export interface WeekSchedule {
   idleResponseDelayMinutes?: number;
   /** Optional exact response delay in minutes while busy / DND */
   dndResponseDelayMinutes?: number;
-  /** How chatty the character is Ã¢â‚¬â€ affects autonomous messaging frequency (0-100) */
+  /** How chatty the character is ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â affects autonomous messaging frequency (0-100) */
   talkativeness: number;
 }
 
@@ -65,7 +65,7 @@ export interface GenerateConversationSchedulesResult {
   schedules: CharacterSchedules;
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Constants Ã¢â€â‚¬Ã¢â€â‚¬
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Constants ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const SCHEDULE_CONTINUITY_MAX_CHARS = 6000;
@@ -232,7 +232,7 @@ export async function generateConversationSchedules(
   return { results, schedules: newSchedules };
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Schedule Generation Ã¢â€â‚¬Ã¢â€â‚¬
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Schedule Generation ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
 /**
  * Generate a weekly schedule for a character using the LLM.
@@ -384,7 +384,7 @@ function parseScheduleResponse(content: string): Omit<WeekSchedule, "weekStart">
   try {
     data = normalizeScheduleData(JSON.parse(jsonStr));
   } catch (firstError) {
-    // Second pass: more aggressive repair Ã¢â‚¬â€ remove any lines that aren't valid JSON structure
+    // Second pass: more aggressive repair ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â remove any lines that aren't valid JSON structure
     // This catches things like "// ..." or bare text the LLM added inside the JSON
     const repairedLines = jsonStr.split("\n").filter((line) => {
       const trimmed = line.trim();
@@ -411,9 +411,13 @@ function parseScheduleResponse(content: string): Omit<WeekSchedule, "weekStart">
   for (const day of DAYS) {
     const dayData = getDaySchedule(data.days, day);
     days[day] = dayData.map((block) => {
+      const hasAvailability = block.availability !== undefined && block.availability !== null;
       const availabilityStatus = statusFromAvailabilityLabel(block.availability);
       const legacyStatus =
         block.status && VALID_STATUSES.has(block.status as ValidStatus) ? (block.status as ValidStatus) : null;
+      if (hasAvailability && !availabilityStatus) {
+        throw new Error(`Schedule block has unsupported availability for ${day} ${block.time}`);
+      }
       if (availabilityStatus && legacyStatus && availabilityStatus !== legacyStatus) {
         throw new Error(`Schedule block availability/status mismatch for ${day} ${block.time}`);
       }
@@ -478,7 +482,7 @@ function inferStatusFromActivity(activity: string): "online" | "idle" | "dnd" | 
   return "online";
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Status Derivation Ã¢â€â‚¬Ã¢â€â‚¬
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Status Derivation ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
 /**
  * Get the current status and activity for a character based on their schedule.
