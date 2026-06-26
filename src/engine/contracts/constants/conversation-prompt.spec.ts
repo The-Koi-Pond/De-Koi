@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_CONVERSATION_SYSTEM_PROMPT, DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT } from "./conversation-prompt";
+import {
+  CONVERSATION_STATUS_STYLE_REFERENCE,
+  DEFAULT_CONVERSATION_SYSTEM_PROMPT,
+  DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT,
+} from "./conversation-prompt";
 
 describe("default conversation system prompts", () => {
   it("uses De-Koi's DM-native conversation framing instead of Marinara's sentience framing", () => {
@@ -35,6 +39,30 @@ describe("default conversation system prompts", () => {
     expect(DEFAULT_CONVERSATION_SYSTEM_PROMPT).toContain(
       "Never include timestamps, dates, brackets, or metadata in your replies",
     );
+  });
+
+  it("exposes a narrow status-blurb style reference from the default Conversation rules", () => {
+    expect(CONVERSATION_STATUS_STYLE_REFERENCE).toContain("Sound like a person texting");
+    expect(CONVERSATION_STATUS_STYLE_REFERENCE).toContain("Do not sound like an assistant, therapist, narrator");
+    expect(CONVERSATION_STATUS_STYLE_REFERENCE).toContain("no *actions*, no narration, no quoted dialogue");
+    expect(CONVERSATION_STATUS_STYLE_REFERENCE).not.toContain("<role>");
+    expect(CONVERSATION_STATUS_STYLE_REFERENCE).not.toContain("{{userName}}");
+
+    const sharedStatusRules = [
+      "Sound like a person texting. Be casual, specific, and reactive. Do not sound like an assistant, therapist, narrator, or writing partner.",
+      "No roleplay formatting: no *actions*, no narration, no quoted dialogue, no stage directions.",
+    ];
+    const statusOnlyRules = ["Write only the character's natural text, not metadata or a schedule summary."];
+    expect(CONVERSATION_STATUS_STYLE_REFERENCE.split("\n")).toEqual([...sharedStatusRules, ...statusOnlyRules]);
+
+    for (const rule of sharedStatusRules) {
+      expect(DEFAULT_CONVERSATION_SYSTEM_PROMPT).toContain(rule);
+      expect(DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT).toContain(rule);
+    }
+    for (const rule of statusOnlyRules) {
+      expect(DEFAULT_CONVERSATION_SYSTEM_PROMPT).not.toContain(rule);
+      expect(DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT).not.toContain(rule);
+    }
   });
 
   it("keeps group conversations scoped to the active character only", () => {

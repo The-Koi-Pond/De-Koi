@@ -69,6 +69,43 @@ type UpdateMetadataMutation = {
   ) => Promise<unknown>;
 };
 
+type RefreshStatusMessages = (chatId: string) => Promise<{ refreshed: string[]; skipped: string[] }>;
+
+type StatusMessagesToggleOptions = {
+  chat: Pick<Chat, "id">;
+  enabled: boolean;
+  updateMeta: UpdateMetadataMutation;
+  refreshStatusMessages: RefreshStatusMessages;
+  invalidateCharacters: () => void | Promise<void>;
+  invalidateChat: () => void | Promise<void>;
+  showRefreshFailure: (message: string) => void | Promise<void>;
+};
+
+export async function toggleConversationStatusMessages({
+  chat,
+  enabled,
+  updateMeta,
+  refreshStatusMessages,
+  invalidateCharacters,
+  invalidateChat,
+  showRefreshFailure,
+}: StatusMessagesToggleOptions): Promise<void> {
+  const nextEnabled = !enabled;
+  await updateMeta.mutateAsync({ id: chat.id, conversationStatusMessagesEnabled: nextEnabled });
+  if (!nextEnabled) return;
+
+  try {
+    const result = await refreshStatusMessages(chat.id);
+    if (result.refreshed.length > 0) {
+      await invalidateCharacters();
+      await invalidateChat();
+    }
+  } catch (error) {
+    await updateMeta.mutateAsync({ id: chat.id, conversationStatusMessagesEnabled: false }).catch(() => undefined);
+    await invalidateChat();
+    await showRefreshFailure(error instanceof Error ? error.message : "Status blurb generation failed.");
+  }
+}
 type AgentMemoryApi = {
   getMemory: (agentId: string, chatId: string) => Promise<{ memory?: Record<string, unknown> | null }>;
   clearMemory: (agentId: string, chatId: string) => Promise<unknown>;
