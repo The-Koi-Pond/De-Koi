@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  useChat,
-  useChatMessageCount,
-  useChatMessages,
-  type ChatMode,
-} from "../../../../catalog/chats/index";
+import { useChat, useChatMessageCount, useChatMessages, type ChatMode } from "../../../../catalog/chats/index";
 import { characterAvatarUrl, useCharacterSummariesByIds } from "../../../../catalog/characters/index";
 import { useActivePersonaSummary, usePersonaSummary } from "../../../../catalog/personas/index";
 import { ApiError } from "../../../../../shared/api/api-errors";
-import { getConnectedChatDisplayName, parseChatMetadata, normalizeChatCharacterIds } from "../../../../../shared/lib/chat-display";
+import {
+  getConnectedChatDisplayName,
+  parseChatMetadata,
+  normalizeChatCharacterIds,
+} from "../../../../../shared/lib/chat-display";
 import { parseCharacterDisplayData } from "../../../../../shared/lib/character-display";
 import { normalizeAvatarCropValue, type AvatarCropValue } from "../../../../../shared/lib/utils";
 import { resolveConversationStatusBlurbDisplay } from "../lib/conversation-status-display";
@@ -279,7 +278,8 @@ export function useChatSurfaceData({
                 ? "online"
                 : undefined,
           conversationStatusMessage: statusBlurbDisplay.conversationStatusMessage,
-          conversationActivity: readString(extensions.conversationActivity),
+          conversationActivity: readString(extensions.conversationActivity) || undefined,
+          conversationAvailabilityExplanation: readString(extensions.conversationAvailabilityExplanation) || undefined,
           conversationAvatar: (() => {
             const rec = readRecord(extensions.conversationAvatar);
             const mode = readString(rec.mode);

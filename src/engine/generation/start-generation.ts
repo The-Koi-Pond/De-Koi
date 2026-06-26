@@ -29,7 +29,12 @@ import {
   backfillConversationSummaries,
   type ConversationSummaryBackfillResult,
 } from "../modes/chat/core/summaries/auto-summary.service";
-import { getBusyDelay, getMentionDelay, type WeekSchedule } from "../modes/chat/schedules/schedule.service";
+import {
+  getAvailabilityDecision,
+  getAvailabilityResponseDelay,
+  type ConversationAvailabilityDecision,
+  type WeekSchedule,
+} from "../modes/chat/schedules/schedule.service";
 import {
   activeCharacterIds,
   assertChatHasActiveCharacters,
@@ -95,6 +100,17 @@ import { generationInfoFromVisibleParameters, providerVisibleLlmParameters } fro
 import { applyRuntimeRegexScripts } from "./regex-runtime";
 import { illustratorAvatarReferencesEnabled } from "./illustrator-settings";
 import { illustrationSubjectMatches } from "../generation-core/images/illustration-reference-matching";
+import {
+  illustrationImageRequestWireBytes,
+  illustrationReferencesForRequest,
+  usableIllustrationReferenceImage,
+  type IllustrationReferenceData,
+} from "../generation-core/images/illustration-reference-selection";
+export {
+  illustrationImageRequestWireBytes,
+  illustrationReferenceImagesForRequest,
+  illustrationReferencesForRequest,
+} from "../generation-core/images/illustration-reference-selection";
 import {
   normalizeStartGenerationInput,
   type AgentInjectionOverride,
@@ -636,11 +652,6 @@ type IllustrationReferenceSubject = {
   spriteOwnerType: SpriteOwnerType;
 };
 
-type IllustrationReferenceData = {
-  referenceImages: string[];
-  referenceSubjectNames: string[];
-};
-
 function promptContainsTag(prompt: string, tag: string): boolean {
   const normalizedPrompt = prompt.toLowerCase();
   const normalizedTag = tag.toLowerCase();
@@ -692,14 +703,6 @@ export function buildIllustrationNegativePrompt(args: {
   ]);
 }
 
-function usableReferenceImage(value: unknown): string {
-  const text = readString(value).trim();
-  if (!text) return "";
-  if (text.startsWith("data:image/")) return text;
-  if (/^[A-Za-z0-9+/=\s]+$/.test(text) && text.replace(/\s+/g, "").length > 80) return text;
-  return "";
-}
-
 function recordName(record: JsonRecord): string {
   const data = parseRecord(record.data);
   return readString(data.name).trim() || readString(record.name).trim();
@@ -731,7 +734,9 @@ async function resolveIllustrationReferenceImage(
   },
 ): Promise<string> {
   const inline =
-    usableReferenceImage(source.image) || usableReferenceImage(source.url) || usableReferenceImage(source.base64);
+    usableIllustrationReferenceImage(source.image) ||
+    usableIllustrationReferenceImage(source.url) ||
+    usableIllustrationReferenceImage(source.base64);
   if (inline) return inline;
   return (
     (visuals?.resolveReferenceImage
@@ -857,8 +862,7 @@ async function illustrationReferenceData(args: {
   useAvatarReferences: boolean;
 }): Promise<IllustrationReferenceData> {
   const subjects = await loadIllustrationReferenceSubjects(args.storage, args.chat);
-  const referenceImages: string[] = [];
-  const referenceSubjectNames: string[] = [];
+  const referenceCandidates: Array<{ image: string; subjectName: string }> = [];
   const referenceSubjects = subjects.filter((subject) => matchesIllustrationSubject(subject, args.item));
   for (const subject of referenceSubjects) {
     if (!args.useAvatarReferences) continue;
@@ -874,10 +878,9 @@ async function illustrationReferenceData(args: {
         avatarFilePath: subject.avatarFilePath,
         avatarFilename: subject.avatarFilename,
       }));
-    if (reference && !referenceImages.includes(reference)) referenceImages.push(reference);
-    if (reference && !referenceSubjectNames.includes(subject.name)) referenceSubjectNames.push(subject.name);
+    if (reference) referenceCandidates.push({ image: reference, subjectName: subject.name });
   }
-  return { referenceImages, referenceSubjectNames };
+  return illustrationReferencesForRequest(referenceCandidates);
 }
 
 function promptAlreadyMentionsReferences(prompt: string): boolean {
@@ -914,6 +917,17 @@ function illustratorPromptData(result: AgentResult): IllustrationPromptData | nu
     negativePrompt: readString(data.negativePrompt ?? data.negative_prompt).trim(),
     characterNames: stringArray(data.characters ?? data.characterNames ?? data.visibleCharacters),
   };
+}
+
+export function shouldReturnManualIllustratorRetryWithoutCommit(args: {
+  hasTarget: boolean;
+  illustratorManualRequest: boolean;
+  agentTypes: ReadonlySet<string>;
+  results: readonly AgentResult[];
+}): boolean {
+  if (!args.hasTarget || !args.illustratorManualRequest || !args.agentTypes.has("illustrator")) return false;
+  if (args.results.some((result) => illustratorPromptData(result) !== null)) return false;
+  return args.results.every((result) => result.agentType === "illustrator");
 }
 
 async function generateIllustrationAttachments(args: {
@@ -957,14 +971,7 @@ async function generateIllustrationAttachments(args: {
         appendMissingPositiveTags(item.prompt, settings.positivePrompt),
         referenceData.referenceSubjectNames,
       );
-      const image = await args.deps.integrations.image.generate<{
-        base64?: string;
-        mimeType?: string;
-        image?: string;
-        ext?: string;
-        provider?: string;
-        model?: string;
-      }>({
+      const imageRequest = {
         connectionId: settings.connectionId,
         kind: "illustration",
         reviewId: `illustration:${readString(args.chat.id)}:${index}`,
@@ -974,7 +981,18 @@ async function generateIllustrationAttachments(args: {
         width: size.width,
         height: size.height,
         ...(referenceData.referenceImages.length > 0 ? { referenceImages: referenceData.referenceImages } : {}),
-      });
+      };
+      if (illustrationImageRequestWireBytes(imageRequest) > 16 * 1024 * 1024) {
+        throw new Error("Illustration reference payload is too large for the remote runtime request.");
+      }
+      const image = await args.deps.integrations.image.generate<{
+        base64?: string;
+        mimeType?: string;
+        image?: string;
+        ext?: string;
+        provider?: string;
+        model?: string;
+      }>(imageRequest);
       throwIfAborted(args.signal);
       const mimeType = image.mimeType || "image/png";
       const base64 = readString(image.base64).trim();
@@ -1407,7 +1425,7 @@ function targetBelongsToChat(target: JsonRecord | null, chatId: string): target 
   return !!target && readString(target.chatId).trim() === chatId;
 }
 
-async function loadMessagesForGenerationTarget(args: {
+export async function loadMessagesForGenerationTarget(args: {
   storage: StorageGateway;
   chatId: string;
   chat: JsonRecord;
@@ -1419,10 +1437,10 @@ async function loadMessagesForGenerationTarget(args: {
   if (!targetId) return loadChatMessages(args.storage, args.chatId, options);
 
   const target = await loadChatMessage(args.storage, targetId).catch(() => null);
-  if (!targetBelongsToChat(target, args.chatId)) return loadChatMessages(args.storage, args.chatId);
+  if (!targetBelongsToChat(target, args.chatId)) return loadChatMessages(args.storage, args.chatId, options);
 
   const before = messageCursor(target);
-  if (!before) return loadChatMessages(args.storage, args.chatId);
+  if (!before) return loadChatMessages(args.storage, args.chatId, options);
 
   const previousMessages = await loadChatMessages(args.storage, args.chatId, { ...options, before });
   return [...previousMessages, target];
@@ -1999,6 +2017,7 @@ type ConversationAvailabilityCharacter = {
   name: string;
   status: ConversationAvailabilityStatus;
   schedule?: WeekSchedule | null;
+  availability: ConversationAvailabilityDecision;
 };
 
 function conversationStatus(value: unknown): ConversationAvailabilityStatus {
@@ -2033,11 +2052,15 @@ async function resolveConversationAvailability(args: {
   const characters: ConversationAvailabilityCharacter[] = [];
   for (const id of respondingIds) {
     const row = statusResult.statuses[id];
+    const schedule = isRecord(row?.schedule) ? (row.schedule as unknown as WeekSchedule) : null;
+    const fallbackActivity = typeof row?.activity === "string" ? row.activity : "free time";
+    const availability = getAvailabilityDecision(schedule, new Date(), fallbackActivity);
     characters.push({
       id,
       name: (await characterNameById(args.storage, [], id)) ?? "Character",
-      status: conversationStatus(row?.status),
-      schedule: isRecord(row?.schedule) ? (row.schedule as unknown as WeekSchedule) : null,
+      status: conversationStatus(availability.status),
+      schedule,
+      availability,
     });
   }
   const mentionedCharacters =
@@ -2050,9 +2073,11 @@ async function resolveConversationAvailability(args: {
   for (const character of availableCharacters) {
     const isMentionedOrManualTarget =
       (manualTarget.length > 0 && character.id === manualTarget) || mentionedNames.has(character.name.toLowerCase());
-    const characterDelay = isMentionedOrManualTarget
-      ? getMentionDelay(character.status)
-      : getBusyDelay(character.status, character.schedule ?? undefined);
+    const characterDelay = getAvailabilityResponseDelay(
+      character.availability,
+      character.schedule ?? undefined,
+      isMentionedOrManualTarget,
+    );
     if (characterDelay > delayMs) {
       delayMs = characterDelay;
       delayStatus = character.status;
@@ -3518,7 +3543,33 @@ async function runGenerationAgentsForTarget(args: {
   for (const result of [...runtime.preResults, ...results]) {
     unique.set(resultKey(result), result);
   }
-  let finalResults = [...unique.values()];
+  const speculativeResults = [...unique.values()];
+  const isManualIllustratorRetryWithoutPrompt =
+    target !== null &&
+    input.options?.illustratorManualRequest === true &&
+    agentTypes.has("illustrator") &&
+    !speculativeResults.some((result) => illustratorPromptData(result) !== null);
+  if (
+    shouldReturnManualIllustratorRetryWithoutCommit({
+      hasTarget: target !== null,
+      illustratorManualRequest: input.options?.illustratorManualRequest === true,
+      agentTypes,
+      results: speculativeResults,
+    })
+  ) {
+    return {
+      results: speculativeResults,
+      events: [
+        ...runtime.agentWarnings.map((warning): GenerationEvent => ({ type: "agent_warning", data: warning })),
+        {
+          type: "illustration_error",
+          data: { error: "Illustrator did not return an image prompt for this message." },
+        },
+      ],
+    };
+  }
+
+  let finalResults = speculativeResults;
   finalResults = await generateTrackerAvatarsForResults({
     deps,
     chat: chatForAgents,
@@ -3556,6 +3607,12 @@ async function runGenerationAgentsForTarget(args: {
     events.push({ type: "message", data: savedGenerationEventData(patched) });
   }
   const hasIllustrationRequest = finalResults.some((result) => illustratorPromptData(result) !== null);
+  if (isManualIllustratorRetryWithoutPrompt && !hasIllustrationRequest) {
+    events.push({
+      type: "illustration_error",
+      data: { error: "Illustrator did not return an image prompt for this message." },
+    });
+  }
   if (target && hasIllustrationRequest) {
     const illustration = await generateIllustrationAttachments({
       deps,

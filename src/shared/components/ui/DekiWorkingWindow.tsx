@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { cn } from "../../lib/utils";
 
-const DOTTOR_SUPPORT_GIF = "/sprites/dottore/dottore_jumping.gif";
+const DEKI_WORKING_MARK_URL = "/koi-mark.svg";
+const DEKI_WORKING_MARK_FALLBACK_URL = "/koi-mark-192.png";
 
 interface DekiWorkingWindowProps {
   visible: boolean;
@@ -11,11 +12,13 @@ interface DekiWorkingWindowProps {
 
 export function DekiWorkingWindow({ visible, className }: DekiWorkingWindowProps) {
   const [dismissed, setDismissed] = useState(false);
+  const [imageSrc, setImageSrc] = useState(DEKI_WORKING_MARK_URL);
   const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => {
     if (visible) {
       setDismissed(false);
+      setImageSrc(DEKI_WORKING_MARK_URL);
       setImageFailed(false);
     }
   }, [visible]);
@@ -42,14 +45,20 @@ export function DekiWorkingWindow({ visible, className }: DekiWorkingWindowProps
       <div className="flex flex-col items-center gap-3 px-4 pb-4 pt-5 text-center">
         {!imageFailed && (
           <img
-            src={DOTTOR_SUPPORT_GIF}
-            alt="Dottore providing moral support"
+            src={imageSrc}
+            alt="Koi mark"
             className="h-28 w-28 object-contain [image-rendering:pixelated]"
-            onError={() => setImageFailed(true)}
+            onError={() => {
+              if (imageSrc === DEKI_WORKING_MARK_URL) {
+                setImageSrc(DEKI_WORKING_MARK_FALLBACK_URL);
+                return;
+              }
+              setImageFailed(true);
+            }}
           />
         )}
         <p className="text-xs font-medium leading-relaxed">
-          Deki-senpai is working (and Dottore is providing moral support)…
+          Deki-senpai is working...
         </p>
       </div>
     </div>

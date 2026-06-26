@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-label="Deki pond koi">
+  <defs>
+    <linearGradient id="koi-body" x1="52" y1="52" x2="224" y2="122" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff8e8" />
+      <stop offset="0.48" stop-color="#ffd789" />
+      <stop offset="1" stop-color="#f37b46" />
+    </linearGradient>
+    <linearGradient id="koi-fin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff0bd" />
+      <stop offset="1" stop-color="#e86843" />
+    </linearGradient>
+    <clipPath id="body-clip">
+      <path d="M48 96C81 48 151 37 214 88C166 141 87 139 48 96Z" />
+    </clipPath>
+    <filter id="shadow" x="-18%" y="-28%" width="136%" height="156%">
+      <feDropShadow dx="0" dy="8" stdDeviation="5" flood-color="#103541" flood-opacity="0.26" />
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path d="M211 88C242 59 278 54 303 69C279 82 265 91 303 113C276 126 240 118 211 88Z" fill="url(#koi-fin)" stroke="#8d412d" stroke-width="5" stroke-linejoin="round" />
+    <path d="M48 96C81 48 151 37 214 88C166 141 87 139 48 96Z" fill="url(#koi-body)" stroke="#8d412d" stroke-width="5" stroke-linejoin="round" />
+    <g clip-path="url(#body-clip)">
+      <path d="M78 58C104 65 120 84 119 113C95 111 76 98 65 78Z" fill="#f26d3e" opacity="0.86" />
+      <path d="M139 46C159 57 171 75 174 99C151 105 132 97 119 76C122 61 128 51 139 46Z" fill="#fff7df" opacity="0.95" />
+      <path d="M170 107C187 103 202 109 214 126C194 141 169 143 145 133C149 121 157 113 170 107Z" fill="#ef7445" opacity="0.82" />
+      <path d="M62 96C96 113 132 115 172 101" fill="none" stroke="#fff8dd" stroke-width="8" stroke-linecap="round" opacity="0.78" />
+      <path d="M112 49C103 75 107 100 125 123" fill="none" stroke="#c9573b" stroke-width="5" stroke-linecap="round" opacity="0.48" />
+    </g>
+    <path d="M103 52C99 27 109 16 132 14C136 36 128 52 106 64Z" fill="url(#koi-fin)" stroke="#8d412d" stroke-width="5" stroke-linejoin="round" />
+    <path d="M134 126C143 150 160 160 186 158C184 134 170 121 142 116Z" fill="url(#koi-fin)" stroke="#8d412d" stroke-width="5" stroke-linejoin="round" />
+    <circle cx="82" cy="78" r="5.5" fill="#25202a" />
+    <circle cx="84" cy="76" r="1.8" fill="#fff8e8" />
+    <path d="M59 89C54 99 56 109 65 118" fill="none" stroke="#8d412d" stroke-width="4" stroke-linecap="round" />
+  </g>
+</svg>

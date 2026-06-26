@@ -2300,6 +2300,14 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
     parts.push(`</background_generation>`);
   }
 
+  if (agentTypes.includes(ILLUSTRATOR_AGENT_TYPE) && context.memory._illustratorManualRequest === true) {
+    parts.push(`<manual_illustration_request>`);
+    parts.push(
+      `This is a manual paintbrush request for the selected message. Return shouldGenerate true and write an image prompt for the selected assistant_response unless the message contains no drawable visual content at all.`,
+    );
+    parts.push(`</manual_illustration_request>`);
+  }
+
   if (agentTypes.includes(ILLUSTRATOR_AGENT_TYPE)) {
     const references = illustratorReferenceEntries(context);
     if (references.length > 0) {

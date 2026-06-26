@@ -38,7 +38,10 @@ export type DetachedDekiSendInput = {
   gateway: DekiGateway;
   onUserMessagePersisted?: (user: DekiMessage, messagesWithUser: DekiMessage[]) => void | Promise<void>;
   onCompactionSaved?: (compaction: DekiCompactionState) => void | Promise<void>;
-  onAssistantMessagePersisted?: (assistant: DekiMessage, messagesWithAssistant: DekiMessage[]) => void | Promise<void>;
+  onAssistantMessagePersisted?: (
+    assistant: DekiMessage,
+    messagesWithAssistant: DekiMessage[],
+  ) => void | Promise<void>;
 };
 
 export type DetachedDekiSendResult = {

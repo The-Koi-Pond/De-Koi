@@ -23,6 +23,7 @@ export type CharacterMap = Map<
     conversationStatus?: "online" | "idle" | "dnd" | "offline";
     conversationStatusMessage?: string;
     conversationActivity?: string;
+    conversationAvailabilityExplanation?: string;
     /** Conversation-mode avatar override (raw reference; sprite/gallery resolved into conversationAvatarSrc) */
     conversationAvatar?: ConversationAvatarOverride;
     /** Resolved image src for sprite/gallery override modes (filled during map build); undefined otherwise */
