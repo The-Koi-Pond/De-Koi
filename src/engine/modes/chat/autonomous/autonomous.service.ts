@@ -211,10 +211,17 @@ export async function getConversationStatus(
       schedule,
       availabilityExplanation,
     };
+    const storedStatus = status
+      ? {
+          status: availability.status,
+          activity: availability.activity,
+          availabilityExplanation: availabilityExplanation.message,
+        }
+      : null;
     await syncStoredConversationStatus(
       storage,
       characterId,
-      status ? { ...status, availabilityExplanation: availabilityExplanation.message } : null,
+      storedStatus,
     );
   }
 

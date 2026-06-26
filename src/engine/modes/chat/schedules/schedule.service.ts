@@ -600,7 +600,7 @@ export function getAvailabilityExplanation(
   };
 }
 export function getAvailabilityResponseDelay(
-  decision: Pick<ConversationAvailabilityDecision, "status">,
+  decision: ConversationAvailabilityDecision,
   schedule?: Pick<WeekSchedule, "idleResponseDelayMinutes" | "dndResponseDelayMinutes">,
   urgent = false,
 ): number {

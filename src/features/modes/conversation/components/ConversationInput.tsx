@@ -2084,11 +2084,7 @@ export function ConversationInput({
                   key={char.id}
                   onClick={() => handleCharacterResponse(char.id)}
                   title={char.conversationAvailabilityExplanation ?? char.conversationActivity ?? char.name}
-                  aria-label={
-                    char.conversationAvailabilityExplanation
-                      ? `${char.name}: ${char.conversationAvailabilityExplanation}`
-                      : char.name
-                  }
+                  aria-label={`Trigger response from ${char.name}`}
                   className={cn(
                     "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
                     (char.conversationStatus === "dnd" || char.conversationStatus === "offline") && "opacity-60",

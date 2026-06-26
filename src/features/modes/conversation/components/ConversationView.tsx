@@ -516,21 +516,30 @@ export function ConversationView({
               typeof extensions.conversationAvailabilityExplanation === "string"
                 ? extensions.conversationAvailabilityExplanation
                 : "";
-            const nextAvailabilityExplanation = info.availabilityExplanation.message;
+            const nextAvailabilityExplanation =
+              info.availabilityExplanation && typeof info.availabilityExplanation.message === "string"
+                ? info.availabilityExplanation.message
+                : null;
+            const availabilityExplanationChanged =
+              nextAvailabilityExplanation !== null &&
+              currentAvailabilityExplanation !== nextAvailabilityExplanation;
             if (
               currentStatus !== info.status ||
               currentActivity !== info.activity ||
-              currentAvailabilityExplanation !== nextAvailabilityExplanation
+              availabilityExplanationChanged
             ) {
+              const nextExtensions = {
+                ...extensions,
+                conversationStatus: info.status,
+                conversationActivity: info.activity,
+                ...(nextAvailabilityExplanation !== null
+                  ? { conversationAvailabilityExplanation: nextAvailabilityExplanation }
+                  : {}),
+              };
               await storageApi.update("characters", characterId, {
                 data: {
                   ...row.data,
-                  extensions: {
-                    ...extensions,
-                    conversationStatus: info.status,
-                    conversationActivity: info.activity,
-                    conversationAvailabilityExplanation: nextAvailabilityExplanation,
-                  },
+                  extensions: nextExtensions,
                 },
               });
               changed = true;
