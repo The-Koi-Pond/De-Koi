@@ -54,7 +54,6 @@ const STATUS_MESSAGE_REFRESH_MIN_MS = 45 * 60 * 1000;
 const STATUS_MESSAGE_REFRESH_JITTER_MS = 90 * 60 * 1000;
 const STATUS_MESSAGE_MAX_TOKENS = 1024;
 const STATUS_MESSAGE_RETRY_MAX_TOKENS = 2048;
-const STATUS_MESSAGE_RECENT_MESSAGE_LIMIT = 160;
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -271,13 +270,19 @@ function messageCreatedAtMs(message: JsonRecord): number {
   return Number.isFinite(value) ? value : 0;
 }
 
-function recentCharacterReplies(messages: JsonRecord[], characterId: string): string[] {
-  return messages
-    .filter((message) => readString(message.role) === "assistant")
-    .filter((message) => {
-      const messageCharacterId = readString(message.characterId);
-      return messageCharacterId === characterId;
-    })
+async function recentCharacterReplies(
+  storage: StorageGateway,
+  chatId: string,
+  characterId: string,
+): Promise<string[]> {
+  const rows = await storage.list<JsonRecord>("messages", {
+    filters: { chatId, role: "assistant", characterId },
+    fields: ["content", "createdAt"],
+    orderBy: "createdAt",
+    descending: true,
+    limit: 6,
+  });
+  return rows
     .sort((a, b) => messageCreatedAtMs(b) - messageCreatedAtMs(a))
     .slice(0, 6)
     .reverse()
@@ -285,16 +290,26 @@ function recentCharacterReplies(messages: JsonRecord[], characterId: string): st
     .filter(Boolean);
 }
 
+function characterExampleTurnFromBlock(block: string): string {
+  const lines = block.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  if (lines.length === 0) return "";
+
+  const charTurns: string[] = [];
+  for (const line of lines) {
+    const match = line.trim().match(/^\{\{(user|char)\}\}\s*:\s*(.*)$/i);
+    if (!match) return "";
+    if (match[1]?.toLowerCase() === "char") {
+      const content = compactStyleText(match[2] ?? "", 180);
+      if (content) charTurns.push(content);
+    }
+  }
+  return compactStyleText(charTurns.join(" / "), 220);
+}
+
 function characterExampleTurns(value: string): string[] {
   return readString(value)
     .split(/\*\*\*|<START>/)
-    .map((block) =>
-      Array.from(block.matchAll(/\{\{char\}\}\s*:\s*([\s\S]*?)(?=\n\s*\{\{(?:user|char)\}\}\s*:|$)/gi))
-        .map((match) => compactStyleText(match[1] ?? "", 180))
-        .filter(Boolean)
-        .join(" / "),
-    )
-    .map((example) => compactStyleText(example, 220))
+    .map(characterExampleTurnFromBlock)
     .filter(Boolean)
     .slice(-4);
 }
@@ -380,12 +395,6 @@ export async function maybeRefreshConversationStatusMessages(
 
   if (pending.length === 0) return { refreshed: [], skipped };
 
-  const recentMessages = await capabilities.storage.listChatMessages<JsonRecord>(input.chatId, {
-    fields: ["role", "content", "characterId", "createdAt"],
-    orderBy: "createdAt",
-    descending: true,
-    limit: STATUS_MESSAGE_RECENT_MESSAGE_LIMIT,
-  });
   const connection = await resolveConnection(capabilities.storage, chat);
   if (!connection) {
     throw new Error(
@@ -412,7 +421,10 @@ export async function maybeRefreshConversationStatusMessages(
       currentStatus,
       currentActivity,
       recentContext: recentContinuityFromChat(meta, data),
-      typingStyleContext: typingStyleFromCharacter(data, recentCharacterReplies(recentMessages, characterId)),
+      typingStyleContext: typingStyleFromCharacter(
+        data,
+        await recentCharacterReplies(capabilities.storage, input.chatId, characterId),
+      ),
     });
     const message = parseGeneratedStatusMessage(raw);
     if (!message) {

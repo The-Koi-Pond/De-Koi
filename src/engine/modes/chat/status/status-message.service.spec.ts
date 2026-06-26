@@ -17,8 +17,23 @@ function memoryStorage(seed: Record<string, Record<string, Row>>): StorageGatewa
     async get(collection: string, id: string) {
       return (seed[collection]?.[id] ?? null) as never;
     },
-    async list(collection: string) {
-      return Object.values(seed[collection] ?? {}) as never;
+    async list(
+      collection: string,
+      options?: { filters?: Record<string, unknown>; orderBy?: string; descending?: boolean; limit?: number },
+    ) {
+      let rows = Object.values(seed[collection] ?? {});
+      if (options?.filters) {
+        rows = rows.filter((row) =>
+          Object.entries(options.filters ?? {}).every(([field, value]) => row[field] === value),
+        );
+      }
+      if (options?.orderBy) {
+        const field = options.orderBy;
+        rows = [...rows].sort((a, b) => String(a[field] ?? "").localeCompare(String(b[field] ?? "")));
+      }
+      if (options?.descending) rows = [...rows].reverse();
+      if (typeof options?.limit === "number") rows = rows.slice(0, options.limit);
+      return rows as never;
     },
     async update(collection: string, id: string, patch: Record<string, unknown>) {
       seed[collection] ??= {};
@@ -401,16 +416,17 @@ describe("maybeRefreshConversationStatusMessages", () => {
   });
 
   it("uses the newest explicitly owned replies from a capped mixed transcript", async () => {
-    const messages: Record<string, Row> = {
-      oldOwned: {
-        id: "oldOwned",
+    const messages: Record<string, Row> = {};
+    for (let index = 0; index < 7; index += 1) {
+      messages[`oldOwned${index}`] = {
+        id: `oldOwned${index}`,
         chatId: "chat1",
         role: "assistant",
         characterId: "char1",
-        content: "OLD STYLE SAMPLE",
-        createdAt: "2026-06-26T10:00:00.000Z",
-      },
-    };
+        content: `OLD STYLE SAMPLE ${index}`,
+        createdAt: new Date(Date.UTC(2026, 5, 26, 10, index)).toISOString(),
+      };
+    }
     for (let index = 0; index < 170; index += 1) {
       messages[`user${index}`] = {
         id: `user${index}`,
@@ -475,7 +491,7 @@ describe("maybeRefreshConversationStatusMessages", () => {
     );
 
     expect(systemPrompt).toContain("LATEST OWNED QUIRK");
-    expect(systemPrompt).not.toContain("OLD STYLE SAMPLE");
+    expect(systemPrompt).not.toContain("OLD STYLE SAMPLE 0");
     expect(systemPrompt).not.toContain("AMBIGUOUS IMPORTED VOICE");
   });
 
@@ -497,7 +513,7 @@ describe("maybeRefreshConversationStatusMessages", () => {
           data: {
             name: "Ari",
             mes_example:
-              "***\n{{user}}: only user text\n***\nloose narration without a character turn\n***\n{{user}}: what now?\n{{char}}: VALID QUIRK TURN",
+              "***\n{{user}}: only user text\n***\nloose narration without a character turn\n***\nstray setup text\n{{char}}: FAKE COMMENTARY TURN\n***\n{{user}}: what now?\n{{char}}: VALID QUIRK TURN",
             extensions: { conversationStatus: "online", conversationActivity: "free time" },
           },
         },
@@ -521,6 +537,7 @@ describe("maybeRefreshConversationStatusMessages", () => {
     expect(systemPrompt).toContain("VALID QUIRK TURN");
     expect(systemPrompt).not.toContain("only user text");
     expect(systemPrompt).not.toContain("loose narration without a character turn");
+    expect(systemPrompt).not.toContain("FAKE COMMENTARY TURN");
   });
   it("does not resolve connections when no character needs a refresh", async () => {
     const seed = {
