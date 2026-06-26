@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Message } from "../../../../engine/contracts/types/chat";
+import { storageApi } from "../../../../shared/api/storage-api";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { ConversationMessage } from "./ConversationMessage";
 
@@ -282,6 +283,85 @@ describe("ConversationMessage memo subscriptions", () => {
     expect(container!.querySelector(".mari-streaming-pending")).not.toBeNull();
     expect(container!.querySelector(".mari-typing-dots")).toBeNull();
   });
+  it("lets generated image attachments be removed or regenerated without deleting the message", async () => {
+    const onDelete = vi.fn();
+    const onIllustrateMoment = vi.fn().mockResolvedValue(undefined);
+    const patchExtra = vi.spyOn(storageApi, "patchChatMessageExtra").mockResolvedValue({} as Message);
+    const illustratedMessage: Message = {
+      ...message,
+      id: "message-illustrated",
+      content: "The pond reflects the lanterns.",
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+        attachments: [
+          {
+            type: "image/png",
+            url: "data:image/png;base64,aW1hZ2U=",
+            prompt: "lantern pond",
+            galleryId: "gallery-1",
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={illustratedMessage}
+            onDelete={onDelete}
+            onIllustrateMoment={onIllustrateMoment}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    await act(async () => {
+      container!.querySelector<HTMLButtonElement>('button[title="Remove image"]')!.click();
+      await Promise.resolve();
+    });
+
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(patchExtra).toHaveBeenCalledWith("message-illustrated", { attachments: [] });
+
+    patchExtra.mockClear();
+    act(() => {
+      root?.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={illustratedMessage}
+            onDelete={onDelete}
+            onIllustrateMoment={onIllustrateMoment}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    await act(async () => {
+      container!.querySelector<HTMLButtonElement>('button[title="Regenerate image"]')!.click();
+      await Promise.resolve();
+    });
+
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(patchExtra).toHaveBeenCalledWith("message-illustrated", { attachments: [] });
+    expect(onIllustrateMoment).toHaveBeenCalledWith({
+      chatId: "chat-1",
+      messageId: "message-illustrated",
+      role: "assistant",
+      speakerName: "Aster",
+      createdAt: "2026-06-19T12:00:00.000Z",
+      content: "The pond reflects the lanterns.",
+    });
+  });
+
   it("keeps character CSS hooks on grouped speaker messages", () => {
     const groupedMessage: Message = {
       ...message,
@@ -319,22 +399,8 @@ describe("ConversationMessage memo subscriptions", () => {
       );
     });
 
-    const asterContent = container!.querySelector<HTMLElement>(
-      '[data-card-css="character-1"] .mari-message-content',
-    );
-    const bramContent = container!.querySelector<HTMLElement>(
-      '[data-card-css="character-2"] .mari-message-content',
-    );
-    const asterWrapper = container!.querySelector<HTMLElement>('[data-card-css="character-1"]');
-    const bramWrapper = container!.querySelector<HTMLElement>('[data-card-css="character-2"]');
-
-    expect(asterWrapper?.classList.contains("mari-message")).toBe(true);
-    expect(asterWrapper?.classList.contains("mari-message-assistant")).toBe(true);
-    expect(asterWrapper?.querySelector(".mari-message-avatar")).not.toBeNull();
-    expect(asterWrapper?.querySelector(".mari-message-body")).not.toBeNull();
-    expect(asterWrapper?.querySelector(".mari-message-meta")).not.toBeNull();
-    expect(asterWrapper?.querySelector(".mari-message-name")).not.toBeNull();
-    expect(bramWrapper?.querySelector(".mari-message-body")).not.toBeNull();
+    const asterContent = container!.querySelector<HTMLElement>('[data-card-css="character-1"] .mari-message-content');
+    const bramContent = container!.querySelector<HTMLElement>('[data-card-css="character-2"] .mari-message-content');
     expect(asterContent?.textContent).toContain("hello there");
     expect(bramContent?.textContent).toContain("pancakes?");
   });

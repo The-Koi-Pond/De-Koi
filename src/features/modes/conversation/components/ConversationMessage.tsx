@@ -10,6 +10,7 @@ import { resolveMessageMacros } from "../../../../shared/lib/chat-macros";
 import { useTranslate } from "../../../../shared/hooks/use-translate";
 import { storageApi } from "../../../../shared/api/storage-api";
 import {
+  buildSaveMomentSource,
   hasGenerationReplayDetails,
   messageAttachmentsFromExtra,
   readStoredThinking,
@@ -336,6 +337,34 @@ export const ConversationMessage = memo(function ConversationMessage({
     [attachments, message.chatId, message.id, qc],
   );
 
+  const handleRegenerateAttachment = useCallback(
+    async (index: number) => {
+      if (!onIllustrateMoment) return;
+      await handleRemoveAttachment(index);
+      await onIllustrateMoment(
+        buildSaveMomentSource({
+          chatId: message.chatId,
+          messageId: message.id,
+          role: message.role,
+          speakerName: displayName,
+          createdAt: message.createdAt,
+          content: renderedContent || message.content,
+        }),
+      );
+    },
+    [
+      displayName,
+      handleRemoveAttachment,
+      message.chatId,
+      message.content,
+      message.createdAt,
+      message.id,
+      message.role,
+      onIllustrateMoment,
+      renderedContent,
+    ],
+  );
+
   const charByName = useMemo(() => {
     if (!scopedCharacterMap) return null;
     const map = new Map<string, ConversationCharacterInfo>();
@@ -658,6 +687,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     onShowThinking: () => setShowThinking(true),
     onImageOpen: openImageLightbox,
     onRemoveAttachment: handleRemoveAttachment,
+    onRegenerateAttachment: onIllustrateMoment ? handleRegenerateAttachment : undefined,
     onCloseThinking: () => setShowThinking(false),
     onCloseGenerationReplay: () => setShowGenerationReplay(false),
     imageLightbox,

@@ -1743,6 +1743,15 @@ export const ChatMessage = memo(function ChatMessage({
     [displayName, message.chatId, message.createdAt, message.id, message.role, text],
   );
 
+  const handleRegenerateAttachment = useCallback(
+    async (index: number) => {
+      if (!onIllustrateMoment) return;
+      await handleRemoveAttachment(index);
+      await onIllustrateMoment(saveMomentSource);
+    },
+    [handleRemoveAttachment, onIllustrateMoment, saveMomentSource],
+  );
+
   // ─── Swipe navigation ───
   const swipeCount = message.swipeCount ?? 0;
   const hasSwipes = swipeCount > 1;
@@ -2282,11 +2291,22 @@ export const ChatMessage = memo(function ChatMessage({
                       imageClassName="max-h-80 max-w-full rounded-lg"
                       onOpen={(imageSource) => openImageLightbox(imageSource, att.prompt)}
                     >
+                      {onIllustrateMoment && (
+                        <button
+                          type="button"
+                          onClick={() => void handleRegenerateAttachment(i)}
+                          aria-label="Regenerate image"
+                          title="Regenerate image"
+                          className="absolute top-1.5 right-9 rounded-full bg-black/60 p-1 text-white/80 transition-opacity hover:bg-black/80 hover:text-white sm:opacity-0 sm:group-hover/att:opacity-100"
+                        >
+                          <RefreshCw size="0.875rem" />
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={() => handleRemoveAttachment(i)}
-                        aria-label="Remove image from message"
-                        title="Remove from message"
+                        onClick={() => void handleRemoveAttachment(i)}
+                        aria-label="Remove image"
+                        title="Remove image"
                         className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 text-white/80 transition-opacity hover:bg-black/80 hover:text-white sm:opacity-0 sm:group-hover/att:opacity-100"
                       >
                         <X size="0.875rem" />
@@ -2753,11 +2773,22 @@ export const ChatMessage = memo(function ChatMessage({
                     imageClassName="max-h-80 max-w-full rounded-lg"
                     onOpen={(imageSource) => openImageLightbox(imageSource, att.prompt)}
                   >
+                    {onIllustrateMoment && (
+                      <button
+                        type="button"
+                        onClick={() => void handleRegenerateAttachment(i)}
+                        aria-label="Regenerate image"
+                        title="Regenerate image"
+                        className="absolute top-1.5 right-9 rounded-full bg-black/60 p-1 text-white/80 transition-opacity hover:bg-black/80 hover:text-white sm:opacity-0 sm:group-hover/att:opacity-100"
+                      >
+                        <RefreshCw size="0.875rem" />
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => handleRemoveAttachment(i)}
-                      aria-label="Remove image from message"
-                      title="Remove from message"
+                      onClick={() => void handleRemoveAttachment(i)}
+                      aria-label="Remove image"
+                      title="Remove image"
                       className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 text-white/80 transition-opacity hover:bg-black/80 hover:text-white sm:opacity-0 sm:group-hover/att:opacity-100"
                     >
                       <X size="0.875rem" />
