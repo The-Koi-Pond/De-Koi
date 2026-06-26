@@ -4,22 +4,22 @@ function readString(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-export function resolveConversationStatusBlurbDisplay(
+export function resolveConversationStatusDisplay(
   extensions: Record<string, unknown>,
   chatMeta: Record<string, unknown>,
 ): {
   conversationStatusMessage?: string;
-} {
-  return {
-    conversationStatusMessage:
-      chatMeta.conversationStatusMessagesEnabled === true ? readString(extensions.conversationStatusMessage) : undefined,
-  };
-}
-
-export function resolveConversationLegacyActivityDisplay(extensions: Record<string, unknown>): {
   conversationActivity?: string;
 } {
+  if (chatMeta.conversationStatusMessagesEnabled !== true) {
+    return {
+      conversationStatusMessage: undefined,
+      conversationActivity: undefined,
+    };
+  }
+
   return {
+    conversationStatusMessage: readString(extensions.conversationStatusMessage),
     conversationActivity: readString(extensions.conversationActivity),
   };
 }
