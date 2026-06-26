@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { BookOpen, Bookmark, Brain, GitBranch, Paintbrush, ScrollText } from "lucide-react";
+import { BookOpen, Bookmark, Brain, GitBranch, Loader2, Paintbrush, ScrollText } from "lucide-react";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
+import { useGalleryStore } from "../../../../../shared/stores/gallery.store";
 import { cn } from "../../../../../shared/lib/utils";
 import {
   buildSaveMomentMenuItems,
@@ -46,19 +47,26 @@ export function IllustrateMomentAction({
   iconSize = DEFAULT_ICON_SIZE,
   tabIndex,
 }: IllustrateMomentActionProps) {
+  const illustratePending = useGalleryStore((s) => s.illustratingChatIds.includes(source.chatId));
+  const runIllustration = useGalleryStore((s) => s.runIllustration);
+  const label = illustratePending ? "Illustrating this message" : "Illustrate this message";
+
   return (
     <button
       type="button"
       onClick={(event) => {
         event.stopPropagation();
-        void Promise.resolve(onIllustrateMoment(source)).catch(() => undefined);
+        if (illustratePending) return;
+        void runIllustration(source.chatId, () => onIllustrateMoment(source)).catch(() => undefined);
       }}
-      title="Illustrate this message"
-      aria-label="Illustrate this message"
+      title={label}
+      aria-label={label}
+      aria-busy={illustratePending}
+      disabled={illustratePending}
       tabIndex={tabIndex}
-      className={buttonClassName}
+      className={cn(buttonClassName, illustratePending && "cursor-wait text-[var(--primary)]")}
     >
-      <Paintbrush size={iconSize} />
+      {illustratePending ? <Loader2 size={iconSize} className="animate-spin" /> : <Paintbrush size={iconSize} />}
     </button>
   );
 }

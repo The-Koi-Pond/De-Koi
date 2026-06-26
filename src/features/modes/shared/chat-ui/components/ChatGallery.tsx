@@ -59,8 +59,7 @@ export function ChatGallery({ chat, onIllustrate }: ChatGalleryProps) {
   const [illustrateError, setIllustrateError] = useState<string | null>(null);
   const pinImage = useGalleryStore((s) => s.pinImage);
   const illustratePending = useGalleryStore((s) => s.illustratingChatIds.includes(chat.id));
-  const startIllustrating = useGalleryStore((s) => s.startIllustrating);
-  const finishIllustrating = useGalleryStore((s) => s.finishIllustrating);
+  const runIllustration = useGalleryStore((s) => s.runIllustration);
   const lightboxPrompt = lightbox?.prompt?.trim() ?? "";
   const lightboxMeta = lightbox ? formatImageMeta(lightbox) : "";
   const regeneratingImageId = regenerate.isPending ? regenerate.variables?.id : null;
@@ -84,16 +83,13 @@ export function ChatGallery({ chat, onIllustrate }: ChatGalleryProps) {
 
   const handleIllustrate = useCallback(async () => {
     if (!onIllustrate || illustratePending) return;
-    if (!startIllustrating(chat.id)) return;
     setIllustrateError(null);
     try {
-      await onIllustrate();
+      await runIllustration(chat.id, () => onIllustrate());
     } catch (error) {
       setIllustrateError(formatIllustrateError(error));
-    } finally {
-      finishIllustrating(chat.id);
     }
-  }, [chat.id, finishIllustrating, illustratePending, onIllustrate, startIllustrating]);
+  }, [chat.id, illustratePending, onIllustrate, runIllustration]);
 
   const handleDelete = (id: string) => {
     remove.mutate(id);
