@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { checkRemoteRuntimeHealth } from "./remote-runtime";
+import { checkRemoteRuntimeHealth, invokeRemote } from "./remote-runtime";
+import { useUIStore } from "../stores/ui.store";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -71,5 +72,23 @@ describe("checkRemoteRuntimeHealth", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("invokeRemote", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    useUIStore.setState({ remoteRuntimeUrl: "" });
+  });
+
+  it("normalizes browser network failures into an actionable API error", async () => {
+    useUIStore.setState({ remoteRuntimeUrl: "http://127.0.0.1:8787" });
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new TypeError("Failed to fetch")));
+
+    await expect(invokeRemote("connection_models", { id: "conn-1" })).rejects.toMatchObject({
+      name: "ApiError",
+      message: "Remote runtime is unreachable. Check Settings and make sure the runtime server is running.",
+      status: 503,
+    });
   });
 });
