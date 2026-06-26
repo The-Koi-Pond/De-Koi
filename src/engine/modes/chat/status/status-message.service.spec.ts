@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { LlmGateway } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
+import { providerVisibleLlmParameters } from "../../../generation/provider-visible-parameters";
 import {
   maybeRefreshConversationStatusMessages,
   readStatusMessageMeta,
@@ -157,7 +158,7 @@ describe("maybeRefreshConversationStatusMessages", () => {
     } as unknown as StorageGateway;
 
     await maybeRefreshConversationStatusMessages(
-      { storage, llm: llmReturning("{\"message\":\"reading\"}") },
+      { storage, llm: llmReturning('{"message":"reading"}') },
       { chatId: "chat1", now: new Date("2026-06-26T12:00:00.000Z") },
     );
   });
@@ -190,7 +191,7 @@ describe("maybeRefreshConversationStatusMessages", () => {
     } as unknown as StorageGateway;
 
     await maybeRefreshConversationStatusMessages(
-      { storage, llm: llmReturning("{\"message\":\"reading\"}") },
+      { storage, llm: llmReturning('{"message":"reading"}') },
       { chatId: "chat1", now: new Date("2026-06-26T12:00:00.000Z") },
     );
   });
@@ -238,7 +239,7 @@ describe("maybeRefreshConversationStatusMessages", () => {
     const extensions = (seed.characters.char1.data as Row).extensions as Row;
     const message = extensions.conversationStatusMessage as string;
     expect(message).toHaveLength(96);
-    expect(message).toContain('quietly reading by the window with coffee and notes');
+    expect(message).toContain("quietly reading by the window with coffee and notes");
     expect(message).not.toMatch(/^['"`]|['"`]$/);
     expect(message).not.toContain("\n");
     expect(message).not.toMatch(/\s{2,}/);
@@ -340,6 +341,83 @@ describe("maybeRefreshConversationStatusMessages", () => {
     expect(result).toEqual({ refreshed: [], skipped: ["char1"] });
   });
 
+  it("retries empty length-limited provider responses with a larger no-reasoning budget", async () => {
+    const seed = {
+      chats: {
+        chat1: {
+          id: "chat1",
+          mode: "conversation",
+          connectionId: "conn1",
+          characterIds: ["char1"],
+          metadata: { conversationStatusMessagesEnabled: true },
+        },
+      },
+      connections: {
+        conn1: { id: "conn1", provider: "custom", model: "gemini-3.5-flash" },
+      },
+      characters: {
+        char1: {
+          id: "char1",
+          data: {
+            name: "Michael Myers (The Shape)",
+            extensions: { conversationStatus: "idle", conversationActivity: "Patrolling Lampkin Lane" },
+          },
+        },
+      },
+    };
+    const requests: Array<Parameters<LlmGateway["complete"]>[0]> = [];
+
+    const result = await maybeRefreshConversationStatusMessages(
+      {
+        storage: memoryStorage(seed),
+        llm: {
+          async complete(request: Parameters<LlmGateway["complete"]>[0]) {
+            requests.push(request);
+            if (requests.length === 1) {
+              throw Object.assign(new Error("empty assistant content from provider"), {
+                details: {
+                  error: "Provider response did not contain assistant text",
+                  providerMetadata: { finish_reason: "length" },
+                },
+              });
+            }
+            return JSON.stringify({ message: "still watching" });
+          },
+        } as unknown as LlmGateway,
+      },
+      { chatId: "chat1", now },
+    );
+
+    expect(result).toEqual({ refreshed: ["char1"], skipped: [] });
+    expect(requests).toHaveLength(2);
+    expect(requests[0].parameters).toMatchObject({ maxTokens: 1024, reasoningEffort: "none" });
+    expect(requests[1].parameters).toMatchObject({ maxTokens: 2048, reasoningEffort: "none" });
+    expect(requests[0].parameters?.customParameters).toMatchObject({
+      reasoning_effort: "none",
+      reasoning: { exclude: true },
+    });
+    expect(
+      providerVisibleLlmParameters({ provider: "custom", model: "gemini-3.5-flash" }, requests[0].parameters ?? {}),
+    ).toMatchObject({
+      maxTokens: 1024,
+      reasoningEffort: "none",
+      customParameters: {
+        reasoning_effort: "none",
+        reasoning: { exclude: true },
+      },
+    });
+    expect(
+      providerVisibleLlmParameters({ provider: "google", model: "gemini-3.5-flash" }, requests[1].parameters ?? {}),
+    ).toMatchObject({
+      generationConfig: {
+        maxOutputTokens: 2048,
+        thinkingConfig: { thinkingLevel: "minimal", includeThoughts: true },
+      },
+    });
+    const extensions = (seed.characters.char1.data as Row).extensions as Row;
+    expect(extensions.conversationStatusMessage).toBe("still watching");
+  });
+
   it("throws when status blurbs are enabled but the configured connection is missing", async () => {
     const storage = {
       async get(collection: string, id: string) {
@@ -380,7 +458,10 @@ describe("maybeRefreshConversationStatusMessages", () => {
     } as unknown as StorageGateway;
 
     await expect(
-      maybeRefreshConversationStatusMessages({ storage, llm: llmReturning('{"message":"reading"}') }, { chatId: "chat1", now }),
+      maybeRefreshConversationStatusMessages(
+        { storage, llm: llmReturning('{"message":"reading"}') },
+        { chatId: "chat1", now },
+      ),
     ).rejects.toThrow("status blurbs enabled but no usable connection");
   });
 
@@ -454,7 +535,10 @@ describe("maybeRefreshConversationStatusMessages", () => {
     } as unknown as StorageGateway;
 
     await expect(
-      maybeRefreshConversationStatusMessages({ storage, llm: llmReturning('{"message":"reading"}') }, { chatId: "chat1", now }),
+      maybeRefreshConversationStatusMessages(
+        { storage, llm: llmReturning('{"message":"reading"}') },
+        { chatId: "chat1", now },
+      ),
     ).rejects.toThrow("storage unavailable");
   });
 });

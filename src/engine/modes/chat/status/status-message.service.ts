@@ -52,6 +52,8 @@ export interface ConversationStatusMessageRefreshResult {
 const VALID_STATUSES = new Set<ConversationStatusKind>(["online", "idle", "dnd", "offline"]);
 const STATUS_MESSAGE_REFRESH_MIN_MS = 45 * 60 * 1000;
 const STATUS_MESSAGE_REFRESH_JITTER_MS = 90 * 60 * 1000;
+const STATUS_MESSAGE_MAX_TOKENS = 1024;
+const STATUS_MESSAGE_RETRY_MAX_TOKENS = 2048;
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -97,7 +99,11 @@ function nextRefreshIso(now: Date, characterId: string): string {
 }
 
 function sanitizeStatusMessage(value: string): string {
-  return value.replace(/\s+/g, " ").replace(/^["'`]+|["'`]+$/g, "").trim().slice(0, 96);
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .trim()
+    .slice(0, 96);
 }
 
 function parseGeneratedStatusMessage(raw: string): string {
@@ -111,12 +117,100 @@ function parseGeneratedStatusMessage(raw: string): string {
   }
 }
 
+function statusMessageParameters(maxTokens: number): Record<string, unknown> {
+  return {
+    temperature: 0.9,
+    maxTokens,
+    reasoningEffort: "none",
+    reasoning_effort: "none",
+    customParameters: {
+      reasoning_effort: "none",
+      reasoning: { exclude: true },
+    },
+  };
+}
+
+function collectErrorText(value: unknown, seen = new Set<unknown>()): string[] {
+  if (value == null) return [];
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return [String(value)];
+  if (typeof value !== "object") return [];
+  if (seen.has(value)) return [];
+  seen.add(value);
+
+  const parts: string[] = [];
+  if (value instanceof Error) {
+    parts.push(value.name, value.message);
+    parts.push(...collectErrorText(value.cause, seen));
+  }
+
+  const record = value as Record<string, unknown>;
+  for (const key of [
+    "code",
+    "status",
+    "statusCode",
+    "error",
+    "message",
+    "details",
+    "data",
+    "payload",
+    "providerMetadata",
+    "provider_metadata",
+    "finishReason",
+    "finish_reason",
+    "type",
+  ]) {
+    if (record[key] !== undefined) parts.push(key);
+    parts.push(...collectErrorText(record[key], seen));
+  }
+  return parts.filter(Boolean);
+}
+
+function retryableEmptyStatusResponse(error: unknown): boolean {
+  const text = collectErrorText(error).join(" ").toLowerCase();
+  const emptyAssistant =
+    text.includes("provider response did not contain assistant text") ||
+    text.includes("did not contain assistant text or tool calls") ||
+    text.includes("empty assistant") ||
+    text.includes("no final assistant text");
+  const outputLimited =
+    /\bfinish[_ ]?reason\b[^.]*\b(length|max[_ ]?tokens|max[_ ]?output[_ ]?tokens)\b/.test(text) ||
+    /\b(length|max[_ ]?tokens|max[_ ]?output[_ ]?tokens)\b[^.]*\bfinish[_ ]?reason\b/.test(text) ||
+    text.includes("increase max output tokens") ||
+    text.includes("reasoning but no final assistant text");
+  return emptyAssistant && outputLimited;
+}
+
+async function completeStatusMessage(
+  llm: LlmGateway,
+  args: Parameters<typeof buildStatusMessagePrompt>[0],
+): Promise<string> {
+  const messages = buildStatusMessagePrompt(args);
+  try {
+    return await llm.complete({
+      connectionId: args.connectionId,
+      model: args.model,
+      messages,
+      parameters: statusMessageParameters(STATUS_MESSAGE_MAX_TOKENS),
+    });
+  } catch (error) {
+    if (!retryableEmptyStatusResponse(error)) throw error;
+    return llm.complete({
+      connectionId: args.connectionId,
+      model: args.model,
+      messages,
+      parameters: statusMessageParameters(STATUS_MESSAGE_RETRY_MAX_TOKENS),
+    });
+  }
+}
+
 function statusFromExtensions(extensions: JsonRecord): ConversationStatusKind {
   const raw = readString(extensions.conversationStatus);
   return isStatus(raw) ? raw : "online";
 }
 
 function buildStatusMessagePrompt(args: {
+  connectionId: string;
+  model: string;
   name: string;
   description: string;
   personality: string;
@@ -195,7 +289,9 @@ export async function maybeRefreshConversationStatusMessages(
 
   const meta = parseJsonObject(chat.metadata);
   const enabled = meta.conversationStatusMessagesEnabled === true;
-  const ids = input.characterIds?.length ? input.characterIds : parseJsonArray<string>(chat.characterIds).filter(Boolean);
+  const ids = input.characterIds?.length
+    ? input.characterIds
+    : parseJsonArray<string>(chat.characterIds).filter(Boolean);
   const schedules = getEnabledConversationSchedules(meta);
   if (!enabled || ids.length === 0) return { refreshed: [], skipped: ids };
 
@@ -243,18 +339,15 @@ export async function maybeRefreshConversationStatusMessages(
   const refreshed: string[] = [];
 
   for (const { characterId, data, extensions, currentStatus, currentActivity } of pending) {
-    const raw = await capabilities.llm.complete({
+    const raw = await completeStatusMessage(capabilities.llm, {
       connectionId,
       model,
-      messages: buildStatusMessagePrompt({
-        name: readString(data.name) || "Character",
-        description: readString(data.description),
-        personality: readString(data.personality),
-        currentStatus,
-        currentActivity,
-        recentContext: recentContinuityFromChat(meta, data),
-      }),
-      parameters: { temperature: 0.9, maxTokens: 80 },
+      name: readString(data.name) || "Character",
+      description: readString(data.description),
+      personality: readString(data.personality),
+      currentStatus,
+      currentActivity,
+      recentContext: recentContinuityFromChat(meta, data),
     });
     const message = parseGeneratedStatusMessage(raw);
     if (!message) {
