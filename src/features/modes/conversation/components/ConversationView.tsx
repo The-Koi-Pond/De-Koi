@@ -460,7 +460,7 @@ export function ConversationView({
       }
       return participants;
     }
-    // No streaming id and no explicit label ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ fall back to the active roster (matches the
+    // No streaming id and no explicit label: fall back to the active roster (matches the
     // pre-split `liveTypingName` fallback, which also listed every active character).
     const fromActive = activeChatCharIds
       .map((id) => ({ id, name: characterMap.get(id)?.name }))
@@ -468,7 +468,7 @@ export function ConversationView({
     return fromActive.length > 0 ? fromActive : null;
   }, [streamingCharacterId, typingCharacterName, activeChatCharIds, characterMap]);
   const { typingStyledRows, typingPlainNames, typingPlainCardCssId } = useMemo(() => {
-    // Couldn't resolve concrete participants ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ one combined row with the explicit live label.
+    // Could not resolve concrete participants: use one combined row with the explicit live label.
     if (!typingParticipants) {
       return {
         typingStyledRows: [] as Array<{ id: string; name: string }>,
