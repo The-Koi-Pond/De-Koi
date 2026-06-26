@@ -344,5 +344,3 @@ describe("maybeRefreshConversationStatusMessages", () => {
     ).rejects.toThrow("storage unavailable");
   });
 });
-
-
