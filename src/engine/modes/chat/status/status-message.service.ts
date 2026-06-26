@@ -2,7 +2,7 @@ type ConversationStatusKind = "online" | "idle" | "dnd" | "offline";
 
 import type { LlmGateway, LlmMessage } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
-import { DEFAULT_CONVERSATION_SYSTEM_PROMPT } from "../../../contracts/constants/conversation-prompt";
+import { CONVERSATION_STATUS_STYLE_REFERENCE } from "../../../contracts/constants/conversation-prompt";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
 import { getCurrentStatus, getEnabledConversationSchedules } from "../schedules/schedule.service";
 
@@ -124,10 +124,6 @@ function buildStatusMessagePrompt(args: {
   currentActivity: string;
   recentContext: string;
 }): LlmMessage[] {
-  const conversationStyle = DEFAULT_CONVERSATION_SYSTEM_PROMPT.replaceAll("{{charName}}", args.name).replaceAll(
-    "{{userName}}",
-    "the user",
-  );
   const system = [
     "Generate one short first-person custom status for a fictional chat character.",
     "Write it as if the character typed it themselves as a Discord-style custom status under their own name.",
@@ -138,7 +134,7 @@ function buildStatusMessagePrompt(args: {
     'Return JSON only: {"message":"short status blurb"}.',
     "The message must be 2-10 words, lowercase or sentence case, with no emoji unless character-appropriate.",
     "",
-    `<conversation_style_reference>\n${conversationStyle}\n</conversation_style_reference>`,
+    `<conversation_status_style_reference>\n${CONVERSATION_STATUS_STYLE_REFERENCE}\n</conversation_status_style_reference>`,
     "",
     `Character: ${args.name}`,
     `Description: ${args.description}`,

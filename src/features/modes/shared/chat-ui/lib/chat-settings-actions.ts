@@ -101,6 +101,8 @@ export async function toggleConversationStatusMessages({
       await invalidateChat();
     }
   } catch (error) {
+    await updateMeta.mutateAsync({ id: chat.id, conversationStatusMessagesEnabled: false }).catch(() => undefined);
+    await invalidateChat();
     await showRefreshFailure(error instanceof Error ? error.message : "Status blurb generation failed.");
   }
 }

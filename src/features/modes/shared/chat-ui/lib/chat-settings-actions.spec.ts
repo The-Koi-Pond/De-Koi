@@ -137,6 +137,34 @@ describe("chat settings actions", () => {
     expect(refreshStatusMessages).toHaveBeenCalledWith("chat-1");
     expect(events).toEqual(["save:true", "refresh:chat-1", "invalidateCharacters", "invalidateChat"]);
   });
+  it("rolls status blurbs back when immediate refresh fails", async () => {
+    const updateMeta = { mutateAsync: vi.fn().mockResolvedValue(undefined) };
+    const refreshStatusMessages = vi.fn().mockRejectedValue(new Error("No model configured"));
+    const invalidateChat = vi.fn();
+    const showRefreshFailure = vi.fn();
+
+    await toggleConversationStatusMessages({
+      chat: { id: "chat-1", mode: "conversation", metadata: {} } as Chat,
+      enabled: false,
+      updateMeta,
+      refreshStatusMessages,
+      invalidateCharacters: vi.fn(),
+      invalidateChat,
+      showRefreshFailure,
+    });
+
+    expect(updateMeta.mutateAsync).toHaveBeenNthCalledWith(1, {
+      id: "chat-1",
+      conversationStatusMessagesEnabled: true,
+    });
+    expect(updateMeta.mutateAsync).toHaveBeenNthCalledWith(2, {
+      id: "chat-1",
+      conversationStatusMessagesEnabled: false,
+    });
+    expect(invalidateChat).toHaveBeenCalledOnce();
+    expect(showRefreshFailure).toHaveBeenCalledWith("No model configured");
+  });
+
   it("preserves mode-specific prompt persistence semantics", () => {
     expect(
       buildModePromptMetadataPatch({

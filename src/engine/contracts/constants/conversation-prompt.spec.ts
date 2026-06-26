@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_CONVERSATION_SYSTEM_PROMPT, DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT } from "./conversation-prompt";
+import {
+  CONVERSATION_STATUS_STYLE_REFERENCE,
+  DEFAULT_CONVERSATION_SYSTEM_PROMPT,
+  DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT,
+} from "./conversation-prompt";
 
 describe("default conversation system prompts", () => {
   it("uses De-Koi's DM-native conversation framing instead of Marinara's sentience framing", () => {
@@ -35,6 +39,14 @@ describe("default conversation system prompts", () => {
     expect(DEFAULT_CONVERSATION_SYSTEM_PROMPT).toContain(
       "Never include timestamps, dates, brackets, or metadata in your replies",
     );
+  });
+
+  it("exposes a narrow status-blurb style reference from the default Conversation rules", () => {
+    expect(CONVERSATION_STATUS_STYLE_REFERENCE).toContain("Sound like a person texting");
+    expect(CONVERSATION_STATUS_STYLE_REFERENCE).toContain("Do not sound like an assistant, therapist, narrator");
+    expect(CONVERSATION_STATUS_STYLE_REFERENCE).toContain("no *actions*, no narration, no quoted dialogue");
+    expect(CONVERSATION_STATUS_STYLE_REFERENCE).not.toContain("<role>");
+    expect(CONVERSATION_STATUS_STYLE_REFERENCE).not.toContain("{{userName}}");
   });
 
   it("keeps group conversations scoped to the active character only", () => {
