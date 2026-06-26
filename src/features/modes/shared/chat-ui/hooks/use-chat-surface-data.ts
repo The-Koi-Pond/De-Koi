@@ -10,7 +10,7 @@ import {
 } from "../../../../../shared/lib/chat-display";
 import { parseCharacterDisplayData } from "../../../../../shared/lib/character-display";
 import { normalizeAvatarCropValue, type AvatarCropValue } from "../../../../../shared/lib/utils";
-import { resolveConversationStatusBlurbDisplay } from "../lib/conversation-status-display";
+import { resolveConversationLegacyActivityDisplay, resolveConversationStatusBlurbDisplay } from "../lib/conversation-status-display";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import type { CharacterMap, MessageWithSwipes, PersonaInfo } from "../types";
 
@@ -253,6 +253,7 @@ export function useChatSurfaceData({
         const extensions = readRecord(parsed.extensions);
         const conversationStatus = readString(extensions.conversationStatus);
         const statusBlurbDisplay = resolveConversationStatusBlurbDisplay(extensions, chatMeta);
+        const legacyActivityDisplay = resolveConversationLegacyActivityDisplay(extensions);
         map.set(character.id, {
           name: readString(parsed.name, "Unknown"),
           description: readString(parsed.description),
@@ -278,7 +279,7 @@ export function useChatSurfaceData({
                 ? "online"
                 : undefined,
           conversationStatusMessage: statusBlurbDisplay.conversationStatusMessage,
-          conversationActivity: readString(extensions.conversationActivity) || undefined,
+          conversationActivity: legacyActivityDisplay.conversationActivity,
           conversationAvailabilityExplanation: readString(extensions.conversationAvailabilityExplanation) || undefined,
           conversationAvatar: (() => {
             const rec = readRecord(extensions.conversationAvatar);

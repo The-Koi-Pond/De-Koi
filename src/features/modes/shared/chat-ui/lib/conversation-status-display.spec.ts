@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveConversationStatusBlurbDisplay } from "./conversation-status-display";
+import { resolveConversationLegacyActivityDisplay, resolveConversationStatusBlurbDisplay } from "./conversation-status-display";
 
 describe("resolveConversationStatusBlurbDisplay", () => {
   it("hides stored generated status blurbs when the chat opt-in is off", () => {
@@ -22,6 +22,16 @@ describe("resolveConversationStatusBlurbDisplay", () => {
       ),
     ).toEqual({
       conversationStatusMessage: "quietly reading",
+    });
+  });
+  it("keeps legacy activity on an explicit compatibility display path", () => {
+    expect(
+      resolveConversationLegacyActivityDisplay({
+        conversationStatusMessage: "quietly reading",
+        conversationActivity: "sorting notes",
+      }),
+    ).toEqual({
+      conversationActivity: "sorting notes",
     });
   });
 });

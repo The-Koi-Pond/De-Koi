@@ -15,3 +15,11 @@ export function resolveConversationStatusBlurbDisplay(
       chatMeta.conversationStatusMessagesEnabled === true ? readString(extensions.conversationStatusMessage) : undefined,
   };
 }
+
+export function resolveConversationLegacyActivityDisplay(extensions: Record<string, unknown>): {
+  conversationActivity?: string;
+} {
+  return {
+    conversationActivity: readString(extensions.conversationActivity),
+  };
+}
