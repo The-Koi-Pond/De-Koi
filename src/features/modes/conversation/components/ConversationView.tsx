@@ -1,6 +1,6 @@
-// ──────────────────────────────────────────────
-// Chat: Conversation View — Discord-style composite
-// ──────────────────────────────────────────────
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+// Chat: Conversation View ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Discord-style composite
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 import { Fragment, Suspense, lazy, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -171,7 +171,7 @@ function chatMetaString(value: unknown, fallback: string): string {
 }
 
 /**
- * A single "… is/are typing…" row. CSS hooks: `.mari-typing-indicator` (row),
+ * A single "ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ is/are typingÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦" row. CSS hooks: `.mari-typing-indicator` (row),
  * `.mari-typing-dots` (the dots), `.mari-typing-text` (the label). `data-card-css`
  * scopes the row to a character in exclusive mode; `data-typing-name` exposes the
  * name(s) for `content: attr(data-typing-name)`.
@@ -420,15 +420,15 @@ export function ConversationView({
   });
   const liveTypingLabel = `${liveTypingName} ${liveTypingVerb} typing...`;
 
-  // ── Group typing rows ──
+  // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Group typing rows ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
   // Characters whose card CSS targets the typing indicator (exclusive mode) get their own
   // row so their custom text/styling applies in isolation; everyone else shares one combined
-  // "A, B are typing…" row. The styled set is derived in ConversationModeRoute (empty unless
+  // "A, B are typingÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦" row. The styled set is derived in ConversationModeRoute (empty unless
   // exclusive card-CSS mode is active, so chat/disabled modes keep the single combined row).
   //
   // We only split when the indicator can be tied to concrete character ids: the single
   // streaming character, or the explicit `typingCharacterName` mapped back to ids. Returning
-  // `null` means "render one combined row from `liveTypingName`" — we never invent typists
+  // `null` means "render one combined row from `liveTypingName`" ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â we never invent typists
   // from the full active roster when the runtime told us a specific (sub)set is typing.
   const typingParticipants = useMemo<Array<{ id: string; name: string }> | null>(() => {
     if (streamingCharacterId) {
@@ -460,7 +460,7 @@ export function ConversationView({
       }
       return participants;
     }
-    // No streaming id and no explicit label → fall back to the active roster (matches the
+    // No streaming id and no explicit label: fall back to the active roster (matches the
     // pre-split `liveTypingName` fallback, which also listed every active character).
     const fromActive = activeChatCharIds
       .map((id) => ({ id, name: characterMap.get(id)?.name }))
@@ -468,7 +468,7 @@ export function ConversationView({
     return fromActive.length > 0 ? fromActive : null;
   }, [streamingCharacterId, typingCharacterName, activeChatCharIds, characterMap]);
   const { typingStyledRows, typingPlainNames, typingPlainCardCssId } = useMemo(() => {
-    // Couldn't resolve concrete participants → one combined row with the explicit live label.
+    // Could not resolve concrete participants: use one combined row with the explicit live label.
     if (!typingParticipants) {
       return {
         typingStyledRows: [] as Array<{ id: string; name: string }>,
@@ -493,7 +493,7 @@ export function ConversationView({
 
   const isPageActive = usePageActivity();
 
-  // ── Periodic status refresh (every 60s) ──
+  // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Periodic status refresh (every 60s) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
   // Keeps status dots and activity text in sync with the character's schedule
   useEffect(() => {
     if (!chatId || !isPageActive) return;
@@ -581,6 +581,8 @@ export function ConversationView({
     return { background: `linear-gradient(135deg, ${g.from}, ${g.to})` };
   }, [convoGradient, theme]);
   const hasAutonomousMessaging = !!chatMeta.autonomousMessages || !!chatMeta.characterExchanges;
+  const conversationStatusMessagesEnabled = chatMeta.conversationStatusMessagesEnabled === true;
+  const shouldMountAutonomousEffects = hasAutonomousMessaging || conversationStatusMessagesEnabled;
   const [summaryOpen, setSummaryOpen] = useState(false);
   const isMobile = useIsMobile();
   const [mobileWorldInfoOpen, setMobileWorldInfoOpen] = useState(false);
@@ -691,7 +693,7 @@ export function ConversationView({
     };
   }, [toolsSheetOpen, moreMenuOpen]);
 
-  // ── Scroll tracking ──
+  // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Scroll tracking ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -900,10 +902,10 @@ export function ConversationView({
     };
   }, [moreMenuOpen, toolsSheetOpen, setRightSlot]);
 
-  // ── Build message list with day separators ──
+  // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Build message list with day separators ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
   // Assistant messages with multiple lines are split into separate visual
   // messages so each line appears as its own bubble (Discord-style).
-  // They stay as one record in the DB — only the display is split.
+  // They stay as one record in the DB ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â only the display is split.
   // Strip leaked timestamps like [16:08] or [18.03.2026] from assistant content.
   const stripTimestamps = (text: string) =>
     text
@@ -1039,7 +1041,7 @@ export function ConversationView({
     return items;
   }, [transcriptWindow, characterMap, chatCharIds, conversationMessageStyle, totalMessageCount]);
 
-  // ── Staggered reveal for assistant message parts ──
+  // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Staggered reveal for assistant message parts ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
   const [visiblePartCounts, setVisiblePartCounts] = useState<Record<string, number>>({});
   const renderedMessageKeysRef = useRef<Set<string>>(new Set());
   const prevRenderedKeysRef = useRef<Set<string>>(new Set());
@@ -1113,7 +1115,7 @@ export function ConversationView({
     });
 
     // On the very first render that has messages, just snapshot the keys and
-    // mark the initial load as settled — don't stagger or play sounds.
+    // mark the initial load as settled ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â don't stagger or play sounds.
     if (!initialLoadSettledRef.current) {
       if (currentKeys.size > 0) {
         prevRenderedKeysRef.current = currentKeys;
@@ -1156,7 +1158,7 @@ export function ConversationView({
         const isFresh = now - ts < CONVERSATION_PART_REVEAL_FRESHNESS_MS;
 
         if (!isFresh) {
-          // Stale message from cache refetch — silently mark as seen, skip animation
+          // Stale message from cache refetch ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â silently mark as seen, skip animation
           continue;
         }
 
@@ -1252,7 +1254,7 @@ export function ConversationView({
         (staggerTimersRef.current[key] ??= []).push(timer);
       }
     }
-    // No cleanup return here — timers are managed via staggerTimersRef and
+    // No cleanup return here ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â timers are managed via staggerTimersRef and
     // must survive effect re-runs caused by query refetches. Cleanup on
     // unmount is handled by a separate effect below.
   }, [activeCharacterNames, characterMap, chatId, renderedItems]);
@@ -1277,8 +1279,8 @@ export function ConversationView({
   // indicator inside that bubble; otherwise it falls back to the standalone row below.
   // ConversationMessage only renders typingLabel when its body is empty, so we may only
   // route into a bubble that will actually be empty at render time:
-  //   • regeneration — the target bubble's content is cleared while we wait, or
-  //   • a deliberately-empty placeholder message.
+  //   ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ regeneration ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the target bubble's content is cleared while we wait, or
+  //   ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ a deliberately-empty placeholder message.
   // A brand-new generation otherwise targets lastAssistantMessageId (the previous, NON-empty
   // assistant message); routing into it would swallow the indicator and show no feedback, so
   // we leave the standalone row alive in that case.
@@ -1298,7 +1300,7 @@ export function ConversationView({
       style={{ ...gradientStyle, isolation: "isolate" }}
     >
       <div ref={sheetContentRef} className="flex min-h-0 flex-1 flex-col">
-        {/* ── Messages scroll area ── */}
+        {/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Messages scroll area ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */}
         <div ref={scrollRef} className="mari-messages-scroll flex-1 overflow-y-auto overflow-x-hidden">
           {/* Desktop floating header */}
           <div className="sticky top-0 z-10 hidden min-w-0 items-center justify-between px-4 py-2 md:flex">
@@ -1315,6 +1317,7 @@ export function ConversationView({
                 avatarUrl: string | null;
                 avatarCrop?: AvatarCropValue | null;
                 conversationStatus?: "online" | "idle" | "dnd" | "offline";
+                conversationStatusMessage?: string;
                 conversationActivity?: string;
                 conversationAvailabilityExplanation?: string;
               }>;
@@ -1359,9 +1362,9 @@ export function ConversationView({
                     </div>
                     <div className="flex flex-col leading-tight">
                       <span className="text-[0.75rem] font-medium text-foreground/90">{c.name}</span>
-                      {c.conversationActivity && (
-                        <span className="text-[0.5625rem] text-foreground/50" title={statusExplanation}>
-                          {c.conversationActivity}
+                      {(c.conversationStatusMessage || c.conversationAvailabilityExplanation || c.conversationActivity) && (
+                        <span className="max-w-[12rem] truncate text-[0.5625rem] text-foreground/50" title={statusExplanation}>
+                          {c.conversationStatusMessage || c.conversationAvailabilityExplanation || c.conversationActivity}
                         </span>
                       )}
                     </div>
@@ -1369,7 +1372,7 @@ export function ConversationView({
                 );
               }
 
-              // Multiple characters — individual clickable avatars showing activity on click
+              // Multiple characters - individual clickable avatars showing activity on click
               return (
                 <div className="flex items-center gap-2 rounded-lg bg-[var(--card)]/80 px-2.5 py-1.5 backdrop-blur-sm dark:bg-black/30">
                   <div
@@ -1416,9 +1419,9 @@ export function ConversationView({
                               <p className="text-[0.7rem] font-semibold text-[var(--foreground)] leading-tight">
                                 {c.name}
                               </p>
-                              {(c.conversationAvailabilityExplanation || c.conversationActivity) && (
-                                <p className="mt-0.5 text-[0.6rem] text-[var(--muted-foreground)]/70 leading-tight">
-                                  {c.conversationAvailabilityExplanation || c.conversationActivity}
+                              {(c.conversationStatusMessage || c.conversationAvailabilityExplanation || c.conversationActivity) && (
+                                <p className="mt-0.5 max-w-[12rem] text-[0.6rem] text-[var(--muted-foreground)]/70 leading-tight">
+                                  {c.conversationStatusMessage || c.conversationAvailabilityExplanation || c.conversationActivity}
                                 </p>
                               )}
                             </div>
@@ -1630,22 +1633,22 @@ export function ConversationView({
             </div>
           )}
 
-          {/* Delayed indicator (DND/idle — waiting for character to become available) */}
+          {/* Delayed indicator (DND/idle ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â waiting for character to become available) */}
           {delayedCharacterInfo && isStreaming && !streamBuffer && !thinkingBuffer && (
             <div className="flex items-center gap-2 px-4 py-1.5 text-[0.8125rem] text-[var(--text-secondary)]">
               <span className="italic">
                 {delayedCharacterInfo.status === "dnd"
-                  ? `${delayedCharacterInfo.name} ${delayedCharacterInfo.name.includes(",") ? "are" : "is"} busy — they'll respond when they're back`
-                  : `${delayedCharacterInfo.name} ${delayedCharacterInfo.name.includes(",") ? "are" : "is"} away — they'll respond in a moment`}
+                  ? `${delayedCharacterInfo.name} ${delayedCharacterInfo.name.includes(",") ? "are" : "is"} busy - they'll respond when they're back`
+                  : `${delayedCharacterInfo.name} ${delayedCharacterInfo.name.includes(",") ? "are" : "is"} away - they'll respond in a moment`}
               </span>
             </div>
           )}
 
-          {/* Typing indicator — classic regeneration fallback when no in-message row can carry it.
+          {/* Typing indicator ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â classic regeneration fallback when no in-message row can carry it.
             CSS-targetable per character via data-card-css. Hooks:
-              .mari-typing-indicator  — the row
-              .mari-typing-dots        — the bouncing dots (style `.mari-typing-dots span`)
-              .mari-typing-text        — the "X is typing..." label
+              .mari-typing-indicator  ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the row
+              .mari-typing-dots        ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the bouncing dots (style `.mari-typing-dots span`)
+              .mari-typing-text        ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the "X is typing..." label
             data-typing-name carries the character name (usable as content: attr(data-typing-name)).
             In group chats, characters whose card CSS targets these hooks (exclusive mode) get
             their own row so their custom text applies in isolation; the rest share one row. */}
@@ -1663,7 +1666,7 @@ export function ConversationView({
             </>
           )}
 
-          {/* Scene banner — inline at bottom of messages (origin variant only) */}
+          {/* Scene banner ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â inline at bottom of messages (origin variant only) */}
           {sceneInfo?.variant === "origin" && (
             <SceneBanner variant="origin" sceneChatId={sceneInfo.sceneChatId} sceneChatName={sceneInfo.sceneChatName} />
           )}
@@ -1671,20 +1674,22 @@ export function ConversationView({
           <div className="h-1" />
         </div>
 
-        {/* ── Autonomous message toast notification ── */}
-        {hasAutonomousMessaging && (
+        {/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Autonomous message toast notification ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */}
+        {shouldMountAutonomousEffects && (
           <Suspense fallback={null}>
             <ConversationAutonomousEffects
               key={chatId}
               chatId={chatId}
               messages={messages}
               characterMap={characterMap}
-              chatMeta={chatMeta}
+              autonomousEnabled={!!chatMeta.autonomousMessages}
+              exchangesEnabled={!!chatMeta.characterExchanges}
+              conversationStatusMessagesEnabled={conversationStatusMessagesEnabled}
             />
           </Suspense>
         )}
 
-        {/* ── End Scene bar (above input) ── */}
+        {/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ End Scene bar (above input) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */}
         {sceneInfo?.variant === "scene" && sceneInfo.sceneChatId && onConcludeScene && (
           <EndSceneBar
             sceneChatId={sceneInfo.sceneChatId}
@@ -1694,7 +1699,7 @@ export function ConversationView({
           />
         )}
 
-        {/* ── Input area ── */}
+        {/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Input area ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */}
         <ConversationInput
           key={chatId}
           characterNames={activeCharacterNames}
@@ -1717,6 +1722,7 @@ export function ConversationView({
                       avatarUrl: info.avatarUrl ?? null,
                       avatarCrop: info.avatarCrop ?? null,
                       conversationStatus: info.conversationStatus,
+                      conversationStatusMessage: info.conversationStatusMessage,
                       conversationActivity: info.conversationActivity,
                       conversationAvailabilityExplanation: info.conversationAvailabilityExplanation,
                     };

@@ -48,6 +48,15 @@ export interface CharacterExtensions {
   rpgStats?: RPGStatsConfig;
   /** De-Koi: Conversation-mode availability status */
   conversationStatus?: "online" | "idle" | "dnd" | "offline";
+  /** De-Koi: Conversation-mode flavor status blurb shown in compact UI surfaces */
+  conversationStatusMessage?: string;
+  /** De-Koi: Status blurb refresh metadata for autonomous polling */
+  conversationStatusMessageMeta?: {
+    generatedAt: string;
+    nextRefreshAt: string;
+    sourceStatus: "online" | "idle" | "dnd" | "offline";
+    sourceActivity: string;
+  };
   /** De-Koi: Conversation-mode avatar override (Default / Hide / Emoji / Sprite / Gallery) */
   conversationAvatar?: ConversationAvatarOverride;
   [key: string]: unknown;

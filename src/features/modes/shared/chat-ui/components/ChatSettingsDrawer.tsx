@@ -560,6 +560,7 @@ function ChatSettingsDrawerInner({
   const conversationSchedulesEnabled =
     metadata.conversationSchedulesEnabled === true ||
     (metadata.conversationSchedulesEnabled == null && hasGeneratedConversationSchedules);
+  const conversationStatusMessagesEnabled = metadata.conversationStatusMessagesEnabled === true;
   const activeLorebookIds = useMemo<string[]>(
     () => metadataStringArray(metadata.activeLorebookIds),
     [metadata.activeLorebookIds],
@@ -3038,6 +3039,41 @@ function ChatSettingsDrawerInner({
                       className={cn(
                         "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
                         conversationSchedulesEnabled && "translate-x-3.5",
+                      )}
+                    />
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    updateMeta.mutate({
+                      id: chat.id,
+                      conversationStatusMessagesEnabled: !conversationStatusMessagesEnabled,
+                    });
+                  }}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                    conversationStatusMessagesEnabled
+                      ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                      : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                  )}
+                >
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-medium">Status Blurbs</span>
+                    <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                      Short generated updates based on routines and recent context
+                    </p>
+                  </div>
+                  <div
+                    className={cn(
+                      "h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
+                      conversationStatusMessagesEnabled ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                        conversationStatusMessagesEnabled && "translate-x-3.5",
                       )}
                     />
                   </div>

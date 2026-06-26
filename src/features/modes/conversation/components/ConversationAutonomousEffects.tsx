@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { useChatStore } from "../../../../shared/stores/chat.store";
@@ -12,17 +12,19 @@ type ConversationAutonomousEffectsProps = {
   chatId: string;
   messages: Message[] | undefined;
   characterMap: CharacterMap;
-  chatMeta: Record<string, unknown>;
+  autonomousEnabled: boolean;
+  exchangesEnabled: boolean;
+  conversationStatusMessagesEnabled: boolean;
 };
 
 export function ConversationAutonomousEffects({
   chatId,
   messages,
   characterMap,
-  chatMeta,
+  autonomousEnabled,
+  exchangesEnabled,
+  conversationStatusMessagesEnabled,
 }: ConversationAutonomousEffectsProps) {
-  const autonomousEnabled = !!chatMeta.autonomousMessages;
-  const exchangesEnabled = !!chatMeta.characterExchanges;
   const [notification, setNotification] = useState<{ name: string; id: string } | null>(null);
   const notificationTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -51,6 +53,7 @@ export function ConversationAutonomousEffects({
     chatId,
     autonomousEnabled,
     exchangesEnabled,
+    conversationStatusMessagesEnabled,
     handleAutonomousMessage,
   );
 

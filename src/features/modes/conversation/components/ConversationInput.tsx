@@ -1,6 +1,6 @@
-// ──────────────────────────────────────────────
-// Chat: Conversation Input — Discord-style
-// ──────────────────────────────────────────────
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+// Chat: Conversation Input ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Discord-style
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import {
   Send,
@@ -185,6 +185,7 @@ interface ConversationInputProps {
     avatarUrl: string | null;
     avatarCrop?: AvatarCropValue | null;
     conversationStatus?: "online" | "idle" | "dnd" | "offline";
+    conversationStatusMessage?: string;
     conversationActivity?: string;
     conversationAvailabilityExplanation?: string;
   }>;
@@ -528,7 +529,7 @@ export function ConversationInput({
       // Sort names longest-first so "Mary Jane" matches before "Mary"
       const sorted = [...characterNames].sort((a, b) => b.length - a.length);
       for (const name of sorted) {
-        // Match @Name (case-insensitive) — name may contain spaces
+        // Match @Name (case-insensitive) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â name may contain spaces
         const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const re = new RegExp(`@${escaped}\\b`, "gi");
         if (re.test(text) && !mentioned.some((m) => m.toLowerCase() === name.toLowerCase())) {
@@ -591,7 +592,7 @@ export function ConversationInput({
     }
 
     // If already generating for this chat, just save the message without
-    // triggering another generation — the in-progress generation will see
+    // triggering another generation ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the in-progress generation will see
     // it (server re-reads messages after any busy delay).
     if (isStreaming) {
       const activeChatData = useChatStore.getState().activeChat;
@@ -611,7 +612,7 @@ export function ConversationInput({
           const translated = await translateText(message);
           if (translated.trim()) message = translated;
         } catch {
-          toast.error("Failed to translate message — sending original");
+          toast.error("Failed to translate message ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â sending original");
         }
       }
       // Final pass: resolve macros introduced by translation while {{input}} still points to raw.
@@ -753,7 +754,7 @@ export function ConversationInput({
         const translated = await translateText(message);
         if (translated.trim()) message = translated;
       } catch {
-        toast.error("Failed to translate message — sending original");
+        toast.error("Failed to translate message ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â sending original");
       }
     }
 
@@ -1362,7 +1363,7 @@ export function ConversationInput({
       setCompletions([]);
     }
 
-    // @mention detection — look backwards from cursor for an @ trigger
+    // @mention detection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â look backwards from cursor for an @ trigger
     const cursor = el.selectionStart;
     const textBefore = fixed.slice(0, cursor);
     // Find the last @ that isn't preceded by a word character
@@ -1419,7 +1420,7 @@ export function ConversationInput({
           { type: attachment.type, data: attachment.data, filename: attachment.name, name: attachment.name },
         ];
       } catch {
-        // If fetch fails (CORS etc.), send without attachment — still shows as image in chat
+        // If fetch fails (CORS etc.), send without attachment ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â still shows as image in chat
       }
 
       const saveGifMessage = async () => {
@@ -1826,7 +1827,7 @@ export function ConversationInput({
           }}
         />
 
-        {/* Quick Switchers — desktop: inline, mobile: chevron */}
+        {/* Quick Switchers ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â desktop: inline, mobile: chevron */}
         <div className="hidden items-center gap-1.5 sm:flex">
           {renderAttachButton()}
           <QuickConnectionSwitcher />
@@ -2109,11 +2110,13 @@ export function ConversationInput({
                   </div>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs">{char.name}</span>
-                    {(char.conversationAvailabilityExplanation ||
+                    {(char.conversationStatusMessage ||
+                      char.conversationAvailabilityExplanation ||
                       char.conversationActivity ||
                       statusLabel(char.conversationStatus)) && (
                       <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
-                        {char.conversationAvailabilityExplanation ||
+                        {char.conversationStatusMessage ||
+                          char.conversationAvailabilityExplanation ||
                           char.conversationActivity ||
                           statusLabel(char.conversationStatus)}
                       </span>
