@@ -523,19 +523,25 @@ export function ConversationView({
             const availabilityExplanationChanged =
               nextAvailabilityExplanation !== null &&
               currentAvailabilityExplanation !== nextAvailabilityExplanation;
+            const staleAvailabilityExplanation =
+              nextAvailabilityExplanation === null &&
+              currentAvailabilityExplanation !== "";
             if (
               currentStatus !== info.status ||
               currentActivity !== info.activity ||
-              availabilityExplanationChanged
+              availabilityExplanationChanged ||
+              staleAvailabilityExplanation
             ) {
-              const nextExtensions = {
+              const nextExtensions: Record<string, unknown> = {
                 ...extensions,
                 conversationStatus: info.status,
                 conversationActivity: info.activity,
-                ...(nextAvailabilityExplanation !== null
-                  ? { conversationAvailabilityExplanation: nextAvailabilityExplanation }
-                  : {}),
               };
+              if (nextAvailabilityExplanation !== null) {
+                nextExtensions.conversationAvailabilityExplanation = nextAvailabilityExplanation;
+              } else {
+                delete nextExtensions.conversationAvailabilityExplanation;
+              }
               await storageApi.update("characters", characterId, {
                 data: {
                   ...row.data,

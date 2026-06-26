@@ -125,6 +125,54 @@ describe("getConversationStatus", () => {
       },
     });
   });
+  it("syncs fallback availability when a character has no schedule", async () => {
+    const storage = storageGateway({
+      chats: [
+        {
+          id: "chat-1",
+          mode: "conversation",
+          characterIds: ["char-1"],
+          metadata: {
+            conversationSchedulesEnabled: true,
+            characterSchedules: {},
+          },
+        },
+      ],
+      characters: [
+        {
+          id: "char-1",
+          data: {
+            extensions: {
+              conversationStatus: "offline",
+              conversationActivity: "asleep",
+              conversationAvailabilityExplanation: "Unavailable: asleep.",
+            },
+          },
+        },
+      ],
+    });
+
+    const result = await getConversationStatus(storage, "chat-1");
+
+    expect(result.statuses["char-1"]).toMatchObject({
+      status: "online",
+      activity: "unknown (no schedule)",
+      availabilityExplanation: {
+        label: "Available",
+        detail: "unknown (no schedule)",
+        message: "Available: unknown (no schedule).",
+      },
+    });
+    await expect(storage.get<JsonRecord>("characters", "char-1")).resolves.toMatchObject({
+      data: {
+        extensions: {
+          conversationStatus: "online",
+          conversationActivity: "unknown (no schedule)",
+          conversationAvailabilityExplanation: "Available: unknown (no schedule).",
+        },
+      },
+    });
+  });
   it("syncs the plain-language availability explanation into character extensions", async () => {
     const schedule = allDaySchedule("commuting", "idle");
     const storage = storageGateway({
