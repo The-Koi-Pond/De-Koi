@@ -377,11 +377,35 @@ describe("generateConversationSchedules availability output", () => {
       generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true }),
     ).rejects.toThrow("Schedule block has unsupported availability");
   });
+  it("rejects invalid availability labels even when activity could infer a status", async () => {
+    const storage = scheduleStorageGateway();
+    const blocks = [{ time: "09:00-17:00", activity: "sleeping", availability: "maybe" }];
+    const llm = llmWithSchedule(
+      JSON.stringify({
+        talkativeness: 65,
+        inactivityThresholdMinutes: 45,
+        days: {
+          Monday: blocks,
+          Tuesday: blocks,
+          Wednesday: blocks,
+          Thursday: blocks,
+          Friday: blocks,
+          Saturday: blocks,
+          Sunday: blocks,
+        },
+      }),
+    );
+
+    await expect(
+      generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true }),
+    ).rejects.toThrow("Schedule block has unsupported availability");
+  });
   it("supports mixed availability and status-only schedule rows", async () => {
     const storage = scheduleStorageGateway();
     const blocks = [
       { time: "09:00-12:00", activity: "breakfast", availability: "delayed" },
       { time: "12:00-17:00", activity: "focused research", status: "offline" },
+      { time: "17:00-23:00", activity: "sleeping" },
     ];
     const llm = llmWithSchedule(
       JSON.stringify({
@@ -404,6 +428,7 @@ describe("generateConversationSchedules availability output", () => {
     expect(result.schedules["char-1"]?.days.Monday).toEqual([
       { time: "09:00-12:00", activity: "breakfast", status: "idle" },
       { time: "12:00-17:00", activity: "focused research", status: "offline" },
+      { time: "17:00-23:00", activity: "sleeping", status: "offline" },
     ]);
   });
 });
