@@ -49,9 +49,11 @@ function memoryStorage(seed: Record<string, Record<string, Row>>): StorageGatewa
     },
     async listChatMessages(
       chatId: string,
-      options?: { orderBy?: string; descending?: boolean; limit?: number },
+      options?: { role?: string; characterId?: string; orderBy?: string; descending?: boolean; limit?: number },
     ) {
       let rows = Object.values(seed.messages ?? {}).filter((message) => message.chatId === chatId);
+      if (options?.role) rows = rows.filter((message) => message.role === options.role);
+      if (options?.characterId) rows = rows.filter((message) => message.characterId === options.characterId);
       if (options?.orderBy) {
         const field = options.orderBy;
         rows = [...rows].sort((a, b) => String(a[field] ?? "").localeCompare(String(b[field] ?? "")));

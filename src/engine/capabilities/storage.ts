@@ -20,7 +20,10 @@ type StorageListSelector =
 export type StorageListOptions = StorageListBaseOptions & StorageListSelector;
 
 export type StorageReadOptions = Pick<StorageListOptions, "fields" | "fieldSelections">;
-export type ChatMessageListOptions = StorageListBaseOptions;
+export type ChatMessageListOptions = StorageListBaseOptions & {
+  role?: string;
+  characterId?: string;
+};
 export type ChatMessageReadOptions = StorageReadOptions;
 
 export type ChatMemoryListOrder = "stored" | "recent";

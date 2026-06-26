@@ -275,8 +275,9 @@ async function recentCharacterReplies(
   chatId: string,
   characterId: string,
 ): Promise<string[]> {
-  const rows = await storage.list<JsonRecord>("messages", {
-    filters: { chatId, role: "assistant", characterId },
+  const rows = await storage.listChatMessages<JsonRecord>(chatId, {
+    role: "assistant",
+    characterId,
     fields: ["content", "createdAt"],
     orderBy: "createdAt",
     descending: true,
@@ -295,14 +296,22 @@ function characterExampleTurnFromBlock(block: string): string {
   if (lines.length === 0) return "";
 
   const charTurns: string[] = [];
+  let expectedSpeaker: "user" | "char" = "user";
   for (const line of lines) {
     const match = line.trim().match(/^\{\{(user|char)\}\}\s*:\s*(.*)$/i);
     if (!match) return "";
-    if (match[1]?.toLowerCase() === "char") {
+    const speaker = match[1]?.toLowerCase();
+    if (speaker !== expectedSpeaker) return "";
+    if (speaker === "char") {
       const content = compactStyleText(match[2] ?? "", 180);
-      if (content) charTurns.push(content);
+      if (!content) return "";
+      charTurns.push(content);
+      expectedSpeaker = "user";
+    } else {
+      expectedSpeaker = "char";
     }
   }
+  if (charTurns.length === 0 || expectedSpeaker !== "user") return "";
   return compactStyleText(charTurns.join(" / "), 220);
 }
 
