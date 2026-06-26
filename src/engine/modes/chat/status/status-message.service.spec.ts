@@ -32,8 +32,8 @@ function memoryStorage(seed: Record<string, Record<string, Row>>): StorageGatewa
       seed.chats[id] = { ...chat, metadata: { ...metadata, ...(patch as Row) } };
       return seed.chats[id] as never;
     },
-    async listChatMessages() {
-      return [] as never;
+    async listChatMessages(chatId: string) {
+      return Object.values(seed.messages ?? {}).filter((message) => message.chatId === chatId) as never;
     },
   } as unknown as StorageGateway;
 }
@@ -300,6 +300,86 @@ describe("maybeRefreshConversationStatusMessages", () => {
     expect(systemPrompt).toContain("Do not sound like an assistant, therapist, narrator, or writing partner");
     expect(systemPrompt).toContain("no *actions*, no narration, no quoted dialogue, no stage directions");
     expect(systemPrompt).toContain("Do not write a schedule label or third-person activity summary");
+  });
+  it("includes character Conversation typing quirks and recent replies in the status prompt", async () => {
+    const seed = {
+      chats: {
+        chat1: {
+          id: "chat1",
+          mode: "conversation",
+          connectionId: "conn1",
+          characterIds: ["michael"],
+          metadata: { conversationStatusMessagesEnabled: true },
+        },
+      },
+      connections: {
+        conn1: { id: "conn1", model: "test-model" },
+      },
+      characters: {
+        michael: {
+          id: "michael",
+          data: {
+            name: "Michael Myers (The Shape)",
+            description: "Silent, masked killer.",
+            personality: "Pure evil, silent, relentless.",
+            system_prompt:
+              "In texting/Conversation Mode, Michael is trying to use a phone for the first time. He types in short, broken, poorly spelled words with massive typos.",
+            post_history_instructions:
+              "In texting/Conversation Mode, have him type short, blunt, broken words with massive typos like STAK U, KIL, and WRE U.",
+            mes_example:
+              "{{user}}: Where are you?\n{{char}}: HADNFLD WRE U\n***\n{{user}}: What are you doing?\n{{char}}: STAK U",
+            extensions: { conversationStatus: "dnd", conversationActivity: "Participating in Trials" },
+          },
+        },
+      },
+      messages: {
+        message1: {
+          id: "message1",
+          chatId: "chat1",
+          role: "assistant",
+          characterId: "michael",
+          content: "U LUK OK ME STAK U",
+          createdAt: "2026-06-26T18:50:34.150Z",
+        },
+        message2: {
+          id: "message2",
+          chatId: "chat1",
+          role: "user",
+          content: "Do you not want people to run?",
+          createdAt: "2026-06-26T18:51:25.316Z",
+        },
+        message3: {
+          id: "message3",
+          chatId: "chat1",
+          role: "assistant",
+          characterId: "michael",
+          content: "THEI RUN NO ESKP I STB",
+          createdAt: "2026-06-26T18:51:32.534Z",
+        },
+      },
+    };
+    let systemPrompt = "";
+
+    await maybeRefreshConversationStatusMessages(
+      {
+        storage: memoryStorage(seed),
+        llm: {
+          async complete(request: Parameters<LlmGateway["complete"]>[0]) {
+            systemPrompt = request.messages.find((message) => message.role === "system")?.content ?? "";
+            return JSON.stringify({ message: "STAK U" });
+          },
+        } as unknown as LlmGateway,
+      },
+      { chatId: "chat1", now },
+    );
+
+    expect(systemPrompt).toContain("same typing quirks");
+    expect(systemPrompt).toContain("typing style evidence");
+    expect(systemPrompt).toContain("poorly spelled words with massive typos");
+    expect(systemPrompt).toContain("STAK U");
+    expect(systemPrompt).toContain("WRE U");
+    expect(systemPrompt).toContain("U LUK OK ME STAK U");
+    expect(systemPrompt).toContain("THEI RUN NO ESKP I STB");
   });
   it("does not resolve connections when no character needs a refresh", async () => {
     const seed = {

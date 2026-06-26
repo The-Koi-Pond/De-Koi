@@ -217,12 +217,15 @@ function buildStatusMessagePrompt(args: {
   currentStatus: ConversationStatusKind;
   currentActivity: string;
   recentContext: string;
+  typingStyleContext: string;
 }): LlmMessage[] {
   const system = [
     "Generate one short first-person custom status for a fictional chat character.",
     "Write it as if the character typed it themselves as a Discord-style custom status under their own name.",
-    "Use the character's personality, current availability, current activity, and recent continuity as context only.",
+    "Use the character's personality, current availability, current activity, recent continuity, and typing style evidence as context only.",
     "Follow the default Conversation mode style reference: casual DM text, specific, reactive, and natural to the character.",
+    "Write with the same typing quirks, spelling, casing, punctuation habits, and perspective the character uses in Conversation mode replies.",
+    "If typing style evidence conflicts with generic status grammar, the character's actual Conversation typing style wins.",
     "Do not write a schedule label or third-person activity summary. Do not narrate what the character is doing from outside.",
     "Do not invent a major life event. Do not mention being an AI or mention this instruction.",
     'Return JSON only: {"message":"short status blurb"}.',
@@ -236,6 +239,7 @@ function buildStatusMessagePrompt(args: {
     `Availability: ${args.currentStatus}`,
     `Current activity: ${args.currentActivity}`,
     args.recentContext ? `Recent continuity: ${args.recentContext}` : "",
+    args.typingStyleContext ? `<typing_style_evidence>\n${args.typingStyleContext}\n</typing_style_evidence>` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -255,6 +259,43 @@ function recentContinuityFromChat(meta: JsonRecord, characterData: JsonRecord): 
     .slice(-5);
   if (memories.length > 0) parts.push(`Memories: ${memories.join("; ").slice(0, 700)}`);
   return parts.join("\n").slice(0, 1200);
+}
+
+function compactStyleText(value: string, maxLength: number): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+function recentCharacterReplies(messages: JsonRecord[], characterId: string, singleCharacterChat: boolean): string[] {
+  return messages
+    .filter((message) => readString(message.role) === "assistant")
+    .filter((message) => {
+      const messageCharacterId = readString(message.characterId);
+      return messageCharacterId === characterId || (singleCharacterChat && !messageCharacterId);
+    })
+    .sort((a, b) => Date.parse(readString(a.createdAt)) - Date.parse(readString(b.createdAt)))
+    .map((message) => compactStyleText(readString(message.content), 140))
+    .filter(Boolean)
+    .slice(-6);
+}
+
+function typingStyleFromCharacter(characterData: JsonRecord, recentReplies: string[]): string {
+  const parts: string[] = [];
+  const systemPrompt = compactStyleText(readString(characterData.system_prompt ?? characterData.systemPrompt), 600);
+  const postHistoryInstructions = compactStyleText(
+    readString(characterData.post_history_instructions ?? characterData.postHistoryInstructions),
+    600,
+  );
+  const examples = readString(characterData.mes_example ?? characterData.exampleDialogue)
+    .split(/\*\*\*|<START>/)
+    .map((example) => compactStyleText(example, 220))
+    .filter((example) => example.includes("{{char}}:") || example.length > 0)
+    .slice(-4);
+
+  if (systemPrompt) parts.push(`Character system prompt: ${systemPrompt}`);
+  if (postHistoryInstructions) parts.push(`Post-history instructions: ${postHistoryInstructions}`);
+  if (examples.length > 0) parts.push(`Card message examples:\n- ${examples.join("\n- ")}`);
+  if (recentReplies.length > 0) parts.push(`Recent Conversation replies:\n- ${recentReplies.join("\n- ")}`);
+  return parts.join("\n").slice(0, 1800);
 }
 
 async function resolveConnection(storage: StorageGateway, chat: JsonRecord): Promise<JsonRecord | null> {
@@ -322,6 +363,14 @@ export async function maybeRefreshConversationStatusMessages(
 
   if (pending.length === 0) return { refreshed: [], skipped };
 
+  const recentMessages = await capabilities.storage.listChatMessages<JsonRecord>(input.chatId, {
+    fields: ["role", "content", "characterId", "createdAt"],
+    orderBy: "createdAt",
+    descending: true,
+    limit: 80,
+  });
+  const singleCharacterChat = ids.length === 1;
+
   const connection = await resolveConnection(capabilities.storage, chat);
   if (!connection) {
     throw new Error(
@@ -348,6 +397,10 @@ export async function maybeRefreshConversationStatusMessages(
       currentStatus,
       currentActivity,
       recentContext: recentContinuityFromChat(meta, data),
+      typingStyleContext: typingStyleFromCharacter(
+        data,
+        recentCharacterReplies(recentMessages, characterId, singleCharacterChat),
+      ),
     });
     const message = parseGeneratedStatusMessage(raw);
     if (!message) {
