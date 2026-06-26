@@ -32,8 +32,18 @@ function memoryStorage(seed: Record<string, Record<string, Row>>): StorageGatewa
       seed.chats[id] = { ...chat, metadata: { ...metadata, ...(patch as Row) } };
       return seed.chats[id] as never;
     },
-    async listChatMessages(chatId: string) {
-      return Object.values(seed.messages ?? {}).filter((message) => message.chatId === chatId) as never;
+    async listChatMessages(
+      chatId: string,
+      options?: { orderBy?: string; descending?: boolean; limit?: number },
+    ) {
+      let rows = Object.values(seed.messages ?? {}).filter((message) => message.chatId === chatId);
+      if (options?.orderBy) {
+        const field = options.orderBy;
+        rows = [...rows].sort((a, b) => String(a[field] ?? "").localeCompare(String(b[field] ?? "")));
+      }
+      if (options?.descending) rows = [...rows].reverse();
+      if (typeof options?.limit === "number") rows = rows.slice(0, options.limit);
+      return rows as never;
     },
   } as unknown as StorageGateway;
 }
@@ -356,6 +366,13 @@ describe("maybeRefreshConversationStatusMessages", () => {
           content: "THEI RUN NO ESKP I STB",
           createdAt: "2026-06-26T18:51:32.534Z",
         },
+        message4: {
+          id: "message4",
+          chatId: "chat1",
+          role: "assistant",
+          content: "watching you like normal prose",
+          createdAt: "2026-06-26T18:52:32.534Z",
+        },
       },
     };
     let systemPrompt = "";
@@ -380,6 +397,130 @@ describe("maybeRefreshConversationStatusMessages", () => {
     expect(systemPrompt).toContain("WRE U");
     expect(systemPrompt).toContain("U LUK OK ME STAK U");
     expect(systemPrompt).toContain("THEI RUN NO ESKP I STB");
+    expect(systemPrompt).not.toContain("watching you like normal prose");
+  });
+
+  it("uses the newest explicitly owned replies from a capped mixed transcript", async () => {
+    const messages: Record<string, Row> = {
+      oldOwned: {
+        id: "oldOwned",
+        chatId: "chat1",
+        role: "assistant",
+        characterId: "char1",
+        content: "OLD STYLE SAMPLE",
+        createdAt: "2026-06-26T10:00:00.000Z",
+      },
+    };
+    for (let index = 0; index < 170; index += 1) {
+      messages[`user${index}`] = {
+        id: `user${index}`,
+        chatId: "chat1",
+        role: "user",
+        content: `filler ${index}`,
+        createdAt: new Date(Date.UTC(2026, 5, 26, 11, index)).toISOString(),
+      };
+    }
+    messages.latestOwned = {
+      id: "latestOwned",
+      chatId: "chat1",
+      role: "assistant",
+      characterId: "char1",
+      content: "LATEST OWNED QUIRK",
+      createdAt: "2026-06-26T15:00:00.000Z",
+    };
+    messages.unownedLatest = {
+      id: "unownedLatest",
+      chatId: "chat1",
+      role: "assistant",
+      content: "AMBIGUOUS IMPORTED VOICE",
+      createdAt: "2026-06-26T16:00:00.000Z",
+    };
+
+    const seed = {
+      chats: {
+        chat1: {
+          id: "chat1",
+          mode: "conversation",
+          connectionId: "conn1",
+          characterIds: ["char1"],
+          metadata: { conversationStatusMessagesEnabled: true },
+        },
+      },
+      connections: { conn1: { id: "conn1", model: "test-model" } },
+      characters: {
+        char1: {
+          id: "char1",
+          data: {
+            name: "Ari",
+            system_prompt: "Ari texts in clipped notebook fragments.",
+            extensions: { conversationStatus: "online", conversationActivity: "free time" },
+          },
+        },
+      },
+      messages,
+    };
+    let systemPrompt = "";
+
+    await maybeRefreshConversationStatusMessages(
+      {
+        storage: memoryStorage(seed),
+        llm: {
+          async complete(request: Parameters<LlmGateway["complete"]>[0]) {
+            systemPrompt = request.messages.find((message) => message.role === "system")?.content ?? "";
+            return JSON.stringify({ message: "latest owned quirk" });
+          },
+        } as unknown as LlmGateway,
+      },
+      { chatId: "chat1", now },
+    );
+
+    expect(systemPrompt).toContain("LATEST OWNED QUIRK");
+    expect(systemPrompt).not.toContain("OLD STYLE SAMPLE");
+    expect(systemPrompt).not.toContain("AMBIGUOUS IMPORTED VOICE");
+  });
+
+  it("only includes usable character turns from card message examples", async () => {
+    const seed = {
+      chats: {
+        chat1: {
+          id: "chat1",
+          mode: "conversation",
+          connectionId: "conn1",
+          characterIds: ["char1"],
+          metadata: { conversationStatusMessagesEnabled: true },
+        },
+      },
+      connections: { conn1: { id: "conn1", model: "test-model" } },
+      characters: {
+        char1: {
+          id: "char1",
+          data: {
+            name: "Ari",
+            mes_example:
+              "***\n{{user}}: only user text\n***\nloose narration without a character turn\n***\n{{user}}: what now?\n{{char}}: VALID QUIRK TURN",
+            extensions: { conversationStatus: "online", conversationActivity: "free time" },
+          },
+        },
+      },
+    };
+    let systemPrompt = "";
+
+    await maybeRefreshConversationStatusMessages(
+      {
+        storage: memoryStorage(seed),
+        llm: {
+          async complete(request: Parameters<LlmGateway["complete"]>[0]) {
+            systemPrompt = request.messages.find((message) => message.role === "system")?.content ?? "";
+            return JSON.stringify({ message: "valid quirk turn" });
+          },
+        } as unknown as LlmGateway,
+      },
+      { chatId: "chat1", now },
+    );
+
+    expect(systemPrompt).toContain("VALID QUIRK TURN");
+    expect(systemPrompt).not.toContain("only user text");
+    expect(systemPrompt).not.toContain("loose narration without a character turn");
   });
   it("does not resolve connections when no character needs a refresh", async () => {
     const seed = {

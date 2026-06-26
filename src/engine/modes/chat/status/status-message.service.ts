@@ -54,6 +54,7 @@ const STATUS_MESSAGE_REFRESH_MIN_MS = 45 * 60 * 1000;
 const STATUS_MESSAGE_REFRESH_JITTER_MS = 90 * 60 * 1000;
 const STATUS_MESSAGE_MAX_TOKENS = 1024;
 const STATUS_MESSAGE_RETRY_MAX_TOKENS = 2048;
+const STATUS_MESSAGE_RECENT_MESSAGE_LIMIT = 160;
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -265,17 +266,37 @@ function compactStyleText(value: string, maxLength: number): string {
   return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
 
-function recentCharacterReplies(messages: JsonRecord[], characterId: string, singleCharacterChat: boolean): string[] {
+function messageCreatedAtMs(message: JsonRecord): number {
+  const value = Date.parse(readString(message.createdAt));
+  return Number.isFinite(value) ? value : 0;
+}
+
+function recentCharacterReplies(messages: JsonRecord[], characterId: string): string[] {
   return messages
     .filter((message) => readString(message.role) === "assistant")
     .filter((message) => {
       const messageCharacterId = readString(message.characterId);
-      return messageCharacterId === characterId || (singleCharacterChat && !messageCharacterId);
+      return messageCharacterId === characterId;
     })
-    .sort((a, b) => Date.parse(readString(a.createdAt)) - Date.parse(readString(b.createdAt)))
+    .sort((a, b) => messageCreatedAtMs(b) - messageCreatedAtMs(a))
+    .slice(0, 6)
+    .reverse()
     .map((message) => compactStyleText(readString(message.content), 140))
+    .filter(Boolean);
+}
+
+function characterExampleTurns(value: string): string[] {
+  return readString(value)
+    .split(/\*\*\*|<START>/)
+    .map((block) =>
+      Array.from(block.matchAll(/\{\{char\}\}\s*:\s*([\s\S]*?)(?=\n\s*\{\{(?:user|char)\}\}\s*:|$)/gi))
+        .map((match) => compactStyleText(match[1] ?? "", 180))
+        .filter(Boolean)
+        .join(" / "),
+    )
+    .map((example) => compactStyleText(example, 220))
     .filter(Boolean)
-    .slice(-6);
+    .slice(-4);
 }
 
 function typingStyleFromCharacter(characterData: JsonRecord, recentReplies: string[]): string {
@@ -285,11 +306,7 @@ function typingStyleFromCharacter(characterData: JsonRecord, recentReplies: stri
     readString(characterData.post_history_instructions ?? characterData.postHistoryInstructions),
     600,
   );
-  const examples = readString(characterData.mes_example ?? characterData.exampleDialogue)
-    .split(/\*\*\*|<START>/)
-    .map((example) => compactStyleText(example, 220))
-    .filter((example) => example.includes("{{char}}:") || example.length > 0)
-    .slice(-4);
+  const examples = characterExampleTurns(readString(characterData.mes_example ?? characterData.exampleDialogue));
 
   if (systemPrompt) parts.push(`Character system prompt: ${systemPrompt}`);
   if (postHistoryInstructions) parts.push(`Post-history instructions: ${postHistoryInstructions}`);
@@ -367,10 +384,8 @@ export async function maybeRefreshConversationStatusMessages(
     fields: ["role", "content", "characterId", "createdAt"],
     orderBy: "createdAt",
     descending: true,
-    limit: 80,
+    limit: STATUS_MESSAGE_RECENT_MESSAGE_LIMIT,
   });
-  const singleCharacterChat = ids.length === 1;
-
   const connection = await resolveConnection(capabilities.storage, chat);
   if (!connection) {
     throw new Error(
@@ -397,10 +412,7 @@ export async function maybeRefreshConversationStatusMessages(
       currentStatus,
       currentActivity,
       recentContext: recentContinuityFromChat(meta, data),
-      typingStyleContext: typingStyleFromCharacter(
-        data,
-        recentCharacterReplies(recentMessages, characterId, singleCharacterChat),
-      ),
+      typingStyleContext: typingStyleFromCharacter(data, recentCharacterReplies(recentMessages, characterId)),
     });
     const message = parseGeneratedStatusMessage(raw);
     if (!message) {
