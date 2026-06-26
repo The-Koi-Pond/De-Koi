@@ -35,6 +35,14 @@ interface MaybeRefreshConversationStatusMessagesInput {
   now?: Date;
 }
 
+interface PendingStatusMessageRefresh {
+  characterId: string;
+  data: JsonRecord;
+  extensions: JsonRecord;
+  currentStatus: ConversationStatusKind;
+  currentActivity: string;
+}
+
 export interface ConversationStatusMessageRefreshResult {
   refreshed: string[];
   skipped: string[];
@@ -185,22 +193,9 @@ export async function maybeRefreshConversationStatusMessages(
   const ids = input.characterIds?.length ? input.characterIds : parseJsonArray<string>(chat.characterIds).filter(Boolean);
   const schedules = getEnabledConversationSchedules(meta);
   if (!enabled || ids.length === 0) return { refreshed: [], skipped: ids };
-  const connection = await resolveConnection(capabilities.storage, chat);
-  if (!connection) {
-    throw new Error(
-      `Conversation status blurbs enabled but no usable connection could be resolved for ${describeConnectionTarget(chat)}.`,
-    );
-  }
-  const connectionId = readString(connection.id);
-  const model = readString(connection.model);
-  if (!connectionId || !model) {
-    throw new Error(
-      `Conversation status blurbs enabled but connection data for ${describeConnectionTarget(chat)} is incomplete.`,
-    );
-  }
 
   const now = input.now ?? new Date();
-  const refreshed: string[] = [];
+  const pending: PendingStatusMessageRefresh[] = [];
   const skipped: string[] = [];
 
   for (const characterId of ids) {
@@ -221,6 +216,28 @@ export async function maybeRefreshConversationStatusMessages(
       continue;
     }
 
+    pending.push({ characterId, data, extensions, currentStatus, currentActivity });
+  }
+
+  if (pending.length === 0) return { refreshed: [], skipped };
+
+  const connection = await resolveConnection(capabilities.storage, chat);
+  if (!connection) {
+    throw new Error(
+      `Conversation status blurbs enabled but no usable connection could be resolved for ${describeConnectionTarget(chat)}.`,
+    );
+  }
+  const connectionId = readString(connection.id);
+  const model = readString(connection.model);
+  if (!connectionId || !model) {
+    throw new Error(
+      `Conversation status blurbs enabled but connection data for ${describeConnectionTarget(chat)} is incomplete.`,
+    );
+  }
+
+  const refreshed: string[] = [];
+
+  for (const { characterId, data, extensions, currentStatus, currentActivity } of pending) {
     const raw = await capabilities.llm.complete({
       connectionId,
       model,

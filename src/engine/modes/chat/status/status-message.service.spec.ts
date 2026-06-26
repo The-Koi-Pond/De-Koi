@@ -249,6 +249,46 @@ describe("maybeRefreshConversationStatusMessages", () => {
     });
   });
 
+  it("does not resolve connections when no character needs a refresh", async () => {
+    const seed = {
+      chats: {
+        chat1: {
+          id: "chat1",
+          mode: "conversation",
+          characterIds: ["char1"],
+          metadata: { conversationStatusMessagesEnabled: true },
+        },
+      },
+      connections: {},
+      characters: {
+        char1: {
+          id: "char1",
+          data: {
+            name: "Ari",
+            extensions: {
+              conversationStatus: "online",
+              conversationActivity: "free time",
+              conversationStatusMessage: "already reading",
+              conversationStatusMessageMeta: {
+                nextRefreshAt: "2026-06-26T13:00:00.000Z",
+                generatedAt: "2026-06-26T11:00:00.000Z",
+                sourceStatus: "online",
+                sourceActivity: "free time",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const result = await maybeRefreshConversationStatusMessages(
+      { storage: memoryStorage(seed), llm: llmReturning('{"message":"unused"}') },
+      { chatId: "chat1", now: new Date("2026-06-26T12:00:00.000Z") },
+    );
+
+    expect(result).toEqual({ refreshed: [], skipped: ["char1"] });
+  });
+
   it("throws when status blurbs are enabled but the configured connection is missing", async () => {
     const storage = {
       async get(collection: string, id: string) {
@@ -259,6 +299,15 @@ describe("maybeRefreshConversationStatusMessages", () => {
             connectionId: "missing-conn",
             characterIds: ["char1"],
             metadata: { conversationStatusMessagesEnabled: true },
+          };
+        }
+        if (collection === "characters" && id === "char1") {
+          return {
+            id: "char1",
+            data: {
+              name: "Ari",
+              extensions: { conversationStatus: "online", conversationActivity: "free time" },
+            },
           };
         }
         if (collection === "connections") return null;
@@ -326,6 +375,15 @@ describe("maybeRefreshConversationStatusMessages", () => {
             mode: "conversation",
             characterIds: ["char1"],
             metadata: { conversationStatusMessagesEnabled: true },
+          };
+        }
+        if (collection === "characters" && id === "char1") {
+          return {
+            id: "char1",
+            data: {
+              name: "Ari",
+              extensions: { conversationStatus: "online", conversationActivity: "free time" },
+            },
           };
         }
         return null;
