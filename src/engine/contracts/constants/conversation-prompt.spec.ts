@@ -47,6 +47,14 @@ describe("default conversation system prompts", () => {
     expect(CONVERSATION_STATUS_STYLE_REFERENCE).toContain("no *actions*, no narration, no quoted dialogue");
     expect(CONVERSATION_STATUS_STYLE_REFERENCE).not.toContain("<role>");
     expect(CONVERSATION_STATUS_STYLE_REFERENCE).not.toContain("{{userName}}");
+
+    const sharedStatusRules = CONVERSATION_STATUS_STYLE_REFERENCE.split("\n").filter(
+      (rule) => !rule.includes("schedule summary"),
+    );
+    for (const rule of sharedStatusRules) {
+      expect(DEFAULT_CONVERSATION_SYSTEM_PROMPT).toContain(rule);
+      expect(DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT).toContain(rule);
+    }
   });
 
   it("keeps group conversations scoped to the active character only", () => {
