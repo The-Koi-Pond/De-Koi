@@ -1,6 +1,6 @@
 import { memo, useMemo, type CSSProperties, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Brain, ChevronRight, EyeOff, Trash2, User, X } from "lucide-react";
+import { Brain, ChevronRight, EyeOff, RefreshCw, Trash2, User, X } from "lucide-react";
 import type { Message, MessageAttachment, MessageExtra } from "../../../../engine/contracts/types/chat";
 import type { ConversationAvatarOverride } from "../../../../engine/contracts/types/character";
 import type { QuoteFormat } from "../../../../shared/lib/dialogue-quotes";
@@ -168,6 +168,7 @@ export interface ConversationMessageRenderContext {
   onShowThinking: () => void;
   onImageOpen: (url: string, prompt?: string | null) => void;
   onRemoveAttachment: (index: number) => void | Promise<void>;
+  onRegenerateAttachment?: (index: number) => void | Promise<void>;
   onCloseThinking: () => void;
   onCloseGenerationReplay: () => void;
   imageLightbox: { url: string; prompt?: string | null } | null;
@@ -669,12 +670,28 @@ export function ConversationMessageAttachments({
               context.onImageOpen(imageSource, att.prompt);
             }}
           >
+            {context.onRegenerateAttachment && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void context.onRegenerateAttachment?.(i);
+                }}
+                aria-label="Regenerate image"
+                title="Regenerate image"
+                className="absolute top-1.5 right-9 rounded-full bg-black/60 p-1 text-white/80 transition-opacity hover:bg-black/80 hover:text-white sm:opacity-0 sm:group-hover/att:opacity-100"
+              >
+                <RefreshCw size="0.875rem" />
+              </button>
+            )}
             <button
+              type="button"
               onClick={(event) => {
                 event.stopPropagation();
                 void context.onRemoveAttachment(i);
               }}
-              title="Remove from message"
+              aria-label="Remove image"
+              title="Remove image"
               className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 text-white/80 transition-opacity hover:bg-black/80 hover:text-white sm:opacity-0 sm:group-hover/att:opacity-100"
             >
               <X size="0.875rem" />
