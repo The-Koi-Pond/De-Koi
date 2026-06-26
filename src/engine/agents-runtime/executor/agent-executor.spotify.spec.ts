@@ -226,6 +226,50 @@ describe("agent JSON retry", () => {
   });
 });
 
+describe("manual Illustrator requests", () => {
+  it("tells paintbrush retries to bypass the autonomous key-moment gate", async () => {
+    const calls: ChatMessage[][] = [];
+    const provider: BaseLLMProvider = {
+      maxTokensOverrideValue: null,
+      async chatComplete(messages) {
+        calls.push(messages);
+        return {
+          content: JSON.stringify({ shouldGenerate: false, reason: "not visually significant" }),
+          usage: { totalTokens: 3 },
+        };
+      },
+    };
+    const config: AgentExecConfig = {
+      id: "illustrator-agent",
+      type: "illustrator",
+      name: "Illustrator",
+      phase: "post",
+      promptTemplate: "",
+      connectionId: null,
+      settings: {},
+    };
+
+    await executeAgent(
+      config,
+      {
+        ...spotifyContext(),
+        chatMode: "conversation",
+        recentMessages: [{ role: "assistant", content: "Jello shots spill under neon bar lights." }],
+        mainResponse: "Jello shots spill under neon bar lights.",
+        memory: { _illustratorManualRequest: true },
+      },
+      provider,
+      "test-model",
+    );
+
+    const systemPrompt = calls[0]?.find((message) => message.role === "system")?.content ?? "";
+    expect(systemPrompt).toContain("<manual_illustration_request>");
+    expect(systemPrompt).toContain("Manual paintbrush requests override the normal key narrative moment gate");
+    expect(systemPrompt).toContain("Do not return shouldGenerate false merely because");
+    expect(systemPrompt).toContain("Return shouldGenerate false only when");
+  });
+});
+
 describe("Spotify agent fallback playback", () => {
   it("repairs suffixed track URIs before fallback spotify_play", async () => {
     const provider: BaseLLMProvider = {
