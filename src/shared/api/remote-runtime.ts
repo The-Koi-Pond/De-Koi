@@ -404,7 +404,8 @@ function remoteNetworkError(error: unknown): ApiError {
   const message = error instanceof Error ? error.message : String(error ?? "Unknown network error");
   return new ApiError("Remote runtime is unreachable. Check Settings and make sure the runtime server is running.", 503, {
     code: "remote_runtime_unreachable",
-    cause: message,
+    cause: error,
+    causeMessage: message,
   });
 }
 
@@ -531,6 +532,7 @@ export async function invokeRemote<T>(command: string, args?: Record<string, unk
       body,
     }));
   } catch (error) {
+    if (isAbortError(error)) throw error;
     throw remoteNetworkError(error);
   }
   if (!response.ok) throw await readRemoteError(response);

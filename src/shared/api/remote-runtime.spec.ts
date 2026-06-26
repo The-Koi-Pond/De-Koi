@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "./api-errors";
 import { checkRemoteRuntimeHealth, invokeRemote } from "./remote-runtime";
 import { useUIStore } from "../stores/ui.store";
 
@@ -83,12 +84,34 @@ describe("invokeRemote", () => {
 
   it("normalizes browser network failures into an actionable API error", async () => {
     useUIStore.setState({ remoteRuntimeUrl: "http://127.0.0.1:8787" });
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new TypeError("Failed to fetch")));
+    const cause = new TypeError("Failed to fetch");
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(cause));
 
     await expect(invokeRemote("connection_models", { id: "conn-1" })).rejects.toMatchObject({
       name: "ApiError",
       message: "Remote runtime is unreachable. Check Settings and make sure the runtime server is running.",
       status: 503,
+      details: {
+        code: "remote_runtime_unreachable",
+        cause,
+        causeMessage: "Failed to fetch",
+      },
     });
+  });
+
+  it("propagates abort errors without wrapping", async () => {
+    useUIStore.setState({ remoteRuntimeUrl: "http://127.0.0.1:8787" });
+    const abortError = new DOMException("The operation was aborted.", "AbortError");
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(abortError));
+
+    await expect(invokeRemote("connection_models", { id: "conn-1" })).rejects.toBe(abortError);
+  });
+
+  it("passes through existing API errors without wrapping", async () => {
+    useUIStore.setState({ remoteRuntimeUrl: "http://127.0.0.1:8787" });
+    const apiError = new ApiError("Remote runtime returned 429", 429, { code: "rate_limited" });
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(apiError));
+
+    await expect(invokeRemote("connection_models", { id: "conn-1" })).rejects.toBe(apiError);
   });
 });
