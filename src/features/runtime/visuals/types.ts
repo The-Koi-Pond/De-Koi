@@ -21,6 +21,7 @@ export type CharacterMap = Map<
     boxColor?: string;
     avatarCrop?: AvatarCropValue | null;
     conversationStatus?: "online" | "idle" | "dnd" | "offline";
+    conversationStatusMessage?: string;
     conversationActivity?: string;
     /** Conversation-mode avatar override (raw reference; sprite/gallery resolved into conversationAvatarSrc) */
     conversationAvatar?: ConversationAvatarOverride;

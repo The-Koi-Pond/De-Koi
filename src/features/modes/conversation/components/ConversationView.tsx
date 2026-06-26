@@ -556,6 +556,8 @@ export function ConversationView({
     return { background: `linear-gradient(135deg, ${g.from}, ${g.to})` };
   }, [convoGradient, theme]);
   const hasAutonomousMessaging = !!chatMeta.autonomousMessages || !!chatMeta.characterExchanges;
+  const conversationStatusMessagesEnabled = chatMeta.conversationStatusMessagesEnabled === true;
+  const shouldMountAutonomousEffects = hasAutonomousMessaging || conversationStatusMessagesEnabled;
   const [summaryOpen, setSummaryOpen] = useState(false);
   const isMobile = useIsMobile();
   const [mobileWorldInfoOpen, setMobileWorldInfoOpen] = useState(false);
@@ -1292,6 +1294,7 @@ export function ConversationView({
                 avatarUrl: string | null;
                 avatarCrop?: AvatarCropValue | null;
                 conversationStatus?: "online" | "idle" | "dnd" | "offline";
+                conversationStatusMessage?: string;
                 conversationActivity?: string;
               }>;
               if (chars.length === 0) return <div />;
@@ -1333,8 +1336,10 @@ export function ConversationView({
                     </div>
                     <div className="flex flex-col leading-tight">
                       <span className="text-[0.75rem] font-medium text-foreground/90">{c.name}</span>
-                      {c.conversationActivity && (
-                        <span className="text-[0.5625rem] text-foreground/50">{c.conversationActivity}</span>
+                      {(c.conversationStatusMessage || c.conversationActivity) && (
+                        <span className="max-w-[12rem] truncate text-[0.5625rem] text-foreground/50">
+                          {c.conversationStatusMessage || c.conversationActivity}
+                        </span>
                       )}
                     </div>
                   </button>
@@ -1383,9 +1388,9 @@ export function ConversationView({
                               <p className="text-[0.7rem] font-semibold text-[var(--foreground)] leading-tight">
                                 {c.name}
                               </p>
-                              {c.conversationActivity && (
-                                <p className="mt-0.5 text-[0.6rem] text-[var(--muted-foreground)]/70 leading-tight">
-                                  {c.conversationActivity}
+                              {(c.conversationStatusMessage || c.conversationActivity) && (
+                                <p className="mt-0.5 max-w-[12rem] text-[0.6rem] text-[var(--muted-foreground)]/70 leading-tight">
+                                  {c.conversationStatusMessage || c.conversationActivity}
                                 </p>
                               )}
                             </div>
@@ -1602,8 +1607,8 @@ export function ConversationView({
             <div className="flex items-center gap-2 px-4 py-1.5 text-[0.8125rem] text-[var(--text-secondary)]">
               <span className="italic">
                 {delayedCharacterInfo.status === "dnd"
-                  ? `${delayedCharacterInfo.name} ${delayedCharacterInfo.name.includes(",") ? "are" : "is"} busy — they'll respond when they're back`
-                  : `${delayedCharacterInfo.name} ${delayedCharacterInfo.name.includes(",") ? "are" : "is"} away — they'll respond in a moment`}
+                  ? `${delayedCharacterInfo.name} ${delayedCharacterInfo.name.includes(",") ? "are" : "is"} busy - they'll respond when they're back`
+                  : `${delayedCharacterInfo.name} ${delayedCharacterInfo.name.includes(",") ? "are" : "is"} away - they'll respond in a moment`}
               </span>
             </div>
           )}
@@ -1639,14 +1644,16 @@ export function ConversationView({
         </div>
 
         {/* ── Autonomous message toast notification ── */}
-        {hasAutonomousMessaging && (
+        {shouldMountAutonomousEffects && (
           <Suspense fallback={null}>
             <ConversationAutonomousEffects
               key={chatId}
               chatId={chatId}
               messages={messages}
               characterMap={characterMap}
-              chatMeta={chatMeta}
+              autonomousEnabled={!!chatMeta.autonomousMessages}
+              exchangesEnabled={!!chatMeta.characterExchanges}
+              conversationStatusMessagesEnabled={conversationStatusMessagesEnabled}
             />
           </Suspense>
         )}
@@ -1684,6 +1691,7 @@ export function ConversationView({
                       avatarUrl: info.avatarUrl ?? null,
                       avatarCrop: info.avatarCrop ?? null,
                       conversationStatus: info.conversationStatus,
+                      conversationStatusMessage: info.conversationStatusMessage,
                       conversationActivity: info.conversationActivity,
                     };
                   })

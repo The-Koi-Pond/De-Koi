@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+﻿import { useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   checkConversationAutonomous,
@@ -11,6 +11,7 @@ import {
   recordUserActivity as recordUserActivityState,
 } from "../../../../../engine/modes/chat/autonomous/autonomous.service";
 import { generateConversationSchedules } from "../../../../../engine/modes/chat/schedules/schedule.service";
+import { maybeRefreshConversationStatusMessages } from "../../../../../engine/modes/chat/status/status-message.service";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
@@ -23,6 +24,7 @@ export function useAutonomousMessaging(
   chatId: string | null,
   autonomousEnabled: boolean,
   exchangesEnabled: boolean,
+  conversationStatusMessagesEnabled: boolean,
   onAutonomousMessage?: (characterId: string) => void,
 ) {
   const { generate } = useGenerate();
@@ -93,7 +95,6 @@ export function useAutonomousMessaging(
           onAutonomousMessageRef.current?.(characterId);
         }
       } catch {
-        // Autonomous generation is opportunistic; keep polling after failures.
       } finally {
         clearGenerationInProgress(chatId, startedAt);
         generatingRef.current = false;
@@ -121,7 +122,6 @@ export function useAutonomousMessaging(
             );
           }
         } catch {
-          // Exchange checks are best-effort.
         }
       }
 
@@ -134,10 +134,29 @@ export function useAutonomousMessaging(
   );
 
   useEffect(() => {
-    if (!chatId || !autonomousEnabled) return;
+    if (!chatId || (!autonomousEnabled && !conversationStatusMessagesEnabled)) return;
 
     const poll = async () => {
       if (generatingRef.current || useChatStore.getState().abortControllers.has(chatId)) {
+        schedulePoll(poll);
+        return;
+      }
+
+      if (conversationStatusMessagesEnabled) {
+        try {
+          const statusMessages = await maybeRefreshConversationStatusMessages(
+            { storage: storageApi, llm: llmApi },
+            { chatId },
+          );
+          if (statusMessages.refreshed.length > 0) {
+            invalidateCharacterCollectionQueries(qc);
+          }
+        } catch (error) {
+          console.error("Failed to refresh conversation status blurbs.", error);
+        }
+      }
+
+      if (!autonomousEnabled) {
         schedulePoll(poll);
         return;
       }
@@ -202,7 +221,7 @@ export function useAutonomousMessaging(
         busyGenerationStartedAtRef.current = null;
       }
     };
-  }, [autonomousEnabled, chatId, exchangesEnabled, qc, schedulePoll, triggerAutonomousGeneration]);
+  }, [autonomousEnabled, chatId, conversationStatusMessagesEnabled, exchangesEnabled, qc, schedulePoll, triggerAutonomousGeneration]);
 
   return {
     recordUserActivity,

@@ -185,6 +185,7 @@ interface ConversationInputProps {
     avatarUrl: string | null;
     avatarCrop?: AvatarCropValue | null;
     conversationStatus?: "online" | "idle" | "dnd" | "offline";
+    conversationStatusMessage?: string;
     conversationActivity?: string;
   }>;
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
@@ -2108,9 +2109,9 @@ export function ConversationInput({
                   </div>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs">{char.name}</span>
-                    {(char.conversationActivity || statusLabel(char.conversationStatus)) && (
+                    {(char.conversationStatusMessage || char.conversationActivity || statusLabel(char.conversationStatus)) && (
                       <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
-                        {char.conversationActivity || statusLabel(char.conversationStatus)}
+                        {char.conversationStatusMessage || char.conversationActivity || statusLabel(char.conversationStatus)}
                       </span>
                     )}
                   </span>
