@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildIllustrationNegativePrompt,
   ILLUSTRATOR_TEXT_NEGATIVE_PROMPT,
+  illustratorPromptData,
   resolveIllustrationImageConnectionId,
 } from "./start-generation";
+import type { AgentResult } from "../contracts/types/agent";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { JsonRecord } from "./runtime-records";
 
@@ -44,6 +46,34 @@ describe("buildIllustrationNegativePrompt", () => {
     });
 
     expect(negativePrompt).toBe(`low quality, ${ILLUSTRATOR_TEXT_NEGATIVE_PROMPT}`);
+  });
+});
+
+describe("illustratorPromptData", () => {
+  it("accepts common LLM image prompt shapes from manual Illustrator retries", () => {
+    const result: AgentResult = {
+      agentId: "illustrator",
+      agentType: "illustrator",
+      type: "image_prompt",
+      data: {
+        should_generate: "true",
+        image_prompt: "cinematic koi pond at sunset",
+        negative_prompt: "text, watermark",
+        visible_characters: ["Deki"],
+      },
+      tokensUsed: 0,
+      durationMs: 0,
+      success: true,
+      error: null,
+    };
+
+    expect(illustratorPromptData(result)).toEqual({
+      agentId: "illustrator",
+      prompt: "cinematic koi pond at sunset",
+      reason: "",
+      negativePrompt: "text, watermark",
+      characterNames: ["Deki"],
+    });
   });
 });
 

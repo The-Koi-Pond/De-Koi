@@ -903,19 +903,53 @@ function appendReferenceGuidance(prompt: string, subjectNames: string[]): string
   ].join("\n\n");
 }
 
-function illustratorPromptData(result: AgentResult): IllustrationPromptData | null {
+function illustrationResultData(value: unknown): JsonRecord {
+  const data = parseRecord(value);
+  const nested = [data.illustration, data.image, data.result, data.output]
+    .map(parseRecord)
+    .find((record) => Object.keys(record).length > 0);
+  return nested ? { ...data, ...nested } : data;
+}
+
+function illustrationPromptText(data: JsonRecord): string {
+  return readString(
+    data.prompt ??
+      data.imagePrompt ??
+      data.image_prompt ??
+      data.positivePrompt ??
+      data.positive_prompt ??
+      data.promptText ??
+      data.prompt_text,
+  ).trim();
+}
+
+function illustrationShouldGenerate(data: JsonRecord, prompt: string): boolean {
+  const flag =
+    data.shouldGenerate ??
+    data.should_generate ??
+    data.generateImage ??
+    data.generate_image ??
+    data.createImage ??
+    data.create_image ??
+    data.generate;
+  if (flag === undefined || flag === null || readString(flag).trim() === "") return prompt.length > 0;
+  return boolish(flag, false);
+}
+
+export function illustratorPromptData(result: AgentResult): IllustrationPromptData | null {
   if (result.agentType !== "illustrator" && result.type !== "image_prompt") return null;
   if (!result.success) return null;
-  const data = parseRecord(result.data);
-  if (data.shouldGenerate !== true) return null;
-  const prompt = readString(data.prompt ?? data.imagePrompt ?? data.positivePrompt).trim();
-  if (!prompt) return null;
+  const data = illustrationResultData(result.data);
+  const prompt = illustrationPromptText(data);
+  if (!prompt || !illustrationShouldGenerate(data, prompt)) return null;
   return {
     agentId: result.agentId,
     prompt,
-    reason: readString(data.reason).trim(),
-    negativePrompt: readString(data.negativePrompt ?? data.negative_prompt).trim(),
-    characterNames: stringArray(data.characters ?? data.characterNames ?? data.visibleCharacters),
+    reason: readString(data.reason ?? data.rationale ?? data.why).trim(),
+    negativePrompt: readString(data.negativePrompt ?? data.negative_prompt ?? data.negative).trim(),
+    characterNames: stringArray(
+      data.characters ?? data.characterNames ?? data.character_names ?? data.visibleCharacters ?? data.visible_characters,
+    ),
   };
 }
 
