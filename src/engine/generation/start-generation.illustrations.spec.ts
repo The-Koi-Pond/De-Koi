@@ -75,6 +75,43 @@ describe("illustratorPromptData", () => {
       characterNames: ["Deki"],
     });
   });
+
+  it("rejects prompt-shaped data without an explicit affirmative generate flag", () => {
+    const result: AgentResult = {
+      agentId: "illustrator",
+      agentType: "illustrator",
+      type: "image_prompt",
+      data: {
+        image_prompt: "cinematic koi pond at sunset",
+      },
+      tokensUsed: 0,
+      durationMs: 0,
+      success: true,
+      error: null,
+    };
+
+    expect(illustratorPromptData(result)).toBeNull();
+  });
+
+  it("rejects generic nested result envelopes", () => {
+    const result: AgentResult = {
+      agentId: "illustrator",
+      agentType: "illustrator",
+      type: "image_prompt",
+      data: {
+        output: {
+          should_generate: "true",
+          image_prompt: "cinematic koi pond at sunset",
+        },
+      },
+      tokensUsed: 0,
+      durationMs: 0,
+      success: true,
+      error: null,
+    };
+
+    expect(illustratorPromptData(result)).toBeNull();
+  });
 });
 
 describe("resolveIllustrationImageConnectionId", () => {

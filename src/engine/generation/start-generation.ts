@@ -903,14 +903,6 @@ function appendReferenceGuidance(prompt: string, subjectNames: string[]): string
   ].join("\n\n");
 }
 
-function illustrationResultData(value: unknown): JsonRecord {
-  const data = parseRecord(value);
-  const nested = [data.illustration, data.image, data.result, data.output]
-    .map(parseRecord)
-    .find((record) => Object.keys(record).length > 0);
-  return nested ? { ...data, ...nested } : data;
-}
-
 function illustrationPromptText(data: JsonRecord): string {
   return readString(
     data.prompt ??
@@ -923,7 +915,7 @@ function illustrationPromptText(data: JsonRecord): string {
   ).trim();
 }
 
-function illustrationShouldGenerate(data: JsonRecord, prompt: string): boolean {
+function illustrationShouldGenerate(data: JsonRecord): boolean {
   const flag =
     data.shouldGenerate ??
     data.should_generate ??
@@ -932,16 +924,16 @@ function illustrationShouldGenerate(data: JsonRecord, prompt: string): boolean {
     data.createImage ??
     data.create_image ??
     data.generate;
-  if (flag === undefined || flag === null || readString(flag).trim() === "") return prompt.length > 0;
+  if (flag === undefined || flag === null || readString(flag).trim() === "") return false;
   return boolish(flag, false);
 }
 
 export function illustratorPromptData(result: AgentResult): IllustrationPromptData | null {
   if (result.agentType !== "illustrator" && result.type !== "image_prompt") return null;
   if (!result.success) return null;
-  const data = illustrationResultData(result.data);
+  const data = parseRecord(result.data);
   const prompt = illustrationPromptText(data);
-  if (!prompt || !illustrationShouldGenerate(data, prompt)) return null;
+  if (!prompt || !illustrationShouldGenerate(data)) return null;
   return {
     agentId: result.agentId,
     prompt,
