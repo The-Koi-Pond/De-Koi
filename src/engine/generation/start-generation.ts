@@ -29,7 +29,12 @@ import {
   backfillConversationSummaries,
   type ConversationSummaryBackfillResult,
 } from "../modes/chat/core/summaries/auto-summary.service";
-import { getBusyDelay, getMentionDelay, type WeekSchedule } from "../modes/chat/schedules/schedule.service";
+import {
+  getAvailabilityDecision,
+  getAvailabilityResponseDelay,
+  type ConversationAvailabilityDecision,
+  type WeekSchedule,
+} from "../modes/chat/schedules/schedule.service";
 import {
   activeCharacterIds,
   assertChatHasActiveCharacters,
@@ -646,7 +651,6 @@ type IllustrationReferenceSubject = {
   avatarFilename?: string | null;
   spriteOwnerType: SpriteOwnerType;
 };
-
 
 function promptContainsTag(prompt: string, tag: string): boolean {
   const normalizedPrompt = prompt.toLowerCase();
@@ -2013,6 +2017,7 @@ type ConversationAvailabilityCharacter = {
   name: string;
   status: ConversationAvailabilityStatus;
   schedule?: WeekSchedule | null;
+  availability: ConversationAvailabilityDecision;
 };
 
 function conversationStatus(value: unknown): ConversationAvailabilityStatus {
@@ -2047,11 +2052,15 @@ async function resolveConversationAvailability(args: {
   const characters: ConversationAvailabilityCharacter[] = [];
   for (const id of respondingIds) {
     const row = statusResult.statuses[id];
+    const schedule = isRecord(row?.schedule) ? (row.schedule as unknown as WeekSchedule) : null;
+    const fallbackActivity = typeof row?.activity === "string" ? row.activity : "free time";
+    const availability = getAvailabilityDecision(schedule, new Date(), fallbackActivity);
     characters.push({
       id,
       name: (await characterNameById(args.storage, [], id)) ?? "Character",
-      status: conversationStatus(row?.status),
-      schedule: isRecord(row?.schedule) ? (row.schedule as unknown as WeekSchedule) : null,
+      status: conversationStatus(availability.status),
+      schedule,
+      availability,
     });
   }
   const mentionedCharacters =
@@ -2064,9 +2073,11 @@ async function resolveConversationAvailability(args: {
   for (const character of availableCharacters) {
     const isMentionedOrManualTarget =
       (manualTarget.length > 0 && character.id === manualTarget) || mentionedNames.has(character.name.toLowerCase());
-    const characterDelay = isMentionedOrManualTarget
-      ? getMentionDelay(character.status)
-      : getBusyDelay(character.status, character.schedule ?? undefined);
+    const characterDelay = getAvailabilityResponseDelay(
+      character.availability,
+      character.schedule ?? undefined,
+      isMentionedOrManualTarget,
+    );
     if (characterDelay > delayMs) {
       delayMs = characterDelay;
       delayStatus = character.status;

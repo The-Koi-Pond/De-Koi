@@ -186,6 +186,7 @@ interface ConversationInputProps {
     avatarCrop?: AvatarCropValue | null;
     conversationStatus?: "online" | "idle" | "dnd" | "offline";
     conversationActivity?: string;
+    conversationAvailabilityExplanation?: string;
   }>;
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
 }
@@ -558,7 +559,6 @@ export function ConversationInput({
     [activeChatId, mentionStartPos, setInputDraft, syncInputState],
   );
 
-
   const handleSend = useCallback(async () => {
     if (!activeChatId) return;
     if (isReadingAttachments) {
@@ -855,7 +855,6 @@ export function ConversationInput({
       return;
     }
 
-    let userMessageAccepted = false;
     try {
       await generate({
         chatId: submittingChatId,
@@ -863,12 +862,8 @@ export function ConversationInput({
         userMessage: message,
         ...(pendingAttachments.length ? { attachments: pendingAttachments } : {}),
         ...(mentioned.length ? { mentionedCharacterNames: mentioned } : {}),
-        onUserMessageAccepted: () => {
-          userMessageAccepted = true;
-        },
       });
     } catch {
-      if (!userMessageAccepted) restoreSubmittedDraft();
       // useGenerate owns provider-failure UI feedback; aborts are an expected Stop generating path.
     } finally {
       if (pendingAttachments.length) invalidateGalleryImagesForChat(qc, submittingChatId);
@@ -1989,7 +1984,6 @@ export function ConversationInput({
             />
           )}
 
-
           <button
             onClick={isActuallyGenerating ? () => useChatStore.getState().stopGeneration() : handleSend}
             disabled={!isActuallyGenerating && (isReadingAttachments || !activeChatId || !canSubmit)}
@@ -2089,6 +2083,12 @@ export function ConversationInput({
                 <button
                   key={char.id}
                   onClick={() => handleCharacterResponse(char.id)}
+                  title={char.conversationAvailabilityExplanation ?? char.conversationActivity ?? char.name}
+                  aria-label={
+                    char.conversationAvailabilityExplanation
+                      ? `${char.name}: ${char.conversationAvailabilityExplanation}`
+                      : char.name
+                  }
                   className={cn(
                     "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
                     (char.conversationStatus === "dnd" || char.conversationStatus === "offline") && "opacity-60",
@@ -2113,9 +2113,13 @@ export function ConversationInput({
                   </div>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs">{char.name}</span>
-                    {(char.conversationActivity || statusLabel(char.conversationStatus)) && (
+                    {(char.conversationAvailabilityExplanation ||
+                      char.conversationActivity ||
+                      statusLabel(char.conversationStatus)) && (
                       <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
-                        {char.conversationActivity || statusLabel(char.conversationStatus)}
+                        {char.conversationAvailabilityExplanation ||
+                          char.conversationActivity ||
+                          statusLabel(char.conversationStatus)}
                       </span>
                     )}
                   </span>
