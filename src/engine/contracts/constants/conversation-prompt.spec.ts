@@ -48,12 +48,20 @@ describe("default conversation system prompts", () => {
     expect(CONVERSATION_STATUS_STYLE_REFERENCE).not.toContain("<role>");
     expect(CONVERSATION_STATUS_STYLE_REFERENCE).not.toContain("{{userName}}");
 
-    const sharedStatusRules = CONVERSATION_STATUS_STYLE_REFERENCE.split("\n").filter(
-      (rule) => !rule.includes("schedule summary"),
-    );
+    const sharedStatusRules = [
+      "Sound like a person texting. Be casual, specific, and reactive. Do not sound like an assistant, therapist, narrator, or writing partner.",
+      "No roleplay formatting: no *actions*, no narration, no quoted dialogue, no stage directions.",
+    ];
+    const statusOnlyRules = ["Write only the character's natural text, not metadata or a schedule summary."];
+    expect(CONVERSATION_STATUS_STYLE_REFERENCE.split("\n")).toEqual([...sharedStatusRules, ...statusOnlyRules]);
+
     for (const rule of sharedStatusRules) {
       expect(DEFAULT_CONVERSATION_SYSTEM_PROMPT).toContain(rule);
       expect(DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT).toContain(rule);
+    }
+    for (const rule of statusOnlyRules) {
+      expect(DEFAULT_CONVERSATION_SYSTEM_PROMPT).not.toContain(rule);
+      expect(DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT).not.toContain(rule);
     }
   });
 
