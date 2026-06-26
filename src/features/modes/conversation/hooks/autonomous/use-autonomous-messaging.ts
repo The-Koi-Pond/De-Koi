@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   checkConversationAutonomous,
@@ -95,6 +95,7 @@ export function useAutonomousMessaging(
           onAutonomousMessageRef.current?.(characterId);
         }
       } catch {
+        // Autonomous generation failures are surfaced through provider/runtime state; keep polling alive.
       } finally {
         clearGenerationInProgress(chatId, startedAt);
         generatingRef.current = false;
@@ -122,6 +123,7 @@ export function useAutonomousMessaging(
             );
           }
         } catch {
+          // Exchange probing is opportunistic; a failure should not stop normal polling.
         }
       }
 

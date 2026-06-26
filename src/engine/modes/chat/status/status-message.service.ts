@@ -1,4 +1,4 @@
-﻿export type ConversationStatusKind = "online" | "idle" | "dnd" | "offline";
+type ConversationStatusKind = "online" | "idle" | "dnd" | "offline";
 
 import type { LlmGateway, LlmMessage } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
@@ -169,7 +169,7 @@ async function resolveConnection(storage: StorageGateway, chat: JsonRecord): Pro
 function describeConnectionTarget(chat: JsonRecord): string {
   const chatConnectionId = readString(chat.connectionId);
   if (chatConnectionId === "random") return "random/default connection";
-  if (chatConnectionId) return `configured connection \"${chatConnectionId}\"`;
+  if (chatConnectionId) return `configured connection "${chatConnectionId}"`;
   return "default connection";
 }
 

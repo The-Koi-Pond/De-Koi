@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { LlmGateway } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
@@ -225,7 +225,12 @@ describe("maybeRefreshConversationStatusMessages", () => {
     await maybeRefreshConversationStatusMessages(
       {
         storage: memoryStorage(seed),
-        llm: llmReturning('{"message":"\"  quietly   reading\nby the window with coffee and notes that stretch past the safety cap while waiting for the rain to ease and the room to settle into silence  \""}'),
+        llm: llmReturning(
+          JSON.stringify({
+            message:
+              '"  quietly   reading\nby the window with coffee and notes that stretch past the safety cap while waiting for the rain to ease and the room to settle into silence  "',
+          }),
+        ),
       },
       { chatId: "chat1", now: new Date("2026-06-26T12:00:00.000Z") },
     );
