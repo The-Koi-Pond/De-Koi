@@ -3023,7 +3023,7 @@ function ChatSettingsDrawerInner({
                   </button>
                 )}
 
-                {/* Conversation schedules toggle */}
+                {/* Conversation availability toggle */}
                 <button
                   onClick={() => {
                     const nextEnabled = !conversationSchedulesEnabled;
@@ -3040,9 +3040,9 @@ function ChatSettingsDrawerInner({
                   )}
                 >
                   <div className="flex-1 min-w-0">
-                    <span className="text-xs font-medium">Schedules</span>
+                    <span className="text-xs font-medium">Availability</span>
                     <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                      Optional character routines for availability and delays
+                      Simple character availability and response timing
                     </p>
                   </div>
                   <div
@@ -3090,21 +3090,21 @@ function ChatSettingsDrawerInner({
                   </div>
                 </button>
 
-                {/* Schedule status */}
+                {/* Availability status */}
                 <div className="flex items-center gap-2 rounded-lg bg-[var(--secondary)] px-3 py-2.5">
                   <CalendarClock size="0.875rem" className="text-[var(--muted-foreground)]" />
                   <div className="flex-1 min-w-0">
                     <span className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]">
                       {!conversationSchedulesEnabled
-                        ? "Schedules are off — autonomous messages will not create routines."
+                        ? "Availability is off - autonomous messages will not use routines."
                         : hasGeneratedConversationSchedules
-                          ? "Schedules generated — status is derived from character routines."
-                          : "Schedules enabled — generate routines when you're ready."}
+                          ? "Availability patterns generated - status uses character availability."
+                          : "Availability enabled - generate patterns when you're ready."}
                     </span>
                     <p className="text-[0.59375rem] text-[var(--muted-foreground)]/60 mt-0.5">
                       {conversationSchedulesEnabled
-                        ? "Schedules refresh only after you enable or regenerate them."
-                        : "Turn schedules on if you want character availability to matter."}
+                        ? "Availability refreshes only after you enable or regenerate it."
+                        : "Turn availability on if you want character timing to matter."}
                     </p>
                   </div>
                   <button
@@ -3121,7 +3121,7 @@ function ChatSettingsDrawerInner({
                         ? "cursor-not-allowed text-[var(--muted-foreground)]/60"
                         : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
                     )}
-                    title={isRegeneratingSchedules ? "Regenerating schedules…" : "Generate schedules"}
+                    title={isRegeneratingSchedules ? "Regenerating availability..." : "Generate availability patterns"}
                   >
                     <RefreshCw size="0.6875rem" className={cn(isRegeneratingSchedules && "animate-spin")} />
                     {isRegeneratingSchedules
@@ -3132,7 +3132,7 @@ function ChatSettingsDrawerInner({
                   </button>
                 </div>
 
-                {/* Schedule editor per character */}
+                {/* Availability editor per character */}
                 {conversationSchedulesEnabled && hasGeneratedConversationSchedules && (
                   <ScheduleEditor
                     characterSchedules={characterSchedules}
