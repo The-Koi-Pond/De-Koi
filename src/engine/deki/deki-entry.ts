@@ -34,6 +34,8 @@ export type DekiChatAccessWindow = {
   messageCount?: number | null;
 };
 
+export const DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT = 200;
+
 export type DekiChatAccessGrant = {
   id: string;
   actionMessageId: string;
@@ -406,10 +408,10 @@ function isDekiActionEntity(value: unknown): value is DekiActionEntity {
 
 function normalizeDekiChatAccessWindow(value: unknown): DekiChatAccessWindow {
   if (!isRecord(value)) return { messageCount: 50 };
-  if ("messageCount" in value && value.messageCount === null) return { messageCount: null };
+  if ("messageCount" in value && value.messageCount === null) return { messageCount: DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT };
   const messageCount =
     typeof value.messageCount === "number" && Number.isFinite(value.messageCount)
-      ? Math.max(1, Math.min(200, Math.floor(value.messageCount)))
+      ? Math.max(1, Math.min(DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT, Math.floor(value.messageCount)))
       : 50;
   return { messageCount };
 }

@@ -77,6 +77,7 @@ const DEKI_TEXT_ATTACHMENT_EXTENSIONS: &[&str] = &[
 const DEKI_INITIAL_MAX_TOKENS: u64 = 2048;
 const DEKI_POST_TOOL_MAX_TOKENS: u64 = 8192;
 const DEKI_AGENT_MAX_TURNS: usize = 10;
+const DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT: u64 = 200;
 const DEKI_REPO_ROOT_ENV: &str = "DE_KOI_REPO_ROOT";
 const LEGACY_DEKI_REPO_ROOT_ENV: &str = "MARINARA_REPO_ROOT";
 const DEKI_WORKSPACE_TOOLS: &[&str] = &[
@@ -1198,11 +1199,14 @@ fn normalize_deki_chat_access_window(window: Option<&Value>) -> AppResult<Value>
             "Deki-senpai chat access window must be an object.",
         )
     })?;
-    let message_count = window
-        .get("messageCount")
-        .and_then(Value::as_u64)
-        .map(|value| value.clamp(1, 200))
-        .unwrap_or(50);
+    let message_count = match window.get("messageCount") {
+        Some(Value::Null) => DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT,
+        Some(value) => value
+            .as_u64()
+            .map(|value| value.clamp(1, DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT))
+            .unwrap_or(50),
+        None => 50,
+    };
     Ok(json!({ "messageCount": message_count }))
 }
 
@@ -2917,6 +2921,20 @@ mod tests {
         assert_eq!(action["scope"]["type"], "character");
         assert_eq!(action["scope"]["characterId"], "char-rina");
         assert_eq!(action["window"]["messageCount"], json!(25));
+    }
+
+    #[test]
+    fn deki_response_normalizes_null_chat_access_window_to_maximum() {
+        let raw = r#"I need permission to read the relevant roleplay chats.
+<deki_action>{"type":"request_chat_access","scope":{"type":"character","characterId":"char-rina","characterName":"Rina"},"window":{"messageCount":null},"label":"Read Rina chats"}</deki_action>"#;
+
+        let (_content, action) =
+            deki_response_content_and_action(raw).expect("chat access action should parse");
+
+        assert_eq!(
+            action["window"]["messageCount"],
+            json!(DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT)
+        );
     }
 
     #[test]

@@ -514,7 +514,8 @@ describe("DekiSurface message retry actions", () => {
       "10 recent messages per chat",
       "25 recent messages per chat",
       "Deki's suggestion: Up to 50 recent messages per chat",
-      "All messages in approved chats",
+      "100 recent messages per chat",
+      "200 recent messages per chat",
     ]);
     expect(scopeSelect!.value).toBe("suggested");
     expect(windowSelect!.value).toBe("suggested");
@@ -522,7 +523,7 @@ describe("DekiSurface message retry actions", () => {
     await act(async () => {
       scopeSelect!.value = "latest-character";
       scopeSelect!.dispatchEvent(new Event("change", { bubbles: true }));
-      windowSelect!.value = "all";
+      windowSelect!.value = "max";
       windowSelect!.dispatchEvent(new Event("change", { bubbles: true }));
       await Promise.resolve();
     });
@@ -557,7 +558,7 @@ describe("DekiSurface message retry actions", () => {
                 characterName: "Makima",
               }),
               window: {
-                messageCount: null,
+                messageCount: 200,
               },
             }),
           }),
@@ -579,7 +580,7 @@ describe("DekiSurface message retry actions", () => {
               characterName: "Makima",
             }),
             window: {
-              messageCount: null,
+              messageCount: 200,
             },
           }),
         ],

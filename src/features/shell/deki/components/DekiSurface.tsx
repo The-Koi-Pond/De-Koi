@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT,
   type DekiActionEntity,
   type DekiAttachment,
   type DekiChatAccessGrant,
@@ -212,7 +213,7 @@ function chatAccessWindowLabel(action: DekiChatAccessRequestAction): string {
   if (typeof messageCount === "number" && Number.isFinite(messageCount)) {
     return `Up to ${Math.max(1, Math.floor(messageCount))} recent messages per chat`;
   }
-  if (messageCount === null) return "All messages in approved chats";
+  if (messageCount === null) return `Up to ${DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT} recent messages per chat`;
   return "Up to 50 recent messages per chat";
 }
 
@@ -290,7 +291,7 @@ function chatAccessScopeOptions(action: DekiChatAccessRequestAction): DekiChatAc
 }
 
 function windowOptionKey(window: DekiChatAccessWindow): string {
-  return window.messageCount === null ? "all" : String(window.messageCount ?? 50);
+  return String(window.messageCount ?? DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT);
 }
 
 function chatAccessWindowOptions(action: DekiChatAccessRequestAction): DekiChatAccessWindowOption[] {
@@ -304,7 +305,12 @@ function chatAccessWindowOptions(action: DekiChatAccessRequestAction): DekiChatA
     { id: "10", label: "10 recent messages per chat", window: { messageCount: 10 } },
     { id: "25", label: "25 recent messages per chat", window: { messageCount: 25 } },
     { id: "50", label: "50 recent messages per chat", window: { messageCount: 50 } },
-    { id: "all", label: "All messages in approved chats", window: { messageCount: null } },
+    { id: "100", label: "100 recent messages per chat", window: { messageCount: 100 } },
+    {
+      id: "max",
+      label: `${DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT} recent messages per chat`,
+      window: { messageCount: DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT },
+    },
   ];
   return mergeSuggestedChatAccessOption(suggestedOption, fixedOptions, (option) => windowOptionKey(option.window));
 }
