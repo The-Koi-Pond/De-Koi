@@ -65,4 +65,63 @@ describe("detached Deki send", () => {
       }),
     );
   });
+
+  it("forwards approved chat access grants to the Deki prompt gateway", async () => {
+    const prompt = vi.fn(async () => ({
+      content: "I can read the approved chat now.",
+      createdAt: "2026-06-25T12:00:02.000Z",
+      action: {
+        type: "none",
+        capability: "workspace_agent",
+        reason: "Test response.",
+      } satisfies DekiEntryAction,
+    }));
+    const grant = {
+      id: "grant-1",
+      actionMessageId: "assistant-1",
+      scope: {
+        type: "character",
+        characterId: "char-rina",
+        characterName: "Rina",
+      },
+      window: { messageCount: 25 },
+      grantedAt: "2026-06-25T12:00:00.000Z",
+      expiresAt: null,
+    } as const;
+
+    await runDetachedDekiSend({
+      sessionId: "session-1",
+      userMessage: "Continue with the approved chat history.",
+      messages: [],
+      compaction: EMPTY_DEKI_COMPACTION,
+      connection: { id: "connection-1", model: "model-1", maxContext: 128_000 },
+      persona: null,
+      attachments: [],
+      chatAccessGrants: [grant],
+      history: {
+        appendMessage: vi.fn(async (message: { role: "user" | "assistant"; content: string; action?: DekiEntryAction | null }) => ({
+          id: `${message.role}-1`,
+          role: message.role,
+          content: message.content,
+          createdAt: "2026-06-25T12:00:00.000Z",
+          action: "action" in message ? message.action : null,
+        })),
+        saveCompaction: vi.fn(),
+      },
+      llm: {
+        complete: vi.fn(),
+        stream: vi.fn(),
+        listModels: vi.fn(),
+      },
+      gateway: {
+        prompt,
+      },
+    });
+
+    expect(prompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatAccessGrants: [grant],
+      }),
+    );
+  });
 });

@@ -1,6 +1,7 @@
 import {
   runDekiEntry,
   type DekiAttachment,
+  type DekiChatAccessGrant,
   type DekiEntryAction,
   type DekiGateway,
   type DekiMessage,
@@ -33,6 +34,7 @@ export type DetachedDekiSendInput = {
   connection: DekiCompactionConnection;
   persona: DekiPersonaContext | null;
   attachments: DekiAttachment[];
+  chatAccessGrants?: DekiChatAccessGrant[];
   history: DekiHistoryWriter;
   llm: LlmGateway;
   gateway: DekiGateway;
@@ -84,6 +86,7 @@ export async function runDetachedDekiSend(input: DetachedDekiSendInput): Promise
       connectionId: input.connection.id ?? null,
       persona: input.persona,
       attachments: input.attachments,
+      chatAccessGrants: input.chatAccessGrants ?? [],
     },
     input.gateway,
   );

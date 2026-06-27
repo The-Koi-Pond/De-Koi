@@ -16,6 +16,10 @@ import {
 import {
   type DekiActionEntity,
   type DekiAttachment,
+  type DekiChatAccessGrant,
+  type DekiChatAccessMode,
+  type DekiChatAccessScope,
+  type DekiChatAccessWindow,
   type DekiEntryAction,
   type DekiMessage,
 } from "../../../../engine/deki/deki-entry";
@@ -85,6 +89,17 @@ const DEKI_CREATIVE_LIBRARY_QUERY_KEYS: readonly (readonly unknown[])[] = [
 ];
 
 type ClientDekiAttachment = DekiAttachment & { id: string };
+type DekiChatAccessRequestAction = Extract<DekiEntryAction, { type: "request_chat_access" }>;
+type DekiChatAccessScopeOption = {
+  id: string;
+  label: string;
+  scope: DekiChatAccessScope;
+};
+type DekiChatAccessWindowOption = {
+  id: string;
+  label: string;
+  window: DekiChatAccessWindow;
+};
 
 type DekiConnection = {
   id: string;
@@ -168,9 +183,160 @@ function actionPayload(action: DekiEntryAction): Record<string, unknown> {
 
 function actionTitle(action: DekiEntryAction) {
   if (action.type === "none") return "Deki-senpai action";
+  if (action.type === "request_chat_access") return action.label?.trim() || "Grant Deki chat access";
   if (action.label?.trim()) return action.label.trim();
   const verb = action.type === "create_record" ? "Create" : "Update";
   return `${verb} ${DEKI_ACTION_ENTITY_LABELS[action.entity]}`;
+}
+
+function chatModeLabel(mode: DekiChatAccessMode): string {
+  if (mode === "conversation") return "conversation";
+  if (mode === "roleplay") return "roleplay";
+  return "game";
+}
+
+function chatAccessScopeLabel(scope: DekiChatAccessScope): string {
+  if (scope.type === "specific_chats") {
+    const count = scope.chatIds.filter((id) => id.trim()).length;
+    return `${count} selected chat${count === 1 ? "" : "s"}`;
+  }
+  if (scope.type === "character" || scope.type === "latest_character") {
+    const prefix = scope.type === "latest_character" ? "Latest chat involving" : "Chats involving";
+    return `${prefix} ${scope.characterName?.trim() || scope.characterId?.trim() || "selected character"}`;
+  }
+  return `${scope.modes.map(chatModeLabel).join(", ")} chats`;
+}
+
+function chatAccessWindowLabel(action: DekiChatAccessRequestAction): string {
+  const messageCount = action.window?.messageCount;
+  if (typeof messageCount === "number" && Number.isFinite(messageCount)) {
+    return `Up to ${Math.max(1, Math.floor(messageCount))} recent messages per chat`;
+  }
+  if (messageCount === null) return "All messages in approved chats";
+  return "Up to 50 recent messages per chat";
+}
+
+function createDekiChatAccessGrant(
+  message: DekiMessage,
+  action: DekiChatAccessRequestAction,
+): DekiChatAccessGrant {
+  return {
+    id: `chat-grant-${message.id}`,
+    actionMessageId: message.id,
+    scope: action.scope,
+    window: action.window ?? { messageCount: 50 },
+    grantedAt: new Date().toISOString(),
+    expiresAt: null,
+  };
+}
+
+function characterScopeParts(scope: DekiChatAccessScope): { characterId?: string | null; characterName?: string | null } | null {
+  if (scope.type !== "character" && scope.type !== "latest_character") return null;
+  if (!scope.characterId && !scope.characterName) return null;
+  return {
+    characterId: scope.characterId ?? null,
+    characterName: scope.characterName ?? null,
+  };
+}
+
+function scopeOptionKey(scope: DekiChatAccessScope): string {
+  if (scope.type === "specific_chats") return `specific:${scope.chatIds.join(",")}`;
+  if (scope.type === "character" || scope.type === "latest_character") {
+    return `${scope.type}:${scope.characterId ?? ""}:${scope.characterName ?? ""}`;
+  }
+  return `mode:${scope.modes.join(",")}`;
+}
+
+function chatAccessScopeOptions(action: DekiChatAccessRequestAction): DekiChatAccessScopeOption[] {
+  const options: DekiChatAccessScopeOption[] = [
+    {
+      id: "suggested",
+      label: `Deki's suggestion: ${chatAccessScopeLabel(action.scope)}`,
+      scope: action.scope,
+    },
+  ];
+  const character = characterScopeParts(action.scope);
+  if (character) {
+    options.push(
+      {
+        id: "all-character",
+        label: `All chats featuring ${character.characterName || character.characterId || "character"}`,
+        scope: {
+          type: "character",
+          ...character,
+        },
+      },
+      {
+        id: "latest-character",
+        label: `Latest chat with ${character.characterName || character.characterId || "character"}`,
+        scope: {
+          type: "latest_character",
+          ...character,
+        },
+      },
+    );
+  }
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    const key = option.id === "suggested" ? option.id : scopeOptionKey(option.scope);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function windowOptionKey(window: DekiChatAccessWindow): string {
+  return window.messageCount === null ? "all" : String(window.messageCount ?? 50);
+}
+
+function chatAccessWindowOptions(action: DekiChatAccessRequestAction): DekiChatAccessWindowOption[] {
+  const suggestedWindow = action.window ?? { messageCount: 50 };
+  const options: DekiChatAccessWindowOption[] = [
+    {
+      id: "suggested",
+      label: `Deki's suggestion: ${chatAccessWindowLabel({ ...action, window: suggestedWindow })}`,
+      window: suggestedWindow,
+    },
+    { id: "10", label: "10 recent messages per chat", window: { messageCount: 10 } },
+    { id: "25", label: "25 recent messages per chat", window: { messageCount: 25 } },
+    { id: "50", label: "50 recent messages per chat", window: { messageCount: 50 } },
+    { id: "all", label: "All messages in approved chats", window: { messageCount: null } },
+  ];
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    const key = option.id === "suggested" ? option.id : windowOptionKey(option.window);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function approvedDekiChatAccessGrants(messages: DekiMessage[]): DekiChatAccessGrant[] {
+  return messages.flatMap((message) => {
+    const action = message.action;
+    const application = message.actionApplication;
+    if (!action || action.type !== "request_chat_access" || application?.status !== "applied") return [];
+    return [
+      {
+        id: application.resultId ?? `chat-grant-${message.id}`,
+        actionMessageId: message.id,
+        scope: action.scope,
+        window: action.window ?? { messageCount: 50 },
+        grantedAt: application.appliedAt,
+        expiresAt: null,
+      },
+    ];
+  });
+}
+
+function dekiChatAccessResumePrompt(originalUserMessage: string): string {
+  return [
+    "The user approved the requested scoped chat access.",
+    "Resume the original task now using the approved chat context.",
+    "Do not greet the user, ask what to work on, or repeat the access request.",
+    "Original user request:",
+    originalUserMessage,
+  ].join("\n");
 }
 
 function previewValue(value: unknown): string | null {
@@ -190,7 +356,7 @@ function previewValue(value: unknown): string | null {
 }
 
 function actionPreviewRows(action: DekiEntryAction): Array<{ label: string; value: string }> {
-  if (action.type === "none") return [];
+  if (action.type === "none" || action.type === "request_chat_access") return [];
   const payload = actionPayload(action);
   const nestedData =
     payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)
@@ -211,6 +377,25 @@ function actionPreviewRows(action: DekiEntryAction): Array<{ label: string; valu
     .slice(0, 4);
 }
 
+function stableJsonKey(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function dekiActionPreviewKey(messageId: string | null | undefined, action: DekiEntryAction | null | undefined): string {
+  if (!action) return `${messageId ?? "no-message"}:no-action`;
+  if (action.type === "edit_record") {
+    return [messageId ?? "no-message", action.type, action.entity, action.id, stableJsonKey(action.patch)].join(":");
+  }
+  if (action.type === "create_record") {
+    return [messageId ?? "no-message", action.type, action.entity, stableJsonKey(action.draft)].join(":");
+  }
+  return [messageId ?? "no-message", action.type].join(":");
+}
+
 function uniqueQueryKeys(queryKeys: readonly (readonly unknown[])[]): readonly (readonly unknown[])[] {
   const seen = new Set<string>();
   return queryKeys.filter((queryKey) => {
@@ -222,7 +407,7 @@ function uniqueQueryKeys(queryKeys: readonly (readonly unknown[])[]): readonly (
 }
 
 async function invalidateDekiActionQueries(queryClient: QueryClient, action: DekiEntryAction) {
-  if (action.type === "none") return;
+  if (action.type === "none" || action.type === "request_chat_access") return;
   await Promise.all(
     uniqueQueryKeys([...DEKI_CREATIVE_LIBRARY_QUERY_KEYS, ...DEKI_ACTION_QUERY_KEYS[action.entity]]).map((queryKey) =>
       queryClient.invalidateQueries({
@@ -262,6 +447,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
   const [sendError, setSendError] = useState<string | null>(null);
   const [applyingActionMessageId, setApplyingActionMessageId] = useState<string | null>(null);
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
+  const [chatAccessGrants, setChatAccessGrants] = useState<DekiChatAccessGrant[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -351,12 +537,14 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
   useEffect(() => {
     let active = true;
     setHistoryLoaded(false);
+    setChatAccessGrants([]);
     void dekiApi.history
       .get(sessionId)
       .then((history) => {
         if (!active) return;
         setMessages(history.messages);
         setCompaction(history.compaction);
+        setChatAccessGrants(approvedDekiChatAccessGrants(history.messages));
         setSendError(null);
       })
       .catch((error) => {
@@ -567,6 +755,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
         history: dekiApi.history,
         persona: selectedPersonaRequest(),
         attachments: [],
+        chatAccessGrants,
         onUserMessagePersisted: (_user, messagesWithUser) => {
           if (mountedRef.current) setMessages(messagesWithUser);
           void onSessionsChanged?.();
@@ -664,6 +853,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
           size: attachment.size,
           content: attachment.content,
         })),
+        chatAccessGrants,
         onUserMessagePersisted: (_user, messagesWithUser) => {
           if (mountedRef.current) setMessages(messagesWithUser);
           void onSessionsChanged?.();
@@ -689,8 +879,9 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
     }
   };
 
-  const applyDekiAction = async (message: DekiMessage) => {
-    const action = message.action;
+  const applyDekiAction = async (message: DekiMessage, approvedAction?: DekiChatAccessRequestAction) => {
+    const action =
+      approvedAction && message.action?.type === "request_chat_access" ? approvedAction : message.action;
     if (!action || action.type === "none" || message.actionApplication?.status === "applied") return;
     setApplyingActionMessageId(message.id);
     setActionErrors((current) => {
@@ -698,6 +889,69 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
       return rest;
     });
     try {
+      if (action.type === "request_chat_access") {
+        if (sending || !historyLoaded || !preferencesReady) return;
+        if (!preparePrompting()) return;
+        const retryTurn = findUserTurnForRetry(message.id);
+        if (!retryTurn) {
+          setActionErrors((current) => ({
+            ...current,
+            [message.id]: "Deki-senpai needs the original user message before resuming.",
+          }));
+          return;
+        }
+        const grant = createDekiChatAccessGrant(message, action);
+        const application = {
+          status: "applied" as const,
+          appliedAt: grant.grantedAt,
+          resultId: grant.id,
+        };
+        const nextGrants = [...chatAccessGrants.filter((item) => item.actionMessageId !== message.id), grant];
+        const messagesWithGrant = messages.map((item) =>
+          item.id === message.id
+            ? {
+                ...item,
+                action,
+                actionApplication: application,
+              }
+            : item,
+        );
+        await dekiApi.history.replaceMessages({
+          sessionId,
+          messages: messagesWithGrant,
+          compaction,
+        });
+        await dekiApi.history.markActionApplied(message.id, application, sessionId);
+        setChatAccessGrants(nextGrants);
+        setMessages(messagesWithGrant);
+        setSending(true);
+        await runDetachedDekiSend({
+          sessionId,
+          userMessage: dekiChatAccessResumePrompt(retryTurn.user.content),
+          existingUser: retryTurn.user,
+          messages: messagesWithGrant,
+          compaction,
+          connection: selectedConnection!,
+          llm: llmApi,
+          gateway: dekiApi,
+          history: dekiApi.history,
+          persona: selectedPersonaRequest(),
+          attachments: [],
+          chatAccessGrants: nextGrants,
+          onUserMessagePersisted: (_user, messagesWithUser) => {
+            if (mountedRef.current) setMessages(messagesWithUser);
+            void onSessionsChanged?.();
+          },
+          onCompactionSaved: (nextCompaction) => {
+            if (mountedRef.current) setCompaction(nextCompaction);
+          },
+          onAssistantMessagePersisted: (_assistant, messagesWithAssistant) => {
+            if (mountedRef.current) setMessages(messagesWithAssistant);
+            void onSessionsChanged?.();
+          },
+        });
+        return;
+      }
       const result = await dekiApi.actions.apply(action, { actionId: message.id, messageId: message.id, sessionId });
       if (result.messages && result.compaction) {
         setMessages(result.messages);
@@ -723,8 +977,11 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
         [message.id]: error instanceof Error ? error.message : "Deki-senpai could not apply that action.",
       }));
     } finally {
-      setApplyingActionMessageId(null);
-      requestAnimationFrame(() => inputRef.current?.focus());
+      if (mountedRef.current) {
+        if (action.type === "request_chat_access") setSending(false);
+        setApplyingActionMessageId(null);
+        requestAnimationFrame(() => inputRef.current?.focus());
+      }
     }
   };
 
@@ -1014,10 +1271,11 @@ function DekiActionCard({
   message?: DekiMessage;
   applying: boolean;
   error?: string;
-  onApply: (message: DekiMessage) => void;
+  onApply: (message: DekiMessage, approvedAction?: DekiChatAccessRequestAction) => void;
 }) {
   const action = message?.action;
   const applied = message?.actionApplication?.status === "applied";
+  const actionPreviewKey = dekiActionPreviewKey(message?.id, action);
   const [currentRecordState, setCurrentRecordState] = useState<DekiActionCurrentRecordState>({
     status: "idle",
     record: null,
@@ -1052,17 +1310,26 @@ function DekiActionCard({
     return () => {
       active = false;
     };
-  }, [action, applied]);
+  }, [action, actionPreviewKey, applied]);
 
-  const diffRows = useMemo(
-    () =>
-      action && action.type !== "none" && !applied
-        ? createDekiActionDiffRows(action, currentRecordState.record)
-        : [],
-    [action, applied, currentRecordState.record],
-  );
+  const diffRows = useMemo(() => {
+    if (!action || action.type === "none" || action.type === "request_chat_access" || applied) return [];
+    return createDekiActionDiffRows(action, currentRecordState.record);
+  }, [action, actionPreviewKey, applied, currentRecordState.record]);
 
   if (!message || !action || action.type === "none") return null;
+  if (action.type === "request_chat_access") {
+    return (
+      <DekiChatAccessCard
+        message={message}
+        action={action}
+        granted={applied}
+        applying={applying}
+        error={error}
+        onApply={onApply}
+      />
+    );
+  }
   const rows = actionPreviewRows(action);
   const diffWarning =
     action.type === "edit_record" && currentRecordState.status === "loaded" && !currentRecordState.record
@@ -1163,6 +1430,125 @@ function DekiActionDiffView({
         </div>
       ) : (
         <div className="px-2.5 py-3 text-[0.6875rem] text-[var(--muted-foreground)]">No payload fields.</div>
+      )}
+    </div>
+  );
+}
+
+function DekiChatAccessCard({
+  message,
+  action,
+  granted,
+  applying,
+  error,
+  onApply,
+}: {
+  message: DekiMessage;
+  action: DekiChatAccessRequestAction;
+  granted: boolean;
+  applying: boolean;
+  error?: string;
+  onApply: (message: DekiMessage, approvedAction?: DekiChatAccessRequestAction) => void;
+}) {
+  const scopeOptions = useMemo(() => chatAccessScopeOptions(action), [action]);
+  const windowOptions = useMemo(() => chatAccessWindowOptions(action), [action]);
+  const [scopeOptionId, setScopeOptionId] = useState(scopeOptions[0]?.id ?? "suggested");
+  const [windowOptionId, setWindowOptionId] = useState(windowOptions[0]?.id ?? "suggested");
+  const selectedScope = scopeOptions.find((option) => option.id === scopeOptionId)?.scope ?? action.scope;
+  const selectedWindow = windowOptions.find((option) => option.id === windowOptionId)?.window ?? action.window ?? { messageCount: 50 };
+  const approvedAction: DekiChatAccessRequestAction = {
+    ...action,
+    scope: selectedScope,
+    window: selectedWindow,
+  };
+
+  useEffect(() => {
+    setScopeOptionId(scopeOptions[0]?.id ?? "suggested");
+  }, [scopeOptions]);
+
+  useEffect(() => {
+    setWindowOptionId(windowOptions[0]?.id ?? "suggested");
+  }, [windowOptions]);
+
+  return (
+    <div className="mb-3 ml-[4.5rem] mr-4 mt-2 rounded-xl border border-amber-400/30 bg-[var(--card)] px-3 py-3 text-xs text-[var(--foreground)] shadow-lg shadow-amber-500/10">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500">
+          <FileText size="0.875rem" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold">{actionTitle(action)}</div>
+          <div className="text-[0.6875rem] text-[var(--muted-foreground)]">Read-only chat context</div>
+        </div>
+        {granted && (
+          <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-lg bg-emerald-500/10 px-2 font-semibold text-emerald-500">
+            <Check size="0.75rem" />
+            Granted
+          </span>
+        )}
+      </div>
+      {action.rationale && <p className="mt-2 leading-relaxed text-[var(--foreground)]/75">{action.rationale}</p>}
+      <dl className="mt-2 grid gap-1.5">
+        <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
+          <dt className="text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">Scope</dt>
+          <dd className="min-w-0 text-[var(--foreground)]/85">
+            {granted ? (
+              <span className="block truncate">{chatAccessScopeLabel(action.scope)}</span>
+            ) : (
+              <select
+                value={scopeOptionId}
+                onChange={(event) => setScopeOptionId(event.target.value)}
+                className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2 text-xs text-[var(--foreground)] outline-none transition-colors focus:border-amber-400"
+                aria-label="Chat access scope"
+              >
+                {scopeOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </dd>
+        </div>
+        <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
+          <dt className="text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">Window</dt>
+          <dd className="min-w-0 text-[var(--foreground)]/85">
+            {granted ? (
+              <span className="block truncate">{chatAccessWindowLabel(action)}</span>
+            ) : (
+              <select
+                value={windowOptionId}
+                onChange={(event) => setWindowOptionId(event.target.value)}
+                className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2 text-xs text-[var(--foreground)] outline-none transition-colors focus:border-amber-400"
+                aria-label="Chat access window"
+              >
+                {windowOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </dd>
+        </div>
+        <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
+          <dt className="text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">Expires</dt>
+          <dd className="min-w-0 truncate text-[var(--foreground)]/85">Current Deki session</dd>
+        </div>
+      </dl>
+      {error && <div className="mt-2 rounded-lg bg-red-500/10 px-2 py-1.5 text-[0.6875rem] text-red-500">{error}</div>}
+      {!granted && (
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            disabled={applying}
+            onClick={() => onApply(message, approvedAction)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-amber-500 px-3 font-semibold text-white transition-all hover:bg-amber-400 active:scale-95 disabled:cursor-wait disabled:bg-amber-500/60"
+          >
+            {applying ? <Loader2 size="0.8125rem" className="animate-spin" /> : <Check size="0.8125rem" />}
+            Grant access
+          </button>
+        </div>
       )}
     </div>
   );
