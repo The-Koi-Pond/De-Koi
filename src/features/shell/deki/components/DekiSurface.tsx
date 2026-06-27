@@ -247,17 +247,27 @@ function scopeOptionKey(scope: DekiChatAccessScope): string {
   return `mode:${scope.modes.join(",")}`;
 }
 
+function mergeSuggestedChatAccessOption<TOption>(
+  suggestedOption: TOption,
+  fixedOptions: TOption[],
+  optionKey: (option: TOption) => string,
+): TOption[] {
+  const suggestedKey = optionKey(suggestedOption);
+  const matchingFixedOptionIndex = fixedOptions.findIndex((option) => optionKey(option) === suggestedKey);
+  if (matchingFixedOptionIndex === -1) return [suggestedOption, ...fixedOptions];
+  return fixedOptions.map((option, index) => (index === matchingFixedOptionIndex ? suggestedOption : option));
+}
+
 function chatAccessScopeOptions(action: DekiChatAccessRequestAction): DekiChatAccessScopeOption[] {
-  const options: DekiChatAccessScopeOption[] = [
-    {
-      id: "suggested",
-      label: `Deki's suggestion: ${chatAccessScopeLabel(action.scope)}`,
-      scope: action.scope,
-    },
-  ];
+  const suggestedOption: DekiChatAccessScopeOption = {
+    id: "suggested",
+    label: `Deki's suggestion: ${chatAccessScopeLabel(action.scope)}`,
+    scope: action.scope,
+  };
+  const fixedOptions: DekiChatAccessScopeOption[] = [];
   const character = characterScopeParts(action.scope);
   if (character) {
-    options.push(
+    fixedOptions.push(
       {
         id: "all-character",
         label: `All chats featuring ${character.characterName || character.characterId || "character"}`,
@@ -276,13 +286,7 @@ function chatAccessScopeOptions(action: DekiChatAccessRequestAction): DekiChatAc
       },
     );
   }
-  const seen = new Set<string>();
-  return options.filter((option) => {
-    const key = option.id === "suggested" ? option.id : scopeOptionKey(option.scope);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return mergeSuggestedChatAccessOption(suggestedOption, fixedOptions, (option) => scopeOptionKey(option.scope));
 }
 
 function windowOptionKey(window: DekiChatAccessWindow): string {
@@ -291,24 +295,22 @@ function windowOptionKey(window: DekiChatAccessWindow): string {
 
 function chatAccessWindowOptions(action: DekiChatAccessRequestAction): DekiChatAccessWindowOption[] {
   const suggestedWindow = action.window ?? { messageCount: 50 };
-  const options: DekiChatAccessWindowOption[] = [
-    {
-      id: "suggested",
-      label: `Deki's suggestion: ${chatAccessWindowLabel({ ...action, window: suggestedWindow })}`,
-      window: suggestedWindow,
-    },
+  const suggestedOption: DekiChatAccessWindowOption = {
+    id: "suggested",
+    label: `Deki's suggestion: ${chatAccessWindowLabel({ ...action, window: suggestedWindow })}`,
+    window: suggestedWindow,
+  };
+  const fixedOptions: DekiChatAccessWindowOption[] = [
     { id: "10", label: "10 recent messages per chat", window: { messageCount: 10 } },
     { id: "25", label: "25 recent messages per chat", window: { messageCount: 25 } },
     { id: "50", label: "50 recent messages per chat", window: { messageCount: 50 } },
     { id: "all", label: "All messages in approved chats", window: { messageCount: null } },
   ];
-  const seen = new Set<string>();
-  return options.filter((option) => {
-    const key = option.id === "suggested" ? option.id : windowOptionKey(option.window);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return mergeSuggestedChatAccessOption(suggestedOption, fixedOptions, (option) => windowOptionKey(option.window));
+}
+
+function defaultChatAccessOptionId(options: Array<{ id: string }>): string {
+  return options.find((option) => option.id === "suggested")?.id ?? options[0]?.id ?? "suggested";
 }
 
 function approvedDekiChatAccessGrants(messages: DekiMessage[]): DekiChatAccessGrant[] {
@@ -1452,8 +1454,8 @@ function DekiChatAccessCard({
 }) {
   const scopeOptions = useMemo(() => chatAccessScopeOptions(action), [action]);
   const windowOptions = useMemo(() => chatAccessWindowOptions(action), [action]);
-  const [scopeOptionId, setScopeOptionId] = useState(scopeOptions[0]?.id ?? "suggested");
-  const [windowOptionId, setWindowOptionId] = useState(windowOptions[0]?.id ?? "suggested");
+  const [scopeOptionId, setScopeOptionId] = useState(defaultChatAccessOptionId(scopeOptions));
+  const [windowOptionId, setWindowOptionId] = useState(defaultChatAccessOptionId(windowOptions));
   const selectedScope = scopeOptions.find((option) => option.id === scopeOptionId)?.scope ?? action.scope;
   const selectedWindow = windowOptions.find((option) => option.id === windowOptionId)?.window ?? action.window ?? { messageCount: 50 };
   const approvedAction: DekiChatAccessRequestAction = {
@@ -1463,11 +1465,11 @@ function DekiChatAccessCard({
   };
 
   useEffect(() => {
-    setScopeOptionId(scopeOptions[0]?.id ?? "suggested");
+    setScopeOptionId(defaultChatAccessOptionId(scopeOptions));
   }, [scopeOptions]);
 
   useEffect(() => {
-    setWindowOptionId(windowOptions[0]?.id ?? "suggested");
+    setWindowOptionId(defaultChatAccessOptionId(windowOptions));
   }, [windowOptions]);
 
   return (

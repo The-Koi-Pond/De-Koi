@@ -504,6 +504,20 @@ describe("DekiSurface message retry actions", () => {
     const windowSelect = container!.querySelector<HTMLSelectElement>('select[aria-label="Chat access window"]');
     expect(scopeSelect).not.toBeNull();
     expect(windowSelect).not.toBeNull();
+    const scopeOptionLabels = Array.from(scopeSelect!.options).map((option) => option.textContent);
+    const windowOptionLabels = Array.from(windowSelect!.options).map((option) => option.textContent);
+    expect(scopeOptionLabels).toEqual([
+      "Deki's suggestion: Chats involving Makima",
+      "Latest chat with Makima",
+    ]);
+    expect(windowOptionLabels).toEqual([
+      "10 recent messages per chat",
+      "25 recent messages per chat",
+      "Deki's suggestion: Up to 50 recent messages per chat",
+      "All messages in approved chats",
+    ]);
+    expect(scopeSelect!.value).toBe("suggested");
+    expect(windowSelect!.value).toBe("suggested");
 
     await act(async () => {
       scopeSelect!.value = "latest-character";
