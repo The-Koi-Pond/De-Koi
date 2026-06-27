@@ -10,7 +10,7 @@ import { resolveActiveLorebookScopeReason } from "../../../generation-core/loreb
 import { lorebookEntryPassesContextFilters } from "../../../generation-core/lorebooks/keyword-scanner";
 import { readString as stringValue } from "../../../shared/value-readers";
 
-// ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Types ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
+// Types
 
 /** A single time block in a character's daily schedule */
 interface ScheduleBlock {
@@ -37,7 +37,7 @@ export interface WeekSchedule {
   idleResponseDelayMinutes?: number;
   /** Optional exact response delay in minutes while busy / DND */
   dndResponseDelayMinutes?: number;
-  /** How chatty the character is ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â affects autonomous messaging frequency (0-100) */
+  /** How chatty the character is; affects autonomous messaging frequency (0-100) */
   talkativeness: number;
 }
 
@@ -65,7 +65,7 @@ export interface GenerateConversationSchedulesResult {
   schedules: CharacterSchedules;
 }
 
-// ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Constants ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
+// Constants
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const SCHEDULE_CONTINUITY_MAX_CHARS = 6000;
@@ -232,7 +232,7 @@ export async function generateConversationSchedules(
   return { results, schedules: newSchedules };
 }
 
-// ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Schedule Generation ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
+// Schedule Generation
 
 /**
  * Generate a weekly schedule for a character using the LLM.
@@ -248,7 +248,7 @@ async function generateCharacterSchedule(
   scheduleLorebookContext?: string,
 ): Promise<{ schedule: Omit<WeekSchedule, "weekStart">; raw: string }> {
   const systemPrompt = [
-    `You are a schedule generator. Create a realistic weekly schedule for a character based on their personality and description.`,
+    `You are an availability generator. Create realistic weekly availability exceptions for a character based on their personality and description.`,
     ``,
     `Character: ${characterName}`,
     `Description: ${characterDescription}`,
@@ -287,9 +287,9 @@ async function generateCharacterSchedule(
           ``,
         ]
       : []),
-    `Generate a schedule for each day of the week (Monday through Sunday).`,
-    `Each day should have time blocks covering the full 24 hours.`,
-    `The schedule should be realistic and consistent with the character's lifestyle.`,
+    `For each day of the week (Monday through Sunday), list only meaningful recurring availability windows, not a minute-by-minute day planner.`,
+    `Do not fill every hour of the day. Gaps mean the character is available and has free time.`,
+    `The patterns should be realistic and consistent with the character's lifestyle.`,
     ``,
     `Each time block must include availability-aware fields:`,
     `- "availability": "available" | "delayed" | "busy" | "unavailable"`,
@@ -311,23 +311,23 @@ async function generateCharacterSchedule(
     `- Impatient/chatty characters: 15-60 minutes`,
     ``,
     `RESPOND IN EXACTLY THIS JSON FORMAT (no markdown, no code blocks, just raw JSON).`,
-    `Include ALL 7 days (Monday through Sunday), each with time blocks covering the full 24 hours.`,
-    `Example for one day:`,
+    `Include ALL 7 day keys (Monday through Sunday). Use an empty array for days with no meaningful availability exceptions.`,
+    `Example:`,
     `{`,
     `  "talkativeness": 65,`,
     `  "inactivityThresholdMinutes": 45,`,
     `  "days": {`,
     `    "Monday": [`,
-    `      { "time": "00:00-07:00", "activity": "sleeping", "availability": "unavailable", "status": "offline" },`,
-    `      { "time": "07:00-08:00", "activity": "morning routine", "availability": "delayed", "status": "idle" },`,
-    `      { "time": "08:00-12:00", "activity": "working", "availability": "busy", "status": "dnd" },`,
-    `      { "time": "12:00-13:00", "activity": "lunch break", "availability": "delayed", "status": "idle" },`,
-    `      { "time": "13:00-17:00", "activity": "working", "availability": "busy", "status": "dnd" },`,
-    `      { "time": "17:00-19:00", "activity": "free time", "availability": "available", "status": "online" },`,
-    `      { "time": "19:00-20:00", "activity": "dinner", "availability": "delayed", "status": "idle" },`,
-    `      { "time": "20:00-23:00", "activity": "relaxing", "availability": "available", "status": "online" },`,
-    `      { "time": "23:00-00:00", "activity": "getting ready for bed", "availability": "delayed", "status": "idle" }`,
-    `    ]`,
+    `      { "time": "23:00-07:00", "activity": "sleeping", "availability": "unavailable", "status": "offline" },`,
+    `      { "time": "08:30-16:30", "activity": "working", "availability": "busy", "status": "dnd" },`,
+    `      { "time": "18:00-19:00", "activity": "dinner", "availability": "delayed", "status": "idle" }`,
+    `    ],`,
+    `    "Tuesday": [],`,
+    `    "Wednesday": [],`,
+    `    "Thursday": [],`,
+    `    "Friday": [],`,
+    `    "Saturday": [],`,
+    `    "Sunday": []`,
     `  }`,
     `}`,
     `Follow this exact structure for all 7 days. Do NOT use ellipsis, comments, or placeholders.`,
@@ -384,7 +384,7 @@ function parseScheduleResponse(content: string): Omit<WeekSchedule, "weekStart">
   try {
     data = normalizeScheduleData(JSON.parse(jsonStr));
   } catch (firstError) {
-    // Second pass: more aggressive repair ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â remove any lines that aren't valid JSON structure
+    // Second pass: more aggressive repair: remove any lines that are not valid JSON structure
     // This catches things like "// ..." or bare text the LLM added inside the JSON
     const repairedLines = jsonStr.split("\n").filter((line) => {
       const trimmed = line.trim();
@@ -435,10 +435,6 @@ function parseScheduleResponse(content: string): Omit<WeekSchedule, "weekStart">
       };
     });
   }
-  if (Object.values(days).every((day) => day.length === 0)) {
-    throw new Error("Schedule response did not include any daily time blocks");
-  }
-
   return {
     days,
     talkativeness: Math.max(0, Math.min(100, data.talkativeness ?? 50)),
@@ -489,41 +485,68 @@ function inferStatusFromActivity(activity: string): "online" | "idle" | "dnd" | 
   return "online";
 }
 
-// ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Status Derivation ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
+// Status Derivation
 
 /**
  * Get the current status and activity for a character based on their schedule.
  */
+function scheduleDayIndex(now: Date): number {
+  return (now.getDay() + 6) % 7;
+}
+
+function scheduleDayName(now: Date): string {
+  return DAYS[scheduleDayIndex(now)]!;
+}
+
+function previousScheduleDayName(now: Date): string {
+  return DAYS[(scheduleDayIndex(now) + DAYS.length - 1) % DAYS.length]!;
+}
+
+function parseScheduleTimeMinutes(value: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+function scheduleTimeRange(block: ScheduleBlock): { start: number; end: number } | null {
+  const [startRaw, endRaw] = block.time.split("-");
+  const start = parseScheduleTimeMinutes(startRaw ?? "");
+  const end = parseScheduleTimeMinutes(endRaw ?? "");
+  if (start === null || end === null) return null;
+  return { start, end };
+}
+
+function blockContainsMinute(block: ScheduleBlock, minute: number): boolean {
+  const range = scheduleTimeRange(block);
+  if (!range) return false;
+  if (range.start <= range.end) return range.start <= minute && minute < range.end;
+  return minute >= range.start;
+}
+
+function blockCarriesIntoMinute(block: ScheduleBlock, minute: number): boolean {
+  const range = scheduleTimeRange(block);
+  if (!range || range.start <= range.end) return false;
+  return minute < range.end;
+}
+
 export function getCurrentStatus(
   schedule: WeekSchedule,
   now: Date = new Date(),
 ): { status: "online" | "idle" | "dnd" | "offline"; activity: string } {
-  const dayName = DAYS[(now.getDay() + 6) % 7]!; // JS Sunday=0, we want Monday=0
-  const daySchedule = schedule.days[dayName];
-  if (!daySchedule || daySchedule.length === 0) {
-    return { status: "online", activity: "free time" };
-  }
-
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const todayBlock = (schedule.days[scheduleDayName(now)] ?? []).find((block) =>
+    blockContainsMinute(block, currentMinutes),
+  );
+  if (todayBlock) return { status: todayBlock.status, activity: todayBlock.activity };
 
-  for (const block of daySchedule) {
-    const [startStr, endStr] = block.time.split("-");
-    if (!startStr || !endStr) continue;
-
-    const [sh, sm] = startStr.split(":").map(Number);
-    const [eh, em] = endStr.split(":").map(Number);
-    const startMin = (sh ?? 0) * 60 + (sm ?? 0);
-    const endMin = (eh ?? 0) * 60 + (em ?? 0);
-
-    // Handle blocks that don't wrap around midnight
-    if (startMin <= currentMinutes && currentMinutes < endMin) {
-      return { status: block.status, activity: block.activity };
-    }
-    // Handle midnight-wrapping blocks (e.g., 23:00-07:00)
-    if (startMin > endMin && (currentMinutes >= startMin || currentMinutes < endMin)) {
-      return { status: block.status, activity: block.activity };
-    }
-  }
+  const carriedBlock = (schedule.days[previousScheduleDayName(now)] ?? []).find((block) =>
+    blockCarriesIntoMinute(block, currentMinutes),
+  );
+  if (carriedBlock) return { status: carriedBlock.status, activity: carriedBlock.activity };
 
   return { status: "online", activity: "free time" };
 }
