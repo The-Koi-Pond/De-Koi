@@ -33,25 +33,26 @@ function parseJsonObject(value: unknown): Record<string, unknown> | null {
   }
 }
 
-function comparableCurrentValue(current: unknown, proposed: unknown): unknown {
-  if (isRecord(proposed)) return parseJsonObject(current) ?? current;
-  return current;
+function normalizeComparableValue(value: unknown): unknown {
+  const object = parseJsonObject(value);
+  if (!object) return value;
+  return Object.fromEntries(Object.entries(object).map(([key, child]) => [key, normalizeComparableValue(child)]));
 }
 
 function valueAtPath(source: unknown, path: string[]): unknown {
   let current = source;
   for (const segment of path) {
-    const comparable = parseJsonObject(current) ?? current;
+    const comparable = normalizeComparableValue(current);
     if (!isRecord(comparable)) return undefined;
     current = comparable[segment];
   }
-  return current;
+  return normalizeComparableValue(current);
 }
 
 function flattenProposedValue(value: unknown, prefix = ""): FlatValue[] {
   if (isRecord(value)) {
     const entries = Object.entries(value);
-    if (entries.length === 0) return [{ path: prefix || "(root)", value }];
+    if (entries.length === 0) return [];
     return entries.flatMap(([key, child]) => flattenProposedValue(child, prefix ? `${prefix}.${key}` : key));
   }
   return [{ path: prefix || "(root)", value }];
@@ -127,8 +128,7 @@ export function createDekiActionDiffRows(
   const payload = action.type === "create_record" ? action.draft : action.patch;
   return flattenProposedValue(payload).map((entry) => {
     const path = entry.path === "(root)" ? [] : entry.path.split(".");
-    const rawBefore = action.type === "edit_record" ? valueAtPath(currentRecord, path) : undefined;
-    const before = comparableCurrentValue(rawBefore, entry.value);
+    const before = action.type === "edit_record" ? valueAtPath(currentRecord, path) : undefined;
     return buildDiffRow(entry.path, before, entry.value, action.type === "create_record");
   });
 }
