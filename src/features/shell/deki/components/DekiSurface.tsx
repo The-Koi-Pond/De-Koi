@@ -208,12 +208,35 @@ function chatAccessScopeLabel(scope: DekiChatAccessScope): string {
   return `${scope.modes.map(chatModeLabel).join(", ")} chats`;
 }
 
+function normalizeDekiChatAccessWindow(window: DekiChatAccessWindow | null | undefined): DekiChatAccessWindow {
+  const messageCount = window?.messageCount;
+  if (messageCount === null) return { messageCount: DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT };
+  if (typeof messageCount === "number" && Number.isFinite(messageCount)) {
+    return { messageCount: Math.max(1, Math.min(DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT, Math.floor(messageCount))) };
+  }
+  return { messageCount: 50 };
+}
+
+function normalizeDekiChatAccessRequestAction(action: DekiChatAccessRequestAction): DekiChatAccessRequestAction {
+  return {
+    ...action,
+    window: normalizeDekiChatAccessWindow(action.window),
+  };
+}
+
+function normalizeDekiChatAccessMessage(message: DekiMessage): DekiMessage {
+  if (message.action?.type !== "request_chat_access") return message;
+  return {
+    ...message,
+    action: normalizeDekiChatAccessRequestAction(message.action),
+  };
+}
+
 function chatAccessWindowLabel(action: DekiChatAccessRequestAction): string {
-  const messageCount = action.window?.messageCount;
+  const messageCount = normalizeDekiChatAccessWindow(action.window).messageCount;
   if (typeof messageCount === "number" && Number.isFinite(messageCount)) {
     return `Up to ${Math.max(1, Math.floor(messageCount))} recent messages per chat`;
   }
-  if (messageCount === null) return `Up to ${DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT} recent messages per chat`;
   return "Up to 50 recent messages per chat";
 }
 
@@ -225,7 +248,7 @@ function createDekiChatAccessGrant(
     id: `chat-grant-${message.id}`,
     actionMessageId: message.id,
     scope: action.scope,
-    window: action.window ?? { messageCount: 50 },
+    window: normalizeDekiChatAccessWindow(action.window),
     grantedAt: new Date().toISOString(),
     expiresAt: null,
   };
@@ -291,11 +314,11 @@ function chatAccessScopeOptions(action: DekiChatAccessRequestAction): DekiChatAc
 }
 
 function windowOptionKey(window: DekiChatAccessWindow): string {
-  return String(window.messageCount ?? DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT);
+  return String(normalizeDekiChatAccessWindow(window).messageCount);
 }
 
 function chatAccessWindowOptions(action: DekiChatAccessRequestAction): DekiChatAccessWindowOption[] {
-  const suggestedWindow = action.window ?? { messageCount: 50 };
+  const suggestedWindow = normalizeDekiChatAccessWindow(action.window);
   const suggestedOption: DekiChatAccessWindowOption = {
     id: "suggested",
     label: `Deki's suggestion: ${chatAccessWindowLabel({ ...action, window: suggestedWindow })}`,
@@ -324,12 +347,13 @@ function approvedDekiChatAccessGrants(messages: DekiMessage[]): DekiChatAccessGr
     const action = message.action;
     const application = message.actionApplication;
     if (!action || action.type !== "request_chat_access" || application?.status !== "applied") return [];
+    const normalizedAction = normalizeDekiChatAccessRequestAction(action);
     return [
       {
         id: application.resultId ?? `chat-grant-${message.id}`,
         actionMessageId: message.id,
-        scope: action.scope,
-        window: action.window ?? { messageCount: 50 },
+        scope: normalizedAction.scope,
+        window: normalizeDekiChatAccessWindow(normalizedAction.window),
         grantedAt: application.appliedAt,
         expiresAt: null,
       },
@@ -550,9 +574,10 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
       .get(sessionId)
       .then((history) => {
         if (!active) return;
-        setMessages(history.messages);
+        const normalizedMessages = history.messages.map(normalizeDekiChatAccessMessage);
+        setMessages(normalizedMessages);
         setCompaction(history.compaction);
-        setChatAccessGrants(approvedDekiChatAccessGrants(history.messages));
+        setChatAccessGrants(approvedDekiChatAccessGrants(normalizedMessages));
         setSendError(null);
       })
       .catch((error) => {
@@ -1458,16 +1483,18 @@ function DekiChatAccessCard({
   error?: string;
   onApply: (message: DekiMessage, approvedAction?: DekiChatAccessRequestAction) => void;
 }) {
-  const scopeOptions = useMemo(() => chatAccessScopeOptions(action), [action]);
-  const windowOptions = useMemo(() => chatAccessWindowOptions(action), [action]);
+  const normalizedAction = useMemo(() => normalizeDekiChatAccessRequestAction(action), [action]);
+  const scopeOptions = useMemo(() => chatAccessScopeOptions(normalizedAction), [normalizedAction]);
+  const windowOptions = useMemo(() => chatAccessWindowOptions(normalizedAction), [normalizedAction]);
   const [scopeOptionId, setScopeOptionId] = useState(defaultChatAccessOptionId(scopeOptions));
   const [windowOptionId, setWindowOptionId] = useState(defaultChatAccessOptionId(windowOptions));
-  const selectedScope = scopeOptions.find((option) => option.id === scopeOptionId)?.scope ?? action.scope;
-  const selectedWindow = windowOptions.find((option) => option.id === windowOptionId)?.window ?? action.window ?? { messageCount: 50 };
+  const selectedScope = scopeOptions.find((option) => option.id === scopeOptionId)?.scope ?? normalizedAction.scope;
+  const selectedWindow =
+    windowOptions.find((option) => option.id === windowOptionId)?.window ?? normalizedAction.window;
   const approvedAction: DekiChatAccessRequestAction = {
-    ...action,
+    ...normalizedAction,
     scope: selectedScope,
-    window: selectedWindow,
+    window: normalizeDekiChatAccessWindow(selectedWindow),
   };
 
   useEffect(() => {
@@ -1522,7 +1549,7 @@ function DekiChatAccessCard({
           <dt className="text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">Window</dt>
           <dd className="min-w-0 text-[var(--foreground)]/85">
             {granted ? (
-              <span className="block truncate">{chatAccessWindowLabel(action)}</span>
+              <span className="block truncate">{chatAccessWindowLabel(normalizedAction)}</span>
             ) : (
               <select
                 value={windowOptionId}

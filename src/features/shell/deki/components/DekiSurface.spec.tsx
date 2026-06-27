@@ -609,7 +609,7 @@ describe("DekiSurface message retry actions", () => {
           characterName: "Makima",
         },
         window: {
-          messageCount: 50,
+          messageCount: null,
         },
         label: "Read Makima chats",
       },
@@ -648,6 +648,8 @@ describe("DekiSurface message retry actions", () => {
     });
     await tick();
 
+    expect(container!.textContent).toContain("Up to 200 recent messages per chat");
+
     const regenerateButton = container!.querySelector<HTMLButtonElement>('button[title="Regenerate"]');
     expect(regenerateButton).not.toBeNull();
 
@@ -665,6 +667,9 @@ describe("DekiSurface message retry actions", () => {
             actionMessageId: actionMessage.id,
             grantedAt,
             scope: actionMessage.action.scope,
+            window: {
+              messageCount: 200,
+            },
           }),
         ],
       }),
