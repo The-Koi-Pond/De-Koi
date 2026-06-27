@@ -1,4 +1,49 @@
-export type DekiWorkspaceToolName = "read" | "grep" | "find" | "ls" | "deki_data" | "deki_code";
+export type DekiWorkspaceToolName =
+  | "read"
+  | "grep"
+  | "find"
+  | "ls"
+  | "deki_data"
+  | "deki_code"
+  | "read_deki_chats"
+  | "read_deki_chat_messages";
+
+export type DekiChatAccessMode = "conversation" | "roleplay" | "game";
+
+export type DekiChatAccessScope =
+  | {
+      type: "specific_chats";
+      chatIds: string[];
+    }
+  | {
+      type: "character";
+      characterId?: string | null;
+      characterName?: string | null;
+    }
+  | {
+      type: "latest_character";
+      characterId?: string | null;
+      characterName?: string | null;
+    }
+  | {
+      type: "mode";
+      modes: DekiChatAccessMode[];
+    };
+
+export type DekiChatAccessWindow = {
+  messageCount?: number | null;
+};
+
+export const DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT = 200;
+
+export type DekiChatAccessGrant = {
+  id: string;
+  actionMessageId: string;
+  scope: DekiChatAccessScope;
+  window: DekiChatAccessWindow;
+  grantedAt: string;
+  expiresAt?: string | null;
+};
 
 export type DekiWorkspaceToolTrace = {
   id: string;
@@ -208,6 +253,7 @@ export type DekiEntryRequest = {
   connectionId?: string | null;
   persona?: DekiPersonaContext | null;
   attachments?: DekiAttachment[];
+  chatAccessGrants?: DekiChatAccessGrant[];
 };
 
 const DEKI_ACTION_ENTITIES = [
@@ -243,6 +289,13 @@ export type DekiEntryAction =
       entity: DekiActionEntity;
       id: string;
       patch: Record<string, unknown>;
+      label?: string;
+      rationale?: string;
+    }
+  | {
+      type: "request_chat_access";
+      scope: DekiChatAccessScope;
+      window?: DekiChatAccessWindow;
       label?: string;
       rationale?: string;
     };
@@ -283,6 +336,7 @@ export async function runDekiEntry(input: DekiEntryRequest, gateway: DekiGateway
     messages: input.messages.slice(),
     compactedSummary: input.compactedSummary ?? null,
     attachments: input.attachments ?? [],
+    chatAccessGrants: input.chatAccessGrants ?? [],
     connectionId: input.connectionId ?? null,
     persona: input.persona ?? null,
   });
@@ -331,6 +385,16 @@ export function normalizeDekiEntryAction(value: unknown): DekiEntryAction {
       ...(typeof value.rationale === "string" ? { rationale: value.rationale } : {}),
     };
   }
+  const chatAccessScope = normalizeDekiChatAccessScope(value.scope);
+  if (value.type === "request_chat_access" && chatAccessScope) {
+    return {
+      type: "request_chat_access",
+      scope: chatAccessScope,
+      window: normalizeDekiChatAccessWindow(value.window),
+      ...(typeof value.label === "string" ? { label: value.label } : {}),
+      ...(typeof value.rationale === "string" ? { rationale: value.rationale } : {}),
+    };
+  }
   return DEKI_DEFAULT_ACTION;
 }
 
@@ -340,4 +404,53 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isDekiActionEntity(value: unknown): value is DekiActionEntity {
   return typeof value === "string" && DEKI_ACTION_ENTITIES.includes(value as DekiActionEntity);
+}
+
+function normalizeDekiChatAccessWindow(value: unknown): DekiChatAccessWindow {
+  if (!isRecord(value)) return { messageCount: 50 };
+  if ("messageCount" in value && value.messageCount === null) return { messageCount: DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT };
+  const messageCount =
+    typeof value.messageCount === "number" && Number.isFinite(value.messageCount)
+      ? Math.max(1, Math.min(DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT, Math.floor(value.messageCount)))
+      : 50;
+  return { messageCount };
+}
+
+function normalizeDekiChatAccessScope(value: unknown): DekiChatAccessScope | null {
+  if (!isRecord(value)) return null;
+  if (value.type === "specific_chats") {
+    const chatIds = Array.isArray(value.chatIds)
+      ? value.chatIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+      : [];
+    return chatIds.length > 0 ? { type: "specific_chats", chatIds } : null;
+  }
+  if (value.type === "character") {
+    const characterId = typeof value.characterId === "string" ? value.characterId.trim() : "";
+    const characterName = typeof value.characterName === "string" ? value.characterName.trim() : "";
+    if (!characterId && !characterName) return null;
+    return {
+      type: "character",
+      characterId: characterId || null,
+      characterName: characterName || null,
+    };
+  }
+  if (value.type === "latest_character") {
+    const characterId = typeof value.characterId === "string" ? value.characterId.trim() : "";
+    const characterName = typeof value.characterName === "string" ? value.characterName.trim() : "";
+    if (!characterId && !characterName) return null;
+    return {
+      type: "latest_character",
+      characterId: characterId || null,
+      characterName: characterName || null,
+    };
+  }
+  if (value.type === "mode") {
+    const modes = Array.isArray(value.modes)
+      ? value.modes.filter(
+          (mode): mode is DekiChatAccessMode => mode === "conversation" || mode === "roleplay" || mode === "game",
+        )
+      : [];
+    return modes.length > 0 ? { type: "mode", modes } : null;
+  }
+  return null;
 }

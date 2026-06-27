@@ -26,6 +26,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+#[path = "deki/chat_access.rs"]
+mod chat_access;
 #[path = "deki/library.rs"]
 mod library;
 
@@ -74,9 +76,20 @@ const DEKI_TEXT_ATTACHMENT_EXTENSIONS: &[&str] = &[
 ];
 const DEKI_INITIAL_MAX_TOKENS: u64 = 2048;
 const DEKI_POST_TOOL_MAX_TOKENS: u64 = 8192;
+const DEKI_AGENT_MAX_TURNS: usize = 10;
+const DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT: u64 = 200;
 const DEKI_REPO_ROOT_ENV: &str = "DE_KOI_REPO_ROOT";
 const LEGACY_DEKI_REPO_ROOT_ENV: &str = "MARINARA_REPO_ROOT";
-const DEKI_WORKSPACE_TOOLS: &[&str] = &["read", "grep", "find", "ls", "deki_data", "deki_code"];
+const DEKI_WORKSPACE_TOOLS: &[&str] = &[
+    "read",
+    "grep",
+    "find",
+    "ls",
+    "deki_data",
+    "deki_code",
+    "read_deki_chats",
+    "read_deki_chat_messages",
+];
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -92,6 +105,8 @@ struct DekiPromptRequest {
     persona: Option<DekiPersonaContext>,
     #[serde(default)]
     attachments: Vec<DekiAttachment>,
+    #[serde(default)]
+    chat_access_grants: Vec<chat_access::DekiChatAccessGrant>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -161,7 +176,7 @@ impl ChatProvider for DekiLlmProvider {
             connection: self.connection.clone(),
             messages: messages
                 .iter()
-                .map(autoagents_message_to_marinara)
+                .flat_map(autoagents_message_to_marinara)
                 .collect(),
             parameters: deki_request_parameters(
                 &self.connection,
@@ -177,13 +192,26 @@ impl ChatProvider for DekiLlmProvider {
         let response = marinara_llm::complete_rich(request)
             .await
             .map_err(|error| LLMError::ProviderError(error.to_string()))?;
+        let mut tool_calls = response
+            .tool_calls
+            .into_iter()
+            .filter_map(marinara_tool_call_to_autoagents)
+            .collect::<Vec<_>>();
+        let synthesized_forced_tool_call = tool_calls.is_empty();
+        if synthesized_forced_tool_call {
+            tool_calls = deki_forced_chat_tool_call(&deki_request_parameters(
+                &self.connection,
+                messages,
+                tools.unwrap_or_default(),
+            ), tools.unwrap_or_default());
+        }
         Ok(Box::new(DekiChatResponse {
-            content: response.content,
-            tool_calls: response
-                .tool_calls
-                .into_iter()
-                .filter_map(marinara_tool_call_to_autoagents)
-                .collect(),
+            content: if synthesized_forced_tool_call && !tool_calls.is_empty() {
+                String::new()
+            } else {
+                response.content
+            },
+            tool_calls,
         }))
     }
 }
@@ -211,9 +239,15 @@ fn deki_request_parameters(
         .find(|message| matches!(message.role, ChatRole::User))
         .map(|message| message.content.as_str())
         .unwrap_or_default();
-    if !tools.is_empty() && !has_tool_result && looks_like_codebase_question(latest_user) {
+    let routing_message = deki_prompt_routing_message(latest_user);
+    if !tools.is_empty() && !has_tool_result && looks_like_codebase_question(routing_message)
+    {
         parameters["toolChoice"] = deki_forced_tool_choice(connection, "search_deki_code");
-    } else if !tools.is_empty() && !has_tool_result && looks_like_library_question(latest_user) {
+    } else if !tools.is_empty()
+        && !has_tool_result
+        && !looks_like_chat_context_question(routing_message)
+        && looks_like_library_question(routing_message)
+    {
         parameters["toolChoice"] = deki_forced_tool_choice(connection, "read_deki_library");
     }
     parameters
@@ -223,10 +257,49 @@ fn deki_forced_tool_choice(connection: &marinara_llm::LlmConnection, tool_name: 
     if connection.provider == "custom" {
         return json!("required");
     }
+    if connection.provider == "openai_chatgpt" {
+        return json!({
+            "type": "function",
+            "name": tool_name
+        });
+    }
     json!({
         "type": "function",
         "function": { "name": tool_name }
     })
+}
+
+fn deki_requested_tool_choice_name(parameters: &Value) -> Option<&str> {
+    let choice = parameters
+        .get("toolChoice")
+        .or_else(|| parameters.get("tool_choice"))?;
+    choice
+        .get("function")
+        .and_then(|function| function.get("name"))
+        .or_else(|| choice.get("name"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn deki_forced_chat_tool_call(parameters: &Value, tools: &[Tool]) -> Vec<ToolCall> {
+    let Some(tool_name) = deki_requested_tool_choice_name(parameters) else {
+        return Vec::new();
+    };
+    if tool_name != "read_deki_chats" {
+        return Vec::new();
+    }
+    if !tools.iter().any(|tool| tool.function.name == tool_name) {
+        return Vec::new();
+    }
+    vec![ToolCall {
+        id: "deki_forced_read_deki_chats".to_string(),
+        call_type: "function".to_string(),
+        function: FunctionCall {
+            name: tool_name.to_string(),
+            arguments: "{}".to_string(),
+        },
+    }]
 }
 
 #[async_trait]
@@ -559,12 +632,54 @@ impl ToolRuntime for CreateDekiCustomAgentTool {
     }
 }
 
+#[tool(
+    name = "read_deki_chats",
+    description = "List approved chat context as a safe overview. Requires a user-approved Deki chat access grant. Returns chat ids, mode, title, participant hints, timestamps, and message counts. It never returns message bodies; use read_deki_chat_messages with an approved chat id for bounded message slices.",
+    input = chat_access::ReadDekiChatsArgs,
+)]
+struct ReadDekiChatsTool {
+    state: AppState,
+    grants: Vec<chat_access::DekiChatAccessGrant>,
+}
+
+#[async_trait]
+impl ToolRuntime for ReadDekiChatsTool {
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        let args: chat_access::ReadDekiChatsArgs = serde_json::from_value(args)
+            .map_err(|error| deki_tool_error("deki_chats_read_invalid_args", error))?;
+        chat_access::overview(&self.state, &self.grants, args)
+            .map_err(|error| deki_tool_error("deki_chats_read_failed", error))
+    }
+}
+
+#[tool(
+    name = "read_deki_chat_messages",
+    description = "Read a bounded page of messages from one approved chat id. Requires a user-approved Deki chat access grant that covers the chat. Use read_deki_chats first to identify the relevant chat id. The server enforces the approved scope and message window.",
+    input = chat_access::ReadDekiChatMessagesArgs,
+)]
+struct ReadDekiChatMessagesTool {
+    state: AppState,
+    grants: Vec<chat_access::DekiChatAccessGrant>,
+}
+
+#[async_trait]
+impl ToolRuntime for ReadDekiChatMessagesTool {
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        let args: chat_access::ReadDekiChatMessagesArgs = serde_json::from_value(args)
+            .map_err(|error| deki_tool_error("deki_chat_messages_read_invalid_args", error))?;
+        chat_access::messages(&self.state, &self.grants, args)
+            .map_err(|error| deki_tool_error("deki_chat_messages_read_failed", error))
+    }
+}
+
 #[agent(
     name = "deki",
-    description = "You are Deki-senpai, De-Koi's standalone assistant. You can inspect the app's codebase, read files, apply exact source edits, create extension records, create custom agent records, and inspect the creative library through tools. Use tools for factual answers about De-Koi internals.",
+    description = "You are Deki-senpai, De-Koi's standalone assistant. You can inspect the app's codebase, read files, apply exact source edits, create extension records, create custom agent records, inspect the creative library, and read approved chat context through tools. Use tools for factual answers about De-Koi internals.",
     tools = [
         ReadDekiLibraryTool { state: self.state.clone() },
         ReadDekiLibraryItemsTool { state: self.state.clone() },
+        ReadDekiChatsTool { state: self.state.clone(), grants: self.chat_access_grants.clone() },
+        ReadDekiChatMessagesTool { state: self.state.clone(), grants: self.chat_access_grants.clone() },
         SearchDekiCodeTool {},
         ReadDekiCodeFileTool {},
         EditDekiCodeFileTool {},
@@ -575,6 +690,7 @@ impl ToolRuntime for CreateDekiCustomAgentTool {
 #[derive(Clone, AgentHooks)]
 struct DekiAgent {
     state: AppState,
+    chat_access_grants: Vec<chat_access::DekiChatAccessGrant>,
 }
 
 pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Value> {
@@ -604,14 +720,27 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
     } else {
         None
     };
-    let task_prompt = build_task_prompt(&input, repo_guidance.as_deref());
+    let approved_chat_context = if input.chat_access_grants.is_empty() {
+        None
+    } else {
+        Some(chat_access::prompt_context(
+            state,
+            &input.chat_access_grants,
+        )?)
+    };
+    let task_prompt = build_task_prompt(
+        &input,
+        repo_guidance.as_deref(),
+        approved_chat_context.as_deref(),
+    );
     let provider: Arc<dyn LLMProvider> = Arc::new(DekiLlmProvider { connection });
     let memory = Box::new(SlidingWindowMemory::new(12));
     let agent = ReActAgent::with_max_turns(
         DekiAgent {
             state: state.clone(),
+            chat_access_grants: input.chat_access_grants.clone(),
         },
-        4,
+        DEKI_AGENT_MAX_TURNS,
     );
     let agent_handle = AgentBuilder::<_, DirectAgent>::new(agent)
         .llm(provider)
@@ -869,16 +998,6 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
     if action_type == "none" {
         return Ok(deki_no_action_contract());
     }
-    let entity = object
-        .get("entity")
-        .and_then(Value::as_str)
-        .filter(|entity| DEKI_ACTION_ENTITIES.contains(entity))
-        .ok_or_else(|| {
-            AppError::new(
-                "deki_action_invalid",
-                "Deki-senpai action entity is not supported.",
-            )
-        })?;
     let label = object
         .get("label")
         .and_then(Value::as_str)
@@ -891,6 +1010,7 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
         .filter(|value| !value.is_empty());
     match action_type {
         "create_record" => {
+            let entity = deki_action_entity(object)?;
             let draft = object
                 .get("draft")
                 .filter(|value| value.is_object())
@@ -914,6 +1034,7 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
             Ok(normalized)
         }
         "edit_record" => {
+            let entity = deki_action_entity(object)?;
             let id = object
                 .get("id")
                 .and_then(Value::as_str)
@@ -948,6 +1069,22 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
             }
             Ok(normalized)
         }
+        "request_chat_access" => {
+            let scope = normalize_deki_chat_access_scope(object.get("scope"))?;
+            let window = normalize_deki_chat_access_window(object.get("window"))?;
+            let mut normalized = json!({
+                "type": "request_chat_access",
+                "scope": scope,
+                "window": window,
+            });
+            if let Some(label) = label {
+                normalized["label"] = json!(label);
+            }
+            if let Some(rationale) = rationale {
+                normalized["rationale"] = json!(rationale);
+            }
+            Ok(normalized)
+        }
         _ => Err(AppError::new(
             "deki_action_invalid",
             "Deki-senpai action type is not supported.",
@@ -955,11 +1092,125 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
     }
 }
 
-fn autoagents_message_to_marinara(message: &ChatMessage) -> marinara_llm::LlmMessage {
-    let first_tool_result = match &message.message_type {
-        MessageType::ToolResult(calls) => calls.first(),
-        _ => None,
+fn deki_action_entity(object: &serde_json::Map<String, Value>) -> AppResult<&str> {
+    object
+        .get("entity")
+        .and_then(Value::as_str)
+        .filter(|entity| DEKI_ACTION_ENTITIES.contains(entity))
+        .ok_or_else(|| {
+            AppError::new(
+                "deki_action_invalid",
+                "Deki-senpai action entity is not supported.",
+            )
+        })
+}
+
+fn normalize_deki_chat_access_scope(scope: Option<&Value>) -> AppResult<Value> {
+    let scope = scope.and_then(Value::as_object).ok_or_else(|| {
+        AppError::new(
+            "deki_action_invalid",
+            "Deki-senpai chat access action requires a scope object.",
+        )
+    })?;
+    let scope_type = scope
+        .get("type")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    match scope_type {
+        "specific_chats" => {
+            let chat_ids = scope
+                .get("chatIds")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>();
+            if chat_ids.is_empty() {
+                return Err(AppError::new(
+                    "deki_action_invalid",
+                    "Deki-senpai specific chat access requires at least one chat id.",
+                ));
+            }
+            Ok(json!({ "type": "specific_chats", "chatIds": chat_ids }))
+        }
+        "character" => {
+            let character_id = scope
+                .get("characterId")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            let character_name = scope
+                .get("characterName")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            if character_id.is_none() && character_name.is_none() {
+                return Err(AppError::new(
+                    "deki_action_invalid",
+                    "Deki-senpai character chat access requires a character id or character name.",
+                ));
+            }
+            let mut normalized = json!({
+                "type": "character",
+            });
+            if let Some(character_id) = character_id {
+                normalized["characterId"] = json!(character_id);
+            }
+            if let Some(character_name) = character_name {
+                normalized["characterName"] = json!(character_name);
+            }
+            Ok(normalized)
+        }
+        "mode" => {
+            let modes = scope
+                .get("modes")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| matches!(*value, "conversation" | "roleplay" | "game"))
+                .collect::<Vec<_>>();
+            if modes.is_empty() {
+                return Err(AppError::new(
+                    "deki_action_invalid",
+                    "Deki-senpai mode chat access requires conversation, roleplay, or game.",
+                ));
+            }
+            Ok(json!({ "type": "mode", "modes": modes }))
+        }
+        _ => Err(AppError::new(
+            "deki_action_invalid",
+            "Deki-senpai chat access scope type is not supported.",
+        )),
+    }
+}
+
+fn normalize_deki_chat_access_window(window: Option<&Value>) -> AppResult<Value> {
+    let Some(window) = window else {
+        return Ok(json!({ "messageCount": 50 }));
     };
+    let window = window.as_object().ok_or_else(|| {
+        AppError::new(
+            "deki_action_invalid",
+            "Deki-senpai chat access window must be an object.",
+        )
+    })?;
+    let message_count = match window.get("messageCount") {
+        Some(Value::Null) => DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT,
+        Some(value) => value
+            .as_u64()
+            .map(|value| value.clamp(1, DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT))
+            .unwrap_or(50),
+        None => 50,
+    };
+    Ok(json!({ "messageCount": message_count }))
+}
+
+fn autoagents_message_to_marinara(message: &ChatMessage) -> Vec<marinara_llm::LlmMessage> {
     let role = match message.role {
         ChatRole::System => "system",
         ChatRole::Assistant => "assistant",
@@ -967,21 +1218,33 @@ fn autoagents_message_to_marinara(message: &ChatMessage) -> marinara_llm::LlmMes
         ChatRole::User => "user",
     }
     .to_string();
+    if let MessageType::ToolResult(calls) = &message.message_type {
+        return calls
+            .iter()
+            .map(|call| marinara_llm::LlmMessage {
+                role: role.clone(),
+                content: call.function.arguments.clone(),
+                name: None,
+                images: Vec::new(),
+                tool_call_id: Some(call.id.clone()),
+                tool_calls: None,
+                provider_metadata: None,
+            })
+            .collect();
+    }
     let tool_calls = match &message.message_type {
         MessageType::ToolUse(calls) => Some(json!(calls)),
         _ => None,
     };
-    marinara_llm::LlmMessage {
+    vec![marinara_llm::LlmMessage {
         role,
-        content: first_tool_result
-            .map(|call| call.function.arguments.clone())
-            .unwrap_or_else(|| message.content.clone()),
+        content: message.content.clone(),
         name: None,
         images: Vec::new(),
-        tool_call_id: first_tool_result.map(|call| call.id.clone()),
+        tool_call_id: None,
         tool_calls,
         provider_metadata: None,
-    }
+    }]
 }
 
 fn marinara_tool_call_to_autoagents(value: Value) -> Option<ToolCall> {
@@ -1021,10 +1284,12 @@ fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
         "For questions about De-Koi internals, architecture, UI behavior, agent behavior, storage, imports, providers, or bugs, search the codebase before answering. Prefer AGENTS.md and the relevant owner files over memory. Never cite package-era paths unless search/read tools confirm they exist in the current repository.".to_string(),
         "You can create user extensions with create_deki_extension and custom agent configurations with create_deki_custom_agent. Prefer those record-creation tools when the user asks for an extension or agent.".to_string(),
         "You can inspect the creative library through read_deki_library when the user asks about their characters, personas, lorebooks, prompt presets, or groups. read_deki_library returns only an overview. Use read_deki_library_items with exact ids when you need full selected records. Do not request full item details until the overview identifies likely relevant records.".to_string(),
+        "You can inspect chats and messages only after the user grants scoped read access. If the task needs prior chat, roleplay, or game conversation context and no approved grant is available, explain the needed scope and append exactly one hidden <deki_action>{JSON}</deki_action> block with {\"type\":\"request_chat_access\",\"scope\":{\"type\":\"specific_chats\",\"chatIds\":[\"...\"]}|{\"type\":\"character\",\"characterId\":\"optional\",\"characterName\":\"known character name\"}|{\"type\":\"mode\",\"modes\":[\"conversation\"|\"roleplay\"|\"game\"]},\"window\":{\"messageCount\":50},\"label\":\"short label\",\"rationale\":\"why this chat context is needed\"}. Prefer the narrowest scope; for a named character, characterName is acceptable even if you do not know the id. After a grant exists, the backend injects a bounded approved chat context snapshot into the prompt; use that evidence before drafting. Use chat tools only if the snapshot is missing a clearly necessary bounded window. Never claim to have read chats unless the approved snapshot or chat tools returned data.".to_string(),
+        "When the user asks for suggestions, edits, summaries, examples, or character/persona/prompt changes that would materially benefit from their prior chats or roleplay interactions, proactively request scoped chat access before giving evidence-based changes. Do not say you can do it without reading conversations when the request depends on how the user and a character interacted.".to_string(),
         "When the user asks you to create or update a character, persona, lorebook, prompt preset, or their groups/sections/entries/variables, draft the record in a single hidden action block instead of calling write tools. Append exactly one <deki_action>{JSON}</deki_action> block after your visible explanation. Supported JSON shapes are {\"type\":\"create_record\",\"entity\":\"characters|character-groups|personas|persona-groups|lorebooks|lorebook-entries|prompts|prompt-sections|prompt-groups|prompt-variables\",\"draft\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"} and {\"type\":\"edit_record\",\"entity\":\"...\",\"id\":\"record id\",\"patch\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"}. Use De-Koi storage shapes: characters need draft.data.name; personas, lorebooks, and prompts need draft.name; lorebook-entries need lorebookId and name; prompt-sections need presetId, identifier, and name; prompt-groups need presetId and name; prompt-variables need presetId, variableName, question, and options. Do not say the change is saved until the user applies the approval card.".to_string(),
         "For prompt preset review, use read_deki_library when needed and give concise findings. If the user asks you to apply the review, emit an edit_record action for prompts, prompt-sections, prompt-groups, or prompt-variables.".to_string(),
         "When drafting character-card fields, SillyTavern examples, or example dialogue, keep Deki-senpai as the assistant outside the artifact only. Deki-senpai, assistant, user, and raw conversation-history labels must never become a speaker name inside generated card content; use the target character name, {{char}}, {{user}}, or the user's requested format instead.".to_string(),
-        "You cannot run shell commands, inspect private chats/messages/memories, access secrets, edit files outside the repository, or perform broad/destructive rewrites. If an edit needs runtime verification, say what should be checked.".to_string(),
+        "You cannot run shell commands, inspect unapproved private chats/messages/memories, access secrets, edit files outside the repository, or perform broad/destructive rewrites. If an edit needs runtime verification, say what should be checked.".to_string(),
     ];
     if let Some(persona) = persona {
         let persona_text = [
@@ -1067,7 +1332,11 @@ fn repo_guidance_for_prompt() -> AppResult<String> {
     Ok(excerpt)
 }
 
-fn build_task_prompt(input: &DekiPromptRequest, repo_guidance: Option<&str>) -> String {
+fn build_task_prompt(
+    input: &DekiPromptRequest,
+    repo_guidance: Option<&str>,
+    approved_chat_context: Option<&str>,
+) -> String {
     let mut sections = Vec::new();
     if let Some(summary) = input
         .compacted_summary
@@ -1118,6 +1387,38 @@ fn build_task_prompt(input: &DekiPromptRequest, repo_guidance: Option<&str>) -> 
             sections.push(format!(
                 "Attached files for the latest user turn:\n{attachments}"
             ));
+        }
+    }
+    if input.chat_access_grants.is_empty() {
+        sections.push(
+            "Approved chat access grants for this prompt: none. Request scoped chat access with a hidden request_chat_access action before using chat read tools if chat context is needed."
+                .to_string(),
+        );
+        if looks_like_chat_context_question(&input.user_message) {
+            sections.push(
+                "Chat context assessment: the latest user request appears to need or benefit from prior chat/roleplay interaction evidence. You must request scoped chat access before giving interaction-based recommendations; do not invent suggestions from library context alone and do not claim the task can be done without reading conversations."
+                    .to_string(),
+            );
+        }
+    } else {
+        let grants =
+            serde_json::to_string(&input.chat_access_grants).unwrap_or_else(|_| "[]".to_string());
+        sections.push(format!(
+            "Approved chat access grants for this prompt. The backend has already resolved these grants into the server-injected chat context snapshot below. Use that snapshot before drafting interaction-based answers or approval actions. Use chat tools only if the snapshot is missing a clearly necessary bounded window:\n{grants}"
+        ));
+        if let Some(chat_context) = approved_chat_context
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            sections.push(format!(
+                "Approved chat context snapshot:\n{chat_context}"
+            ));
+        }
+        if looks_like_chat_context_question(&input.user_message) {
+            sections.push(
+                "Granted chat continuation: this prompt is resuming a task after the user approved chat access. Do not greet the user, ask what to work on, or answer from general knowledge. Continue the original task with evidence from the approved chat context snapshot."
+                    .to_string(),
+            );
         }
     }
     if let Some(repo_guidance) = repo_guidance
@@ -1269,6 +1570,89 @@ fn looks_like_library_question(message: &str) -> bool {
     ]
     .iter()
     .any(|needle| lower.contains(needle))
+}
+
+fn looks_like_chat_context_question(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    let explicit_chat_context = [
+        "chat history",
+        "conversation history",
+        "message history",
+        "approved chat context",
+        "previous chat",
+        "previous chats",
+        "past chat",
+        "past chats",
+        "our chat",
+        "our chats",
+        "our conversation",
+        "our conversations",
+        "our roleplay",
+        "our rp",
+        "my roleplay",
+        "my rp",
+        "my interactions",
+        "our interactions",
+        "past interactions",
+        "previous interactions",
+        "interactions with",
+        "how we interacted",
+        "how i interacted",
+        "how we talk",
+        "how i talk",
+        "the way we talk",
+        "what we talked",
+        "what happened in chat",
+        "what happened in rp",
+        "what happened in roleplay",
+    ];
+    if explicit_chat_context
+        .iter()
+        .any(|needle| lower.contains(needle))
+    {
+        return true;
+    }
+
+    let asks_for_user_evidence = ["based on", "draw from", "using", "use", "reflect", "match"]
+        .iter()
+        .any(|needle| lower.contains(needle));
+    let mentions_prior_interaction = [
+        "my chats",
+        "our chats",
+        "messages",
+        "roleplay",
+        "rp",
+        "interactions",
+        "interacted",
+        "talked",
+        "said",
+        "relationship",
+        "dynamic",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle));
+    let targets_creative_item = [
+        "character",
+        "persona",
+        "card",
+        "dialogue",
+        "example",
+        "profile",
+        "lorebook",
+        "prompt",
+        "preset",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle));
+
+    asks_for_user_evidence && mentions_prior_interaction && targets_creative_item
+}
+
+fn deki_prompt_routing_message(message: &str) -> &str {
+    message
+        .rsplit_once("Latest user message:\n")
+        .map(|(_, latest)| latest.trim())
+        .unwrap_or(message)
 }
 
 fn looks_like_codebase_question(message: &str) -> bool {
@@ -1909,6 +2293,41 @@ mod tests {
         }
     }
 
+    #[test]
+    fn deki_tool_result_conversion_preserves_all_tool_outputs() {
+        let message = ChatMessage {
+            role: ChatRole::Tool,
+            message_type: MessageType::ToolResult(vec![
+                ToolCall {
+                    id: "call_one".to_string(),
+                    call_type: "function".to_string(),
+                    function: FunctionCall {
+                        name: "read_deki_chats".to_string(),
+                        arguments: r#"{"items":[{"id":"chat-1"}]}"#.to_string(),
+                    },
+                },
+                ToolCall {
+                    id: "call_two".to_string(),
+                    call_type: "function".to_string(),
+                    function: FunctionCall {
+                        name: "read_deki_chat_messages".to_string(),
+                        arguments: r#"{"messages":[{"content":"hello"}]}"#.to_string(),
+                    },
+                },
+            ]),
+            content: String::new(),
+        };
+
+        let converted = autoagents_message_to_marinara(&message);
+
+        assert_eq!(converted.len(), 2);
+        assert_eq!(converted[0].role, "tool");
+        assert_eq!(converted[0].tool_call_id.as_deref(), Some("call_one"));
+        assert!(converted[0].content.contains("chat-1"));
+        assert_eq!(converted[1].tool_call_id.as_deref(), Some("call_two"));
+        assert!(converted[1].content.contains("hello"));
+    }
+
     fn test_tool(name: &str) -> Tool {
         Tool {
             tool_type: "function".to_string(),
@@ -2058,10 +2477,12 @@ mod tests {
         assert_eq!(status["connection"]["name"], json!("Workspace Test"));
         assert_eq!(status["connection"]["provider"], json!("openai"));
         assert_eq!(status["connection"]["model"], json!("gpt-4.1"));
-        assert!(status["error"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("selected connection"));
+        assert!(
+            status["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("selected connection")
+        );
     }
 
     #[tokio::test]
@@ -2075,10 +2496,12 @@ mod tests {
         assert_eq!(result["status"], json!("not_running"));
         assert_eq!(result["aborted"], json!(false));
         assert_eq!(result["active"], json!(false));
-        assert!(result["reason"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("not running"));
+        assert!(
+            result["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("not running")
+        );
     }
 
     #[test]
@@ -2234,6 +2657,23 @@ mod tests {
     }
 
     #[test]
+    fn deki_openai_chatgpt_connections_use_responses_tool_choice() {
+        let connection = test_connection("openai_chatgpt");
+        let messages = [text_message("What does src/app/shell/AppShell.tsx do?")];
+        let tools = [test_tool("search_deki_code")];
+
+        let parameters = deki_request_parameters(&connection, &messages, &tools);
+
+        assert_eq!(
+            parameters["toolChoice"],
+            json!({
+                "type": "function",
+                "name": "search_deki_code"
+            })
+        );
+    }
+
+    #[test]
     fn deki_custom_library_questions_use_string_tool_choice() {
         let connection = test_connection("custom");
         let messages = [text_message("What personas are in my library?")];
@@ -2242,6 +2682,151 @@ mod tests {
         let parameters = deki_request_parameters(&connection, &messages, &tools);
 
         assert_eq!(parameters["toolChoice"], json!("required"));
+    }
+
+    #[test]
+    fn deki_interaction_based_library_prompt_requests_chat_access_before_library_routing() {
+        let connection = test_connection("openai");
+        let input = DekiPromptRequest {
+            user_message: "Suggest changes to this character based on my interactions with her."
+                .to_string(),
+            messages: Vec::new(),
+            compacted_summary: None,
+            connection_id: Some("connection".to_string()),
+            persona: None,
+            attachments: Vec::new(),
+            chat_access_grants: Vec::new(),
+        };
+        let task_prompt = build_task_prompt(&input, None, None);
+        let messages = [text_message(&task_prompt)];
+        let tools = [test_tool("read_deki_library"), test_tool("read_deki_chats")];
+
+        let parameters = deki_request_parameters(&connection, &messages, &tools);
+
+        assert!(parameters.get("toolChoice").is_none());
+        assert!(task_prompt.contains("Chat context assessment"));
+        assert!(task_prompt.contains("must request scoped chat access"));
+        assert!(looks_like_chat_context_question(&input.user_message));
+    }
+
+    #[test]
+    fn deki_interaction_based_prompt_uses_chat_context_snapshot_after_grant() {
+        let connection = test_connection("openai");
+        let input = DekiPromptRequest {
+            user_message: "Suggest changes to this character based on my interactions with her."
+                .to_string(),
+            messages: Vec::new(),
+            compacted_summary: None,
+            connection_id: Some("connection".to_string()),
+            persona: None,
+            attachments: Vec::new(),
+            chat_access_grants: vec![chat_access::DekiChatAccessGrant {
+                id: "grant-1".to_string(),
+                action_message_id: "message-1".to_string(),
+                scope: chat_access::DekiChatAccessScope::Mode {
+                    modes: vec!["roleplay".to_string()],
+                },
+                window: chat_access::DekiChatAccessWindow {
+                    message_count: Some(50),
+                },
+                granted_at: "2026-06-27T10:00:00.000Z".to_string(),
+                expires_at: None,
+            }],
+        };
+        let task_prompt = build_task_prompt(
+            &input,
+            None,
+            Some("Server-approved excerpt: Rina mentioned liking piano at dusk."),
+        );
+        let messages = [text_message(&task_prompt)];
+        let tools = [test_tool("read_deki_library"), test_tool("read_deki_chats")];
+
+        let parameters = deki_request_parameters(&connection, &messages, &tools);
+
+        assert!(task_prompt.contains("Granted chat continuation"));
+        assert!(task_prompt.contains("Do not greet the user"));
+        assert!(task_prompt.contains("Approved chat context snapshot"));
+        assert!(task_prompt.contains("Rina mentioned liking piano"));
+        assert!(parameters.get("toolChoice").is_none());
+    }
+
+    #[test]
+    fn deki_resume_prompt_uses_chat_context_snapshot_after_grant() {
+        let connection = test_connection("openai_chatgpt");
+        let input = DekiPromptRequest {
+            user_message: [
+                "The user approved the requested scoped chat access.",
+                "Resume the original task now using the approved chat context.",
+                "Do not greet the user, ask what to work on, or repeat the access request.",
+                "Original user request:",
+                "Can you update Makima's character card with her music tastes, extrapolating from my interactions with her?",
+            ]
+            .join("\n"),
+            messages: Vec::new(),
+            compacted_summary: None,
+            connection_id: Some("connection".to_string()),
+            persona: None,
+            attachments: Vec::new(),
+            chat_access_grants: vec![chat_access::DekiChatAccessGrant {
+                id: "grant-1".to_string(),
+                action_message_id: "message-1".to_string(),
+                scope: chat_access::DekiChatAccessScope::Character {
+                    character_id: None,
+                    character_name: Some("Makima".to_string()),
+                },
+                window: chat_access::DekiChatAccessWindow {
+                    message_count: Some(50),
+                },
+                granted_at: "2026-06-27T10:00:00.000Z".to_string(),
+                expires_at: None,
+            }],
+        };
+        let task_prompt = build_task_prompt(
+            &input,
+            None,
+            Some("Server-approved excerpt: Makima discussed calm orchestral music."),
+        );
+        let messages = [text_message(&task_prompt)];
+        let tools = [test_tool("read_deki_library"), test_tool("read_deki_chats")];
+
+        let parameters = deki_request_parameters(&connection, &messages, &tools);
+
+        assert!(task_prompt.contains("Approved chat context snapshot"));
+        assert!(task_prompt.contains("Makima discussed calm orchestral music"));
+        assert!(parameters.get("toolChoice").is_none());
+    }
+
+    #[test]
+    fn deki_synthesizes_forced_chat_tool_call_when_provider_returns_text() {
+        let parameters = json!({
+            "toolChoice": {
+                "type": "function",
+                "name": "read_deki_chats"
+            }
+        });
+        let tools = [test_tool("read_deki_chats")];
+
+        let tool_calls = deki_forced_chat_tool_call(&parameters, &tools);
+
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_calls[0].id, "deki_forced_read_deki_chats");
+        assert_eq!(tool_calls[0].function.name, "read_deki_chats");
+        assert_eq!(tool_calls[0].function.arguments, "{}");
+    }
+
+    #[test]
+    fn deki_forced_chat_tool_call_does_not_synthesize_unrelated_tools() {
+        let parameters = json!({
+            "toolChoice": {
+                "type": "function",
+                "function": { "name": "search_deki_code" }
+            }
+        });
+        let tools = [test_tool("search_deki_code"), test_tool("read_deki_chats")];
+
+        let tool_calls = deki_forced_chat_tool_call(&parameters, &tools);
+
+        assert!(tool_calls.is_empty());
     }
 
     #[test]
@@ -2321,12 +2906,62 @@ mod tests {
     }
 
     #[test]
+    fn deki_response_accepts_chat_access_request_action() {
+        let raw = r#"I need permission to read the relevant roleplay chats.
+<deki_action>{"type":"request_chat_access","scope":{"type":"character","characterId":"char-rina","characterName":"Rina"},"window":{"messageCount":25},"label":"Read Rina chats","rationale":"Compare the character card against prior roleplay behavior."}</deki_action>"#;
+
+        let (content, action) =
+            deki_response_content_and_action(raw).expect("chat access action should parse");
+
+        assert_eq!(
+            content,
+            "I need permission to read the relevant roleplay chats."
+        );
+        assert_eq!(action["type"], "request_chat_access");
+        assert_eq!(action["scope"]["type"], "character");
+        assert_eq!(action["scope"]["characterId"], "char-rina");
+        assert_eq!(action["window"]["messageCount"], json!(25));
+    }
+
+    #[test]
+    fn deki_response_normalizes_null_chat_access_window_to_maximum() {
+        let raw = r#"I need permission to read the relevant roleplay chats.
+<deki_action>{"type":"request_chat_access","scope":{"type":"character","characterId":"char-rina","characterName":"Rina"},"window":{"messageCount":null},"label":"Read Rina chats"}</deki_action>"#;
+
+        let (_content, action) =
+            deki_response_content_and_action(raw).expect("chat access action should parse");
+
+        assert_eq!(
+            action["window"]["messageCount"],
+            json!(DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT)
+        );
+    }
+
+    #[test]
+    fn deki_response_accepts_character_name_only_chat_access_request() {
+        let raw = r#"I need permission to read the relevant Makima chats.
+<deki_action>{"type":"request_chat_access","scope":{"type":"character","characterName":"Makima"},"window":{"messageCount":50},"label":"Read Makima chats"}</deki_action>"#;
+
+        let (content, action) = deki_response_content_and_action(raw)
+            .expect("name-only chat access action should parse");
+
+        assert_eq!(
+            content,
+            "I need permission to read the relevant Makima chats."
+        );
+        assert_eq!(action["type"], "request_chat_access");
+        assert_eq!(action["scope"]["type"], "character");
+        assert!(action["scope"].get("characterId").is_none());
+        assert_eq!(action["scope"]["characterName"], "Makima");
+    }
+
+    #[test]
     fn deki_response_extracts_action_when_hidden_block_has_trailing_text() {
         let raw = r#"Draft ready.
 <deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol"}} This draft creates the requested persona.</deki_action>"#;
 
-        let (content, action) =
-            deki_response_content_and_action(raw).expect("action with hidden trailing text should parse");
+        let (content, action) = deki_response_content_and_action(raw)
+            .expect("action with hidden trailing text should parse");
 
         assert_eq!(content, "Draft ready.");
         assert_eq!(action["type"], "create_record");
@@ -2419,7 +3054,9 @@ Extra visible text."#;
                 connection_id: Some("connection".to_string()),
                 persona: None,
                 attachments,
+                chat_access_grants: Vec::new(),
             },
+            None,
             None,
         )
     }

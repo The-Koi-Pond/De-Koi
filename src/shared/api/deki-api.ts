@@ -2,6 +2,7 @@ import {
   normalizeDekiEntryAction,
   type DekiActionApplication,
   type DekiActionEntity,
+  type DekiChatAccessGrant,
   type DekiEntryAction,
   type DekiEntryRequest,
   type DekiGatewayResponse,
@@ -109,6 +110,8 @@ const DEKI_WORKSPACE_TOOL_NAMES = new Set<DekiWorkspaceToolName>([
   "ls",
   "deki_data",
   "deki_code",
+  "read_deki_chats",
+  "read_deki_chat_messages",
 ]);
 
 const DEKI_WORKSPACE_HISTORY_STATUSES = new Set<DekiWorkspaceHistoryEntry["status"]>([
@@ -795,7 +798,7 @@ export const dekiApi = {
       action: DekiEntryAction,
       options?: { actionId?: string; messageId?: string; sessionId?: string | null },
     ): Promise<DekiActionApplyResult> => {
-      if (action.type === "none") {
+      if (action.type === "none" || action.type === "request_chat_access") {
         throw new Error("Deki-senpai did not provide an applyable action.");
       }
       const storageEntity = storageEntityForDekiAction(action.entity);
@@ -952,3 +955,5 @@ export const dekiApi = {
     },
   },
 };
+
+export type { DekiChatAccessGrant };

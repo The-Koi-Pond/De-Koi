@@ -3086,6 +3086,39 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
     }
 
     #[test]
+    fn openai_chatgpt_responses_body_preserves_requested_tool_choice() {
+        let mut request = request_for(
+            "openai_chatgpt",
+            "gpt-5.4-mini",
+            json!({
+                "toolChoice": {
+                    "type": "function",
+                    "name": "read_deki_chats"
+                }
+            }),
+        );
+        request.messages = vec![test_message("user", "resume with approved chat access")];
+        request.tools = vec![json!({
+            "name": "read_deki_chats",
+            "description": "List approved chat context.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        })];
+
+        let body = build_openai_responses_body(&request, false);
+
+        assert_eq!(
+            body["tool_choice"],
+            json!({
+                "type": "function",
+                "name": "read_deki_chats"
+            })
+        );
+    }
+
+    #[test]
     fn openai_chatgpt_legacy_chat_latest_aliases_normalize_to_default_model() {
         assert_eq!(
             normalize_openai_chatgpt_model("chat-latest"),

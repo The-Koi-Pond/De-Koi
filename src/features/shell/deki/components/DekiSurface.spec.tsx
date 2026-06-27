@@ -23,6 +23,7 @@ vi.mock("../../../../shared/api/deki-api", () => ({
       appendMessage: vi.fn(),
       replaceMessages: vi.fn(),
       updateMessage: vi.fn(),
+      markActionApplied: vi.fn(),
       reset: vi.fn(),
       saveCompaction: vi.fn(),
     },
@@ -141,6 +142,11 @@ describe("DekiSurface message retry actions", () => {
     vi.mocked(dekiApi.actions.apply).mockReset();
     vi.mocked(dekiApi.actions.currentRecord).mockReset();
     vi.mocked(dekiApi.actions.currentRecord).mockResolvedValue(null);
+    vi.mocked(dekiApi.history.markActionApplied).mockResolvedValue({
+      status: "applied",
+      appliedAt: "2026-06-25T12:00:02.000Z",
+      resultId: "result-1",
+    });
   });
 
   afterEach(() => {
@@ -342,5 +348,332 @@ describe("DekiSurface message retry actions", () => {
     expect(container!.textContent).not.toContain("Record");
     expect(container!.textContent).not.toContain("Description");
     expect(container!.textContent).not.toContain("New notes");
+  });
+
+  it("refetches the current record when the rendered action identity changes", async () => {
+    const firstActionMessage = {
+      ...assistantMessage,
+      id: "deki-assistant-action",
+      action: {
+        type: "edit_record" as const,
+        entity: "personas" as const,
+        id: "persona-1",
+        patch: {
+          description: "First proposal",
+        },
+        label: "Update persona notes",
+      },
+    };
+    const secondActionMessage = {
+      ...assistantMessage,
+      id: "deki-assistant-action",
+      action: {
+        type: "edit_record" as const,
+        entity: "personas" as const,
+        id: "persona-1",
+        patch: {
+          description: "Second proposal",
+        },
+        label: "Update persona notes",
+      },
+    };
+    vi.mocked(dekiApi.history.get)
+      .mockResolvedValueOnce({
+        session: {
+          id: "session-1",
+          title: "Help",
+          messages: [userMessage, firstActionMessage],
+          compaction: EMPTY_DEKI_COMPACTION,
+          createdAt: "2026-06-25T12:00:00.000Z",
+          updatedAt: "2026-06-25T12:00:01.000Z",
+        },
+        messages: [userMessage, firstActionMessage],
+        compaction: EMPTY_DEKI_COMPACTION,
+      })
+      .mockResolvedValueOnce({
+        session: {
+          id: "session-2",
+          title: "Help",
+          messages: [userMessage, secondActionMessage],
+          compaction: EMPTY_DEKI_COMPACTION,
+          createdAt: "2026-06-25T12:00:00.000Z",
+          updatedAt: "2026-06-25T12:00:01.000Z",
+        },
+        messages: [userMessage, secondActionMessage],
+        compaction: EMPTY_DEKI_COMPACTION,
+      });
+    vi.mocked(dekiApi.actions.currentRecord).mockResolvedValue({
+      entity: "personas",
+      storageEntity: "personas",
+      id: "persona-1",
+      record: {
+        id: "persona-1",
+        description: "Old notes",
+      },
+    });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <DekiSurface sessionId="session-1" />
+        </QueryClientProvider>,
+      );
+    });
+    await tick();
+    await tick();
+
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient!}>
+          <DekiSurface sessionId="session-2" />
+        </QueryClientProvider>,
+      );
+    });
+    await tick();
+    await tick();
+
+    expect(dekiApi.actions.currentRecord).toHaveBeenCalledTimes(2);
+    expect(dekiApi.actions.currentRecord).toHaveBeenNthCalledWith(1, firstActionMessage.action);
+    expect(dekiApi.actions.currentRecord).toHaveBeenNthCalledWith(2, secondActionMessage.action);
+    expect(container!.textContent).toContain("Second proposal");
+  });
+
+  it("grants chat access and resumes the original user request", async () => {
+    const actionMessage = {
+      ...assistantMessage,
+      id: "deki-assistant-chat-access",
+      content: "I need permission to read Makima chats.",
+      action: {
+        type: "request_chat_access" as const,
+        scope: {
+          type: "character" as const,
+          characterId: "char-makima",
+          characterName: "Makima",
+        },
+        window: {
+          messageCount: 50,
+        },
+        label: "Read Makima chats",
+        rationale: "Infer preferences from prior interactions.",
+      },
+    };
+    vi.mocked(dekiApi.history.get).mockResolvedValue({
+      session: {
+        id: "session-1",
+        title: "Help",
+        messages: [userMessage, actionMessage],
+        compaction: EMPTY_DEKI_COMPACTION,
+        createdAt: "2026-06-25T12:00:00.000Z",
+        updatedAt: "2026-06-25T12:00:01.000Z",
+      },
+      messages: [userMessage, actionMessage],
+      compaction: EMPTY_DEKI_COMPACTION,
+    });
+    vi.mocked(runDekiEntry).mockResolvedValue({
+      content: "I read the approved chats and drafted the update.",
+      createdAt: "2026-06-25T12:00:03.000Z",
+      action: {
+        type: "none",
+        capability: "workspace_agent",
+        reason: "Test response.",
+      },
+    });
+    vi.mocked(dekiApi.history.appendMessage).mockResolvedValue({
+      id: "deki-assistant-2",
+      role: "assistant",
+      content: "I read the approved chats and drafted the update.",
+      createdAt: "2026-06-25T12:00:03.000Z",
+    });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <DekiSurface sessionId="session-1" />
+        </QueryClientProvider>,
+      );
+    });
+    await tick();
+
+    const grantButton = Array.from(container!.querySelectorAll<HTMLButtonElement>("button")).find((button) =>
+      button.textContent?.includes("Grant access"),
+    );
+    expect(grantButton).not.toBeNull();
+    const scopeSelect = container!.querySelector<HTMLSelectElement>('select[aria-label="Chat access scope"]');
+    const windowSelect = container!.querySelector<HTMLSelectElement>('select[aria-label="Chat access window"]');
+    expect(scopeSelect).not.toBeNull();
+    expect(windowSelect).not.toBeNull();
+    const scopeOptionLabels = Array.from(scopeSelect!.options).map((option) => option.textContent);
+    const windowOptionLabels = Array.from(windowSelect!.options).map((option) => option.textContent);
+    expect(scopeOptionLabels).toEqual([
+      "Deki's suggestion: Chats involving Makima",
+      "Latest chat with Makima",
+    ]);
+    expect(windowOptionLabels).toEqual([
+      "10 recent messages per chat",
+      "25 recent messages per chat",
+      "Deki's suggestion: Up to 50 recent messages per chat",
+      "100 recent messages per chat",
+      "200 recent messages per chat",
+    ]);
+    expect(scopeSelect!.value).toBe("suggested");
+    expect(windowSelect!.value).toBe("suggested");
+
+    await act(async () => {
+      scopeSelect!.value = "latest-character";
+      scopeSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+      windowSelect!.value = "max";
+      windowSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      grantButton!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(dekiApi.history.markActionApplied).toHaveBeenCalledWith(
+      actionMessage.id,
+      expect.objectContaining({
+        status: "applied",
+        resultId: `chat-grant-${actionMessage.id}`,
+      }),
+      "session-1",
+    );
+    expect(dekiApi.history.replaceMessages).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "session-1",
+        messages: [
+          userMessage,
+          expect.objectContaining({
+            id: actionMessage.id,
+            action: expect.objectContaining({
+              type: "request_chat_access",
+              scope: expect.objectContaining({
+                type: "latest_character",
+                characterId: "char-makima",
+                characterName: "Makima",
+              }),
+              window: {
+                messageCount: 200,
+              },
+            }),
+          }),
+        ],
+      }),
+    );
+    const request = vi.mocked(runDekiEntry).mock.calls.at(-1)?.[0];
+    expect(request).toEqual(
+      expect.objectContaining({
+        userMessage: expect.stringContaining("Resume the original task now using the approved chat context."),
+        connectionId: "conn-1",
+        chatAccessGrants: [
+          expect.objectContaining({
+            id: `chat-grant-${actionMessage.id}`,
+            actionMessageId: actionMessage.id,
+            scope: expect.objectContaining({
+              type: "latest_character",
+              characterId: "char-makima",
+              characterName: "Makima",
+            }),
+            window: {
+              messageCount: 200,
+            },
+          }),
+        ],
+      }),
+    );
+    expect(request?.userMessage).toContain(userMessage.content);
+    expect(dekiApi.history.appendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "session-1",
+        role: "assistant",
+        content: "I read the approved chats and drafted the update.",
+      }),
+    );
+  });
+
+  it("restores approved chat grants from history before retrying", async () => {
+    const grantedAt = "2026-06-25T12:00:02.000Z";
+    const actionMessage = {
+      ...assistantMessage,
+      id: "deki-assistant-chat-access",
+      action: {
+        type: "request_chat_access" as const,
+        scope: {
+          type: "character" as const,
+          characterId: "char-makima",
+          characterName: "Makima",
+        },
+        window: {
+          messageCount: null,
+        },
+        label: "Read Makima chats",
+      },
+      actionApplication: {
+        status: "applied" as const,
+        appliedAt: grantedAt,
+        resultId: "grant-from-history",
+      },
+    };
+    const followUpMessage = {
+      ...assistantMessage,
+      id: "deki-assistant-follow-up",
+      content: "Stale answer.",
+      createdAt: "2026-06-25T12:00:03.000Z",
+    };
+    vi.mocked(dekiApi.history.get).mockResolvedValue({
+      session: {
+        id: "session-1",
+        title: "Help",
+        messages: [userMessage, actionMessage, followUpMessage],
+        compaction: EMPTY_DEKI_COMPACTION,
+        createdAt: "2026-06-25T12:00:00.000Z",
+        updatedAt: "2026-06-25T12:00:03.000Z",
+      },
+      messages: [userMessage, actionMessage, followUpMessage],
+      compaction: EMPTY_DEKI_COMPACTION,
+    });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <DekiSurface sessionId="session-1" />
+        </QueryClientProvider>,
+      );
+    });
+    await tick();
+
+    expect(container!.textContent).toContain("Up to 200 recent messages per chat");
+
+    const regenerateButton = container!.querySelector<HTMLButtonElement>('button[title="Regenerate"]');
+    expect(regenerateButton).not.toBeNull();
+
+    await act(async () => {
+      regenerateButton!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(runDekiEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatAccessGrants: [
+          expect.objectContaining({
+            id: "grant-from-history",
+            actionMessageId: actionMessage.id,
+            grantedAt,
+            scope: actionMessage.action.scope,
+            window: {
+              messageCount: 200,
+            },
+          }),
+        ],
+      }),
+      dekiApi,
+    );
   });
 });

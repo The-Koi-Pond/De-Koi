@@ -119,7 +119,7 @@ export function createDekiActionDiffRows(
   action: DekiEntryAction,
   currentRecord?: Record<string, unknown> | null,
 ): DekiActionDiffRow[] {
-  if (action.type === "none") return [];
+  if (action.type === "none" || action.type === "request_chat_access") return [];
   const payload = action.type === "create_record" ? action.draft : action.patch;
   return flattenProposedValue(payload).map((entry) => {
     const path = entry.path.split(".");

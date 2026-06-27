@@ -454,6 +454,7 @@ pub(crate) fn build_openai_chatgpt_responses_body(request: &LlmRequest, stream: 
         body["tool_choice"] = json!("none");
         body["parallel_tool_calls"] = json!(false);
     }
+    apply_requested_tool_choice(&mut body, &request.parameters);
     body
 }
 
@@ -1442,6 +1443,16 @@ pub(crate) fn apply_openai_parameters(body: &mut Value, request: &LlmRequest) {
             body["provider"] = openrouter.clone();
         }
     }
+    if let Some(tool_choice) = parameters
+        .get("toolChoice")
+        .or_else(|| parameters.get("tool_choice"))
+        .filter(|value| !value.is_null())
+    {
+        body["tool_choice"] = tool_choice.clone();
+    }
+}
+
+fn apply_requested_tool_choice(body: &mut Value, parameters: &Value) {
     if let Some(tool_choice) = parameters
         .get("toolChoice")
         .or_else(|| parameters.get("tool_choice"))
