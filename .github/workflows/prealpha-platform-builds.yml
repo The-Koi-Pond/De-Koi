@@ -85,15 +85,15 @@ jobs:
               '',
               '- **Almost everything may be broken.** Expect crashes, missing behavior, unfinished UI, incomplete migration paths, broken imports/exports, provider/runtime issues, and platform-specific failures.',
               '- **Use throwaway data only.** Back up existing De-Koi data before launching this build. Do not use this for real saves, production stories, or important chats.',
-              '- **Unsigned and unnotarized.** Windows SmartScreen, macOS Gatekeeper, Linux package trust warnings, and Android debug-build warnings are expected.',
+              '- **Unsigned and unnotarized.** Windows SmartScreen, Linux package trust warnings, and Android debug-build warnings are expected.',
               '- **No stable-update promise.** These artifacts do not publish updater metadata and should not be treated as an official update channel.',
               '- **Built only from the `main` branch.** This workflow does not publish from other development branches, mark itself as latest, or publish stable updater metadata.',
+              '- **macOS is intentionally excluded for now.** macOS builds are paused until we have a macOS user on the dev team.',
               '- **iOS is intentionally excluded for now.** iOS needs Apple signing/provisioning/TestFlight planning before CI distribution.',
               '',
               '## Included artifacts when the workflow succeeds',
               '',
               '- Windows x64 desktop Tauri bundles, unsigned, using the pre-alpha app identity.',
-              '- macOS Intel and Apple Silicon Tauri bundles, unsigned/unnotarized, using the pre-alpha app identity.',
               '- Linux x64 desktop Tauri bundles, unsigned, using the pre-alpha app identity.',
               '- Android universal debug APK, debug-signed by Android tooling, using `com.de_koi.prealpha` as the test application id.',
               '- Raspberry Pi OS Lite ARM64 bare-metal web/runtime tarball for Caddy or nginx deployment.',
@@ -165,12 +165,6 @@ jobs:
           - asset_slug: linux-x64
             platform: ubuntu-22.04
             rust_target: x86_64-unknown-linux-gnu
-          - asset_slug: macos-aarch64
-            platform: macos-latest
-            rust_target: aarch64-apple-darwin
-          - asset_slug: macos-x64
-            platform: macos-latest
-            rust_target: x86_64-apple-darwin
     steps:
       - uses: actions/checkout@v6
 
