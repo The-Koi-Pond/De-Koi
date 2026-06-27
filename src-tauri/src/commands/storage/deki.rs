@@ -288,7 +288,7 @@ struct ReadDekiLibraryArgs {
     #[serde(default)]
     types: Option<String>,
     #[input(
-        description = "Optional case-insensitive text search over id, name, subtitle, comment, description, and lightweight metadata."
+        description = "Optional case-insensitive text search over documented user-facing fields for each library item type."
     )]
     #[serde(default)]
     query: Option<String>,
@@ -351,7 +351,7 @@ struct ReadDekiLibraryItemsArgs {
     #[input(description = "Exact record id to read.")]
     id: String,
     #[input(
-        description = "For lorebook selections only, include matching lorebook entries. Defaults to false."
+        description = "For lorebook selections only. Entries are included by default; omit this or set it to true. False is rejected to avoid returning partial detail records."
     )]
     #[serde(default, alias = "include_entries")]
     include_entries: Option<bool>,
@@ -372,7 +372,7 @@ struct ReadDekiLibraryItemsArgs {
 
 #[tool(
     name = "read_deki_library_items",
-    description = "Read full content for one explicit selected creative-library record after using read_deki_library to identify its id. Supports selected characters, personas, lorebooks, lorebook entries, prompt presets, prompt sections, prompt groups, and prompt variables. Call this tool again for more selected records. Lorebook entries are opt-in and paginated through includeEntries, entryQuery, entryLimit, and entryOffset.",
+    description = "Read full content for one explicit selected creative-library record after using read_deki_library to identify its id. Supports selected characters, personas, lorebooks, lorebook entries, prompt presets, prompt sections, prompt groups, and prompt variables. Call this tool again for more selected records. Lorebook entries are included by default and paginated through entryQuery, entryLimit, and entryOffset; includeEntries false is rejected.",
     input = ReadDekiLibraryItemsArgs,
 )]
 struct ReadDekiLibraryItemsTool {
@@ -1870,6 +1870,19 @@ mod tests {
         assert_eq!(detail_args.entry_query.as_deref(), Some("makima"));
         assert_eq!(detail_args.entry_limit, Some(5));
         assert_eq!(detail_args.entry_offset, Some(2));
+    }
+
+    #[test]
+    fn deki_library_type_list_accepts_mixed_separators() {
+        assert_eq!(
+            parse_deki_library_types(Some("character, lorebook; prompt_preset\npersona")),
+            vec![
+                "character".to_string(),
+                "lorebook".to_string(),
+                "prompt_preset".to_string(),
+                "persona".to_string()
+            ]
+        );
     }
 
     fn unique_test_repo_root(name: &str) -> PathBuf {
