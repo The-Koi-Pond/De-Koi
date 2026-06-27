@@ -1,7 +1,8 @@
-import { Suspense, lazy, type ComponentProps } from "react";
+import { Component, Suspense, lazy, type ComponentProps, type ErrorInfo, type ReactNode } from "react";
 import type { SpriteSide } from "../../../../../engine/contracts/types/chat";
 import { ChevronUp, ChevronDown, Trash2 } from "lucide-react";
 import { PinnedImageOverlay } from "../../../../runtime/visuals/index";
+import { recordClientDiagnostic } from "../../../../../shared/lib/client-diagnostics";
 import type { PeekPromptData } from "../types";
 import type { SaveMomentSource } from "../lib/save-moment";
 import type { SaveMomentSummaryDraft } from "../lib/save-moment";
@@ -33,6 +34,101 @@ const ChatSetupWizard = lazy(async () => {
 });
 
 type ChatData = ComponentProps<typeof ChatSettingsDrawer>["chat"];
+
+type LazyOverlayBoundaryProps = {
+  label: string;
+  onClose: () => void;
+  children: ReactNode;
+};
+
+type LazyOverlayBoundaryState = {
+  error: unknown;
+};
+
+function describeOverlayLoadError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name || "Error",
+      message: error.message || "Failed to load overlay",
+      stack: error.stack ?? "",
+    };
+  }
+
+  return {
+    name: "Error",
+    message: typeof error === "string" ? error : "Failed to load overlay",
+    stack: "",
+  };
+}
+
+function LazyOverlayLoadError({ label, onClose }: { label: string; onClose: () => void }) {
+  const reloadApp = () => window.location.reload();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="presentation">
+      <section
+        aria-label={`${label} load error`}
+        aria-modal="true"
+        role="alertdialog"
+        className="mx-4 w-full max-w-sm rounded-lg bg-[var(--card)] p-5 shadow-2xl ring-1 ring-[var(--border)]"
+      >
+        <p className="mb-2 text-sm font-semibold">Could not open {label}</p>
+        <p className="mb-4 text-sm leading-6 text-[var(--muted-foreground)]">
+          Reload De-Koi to fetch the latest app files, or close this panel and keep working.
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-4 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]"
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            onClick={reloadApp}
+            className="rounded-lg bg-[var(--primary)] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[var(--primary)]/90"
+          >
+            Reload De-Koi
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+class LazyOverlayBoundary extends Component<LazyOverlayBoundaryProps, LazyOverlayBoundaryState> {
+  state: LazyOverlayBoundaryState = {
+    error: null,
+  };
+
+  static getDerivedStateFromError(error: unknown): LazyOverlayBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: unknown, errorInfo: ErrorInfo) {
+    const details = describeOverlayLoadError(error);
+    recordClientDiagnostic({
+      level: "error",
+      source: "lazy-overlay",
+      message: `Failed to load ${this.props.label}`,
+      details: {
+        name: details.name,
+        message: details.message,
+        stack: details.stack,
+        componentStack: errorInfo.componentStack ?? "",
+      },
+    });
+  }
+
+  render() {
+    if (this.state.error) {
+      return <LazyOverlayLoadError label={this.props.label} onClose={this.props.onClose} />;
+    }
+
+    return this.props.children;
+  }
+}
 
 type SharedSceneSettingsProps = {
   spriteArrangeMode: boolean;
@@ -247,9 +343,9 @@ export function ChatCommonOverlays({
 }: ChatCommonOverlaysProps) {
   return (
     <>
-      {chat && (
-        <Suspense fallback={null}>
-          {settingsOpen && (
+      {chat && settingsOpen && (
+        <LazyOverlayBoundary label="settings" onClose={onCloseSettings}>
+          <Suspense fallback={null}>
             <ChatSettingsDrawer
               chat={chat}
               open={settingsOpen}
@@ -259,35 +355,41 @@ export function ChatCommonOverlays({
               onResetSpritePlacements={sceneSettings.onResetSpritePlacements}
               onSpriteSideChange={sceneSettings.onSpriteSideChange}
             />
-          )}
-        </Suspense>
+          </Suspense>
+        </LazyOverlayBoundary>
       )}
       {chat && summaryDraft && (
-        <Suspense fallback={null}>
-          <SummariesEditorModal
-            chat={chat}
-            open={!!summaryDraft}
-            onClose={onCloseSummaryDraft ?? (() => undefined)}
-            saveMomentDraft={summaryDraft}
-          />
-        </Suspense>
+        <LazyOverlayBoundary label="summary editor" onClose={onCloseSummaryDraft ?? (() => undefined)}>
+          <Suspense fallback={null}>
+            <SummariesEditorModal
+              chat={chat}
+              open={!!summaryDraft}
+              onClose={onCloseSummaryDraft ?? (() => undefined)}
+              saveMomentDraft={summaryDraft}
+            />
+          </Suspense>
+        </LazyOverlayBoundary>
       )}
-      {chat && (
-        <Suspense fallback={null}>
-          {filesOpen && <ChatFilesDrawer chat={chat} open={filesOpen} onClose={onCloseFiles} />}
-        </Suspense>
+      {chat && filesOpen && (
+        <LazyOverlayBoundary label="files" onClose={onCloseFiles}>
+          <Suspense fallback={null}>
+            <ChatFilesDrawer chat={chat} open={filesOpen} onClose={onCloseFiles} />
+          </Suspense>
+        </LazyOverlayBoundary>
       )}
-      {chat && (
-        <Suspense fallback={null}>
-          {galleryOpen && (
+      {chat && galleryOpen && (
+        <LazyOverlayBoundary label="gallery" onClose={onCloseGallery}>
+          <Suspense fallback={null}>
             <ChatGalleryDrawer chat={chat} open={galleryOpen} onClose={onCloseGallery} onIllustrate={onIllustrate} />
-          )}
-        </Suspense>
+          </Suspense>
+        </LazyOverlayBoundary>
       )}
-      {chat && (
-        <Suspense fallback={null}>
-          {wizardOpen && <ChatSetupWizard chat={chat} onFinish={onWizardFinish} onCancel={onWizardCancel} />}
-        </Suspense>
+      {chat && wizardOpen && (
+        <LazyOverlayBoundary label="setup" onClose={onWizardCancel ?? onWizardFinish}>
+          <Suspense fallback={null}>
+            <ChatSetupWizard chat={chat} onFinish={onWizardFinish} onCancel={onWizardCancel} />
+          </Suspense>
+        </LazyOverlayBoundary>
       )}
       <PinnedImageOverlay activeChatId={activeChatId} />
       {peekPromptData && <PeekPromptModal data={peekPromptData} onClose={onClosePeekPrompt} />}

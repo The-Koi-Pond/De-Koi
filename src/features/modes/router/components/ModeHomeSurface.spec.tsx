@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ModeHomeSurface } from "./ModeHomeSurface";
+import { HOME_SPLASH_TEXTS, ModeHomeSurface, pickHomeSplashText } from "./ModeHomeSurface";
 
 vi.mock("../../../catalog/connections/index", () => ({
   useConnections: () => ({ data: [] }),
@@ -48,6 +48,48 @@ vi.mock("../../../../shared/stores/ui.store", () => {
   const useUIStore = (selector: (value: typeof state) => unknown) => selector(state);
   useUIStore.getState = () => state;
   return { useUIStore };
+});
+
+describe("ModeHomeSurface launch splash", () => {
+  let root: Root | null = null;
+  let container: HTMLDivElement | null = null;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    if (root) {
+      act(() => {
+        root?.unmount();
+      });
+    }
+    root = null;
+    container?.remove();
+    container = null;
+    vi.restoreAllMocks();
+  });
+
+  it("maps random launch values to bundled splash text", () => {
+    expect(pickHomeSplashText(() => 0)).toBe(HOME_SPLASH_TEXTS[0]);
+    expect(pickHomeSplashText(() => 0.999)).toBe(HOME_SPLASH_TEXTS[HOME_SPLASH_TEXTS.length - 1]);
+    expect(pickHomeSplashText(() => 1)).toBe(HOME_SPLASH_TEXTS[HOME_SPLASH_TEXTS.length - 1]);
+  });
+
+  it("renders one bundled splash saying on the home surface", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface />);
+    });
+
+    const splash = container!.querySelector(".koi-home-splash");
+    expect(splash).toBeTruthy();
+    expect([...HOME_SPLASH_TEXTS].map((text) => `Launch splash: ${text}`)).toContain(
+      splash?.getAttribute("aria-label") ?? "",
+    );
+    expect(splash?.querySelectorAll(".koi-home-splash-letter").length).toBeGreaterThan(0);
+  });
 });
 
 describe("ModeHomeSurface quick-start prewarming", () => {

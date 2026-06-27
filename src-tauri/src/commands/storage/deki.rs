@@ -15,29 +15,20 @@ use autoagents::llm::embedding::EmbeddingProvider;
 use autoagents::llm::error::LLMError;
 use autoagents::llm::models::{ModelListRequest, ModelListResponse, ModelsProvider};
 use autoagents::llm::{FunctionCall, LLMProvider, ToolCall};
-use autoagents::prelude::{agent, tool, AgentHooks, ToolInput, ToolInputT, ToolT};
-use marinara_core::{now_iso, AppError, AppResult};
+use autoagents::prelude::{AgentHooks, ToolInput, ToolInputT, ToolT, agent, tool};
+use marinara_core::{AppError, AppResult, now_iso};
 use marinara_security::{assert_inside_dir, assert_relative_safe_path};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::env;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-const CREATIVE_LIBRARY_ENTITIES: &[(&str, &str)] = &[
-    ("characters", "characters"),
-    ("characterGroups", "character-groups"),
-    ("personas", "personas"),
-    ("personaGroups", "persona-groups"),
-    ("lorebooks", "lorebooks"),
-    ("lorebookEntries", "lorebook-entries"),
-    ("promptPresets", "prompts"),
-    ("promptSections", "prompt-sections"),
-    ("promptGroups", "prompt-groups"),
-    ("promptVariables", "prompt-variables"),
-];
+#[path = "deki/library.rs"]
+mod library;
+
 const DEKI_ACTION_ENTITIES: &[&str] = &[
     "characters",
     "character-groups",
@@ -285,11 +276,36 @@ impl ModelsProvider for DekiLlmProvider {
 impl LLMProvider for DekiLlmProvider {}
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
-struct ReadDekiLibraryArgs {}
+#[serde(rename_all = "camelCase")]
+struct ReadDekiLibraryArgs {
+    #[input(
+        description = "Optional library item type to list, such as character, persona, lorebook, lorebook_entry, prompt_preset, prompt_section, prompt_group, or prompt_variable."
+    )]
+    #[serde(default, alias = "item_type", alias = "type")]
+    item_type: Option<String>,
+    #[input(
+        description = "Optional comma-separated library item types to list. Use this instead of type when multiple kinds are needed."
+    )]
+    #[serde(default)]
+    types: Option<String>,
+    #[input(
+        description = "Optional case-insensitive text search over documented user-facing fields for each library item type."
+    )]
+    #[serde(default)]
+    query: Option<String>,
+    #[input(
+        description = "Maximum overview rows to return. Defaults to 80 and is capped by De-Koi."
+    )]
+    #[serde(default)]
+    limit: Option<usize>,
+    #[input(description = "Zero-based pagination offset for overview rows.")]
+    #[serde(default)]
+    offset: Option<usize>,
+}
 
 #[tool(
     name = "read_deki_library",
-    description = "Read Deki-senpai's typed, read-only creative library snapshot: characters, personas, lorebooks with entries, prompt presets, prompt sections, prompt groups, prompt variables, and character/persona groups. This tool never returns chats, messages, memories, integrations, API keys, or connection secrets.",
+    description = "List Deki-senpai's creative library as a lightweight overview. Returns ids, names, subtitles/comments, grouping fields, and stats for characters, personas, lorebooks, prompt presets, sections, groups, and variables. It does not return full record bodies. Use read_deki_library_items after this when exact selected records are needed. This tool never returns chats, messages, memories, integrations, API keys, or connection secrets.",
     input = ReadDekiLibraryArgs,
 )]
 struct ReadDekiLibraryTool {
@@ -298,13 +314,89 @@ struct ReadDekiLibraryTool {
 
 #[async_trait]
 impl ToolRuntime for ReadDekiLibraryTool {
-    async fn execute(&self, _args: Value) -> Result<Value, ToolCallError> {
-        creative_library_snapshot(&self.state).map_err(|error| {
-            ToolCallError::RuntimeError(Box::new(AppError::new(
-                "deki_library_read_failed",
-                error.to_string(),
-            )))
-        })
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        let args: ReadDekiLibraryArgs = serde_json::from_value(args)
+            .map_err(|error| deki_tool_error("deki_library_read_invalid_args", error))?;
+        library::overview(
+            &self.state,
+            library::LibraryOverviewQuery {
+                item_type: args.item_type,
+                types: parse_deki_library_types(args.types.as_deref()),
+                query: args.query,
+                limit: args.limit,
+                offset: args.offset,
+            },
+        )
+        .map_err(|error| deki_tool_error("deki_library_read_failed", error))
+    }
+}
+
+fn parse_deki_library_types(value: Option<&str>) -> Vec<String> {
+    value
+        .unwrap_or("")
+        .split([',', ';', '\n'])
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+#[derive(Serialize, Deserialize, ToolInput, Debug)]
+#[serde(rename_all = "camelCase")]
+struct ReadDekiLibraryItemsArgs {
+    #[input(
+        description = "Library item type, such as character, persona, lorebook, lorebook_entry, prompt_preset, prompt_section, prompt_group, or prompt_variable."
+    )]
+    #[serde(alias = "item_type", alias = "type")]
+    item_type: String,
+    #[input(description = "Exact record id to read.")]
+    id: String,
+    #[input(
+        description = "For lorebook selections only. Entries are included by default; omit this or set it to true. False is rejected to avoid returning partial detail records."
+    )]
+    #[serde(default, alias = "include_entries")]
+    include_entries: Option<bool>,
+    #[input(
+        description = "For lorebook entry expansion, optional case-insensitive search over entry id, name, comment, keys, and content."
+    )]
+    #[serde(default, alias = "entry_query")]
+    entry_query: Option<String>,
+    #[input(
+        description = "For lorebook entry expansion, maximum entries to return. Defaults to 50 and is capped by De-Koi."
+    )]
+    #[serde(default, alias = "entry_limit")]
+    entry_limit: Option<usize>,
+    #[input(description = "For lorebook entry expansion, zero-based entry pagination offset.")]
+    #[serde(default, alias = "entry_offset")]
+    entry_offset: Option<usize>,
+}
+
+#[tool(
+    name = "read_deki_library_items",
+    description = "Read full content for one explicit selected creative-library record after using read_deki_library to identify its id. Supports selected characters, personas, lorebooks, lorebook entries, prompt presets, prompt sections, prompt groups, and prompt variables. Call this tool again for more selected records. Lorebook entries are included by default and paginated through entryQuery, entryLimit, and entryOffset; includeEntries false is rejected.",
+    input = ReadDekiLibraryItemsArgs,
+)]
+struct ReadDekiLibraryItemsTool {
+    state: AppState,
+}
+
+#[async_trait]
+impl ToolRuntime for ReadDekiLibraryItemsTool {
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        let args: ReadDekiLibraryItemsArgs = serde_json::from_value(args)
+            .map_err(|error| deki_tool_error("deki_library_items_invalid_args", error))?;
+        library::items(
+            &self.state,
+            vec![library::LibraryItemRequest {
+                item_type: args.item_type,
+                id: args.id,
+                include_entries: args.include_entries,
+                entry_query: args.entry_query,
+                entry_limit: args.entry_limit,
+                entry_offset: args.entry_offset,
+            }],
+        )
+        .map_err(|error| deki_tool_error("deki_library_items_failed", error))
     }
 }
 
@@ -379,9 +471,6 @@ struct EditDekiCodeFileTool {}
 #[async_trait]
 impl ToolRuntime for EditDekiCodeFileTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        if !deki_write_tools_enabled() {
-            return Err(deki_write_requires_approval_error());
-        }
         let args: EditDekiCodeFileArgs = serde_json::from_value(args)
             .map_err(|error| deki_tool_error("deki_code_edit_invalid_args", error))?;
         edit_deki_code_file(&args.path, &args.old_text, &args.new_text)
@@ -416,9 +505,6 @@ struct CreateDekiExtensionTool {
 #[async_trait]
 impl ToolRuntime for CreateDekiExtensionTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        if !deki_write_tools_enabled() {
-            return Err(deki_write_requires_approval_error());
-        }
         let args: CreateDekiExtensionArgs = serde_json::from_value(args)
             .map_err(|error| deki_tool_error("deki_extension_invalid_args", error))?;
         create_deki_extension(&self.state, args)
@@ -466,9 +552,6 @@ struct CreateDekiCustomAgentTool {
 #[async_trait]
 impl ToolRuntime for CreateDekiCustomAgentTool {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        if !deki_write_tools_enabled() {
-            return Err(deki_write_requires_approval_error());
-        }
         let args: CreateDekiCustomAgentArgs = serde_json::from_value(args)
             .map_err(|error| deki_tool_error("deki_agent_invalid_args", error))?;
         create_deki_custom_agent(&self.state, args)
@@ -481,6 +564,7 @@ impl ToolRuntime for CreateDekiCustomAgentTool {
     description = "You are Deki-senpai, De-Koi's standalone assistant. You can inspect the app's codebase, read files, apply exact source edits, create extension records, create custom agent records, and inspect the creative library through tools. Use tools for factual answers about De-Koi internals.",
     tools = [
         ReadDekiLibraryTool { state: self.state.clone() },
+        ReadDekiLibraryItemsTool { state: self.state.clone() },
         SearchDekiCodeTool {},
         ReadDekiCodeFileTool {},
         EditDekiCodeFileTool {},
@@ -657,11 +741,11 @@ fn deki_workspace_not_implemented(action: &str) -> AppError {
     )
 }
 
-fn read_only_deki_action_contract() -> Value {
+fn deki_no_action_contract() -> Value {
     json!({
         "type": "none",
-        "capability": "workspace_agent",
-        "reason": "Deki-senpai can inspect De-Koi's codebase and creative library. Write tools require an explicit approval flow and are disabled for autonomous tool runs.",
+        "capability": "read_only",
+        "reason": "Deki-senpai returned a plain response with no pending UI approval action.",
     })
 }
 
@@ -675,10 +759,7 @@ fn deki_response_content_and_action(raw_content: &str) -> AppResult<(String, Val
                 "Deki-senpai returned an action close tag without an opening tag.",
             ));
         }
-        return Ok((
-            raw_content.trim().to_string(),
-            read_only_deki_action_contract(),
-        ));
+        return Ok((raw_content.trim().to_string(), deki_no_action_contract()));
     }
     if open_count != 1 || close_count != 1 {
         return Err(AppError::new(
@@ -701,28 +782,76 @@ fn deki_response_content_and_action(raw_content: &str) -> AppResult<(String, Val
     };
     let end = after_open + relative_end;
     let trailing = raw_content[end + DEKI_ACTION_CLOSE_TAG.len()..].trim();
-    if !trailing.is_empty() {
-        return Err(AppError::new(
-            "deki_action_invalid",
-            "Deki-senpai must place the action block after the visible response.",
-        ));
-    }
     let action_json = raw_content[after_open..end].trim();
-    let parsed = serde_json::from_str::<Value>(action_json).map_err(|error| {
-        AppError::new(
-            "deki_action_invalid",
-            format!("Deki-senpai returned malformed action JSON: {error}"),
-        )
-    })?;
+    let parsed = parse_deki_action_json(action_json)?;
     let action = normalize_deki_response_action(parsed)?;
-    let mut content = String::new();
-    content.push_str(raw_content[..start].trim());
-    let content = if content.trim().is_empty() {
+    let content_parts = [raw_content[..start].trim(), trailing]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    let content = if content_parts.is_empty() {
         "I drafted a creative-library change for review.".to_string()
     } else {
-        content.trim().to_string()
+        content_parts.join("\n\n")
     };
     Ok((content, action))
+}
+
+fn parse_deki_action_json(action_json: &str) -> AppResult<Value> {
+    match serde_json::from_str::<Value>(action_json) {
+        Ok(parsed) => Ok(parsed),
+        Err(initial_error) => {
+            let Some((start, end)) = first_json_object_bounds(action_json) else {
+                return Err(AppError::new(
+                    "deki_action_invalid",
+                    format!("Deki-senpai returned malformed action JSON: {initial_error}"),
+                ));
+            };
+            serde_json::from_str::<Value>(&action_json[start..end]).map_err(|error| {
+                AppError::new(
+                    "deki_action_invalid",
+                    format!("Deki-senpai returned malformed action JSON: {error}"),
+                )
+            })
+        }
+    }
+}
+
+fn first_json_object_bounds(value: &str) -> Option<(usize, usize)> {
+    let start = value.find('{')?;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (offset, ch) in value[start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '{' | '[' => depth += 1,
+            '}' | ']' => {
+                if depth == 0 {
+                    return None;
+                }
+                depth -= 1;
+                if depth == 0 {
+                    return Some((start, start + offset + ch.len_utf8()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
 }
 
 fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
@@ -737,7 +866,7 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
         .and_then(Value::as_str)
         .unwrap_or_default();
     if action_type == "none" {
-        return Ok(read_only_deki_action_contract());
+        return Ok(deki_no_action_contract());
     }
     let entity = object
         .get("entity")
@@ -890,7 +1019,7 @@ fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
         "You can chat with the user, inspect De-Koi source code with search_deki_code and read_deki_code_file, and apply narrow exact-match code edits with edit_deki_code_file.".to_string(),
         "For questions about De-Koi internals, architecture, UI behavior, agent behavior, storage, imports, providers, or bugs, search the codebase before answering. Prefer AGENTS.md and the relevant owner files over memory. Never cite package-era paths unless search/read tools confirm they exist in the current repository.".to_string(),
         "You can create user extensions with create_deki_extension and custom agent configurations with create_deki_custom_agent. Prefer those record-creation tools when the user asks for an extension or agent.".to_string(),
-        "You can inspect the creative library through read_deki_library when the user asks about their characters, personas, lorebooks, prompt presets, or groups.".to_string(),
+        "You can inspect the creative library through read_deki_library when the user asks about their characters, personas, lorebooks, prompt presets, or groups. read_deki_library returns only an overview. Use read_deki_library_items with exact ids when you need full selected records. Do not request full item details until the overview identifies likely relevant records.".to_string(),
         "When the user asks you to create or update a character, persona, lorebook, prompt preset, or their groups/sections/entries/variables, draft the record in a single hidden action block instead of calling write tools. Append exactly one <deki_action>{JSON}</deki_action> block after your visible explanation. Supported JSON shapes are {\"type\":\"create_record\",\"entity\":\"characters|character-groups|personas|persona-groups|lorebooks|lorebook-entries|prompts|prompt-sections|prompt-groups|prompt-variables\",\"draft\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"} and {\"type\":\"edit_record\",\"entity\":\"...\",\"id\":\"record id\",\"patch\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"}. Use De-Koi storage shapes: characters need draft.data.name; personas, lorebooks, and prompts need draft.name; lorebook-entries need lorebookId and name; prompt-sections need presetId, identifier, and name; prompt-groups need presetId and name; prompt-variables need presetId, variableName, question, and options. Do not say the change is saved until the user applies the approval card.".to_string(),
         "For prompt preset review, use read_deki_library when needed and give concise findings. If the user asks you to apply the review, emit an edit_record action for prompts, prompt-sections, prompt-groups, or prompt-variables.".to_string(),
         "When drafting character-card fields, SillyTavern examples, or example dialogue, keep Deki-senpai as the assistant outside the artifact only. Deki-senpai, assistant, user, and raw conversation-history labels must never become a speaker name inside generated card content; use the target character name, {{char}}, {{user}}, or the user's requested format instead.".to_string(),
@@ -1176,7 +1305,8 @@ fn ensure_connection_supports_native_tools(
     connection: &marinara_llm::LlmConnection,
 ) -> AppResult<()> {
     match connection.provider.as_str() {
-        "openai" | "openai_chatgpt" | "openrouter" | "custom" | "xai" | "mistral" | "cohere" | "nanogpt" => Ok(()),
+        "openai" | "openai_chatgpt" | "openrouter" | "custom" | "xai" | "mistral" | "cohere"
+        | "nanogpt" => Ok(()),
         provider => Err(AppError::invalid_input(format!(
             "Deki-senpai requires a connection with native tool-call support. The selected provider '{provider}' is not enabled for native tools in De-Koi's Rust LLM transport yet. Use an OpenAI-compatible, OpenRouter, OpenAI, xAI, Mistral, Cohere, NanoGPT, or custom OpenAI-compatible connection with a tool-capable chat model."
         ))),
@@ -1190,28 +1320,8 @@ fn tool_call_error_message(message: &str) -> String {
     message.to_string()
 }
 
-fn creative_library_snapshot(state: &AppState) -> AppResult<Value> {
-    let mut snapshot = serde_json::Map::new();
-    for (key, entity) in CREATIVE_LIBRARY_ENTITIES {
-        let rows = state.storage.list(entity)?;
-        snapshot.insert((*key).to_string(), Value::Array(rows));
-    }
-    Ok(Value::Object(snapshot))
-}
-
 fn deki_tool_error(code: &str, error: impl ToString) -> ToolCallError {
     ToolCallError::RuntimeError(Box::new(AppError::new(code, error.to_string())))
-}
-
-fn deki_write_tools_enabled() -> bool {
-    false
-}
-
-fn deki_write_requires_approval_error() -> ToolCallError {
-    deki_tool_error(
-        "deki_write_requires_approval",
-        "Deki-senpai write tools require explicit user approval and are disabled for autonomous tool runs.",
-    )
 }
 
 fn default_agent_phase() -> String {
@@ -1813,6 +1923,68 @@ mod tests {
         }
     }
 
+    #[test]
+    fn deki_library_tool_schema_uses_supported_primitive_fields() {
+        let overview_schema: Value =
+            serde_json::from_str(ReadDekiLibraryArgs::io_schema()).expect("overview schema json");
+        assert_eq!(
+            overview_schema["properties"]["types"]["type"],
+            json!("string")
+        );
+
+        let detail_schema: Value = serde_json::from_str(ReadDekiLibraryItemsArgs::io_schema())
+            .expect("detail schema json");
+        assert_eq!(
+            detail_schema["properties"]["item_type"]["type"],
+            json!("string")
+        );
+        assert_eq!(detail_schema["properties"]["id"]["type"], json!("string"));
+        assert!(detail_schema["properties"].get("items").is_none());
+    }
+
+    #[test]
+    fn deki_library_tool_args_accept_schema_field_names() {
+        let overview_args: ReadDekiLibraryArgs = serde_json::from_value(json!({
+            "item_type": "character",
+            "types": "character,lorebook"
+        }))
+        .expect("overview schema field args");
+        assert_eq!(overview_args.item_type.as_deref(), Some("character"));
+        assert_eq!(
+            parse_deki_library_types(overview_args.types.as_deref()),
+            vec!["character".to_string(), "lorebook".to_string()]
+        );
+
+        let detail_args: ReadDekiLibraryItemsArgs = serde_json::from_value(json!({
+            "item_type": "lorebook",
+            "id": "book-1",
+            "include_entries": true,
+            "entry_query": "makima",
+            "entry_limit": 5,
+            "entry_offset": 2
+        }))
+        .expect("detail schema field args");
+        assert_eq!(detail_args.item_type, "lorebook");
+        assert_eq!(detail_args.id, "book-1");
+        assert_eq!(detail_args.include_entries, Some(true));
+        assert_eq!(detail_args.entry_query.as_deref(), Some("makima"));
+        assert_eq!(detail_args.entry_limit, Some(5));
+        assert_eq!(detail_args.entry_offset, Some(2));
+    }
+
+    #[test]
+    fn deki_library_type_list_accepts_mixed_separators() {
+        assert_eq!(
+            parse_deki_library_types(Some("character, lorebook; prompt_preset\npersona")),
+            vec![
+                "character".to_string(),
+                "lorebook".to_string(),
+                "prompt_preset".to_string(),
+                "persona".to_string()
+            ]
+        );
+    }
+
     fn unique_test_repo_root(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
             "de-koi-{name}-{}-{}",
@@ -1892,6 +2064,121 @@ mod tests {
     }
 
     #[test]
+    fn deki_edit_tool_applies_exact_source_edits() {
+        let _guard = DEKI_REPO_ENV_LOCK.lock().expect("lock repo env");
+        let previous_de_koi = std::env::var_os("DE_KOI_REPO_ROOT");
+        let previous_marinara = std::env::var_os("MARINARA_REPO_ROOT");
+        let root = unique_test_repo_root("edit-tool");
+        fs::create_dir_all(root.join("src")).expect("create src");
+        let source_path = root.join("src").join("sample.ts");
+        fs::write(&source_path, "export const label = 'before';\n").expect("write source");
+
+        std::env::set_var("DE_KOI_REPO_ROOT", &root);
+        std::env::remove_var("MARINARA_REPO_ROOT");
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build test runtime")
+            .block_on(EditDekiCodeFileTool {}.execute(json!({
+                "path": "src/sample.ts",
+                "old_text": "before",
+                "new_text": "after"
+            })));
+
+        match previous_de_koi {
+            Some(value) => std::env::set_var("DE_KOI_REPO_ROOT", value),
+            None => std::env::remove_var("DE_KOI_REPO_ROOT"),
+        }
+        match previous_marinara {
+            Some(value) => std::env::set_var("MARINARA_REPO_ROOT", value),
+            None => std::env::remove_var("MARINARA_REPO_ROOT"),
+        }
+        let updated = fs::read_to_string(&source_path).expect("read updated source");
+        fs::remove_dir_all(&root).ok();
+
+        let payload = result.expect("edit tool should apply exact source edit");
+        assert_eq!(payload["path"], "src/sample.ts");
+        assert_eq!(payload["replacements"], 1);
+        assert_eq!(updated, "export const label = 'after';\n");
+    }
+
+    #[test]
+    fn deki_edit_tool_leaves_file_unchanged_when_old_text_is_absent() {
+        let _guard = DEKI_REPO_ENV_LOCK.lock().expect("lock repo env");
+        let previous_de_koi = std::env::var_os("DE_KOI_REPO_ROOT");
+        let previous_marinara = std::env::var_os("MARINARA_REPO_ROOT");
+        let root = unique_test_repo_root("edit-tool-missing-text");
+        fs::create_dir_all(root.join("src")).expect("create src");
+        let source_path = root.join("src").join("sample.ts");
+        let original = "export const label = 'before';\n";
+        fs::write(&source_path, original).expect("write source");
+
+        std::env::set_var("DE_KOI_REPO_ROOT", &root);
+        std::env::remove_var("MARINARA_REPO_ROOT");
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build test runtime")
+            .block_on(EditDekiCodeFileTool {}.execute(json!({
+                "path": "src/sample.ts",
+                "old_text": "missing",
+                "new_text": "after"
+            })));
+
+        match previous_de_koi {
+            Some(value) => std::env::set_var("DE_KOI_REPO_ROOT", value),
+            None => std::env::remove_var("DE_KOI_REPO_ROOT"),
+        }
+        match previous_marinara {
+            Some(value) => std::env::set_var("MARINARA_REPO_ROOT", value),
+            None => std::env::remove_var("MARINARA_REPO_ROOT"),
+        }
+        let updated = fs::read_to_string(&source_path).expect("read source after failed edit");
+        fs::remove_dir_all(&root).ok();
+
+        assert!(result.is_err(), "missing old_text should reject the edit");
+        assert_eq!(updated, original);
+    }
+
+    #[test]
+    fn deki_edit_tool_leaves_file_unchanged_when_old_text_is_duplicated() {
+        let _guard = DEKI_REPO_ENV_LOCK.lock().expect("lock repo env");
+        let previous_de_koi = std::env::var_os("DE_KOI_REPO_ROOT");
+        let previous_marinara = std::env::var_os("MARINARA_REPO_ROOT");
+        let root = unique_test_repo_root("edit-tool-duplicate-text");
+        fs::create_dir_all(root.join("src")).expect("create src");
+        let source_path = root.join("src").join("sample.ts");
+        let original = "export const first = 'same';\nexport const second = 'same';\n";
+        fs::write(&source_path, original).expect("write source");
+
+        std::env::set_var("DE_KOI_REPO_ROOT", &root);
+        std::env::remove_var("MARINARA_REPO_ROOT");
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build test runtime")
+            .block_on(EditDekiCodeFileTool {}.execute(json!({
+                "path": "src/sample.ts",
+                "old_text": "same",
+                "new_text": "after"
+            })));
+
+        match previous_de_koi {
+            Some(value) => std::env::set_var("DE_KOI_REPO_ROOT", value),
+            None => std::env::remove_var("DE_KOI_REPO_ROOT"),
+        }
+        match previous_marinara {
+            Some(value) => std::env::set_var("MARINARA_REPO_ROOT", value),
+            None => std::env::remove_var("MARINARA_REPO_ROOT"),
+        }
+        let updated = fs::read_to_string(&source_path).expect("read source after failed edit");
+        fs::remove_dir_all(&root).ok();
+
+        assert!(result.is_err(), "duplicate old_text should reject the edit");
+        assert_eq!(updated, original);
+    }
+
+    #[test]
     fn deki_system_prompt_blocks_assistant_label_leakage_in_character_card_examples() {
         let prompt = build_system_prompt(None);
 
@@ -1940,6 +2227,51 @@ mod tests {
     }
 
     #[test]
+    fn deki_plain_response_returns_no_pending_action_contract() {
+        let (content, action) =
+            deki_response_content_and_action("Plain answer.").expect("plain response should parse");
+
+        assert_eq!(content, "Plain answer.");
+        assert_eq!(action["type"], "none");
+        assert_eq!(action["capability"], "read_only");
+        assert!(
+            action["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("no pending UI approval action")
+        );
+        assert!(
+            !action["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("source edits")
+        );
+    }
+
+    #[test]
+    fn deki_none_action_normalizes_to_no_pending_action_contract() {
+        let raw = r#"No change needed.<deki_action>{"type":"none"}</deki_action>"#;
+
+        let (content, action) =
+            deki_response_content_and_action(raw).expect("none action should parse");
+
+        assert_eq!(content, "No change needed.");
+        assert_eq!(action["type"], "none");
+        assert!(
+            action["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("no pending UI approval action")
+        );
+        assert!(
+            !action["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("source edits")
+        );
+    }
+
+    #[test]
     fn deki_response_extracts_pending_create_action_without_visible_json() {
         let raw = r#"I drafted Sol for approval.
 
@@ -1952,6 +2284,36 @@ mod tests {
         assert_eq!(action["entity"], "personas");
         assert_eq!(action["draft"]["name"], "Sol");
         assert!(!content.contains("deki_action"));
+    }
+
+    #[test]
+    fn deki_response_extracts_action_from_fenced_json_block() {
+        let raw = r#"Draft ready.
+<deki_action>```json
+{"type":"create_record","entity":"personas","draft":{"name":"Sol"}}
+```</deki_action>"#;
+
+        let (content, action) =
+            deki_response_content_and_action(raw).expect("fenced action should parse");
+
+        assert_eq!(content, "Draft ready.");
+        assert_eq!(action["type"], "create_record");
+        assert_eq!(action["entity"], "personas");
+        assert_eq!(action["draft"]["name"], "Sol");
+    }
+
+    #[test]
+    fn deki_response_extracts_action_when_hidden_block_has_trailing_text() {
+        let raw = r#"Draft ready.
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol"}} This draft creates the requested persona.</deki_action>"#;
+
+        let (content, action) =
+            deki_response_content_and_action(raw).expect("action with hidden trailing text should parse");
+
+        assert_eq!(content, "Draft ready.");
+        assert_eq!(action["type"], "create_record");
+        assert_eq!(action["entity"], "personas");
+        assert_eq!(action["draft"]["name"], "Sol");
     }
 
     #[test]
@@ -1978,15 +2340,17 @@ mod tests {
     }
 
     #[test]
-    fn deki_response_rejects_visible_text_after_action_block() {
+    fn deki_response_preserves_visible_text_after_action_block() {
         let raw = r#"Draft ready.
 <deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol"}}</deki_action>
 Extra visible text."#;
 
-        let error = deki_response_content_and_action(raw)
-            .expect_err("trailing text after action should fail");
+        let (content, action) =
+            deki_response_content_and_action(raw).expect("trailing visible text should parse");
 
-        assert_eq!(error.code, "deki_action_invalid");
+        assert_eq!(content, "Draft ready.\n\nExtra visible text.");
+        assert_eq!(action["type"], "create_record");
+        assert_eq!(action["entity"], "personas");
     }
 
     #[test]

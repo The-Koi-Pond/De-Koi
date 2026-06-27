@@ -13,7 +13,6 @@ import {
   Languages,
   Loader2,
   FileText,
-  Gauge,
   WandSparkles,
 } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -474,9 +473,6 @@ export const ChatInput = memo(function ChatInput({
   // Get the current textarea value (always from the DOM directly)
   const getValue = () => textareaRef.current?.value ?? "";
 
-  const handlePromptBudget = () => {
-    onPeekPrompt?.({ userMessage: getValue().trim(), attachments });
-  };
 
   const buildContext = useCallback((): SlashCommandContext | null => {
     if (!activeChatId) return null;
@@ -1538,21 +1534,6 @@ export const ChatInput = memo(function ChatInput({
 
         {/* Send / Stop button */}
 
-        <button
-          type="button"
-          onClick={handlePromptBudget}
-          disabled={!activeChatId || isReadingAttachments}
-          className={cn(
-            CHAT_INPUT_ICON_BUTTON_CLASS,
-            activeChatId && !isReadingAttachments
-              ? CHAT_INPUT_ICON_BUTTON_IDLE_CLASS
-              : CHAT_INPUT_ICON_BUTTON_DISABLED_CLASS,
-          )}
-          title="Prompt budget"
-          aria-label="Prompt budget"
-        >
-          <Gauge size="1rem" />
-        </button>
 
         <button
           onClick={isStreaming ? () => useChatStore.getState().stopGeneration() : handleSend}

@@ -10,6 +10,7 @@ import { resolveMessageMacros } from "../../../../shared/lib/chat-macros";
 import { useTranslate } from "../../../../shared/hooks/use-translate";
 import { storageApi } from "../../../../shared/api/storage-api";
 import {
+  buildSaveMomentSource,
   hasGenerationReplayDetails,
   messageAttachmentsFromExtra,
   readStoredThinking,
@@ -55,6 +56,8 @@ function areConversationMessagePropsEqual(prev: ConversationMessageProps, next: 
     prev.noHoverGroup === next.noHoverGroup &&
     prev.plainUserMessages === next.plainUserMessages &&
     prev.forceShowActions === next.forceShowActions &&
+    prev.forceCanRegenerate === next.forceCanRegenerate &&
+    prev.regenerateButtonTitle === next.regenerateButtonTitle &&
     prev.onDelete === next.onDelete &&
     prev.onRegenerate === next.onRegenerate &&
     prev.onEdit === next.onEdit &&
@@ -94,6 +97,8 @@ export const ConversationMessage = memo(function ConversationMessage({
   noHoverGroup,
   plainUserMessages,
   forceShowActions,
+  forceCanRegenerate,
+  regenerateButtonTitle,
   onDelete,
   onRegenerate,
   onEdit,
@@ -142,7 +147,8 @@ export const ConversationMessage = memo(function ConversationMessage({
   const collapseHiddenMessages = useUIStore((s) => s.summaryPopoverSettings.collapseHiddenMessages);
   const editMessagesOnDoubleClick = useUIStore((s) => s.editMessagesOnDoubleClick);
   const messageTextStyle = useMemo<CSSProperties>(() => ({ fontSize: `${chatFontSize}px` }), [chatFontSize]);
-  const regenerateButtonTitle = guideGenerations ? "Regenerate (guided)" : "Regenerate";
+  const resolvedRegenerateButtonTitle =
+    regenerateButtonTitle ?? (guideGenerations ? "Regenerate (guided)" : "Regenerate");
   const regenerateGuidedClass = guideGenerations
     ? "text-[var(--primary)] bg-[var(--primary)]/15 ring-1 ring-[var(--primary)]/30 hover:text-[var(--primary)] hover:bg-[var(--primary)]/20"
     : undefined;
@@ -180,7 +186,7 @@ export const ConversationMessage = memo(function ConversationMessage({
       onToggle={() => setManuallyExpandedHidden((value) => !value)}
     />
   ) : null;
-  const canRegenerate = !isUser || generationReplay !== null;
+  const canRegenerate = forceCanRegenerate === true || !isUser || generationReplay !== null;
 
   useEffect(() => {
     if (!generationReplay) setShowGenerationReplay(false);
@@ -331,6 +337,34 @@ export const ConversationMessage = memo(function ConversationMessage({
     [attachments, message.chatId, message.id, qc],
   );
 
+  const handleRegenerateAttachment = useCallback(
+    async (index: number) => {
+      if (!onIllustrateMoment) return;
+      await handleRemoveAttachment(index);
+      await onIllustrateMoment(
+        buildSaveMomentSource({
+          chatId: message.chatId,
+          messageId: message.id,
+          role: message.role,
+          speakerName: displayName,
+          createdAt: message.createdAt,
+          content: renderedContent || message.content,
+        }),
+      );
+    },
+    [
+      displayName,
+      handleRemoveAttachment,
+      message.chatId,
+      message.content,
+      message.createdAt,
+      message.id,
+      message.role,
+      onIllustrateMoment,
+      renderedContent,
+    ],
+  );
+
   const charByName = useMemo(() => {
     if (!scopedCharacterMap) return null;
     const map = new Map<string, ConversationCharacterInfo>();
@@ -344,6 +378,18 @@ export const ConversationMessage = memo(function ConversationMessage({
     return map;
   }, [scopedCharacterMap, message.characterId]);
 
+  const charIdByName = useMemo(() => {
+    if (!scopedCharacterMap) return null;
+    const map = new Map<string, string>();
+    for (const [id, v] of scopedCharacterMap) {
+      if (v) {
+        const key = v.name.toLowerCase();
+        if (id === message.characterId) map.set(key, id);
+        else if (!map.has(key)) map.set(key, id);
+      }
+    }
+    return map;
+  }, [scopedCharacterMap, message.characterId]);
   const mentionNames = useMemo(() => {
     if (!scopedCharacterMap) return [] as string[];
     const names: string[] = [];
@@ -608,6 +654,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     groupedSegments,
     visibleSegments,
     charByName,
+    charIdByName,
     attachments,
     translatedText,
     isTranslating,
@@ -616,7 +663,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     bubbleCornerClass,
     generationDurationLabel,
     generationDurationTitle,
-    regenerateButtonTitle,
+    regenerateButtonTitle: resolvedRegenerateButtonTitle,
     regenerateGuidedClass,
     thinking,
     generationReplay,
@@ -640,6 +687,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     onShowThinking: () => setShowThinking(true),
     onImageOpen: openImageLightbox,
     onRemoveAttachment: handleRemoveAttachment,
+    onRegenerateAttachment: onIllustrateMoment ? handleRegenerateAttachment : undefined,
     onCloseThinking: () => setShowThinking(false),
     onCloseGenerationReplay: () => setShowGenerationReplay(false),
     imageLightbox,

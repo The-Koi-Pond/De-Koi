@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Message } from "../../../../engine/contracts/types/chat";
+import { storageApi } from "../../../../shared/api/storage-api";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { ConversationMessage } from "./ConversationMessage";
 
@@ -221,6 +222,188 @@ describe("ConversationMessage memo subscriptions", () => {
     expect(container!.textContent).toContain("\u201chello\u201d");
   });
 
+  it("uses the soft reveal treatment while assistant text streams", () => {
+    const streamingMessage: Message = {
+      ...message,
+      id: "message-streaming-reveal",
+      content: "The first words are here.",
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={streamingMessage}
+            isStreaming
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container!.querySelector(".mari-streaming-reveal")).not.toBeNull();
+    expect(container!.querySelector(".mari-streaming-caret")).toBeNull();
+  });
+
+  it("uses a quiet pending shimmer before streamed assistant text exists", () => {
+    const pendingMessage: Message = {
+      ...message,
+      id: "message-streaming-pending",
+      content: "",
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={pendingMessage}
+            isStreaming
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container!.querySelector(".mari-streaming-pending")).not.toBeNull();
+    expect(container!.querySelector(".mari-typing-dots")).toBeNull();
+  });
+  it("lets generated image attachments be removed or regenerated without deleting the message", async () => {
+    const onDelete = vi.fn();
+    const onIllustrateMoment = vi.fn().mockResolvedValue(undefined);
+    const patchExtra = vi.spyOn(storageApi, "patchChatMessageExtra").mockResolvedValue({} as Message);
+    const illustratedMessage: Message = {
+      ...message,
+      id: "message-illustrated",
+      content: "The pond reflects the lanterns.",
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+        attachments: [
+          {
+            type: "image/png",
+            url: "data:image/png;base64,aW1hZ2U=",
+            prompt: "lantern pond",
+            galleryId: "gallery-1",
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={illustratedMessage}
+            onDelete={onDelete}
+            onIllustrateMoment={onIllustrateMoment}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    await act(async () => {
+      container!.querySelector<HTMLButtonElement>('button[title="Remove image"]')!.click();
+      await Promise.resolve();
+    });
+
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(patchExtra).toHaveBeenCalledWith("message-illustrated", { attachments: [] });
+
+    patchExtra.mockClear();
+    act(() => {
+      root?.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={illustratedMessage}
+            onDelete={onDelete}
+            onIllustrateMoment={onIllustrateMoment}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    await act(async () => {
+      container!.querySelector<HTMLButtonElement>('button[title="Regenerate image"]')!.click();
+      await Promise.resolve();
+    });
+
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(patchExtra).toHaveBeenCalledWith("message-illustrated", { attachments: [] });
+    expect(onIllustrateMoment).toHaveBeenCalledWith({
+      chatId: "chat-1",
+      messageId: "message-illustrated",
+      role: "assistant",
+      speakerName: "Aster",
+      createdAt: "2026-06-19T12:00:00.000Z",
+      content: "The pond reflects the lanterns.",
+    });
+  });
+
+  it("keeps character CSS hooks on grouped speaker messages", () => {
+    const groupedMessage: Message = {
+      ...message,
+      id: "message-grouped-speakers",
+      characterId: null,
+      content: "Aster: hello there\nBram: pancakes?",
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+    const groupedCharacterMap = new Map([
+      ...characterMap,
+      [
+        "character-2",
+        {
+          name: "Bram",
+          avatarUrl: null,
+        },
+      ] as const,
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={groupedMessage}
+            characterMap={groupedCharacterMap}
+            chatCharacterIds={["character-1", "character-2"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const asterContent = container!.querySelector<HTMLElement>('[data-card-css="character-1"] .mari-message-content');
+    const bramContent = container!.querySelector<HTMLElement>('[data-card-css="character-2"] .mari-message-content');
+    expect(asterContent?.textContent).toContain("hello there");
+    expect(bramContent?.textContent).toContain("pancakes?");
+  });
   it("keeps child button keyboard events isolated from message-level toggles", () => {
     const onRegenerate = vi.fn();
 

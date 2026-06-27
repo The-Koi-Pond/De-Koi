@@ -53,7 +53,7 @@ describe("save moment", () => {
     );
   });
 
-  it("omits duplicate copy and only exposes remember destinations backed by the current message surface", () => {
+  it("omits duplicate copy and branch actions already exposed by the parent message surface", () => {
     const items = buildSaveMomentMenuItems({
       canCreateSummaryDraft: true,
       canBranch: true,
@@ -61,7 +61,7 @@ describe("save moment", () => {
       canDraftLore: true,
     });
 
-    expect(items.map((item) => item.id)).toEqual(["chat-summary", "lore-draft", "branch"]);
+    expect(items.map((item) => item.id)).toEqual(["chat-summary", "lore-draft"]);
     expect(items.find((item) => item.id === "chat-summary")?.label).toBe("Remember in chat summary");
     expect(items.find((item) => item.id === "lore-draft")?.label).toBe("Draft lorebook entry");
   });
@@ -73,7 +73,7 @@ describe("save moment", () => {
       canCloneScene: false,
     });
 
-    expect(items.map((item) => item.id)).toEqual(["branch"]);
+    expect(items.map((item) => item.id)).toEqual([]);
   });
 
   it("builds a chat summary draft from source message metadata", () => {

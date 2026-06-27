@@ -23,6 +23,8 @@ import { useAgentStore } from "../../shared/stores/agent.store";
 import { useBackgroundAutonomousPolling } from "../../features/modes/conversation/background-autonomous";
 import { useClearAutonomousUnread } from "../../features/catalog/chats/autonomous-unread";
 import { chatKeys } from "../../features/catalog/chats/index";
+import { dekiApi } from "../../shared/api/deki-api";
+import type { DekiSession, DekiSessionsState } from "../../engine/deki/deki-history";
 import { useIsCoreModuleEnabled } from "../../features/shell/plugins/shell";
 import { SPOTIFY_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants/core-modules";
 import { useIdleDetection } from "../../shared/hooks/use-idle-detection";
@@ -259,6 +261,8 @@ export function AppShell() {
   const [rightPanelDragWidth, setRightPanelDragWidth] = useState<number | null>(null);
   const [activeChatSidebarTab, setActiveChatSidebarTab] = useState<ChatSidebarTab>("conversation");
   const [dekiOpen, setDekiOpen] = useState(false);
+  const [dekiSessions, setDekiSessions] = useState<DekiSession[]>([]);
+  const [activeDekiSessionId, setActiveDekiSessionId] = useState<string | null>(null);
   const chatNotificationCount = useChatStore((s) => s.chatNotifications.size);
   const [notificationBubblesMounted, setNotificationBubblesMounted] = useState(false);
   const debugMode = useUIStore((s) => s.debugMode);
@@ -429,6 +433,84 @@ export function AppShell() {
   const [trackerPanelToggleAnchorY, setTrackerPanelToggleAnchorY] = useState<number | null>(null);
   const trackerPanelWasActiveRef = useRef(false);
   const lastAutonomousUnreadClearRef = useRef<string | null>(null);
+
+  const syncDekiSessionState = useCallback((state: DekiSessionsState) => {
+    setDekiSessions(state.sessions);
+    setActiveDekiSessionId(state.activeSessionId);
+  }, []);
+
+  const refreshDekiSessions = useCallback(async () => {
+    const state = await dekiApi.sessions.list();
+    syncDekiSessionState(state);
+  }, [syncDekiSessionState]);
+
+  useEffect(() => {
+    let active = true;
+    void dekiApi.sessions
+      .list()
+      .then((state) => {
+        if (active) syncDekiSessionState(state);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : "Deki-senpai chats could not be loaded.";
+        toast.error(message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [syncDekiSessionState]);
+
+  const openDekiShell = useCallback(() => {
+    useChatStore.getState().setActiveChatId(null);
+    useUIStore.getState().closeAllDetails();
+    closeRightPanel();
+    setTrackerPanelOpen(false);
+    setDekiOpen(true);
+  }, [closeRightPanel, setTrackerPanelOpen]);
+
+  const openDekiSession = useCallback(
+    async (sessionId: string) => {
+      try {
+        const state = await dekiApi.sessions.select(sessionId);
+        syncDekiSessionState(state);
+        openDekiShell();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Deki-senpai chat could not be opened.";
+        toast.error(message);
+      }
+    },
+    [openDekiShell, syncDekiSessionState],
+  );
+
+  const createDekiSession = useCallback(async () => {
+    try {
+      const state = await dekiApi.sessions.create();
+      syncDekiSessionState(state);
+      openDekiShell();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Deki-senpai chat could not be created.";
+      toast.error(message);
+    }
+  }, [openDekiShell, syncDekiSessionState]);
+
+  const deleteDekiSession = useCallback(
+    async (sessionId: string) => {
+      try {
+        const state = await dekiApi.sessions.delete(sessionId);
+        syncDekiSessionState(state);
+        if (dekiOpen) setDekiOpen(true);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Deki-senpai chat could not be deleted.";
+        toast.error(message);
+      }
+    },
+    [dekiOpen, syncDekiSessionState],
+  );
+
+  const openActiveDeki = useCallback(() => {
+    openDekiShell();
+    if (!activeDekiSessionId) void refreshDekiSessions();
+  }, [activeDekiSessionId, openDekiShell, refreshDekiSessions]);
 
   const openNoModelShowcase = useCallback(() => {
     void ensureNoModelGameShowcase()
@@ -632,15 +714,13 @@ export function AppShell() {
     regexDetailId,
   });
 
-  const showAmbientDecor =
-    !activeChatId && !detailView && !botBrowserOpen && !gameAssetsBrowserOpen && !dekiOpen;
+  const showAmbientDecor = !activeChatId && !detailView && !botBrowserOpen && !gameAssetsBrowserOpen && !dekiOpen;
   const hasDetailView = detailView != null;
   useEffect(() => {
     if (hasDetailView) setDekiOpen(false);
   }, [hasDetailView]);
   const trackerPanelActive = trackerPanelEnabled && trackerPanelOpen;
-  const trackerPanelSurfaceAvailable =
-    !botBrowserOpen && !gameAssetsBrowserOpen && !hasDetailView && !dekiOpen;
+  const trackerPanelSurfaceAvailable = !botBrowserOpen && !gameAssetsBrowserOpen && !hasDetailView && !dekiOpen;
   const trackerPanelVisible = trackerPanelActive && trackerPanelSurfaceAvailable;
   useEffect(() => {
     if (trackerPanelVisible) {
@@ -1088,305 +1168,317 @@ export function AppShell() {
           showAmbientDecor && !lowPowerShellMode && "retro-scanlines noise-bg geometric-grid",
         )}
       >
-      {/* Y2K decorative stars */}
-      {showAmbientDecor && !lowPowerShellMode && (
-        <>
-          <div className="y2k-star hidden md:block" style={{ top: "10%", left: "5%", animationDelay: "0s" }} />
-          <div className="y2k-star-md hidden md:block" style={{ top: "25%", right: "8%", animationDelay: "1.5s" }} />
-          <div className="y2k-star-lg hidden md:block" style={{ top: "60%", left: "3%", animationDelay: "3s" }} />
-          <div className="y2k-star hidden md:block" style={{ top: "80%", right: "12%", animationDelay: "0.8s" }} />
-          <div className="y2k-star-md hidden md:block" style={{ top: "45%", left: "50%", animationDelay: "2.2s" }} />
-        </>
-      )}
-      <ImagePromptReviewHost />
-      <AppFindOverlay />
-
-      <header
-        ref={headerRef}
-        data-component="AppChrome"
-        aria-hidden={activeMobileOverlayPanel ? true : undefined}
-        className="mari-app-chrome relative z-40 flex shrink-0 flex-col overflow-visible"
-      >
-        <WindowTitleBar
-          dekiOpen={dekiOpen}
-          onOpenDeki={() => setDekiOpen(true)}
-          onGoHome={() => setDekiOpen(false)}
-        />
-        <TopBar
-          dekiOpen={dekiOpen}
-          onOpenDeki={() => setDekiOpen(true)}
-          onGoHome={() => setDekiOpen(false)}
-        />
-      </header>
-
-      <div data-component="AppShellBody" className="relative flex min-h-0 flex-1 overflow-hidden">
-        {/* Mobile sidebar backdrop */}
-        {sidebarOpen && (
-          <div
-            className="fixed inset-0 z-[65] bg-black/50 backdrop-blur-sm md:hidden"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
-
-        {/* Left sidebar - Chat list */}
-        <aside
-          ref={sidebarPanelRef}
-          data-tour="sidebar"
-          data-component="ChatSidebarPanel"
-          aria-label="Chat list"
-          aria-hidden={isMobile && !sidebarOpen ? true : undefined}
-          aria-modal={activeMobilePanel === "sidebar" ? true : undefined}
-          role={activeMobilePanel === "sidebar" ? "dialog" : undefined}
-          tabIndex={activeMobilePanel === "sidebar" ? -1 : undefined}
-          className={cn(
-            "mari-sidebar flex-shrink-0 overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl",
-            sidebarDragWidth == null && "transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
-            // Mobile: fixed overlay
-            "max-md:fixed max-md:top-0 max-md:left-0 max-md:z-[70] max-md:shadow-2xl max-md:pt-[env(safe-area-inset-top)]",
-            !sidebarOpen && "max-md:w-0!",
-          )}
-          style={{ width: sidebarOpen ? (isMobile ? "min(18.75rem, 85vw)" : liveSidebarWidth) : 0, bottom: isMobile && sidebarOpen ? "calc(4.5rem + env(safe-area-inset-bottom))" : 0 }}
-        >
-          <div className="h-full" style={{ width: isMobile ? "min(18.75rem, 85vw)" : liveSidebarWidth }}>
-            <ChatSidebar activeTab={activeChatSidebarTab} onActiveTabChange={setActiveChatSidebarTab} />
-          </div>
-        </aside>
-        {!isMobile && sidebarOpen && (
+        {/* Y2K decorative stars */}
+        {showAmbientDecor && !lowPowerShellMode && (
           <>
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 z-30 hidden w-px bg-[var(--sidebar-border)]/30 md:block"
-              style={{ left: liveSidebarWidth }}
-            />
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize left sidebar"
-              aria-valuemin={SHARED_PANEL_WIDTH_MIN}
-              aria-valuemax={SHARED_PANEL_WIDTH_MAX}
-              aria-valuenow={Math.round(liveSidebarWidth)}
-              tabIndex={0}
-              onMouseDown={startSidebarResize}
-              onKeyDown={adjustSidebarWidth}
-              className="absolute inset-y-0 z-20 hidden w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--primary)]/30 focus-visible:bg-[var(--primary)]/40 focus-visible:outline-none md:block"
-              style={{ left: liveSidebarWidth }}
-            />
+            <div className="y2k-star hidden md:block" style={{ top: "10%", left: "5%", animationDelay: "0s" }} />
+            <div className="y2k-star-md hidden md:block" style={{ top: "25%", right: "8%", animationDelay: "1.5s" }} />
+            <div className="y2k-star-lg hidden md:block" style={{ top: "60%", left: "3%", animationDelay: "3s" }} />
+            <div className="y2k-star hidden md:block" style={{ top: "80%", right: "12%", animationDelay: "0.8s" }} />
+            <div className="y2k-star-md hidden md:block" style={{ top: "45%", left: "50%", animationDelay: "2.2s" }} />
           </>
         )}
+        <ImagePromptReviewHost />
+        <AppFindOverlay />
 
-        <AnimatePresence initial={false}>
-          {!isMobile && trackerPanelSurfaceAvailable && trackerPanelDesktop("left")}
-        </AnimatePresence>
-
-        {/* Center content */}
-        <main
-          ref={mainRef}
-          data-tour="chat-area"
-          data-component="CenterContent"
-          aria-label="Main content"
+        <header
+          ref={headerRef}
+          data-component="AppChrome"
           aria-hidden={activeMobileOverlayPanel ? true : undefined}
-          className={cn(
-            "@container mari-main relative flex min-w-0 flex-1 flex-col overflow-hidden",
-            isMobile && !activeChatId && "pb-14 pt-3",
-          )}
+          className="mari-app-chrome relative z-40 flex shrink-0 flex-col overflow-visible"
         >
-          <div className="relative flex flex-1 flex-col overflow-hidden">
-            {/* Bot Browser — kept mounted once opened so state persists across close/reopen */}
-            <MountOnceWhenOpened open={botBrowserOpen} overlay>
-              <BotBrowserView />
-            </MountOnceWhenOpened>
-            {/* Game Assets Browser — kept mounted once opened so state persists across close/reopen */}
-            <MountOnceWhenOpened open={gameAssetsBrowserOpen} overlay>
-              <GameAssetsBrowserView />
-            </MountOnceWhenOpened>
-            <MountOnceWhenOpened open={dekiOpen} overlay hideOverlayWhenClosed slideFromBottom={isMobile}>
-              <DekiSurface />
-            </MountOnceWhenOpened>
+          <WindowTitleBar dekiOpen={dekiOpen} onOpenDeki={() => openActiveDeki()} onGoHome={() => setDekiOpen(false)} />
+          <TopBar dekiOpen={dekiOpen} onOpenDeki={() => openActiveDeki()} onGoHome={() => setDekiOpen(false)} />
+        </header>
+
+        <div data-component="AppShellBody" className="relative flex min-h-0 flex-1 overflow-hidden">
+          {/* Mobile sidebar backdrop */}
+          {sidebarOpen && (
             <div
-              className={
-                botBrowserOpen || gameAssetsBrowserOpen || dekiOpen
-                  ? "hidden"
-                  : "flex flex-1 flex-col overflow-hidden"
-              }
-              style={
-                {
-                  "--tracker-panel-mobile-width": mobileTrackerPanelWidth,
-                  "--tracker-chat-avoid-left": trackerPanelSide === "left" ? trackerPanelChatAvoidance : "0px",
-                  "--tracker-chat-avoid-right": trackerPanelSide === "right" ? trackerPanelChatAvoidance : "0px",
-                  "--tracker-chat-scroll-avoid-left":
-                    trackerPanelSide === "left" ? trackerPanelScrollAvoidance : "0px",
-                  "--tracker-chat-scroll-avoid-right":
-                    trackerPanelSide === "right" ? trackerPanelScrollAvoidance : "0px",
-                  "--tracker-panel-hud-clear-left": trackerPanelSide === "left" ? trackerPanelHudClearance : "0px",
-                  "--tracker-panel-hud-clear-right": trackerPanelSide === "right" ? trackerPanelHudClearance : "0px",
-                } as CSSProperties
-              }
-            >
-              <Suspense fallback={<MainPaneFallback />}>
-                {detailView ?? (
-                  <ModeSurface
-                    homeDiscoverySurface={
-                      <Suspense fallback={<ShellLoadingFallback compact />}>
-                        <DiscoverPanel />
-                      </Suspense>
-                    }
-                    onOpenNoModelShowcase={openNoModelShowcase}
-                  />
-                )}
-              </Suspense>
-            </div>
-          </div>
-          {/* Floating avatar notification bubbles (right edge) */}
-          {notificationBubblesMounted && (
-            <Suspense fallback={null}>
-              <ChatNotificationBubbles />
-            </Suspense>
+              className="fixed inset-0 z-[65] bg-black/50 backdrop-blur-sm md:hidden"
+              onClick={() => setSidebarOpen(false)}
+            />
           )}
-        </main>
 
-        <AnimatePresence initial={false}>
-          {!isMobile && trackerPanelSurfaceAvailable && trackerPanelDesktop("right")}
-        </AnimatePresence>
-
-        {/* Mobile tracker panel */}
-        {isMobile && (
-          <AnimatePresence mode="wait">
-            {trackerPanelVisible && (
-              <motion.aside
-                ref={mobileTrackerPanelRef}
-                key="mobile-tracker"
-                initial={{ x: trackerPanelSide === "left" ? "-100%" : "100%" }}
-                animate={{ x: 0 }}
-                exit={{ x: trackerPanelSide === "left" ? "-100%" : "100%" }}
-                transition={{ type: "spring", damping: 28, stiffness: 350 }}
-                data-component="TrackerDataSidebarMobile"
-                aria-label="Tracker data panel"
-                role="dialog"
-                aria-modal="true"
-                className={cn(
-                  "mari-tracker-panel fixed! top-0 z-[70] overflow-y-auto bg-[var(--background)]/65 shadow-2xl backdrop-blur-xl",
-                  trackerPanelSide === "left" ? "left-0" : "right-0",
-                )}
-                style={{ width: mobileTrackerPanelWidth, paddingTop: 'calc(3.25rem + env(safe-area-inset-top))', bottom: 'calc(3.5rem + env(safe-area-inset-bottom))' }}
-              >
-                <Suspense fallback={<SidePanelFallback />}>
-                  <TrackerDataSidebar fillHeight />
-                </Suspense>
-              </motion.aside>
-            )}
-          </AnimatePresence>
-        )}
-
-        {/* Mobile tracker panel backdrop */}
-        {isMobile && trackerPanelVisible && (
-          <div
-            className="fixed inset-0 z-[65] bg-black/50 backdrop-blur-sm md:hidden"
-            onClick={() => setTrackerPanelOpen(false)}
-          />
-        )}
-
-        {/* Mobile right panel backdrop */}
-        {rightPanelOpen && (
-          <div
-            className="fixed inset-0 z-[65] bg-black/50 backdrop-blur-sm md:hidden"
-            onClick={() => closeRightPanel()}
-          />
-        )}
-
-        {/* Right panel - Context / Settings */}
-        {isMobile ? (
-          <AnimatePresence mode="wait">
-            {rightPanelOpen && (
-              <motion.aside
-                ref={mobileRightPanelRef}
-                key="mobile"
-                initial={{ x: "100%" }}
-                animate={{ x: 0 }}
-                exit={{ x: "100%" }}
-                transition={{ type: "spring", damping: 28, stiffness: 350 }}
-                data-component="RightPanelMobile"
-                aria-label="Settings and tools panel"
-                aria-modal="true"
-                role="dialog"
-                tabIndex={-1}
-                className="mari-right-panel fixed! top-0 right-0 z-[70] w-full! shadow-2xl overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl pt-[env(safe-area-inset-top)]"
-                style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom))' }}
-              >
-                <Suspense fallback={<SidePanelFallback />}>
-                  <RightPanel />
-                </Suspense>
-              </motion.aside>
-            )}
-          </AnimatePresence>
-        ) : (
+          {/* Left sidebar - Chat list */}
           <aside
-            data-component="RightPanelDesktop"
-            aria-label="Settings and tools panel"
+            ref={sidebarPanelRef}
+            data-tour="sidebar"
+            data-component="ChatSidebarPanel"
+            aria-label="Chat list"
+            aria-hidden={isMobile && !sidebarOpen ? true : undefined}
+            aria-modal={activeMobilePanel === "sidebar" ? true : undefined}
+            role={activeMobilePanel === "sidebar" ? "dialog" : undefined}
+            tabIndex={activeMobilePanel === "sidebar" ? -1 : undefined}
             className={cn(
-              "mari-right-panel flex-shrink-0 overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl",
-              rightPanelDragWidth == null && "transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
+              "mari-sidebar flex-shrink-0 overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl",
+              sidebarDragWidth == null && "transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
+              // Mobile: fixed overlay
+              "max-md:fixed max-md:top-0 max-md:left-0 max-md:z-[70] max-md:shadow-2xl max-md:pt-[env(safe-area-inset-top)]",
+              !sidebarOpen && "max-md:w-0!",
             )}
-            style={{ width: rightPanelOpen ? liveRightPanelWidth : 0 }}
+            style={{
+              width: sidebarOpen ? (isMobile ? "min(18.75rem, 85vw)" : liveSidebarWidth) : 0,
+              bottom: isMobile && sidebarOpen ? "calc(4.5rem + env(safe-area-inset-bottom))" : 0,
+            }}
           >
-            {rightPanelOpen && (
-              <div className="h-full" style={{ width: liveRightPanelWidth }}>
-                <Suspense fallback={<SidePanelFallback />}>
-                  <RightPanel />
+            <div className="h-full" style={{ width: isMobile ? "min(18.75rem, 85vw)" : liveSidebarWidth }}>
+              <ChatSidebar
+                activeTab={activeChatSidebarTab}
+                onActiveTabChange={setActiveChatSidebarTab}
+                dekiSessions={dekiSessions}
+                activeDekiSessionId={activeDekiSessionId}
+                dekiOpen={dekiOpen}
+                onOpenDekiSession={(sessionId) => void openDekiSession(sessionId)}
+                onCreateDekiSession={() => void createDekiSession()}
+                onDeleteDekiSession={(sessionId) => void deleteDekiSession(sessionId)}
+              />
+            </div>
+          </aside>
+          {!isMobile && sidebarOpen && (
+            <>
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 z-30 hidden w-px bg-[var(--sidebar-border)]/30 md:block"
+                style={{ left: liveSidebarWidth }}
+              />
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize left sidebar"
+                aria-valuemin={SHARED_PANEL_WIDTH_MIN}
+                aria-valuemax={SHARED_PANEL_WIDTH_MAX}
+                aria-valuenow={Math.round(liveSidebarWidth)}
+                tabIndex={0}
+                onMouseDown={startSidebarResize}
+                onKeyDown={adjustSidebarWidth}
+                className="absolute inset-y-0 z-20 hidden w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--primary)]/30 focus-visible:bg-[var(--primary)]/40 focus-visible:outline-none md:block"
+                style={{ left: liveSidebarWidth }}
+              />
+            </>
+          )}
+
+          <AnimatePresence initial={false}>
+            {!isMobile && trackerPanelSurfaceAvailable && trackerPanelDesktop("left")}
+          </AnimatePresence>
+
+          {/* Center content */}
+          <main
+            ref={mainRef}
+            data-tour="chat-area"
+            data-component="CenterContent"
+            aria-label="Main content"
+            aria-hidden={activeMobileOverlayPanel ? true : undefined}
+            className={cn(
+              "@container mari-main relative flex min-w-0 flex-1 flex-col overflow-hidden",
+              isMobile && !activeChatId && "pb-14 pt-3",
+            )}
+          >
+            <div className="relative flex flex-1 flex-col overflow-hidden">
+              {/* Bot Browser — kept mounted once opened so state persists across close/reopen */}
+              <MountOnceWhenOpened open={botBrowserOpen} overlay>
+                <BotBrowserView />
+              </MountOnceWhenOpened>
+              {/* Game Assets Browser — kept mounted once opened so state persists across close/reopen */}
+              <MountOnceWhenOpened open={gameAssetsBrowserOpen} overlay>
+                <GameAssetsBrowserView />
+              </MountOnceWhenOpened>
+              <MountOnceWhenOpened open={dekiOpen} overlay hideOverlayWhenClosed slideFromBottom={isMobile}>
+                <DekiSurface
+                  sessionId={activeDekiSessionId}
+                  onCreateSession={createDekiSession}
+                  onSessionsChanged={refreshDekiSessions}
+                />
+              </MountOnceWhenOpened>
+              <div
+                className={
+                  botBrowserOpen || gameAssetsBrowserOpen || dekiOpen
+                    ? "hidden"
+                    : "flex flex-1 flex-col overflow-hidden"
+                }
+                style={
+                  {
+                    "--tracker-panel-mobile-width": mobileTrackerPanelWidth,
+                    "--tracker-chat-avoid-left": trackerPanelSide === "left" ? trackerPanelChatAvoidance : "0px",
+                    "--tracker-chat-avoid-right": trackerPanelSide === "right" ? trackerPanelChatAvoidance : "0px",
+                    "--tracker-chat-scroll-avoid-left":
+                      trackerPanelSide === "left" ? trackerPanelScrollAvoidance : "0px",
+                    "--tracker-chat-scroll-avoid-right":
+                      trackerPanelSide === "right" ? trackerPanelScrollAvoidance : "0px",
+                    "--tracker-panel-hud-clear-left": trackerPanelSide === "left" ? trackerPanelHudClearance : "0px",
+                    "--tracker-panel-hud-clear-right": trackerPanelSide === "right" ? trackerPanelHudClearance : "0px",
+                  } as CSSProperties
+                }
+              >
+                <Suspense fallback={<MainPaneFallback />}>
+                  {detailView ?? (
+                    <ModeSurface
+                      homeDiscoverySurface={
+                        <Suspense fallback={<ShellLoadingFallback compact />}>
+                          <DiscoverPanel />
+                        </Suspense>
+                      }
+                      onOpenNoModelShowcase={openNoModelShowcase}
+                    />
+                  )}
                 </Suspense>
               </div>
+            </div>
+            {/* Floating avatar notification bubbles (right edge) */}
+            {notificationBubblesMounted && (
+              <Suspense fallback={null}>
+                <ChatNotificationBubbles />
+              </Suspense>
             )}
-          </aside>
-        )}
-        {!isMobile && rightPanelOpen && (
-          <>
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 z-30 hidden w-px bg-[var(--sidebar-border)]/30 md:block"
-              style={{ right: liveRightPanelWidth }}
-            />
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize right sidebar"
-              aria-valuemin={SHARED_PANEL_WIDTH_MIN}
-              aria-valuemax={SHARED_PANEL_WIDTH_MAX}
-              aria-valuenow={Math.round(liveRightPanelWidth)}
-              tabIndex={0}
-              onMouseDown={startRightPanelResize}
-              onKeyDown={adjustRightPanelWidth}
-              className="absolute inset-y-0 z-20 hidden w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--primary)]/30 focus-visible:bg-[var(--primary)]/40 focus-visible:outline-none md:block"
-              style={{ right: liveRightPanelWidth }}
-            />
-          </>
-        )}
+          </main>
 
-        {/* First-time onboarding tutorial */}
-        {!hasCompletedOnboarding && (
-          <Suspense fallback={null}>
-            <OnboardingTutorial onShellInertResync={syncMobilePanelInert} />
-          </Suspense>
-        )}
-        {debugMode && hasAgentDebugActivity && (
-          <Suspense fallback={null}>
-            <AgentDebugPanel />
-          </Suspense>
-        )}
-        {spotifyMiniPlayerEnabled && (
-          <Suspense fallback={null}>
-            <SpotifyMobileWidget />
-          </Suspense>
-        )}
+          <AnimatePresence initial={false}>
+            {!isMobile && trackerPanelSurfaceAvailable && trackerPanelDesktop("right")}
+          </AnimatePresence>
+
+          {/* Mobile tracker panel */}
+          {isMobile && (
+            <AnimatePresence mode="wait">
+              {trackerPanelVisible && (
+                <motion.aside
+                  ref={mobileTrackerPanelRef}
+                  key="mobile-tracker"
+                  initial={{ x: trackerPanelSide === "left" ? "-100%" : "100%" }}
+                  animate={{ x: 0 }}
+                  exit={{ x: trackerPanelSide === "left" ? "-100%" : "100%" }}
+                  transition={{ type: "spring", damping: 28, stiffness: 350 }}
+                  data-component="TrackerDataSidebarMobile"
+                  aria-label="Tracker data panel"
+                  role="dialog"
+                  aria-modal="true"
+                  className={cn(
+                    "mari-tracker-panel fixed! top-0 z-[70] overflow-y-auto bg-[var(--background)]/65 shadow-2xl backdrop-blur-xl",
+                    trackerPanelSide === "left" ? "left-0" : "right-0",
+                  )}
+                  style={{
+                    width: mobileTrackerPanelWidth,
+                    paddingTop: "calc(3.25rem + env(safe-area-inset-top))",
+                    bottom: "calc(3.5rem + env(safe-area-inset-bottom))",
+                  }}
+                >
+                  <Suspense fallback={<SidePanelFallback />}>
+                    <TrackerDataSidebar fillHeight />
+                  </Suspense>
+                </motion.aside>
+              )}
+            </AnimatePresence>
+          )}
+
+          {/* Mobile tracker panel backdrop */}
+          {isMobile && trackerPanelVisible && (
+            <div
+              className="fixed inset-0 z-[65] bg-black/50 backdrop-blur-sm md:hidden"
+              onClick={() => setTrackerPanelOpen(false)}
+            />
+          )}
+
+          {/* Mobile right panel backdrop */}
+          {rightPanelOpen && (
+            <div
+              className="fixed inset-0 z-[65] bg-black/50 backdrop-blur-sm md:hidden"
+              onClick={() => closeRightPanel()}
+            />
+          )}
+
+          {/* Right panel - Context / Settings */}
+          {isMobile ? (
+            <AnimatePresence mode="wait">
+              {rightPanelOpen && (
+                <motion.aside
+                  ref={mobileRightPanelRef}
+                  key="mobile"
+                  initial={{ x: "100%" }}
+                  animate={{ x: 0 }}
+                  exit={{ x: "100%" }}
+                  transition={{ type: "spring", damping: 28, stiffness: 350 }}
+                  data-component="RightPanelMobile"
+                  aria-label="Settings and tools panel"
+                  aria-modal="true"
+                  role="dialog"
+                  tabIndex={-1}
+                  className="mari-right-panel fixed! top-0 right-0 z-[70] w-full! shadow-2xl overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl pt-[env(safe-area-inset-top)]"
+                  style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
+                >
+                  <Suspense fallback={<SidePanelFallback />}>
+                    <RightPanel />
+                  </Suspense>
+                </motion.aside>
+              )}
+            </AnimatePresence>
+          ) : (
+            <aside
+              data-component="RightPanelDesktop"
+              aria-label="Settings and tools panel"
+              className={cn(
+                "mari-right-panel flex-shrink-0 overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl",
+                rightPanelDragWidth == null && "transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
+              )}
+              style={{ width: rightPanelOpen ? liveRightPanelWidth : 0 }}
+            >
+              {rightPanelOpen && (
+                <div className="h-full" style={{ width: liveRightPanelWidth }}>
+                  <Suspense fallback={<SidePanelFallback />}>
+                    <RightPanel />
+                  </Suspense>
+                </div>
+              )}
+            </aside>
+          )}
+          {!isMobile && rightPanelOpen && (
+            <>
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 z-30 hidden w-px bg-[var(--sidebar-border)]/30 md:block"
+                style={{ right: liveRightPanelWidth }}
+              />
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize right sidebar"
+                aria-valuemin={SHARED_PANEL_WIDTH_MIN}
+                aria-valuemax={SHARED_PANEL_WIDTH_MAX}
+                aria-valuenow={Math.round(liveRightPanelWidth)}
+                tabIndex={0}
+                onMouseDown={startRightPanelResize}
+                onKeyDown={adjustRightPanelWidth}
+                className="absolute inset-y-0 z-20 hidden w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--primary)]/30 focus-visible:bg-[var(--primary)]/40 focus-visible:outline-none md:block"
+                style={{ right: liveRightPanelWidth }}
+              />
+            </>
+          )}
+
+          {/* First-time onboarding tutorial */}
+          {!hasCompletedOnboarding && (
+            <Suspense fallback={null}>
+              <OnboardingTutorial onShellInertResync={syncMobilePanelInert} />
+            </Suspense>
+          )}
+          {debugMode && hasAgentDebugActivity && (
+            <Suspense fallback={null}>
+              <AgentDebugPanel />
+            </Suspense>
+          )}
+          {spotifyMiniPlayerEnabled && (
+            <Suspense fallback={null}>
+              <SpotifyMobileWidget />
+            </Suspense>
+          )}
+        </div>
       </div>
-    </div>
-    <MobileTabBar
-      dekiOpen={dekiOpen}
-      toolsSheetOpen={mobileToolsSheetOpen}
-      toolsSheetRef={mobileToolsPanelRef}
-      trackerPanelVisible={trackerPanelVisible}
-      onToolsSheetOpenChange={setMobileToolsSheetOpen}
-      onToggleDeki={() => setDekiOpen((v) => !v)}
-      onGoHome={() => setDekiOpen(false)}
-    />
+      <MobileTabBar
+        dekiOpen={dekiOpen}
+        toolsSheetOpen={mobileToolsSheetOpen}
+        toolsSheetRef={mobileToolsPanelRef}
+        trackerPanelVisible={trackerPanelVisible}
+        onToolsSheetOpenChange={setMobileToolsSheetOpen}
+        onToggleDeki={() => setDekiOpen((v) => !v)}
+        onGoHome={() => setDekiOpen(false)}
+      />
     </TopBarActionsProvider>
   );
 }

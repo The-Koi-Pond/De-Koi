@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { BookOpen, Bookmark, GitBranch, Paintbrush, ScrollText } from "lucide-react";
+import { BookOpen, Bookmark, Brain, GitBranch, Loader2, Paintbrush, ScrollText } from "lucide-react";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
+import { useGalleryStore } from "../../../../../shared/stores/gallery.store";
 import { cn } from "../../../../../shared/lib/utils";
 import {
   buildSaveMomentMenuItems,
@@ -15,7 +16,6 @@ const DEFAULT_ICON_SIZE = "0.8125rem";
 interface SaveMomentActionProps {
   source: SaveMomentSource;
   onCreateSummaryDraft?: (source: SaveMomentSource) => void;
-  onBranch?: (messageId: string) => void;
   onCloneSceneFromHere?: (messageId: string) => void;
   destinations?: readonly SaveMomentDestination[];
   onDestinationSelect?: (destinationId: string, source: SaveMomentSource) => void | Promise<void>;
@@ -47,19 +47,26 @@ export function IllustrateMomentAction({
   iconSize = DEFAULT_ICON_SIZE,
   tabIndex,
 }: IllustrateMomentActionProps) {
+  const illustratePending = useGalleryStore((s) => s.illustratingChatIds.includes(source.chatId));
+  const runIllustration = useGalleryStore((s) => s.runIllustration);
+  const label = illustratePending ? "Illustrating this message" : "Illustrate this message";
+
   return (
     <button
       type="button"
       onClick={(event) => {
         event.stopPropagation();
-        void Promise.resolve(onIllustrateMoment(source)).catch(() => undefined);
+        if (illustratePending) return;
+        void runIllustration(source.chatId, () => onIllustrateMoment(source)).catch(() => undefined);
       }}
-      title="Illustrate this message"
-      aria-label="Illustrate this message"
+      title={label}
+      aria-label={label}
+      aria-busy={illustratePending}
+      disabled={illustratePending}
       tabIndex={tabIndex}
-      className={buttonClassName}
+      className={cn(buttonClassName, illustratePending && "cursor-wait text-[var(--primary)]")}
     >
-      <Paintbrush size={iconSize} />
+      {illustratePending ? <Loader2 size={iconSize} className="animate-spin" /> : <Paintbrush size={iconSize} />}
     </button>
   );
 }
@@ -67,7 +74,6 @@ export function IllustrateMomentAction({
 export function SaveMomentAction({
   source,
   onCreateSummaryDraft,
-  onBranch,
   onCloneSceneFromHere,
   destinations,
   onDestinationSelect,
@@ -84,12 +90,12 @@ export function SaveMomentAction({
     () =>
       buildSaveMomentMenuItems({
         canCreateSummaryDraft: !!onCreateSummaryDraft,
-        canBranch: !!onBranch,
+        canBranch: false,
         canCloneScene: !!onCloneSceneFromHere,
         canDraftLore: true,
         destinations,
       }),
-    [destinations, onBranch, onCloneSceneFromHere, onCreateSummaryDraft],
+    [destinations, onCloneSceneFromHere, onCreateSummaryDraft],
   );
 
   useEffect(() => {
@@ -121,11 +127,6 @@ export function SaveMomentAction({
       setOpen(false);
       return;
     }
-    if (id === "branch") {
-      onBranch?.(source.messageId);
-      setOpen(false);
-      return;
-    }
     if (id === "clone-scene") {
       onCloneSceneFromHere?.(source.messageId);
       setOpen(false);
@@ -148,7 +149,7 @@ export function SaveMomentAction({
         tabIndex={tabIndex}
         className={buttonClassName}
       >
-        <Bookmark size={iconSize} />
+        <Brain size={iconSize} />
       </button>
       {open && (
         <div

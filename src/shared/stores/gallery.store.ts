@@ -8,9 +8,10 @@ interface GalleryStore {
   unpinImage: (imageId: string) => void;
   startIllustrating: (chatId: string) => boolean;
   finishIllustrating: (chatId: string) => void;
+  runIllustration: <T>(chatId: string, task: () => T | Promise<T>) => Promise<T>;
 }
 
-export const useGalleryStore = create<GalleryStore>((set) => ({
+export const useGalleryStore = create<GalleryStore>((set, get) => ({
   pinnedImages: [],
   illustratingChatIds: [],
   pinImage: (image) =>
@@ -40,5 +41,15 @@ export const useGalleryStore = create<GalleryStore>((set) => ({
     set((state) => ({
       illustratingChatIds: state.illustratingChatIds.filter((item) => item !== id),
     }));
+  },
+  runIllustration: async (chatId, task) => {
+    const id = chatId.trim();
+    if (!id) throw new Error("Cannot start illustration without a chat id.");
+    if (!get().startIllustrating(id)) throw new Error("Illustration is already generating for this chat.");
+    try {
+      return await task();
+    } finally {
+      get().finishIllustrating(id);
+    }
   },
 }));

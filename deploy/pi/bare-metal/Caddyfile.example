@@ -1,0 +1,28 @@
+# Bare-metal De-Koi Raspberry Pi Caddy example.
+# Replace de-koi.example.duckdns.org and the basic_auth values before use.
+
+de-koi.example.duckdns.org {
+    encode zstd gzip
+
+    # Generate the hash with: caddy hash-password
+    basic_auth {
+        {$DE_KOI_BASIC_USER} {$DE_KOI_BASIC_HASH}
+    }
+
+    handle /health {
+        reverse_proxy 127.0.0.1:8787 {
+            header_up Authorization {http.request.header.Authorization}
+        }
+    }
+
+    handle /api/* {
+        reverse_proxy 127.0.0.1:8787 {
+            header_up Authorization {http.request.header.Authorization}
+            flush_interval -1
+        }
+    }
+
+    root * /opt/de-koi/current/web
+    try_files {path} {path}/ /index.html
+    file_server
+}

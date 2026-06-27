@@ -649,6 +649,7 @@ type RoleplaySurfaceProps = {
   onRetryAgent?: (agentType: string) => void;
   onStartEncounter: () => void;
   onConcludeScene: () => void;
+  onReopenScene: () => void;
   onAbandonScene: () => void;
   onForkScene: (sceneChatId: string, mode: SceneForkMode) => void;
   isForkingScene?: boolean;
@@ -750,6 +751,7 @@ export function ChatRoleplaySurface({
   onRetryAgent,
   onStartEncounter,
   onConcludeScene,
+  onReopenScene,
   onAbandonScene,
   onForkScene,
   isForkingScene,
@@ -1326,8 +1328,10 @@ export function ChatRoleplaySurface({
                 {isConcludedScene && (
                   <SceneBanner
                     variant="scene"
+                    sceneChatId={activeChatId}
                     originChatId={metadataString(chatMeta.sceneOriginChatId) || undefined}
                     description={metadataString(chatMeta.sceneDescription) || undefined}
+                    onReopen={onReopenScene}
                   />
                 )}
                 {!isConcludedScene && combatAgentEnabled && (

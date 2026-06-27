@@ -10,7 +10,7 @@ import { resolveActiveLorebookScopeReason } from "../../../generation-core/loreb
 import { lorebookEntryPassesContextFilters } from "../../../generation-core/lorebooks/keyword-scanner";
 import { readString as stringValue } from "../../../shared/value-readers";
 
-// ── Types ──
+// Types
 
 /** A single time block in a character's daily schedule */
 interface ScheduleBlock {
@@ -37,7 +37,7 @@ export interface WeekSchedule {
   idleResponseDelayMinutes?: number;
   /** Optional exact response delay in minutes while busy / DND */
   dndResponseDelayMinutes?: number;
-  /** How chatty the character is — affects autonomous messaging frequency (0-100) */
+  /** How chatty the character is; affects autonomous messaging frequency (0-100) */
   talkativeness: number;
 }
 
@@ -65,7 +65,7 @@ export interface GenerateConversationSchedulesResult {
   schedules: CharacterSchedules;
 }
 
-// ── Constants ──
+// Constants
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const SCHEDULE_CONTINUITY_MAX_CHARS = 6000;
@@ -232,7 +232,7 @@ export async function generateConversationSchedules(
   return { results, schedules: newSchedules };
 }
 
-// ── Schedule Generation ──
+// Schedule Generation
 
 /**
  * Generate a weekly schedule for a character using the LLM.
@@ -248,7 +248,7 @@ async function generateCharacterSchedule(
   scheduleLorebookContext?: string,
 ): Promise<{ schedule: Omit<WeekSchedule, "weekStart">; raw: string }> {
   const systemPrompt = [
-    `You are a schedule generator. Create a realistic weekly schedule for a character based on their personality and description.`,
+    `You are an availability generator. Create realistic weekly availability exceptions for a character based on their personality and description.`,
     ``,
     `Character: ${characterName}`,
     `Description: ${characterDescription}`,
@@ -287,15 +287,16 @@ async function generateCharacterSchedule(
           ``,
         ]
       : []),
-    `Generate a schedule for each day of the week (Monday through Sunday).`,
-    `Each day should have time blocks covering the full 24 hours.`,
-    `The schedule should be realistic and consistent with the character's lifestyle.`,
+    `For each day of the week (Monday through Sunday), list only meaningful recurring availability windows, not a minute-by-minute day planner.`,
+    `Do not fill every hour of the day. Gaps mean the character is available and has free time.`,
+    `The patterns should be realistic and consistent with the character's lifestyle.`,
     ``,
-    `Each time block must include a "status" field indicating the character's availability:`,
-    `- "online": awake and available (free time, socializing, casual activities)`,
-    `- "idle": semi-available (eating, commuting, showering, cooking)`,
-    `- "dnd": busy / do not disturb (working, studying, training, in a meeting, focused tasks)`,
-    `- "offline": unavailable (sleeping, passed out, unconscious, dead to the world)`,
+    `Each time block must include availability-aware fields:`,
+    `- "availability": "available" | "delayed" | "busy" | "unavailable"`,
+    `- "status": legacy compatibility value derived from availability`,
+    `Map them exactly: "available" -> "online", "delayed" -> "idle", "busy" -> "dnd", "unavailable" -> "offline".`,
+    `Use "delayed" for semi-available activities like eating, commuting, showering, or cooking.`,
+    `Use "busy" for focused do-not-disturb activities like working, studying, training, or meetings.`,
     ``,
     `Also assess the character's talkativeness on a scale of 0-100:`,
     `- 0-20: Very introverted, rarely initiates conversation`,
@@ -310,23 +311,23 @@ async function generateCharacterSchedule(
     `- Impatient/chatty characters: 15-60 minutes`,
     ``,
     `RESPOND IN EXACTLY THIS JSON FORMAT (no markdown, no code blocks, just raw JSON).`,
-    `Include ALL 7 days (Monday through Sunday), each with time blocks covering the full 24 hours.`,
-    `Example for one day:`,
+    `Include ALL 7 day keys (Monday through Sunday). Use an empty array for days with no meaningful availability exceptions.`,
+    `Example:`,
     `{`,
     `  "talkativeness": 65,`,
     `  "inactivityThresholdMinutes": 45,`,
     `  "days": {`,
     `    "Monday": [`,
-    `      { "time": "00:00-07:00", "activity": "sleeping", "status": "offline" },`,
-    `      { "time": "07:00-08:00", "activity": "morning routine", "status": "idle" },`,
-    `      { "time": "08:00-12:00", "activity": "working", "status": "dnd" },`,
-    `      { "time": "12:00-13:00", "activity": "lunch break", "status": "idle" },`,
-    `      { "time": "13:00-17:00", "activity": "working", "status": "dnd" },`,
-    `      { "time": "17:00-19:00", "activity": "free time", "status": "online" },`,
-    `      { "time": "19:00-20:00", "activity": "dinner", "status": "idle" },`,
-    `      { "time": "20:00-23:00", "activity": "relaxing", "status": "online" },`,
-    `      { "time": "23:00-00:00", "activity": "getting ready for bed", "status": "idle" }`,
-    `    ]`,
+    `      { "time": "23:00-07:00", "activity": "sleeping", "availability": "unavailable", "status": "offline" },`,
+    `      { "time": "08:30-16:30", "activity": "working", "availability": "busy", "status": "dnd" },`,
+    `      { "time": "18:00-19:00", "activity": "dinner", "availability": "delayed", "status": "idle" }`,
+    `    ],`,
+    `    "Tuesday": [],`,
+    `    "Wednesday": [],`,
+    `    "Thursday": [],`,
+    `    "Friday": [],`,
+    `    "Saturday": [],`,
+    `    "Sunday": []`,
     `  }`,
     `}`,
     `Follow this exact structure for all 7 days. Do NOT use ellipsis, comments, or placeholders.`,
@@ -373,7 +374,7 @@ function parseScheduleResponse(content: string): Omit<WeekSchedule, "weekStart">
   type RawScheduleData = {
     talkativeness?: number;
     inactivityThresholdMinutes?: number;
-    days?: Record<string, Array<{ time: string; activity: string; status?: string }>>;
+    days?: Record<string, Array<{ time: string; activity: string; status?: string; availability?: string }>>;
     schedule?: unknown;
     weeklySchedule?: unknown;
   };
@@ -383,7 +384,7 @@ function parseScheduleResponse(content: string): Omit<WeekSchedule, "weekStart">
   try {
     data = normalizeScheduleData(JSON.parse(jsonStr));
   } catch (firstError) {
-    // Second pass: more aggressive repair — remove any lines that aren't valid JSON structure
+    // Second pass: more aggressive repair: remove any lines that are not valid JSON structure
     // This catches things like "// ..." or bare text the LLM added inside the JSON
     const repairedLines = jsonStr.split("\n").filter((line) => {
       const trimmed = line.trim();
@@ -409,19 +410,31 @@ function parseScheduleResponse(content: string): Omit<WeekSchedule, "weekStart">
   const days: Record<string, DaySchedule> = {};
   for (const day of DAYS) {
     const dayData = getDaySchedule(data.days, day);
-    days[day] = dayData.map((block) => ({
-      time: block.time,
-      activity: block.activity,
-      status:
-        block.status && VALID_STATUSES.has(block.status as ValidStatus)
-          ? (block.status as ValidStatus)
-          : inferStatusFromActivity(block.activity),
-    }));
+    days[day] = dayData.map((block) => {
+      const hasAvailability = block.availability !== undefined && block.availability !== null;
+      const availabilityStatus = statusFromAvailabilityLabel(block.availability);
+      const legacyStatus =
+        block.status && VALID_STATUSES.has(block.status as ValidStatus) ? (block.status as ValidStatus) : null;
+      if (hasAvailability) {
+        if (!availabilityStatus) {
+          throw new Error(`Schedule block has unsupported availability for ${day} ${block.time}`);
+        }
+        if (legacyStatus && availabilityStatus !== legacyStatus) {
+          throw new Error(`Schedule block availability/status mismatch for ${day} ${block.time}`);
+        }
+        return {
+          time: block.time,
+          activity: block.activity,
+          status: availabilityStatus,
+        };
+      }
+      return {
+        time: block.time,
+        activity: block.activity,
+        status: legacyStatus ?? inferStatusFromActivity(block.activity),
+      };
+    });
   }
-  if (Object.values(days).every((day) => day.length === 0)) {
-    throw new Error("Schedule response did not include any daily time blocks");
-  }
-
   return {
     days,
     talkativeness: Math.max(0, Math.min(100, data.talkativeness ?? 50)),
@@ -429,6 +442,37 @@ function parseScheduleResponse(content: string): Omit<WeekSchedule, "weekStart">
   };
 }
 
+function statusFromAvailabilityLabel(value: unknown): "online" | "idle" | "dnd" | "offline" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  switch (normalized) {
+    case "available":
+    case "free":
+    case "online":
+      return "online";
+    case "delayed":
+    case "semi_available":
+    case "semiavailable":
+    case "away":
+    case "idle":
+      return "idle";
+    case "busy":
+    case "focused":
+    case "do_not_disturb":
+    case "dnd":
+      return "dnd";
+    case "unavailable":
+    case "offline":
+    case "asleep":
+    case "sleeping":
+      return "offline";
+    default:
+      return null;
+  }
+}
 /**
  * Infer a conversation status from an activity description.
  */
@@ -441,43 +485,188 @@ function inferStatusFromActivity(activity: string): "online" | "idle" | "dnd" | 
   return "online";
 }
 
-// ── Status Derivation ──
+// Status Derivation
 
 /**
  * Get the current status and activity for a character based on their schedule.
  */
+function scheduleDayIndex(now: Date): number {
+  return (now.getDay() + 6) % 7;
+}
+
+function scheduleDayName(now: Date): string {
+  return DAYS[scheduleDayIndex(now)]!;
+}
+
+function previousScheduleDayName(now: Date): string {
+  return DAYS[(scheduleDayIndex(now) + DAYS.length - 1) % DAYS.length]!;
+}
+
+function parseScheduleTimeMinutes(value: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+function scheduleTimeRange(block: ScheduleBlock): { start: number; end: number } | null {
+  const [startRaw, endRaw] = block.time.split("-");
+  const start = parseScheduleTimeMinutes(startRaw ?? "");
+  const end = parseScheduleTimeMinutes(endRaw ?? "");
+  if (start === null || end === null) return null;
+  return { start, end };
+}
+
+function blockContainsMinute(block: ScheduleBlock, minute: number): boolean {
+  const range = scheduleTimeRange(block);
+  if (!range) return false;
+  if (range.start <= range.end) return range.start <= minute && minute < range.end;
+  return minute >= range.start;
+}
+
+function blockCarriesIntoMinute(block: ScheduleBlock, minute: number): boolean {
+  const range = scheduleTimeRange(block);
+  if (!range || range.start <= range.end) return false;
+  return minute < range.end;
+}
+
 export function getCurrentStatus(
   schedule: WeekSchedule,
   now: Date = new Date(),
 ): { status: "online" | "idle" | "dnd" | "offline"; activity: string } {
-  const dayName = DAYS[(now.getDay() + 6) % 7]!; // JS Sunday=0, we want Monday=0
-  const daySchedule = schedule.days[dayName];
-  if (!daySchedule || daySchedule.length === 0) {
-    return { status: "online", activity: "free time" };
-  }
-
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const todayBlock = (schedule.days[scheduleDayName(now)] ?? []).find((block) =>
+    blockContainsMinute(block, currentMinutes),
+  );
+  if (todayBlock) return { status: todayBlock.status, activity: todayBlock.activity };
 
-  for (const block of daySchedule) {
-    const [startStr, endStr] = block.time.split("-");
-    if (!startStr || !endStr) continue;
-
-    const [sh, sm] = startStr.split(":").map(Number);
-    const [eh, em] = endStr.split(":").map(Number);
-    const startMin = (sh ?? 0) * 60 + (sm ?? 0);
-    const endMin = (eh ?? 0) * 60 + (em ?? 0);
-
-    // Handle blocks that don't wrap around midnight
-    if (startMin <= currentMinutes && currentMinutes < endMin) {
-      return { status: block.status, activity: block.activity };
-    }
-    // Handle midnight-wrapping blocks (e.g., 23:00-07:00)
-    if (startMin > endMin && (currentMinutes >= startMin || currentMinutes < endMin)) {
-      return { status: block.status, activity: block.activity };
-    }
-  }
+  const carriedBlock = (schedule.days[previousScheduleDayName(now)] ?? []).find((block) =>
+    blockCarriesIntoMinute(block, currentMinutes),
+  );
+  if (carriedBlock) return { status: carriedBlock.status, activity: carriedBlock.activity };
 
   return { status: "online", activity: "free time" };
+}
+
+export type ConversationAvailability = "available" | "delayed" | "unavailable";
+export type ConversationAvailabilityDelayKind = "none" | "short" | "long" | "blocked";
+export type ConversationAvailabilitySource = "schedule" | "fallback";
+
+export interface ConversationAvailabilityDecision {
+  source: ConversationAvailabilitySource;
+  status: "online" | "idle" | "dnd" | "offline";
+  activity: string;
+  availability: ConversationAvailability;
+  canReplyNow: boolean;
+  canMessageFirst: boolean;
+  delayKind: ConversationAvailabilityDelayKind;
+  reason: string;
+}
+
+function availabilityForStatus(status: "online" | "idle" | "dnd" | "offline"): ConversationAvailability {
+  return status === "online" ? "available" : status === "offline" ? "unavailable" : "delayed";
+}
+
+function delayKindForStatus(status: "online" | "idle" | "dnd" | "offline"): ConversationAvailabilityDelayKind {
+  switch (status) {
+    case "online":
+      return "none";
+    case "idle":
+      return "short";
+    case "dnd":
+      return "long";
+    case "offline":
+      return "blocked";
+  }
+}
+
+export function getAvailabilityDecision(
+  schedule: WeekSchedule | null | undefined,
+  now: Date = new Date(),
+  fallbackActivity = "free time",
+): ConversationAvailabilityDecision {
+  const current = schedule
+    ? getCurrentStatus(schedule, now)
+    : { status: "online" as const, activity: fallbackActivity };
+  return {
+    source: schedule ? "schedule" : "fallback",
+    status: current.status,
+    activity: current.activity,
+    availability: availabilityForStatus(current.status),
+    canReplyNow: current.status === "online",
+    canMessageFirst: current.status !== "offline",
+    delayKind: delayKindForStatus(current.status),
+    reason: current.activity,
+  };
+}
+
+export type ConversationAvailabilityExplanationLabel = "Available" | "Delayed" | "Busy" | "Unavailable";
+
+export interface ConversationAvailabilityExplanation {
+  label: ConversationAvailabilityExplanationLabel;
+  detail: string;
+  message: string;
+}
+
+function availabilityExplanationLabelForStatus(
+  status: "online" | "idle" | "dnd" | "offline",
+): ConversationAvailabilityExplanationLabel {
+  switch (status) {
+    case "online":
+      return "Available";
+    case "idle":
+      return "Delayed";
+    case "dnd":
+      return "Busy";
+    case "offline":
+      return "Unavailable";
+  }
+}
+
+export function getAvailabilityExplanation(
+  decision: Pick<ConversationAvailabilityDecision, "status" | "activity" | "reason">,
+): ConversationAvailabilityExplanation {
+  const label = availabilityExplanationLabelForStatus(decision.status);
+  const rawDetail = decision.reason || decision.activity || "free time";
+  const detail = rawDetail.trim().replace(/[.!?]+$/u, "") || "free time";
+  return {
+    label,
+    detail,
+    message: `${label}: ${detail}.`,
+  };
+}
+export function getAvailabilityResponseDelay(
+  decision: ConversationAvailabilityDecision,
+  schedule?: Pick<WeekSchedule, "idleResponseDelayMinutes" | "dndResponseDelayMinutes">,
+  urgent = false,
+): number {
+  return urgent ? getMentionDelay(decision.status) : getBusyDelay(decision.status, schedule);
+}
+
+export interface ConversationAvailabilityAutonomousPolicy {
+  canMessageFirst: boolean;
+  canJoinCharacterExchange: boolean;
+  inactivityThresholdMultiplier: number;
+}
+
+export function getAvailabilityAutonomousPolicy(
+  decision: Pick<ConversationAvailabilityDecision, "status" | "canMessageFirst">,
+): ConversationAvailabilityAutonomousPolicy {
+  if (!decision.canMessageFirst) {
+    return {
+      canMessageFirst: false,
+      canJoinCharacterExchange: false,
+      inactivityThresholdMultiplier: Infinity,
+    };
+  }
+  return {
+    canMessageFirst: true,
+    canJoinCharacterExchange: decision.status !== "dnd",
+    inactivityThresholdMultiplier: decision.status === "dnd" ? 3 : 1,
+  };
 }
 
 /**
@@ -504,7 +693,7 @@ export function getMonday(date: Date = new Date()): Date {
 function normalizeScheduleData(value: unknown): {
   talkativeness?: number;
   inactivityThresholdMinutes?: number;
-  days?: Record<string, Array<{ time: string; activity: string; status?: string }>>;
+  days?: Record<string, Array<{ time: string; activity: string; status?: string; availability?: string }>>;
 } {
   const record = parseJsonObject(value);
   const nested = parseJsonObject(record.schedule);
@@ -515,9 +704,9 @@ function normalizeScheduleData(value: unknown): {
 }
 
 function getDaySchedule(
-  days: Record<string, Array<{ time: string; activity: string; status?: string }>> | undefined,
+  days: Record<string, Array<{ time: string; activity: string; status?: string; availability?: string }>> | undefined,
   day: string,
-): Array<{ time: string; activity: string; status?: string }> {
+): Array<{ time: string; activity: string; status?: string; availability?: string }> {
   if (!days) return [];
   const direct = days[day];
   if (Array.isArray(direct)) return direct;

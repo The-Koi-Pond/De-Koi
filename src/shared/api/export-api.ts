@@ -14,35 +14,35 @@ async function download(command: string, args: Record<string, unknown>, fallback
 
 export const exportApi = {
   prompt: (presetId: string): Promise<DownloadPayload> =>
-    exportDownload("prompt_export", { presetId }, "preset.marinara.json"),
+    exportDownload("prompt_export", { presetId }, "preset.dekoi.json"),
   promptsBulk: (ids: string[]): Promise<DownloadPayload> =>
-    exportDownload("prompts_export_bulk", { ids }, "marinara-presets.zip"),
+    exportDownload("prompts_export_bulk", { ids }, "de-koi-presets.zip"),
   character: (id: string, format?: ExportFormat): Promise<DownloadPayload> =>
     exportDownload(
       "character_export",
       { id, format: format ?? null },
-      format === "compatible" ? "character.json" : "character.marinara.json",
+      format === "compatible" ? "character.json" : "character.dekoi.json",
     ),
   characterPng: (id: string): Promise<DownloadPayload> =>
     exportDownload("character_export_png", { id }, "character.png"),
   charactersBulk: (ids: string[], format?: ExportFormat): Promise<DownloadPayload> =>
-    exportDownload("characters_export_bulk", { ids, format: format ?? null }, "marinara-characters.zip"),
+    exportDownload("characters_export_bulk", { ids, format: format ?? null }, "de-koi-characters.zip"),
   persona: (id: string, format?: ExportFormat): Promise<DownloadPayload> =>
     exportDownload(
       "persona_export",
       { id, format: format ?? null },
-      format === "compatible" ? "persona.json" : "persona.marinara.json",
+      format === "compatible" ? "persona.json" : "persona.dekoi.json",
     ),
   personasBulk: (ids: string[], format?: ExportFormat): Promise<DownloadPayload> =>
-    exportDownload("personas_export_bulk", { ids, format: format ?? null }, "marinara-personas.zip"),
+    exportDownload("personas_export_bulk", { ids, format: format ?? null }, "de-koi-personas.zip"),
   lorebook: (id: string, format?: ExportFormat): Promise<DownloadPayload> =>
     exportDownload(
       "lorebook_export",
       { id, format: format ?? null },
-      format === "compatible" ? "lorebook.json" : "lorebook.marinara.json",
+      format === "compatible" ? "lorebook.json" : "lorebook.dekoi.json",
     ),
   lorebooksBulk: (ids: string[], format?: ExportFormat): Promise<DownloadPayload> =>
-    exportDownload("lorebooks_export_bulk", { ids, format: format ?? null }, "marinara-lorebooks.zip"),
+    exportDownload("lorebooks_export_bulk", { ids, format: format ?? null }, "de-koi-lorebooks.zip"),
   download,
   triggerDownload,
 };

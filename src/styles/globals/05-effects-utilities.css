@@ -674,6 +674,114 @@
   animation: pulse-ring 2s ease-out infinite;
 }
 
+@keyframes mari-streaming-reveal {
+  from {
+    opacity: 0.38;
+    filter: blur(0.22rem);
+    transform: translateY(0.18rem);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+@keyframes mari-streaming-edge {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: translateY(0) scaleX(0.82);
+  }
+  50% {
+    opacity: 0.72;
+    transform: translateY(-0.02rem) scaleX(1);
+  }
+}
+
+@keyframes mari-streaming-pending-shimmer {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -140% 0;
+  }
+}
+
+@keyframes mari-streaming-pending-glow {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 0.82;
+    transform: scale(1);
+  }
+}
+
+.mari-streaming-reveal {
+  animation: mari-streaming-reveal 360ms ease-out both;
+}
+
+.mari-streaming-reveal::after {
+  content: "";
+  display: inline-block;
+  width: 1.65em;
+  height: 0.28em;
+  margin-left: 0.28em;
+  border-radius: 9999px;
+  vertical-align: 0.02em;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--primary) 58%, var(--foreground)),
+    transparent
+  );
+  filter: blur(0.02rem);
+  animation: mari-streaming-edge 1.25s ease-in-out infinite;
+}
+
+.mari-streaming-pending-glow {
+  width: 0.42rem;
+  height: 0.42rem;
+  flex: 0 0 auto;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--primary) 72%, var(--foreground));
+  box-shadow: 0 0 0.65rem color-mix(in srgb, var(--primary) 50%, transparent);
+  animation: mari-streaming-pending-glow 1.4s ease-in-out infinite;
+}
+
+.mari-streaming-pending-line {
+  width: clamp(2.25rem, 18vw, 5.5rem);
+  height: 0.42rem;
+  flex: 0 0 auto;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--muted-foreground) 14%, transparent),
+    color-mix(in srgb, var(--primary) 54%, transparent),
+    color-mix(in srgb, var(--muted-foreground) 14%, transparent)
+  );
+  background-size: 220% 100%;
+  opacity: 0.88;
+  animation: mari-streaming-pending-shimmer 1.45s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mari-streaming-reveal,
+  .mari-streaming-reveal::after,
+  .mari-streaming-pending-glow,
+  .mari-streaming-pending-line {
+    animation: none;
+  }
+
+  .mari-streaming-reveal {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}
 @keyframes fadeSlideIn {
   from {
     opacity: 0;

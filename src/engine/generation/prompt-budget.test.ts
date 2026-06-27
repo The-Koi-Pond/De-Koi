@@ -70,6 +70,9 @@ describe("prompt budget estimates", () => {
     expect(budget.remainingTokens).toBeLessThan(0);
     expect(budget.warnings.some((warning) => warning.kind === "over_budget")).toBe(true);
     expect(budget.warnings.some((warning) => warning.kind === "history_trim")).toBe(true);
+    expect(budget.warnings.find((warning) => warning.kind === "over_budget")?.message).toContain(
+      "Aim for about 324 input tokens",
+    );
     expect(budget.sections.find((section) => section.kind === "history")?.trimRisk).toBe("high");
   });
 
@@ -85,6 +88,9 @@ describe("prompt budget estimates", () => {
 
     expect(budget.sections[0]?.kind).toBe("lorebook");
     expect(budget.warnings.some((warning) => warning.kind === "large_section")).toBe(true);
+    expect(budget.warnings.find((warning) => warning.kind === "large_section")?.message).toContain(
+      "Try to keep it under about 1,000 tokens",
+    );
     expect(budget.warnings.some((warning) => warning.kind === "lorebook_skipped")).toBe(true);
   });
 

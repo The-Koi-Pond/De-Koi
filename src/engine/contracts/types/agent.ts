@@ -233,7 +233,12 @@ export const BUILT_IN_AGENT_IDS = {
 export type AgentCategory = "writer" | "tracker" | "misc";
 export type AgentChatMode = "conversation" | "roleplay" | "game" | "visual_novel";
 
-const CONVERSATION_BUILT_IN_AGENT_IDS = ["schedule-planner", "response-orchestrator", "autonomous-messenger"] as const;
+const CONVERSATION_BUILT_IN_AGENT_IDS = [
+  "schedule-planner",
+  "response-orchestrator",
+  "autonomous-messenger",
+  "illustrator",
+] as const;
 
 const GAME_BUILT_IN_AGENT_IDS = ["world-state", "quest", "expression", "combat"] as const;
 

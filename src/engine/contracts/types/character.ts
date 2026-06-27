@@ -34,6 +34,8 @@ export interface CharacterExtensions {
   fav: boolean;
   world: string;
   depth_prompt: DepthPrompt;
+  /** De-Koi: outward-facing profile used by quick inspect cards and shallow social context */
+  publicProfile?: CharacterPublicProfile;
   /** De-Koi extension: character backstory / lore */
   backstory: string;
   /** De-Koi extension: physical appearance description */
@@ -48,9 +50,27 @@ export interface CharacterExtensions {
   rpgStats?: RPGStatsConfig;
   /** De-Koi: Conversation-mode availability status */
   conversationStatus?: "online" | "idle" | "dnd" | "offline";
+  /** De-Koi: Conversation-mode flavor status blurb shown in compact UI surfaces */
+  conversationStatusMessage?: string;
+  /** De-Koi: Status blurb refresh metadata for autonomous polling */
+  conversationStatusMessageMeta?: {
+    generatedAt: string;
+    nextRefreshAt: string;
+    sourceStatus: "online" | "idle" | "dnd" | "offline";
+    sourceActivity: string;
+  };
   /** De-Koi: Conversation-mode avatar override (Default / Hide / Emoji / Sprite / Gallery) */
   conversationAvatar?: ConversationAvatarOverride;
   [key: string]: unknown;
+}
+
+/** De-Koi: user-reviewable public character profile, distinct from private creator notes. */
+export interface CharacterPublicProfile {
+  displayName?: string;
+  handle?: string;
+  bio?: string;
+  tags?: string[];
+  bannerImage?: string;
 }
 
 /** De-Koi: Conversation-mode avatar override modes. */

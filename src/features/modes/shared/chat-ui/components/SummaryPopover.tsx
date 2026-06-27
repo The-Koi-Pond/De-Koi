@@ -871,7 +871,8 @@ export function SummaryPopover({
           <p className="flex items-start gap-1.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
             <Info size="0.6875rem" className="mt-0.5 shrink-0 text-amber-400/70" />
             <span>
-              Manual summaries append to rolling summary entries. Hidden messages are excluded from generated summaries.
+              Enabled entries are included as Chat Summary context in future generations. Generate adds a rolling entry,
+              and hidden messages are skipped when summaries are generated.
             </span>
           </p>
         </div>

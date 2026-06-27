@@ -50,6 +50,8 @@ const REMOTE_COMMANDS = new Set([
   "game_assets_file_info",
   "game_assets_folder_description",
   "game_assets_upload",
+  "gif_config",
+  "gif_update_config",
   "gif_search",
   "tts_config",
   "tts_update_config",
@@ -401,6 +403,16 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
+function remoteNetworkError(error: unknown): ApiError {
+  if (error instanceof ApiError) return error;
+  const message = error instanceof Error ? error.message : String(error ?? "Unknown network error");
+  return new ApiError("Remote runtime is unreachable. Check Settings and make sure the runtime server is running.", 503, {
+    code: "remote_runtime_unreachable",
+    cause: error,
+    causeMessage: message,
+  });
+}
+
 export async function checkRemoteRuntimeHealth(
   rawUrl: string,
   options: { signal?: AbortSignal } = {},
@@ -515,11 +527,18 @@ function normalizeRemoteLlmChunk(event: LlmChunk): LlmChunk {
 export async function invokeRemote<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const target = remoteRuntimeTarget();
   if (!target) throw new ApiError("Remote runtime URL is not configured", 400);
-  const response = await fetch(`${target.baseUrl}/api/invoke`, remoteFetchInit({
-    method: "POST",
-    headers: remoteInvokeHeaders(target, command, args),
-    body: JSON.stringify({ command, args: args ?? null }),
-  }));
+  const body = JSON.stringify({ command, args: args ?? null });
+  let response: Response;
+  try {
+    response = await fetch(`${target.baseUrl}/api/invoke`, remoteFetchInit({
+      method: "POST",
+      headers: remoteInvokeHeaders(target, command, args),
+      body,
+    }));
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw remoteNetworkError(error);
+  }
   if (!response.ok) throw await readRemoteError(response);
   return (await response.json()) as T;
 }

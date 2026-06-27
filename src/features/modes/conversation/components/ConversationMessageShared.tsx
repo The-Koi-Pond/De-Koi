@@ -1,6 +1,6 @@
 import { memo, useMemo, type CSSProperties, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Brain, ChevronRight, EyeOff, Trash2, User, X } from "lucide-react";
+import { Brain, ChevronRight, EyeOff, RefreshCw, Trash2, User, X } from "lucide-react";
 import type { Message, MessageAttachment, MessageExtra } from "../../../../engine/contracts/types/chat";
 import type { ConversationAvatarOverride } from "../../../../engine/contracts/types/character";
 import type { QuoteFormat } from "../../../../shared/lib/dialogue-quotes";
@@ -38,6 +38,8 @@ export interface ConversationMessageProps {
   noHoverGroup?: boolean;
   plainUserMessages?: boolean;
   forceShowActions?: boolean;
+  forceCanRegenerate?: boolean;
+  regenerateButtonTitle?: string;
   onDelete?: (messageId: string) => void;
   onRegenerate?: (messageId: string) => void;
   onEdit?: (messageId: string, content: string) => void | Promise<void>;
@@ -134,6 +136,7 @@ export interface ConversationMessageRenderContext {
   groupedSegments: GroupedSegment[] | null;
   visibleSegments: number;
   charByName: Map<string, ConversationCharacterInfo> | null;
+  charIdByName: Map<string, string> | null;
   attachments: MessageAttachment[];
   translatedText?: string | null;
   isTranslating: boolean;
@@ -165,6 +168,7 @@ export interface ConversationMessageRenderContext {
   onShowThinking: () => void;
   onImageOpen: (url: string, prompt?: string | null) => void;
   onRemoveAttachment: (index: number) => void | Promise<void>;
+  onRegenerateAttachment?: (index: number) => void | Promise<void>;
   onCloseThinking: () => void;
   onCloseGenerationReplay: () => void;
   imageLightbox: { url: string; prompt?: string | null } | null;
@@ -465,6 +469,35 @@ export function MessageSelectCheckbox({ isSelected }: { isSelected?: boolean }) 
   );
 }
 
+function StreamingPendingIndicator({
+  label,
+  displayName,
+  className,
+}: {
+  label?: string;
+  displayName?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "mari-streaming-pending inline-flex items-center gap-2 py-0.5",
+        label && "mari-typing-indicator",
+        className,
+      )}
+      data-typing-name={label ? displayName : undefined}
+      aria-label={label ?? "Assistant response is starting"}
+    >
+      <span className="mari-streaming-pending-glow" aria-hidden="true" />
+      <span className="mari-streaming-pending-line" aria-hidden="true" />
+      {label && <span className="mari-typing-text text-[0.8125rem] italic text-[var(--text-secondary)]">{label}</span>}
+    </div>
+  );
+}
+
+export function StreamingReveal({ children }: { children: ReactNode }) {
+  return <div className="mari-streaming-reveal">{children}</div>;
+}
 function ConversationMessageEditForm({ context }: { context: ConversationMessageRenderContext }) {
   return (
     <div className="space-y-2">
@@ -536,25 +569,36 @@ export function ConversationMessageBodyContent({
       style={context.messageTextStyle}
     >
       {!context.hasRenderedContent && context.typingLabel ? (
-        <div className="mari-typing-indicator flex items-center gap-2" data-typing-name={context.displayName}>
-          <span className="mari-typing-dots flex items-center gap-1">
-            <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:0ms]" />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:150ms]" />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:300ms]" />
-          </span>
-          <span className="mari-typing-text text-[0.8125rem] italic text-[var(--text-secondary)]">
-            {context.typingLabel}
-          </span>
-        </div>
+        <StreamingPendingIndicator label={context.typingLabel} displayName={context.displayName} />
       ) : context.isStreaming && !context.hasRenderedContent ? (
-        <div className="flex items-center gap-1">
-          <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:0ms]" />
-          <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:150ms]" />
-          <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:300ms]" />
-        </div>
+        <StreamingPendingIndicator />
       ) : (
         <>
-          {groupedBubbleContent ? (
+          {context.isStreaming ? (
+            <StreamingReveal>
+              {groupedBubbleContent ? (
+                groupedBubbleContent
+              ) : context.renderedContentParts ? (
+                <div className="space-y-1.5">
+                  {context.renderedContentParts.map((part, index) => (
+                    <div key={index} className="animate-[fadeSlideIn_0.4s_ease-out]">
+                      <MessageContent
+                        content={part}
+                        mentionNames={context.mentionNames}
+                        onImageOpen={context.onImageOpen}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <MessageContent
+                  content={context.renderedContent}
+                  mentionNames={context.mentionNames}
+                  onImageOpen={context.onImageOpen}
+                />
+              )}
+            </StreamingReveal>
+          ) : groupedBubbleContent ? (
             groupedBubbleContent
           ) : context.renderedContentParts ? (
             <div className="space-y-1.5">
@@ -574,9 +618,6 @@ export function ConversationMessageBodyContent({
               mentionNames={context.mentionNames}
               onImageOpen={context.onImageOpen}
             />
-          )}
-          {context.isStreaming && (
-            <span className="ml-0.5 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-[var(--foreground)]/50" />
           )}
         </>
       )}
@@ -629,12 +670,28 @@ export function ConversationMessageAttachments({
               context.onImageOpen(imageSource, att.prompt);
             }}
           >
+            {context.onRegenerateAttachment && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void context.onRegenerateAttachment?.(i);
+                }}
+                aria-label="Regenerate image"
+                title="Regenerate image"
+                className="absolute top-1.5 right-9 rounded-full bg-black/60 p-1 text-white/80 transition-opacity hover:bg-black/80 hover:text-white sm:opacity-0 sm:group-hover/att:opacity-100"
+              >
+                <RefreshCw size="0.875rem" />
+              </button>
+            )}
             <button
+              type="button"
               onClick={(event) => {
                 event.stopPropagation();
                 void context.onRemoveAttachment(i);
               }}
-              title="Remove from message"
+              aria-label="Remove image"
+              title="Remove image"
               className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 text-white/80 transition-opacity hover:bg-black/80 hover:text-white sm:opacity-0 sm:group-hover/att:opacity-100"
             >
               <X size="0.875rem" />

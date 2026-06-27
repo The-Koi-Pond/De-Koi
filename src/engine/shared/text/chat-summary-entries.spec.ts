@@ -30,4 +30,49 @@ describe("chat summary entries", () => {
     });
     expect(appended.summary).toBe("A new manually entered summary.");
   });
+
+  it("unwraps model JSON summary responses before storing entry content", () => {
+    const appended = appendChatSummaryEntryToMetadata(
+      {},
+      {
+        content: [
+          "```json",
+          "{",
+          '  "summary": "The user and character discuss control. The character stays nearby as the user falls asleep."',
+          "}",
+          "```",
+        ].join("\n"),
+      },
+    );
+
+    expect(appended.entry.content).toBe(
+      "The user and character discuss control. The character stays nearby as the user falls asleep.",
+    );
+    expect(appended.summary).toBe(
+      "The user and character discuss control. The character stays nearby as the user falls asleep.",
+    );
+  });
+
+  it("does not duplicate legacy summary metadata after unwrapping model JSON", () => {
+    const wrapped = [
+      "```json",
+      "{",
+      '  "summary": "The user and character discuss control. The character stays nearby as the user falls asleep."',
+      "}",
+      "```",
+    ].join("\n");
+
+    const normalized = normalizeChatSummaryMetadata({
+      summary: wrapped,
+      summaryEntries: [{ id: "generated-summary", content: wrapped, origin: "manual" }],
+    });
+
+    expect(normalized.entries).toHaveLength(1);
+    expect(normalized.entries[0]?.content).toBe(
+      "The user and character discuss control. The character stays nearby as the user falls asleep.",
+    );
+    expect(normalized.summary).toBe(
+      "The user and character discuss control. The character stays nearby as the user falls asleep.",
+    );
+  });
 });

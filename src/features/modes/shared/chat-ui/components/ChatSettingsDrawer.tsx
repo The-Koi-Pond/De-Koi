@@ -17,6 +17,7 @@ import {
   MessageSquare,
   Sparkles,
   Image,
+  Info,
   Pencil,
   Clock,
   AlertTriangle,
@@ -78,7 +79,7 @@ import {
   metadataStringArray,
   metadataTranslationProvider,
 } from "../lib/chat-settings-metadata";
-import { toggleChatAgent } from "../lib/chat-settings-actions";
+import { toggleChatAgent, toggleConversationStatusMessages } from "../lib/chat-settings-actions";
 import { buildContinuityOverviewViewModel } from "../lib/continuity-overview";
 import {
   AgentCategorySection,
@@ -88,9 +89,12 @@ import {
 } from "./settings/ChatSettingsSections";
 import {
   characterAvatarUrl,
+  CharacterPublicProfileCard,
+  resolveCharacterPublicProfile,
   useCharacterSummaries,
   useCharacterSummariesByIds,
   useCharacterGroups,
+  invalidateCharacterCollectionQueries,
 } from "../../../../catalog/characters/index";
 import { spriteKeys, type SpriteInfo } from "../../../../catalog/sprites/index";
 import { usePersonaSummaries } from "../../../../catalog/personas/index";
@@ -108,6 +112,7 @@ import {
   chatKeys,
 } from "../../../../catalog/chats/index";
 import { generateConversationSchedules as runGenerateConversationSchedules } from "../../../../../engine/modes/chat/schedules/schedule.service";
+import { maybeRefreshConversationStatusMessages } from "../../../../../engine/modes/chat/status/status-message.service";
 import { conversationCommandPromptEnabled } from "../../../../../engine/modes/chat/commands/activation";
 import { agentApi } from "../../../../../shared/api/agent-api";
 import { llmApi } from "../../../../../shared/api/llm-api";
@@ -474,6 +479,7 @@ function ChatSettingsDrawerInner({
   const roleplaySpriteScale = useUIStore((s) => s.roleplaySpriteScale);
 
   const [showCharPicker, setShowCharPicker] = useState(false);
+  const [profilePopoverCharacterId, setProfilePopoverCharacterId] = useState<string | null>(null);
   const [charSearch, setCharSearch] = useState("");
   const debouncedCharSearch = useDebouncedValue(charSearch, 180);
   const chatCharIds: string[] = useMemo(
@@ -560,6 +566,7 @@ function ChatSettingsDrawerInner({
   const conversationSchedulesEnabled =
     metadata.conversationSchedulesEnabled === true ||
     (metadata.conversationSchedulesEnabled == null && hasGeneratedConversationSchedules);
+  const conversationStatusMessagesEnabled = metadata.conversationStatusMessagesEnabled === true;
   const activeLorebookIds = useMemo<string[]>(
     () => metadataStringArray(metadata.activeLorebookIds),
     [metadata.activeLorebookIds],
@@ -1399,6 +1406,21 @@ function ChatSettingsDrawerInner({
     },
     [chat.id, chatCharIds, qc],
   );
+  const handleToggleConversationStatusMessages = useCallback(() => {
+    void toggleConversationStatusMessages({
+      chat,
+      enabled: conversationStatusMessagesEnabled,
+      updateMeta,
+      refreshStatusMessages: (chatId) =>
+        maybeRefreshConversationStatusMessages({ storage: storageApi, llm: llmApi }, { chatId }),
+      invalidateCharacters: () => invalidateCharacterCollectionQueries(qc),
+      invalidateChat: () => qc.invalidateQueries({ queryKey: chatKeys.detail(chat.id) }),
+      showRefreshFailure: (message) => {
+        toast.error(message);
+      },
+    });
+  }, [chat, conversationStatusMessagesEnabled, qc, updateMeta]);
+
   const [scenePromptExpanded, setScenePromptExpanded] = useState(false);
   const [scenePromptDraft, setScenePromptDraft] = useState(sceneSystemPrompt);
   const [narratorStyleDraft, setNarratorStyleDraft] = useState(narratorStyleInstructions);
@@ -2175,6 +2197,39 @@ function ChatSettingsDrawerInner({
                               )}
                             </div>
                           </button>
+                          <div className="relative shrink-0">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setProfilePopoverCharacterId((current) => (current === c.id ? null : c.id));
+                              }}
+                              className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                              title="Preview public profile"
+                            >
+                              <Info size="0.6875rem" />
+                            </button>
+                            {profilePopoverCharacterId === c.id && (
+                              <div
+                                className="absolute right-0 top-[calc(100%+0.5rem)] z-[70] w-72"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <CharacterPublicProfileCard
+                                  profile={resolveCharacterPublicProfile({
+                                    data: c.data as Record<string, unknown>,
+                                    comment: c.comment,
+                                  })}
+                                  avatarUrl={c.avatarPath}
+                                  compact
+                                  onOpenFullProfile={() => {
+                                    setProfilePopoverCharacterId(null);
+                                    onClose();
+                                    useUIStore.getState().openCharacterDetail(c.id);
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
                           <button
                             onClick={() => toggleCharacter(c.id)}
                             className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"
@@ -2490,6 +2545,39 @@ function ChatSettingsDrawerInner({
                           >
                             {isInactive ? "Inactive" : "Active"}
                           </button>
+                          <div className="relative shrink-0">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setProfilePopoverCharacterId((current) => (current === c.id ? null : c.id));
+                              }}
+                              className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                              title="Preview public profile"
+                            >
+                              <Info size="0.6875rem" />
+                            </button>
+                            {profilePopoverCharacterId === c.id && (
+                              <div
+                                className="absolute right-0 top-[calc(100%+0.5rem)] z-[70] w-72"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <CharacterPublicProfileCard
+                                  profile={resolveCharacterPublicProfile({
+                                    data: c.data as Record<string, unknown>,
+                                    comment: c.comment,
+                                  })}
+                                  avatarUrl={c.avatarPath}
+                                  compact
+                                  onOpenFullProfile={() => {
+                                    setProfilePopoverCharacterId(null);
+                                    onClose();
+                                    useUIStore.getState().openCharacterDetail(c.id);
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
                           <button
                             onClick={() => toggleCharacter(c.id)}
                             className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"
@@ -3006,7 +3094,7 @@ function ChatSettingsDrawerInner({
                   </button>
                 )}
 
-                {/* Conversation schedules toggle */}
+                {/* Conversation availability toggle */}
                 <button
                   onClick={() => {
                     const nextEnabled = !conversationSchedulesEnabled;
@@ -3023,9 +3111,9 @@ function ChatSettingsDrawerInner({
                   )}
                 >
                   <div className="flex-1 min-w-0">
-                    <span className="text-xs font-medium">Schedules</span>
+                    <span className="text-xs font-medium">Availability</span>
                     <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                      Optional character routines for availability and delays
+                      Simple character availability and response timing
                     </p>
                   </div>
                   <div
@@ -3043,21 +3131,51 @@ function ChatSettingsDrawerInner({
                   </div>
                 </button>
 
-                {/* Schedule status */}
+                <button
+                  onClick={handleToggleConversationStatusMessages}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                    conversationStatusMessagesEnabled
+                      ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                      : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                  )}
+                >
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-medium">Status Blurbs</span>
+                    <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                      Short generated updates based on routines and recent context
+                    </p>
+                  </div>
+                  <div
+                    className={cn(
+                      "h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
+                      conversationStatusMessagesEnabled ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                        conversationStatusMessagesEnabled && "translate-x-3.5",
+                      )}
+                    />
+                  </div>
+                </button>
+
+                {/* Availability status */}
                 <div className="flex items-center gap-2 rounded-lg bg-[var(--secondary)] px-3 py-2.5">
                   <CalendarClock size="0.875rem" className="text-[var(--muted-foreground)]" />
                   <div className="flex-1 min-w-0">
                     <span className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]">
                       {!conversationSchedulesEnabled
-                        ? "Schedules are off — autonomous messages will not create routines."
+                        ? "Availability is off - autonomous messages will not use routines."
                         : hasGeneratedConversationSchedules
-                          ? "Schedules generated — status is derived from character routines."
-                          : "Schedules enabled — generate routines when you're ready."}
+                          ? "Availability patterns generated - status uses character availability."
+                          : "Availability enabled - generate patterns when you're ready."}
                     </span>
                     <p className="text-[0.59375rem] text-[var(--muted-foreground)]/60 mt-0.5">
                       {conversationSchedulesEnabled
-                        ? "Schedules refresh only after you enable or regenerate them."
-                        : "Turn schedules on if you want character availability to matter."}
+                        ? "Availability refreshes only after you enable or regenerate it."
+                        : "Turn availability on if you want character timing to matter."}
                     </p>
                   </div>
                   <button
@@ -3074,7 +3192,7 @@ function ChatSettingsDrawerInner({
                         ? "cursor-not-allowed text-[var(--muted-foreground)]/60"
                         : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
                     )}
-                    title={isRegeneratingSchedules ? "Regenerating schedules…" : "Generate schedules"}
+                    title={isRegeneratingSchedules ? "Regenerating availability..." : "Generate availability patterns"}
                   >
                     <RefreshCw size="0.6875rem" className={cn(isRegeneratingSchedules && "animate-spin")} />
                     {isRegeneratingSchedules
@@ -3085,7 +3203,7 @@ function ChatSettingsDrawerInner({
                   </button>
                 </div>
 
-                {/* Schedule editor per character */}
+                {/* Availability editor per character */}
                 {conversationSchedulesEnabled && hasGeneratedConversationSchedules && (
                   <ScheduleEditor
                     characterSchedules={characterSchedules}

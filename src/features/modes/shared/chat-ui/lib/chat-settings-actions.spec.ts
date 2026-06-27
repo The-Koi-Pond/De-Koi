@@ -5,6 +5,7 @@ import {
   buildModePromptMetadataPatch,
   hasSecretPlotMemory,
   toggleChatAgent,
+  toggleConversationStatusMessages,
 } from "./chat-settings-actions";
 
 function chatWithAgents(activeAgentIds: string[]): Chat {
@@ -102,6 +103,66 @@ describe("chat settings actions", () => {
       { id: "chat-1", activeAgentIds: [] },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
+  });
+
+  it("refreshes status blurbs immediately after enabling the setting", async () => {
+    const events: string[] = [];
+    const updateMeta = {
+      mutateAsync: vi.fn(async (patch: Record<string, unknown>) => {
+        events.push(`save:${String(patch.conversationStatusMessagesEnabled)}`);
+      }),
+    };
+    const refreshStatusMessages = vi.fn(async (chatId: string) => {
+      events.push(`refresh:${chatId}`);
+      return { refreshed: ["char-1"], skipped: [] };
+    });
+    const invalidateCharacters = vi.fn(() => {
+      events.push("invalidateCharacters");
+    });
+    const invalidateChat = vi.fn(async () => {
+      events.push("invalidateChat");
+    });
+
+    await toggleConversationStatusMessages({
+      chat: { id: "chat-1", mode: "conversation", metadata: {} } as Chat,
+      enabled: false,
+      updateMeta,
+      refreshStatusMessages,
+      invalidateCharacters,
+      invalidateChat,
+      showRefreshFailure: vi.fn(),
+    });
+
+    expect(updateMeta.mutateAsync).toHaveBeenCalledWith({ id: "chat-1", conversationStatusMessagesEnabled: true });
+    expect(refreshStatusMessages).toHaveBeenCalledWith("chat-1");
+    expect(events).toEqual(["save:true", "refresh:chat-1", "invalidateCharacters", "invalidateChat"]);
+  });
+  it("rolls status blurbs back when immediate refresh fails", async () => {
+    const updateMeta = { mutateAsync: vi.fn().mockResolvedValue(undefined) };
+    const refreshStatusMessages = vi.fn().mockRejectedValue(new Error("No model configured"));
+    const invalidateChat = vi.fn();
+    const showRefreshFailure = vi.fn();
+
+    await toggleConversationStatusMessages({
+      chat: { id: "chat-1", mode: "conversation", metadata: {} } as Chat,
+      enabled: false,
+      updateMeta,
+      refreshStatusMessages,
+      invalidateCharacters: vi.fn(),
+      invalidateChat,
+      showRefreshFailure,
+    });
+
+    expect(updateMeta.mutateAsync).toHaveBeenNthCalledWith(1, {
+      id: "chat-1",
+      conversationStatusMessagesEnabled: true,
+    });
+    expect(updateMeta.mutateAsync).toHaveBeenNthCalledWith(2, {
+      id: "chat-1",
+      conversationStatusMessagesEnabled: false,
+    });
+    expect(invalidateChat).toHaveBeenCalledOnce();
+    expect(showRefreshFailure).toHaveBeenCalledWith("No model configured");
   });
 
   it("preserves mode-specific prompt persistence semantics", () => {

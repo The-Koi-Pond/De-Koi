@@ -9,12 +9,24 @@ const depthPromptSchema = z.object({
   role: z.enum(["system", "user", "assistant"]).default("system"),
 });
 
+const publicProfileSchema = z
+  .object({
+    displayName: z.string().default(""),
+    handle: z.string().default(""),
+    bio: z.string().default(""),
+    tags: z.array(z.string()).default([]),
+    bannerImage: z.string().default(""),
+  })
+  .partial()
+  .passthrough();
+
 export const characterExtensionsSchema = z
   .object({
     talkativeness: z.number().min(0).max(1).default(0.5),
     fav: z.boolean().default(false),
     world: z.string().default(""),
     depth_prompt: depthPromptSchema.default({}),
+    publicProfile: publicProfileSchema.optional(),
     backstory: z.string().default(""),
     appearance: z.string().default(""),
   })

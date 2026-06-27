@@ -4,6 +4,7 @@ import type {
   ChatSummaryEntryOrigin,
   ChatSummaryEntrySource,
 } from "../../contracts/types/chat.js";
+import { parseGameJsonish } from "../parsing-jsonish.js";
 
 const VALID_KINDS = new Set<ChatSummaryEntryKind>(["rolling"]);
 const VALID_ORIGINS = new Set<ChatSummaryEntryOrigin>(["manual", "automated", "legacy"]);
@@ -35,6 +36,23 @@ function fallbackId(prefix: string, seed: string) {
 
 function trimString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeChatSummaryContent(value: unknown): string {
+  const content = trimString(value);
+  if (!content || !/["']summary["']\s*:/.test(content)) return content;
+
+  try {
+    const parsed = parseGameJsonish(content);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const summary = (parsed as Record<string, unknown>).summary;
+      if (typeof summary === "string" && summary.trim()) return summary.trim();
+    }
+  } catch {
+    return content;
+  }
+
+  return content;
 }
 
 function utf8ByteLength(text: string): number {
@@ -125,7 +143,7 @@ function normalizeChatSummaryEntry(
 ): ChatSummaryEntry | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Record<string, unknown>;
-  const content = trimString(value.content);
+  const content = normalizeChatSummaryContent(value.content);
   if (!content) return null;
 
   const now = options.now ?? defaultNow();
@@ -242,7 +260,7 @@ function legacySummaryEntry(
   entries: ChatSummaryEntry[],
   options: ChatSummaryEntryNormalizeOptions = {},
 ): ChatSummaryEntry | null {
-  const content = trimString(summary);
+  const content = normalizeChatSummaryContent(summary);
   if (!content) return null;
   const compiledEntries = compileChatSummaryEntries(entries);
   if (compiledEntries === content) return null;

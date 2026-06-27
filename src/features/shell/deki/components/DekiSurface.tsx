@@ -2,18 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Check, ChevronUp, CircleUser, FileText, Link, Loader2, Plus, Send, Sparkles, X } from "lucide-react";
 import {
-  runDekiEntry,
   type DekiActionEntity,
   type DekiAttachment,
   type DekiEntryAction,
   type DekiMessage,
 } from "../../../../engine/deki/deki-entry";
 import {
-  compactDekiHistory,
   EMPTY_DEKI_COMPACTION,
   DEKI_CHAT_ID,
   isDekiResetCommand,
-  dekiContextMessages,
   type DekiCompactionState,
 } from "../../../../engine/deki/deki-history";
 import { llmApi } from "../../../../shared/api/llm-api";
@@ -27,9 +24,10 @@ import { filterLanguageGenerationConnections } from "../../../../shared/lib/conn
 import { isSendShortcut } from "../../../../shared/lib/send-shortcuts";
 import { cn, normalizeAvatarCropValue } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { runDetachedDekiSend } from "../lib/deki-send";
+import { DEKI_SCENE_POSES, getDekiSceneMood, type DekiSceneMood } from "../lib/deki-scene";
 
-const DEKI_AVATAR_URL = "/icon-192.png";
-const DEKI_CHIBI_URL = "/logo.png";
+const DEKI_AVATAR_URL = "/koi-mark.svg";
 const DEKI_CHARACTER_ID = "__deki_shell__";
 const DEKI_WELCOME_CONTENT =
   "Howdy, welcome to De-Koi!\n\nThe pond is calm, and I'm Deki-senpai. Feeling a little lost? It's not a skill issue yet! Ask me anything about how the app works, or have me edit it to fit what you need. Am I not the best? 😎";
@@ -37,7 +35,7 @@ const DEKI_CONNECTION_SETUP_CONTENT =
   "Oh, whoops! Looks like you're trying to talk to Deki-senpai without having a model connection set up yet. I'm afraid I need the sweet GPU juice to run. Let me take you to the Connections tab first…";
 const DEKI_NO_CONNECTION_SELECTED_ERROR =
   'No connection set for Deki-senpai! Click the "chains" icon in the input box to select one.';
-const DEKI_INPUT_PLACEHOLDER = "Message Deki-senpai, /reset to reset the conversation and only then clear it";
+const DEKI_INPUT_PLACEHOLDER = "Message Deki-senpai";
 const DEKI_ATTACHMENT_CLIENT_TEXT_BYTES = 64 * 1024;
 const DEKI_IMAGE_ATTACHMENT_EXTENSIONS = new Set(["avif", "gif", "jpeg", "jpg", "png", "webp"]);
 const DEKI_ACTION_ENTITY_LABELS: Record<DekiActionEntity, string> = {
@@ -224,7 +222,13 @@ async function invalidateDekiActionQueries(queryClient: QueryClient, action: Dek
   );
 }
 
-export function DekiSurface() {
+type DekiSurfaceProps = {
+  sessionId: string | null;
+  onCreateSession?: () => void | Promise<void>;
+  onSessionsChanged?: () => void | Promise<void>;
+};
+
+export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: DekiSurfaceProps) {
   const queryClient = useQueryClient();
   const { data: rawConnections } = useConnections();
   const { data: rawPersonas } = usePersonaSummaries();
@@ -244,6 +248,7 @@ export function DekiSurface() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [connectionSetupPromptOpen, setConnectionSetupPromptOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [applyingActionMessageId, setApplyingActionMessageId] = useState<string | null>(null);
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
@@ -252,6 +257,7 @@ export function DekiSurface() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const persistedConnectionIdRef = useRef<DekiPreferences["selectedConnectionId"] | undefined>(undefined);
   const persistedPersonaIdRef = useRef<DekiPreferences["selectedPersonaId"] | undefined>(undefined);
+  const mountedRef = useRef(false);
   const connectionSelectionTouchedRef = useRef(false);
   const personaSelectionTouchedRef = useRef(false);
   const preferencesReady = preferencesLoaded;
@@ -319,6 +325,14 @@ export function DekiSurface() {
     return messages.length > 0 ? messages : [welcomeMessage];
   }, [historyLoaded, messages, welcomeMessage]);
   const conversationMessages = useMemo(() => visibleMessages.map(toConversationMessage), [visibleMessages]);
+  const dekiSceneMood = getDekiSceneMood({ historyLoaded, sending });
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -326,12 +340,14 @@ export function DekiSurface() {
 
   useEffect(() => {
     let active = true;
+    setHistoryLoaded(false);
     void dekiApi.history
-      .get()
+      .get(sessionId)
       .then((history) => {
         if (!active) return;
         setMessages(history.messages);
         setCompaction(history.compaction);
+        setSendError(null);
       })
       .catch((error) => {
         if (!active) return;
@@ -343,7 +359,7 @@ export function DekiSurface() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     let active = true;
@@ -457,6 +473,120 @@ export function DekiSurface() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  const preparePrompting = () => {
+    if (!hasModelConnections) {
+      setConnectionSetupPromptOpen(true);
+      setSendError(null);
+      setConnectionMenuOpen(false);
+      setPersonaMenuOpen(false);
+      setMobileMenuOpen(false);
+      requestAnimationFrame(() => inputRef.current?.focus());
+      return false;
+    }
+    if (!selectedConnection) {
+      setConnectionSetupPromptOpen(false);
+      setSendError(DEKI_NO_CONNECTION_SELECTED_ERROR);
+      setConnectionMenuOpen(true);
+      setPersonaMenuOpen(false);
+      setMobileMenuOpen(false);
+      requestAnimationFrame(() => inputRef.current?.focus());
+      return false;
+    }
+    return true;
+  };
+
+  const selectedPersonaRequest = () =>
+    selectedPersona
+      ? {
+          id: selectedPersona.id,
+          name: selectedPersona.name,
+          comment: selectedPersona.comment ?? null,
+          description: selectedPersona.description ?? null,
+          personality: selectedPersona.personality ?? null,
+          scenario: selectedPersona.scenario ?? null,
+          backstory: selectedPersona.backstory ?? null,
+          appearance: selectedPersona.appearance ?? null,
+        }
+      : null;
+
+  const findUserTurnForRetry = (messageId: string) => {
+    const targetIndex = messages.findIndex((message) => message.id === messageId);
+    if (targetIndex < 0) return null;
+    const target = messages[targetIndex]!;
+    if (target.role === "user") {
+      return { user: target, retainedMessages: messages.slice(0, targetIndex + 1) };
+    }
+    for (let index = targetIndex - 1; index >= 0; index -= 1) {
+      const candidate = messages[index]!;
+      if (candidate.role === "user") {
+        return { user: candidate, retainedMessages: messages.slice(0, targetIndex) };
+      }
+    }
+    return null;
+  };
+
+  const handleRegenerate = async (messageId: string) => {
+    if (sending || !historyLoaded || !preferencesReady) return;
+    if (!preparePrompting()) return;
+    const retryTurn = findUserTurnForRetry(messageId);
+    if (!retryTurn) {
+      setSendError("Deki-senpai needs a user message before retrying.");
+      return;
+    }
+    setSending(true);
+    setRegeneratingMessageId(messageId);
+    setSendError(null);
+    try {
+      const replaced = await dekiApi.history.replaceMessages({
+        sessionId,
+        messages: retryTurn.retainedMessages,
+        compaction,
+      });
+      setMessages(replaced.messages);
+      setCompaction(replaced.compaction);
+      void onSessionsChanged?.();
+      await runDetachedDekiSend({
+        sessionId,
+        userMessage: retryTurn.user.content,
+        existingUser: retryTurn.user,
+        messages: replaced.messages,
+        compaction: replaced.compaction,
+        connection: selectedConnection!,
+        llm: llmApi,
+        gateway: dekiApi,
+        history: dekiApi.history,
+        persona: selectedPersonaRequest(),
+        attachments: [],
+        onUserMessagePersisted: (_user, messagesWithUser) => {
+          if (mountedRef.current) setMessages(messagesWithUser);
+          void onSessionsChanged?.();
+        },
+        onCompactionSaved: (nextCompaction) => {
+          if (mountedRef.current) setCompaction(nextCompaction);
+        },
+        onAssistantMessagePersisted: (_assistant, messagesWithAssistant) => {
+          if (mountedRef.current) setMessages(messagesWithAssistant);
+          void onSessionsChanged?.();
+        },
+      });
+    } catch (error) {
+      if (mountedRef.current) {
+        setSendError(error instanceof Error ? error.message : "Deki-senpai failed to retry that message.");
+      }
+    } finally {
+      if (mountedRef.current) {
+        setSending(false);
+        setRegeneratingMessageId(null);
+        requestAnimationFrame(() => inputRef.current?.focus());
+      }
+    }
+  };
+
+  const handleEditMessage = async (messageId: string, content: string) => {
+    const updated = await dekiApi.history.updateMessage({ sessionId, messageId, content });
+    setMessages((current) => current.map((message) => (message.id === messageId ? updated : message)));
+    void onSessionsChanged?.();
+  };
   const send = async () => {
     const userMessage = draft.trim() || (attachments.length > 0 ? "[attachments]" : "");
     if (!userMessage || sending || !historyLoaded || !preferencesReady) return;
@@ -466,11 +596,16 @@ export function DekiSurface() {
       setSendError(null);
       setSending(true);
       try {
-        await dekiApi.history.reset();
+        if (onCreateSession) {
+          await onCreateSession();
+        } else {
+          await dekiApi.history.reset(sessionId);
+          await onSessionsChanged?.();
+        }
         setMessages([]);
         setCompaction(EMPTY_DEKI_COMPACTION);
       } catch (error) {
-        setSendError(error instanceof Error ? error.message : "Deki-senpai history could not be reset.");
+        setSendError(error instanceof Error ? error.message : "Deki-senpai chat could not be created.");
       } finally {
         setSending(false);
         requestAnimationFrame(() => inputRef.current?.focus());
@@ -502,65 +637,46 @@ export function DekiSurface() {
     setSending(true);
     requestAnimationFrame(() => inputRef.current?.focus());
     try {
-      const user = await dekiApi.history.appendMessage({ role: "user", content: userMessage });
-      const messagesWithUser = [...messages, user];
-      setMessages(messagesWithUser);
-
-      const compactionResult = await compactDekiHistory({
-        messages: messagesWithUser,
+      await runDetachedDekiSend({
+        sessionId,
+        userMessage,
+        messages,
         compaction,
         connection: selectedConnection,
         llm: llmApi,
-      });
-      const nextCompaction = compactionResult.compaction;
-      if (compactionResult.compacted) {
-        setCompaction(await dekiApi.history.saveCompaction(nextCompaction));
-      }
-      const contextMessages = dekiContextMessages(messagesWithUser, nextCompaction).filter(
-        (message) => message.id !== user.id,
-      );
-
-      const response = await runDekiEntry(
-        {
-          userMessage,
-          messages: contextMessages,
-          compactedSummary: nextCompaction.compactedSummary,
-          connectionId: selectedConnection?.id ?? null,
-          persona: selectedPersona
-            ? {
-                id: selectedPersona.id,
-                name: selectedPersona.name,
-                comment: selectedPersona.comment ?? null,
-                description: selectedPersona.description ?? null,
-                personality: selectedPersona.personality ?? null,
-                scenario: selectedPersona.scenario ?? null,
-                backstory: selectedPersona.backstory ?? null,
-                appearance: selectedPersona.appearance ?? null,
-              }
-            : null,
-          attachments: currentAttachments.map((attachment) => ({
-            id: attachment.id,
-            name: attachment.name,
-            type: attachment.type,
-            size: attachment.size,
-            content: attachment.content,
-          })),
+        gateway: dekiApi,
+        history: dekiApi.history,
+        persona: selectedPersonaRequest(),
+        attachments: currentAttachments.map((attachment) => ({
+          id: attachment.id,
+          name: attachment.name,
+          type: attachment.type,
+          size: attachment.size,
+          content: attachment.content,
+        })),
+        onUserMessagePersisted: (_user, messagesWithUser) => {
+          if (mountedRef.current) setMessages(messagesWithUser);
+          void onSessionsChanged?.();
         },
-        dekiApi,
-      );
-      const assistant = await dekiApi.history.appendMessage({
-        role: "assistant",
-        content: response.content,
-        action: response.action,
+        onCompactionSaved: (nextCompaction) => {
+          if (mountedRef.current) setCompaction(nextCompaction);
+        },
+        onAssistantMessagePersisted: (_assistant, messagesWithAssistant) => {
+          if (mountedRef.current) setMessages(messagesWithAssistant);
+          void onSessionsChanged?.();
+        },
       });
-      setMessages((current) => [...current, assistant]);
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : "Deki-senpai failed to respond.");
-      setSending(false);
+      if (mountedRef.current) {
+        setSendError(error instanceof Error ? error.message : "Deki-senpai failed to respond.");
+        setSending(false);
+      }
       return;
     }
-    setSending(false);
-    requestAnimationFrame(() => inputRef.current?.focus());
+    if (mountedRef.current) {
+      setSending(false);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
   };
 
   const applyDekiAction = async (message: DekiMessage) => {
@@ -572,15 +688,14 @@ export function DekiSurface() {
       return rest;
     });
     try {
-      const result = await dekiApi.actions.apply(action, { actionId: message.id, messageId: message.id });
+      const result = await dekiApi.actions.apply(action, { actionId: message.id, messageId: message.id, sessionId });
       if (result.messages && result.compaction) {
         setMessages(result.messages);
         setCompaction(result.compaction);
+        void onSessionsChanged?.();
       } else if (result.application) {
         setMessages((current) =>
-          current.map((item) =>
-            item.id === message.id ? { ...item, actionApplication: result.application } : item,
-          ),
+          current.map((item) => (item.id === message.id ? { ...item, actionApplication: result.application } : item)),
         );
       }
       await invalidateDekiActionQueries(queryClient, action).catch((error) => {
@@ -635,7 +750,7 @@ export function DekiSurface() {
     >
       <div className="mari-messages-scroll flex-1 overflow-y-auto overflow-x-hidden">
         <div className="deki-hero mx-auto flex w-full max-w-3xl justify-center px-4 pb-2 pt-5 sm:pt-7">
-          <DekiPixelScene active={sending || !historyLoaded} />
+          <DekiPondScene mood={dekiSceneMood} />
         </div>
 
         <div className="mx-auto w-full max-w-3xl px-0 pb-4 pt-1">
@@ -649,6 +764,8 @@ export function DekiSurface() {
               previous.characterId === message.characterId &&
               getDayKey(previous.createdAt) === getDayKey(message.createdAt) &&
               new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime() <= 5 * 60 * 1000;
+            const isWelcomeMessage = message.id === welcomeMessage.id;
+            const isRegenerating = regeneratingMessageId === message.id;
             return (
               <div key={message.id}>
                 {showSeparator && (
@@ -662,9 +779,13 @@ export function DekiSurface() {
                 )}
                 <ConversationMessage
                   message={message}
-                  isStreaming={false}
+                  isStreaming={sending && isRegenerating}
                   isGrouped={isGrouped}
-                  hideActions
+                  hideActions={isWelcomeMessage}
+                  forceCanRegenerate={!isWelcomeMessage && message.role === "user"}
+                  regenerateButtonTitle={message.role === "user" ? "Resend" : undefined}
+                  onRegenerate={!isWelcomeMessage ? handleRegenerate : undefined}
+                  onEdit={!isWelcomeMessage ? handleEditMessage : undefined}
                   characterMap={characterMap}
                   personaInfo={personaInfo}
                   chatCharacterIds={[DEKI_CHARACTER_ID]}
@@ -963,27 +1084,20 @@ function DekiLoadingState() {
   );
 }
 
-function DekiPixelScene({ active }: { active: boolean }) {
+function DekiPondScene({ mood }: { mood: DekiSceneMood }) {
+  const poseUrl = DEKI_SCENE_POSES[mood];
+
   return (
-    <div className={cn("deki-pixel-scene", active ? "deki-pixel-scene-active" : "deki-pixel-scene-idle")}>
-      <div className="deki-pixel-glow" aria-hidden />
-      <div className="deki-pixel-desk" aria-hidden />
-      <img src={DEKI_CHIBI_URL} alt="Deki-senpai" className="deki-pixel-sprite" draggable={false} />
-      <div className="deki-laptop" aria-hidden>
-        <div className="deki-laptop-screen">
-          <span />
-          <span />
-          <span />
-        </div>
-        <div className="deki-laptop-base">
-          <i />
-          <i />
-          <i />
-          <i />
-          <i />
-          <i />
-        </div>
+    <div className={cn("deki-pond-scene", `deki-pond-scene-${mood}`)}>
+      <div className="deki-pond-aura" aria-hidden />
+      <div className="deki-pond-water" aria-hidden>
+        <span className="deki-pond-ripple deki-pond-ripple-one" />
+        <span className="deki-pond-ripple deki-pond-ripple-two" />
+        <span className="deki-pond-ripple deki-pond-ripple-three" />
       </div>
+      <div className="deki-pond-lilypad deki-pond-lilypad-left" aria-hidden />
+      <div className="deki-pond-lilypad deki-pond-lilypad-right" aria-hidden />
+      <img src={poseUrl} alt="Koi fish" className="deki-pond-sprite" draggable={false} />
     </div>
   );
 }

@@ -12,8 +12,81 @@ export function readTranscriptScrollMetrics(element: HTMLElement): TranscriptScr
   };
 }
 
-export function isNearTranscriptBottom(metrics: TranscriptScrollMetrics, thresholdPx = 150): boolean {
+function isNearTranscriptBottom(metrics: TranscriptScrollMetrics, thresholdPx = 150): boolean {
   return metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight < thresholdPx;
+}
+
+export type TranscriptScrollStateInput = {
+  metrics: TranscriptScrollMetrics;
+  lastScrollTop: number;
+  wasUserScrolledAway: boolean;
+  userScrolledAt: number;
+  isStreaming: boolean;
+  now?: number;
+  nearBottomThresholdPx?: number;
+  upwardScrollThresholdPx?: number;
+  reengageDelayMs?: number;
+};
+
+export type TranscriptScrollState = {
+  isNearBottom: boolean;
+  userScrolledAway: boolean;
+  userScrolledAt: number;
+  lastScrollTop: number;
+};
+
+export function resolveTranscriptScrollState({
+  metrics,
+  lastScrollTop,
+  wasUserScrolledAway,
+  userScrolledAt,
+  isStreaming,
+  now = Date.now(),
+  nearBottomThresholdPx = 150,
+  upwardScrollThresholdPx = 10,
+  reengageDelayMs = 300,
+}: TranscriptScrollStateInput): TranscriptScrollState {
+  const isNearBottom = isNearTranscriptBottom(metrics, nearBottomThresholdPx);
+  const scrolledUpDuringStreaming = isStreaming && metrics.scrollTop < lastScrollTop - upwardScrollThresholdPx;
+  let nextUserScrolledAway = wasUserScrolledAway;
+  let nextUserScrolledAt = userScrolledAt;
+
+  const scrolledTowardBottomDuringStreaming =
+    isStreaming && metrics.scrollTop > lastScrollTop + upwardScrollThresholdPx;
+
+  if (scrolledUpDuringStreaming) {
+    nextUserScrolledAway = true;
+    nextUserScrolledAt = now;
+  } else if (isNearBottom && scrolledTowardBottomDuringStreaming && now - userScrolledAt > reengageDelayMs) {
+    nextUserScrolledAway = false;
+  }
+
+  return {
+    isNearBottom,
+    userScrolledAway: nextUserScrolledAway,
+    userScrolledAt: nextUserScrolledAt,
+    lastScrollTop: metrics.scrollTop,
+  };
+}
+
+export type TranscriptFollowBottomInput = {
+  hasFreshForcedBottomScroll: boolean;
+  isNearBottom: boolean;
+  isOptimisticTail: boolean;
+  isStreamingWithUserTail: boolean;
+  userScrolledAway: boolean;
+};
+
+export function shouldFollowTranscriptBottom({
+  hasFreshForcedBottomScroll,
+  isNearBottom,
+  isOptimisticTail,
+  isStreamingWithUserTail,
+  userScrolledAway,
+}: TranscriptFollowBottomInput): boolean {
+  if (userScrolledAway) return false;
+  if (hasFreshForcedBottomScroll || isOptimisticTail) return true;
+  return isStreamingWithUserTail || isNearBottom;
 }
 
 export function scheduleTranscriptScrollWrite(write: () => void): () => void {
@@ -26,8 +99,10 @@ export function scheduleTranscriptScrollWrite(write: () => void): () => void {
   return () => window.cancelAnimationFrame(frame);
 }
 
-export function scheduleTranscriptBottomLock(writeBottom: () => void, frameCount = 2): () => void {
-  writeBottom();
+export function scheduleTranscriptBottomLock(writeBottom: () => boolean | void, frameCount = 2): () => void {
+  if (writeBottom() === false) {
+    return () => {};
+  }
 
   if (typeof window === "undefined") {
     return () => {};
@@ -40,7 +115,7 @@ export function scheduleTranscriptBottomLock(writeBottom: () => void, frameCount
     if (remainingFrames <= 0) return;
     const frame = window.requestAnimationFrame(() => {
       if (cancelled) return;
-      writeBottom();
+      if (writeBottom() === false) return;
       scheduleNextFrame(remainingFrames - 1);
     });
     frames.push(frame);

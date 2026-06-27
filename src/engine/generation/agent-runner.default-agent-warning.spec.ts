@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { IntegrationGateway } from "../capabilities/integrations";
-import type { LlmGateway } from "../capabilities/llm";
+import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway, StorageListOptions } from "../capabilities/storage";
 import { createGenerationAgentRuntime } from "./agent-runner";
 import type { JsonRecord } from "./runtime-records";
@@ -70,6 +70,22 @@ const llm = {
 
 const integrations = {} as IntegrationGateway;
 
+const illustratorLlm = {
+  async *stream() {
+    yield {
+      type: "token",
+      text: JSON.stringify({
+        shouldGenerate: true,
+        prompt: "Mira catches a candle in a moonlit library.",
+      }),
+    };
+    yield { type: "done" };
+  },
+  async listModels() {
+    return [];
+  },
+} as unknown as LlmGateway;
+
 describe("default agent connection warnings", () => {
   it("includes a connection-scoped dismissal key for the default agent warning", async () => {
     const runtime = await createGenerationAgentRuntime(
@@ -115,5 +131,91 @@ describe("default agent connection warnings", () => {
         agentNames: ["One", "Two"],
       }),
     );
+  });
+
+
+  it("adds manual paintbrush instructions to Illustrator retries", async () => {
+    let capturedRequest: LlmRequest | null = null;
+    const manualIllustratorLlm = {
+      async *stream(request: LlmRequest) {
+        capturedRequest = request;
+        yield {
+          type: "token",
+          text: JSON.stringify({ shouldGenerate: false, reason: "not visually significant" }),
+        };
+        yield { type: "done" };
+      },
+      async listModels() {
+        return [];
+      },
+    } as unknown as LlmGateway;
+
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: runtimeStorage({
+          connections: [],
+          agents: [{ id: "illustrator", type: "illustrator", name: "Illustrator", enabled: true }],
+        }),
+        llm: manualIllustratorLlm,
+        integrations,
+      },
+      {
+        chat: { id: "chat-1", mode: "conversation", metadata: {} },
+        connection: { id: "chat-conn", name: "Chat", provider: "openai", model: "chat-model" },
+        storedMessages: [{ id: "user-1", role: "user", content: "I reach for the falling candle." }],
+        characters: [],
+        persona: null,
+        activatedLorebookEntries: [],
+        chatSummary: null,
+        agentTypes: new Set(["illustrator"]),
+        bypassCustomAgentActivation: true,
+        illustratorManualRequest: true,
+      },
+    );
+
+    await runtime.runPost("Mira catches the candle before it hits the floor.");
+
+    const request = capturedRequest as LlmRequest | null;
+    expect(request).not.toBeNull();
+    const promptText = (request?.messages ?? []).map((message) => message.content).join("\n");
+    expect(promptText).toContain("manual paintbrush request");
+    expect(promptText).toContain("Return shouldGenerate true");
+  });
+  it("hydrates and runs an explicitly requested disabled Illustrator row", async () => {
+    const runtime = await createGenerationAgentRuntime(
+      {
+        storage: runtimeStorage({
+          connections: [],
+          agents: [{ id: "illustrator", type: "illustrator", name: "Illustrator", enabled: false }],
+        }),
+        llm: illustratorLlm,
+        integrations,
+      },
+      {
+        chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+        connection: { id: "chat-conn", name: "Chat", provider: "openai", model: "chat-model" },
+        storedMessages: [{ id: "user-1", role: "user", content: "I reach for the falling candle." }],
+        characters: [],
+        persona: null,
+        activatedLorebookEntries: [],
+        chatSummary: null,
+        agentTypes: new Set(["illustrator"]),
+        bypassCustomAgentActivation: true,
+      },
+    );
+
+    const results = await runtime.runPost("Mira catches the candle before it hits the floor.");
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        agentId: "illustrator",
+        agentType: "illustrator",
+        success: true,
+        data: expect.objectContaining({
+          shouldGenerate: true,
+          prompt: "Mira catches a candle in a moonlit library.",
+        }),
+      }),
+    ]);
   });
 });

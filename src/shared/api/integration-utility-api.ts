@@ -21,6 +21,13 @@ export interface GifSearchResponse {
   next: string;
 }
 
+export interface GifConfigResponse {
+  hasApiKey: boolean;
+  apiKey?: string | null;
+  source: "stored" | "env" | "missing";
+  envConfigured: boolean;
+}
+
 export interface SpotifyStatus {
   connected: boolean;
   expired?: boolean;
@@ -40,6 +47,10 @@ export interface SpotifyExchangeResponse {
 }
 
 export const gifsApi = {
+  config: () => invokeTauri<GifConfigResponse>("gif_config"),
+  updateConfig: (input: { apiKey: string }) =>
+    invokeTauri<GifConfigResponse>("gif_update_config", { body: { apiKey: input.apiKey } }),
+  openApiKeyPage: () => openExternalUrl("https://developers.giphy.com/dashboard/?create=true"),
   search: (input: { q?: string; limit?: number; pos?: string }) => {
     return invokeTauri<GifSearchResponse>("gif_search", {
       q: input.q?.trim() || null,

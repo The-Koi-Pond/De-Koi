@@ -2471,6 +2471,83 @@ mod tests {
     }
 
     #[test]
+    fn storage_list_messages_filters_before_ordering_and_limit() {
+        let state = test_state("message-filter-order-limit-contract");
+        let mut messages = Vec::new();
+        for index in 0..7 {
+            messages.push(json!({
+                "id": format!("owned-{index}"),
+                "chatId": "chat-1",
+                "role": "assistant",
+                "characterId": "char-a",
+                "content": format!("owned {index}"),
+                "createdAt": format!("2026-01-01T00:0{index}:00Z")
+            }));
+        }
+        messages.extend([
+            json!({
+                "id": "owned-latest",
+                "chatId": "chat-1",
+                "role": "assistant",
+                "characterId": "char-a",
+                "content": "latest owned",
+                "createdAt": "2026-01-01T00:10:00Z"
+            }),
+            json!({
+                "id": "unowned-newer",
+                "chatId": "chat-1",
+                "role": "assistant",
+                "content": "ambiguous newer",
+                "createdAt": "2026-01-01T00:11:00Z"
+            }),
+            json!({
+                "id": "wrong-role-newer",
+                "chatId": "chat-1",
+                "role": "user",
+                "characterId": "char-a",
+                "content": "user newer",
+                "createdAt": "2026-01-01T00:12:00Z"
+            }),
+            json!({
+                "id": "wrong-chat-newer",
+                "chatId": "chat-2",
+                "role": "assistant",
+                "characterId": "char-a",
+                "content": "other chat newer",
+                "createdAt": "2026-01-01T00:13:00Z"
+            }),
+        ]);
+        state
+            .storage
+            .replace_all("messages", messages)
+            .expect("messages should seed");
+
+        let result = storage_list_inner(
+            &state,
+            "messages".to_string(),
+            Some(json!({
+                "filters": {
+                    "chatId": "chat-1",
+                    "role": "assistant",
+                    "characterId": "char-a"
+                },
+                "fields": ["id", "content", "characterId", "createdAt"],
+                "orderBy": "createdAt",
+                "descending": true,
+                "limit": 3
+            })),
+        )
+        .expect("filtered message list should apply filters before recency limit");
+
+        let ids: Vec<_> = result
+            .as_array()
+            .expect("storage_list returns message rows")
+            .iter()
+            .filter_map(|row| row.get("id").and_then(Value::as_str))
+            .collect();
+        assert_eq!(ids, vec!["owned-5", "owned-6", "owned-latest"]);
+    }
+    #[test]
     fn storage_list_where_in_projected_messages_materializes_swipe_summary() {
         let state = test_state("where-in-message-projection-materialization");
         state

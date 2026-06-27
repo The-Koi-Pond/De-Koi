@@ -167,6 +167,10 @@ function skippedLorebookName(entry: { name?: unknown; id?: unknown; lorebookId?:
   return readString(entry.name).trim() || readString(entry.id).trim() || readString(entry.lorebookId).trim() || "entry";
 }
 
+function formatBudgetTokens(tokens: number): string {
+  return Math.max(0, Math.round(tokens)).toLocaleString("en-US");
+}
+
 export function buildPromptBudgetEstimate(input: PromptBudgetInput): PromptBudgetEstimate {
   const parameters = input.parameters ?? {};
   const contextLimit = effectiveMaxContext(input.connection, parameters) || null;
@@ -187,15 +191,20 @@ export function buildPromptBudgetEstimate(input: PromptBudgetInput): PromptBudge
       message: "Context limit is unknown for this connection, so remaining tokens can only be estimated.",
     });
   } else if ((remainingTokens ?? 0) < 0) {
+    const overageTokens = Math.abs(remainingTokens ?? 0);
     warnings.push({
       kind: "over_budget",
-      message: "This prompt is larger than the estimated input budget and history may be trimmed.",
-      tokens: Math.abs(remainingTokens ?? 0),
+      message: `This prompt is larger than the estimated input budget by about ${formatBudgetTokens(
+        overageTokens,
+      )} tokens. Aim for about ${formatBudgetTokens(inputBudgetTokens ?? 0)} input tokens or less.`,
+      tokens: overageTokens,
     });
   } else if (inputBudgetTokens && remainingTokens != null && remainingTokens <= inputBudgetTokens * 0.1) {
     warnings.push({
       kind: "near_limit",
-      message: "This prompt is close to the estimated context limit.",
+      message: `This prompt is close to the estimated context limit. Aim to stay under about ${formatBudgetTokens(
+        inputBudgetTokens,
+      )} input tokens; about ${formatBudgetTokens(remainingTokens)} remain.`,
       tokens: remainingTokens,
     });
   }
@@ -221,7 +230,9 @@ export function buildPromptBudgetEstimate(input: PromptBudgetInput): PromptBudge
         kind: "large_section",
         sectionKind: section.kind,
         sectionLabel: section.label,
-        message: `${section.label} is unusually large for this prompt.`,
+        message: `${section.label} is unusually large for this prompt. Try to keep it under about ${formatBudgetTokens(
+          threshold,
+        )} tokens.`,
         tokens: section.estimatedTokens,
       });
     }

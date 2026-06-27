@@ -60,7 +60,7 @@ import {
   type EditableGenerationParameters,
 } from "../../../../../shared/components/ui/GenerationParametersEditor";
 
-const ASSISTANT_MARK_URL = "/icon-192.png";
+const ASSISTANT_MARK_URL = "/koi-mark.svg";
 
 // ─── Step definitions ─────────────────────────
 

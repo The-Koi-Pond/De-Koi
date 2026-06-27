@@ -1,6 +1,7 @@
 import { Hash, MessageCircle, Pencil, Star, User } from "lucide-react";
 import { useStartChatFromCharacter } from "../hooks/use-start-chat-from-character";
 import { characterAvatarUrl } from "../lib/character-avatar-url";
+import { resolveCharacterPublicProfile } from "../lib/character-public-profile";
 import { estimateCharacterCardTokens, formatEstimatedTokens } from "../lib/character-token-count";
 import {
   getCharacterMeta,
@@ -31,7 +32,7 @@ export function CharacterLibraryDetailCard({
   const characterName = getText(character.parsed.name) || "Unnamed";
   const characterTitle = getCharacterTitle({ name: characterName, comment: character.comment });
   const characterMeta = getCharacterMeta(character);
-  const creatorNotes = getText(character.parsed.creator_notes);
+  const publicProfile = resolveCharacterPublicProfile({ data: character.parsed, comment: character.comment });
   const sections = getCharacterSections(character);
   const avatarUrl = characterAvatarUrl(character);
   const tokenEstimate = estimateCharacterCardTokens(character.parsed);
@@ -86,10 +87,26 @@ export function CharacterLibraryDetailCard({
               </div>
             </div>
 
-            {creatorNotes && (
-              <p className="mt-4 rounded-[1.5rem] border border-[var(--border)]/50 bg-[var(--secondary)]/70 px-4 py-3 text-sm leading-6 text-[var(--muted-foreground)]">
-                {creatorNotes}
-              </p>
+            {publicProfile.bio && (
+              <div className="mt-4 rounded-lg border border-[var(--border)]/50 bg-[var(--secondary)]/70 px-4 py-3">
+                <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                  Public Profile
+                </p>
+                <p className="mt-2 text-sm leading-6 text-[var(--foreground)]/85">{publicProfile.bio}</p>
+                {publicProfile.tags.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {publicProfile.tags.slice(0, 6).map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center gap-1 rounded-full bg-[var(--background)]/80 px-2 py-0.5 text-[0.625rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)]"
+                      >
+                        <Hash size="0.625rem" />
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
             <div className="mt-4 flex flex-wrap gap-2">

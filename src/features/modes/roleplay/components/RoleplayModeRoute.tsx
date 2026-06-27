@@ -148,7 +148,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
   const isRenderingCachedMessages = data.messages === undefined && cachedMessagesForActiveChat !== undefined;
   const spriteState = useSpriteMetadataState({ chat: data.chat, chatMeta: data.chatMeta, messages: renderMessages });
   const { startEncounter } = useEncounter();
-  const { concludeScene, abandonScene, forkScene, isForking } = useScene();
+  const { concludeScene, reopenScene, abandonScene, forkScene, isForking } = useScene();
   const encounterActive = useEncounterStore((state) => state.active || state.showConfigModal);
   const { request, drafts, onDraftChange, onContinue, onClose } = useAgentInjectionReview();
 
@@ -436,6 +436,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         onRetryAgent={timeline.handleRetryAgent}
         onStartEncounter={() => startEncounter()}
         onConcludeScene={() => concludeScene(activeChatId)}
+        onReopenScene={() => reopenScene(activeChatId)}
         onAbandonScene={() => abandonScene(activeChatId)}
         onForkScene={forkScene}
         isForkingScene={isForking || timeline.isStreaming}

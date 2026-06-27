@@ -55,6 +55,7 @@ import { AvatarImage } from "../../shared/components/ui/AvatarImage";
 import { useState, useCallback, useMemo, useRef, useEffect, type DragEvent } from "react";
 import { CHAT_MODES } from "../../engine/contracts/constants/chat-modes";
 import type { ChatFolder } from "../../engine/contracts/types/chat";
+import type { DekiSession } from "../../engine/deki/deki-history";
 import { Modal } from "../../shared/components/ui/Modal";
 import { Reorder, useDragControls } from "framer-motion";
 import { parseChatMetadata, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
@@ -67,6 +68,17 @@ type ChatSidebarRow = {
   branchCount: number;
 };
 type ChatDropTarget = { folderId: string | null } | null;
+
+type ChatSidebarProps = {
+  activeTab: ChatSidebarTab;
+  onActiveTabChange: (tab: ChatSidebarTab) => void;
+  dekiSessions: DekiSession[];
+  activeDekiSessionId: string | null;
+  dekiOpen: boolean;
+  onOpenDekiSession: (sessionId: string) => void;
+  onCreateDekiSession: () => void;
+  onDeleteDekiSession: (sessionId: string) => void;
+};
 
 const CHAT_DRAG_MIME = "application/x-de-koi-chat-id";
 
@@ -133,10 +145,13 @@ const MODE_CONFIG: Record<
 export function ChatSidebar({
   activeTab,
   onActiveTabChange,
-}: {
-  activeTab: ChatSidebarTab;
-  onActiveTabChange: (tab: ChatSidebarTab) => void;
-}) {
+  dekiSessions,
+  activeDekiSessionId,
+  dekiOpen,
+  onOpenDekiSession,
+  onCreateDekiSession,
+  onDeleteDekiSession,
+}: ChatSidebarProps) {
   const { data: chats, isError: chatsError, isLoading, isFetching, refetch: refetchChats } = useChatSummaries();
   const deleteChat = useDeleteChat();
   const deleteChatGroup = useDeleteChatGroup();
@@ -537,6 +552,35 @@ export function ChatSidebar({
     if (window.innerWidth < 768) setSidebarOpen(false);
     startNewChat(activeTab);
   }, [activeTab, setSidebarOpen, startNewChat]);
+
+  const handleOpenDekiSession = useCallback(
+    (sessionId: string) => {
+      onOpenDekiSession(sessionId);
+      if (window.innerWidth < 768) setSidebarOpen(false);
+    },
+    [onOpenDekiSession, setSidebarOpen],
+  );
+
+  const handleCreateDekiSession = useCallback(() => {
+    onCreateDekiSession();
+    if (window.innerWidth < 768) setSidebarOpen(false);
+  }, [onCreateDekiSession, setSidebarOpen]);
+
+  const handleDeleteDekiSession = useCallback(
+    async (session: DekiSession) => {
+      if (
+        await showConfirmDialog({
+          title: "Delete Deki Chat",
+          message: `Delete "${session.title}"?`,
+          confirmLabel: "Delete",
+          tone: "destructive",
+        })
+      ) {
+        onDeleteDekiSession(session.id);
+      }
+    },
+    [onDeleteDekiSession],
+  );
 
   // ── Folder handlers ──
   const handleCreateFolder = useCallback(() => {
@@ -984,6 +1028,75 @@ export function ChatSidebar({
         </button>
       </div>
 
+      <div className="border-b border-[var(--border)]/25 px-3 py-2">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5 text-[0.625rem] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+            <MessageSquare size="0.6875rem" className="shrink-0" />
+            <span className="truncate">Deki-senpai</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleCreateDekiSession}
+            className="rounded-md p-1 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90"
+            title="New Deki chat"
+            aria-label="New Deki chat"
+          >
+            <Plus size="0.8125rem" />
+          </button>
+        </div>
+        <div className="flex max-h-36 flex-col gap-0.5 overflow-y-auto pr-0.5">
+          {dekiSessions.map((session) => {
+            const isActive = dekiOpen && activeDekiSessionId === session.id;
+            return (
+              <div
+                key={session.id}
+                role="button"
+                tabIndex={0}
+                data-deki-session-id={session.id}
+                onClick={() => handleOpenDekiSession(session.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleOpenDekiSession(session.id);
+                  }
+                }}
+                className={cn(
+                  "group relative flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-all",
+                  isActive
+                    ? "bg-[var(--sidebar-accent)] text-[var(--sidebar-accent-foreground)] shadow-sm"
+                    : "text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-accent)]/60",
+                )}
+              >
+                {isActive && (
+                  <span className="absolute -left-0.5 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-sky-400" />
+                )}
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-500">
+                  <MessageSquare size="0.8125rem" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-medium">{session.title}</span>
+                  <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
+                    {session.messages.length} message{session.messages.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleDeleteDekiSession(session);
+                  }}
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] opacity-0 transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--destructive)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--destructive)]/35 active:scale-90 group-hover:opacity-100 max-md:opacity-100"
+                  title="Delete Deki chat"
+                  aria-label={`Delete ${session.title}`}
+                >
+                  <Trash2 size="0.8125rem" strokeWidth={1.9} aria-hidden="true" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Tabs */}
       <div className="flex items-center gap-1 px-3 pt-2">
         {(["conversation", "roleplay", "game"] as const).map((tab) => {
@@ -1246,7 +1359,9 @@ export function ChatSidebar({
             className={cn(
               "flex flex-col gap-0.5 rounded-lg transition-colors",
               draggedChatId && "min-h-8",
-              chatDropTarget && chatDropTarget.folderId === null && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+              chatDropTarget &&
+                chatDropTarget.folderId === null &&
+                "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
             )}
           >
             {unfiledChats.map(renderChatRow)}

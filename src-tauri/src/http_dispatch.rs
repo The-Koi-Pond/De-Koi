@@ -342,7 +342,9 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                 optional_u32_strict(&args, "size")?,
             )
         }
-        "gif_search" => gif_search(&args).await,
+        "gif_config" => http::giphy_config(state),
+        "gif_update_config" => http::giphy_update_config(state, optional_value(&args, "body")),
+        "gif_search" => gif_search(state, &args).await,
         "tts_config" => integrations::tts_call(state, "GET", &["config"], Value::Null).await,
         "tts_update_config" => {
             integrations::tts_call(state, "PUT", &["config"], optional_value(&args, "config")).await
@@ -1194,7 +1196,7 @@ fn move_game_assets_and_clear_succeeded_thumbnails(
     json!({ "succeeded": succeeded, "failed": failed, "targetFolder": target_folder })
 }
 
-async fn gif_search(args: &Map<String, Value>) -> AppResult<Value> {
+async fn gif_search(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     let mut query = HashMap::new();
     if let Some(q) = optional_string(args, "q") {
         query.insert("q".to_string(), q);
@@ -1205,10 +1207,13 @@ async fn gif_search(args: &Map<String, Value>) -> AppResult<Value> {
     if let Some(pos) = optional_string(args, "pos") {
         query.insert("pos".to_string(), pos);
     }
-    http::gifs_search(&shared::ParsedPath {
-        parts: Vec::new(),
-        query,
-    })
+    http::gifs_search(
+        state,
+        &shared::ParsedPath {
+            parts: Vec::new(),
+            query,
+        },
+    )
     .await
 }
 
