@@ -17,6 +17,7 @@ import {
   MessageSquare,
   Sparkles,
   Image,
+  Info,
   Pencil,
   Clock,
   AlertTriangle,
@@ -88,6 +89,8 @@ import {
 } from "./settings/ChatSettingsSections";
 import {
   characterAvatarUrl,
+  CharacterPublicProfileCard,
+  resolveCharacterPublicProfile,
   useCharacterSummaries,
   useCharacterSummariesByIds,
   useCharacterGroups,
@@ -476,6 +479,7 @@ function ChatSettingsDrawerInner({
   const roleplaySpriteScale = useUIStore((s) => s.roleplaySpriteScale);
 
   const [showCharPicker, setShowCharPicker] = useState(false);
+  const [profilePopoverCharacterId, setProfilePopoverCharacterId] = useState<string | null>(null);
   const [charSearch, setCharSearch] = useState("");
   const debouncedCharSearch = useDebouncedValue(charSearch, 180);
   const chatCharIds: string[] = useMemo(
@@ -1407,7 +1411,8 @@ function ChatSettingsDrawerInner({
       chat,
       enabled: conversationStatusMessagesEnabled,
       updateMeta,
-      refreshStatusMessages: (chatId) => maybeRefreshConversationStatusMessages({ storage: storageApi, llm: llmApi }, { chatId }),
+      refreshStatusMessages: (chatId) =>
+        maybeRefreshConversationStatusMessages({ storage: storageApi, llm: llmApi }, { chatId }),
       invalidateCharacters: () => invalidateCharacterCollectionQueries(qc),
       invalidateChat: () => qc.invalidateQueries({ queryKey: chatKeys.detail(chat.id) }),
       showRefreshFailure: (message) => {
@@ -2192,6 +2197,39 @@ function ChatSettingsDrawerInner({
                               )}
                             </div>
                           </button>
+                          <div className="relative shrink-0">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setProfilePopoverCharacterId((current) => (current === c.id ? null : c.id));
+                              }}
+                              className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                              title="Preview public profile"
+                            >
+                              <Info size="0.6875rem" />
+                            </button>
+                            {profilePopoverCharacterId === c.id && (
+                              <div
+                                className="absolute right-0 top-[calc(100%+0.5rem)] z-[70] w-72"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <CharacterPublicProfileCard
+                                  profile={resolveCharacterPublicProfile({
+                                    data: c.data as Record<string, unknown>,
+                                    comment: c.comment,
+                                  })}
+                                  avatarUrl={c.avatarPath}
+                                  compact
+                                  onOpenFullProfile={() => {
+                                    setProfilePopoverCharacterId(null);
+                                    onClose();
+                                    useUIStore.getState().openCharacterDetail(c.id);
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
                           <button
                             onClick={() => toggleCharacter(c.id)}
                             className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"
@@ -2507,6 +2545,39 @@ function ChatSettingsDrawerInner({
                           >
                             {isInactive ? "Inactive" : "Active"}
                           </button>
+                          <div className="relative shrink-0">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setProfilePopoverCharacterId((current) => (current === c.id ? null : c.id));
+                              }}
+                              className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                              title="Preview public profile"
+                            >
+                              <Info size="0.6875rem" />
+                            </button>
+                            {profilePopoverCharacterId === c.id && (
+                              <div
+                                className="absolute right-0 top-[calc(100%+0.5rem)] z-[70] w-72"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <CharacterPublicProfileCard
+                                  profile={resolveCharacterPublicProfile({
+                                    data: c.data as Record<string, unknown>,
+                                    comment: c.comment,
+                                  })}
+                                  avatarUrl={c.avatarPath}
+                                  compact
+                                  onOpenFullProfile={() => {
+                                    setProfilePopoverCharacterId(null);
+                                    onClose();
+                                    useUIStore.getState().openCharacterDetail(c.id);
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
                           <button
                             onClick={() => toggleCharacter(c.id)}
                             className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"

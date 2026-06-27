@@ -93,6 +93,7 @@ export interface GenerationCharacterContext {
   personality?: string;
   scenario?: string;
   creatorNotes?: string;
+  publicProfile?: GenerationCharacterPublicProfile;
   systemPrompt?: string;
   backstory?: string;
   appearance?: string;
@@ -108,6 +109,13 @@ interface GenerationCharacterDepthPrompt {
   prompt: string;
   depth: number;
   role: "system" | "user" | "assistant";
+}
+
+interface GenerationCharacterPublicProfile {
+  displayName?: string;
+  handle?: string;
+  bio?: string;
+  tags: string[];
 }
 
 export interface GenerationPersonaContext {
@@ -442,6 +450,7 @@ function loadCharacterContext(record: JsonRecord): GenerationCharacterContext {
     personality: field(data, "personality") || undefined,
     scenario: field(data, "scenario") || undefined,
     creatorNotes: field(data, "creator_notes") || field(data, "creatorNotes") || undefined,
+    publicProfile: characterPublicProfile(extensions),
     systemPrompt: field(data, "system_prompt") || field(data, "systemPrompt") || undefined,
     backstory: field(data, "backstory") || field(extensions, "backstory") || undefined,
     appearance: field(data, "appearance") || field(extensions, "appearance") || undefined,
@@ -453,6 +462,36 @@ function loadCharacterContext(record: JsonRecord): GenerationCharacterContext {
     memories: sameDayCharacterMemories(extensions),
     tags: stringArray(data.tags ?? record.tags),
   };
+}
+
+function characterPublicProfile(extensions: JsonRecord): GenerationCharacterPublicProfile | undefined {
+  const profile = parseRecord(extensions.publicProfile);
+  const displayName = field(profile, "displayName") || field(profile, "name");
+  const handle = field(profile, "handle");
+  const bio = field(profile, "bio");
+  const tags = stringArray(profile.tags)
+    .map((tag) => cleanPromptText(tag).trim())
+    .filter(Boolean)
+    .slice(0, 8);
+
+  if (!displayName && !handle && !bio && tags.length === 0) return undefined;
+  return {
+    displayName: displayName || undefined,
+    handle: handle || undefined,
+    bio: bio || undefined,
+    tags,
+  };
+}
+
+function characterPublicProfileText(profile: GenerationCharacterPublicProfile | undefined): string {
+  if (!profile) return "";
+  const parts = [
+    profile.displayName ? "Display name: " + profile.displayName : "",
+    profile.handle ? "Handle: " + profile.handle : "",
+    profile.bio ? "Bio: " + profile.bio : "",
+    profile.tags.length > 0 ? "Tags: " + profile.tags.join(", ") : "",
+  ].filter(Boolean);
+  return parts.join("\n");
 }
 
 function normalizeDepthPromptRole(value: unknown): "system" | "user" | "assistant" {
@@ -1404,6 +1443,7 @@ function renderCharacters(
       const content = renderNamedFields(
         [
           ["Name", character.name],
+          ["Public Profile", characterPublicProfileText(character.publicProfile)],
           ...fields.map((fieldName): [string, string] => [
             CHARACTER_FIELD_LABELS[fieldName] ?? fieldName,
             characterMarkerFieldValue(character, fieldName, macros, groupScenarioOverride),
