@@ -58,6 +58,16 @@ describe("createDekiActionDiffRows", () => {
     ]);
   });
 
+  it("skips malformed scalar root payloads instead of rendering root placeholder rows", () => {
+    const scalarCreateAction = {
+      type: "create_record",
+      entity: "personas",
+      draft: "Sol",
+    } as unknown as DekiEntryAction;
+
+    expect(createDekiActionDiffRows(scalarCreateAction)).toEqual([]);
+  });
+
   it("compares nested proposed edit fields against JSON-string current data", () => {
     const action: DekiEntryAction = {
       type: "edit_record",

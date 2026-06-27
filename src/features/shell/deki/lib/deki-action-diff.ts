@@ -49,7 +49,8 @@ function flattenProposedValue(value: unknown, prefix = ""): FlatValue[] {
     if (entries.length === 0) return [];
     return entries.flatMap(([key, child]) => flattenProposedValue(child, prefix ? `${prefix}.${key}` : key));
   }
-  return [{ path: prefix || "(root)", value }];
+  if (!prefix) return [];
+  return [{ path: prefix, value }];
 }
 
 function stableFormat(value: unknown): string {
@@ -121,7 +122,7 @@ export function createDekiActionDiffRows(
   if (action.type === "none") return [];
   const payload = action.type === "create_record" ? action.draft : action.patch;
   return flattenProposedValue(payload).map((entry) => {
-    const path = entry.path === "(root)" ? [] : entry.path.split(".");
+    const path = entry.path.split(".");
     const before = action.type === "edit_record" ? valueAtPath(currentRecord, path) : undefined;
     return buildDiffRow(entry.path, before, entry.value, action.type === "create_record");
   });
