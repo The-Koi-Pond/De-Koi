@@ -1,4 +1,4 @@
-import type { ScheduleBlock } from "./chat-settings-metadata";
+﻿import type { ScheduleBlock } from "./chat-settings-metadata";
 
 const SCHEDULE_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
 
@@ -62,8 +62,16 @@ export function availabilityLabelForKey(key: AvailabilityKey): string {
   return AVAILABILITY_LABELS[key];
 }
 
+function scheduleDayIndex(now: Date): number {
+  return (now.getDay() + 6) % 7;
+}
+
 function scheduleDayName(now: Date): string {
-  return SCHEDULE_DAYS[(now.getDay() + 6) % 7]!;
+  return SCHEDULE_DAYS[scheduleDayIndex(now)]!;
+}
+
+function previousScheduleDayName(now: Date): string {
+  return SCHEDULE_DAYS[(scheduleDayIndex(now) + SCHEDULE_DAYS.length - 1) % SCHEDULE_DAYS.length]!;
 }
 
 function parseScheduleTimeMinutes(value: string): number | null {
@@ -76,19 +84,32 @@ function parseScheduleTimeMinutes(value: string): number | null {
   return hour * 60 + minute;
 }
 
-function blockContainsMinute(block: ScheduleBlock, minute: number): boolean {
+function scheduleTimeRange(block: ScheduleBlock): { start: number; end: number } | null {
   const [startRaw, endRaw] = block.time.split("-");
   const start = parseScheduleTimeMinutes(startRaw ?? "");
   const end = parseScheduleTimeMinutes(endRaw ?? "");
-  if (start === null || end === null) return false;
-  if (start <= end) return start <= minute && minute < end;
-  return minute >= start || minute < end;
+  if (start === null || end === null) return null;
+  return { start, end };
+}
+
+function blockContainsMinute(block: ScheduleBlock, minute: number): boolean {
+  const range = scheduleTimeRange(block);
+  if (!range) return false;
+  if (range.start <= range.end) return range.start <= minute && minute < range.end;
+  return minute >= range.start || minute < range.end;
+}
+
+function blockCarriesIntoMinute(block: ScheduleBlock, minute: number): boolean {
+  const range = scheduleTimeRange(block);
+  if (!range || range.start <= range.end) return false;
+  return minute < range.end;
 }
 
 function currentBlock(schedule: AvailabilitySchedule, now: Date): ScheduleBlock | null {
-  const blocks = schedule.days[scheduleDayName(now)] ?? [];
   const minute = now.getHours() * 60 + now.getMinutes();
-  return blocks.find((block) => blockContainsMinute(block, minute)) ?? null;
+  const todayBlock = (schedule.days[scheduleDayName(now)] ?? []).find((block) => blockContainsMinute(block, minute));
+  if (todayBlock) return todayBlock;
+  return (schedule.days[previousScheduleDayName(now)] ?? []).find((block) => blockCarriesIntoMinute(block, minute)) ?? null;
 }
 
 function availabilityBlock(block: ScheduleBlock): AvailabilitySummaryBlock {

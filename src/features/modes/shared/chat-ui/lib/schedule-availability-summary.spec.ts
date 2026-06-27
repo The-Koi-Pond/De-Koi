@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 
 import { summarizeCharacterAvailability } from "./schedule-availability-summary";
 import type { ScheduleBlock } from "./chat-settings-metadata";
@@ -57,5 +57,63 @@ describe("summarizeCharacterAvailability", () => {
     });
     expect(summary.activeDays).toBe(1);
     expect(summary.totalBlocks).toBe(1);
+  });
+
+  it("carries overnight availability into the following morning", () => {
+    const summary = summarizeCharacterAvailability(
+      {
+        weekStart: "2026-06-22T00:00:00.000Z",
+        inactivityThresholdMinutes: 60,
+        talkativeness: 50,
+        days: days([{ time: "23:00-07:00", activity: "sleeping", status: "offline" }]),
+      },
+      new Date(2026, 5, 23, 1, 15),
+    );
+
+    expect(summary.current).toMatchObject({
+      key: "unavailable",
+      label: "Unavailable now",
+      activity: "sleeping",
+    });
+  });
+
+  it("falls back safely when the current day is missing", () => {
+    const summary = summarizeCharacterAvailability(
+      {
+        weekStart: "2026-06-22T00:00:00.000Z",
+        inactivityThresholdMinutes: 60,
+        talkativeness: 50,
+        days: {
+          Monday: [{ time: "09:00-10:00", activity: "office hours", status: "online" }],
+        },
+      },
+      new Date(2026, 5, 23, 9, 30),
+    );
+
+    expect(summary.current).toMatchObject({
+      key: "available",
+      label: "Available now",
+      activity: "free time",
+    });
+    expect(summary.days).toHaveLength(7);
+  });
+
+  it("does not treat malformed time strings as current availability", () => {
+    const summary = summarizeCharacterAvailability(
+      {
+        weekStart: "2026-06-22T00:00:00.000Z",
+        inactivityThresholdMinutes: 60,
+        talkativeness: 50,
+        days: days([{ time: "soon-ish", activity: "ambiguous plans", status: "dnd" }]),
+      },
+      new Date(2026, 5, 22, 9, 30),
+    );
+
+    expect(summary.current).toMatchObject({
+      key: "available",
+      label: "Available now",
+      activity: "free time",
+    });
+    expect(summary.counts.busy).toBe(1);
   });
 });

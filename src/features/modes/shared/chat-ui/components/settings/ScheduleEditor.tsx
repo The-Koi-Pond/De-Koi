@@ -1,4 +1,4 @@
-import { ChevronRight, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+﻿import { ChevronRight, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { cn } from "../../../../../../shared/lib/utils";
 import { normalizeScheduleBlocks, type ScheduleBlock } from "../../lib/chat-settings-metadata";
@@ -414,7 +414,7 @@ export function ScheduleEditor({
                                   key={i}
                                   className={cn(
                                     "inline-block h-1.5 w-1.5 rounded-full",
-                                    AVAILABILITY_DOTS[availabilityKeyForStatus(block.status)],
+                                    AVAILABILITY_STYLES[availabilityKeyForStatus(block.status)].dot,
                                   )}
                                   title={`${availabilityLabelForKey(availabilityKeyForStatus(block.status))}: ${block.activity}`}
                                 />
@@ -440,7 +440,7 @@ export function ScheduleEditor({
                                     <span
                                       className={cn(
                                         "mt-1.5 h-2 w-2 shrink-0 rounded-full",
-                                        AVAILABILITY_DOTS[availabilityKey],
+                                        AVAILABILITY_STYLES[availabilityKey].dot,
                                       )}
                                     />
                                     <div className="min-w-0 flex-1 space-y-1">
@@ -466,7 +466,7 @@ export function ScheduleEditor({
                                               className={cn(
                                                 "rounded px-1.5 py-0.5 text-[0.5625rem] font-medium transition-colors",
                                                 block.status === status
-                                                  ? AVAILABILITY_ACTIVE_BUTTONS[key]
+                                                  ? AVAILABILITY_STYLES[key].activeButton
                                                   : "bg-[var(--background)] text-[var(--muted-foreground)] hover:bg-[var(--accent)]",
                                               )}
                                             >
@@ -529,25 +529,27 @@ export function ScheduleEditor({
 
 const AVAILABILITY_KEYS = ["available", "delayed", "busy", "unavailable"] as const satisfies readonly AvailabilityKey[];
 
-const AVAILABILITY_BADGES: Record<AvailabilityKey, string> = {
-  available: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
-  delayed: "bg-amber-500/15 text-amber-600 dark:text-amber-300",
-  busy: "bg-rose-500/15 text-rose-600 dark:text-rose-300",
-  unavailable: "bg-zinc-500/15 text-zinc-500 dark:text-zinc-300",
-};
-
-const AVAILABILITY_DOTS: Record<AvailabilityKey, string> = {
-  available: "bg-emerald-500",
-  delayed: "bg-amber-500",
-  busy: "bg-rose-500",
-  unavailable: "bg-zinc-400",
-};
-
-const AVAILABILITY_ACTIVE_BUTTONS: Record<AvailabilityKey, string> = {
-  available: "bg-emerald-500 text-white",
-  delayed: "bg-amber-500 text-white",
-  busy: "bg-rose-500 text-white",
-  unavailable: "bg-zinc-500 text-white",
+const AVAILABILITY_STYLES: Record<AvailabilityKey, { badge: string; dot: string; activeButton: string }> = {
+  available: {
+    badge: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
+    dot: "bg-emerald-500",
+    activeButton: "bg-emerald-500 text-white",
+  },
+  delayed: {
+    badge: "bg-amber-500/15 text-amber-600 dark:text-amber-300",
+    dot: "bg-amber-500",
+    activeButton: "bg-amber-500 text-white",
+  },
+  busy: {
+    badge: "bg-rose-500/15 text-rose-600 dark:text-rose-300",
+    dot: "bg-rose-500",
+    activeButton: "bg-rose-500 text-white",
+  },
+  unavailable: {
+    badge: "bg-zinc-500/15 text-zinc-500 dark:text-zinc-300",
+    dot: "bg-zinc-400",
+    activeButton: "bg-zinc-500 text-white",
+  },
 };
 
 function AvailabilityBadge({
@@ -561,7 +563,7 @@ function AvailabilityBadge({
     <span
       className={cn(
         "inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[0.5rem] font-medium leading-none",
-        AVAILABILITY_BADGES[availabilityKey],
+        AVAILABILITY_STYLES[availabilityKey].badge,
       )}
     >
       {children}
