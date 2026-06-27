@@ -263,8 +263,7 @@ fn normalize_type(value: &str) -> String {
     value
         .trim()
         .to_ascii_lowercase()
-        .replace('-', "_")
-        .replace(' ', "_")
+        .replace(['-', ' '], "_")
         .to_string()
 }
 

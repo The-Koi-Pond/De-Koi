@@ -333,7 +333,7 @@ impl ToolRuntime for ReadDekiLibraryTool {
 fn parse_deki_library_types(value: Option<&str>) -> Vec<String> {
     value
         .unwrap_or("")
-        .split(|ch| matches!(ch, ',' | ';' | '\n'))
+        .split([',', ';', '\n'])
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
@@ -1826,13 +1826,13 @@ mod tests {
     #[test]
     fn deki_library_tool_schema_uses_supported_primitive_fields() {
         let overview_schema: Value =
-            serde_json::from_str(&ReadDekiLibraryArgs::io_schema()).expect("overview schema json");
+            serde_json::from_str(ReadDekiLibraryArgs::io_schema()).expect("overview schema json");
         assert_eq!(
             overview_schema["properties"]["types"]["type"],
             json!("string")
         );
 
-        let detail_schema: Value = serde_json::from_str(&ReadDekiLibraryItemsArgs::io_schema())
+        let detail_schema: Value = serde_json::from_str(ReadDekiLibraryItemsArgs::io_schema())
             .expect("detail schema json");
         assert_eq!(
             detail_schema["properties"]["item_type"]["type"],
