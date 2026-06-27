@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { summarizeCharacterAvailability } from "./schedule-availability-summary";
 import type { ScheduleBlock } from "./chat-settings-metadata";

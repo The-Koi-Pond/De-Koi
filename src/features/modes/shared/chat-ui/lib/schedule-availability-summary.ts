@@ -1,4 +1,4 @@
-﻿import type { ScheduleBlock } from "./chat-settings-metadata";
+import type { ScheduleBlock } from "./chat-settings-metadata";
 
 const SCHEDULE_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
 
