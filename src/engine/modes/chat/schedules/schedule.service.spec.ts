@@ -106,6 +106,40 @@ describe("getAvailabilityDecision", () => {
     });
   });
 
+  it("does not treat future same-day overnight blocks as current availability", () => {
+    const schedule: WeekSchedule = {
+      ...baseSchedule,
+      days: {
+        Monday: [],
+        Tuesday: [{ time: "23:00-07:00", activity: "sleeping later", status: "offline" }],
+        Wednesday: [],
+        Thursday: [],
+        Friday: [],
+        Saturday: [],
+        Sunday: [],
+      },
+    };
+
+    expect(getCurrentStatus(schedule, tuesdayAt(1, 15))).toEqual({ status: "online", activity: "free time" });
+  });
+
+  it("prefers previous-day overnight carry over a future same-day overnight block", () => {
+    const schedule: WeekSchedule = {
+      ...baseSchedule,
+      days: {
+        Monday: [{ time: "23:00-07:00", activity: "sleeping", status: "offline" }],
+        Tuesday: [{ time: "23:00-07:00", activity: "sleeping later", status: "offline" }],
+        Wednesday: [],
+        Thursday: [],
+        Friday: [],
+        Saturday: [],
+        Sunday: [],
+      },
+    };
+
+    expect(getCurrentStatus(schedule, tuesdayAt(1, 15))).toEqual({ status: "offline", activity: "sleeping" });
+  });
+
   it("falls back to available when no schedule exists", () => {
     expect(getAvailabilityDecision(null, tuesdayAt(12, 30), "no routine")).toEqual({
       source: "fallback",
@@ -356,16 +390,64 @@ describe("generateConversationSchedules availability output", () => {
     ]);
   });
 
-  it("asks the LLM for sparse availability patterns instead of full-day schedules", async () => {
+  it("asks the LLM for sparse availability exceptions instead of full-day schedules", async () => {
     const storage = scheduleStorageGateway();
     const llm = llmWithSchedule(generatedAvailabilityScheduleJson());
 
     await generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true });
 
     const systemPrompt = llm.requests[0]?.messages[0]?.content ?? "";
-    expect(systemPrompt).toContain("Sparse availability patterns");
+    expect(systemPrompt).toContain("availability exceptions");
     expect(systemPrompt).toContain("Do not fill every hour of the day");
     expect(systemPrompt).not.toContain("covering the full 24 hours");
+  });
+
+  it("accepts an all-empty sparse week as available by default", async () => {
+    const storage = scheduleStorageGateway();
+    const emptyDays = {
+      Monday: [],
+      Tuesday: [],
+      Wednesday: [],
+      Thursday: [],
+      Friday: [],
+      Saturday: [],
+      Sunday: [],
+    };
+    const llm = llmWithSchedule(JSON.stringify({ talkativeness: 65, inactivityThresholdMinutes: 45, days: emptyDays }));
+
+    const result = await generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true });
+
+    expect(result.schedules["char-1"]?.days).toEqual(emptyDays);
+    expect(getCurrentStatus(result.schedules["char-1"]!, tuesdayAt(1, 15))).toEqual({
+      status: "online",
+      activity: "free time",
+    });
+  });
+
+  it("accepts sparse weeks with only a few exception blocks", async () => {
+    const storage = scheduleStorageGateway();
+    const llm = llmWithSchedule(
+      JSON.stringify({
+        talkativeness: 65,
+        inactivityThresholdMinutes: 45,
+        days: {
+          Monday: [{ time: "09:00-11:00", activity: "studio work", availability: "busy", status: "dnd" }],
+          Tuesday: [],
+          Wednesday: [],
+          Thursday: [],
+          Friday: [],
+          Saturday: [],
+          Sunday: [],
+        },
+      }),
+    );
+
+    const result = await generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true });
+
+    expect(result.schedules["char-1"]?.days.Monday).toEqual([
+      { time: "09:00-11:00", activity: "studio work", status: "dnd" },
+    ]);
+    expect(result.schedules["char-1"]?.days.Tuesday).toEqual([]);
   });
   it("rejects conflicting availability and legacy status rows", async () => {
     const storage = scheduleStorageGateway();

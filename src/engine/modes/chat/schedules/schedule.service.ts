@@ -248,7 +248,7 @@ async function generateCharacterSchedule(
   scheduleLorebookContext?: string,
 ): Promise<{ schedule: Omit<WeekSchedule, "weekStart">; raw: string }> {
   const systemPrompt = [
-    `You are an availability pattern generator. Create realistic sparse weekly availability patterns for a character based on their personality and description.`,
+    `You are an availability generator. Create realistic weekly availability exceptions for a character based on their personality and description.`,
     ``,
     `Character: ${characterName}`,
     `Description: ${characterDescription}`,
@@ -287,8 +287,7 @@ async function generateCharacterSchedule(
           ``,
         ]
       : []),
-    `Generate sparse availability patterns for each day of the week (Monday through Sunday).`,
-    `Sparse availability patterns describe meaningful recurring availability windows, not a minute-by-minute day planner.`,
+    `For each day of the week (Monday through Sunday), list only meaningful recurring availability windows, not a minute-by-minute day planner.`,
     `Do not fill every hour of the day. Gaps mean the character is available and has free time.`,
     `The patterns should be realistic and consistent with the character's lifestyle.`,
     ``,
@@ -436,10 +435,6 @@ function parseScheduleResponse(content: string): Omit<WeekSchedule, "weekStart">
       };
     });
   }
-  if (Object.values(days).every((day) => day.length === 0)) {
-    throw new Error("Schedule response did not include any daily time blocks");
-  }
-
   return {
     days,
     talkativeness: Math.max(0, Math.min(100, data.talkativeness ?? 50)),
@@ -529,7 +524,7 @@ function blockContainsMinute(block: ScheduleBlock, minute: number): boolean {
   const range = scheduleTimeRange(block);
   if (!range) return false;
   if (range.start <= range.end) return range.start <= minute && minute < range.end;
-  return minute >= range.start || minute < range.end;
+  return minute >= range.start;
 }
 
 function blockCarriesIntoMinute(block: ScheduleBlock, minute: number): boolean {
