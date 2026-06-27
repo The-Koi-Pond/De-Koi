@@ -22,31 +22,40 @@ export function CharacterPublicProfileCard({
 
   return (
     <div
+      data-profile-card
       className={cn(
-        "w-full overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--popover)] text-[var(--popover-foreground)] shadow-xl",
-        compact ? "max-w-72" : "max-w-sm",
+        "w-full overflow-hidden rounded-lg border border-white/10 bg-[var(--popover)] text-[var(--popover-foreground)] shadow-2xl shadow-black/35",
+        compact ? "max-w-80" : "max-w-sm",
         className,
       )}
     >
-      <div className="relative h-20 bg-[var(--secondary)]">
+      <div className={cn("relative bg-[var(--secondary)]", compact ? "h-24" : "h-28")}>
         {profile.bannerImage ? (
           <img src={profile.bannerImage} alt="" className="h-full w-full object-cover" />
         ) : (
-          <div className="h-full w-full bg-[linear-gradient(135deg,rgba(244,114,182,0.28),rgba(34,197,94,0.16),rgba(56,189,248,0.22))]" />
+          <div className="h-full w-full bg-[linear-gradient(135deg,rgba(244,114,182,0.34),rgba(20,184,166,0.22),rgba(56,189,248,0.28))]" />
         )}
       </div>
 
-      <div className={cn("relative px-4 pb-4", compact ? "pt-8" : "pt-9")}>
-        <div className="absolute -top-7 left-4 flex h-14 w-14 items-center justify-center overflow-hidden rounded-lg border-2 border-[var(--popover)] bg-[var(--accent)] text-[var(--muted-foreground)] shadow-md">
+      <div className={cn("relative px-4 pb-4", compact ? "pt-10" : "pt-11")}>
+        <div
+          data-profile-avatar
+          className={cn(
+            "absolute left-4 flex items-center justify-center overflow-hidden rounded-full border-4 border-[var(--popover)] bg-[var(--accent)] text-[var(--muted-foreground)] shadow-lg",
+            compact ? "-top-8 h-16 w-16" : "-top-9 h-[4.5rem] w-[4.5rem]",
+          )}
+        >
           {avatarUrl ? (
             <img src={avatarUrl} alt={profile.displayName} className="h-full w-full object-cover" />
           ) : (
-            <UserRound size="1.35rem" />
+            <UserRound size={compact ? "1.45rem" : "1.65rem"} />
           )}
         </div>
 
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-[var(--foreground)]">{profile.displayName}</div>
+          <div className="truncate text-base font-semibold leading-tight text-[var(--foreground)]">
+            {profile.displayName}
+          </div>
           {profile.handle && (
             <div className="mt-0.5 truncate text-[0.6875rem] text-[var(--muted-foreground)]">{profile.handle}</div>
           )}
@@ -55,7 +64,7 @@ export function CharacterPublicProfileCard({
           )}
         </div>
 
-        <p className="mt-3 line-clamp-4 text-xs leading-5 text-[var(--foreground)]/85">{profile.bio}</p>
+        <p className="mt-3 line-clamp-5 text-xs leading-5 text-[var(--foreground)]/85">{profile.bio}</p>
 
         {profile.tags.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
@@ -80,7 +89,7 @@ export function CharacterPublicProfileCard({
           <button
             type="button"
             onClick={onOpenFullProfile}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-[0.6875rem] font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
+            className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--primary)] px-3 py-2 text-[0.6875rem] font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
           >
             <ExternalLink size="0.75rem" />
             View full profile
