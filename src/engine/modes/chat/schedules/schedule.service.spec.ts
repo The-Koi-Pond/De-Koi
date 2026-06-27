@@ -265,7 +265,23 @@ function generatedAvailabilityScheduleJson(): string {
   });
 }
 
-function llmWithSchedule(content: string): LlmGateway & { requests: LlmRequest[] } {
+function allEmptySparseWeekJson(): string {
+  return `{
+    "talkativeness": 65,
+    "inactivityThresholdMinutes": 45,
+    "days": {
+      "Monday": [],
+      "Tuesday": [],
+      "Wednesday": [],
+      "Thursday": [],
+      "Friday": [],
+      "Saturday": [],
+      "Sunday": []
+    }
+  }`;
+}
+
+function llmWithRawResponse(content: string): LlmGateway & { requests: LlmRequest[] } {
   const requests: LlmRequest[] = [];
   return {
     requests,
@@ -378,7 +394,7 @@ function scheduleStorageGateway(): StorageGateway {
 describe("generateConversationSchedules availability output", () => {
   it("accepts availability labels from the LLM while saving legacy schedule statuses", async () => {
     const storage = scheduleStorageGateway();
-    const llm = llmWithSchedule(generatedAvailabilityScheduleJson());
+    const llm = llmWithRawResponse(generatedAvailabilityScheduleJson());
 
     const result = await generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true });
 
@@ -392,7 +408,7 @@ describe("generateConversationSchedules availability output", () => {
 
   it("asks the LLM for sparse availability exceptions instead of full-day schedules", async () => {
     const storage = scheduleStorageGateway();
-    const llm = llmWithSchedule(generatedAvailabilityScheduleJson());
+    const llm = llmWithRawResponse(generatedAvailabilityScheduleJson());
 
     await generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true });
 
@@ -402,7 +418,7 @@ describe("generateConversationSchedules availability output", () => {
     expect(systemPrompt).not.toContain("covering the full 24 hours");
   });
 
-  it("accepts an all-empty sparse week as available by default", async () => {
+  it("accepts an all-empty sparse week raw LLM response as available by default", async () => {
     const storage = scheduleStorageGateway();
     const emptyDays = {
       Monday: [],
@@ -413,7 +429,7 @@ describe("generateConversationSchedules availability output", () => {
       Saturday: [],
       Sunday: [],
     };
-    const llm = llmWithSchedule(JSON.stringify({ talkativeness: 65, inactivityThresholdMinutes: 45, days: emptyDays }));
+    const llm = llmWithRawResponse(allEmptySparseWeekJson());
 
     const result = await generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true });
 
@@ -426,7 +442,7 @@ describe("generateConversationSchedules availability output", () => {
 
   it("accepts sparse weeks with only a few exception blocks", async () => {
     const storage = scheduleStorageGateway();
-    const llm = llmWithSchedule(
+    const llm = llmWithRawResponse(
       JSON.stringify({
         talkativeness: 65,
         inactivityThresholdMinutes: 45,
@@ -452,7 +468,7 @@ describe("generateConversationSchedules availability output", () => {
   it("rejects conflicting availability and legacy status rows", async () => {
     const storage = scheduleStorageGateway();
     const blocks = [{ time: "09:00-17:00", activity: "focused research", availability: "busy", status: "online" }];
-    const llm = llmWithSchedule(
+    const llm = llmWithRawResponse(
       JSON.stringify({
         talkativeness: 65,
         inactivityThresholdMinutes: 45,
@@ -476,7 +492,7 @@ describe("generateConversationSchedules availability output", () => {
   it("rejects invalid availability labels instead of falling back to legacy status", async () => {
     const storage = scheduleStorageGateway();
     const blocks = [{ time: "09:00-17:00", activity: "focused research", availability: "maybe", status: "online" }];
-    const llm = llmWithSchedule(
+    const llm = llmWithRawResponse(
       JSON.stringify({
         talkativeness: 65,
         inactivityThresholdMinutes: 45,
@@ -499,7 +515,7 @@ describe("generateConversationSchedules availability output", () => {
   it("rejects invalid availability labels even when activity could infer a status", async () => {
     const storage = scheduleStorageGateway();
     const blocks = [{ time: "09:00-17:00", activity: "sleeping", availability: "maybe" }];
-    const llm = llmWithSchedule(
+    const llm = llmWithRawResponse(
       JSON.stringify({
         talkativeness: 65,
         inactivityThresholdMinutes: 45,
@@ -526,7 +542,7 @@ describe("generateConversationSchedules availability output", () => {
       { time: "12:00-17:00", activity: "focused research", status: "offline" },
       { time: "17:00-23:00", activity: "sleeping" },
     ];
-    const llm = llmWithSchedule(
+    const llm = llmWithRawResponse(
       JSON.stringify({
         talkativeness: 65,
         inactivityThresholdMinutes: 45,
