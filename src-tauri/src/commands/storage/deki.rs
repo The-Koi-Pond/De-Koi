@@ -76,6 +76,7 @@ const DEKI_INITIAL_MAX_TOKENS: u64 = 2048;
 const DEKI_POST_TOOL_MAX_TOKENS: u64 = 8192;
 const DEKI_REPO_ROOT_ENV: &str = "DE_KOI_REPO_ROOT";
 const LEGACY_DEKI_REPO_ROOT_ENV: &str = "MARINARA_REPO_ROOT";
+const DEKI_WORKSPACE_TOOLS: &[&str] = &["read", "grep", "find", "ls", "deki_data", "deki_code"];
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -639,6 +640,106 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
         "createdAt": chrono::Utc::now().to_rfc3339(),
         "action": action,
     }))
+}
+
+pub(crate) async fn deki_workspace_status(
+    state: &AppState,
+    connection_id: Option<String>,
+) -> AppResult<Value> {
+    let workspace = deki_repo_root()
+        .ok()
+        .map(|path| path.to_string_lossy().to_string());
+    let requested_connection_id = connection_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    let (connection, error) = match requested_connection_id {
+        Some(connection_id) => match deki_workspace_connection_summary(state, connection_id) {
+            Ok(connection) => (
+                connection,
+                "Deki workspace runtime is not implemented yet for the selected connection."
+                    .to_string(),
+            ),
+            Err(error) => (
+                Value::Null,
+                format!(
+                    "Deki workspace runtime is not implemented yet. Requested connection {connection_id} could not be summarized: {}",
+                    error.message
+                ),
+            ),
+        },
+        None => (
+            Value::Null,
+            "Deki workspace runtime is not implemented yet.".to_string(),
+        ),
+    };
+    Ok(json!({
+        "enabled": false,
+        "workspace": workspace,
+        "dataDir": state.data_dir.to_string_lossy(),
+        "tools": DEKI_WORKSPACE_TOOLS,
+        "dataAccess": "server-managed",
+        "connection": connection,
+        "active": false,
+        "pendingApprovals": [],
+        "history": [],
+        "error": error,
+    }))
+}
+
+fn deki_workspace_connection_summary(state: &AppState, connection_id: &str) -> AppResult<Value> {
+    let connection_value = resolve_llm_connection_for_request(
+        state,
+        &json!({
+            "connectionId": connection_id,
+        }),
+    )?;
+    let connection = llm_connection_from_value(&connection_value)?;
+    let name = connection_value
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(connection_id);
+    Ok(json!({
+        "id": connection_id,
+        "name": name,
+        "provider": connection.provider,
+        "model": connection.model,
+    }))
+}
+
+pub(crate) async fn deki_workspace_abort(_state: &AppState) -> AppResult<Value> {
+    Ok(json!({
+        "status": "not_running",
+        "aborted": false,
+        "active": false,
+        "reason": "Deki workspace runtime is not running.",
+    }))
+}
+
+pub(crate) async fn deki_workspace_approve(_state: &AppState, id: String) -> AppResult<Value> {
+    validate_workspace_approval_id(&id)?;
+    Err(deki_workspace_not_implemented("approval apply"))
+}
+
+pub(crate) async fn deki_workspace_reject(_state: &AppState, id: String) -> AppResult<Value> {
+    validate_workspace_approval_id(&id)?;
+    Err(deki_workspace_not_implemented("approval reject"))
+}
+
+fn validate_workspace_approval_id(id: &str) -> AppResult<()> {
+    if id.trim().is_empty() {
+        return Err(AppError::invalid_input("Workspace approval id is required"));
+    }
+    Ok(())
+}
+
+fn deki_workspace_not_implemented(action: &str) -> AppError {
+    AppError::new(
+        "deki_workspace_not_implemented",
+        format!("Deki workspace {action} is not implemented yet."),
+    )
 }
 
 fn deki_no_action_contract() -> Value {
@@ -1897,6 +1998,15 @@ mod tests {
         root
     }
 
+    fn test_state(name: &str) -> AppState {
+        let path = std::env::temp_dir().join(format!(
+            "de-koi-deki-{name}-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
+    }
+
     #[test]
     fn deki_repo_root_prefers_configured_de_koi_repo_root() {
         let _guard = DEKI_REPO_ENV_LOCK.lock().expect("lock repo env");
@@ -1920,6 +2030,55 @@ mod tests {
         fs::remove_dir_all(&root).ok();
 
         assert_eq!(resolved.expect("resolve configured repo root"), expected);
+    }
+
+    #[tokio::test]
+    async fn deki_workspace_status_reflects_requested_connection() {
+        let state = test_state("workspace-status-connection");
+        state
+            .storage
+            .create(
+                "connections",
+                json!({
+                    "id": "conn-1",
+                    "name": "Workspace Test",
+                    "provider": "openai",
+                    "model": "gpt-4.1",
+                    "apiKey": "",
+                }),
+            )
+            .expect("connection should be saved");
+
+        let status = deki_workspace_status(&state, Some("conn-1".to_string()))
+            .await
+            .expect("workspace status should return");
+
+        assert_eq!(status["enabled"], json!(false));
+        assert_eq!(status["connection"]["id"], json!("conn-1"));
+        assert_eq!(status["connection"]["name"], json!("Workspace Test"));
+        assert_eq!(status["connection"]["provider"], json!("openai"));
+        assert_eq!(status["connection"]["model"], json!("gpt-4.1"));
+        assert!(status["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("selected connection"));
+    }
+
+    #[tokio::test]
+    async fn deki_workspace_abort_reports_not_running() {
+        let state = test_state("workspace-abort-not-running");
+
+        let result = deki_workspace_abort(&state)
+            .await
+            .expect("workspace abort should return");
+
+        assert_eq!(result["status"], json!("not_running"));
+        assert_eq!(result["aborted"], json!(false));
+        assert_eq!(result["active"], json!(false));
+        assert!(result["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("not running"));
     }
 
     #[test]

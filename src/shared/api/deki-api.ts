@@ -5,6 +5,13 @@ import {
   type DekiEntryAction,
   type DekiEntryRequest,
   type DekiGatewayResponse,
+  type DekiWorkspaceAbortResult,
+  type DekiWorkspaceApprovalDecisionResult,
+  type DekiWorkspaceHistoryEntry,
+  type DekiWorkspaceHistoryItem,
+  type DekiWorkspaceStatus,
+  type DekiWorkspaceToolName,
+  type DekiWorkspaceTraceItem,
   type DekiMessage,
 } from "../../engine/deki/deki-entry";
 import {
@@ -22,8 +29,10 @@ import {
   updatePromptPresetSchema,
 } from "../../engine/contracts/schemas/prompt.schema";
 import type { StorageEntity } from "../../engine/capabilities/storage";
+import { ApiError } from "./api-errors";
+import { remoteRuntimeTarget } from "./remote-runtime";
 import { storageApi } from "./storage-api";
-import { invokeTauri } from "./tauri-client";
+import { hasEmbeddedTauriIpc, invokeTauri } from "./tauri-client";
 
 const DEKI_SETTINGS_ID = "deki";
 const LEGACY_DEKI_SETTINGS_ID = "professor-mari";
@@ -45,6 +54,8 @@ type StoredMessageRecord = {
   createdAt?: unknown;
   action?: unknown;
   actionApplication?: unknown;
+  workspaceTrace?: unknown;
+  workspaceHistory?: unknown;
 };
 
 type DekiActionApplyResult = {
@@ -83,6 +94,31 @@ const DEKI_PROMPT_CHILD_ORDER_FIELDS: Partial<
   "prompt-groups": "groupOrder",
   "prompt-variables": "variableOrder",
 };
+
+const DEKI_WORKSPACE_TOOL_NAMES = new Set<DekiWorkspaceToolName>([
+  "read",
+  "grep",
+  "find",
+  "ls",
+  "deki_data",
+  "deki_code",
+]);
+
+const DEKI_WORKSPACE_HISTORY_STATUSES = new Set<DekiWorkspaceHistoryEntry["status"]>([
+  "dry-run",
+  "approved",
+  "rejected",
+  "cancelled",
+  "timed_out",
+  "blocked",
+  "state_changed",
+  "failed",
+]);
+
+const DEKI_WORKSPACE_HISTORY_CURRENT_KEYS = ["id", "sessionId", "command", "status", "validationStatus", "createdAt"];
+
+const DEKI_WORKSPACE_UNAVAILABLE_REASON =
+  "Deki workspace runtime requires the Tauri app shell or a configured remote runtime.";
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (typeof value === "string") {
@@ -127,16 +163,178 @@ function normalizeDekiMessage(record: StoredMessageRecord): DekiMessage | null {
   const createdAt = typeof record.createdAt === "string" && record.createdAt.trim() ? record.createdAt : null;
   if (!role || !id || content === null || !createdAt) return null;
   const action = role === "assistant" && "action" in record ? normalizeDekiEntryAction(record.action) : null;
-  return {
+  const workspaceTrace = normalizeDekiWorkspaceTrace(record.workspaceTrace);
+  const workspaceHistory = normalizeDekiWorkspaceHistory(record.workspaceHistory);
+  const message: DekiMessage = {
     id,
     role,
     content,
     createdAt,
-    ...(action && action.type !== "none" ? { action } : {}),
-    ...(action && action.type !== "none"
-      ? { actionApplication: normalizeDekiActionApplication(record.actionApplication) }
-      : {}),
   };
+  if (action && action.type !== "none") {
+    message.action = action;
+    message.actionApplication = normalizeDekiActionApplication(record.actionApplication);
+  }
+  if (workspaceTrace) {
+    message.workspaceTrace = workspaceTrace;
+  }
+  if (workspaceHistory) {
+    message.workspaceHistory = workspaceHistory;
+  }
+  return message;
+}
+
+function normalizeDekiWorkspaceTrace(value: unknown): DekiWorkspaceTraceItem[] | null {
+  if (!Array.isArray(value)) return null;
+  const trace = value.map((item) => normalizeDekiWorkspaceTraceItem(item));
+  return trace.length > 0 ? trace : null;
+}
+
+function normalizeDekiWorkspaceTraceItem(value: unknown): DekiWorkspaceTraceItem {
+  const object = asRecord(value);
+  if (
+    (object.type === "text" || object.type === "thinking" || object.type === "status") &&
+    typeof object.content === "string"
+  ) {
+    return { type: object.type, content: object.content };
+  }
+  if (object.type !== "tool") return unknownDekiWorkspaceTraceItem(value);
+  const tool = asRecord(object.tool);
+  const id = readTrimmedString(tool.id);
+  const name = isDekiWorkspaceToolName(tool.name) ? tool.name : null;
+  const status = tool.status === "running" || tool.status === "done" || tool.status === "error" ? tool.status : null;
+  if (!id || !name || !status) return unknownDekiWorkspaceTraceItem(value);
+  return {
+    type: "tool",
+    tool: {
+      id,
+      name,
+      status,
+      ...(tool.input !== undefined ? { input: tool.input } : {}),
+      ...(typeof tool.output === "string" || tool.output === null ? { output: tool.output } : {}),
+      ...(typeof tool.updatedAt === "number" && Number.isFinite(tool.updatedAt) ? { updatedAt: tool.updatedAt } : {}),
+    },
+  };
+}
+
+function unknownDekiWorkspaceTraceItem(value: unknown): DekiWorkspaceTraceItem {
+  return { type: "unknown", raw: value };
+}
+
+function normalizeDekiWorkspaceHistory(value: unknown): DekiWorkspaceHistoryItem[] | null {
+  if (!Array.isArray(value)) return null;
+  const history = value
+    .map((item) => normalizeDekiWorkspaceHistoryEntry(item))
+    .filter((item): item is DekiWorkspaceHistoryItem => !!item);
+  return history.length > 0 ? history : null;
+}
+
+function normalizeDekiWorkspaceHistoryEntry(value: unknown): DekiWorkspaceHistoryItem | null {
+  const object = asRecord(value);
+  if (Object.keys(object).length === 0) return null;
+  const id = readTrimmedString(object.id);
+  const sessionId = readTrimmedString(object.sessionId);
+  const command = readTrimmedString(object.command);
+  const status = isDekiWorkspaceHistoryStatus(object.status) ? object.status : null;
+  const validationStatus =
+    object.validationStatus === "passed" || object.validationStatus === "blocked" ? object.validationStatus : null;
+  const createdAt = readTrimmedString(object.createdAt);
+
+  if (!hasCurrentDekiWorkspaceHistoryKeys(object)) {
+    return isPartialCurrentDekiWorkspaceHistory(object, { id, sessionId, command, createdAt })
+      ? malformedDekiWorkspaceHistoryItem(value, "invalid current history required field")
+      : unknownDekiWorkspaceHistoryItem(value);
+  }
+
+  if (!id || !sessionId || !command || !createdAt) {
+    return malformedDekiWorkspaceHistoryItem(value, "invalid current history required field");
+  }
+  if (!status || !validationStatus) {
+    return malformedDekiWorkspaceHistoryItem(value, "invalid current history status");
+  }
+  const operationHash = readTrimmedString(object.operationHash);
+  const completedAt = readTrimmedString(object.completedAt);
+  return {
+    id,
+    sessionId,
+    command,
+    reason: typeof object.reason === "string" && object.reason.trim() ? object.reason : null,
+    status,
+    ...(operationHash ? { operationHash } : {}),
+    affectedEntities: normalizeDekiWorkspaceCountRecord(object.affectedEntities),
+    affectedRows:
+      typeof object.affectedRows === "number" && Number.isFinite(object.affectedRows) ? object.affectedRows : 0,
+    validationStatus,
+    journalPath: typeof object.journalPath === "string" && object.journalPath.trim() ? object.journalPath : null,
+    createdAt,
+    ...(completedAt ? { completedAt } : {}),
+  };
+}
+
+function malformedDekiWorkspaceHistoryItem(value: unknown, reason: string): DekiWorkspaceHistoryItem {
+  const object = asRecord(value);
+  const id = readTrimmedString(object.id);
+  const createdAt = readTrimmedString(object.createdAt);
+  return {
+    status: "malformed",
+    reason,
+    raw: value,
+    ...(id ? { id } : {}),
+    ...(createdAt ? { createdAt } : {}),
+  };
+}
+
+function unknownDekiWorkspaceHistoryItem(value: unknown): DekiWorkspaceHistoryItem {
+  const object = asRecord(value);
+  const id = readTrimmedString(object.id);
+  const createdAt = readTrimmedString(object.createdAt);
+  return {
+    status: "unknown",
+    raw: value,
+    ...(id ? { id } : {}),
+    ...(createdAt ? { createdAt } : {}),
+  };
+}
+
+function hasCurrentDekiWorkspaceHistoryKeys(object: Record<string, unknown>): boolean {
+  return DEKI_WORKSPACE_HISTORY_CURRENT_KEYS.every((key) => key in object);
+}
+
+function isPartialCurrentDekiWorkspaceHistory(
+  object: Record<string, unknown>,
+  values: { id: string | null; sessionId: string | null; command: string | null; createdAt: string | null },
+): boolean {
+  if (!("status" in object) || !("validationStatus" in object)) return false;
+  return !values.id || !values.sessionId || !values.command || !values.createdAt;
+}
+
+function normalizeDekiWorkspaceCountRecord(value: unknown): Record<string, number> {
+  const object = asRecord(value);
+  return Object.fromEntries(
+    Object.entries(object).filter(
+      (entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]),
+    ),
+  );
+}
+
+function isDekiWorkspaceToolName(value: unknown): value is DekiWorkspaceToolName {
+  return typeof value === "string" && DEKI_WORKSPACE_TOOL_NAMES.has(value as DekiWorkspaceToolName);
+}
+
+function isDekiWorkspaceHistoryStatus(value: unknown): value is DekiWorkspaceHistoryEntry["status"] {
+  return typeof value === "string" && DEKI_WORKSPACE_HISTORY_STATUSES.has(value as DekiWorkspaceHistoryEntry["status"]);
+}
+
+function hasDekiWorkspaceRuntime(): boolean {
+  return hasEmbeddedTauriIpc() || remoteRuntimeTarget() !== null;
+}
+
+function requireDekiWorkspaceRuntime(command: string): void {
+  if (hasDekiWorkspaceRuntime()) return;
+  throw new ApiError(DEKI_WORKSPACE_UNAVAILABLE_REASON, 400, {
+    code: "deki_workspace_runtime_unavailable",
+    command,
+  });
 }
 
 function normalizeDekiActionApplication(value: unknown): DekiActionApplication | null {
@@ -161,6 +359,8 @@ function createDekiMessage(message: {
   role: "user" | "assistant";
   content: string;
   action?: DekiEntryAction | null;
+  workspaceTrace?: DekiWorkspaceTraceItem[];
+  workspaceHistory?: DekiWorkspaceHistoryItem[];
 }): DekiMessage {
   const next: DekiMessage = {
     id: newId("deki-message"),
@@ -170,6 +370,12 @@ function createDekiMessage(message: {
   };
   if (message.role === "assistant" && message.action && message.action.type !== "none") {
     next.action = message.action;
+  }
+  if (message.workspaceTrace?.length) {
+    next.workspaceTrace = message.workspaceTrace;
+  }
+  if (message.workspaceHistory?.length) {
+    next.workspaceHistory = message.workspaceHistory;
   }
   return next;
 }
@@ -546,6 +752,26 @@ export const dekiApi = {
     invokeTauri<DekiGatewayResponse>("deki_prompt", {
       request,
     }),
+  workspace: {
+    status: async (connectionId?: string | null): Promise<DekiWorkspaceStatus> => {
+      requireDekiWorkspaceRuntime("deki_workspace_status");
+      return invokeTauri<DekiWorkspaceStatus>("deki_workspace_status", {
+        connectionId: connectionId ?? null,
+      });
+    },
+    abort: async (): Promise<DekiWorkspaceAbortResult> => {
+      requireDekiWorkspaceRuntime("deki_workspace_abort");
+      return invokeTauri<DekiWorkspaceAbortResult>("deki_workspace_abort");
+    },
+    approve: async (id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {
+      requireDekiWorkspaceRuntime("deki_workspace_approve");
+      return invokeTauri<DekiWorkspaceApprovalDecisionResult>("deki_workspace_approve", { id });
+    },
+    reject: async (id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {
+      requireDekiWorkspaceRuntime("deki_workspace_reject");
+      return invokeTauri<DekiWorkspaceApprovalDecisionResult>("deki_workspace_reject", { id });
+    },
+  },
   actions: {
     apply: async (
       action: DekiEntryAction,
@@ -625,6 +851,8 @@ export const dekiApi = {
       role: "user" | "assistant";
       content: string;
       action?: DekiEntryAction | null;
+      workspaceTrace?: DekiWorkspaceTraceItem[];
+      workspaceHistory?: DekiWorkspaceHistoryItem[];
     }): Promise<DekiMessage> => {
       const state = await readSessionsState();
       const nextMessage = createDekiMessage(message);

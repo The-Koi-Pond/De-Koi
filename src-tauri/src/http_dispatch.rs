@@ -1056,6 +1056,16 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "deki_prompt" | "professor_mari_prompt" => {
             deki::deki_prompt(state, optional_value(&args, "request")).await
         }
+        "deki_workspace_status" => {
+            deki::deki_workspace_status(state, optional_string(&args, "connectionId")).await
+        }
+        "deki_workspace_abort" => deki::deki_workspace_abort(state).await,
+        "deki_workspace_approve" => {
+            deki::deki_workspace_approve(state, required_string(&args, "id")?.to_string()).await
+        }
+        "deki_workspace_reject" => {
+            deki::deki_workspace_reject(state, required_string(&args, "id")?.to_string()).await
+        }
         "update_check" => updates::check_updates().await,
         "update_apply" => updates::apply_update(optional_value(&args, "input")),
         _ => Err(AppError::new(
