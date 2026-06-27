@@ -117,9 +117,9 @@ pub(super) fn overview(state: &AppState, query: LibraryOverviewQuery) -> AppResu
         let rows = state.storage.list(library_type.entity)?;
         let mut matching_count = 0usize;
         for row in rows {
-            let item = overview_item(state, library_type, &row)?;
-            if matches_query(&item, needle.as_deref()) {
+            if matches_library_query(library_type, &row, needle.as_deref()) {
                 matching_count += 1;
+                let item = overview_item(state, library_type, &row, needle.as_deref())?;
                 all_items.push(item);
             }
         }
@@ -143,23 +143,27 @@ pub(super) fn overview(state: &AppState, query: LibraryOverviewQuery) -> AppResu
             })
     });
 
-    let total = all_items.len();
+    let matching_total = all_items.len();
     let items = all_items
         .into_iter()
         .skip(offset)
         .take(limit)
         .collect::<Vec<_>>();
+    let page_count = items.len();
 
     Ok(json!({
         "items": items,
-        "total": total,
+        "total": matching_total,
+        "matchingTotal": matching_total,
+        "pageCount": page_count,
         "offset": offset,
         "limit": limit,
-        "hasMore": offset.saturating_add(limit) < total,
+        "hasMore": offset.saturating_add(limit) < matching_total,
         "totalsByType": totals,
         "contract": {
             "detailTool": "read_deki_library_items",
-            "note": "Overview rows omit full record bodies. Use read_deki_library_items with exact type/id selections for full content."
+            "countSemantics": "matchingTotal/total is the full number of matching overview rows before pagination. pageCount is the number of rows returned in items.",
+            "note": "Overview rows omit full record bodies. Use read_deki_library_items with exact type/id selections for full content. Query-filtered parent stats count matching children and include total child counts separately."
         }
     }))
 }
@@ -259,6 +263,14 @@ fn library_type_for(raw: &str) -> AppResult<LibraryType> {
         })
 }
 
+fn library_type_for_entity(entity: &str) -> AppResult<LibraryType> {
+    LIBRARY_TYPES
+        .iter()
+        .find(|library_type| library_type.entity == entity)
+        .copied()
+        .ok_or_else(|| AppError::invalid_input(format!("Unsupported Deki library entity '{entity}'")))
+}
+
 fn normalize_type(value: &str) -> String {
     value
         .trim()
@@ -267,7 +279,12 @@ fn normalize_type(value: &str) -> String {
         .to_string()
 }
 
-fn overview_item(state: &AppState, library_type: LibraryType, row: &Value) -> AppResult<Value> {
+fn overview_item(
+    state: &AppState,
+    library_type: LibraryType,
+    row: &Value,
+    needle: Option<&str>,
+) -> AppResult<Value> {
     let id = string_field(row, "id").unwrap_or_default();
     let name = display_name(row).unwrap_or_else(|| id.clone());
     let subtitle = first_top_level_text_field(
@@ -287,7 +304,7 @@ fn overview_item(state: &AppState, library_type: LibraryType, row: &Value) -> Ap
     });
     let folder_id = first_text_field(row, &["folderId", "folder_id", "groupId", "group_id"]);
     let parent_id = parent_id_for(library_type, row);
-    let stats = overview_stats(state, library_type, row)?;
+    let stats = overview_stats(state, library_type, row, needle)?;
     Ok(json!({
         "type": library_type.overview_type,
         "entity": library_type.entity,
@@ -300,7 +317,12 @@ fn overview_item(state: &AppState, library_type: LibraryType, row: &Value) -> Ap
     }))
 }
 
-fn overview_stats(state: &AppState, library_type: LibraryType, row: &Value) -> AppResult<Value> {
+fn overview_stats(
+    state: &AppState,
+    library_type: LibraryType,
+    row: &Value,
+    needle: Option<&str>,
+) -> AppResult<Value> {
     let mut stats = Map::new();
     stats.insert(
         "approxBytes".to_string(),
@@ -311,24 +333,42 @@ fn overview_stats(state: &AppState, library_type: LibraryType, row: &Value) -> A
     let id = string_field(row, "id").unwrap_or_default();
     match library_type.overview_type {
         "lorebook" if !id.is_empty() => {
+            let total = related_count(state, "lorebook-entries", "lorebookId", &id, None)?;
+            let matching = related_count(state, "lorebook-entries", "lorebookId", &id, needle)?;
             stats.insert(
                 "entryCount".to_string(),
-                json!(related_count(state, "lorebook-entries", "lorebookId", &id)?),
+                json!(matching),
             );
+            if needle.is_some() {
+                stats.insert("totalEntryCount".to_string(), json!(total));
+            }
         }
         "prompt_preset" if !id.is_empty() => {
+            let section_total = related_count(state, "prompt-sections", "presetId", &id, None)?;
+            let group_total = related_count(state, "prompt-groups", "presetId", &id, None)?;
+            let variable_total = related_count(state, "prompt-variables", "presetId", &id, None)?;
+            let section_matching =
+                related_count(state, "prompt-sections", "presetId", &id, needle)?;
+            let group_matching = related_count(state, "prompt-groups", "presetId", &id, needle)?;
+            let variable_matching =
+                related_count(state, "prompt-variables", "presetId", &id, needle)?;
             stats.insert(
                 "sectionCount".to_string(),
-                json!(related_count(state, "prompt-sections", "presetId", &id)?),
+                json!(section_matching),
             );
             stats.insert(
                 "groupCount".to_string(),
-                json!(related_count(state, "prompt-groups", "presetId", &id)?),
+                json!(group_matching),
             );
             stats.insert(
                 "variableCount".to_string(),
-                json!(related_count(state, "prompt-variables", "presetId", &id)?),
+                json!(variable_matching),
             );
+            if needle.is_some() {
+                stats.insert("totalSectionCount".to_string(), json!(section_total));
+                stats.insert("totalGroupCount".to_string(), json!(group_total));
+                stats.insert("totalVariableCount".to_string(), json!(variable_total));
+            }
         }
         _ => {}
     }
@@ -344,7 +384,7 @@ fn add_related_rows(
 ) -> AppResult<()> {
     match library_type.overview_type {
         "lorebook" => {
-            let include_entries = request.include_entries.unwrap_or(false);
+            let include_entries = request.include_entries.unwrap_or(true);
             if include_entries {
                 let page = related_page(
                     state,
@@ -386,13 +426,24 @@ fn add_related_rows(
     Ok(())
 }
 
-fn related_count(state: &AppState, collection: &str, field: &str, id: &str) -> AppResult<usize> {
+fn related_count(
+    state: &AppState,
+    collection: &str,
+    field: &str,
+    id: &str,
+    needle: Option<&str>,
+) -> AppResult<usize> {
     let mut filters = Map::new();
     filters.insert(field.to_string(), json!(id));
+    let library_type = library_type_for_entity(collection)?;
     state
         .storage
         .list_where(collection, &filters)
-        .map(|rows| rows.len())
+        .map(|rows| {
+            rows.into_iter()
+                .filter(|row| matches_library_query(library_type, row, needle))
+                .count()
+        })
 }
 
 fn related_page(
@@ -407,13 +458,14 @@ fn related_page(
     let mut filters = Map::new();
     filters.insert(field.to_string(), json!(id));
     let needle = normalized_query(query);
+    let library_type = library_type_for_entity(collection)?;
     let limit = bounded_limit(limit, CHILD_DEFAULT_LIMIT, CHILD_MAX_LIMIT);
     let offset = offset.unwrap_or(0);
     let mut rows = state
         .storage
         .list_where(collection, &filters)?
         .into_iter()
-        .filter(|row| matches_query(row, needle.as_deref()))
+        .filter(|row| matches_library_query(library_type, row, needle.as_deref()))
         .collect::<Vec<_>>();
     rows.sort_by(|left, right| {
         number_field(left, "position")
@@ -431,9 +483,12 @@ fn related_page(
         .skip(offset)
         .take(limit)
         .collect::<Vec<_>>();
+    let page_count = page_rows.len();
     Ok(json!({
         "items": page_rows,
         "total": total,
+        "matchingTotal": total,
+        "pageCount": page_count,
         "offset": offset,
         "limit": limit,
         "hasMore": offset.saturating_add(limit) < total,
@@ -499,42 +554,117 @@ fn normalized_query(query: Option<&str>) -> Option<String> {
         .map(|query| query.to_ascii_lowercase())
 }
 
-fn matches_query(value: &Value, needle: Option<&str>) -> bool {
+fn matches_library_query(library_type: LibraryType, row: &Value, needle: Option<&str>) -> bool {
     let Some(needle) = needle else {
         return true;
     };
-    searchable_text(value).contains(needle)
+    searchable_library_text(library_type, row).contains(needle)
 }
 
-fn searchable_text(value: &Value) -> String {
+fn searchable_library_text(library_type: LibraryType, row: &Value) -> String {
+    let mut values = Vec::new();
+    for key in searchable_fields_for(library_type) {
+        push_search_field(&mut values, row, key);
+        if let Some(data) = row.get("data") {
+            push_search_field(&mut values, data, key);
+        }
+    }
+    values.join(" ").to_ascii_lowercase()
+}
+
+fn searchable_fields_for(library_type: LibraryType) -> &'static [&'static str] {
+    match library_type.overview_type {
+        "character" => &[
+            "id",
+            "name",
+            "title",
+            "subtitle",
+            "comment",
+            "summary",
+            "description",
+            "personality",
+            "scenario",
+            "backstory",
+            "firstMessage",
+            "systemPrompt",
+            "creatorNotes",
+        ],
+        "character_group" | "persona_group" => {
+            &["id", "name", "title", "subtitle", "comment", "summary", "description"]
+        }
+        "prompt_group" => &[
+            "id",
+            "name",
+            "title",
+            "subtitle",
+            "comment",
+            "summary",
+            "description",
+        ],
+        "persona" => &[
+            "id",
+            "name",
+            "title",
+            "subtitle",
+            "comment",
+            "summary",
+            "description",
+            "personality",
+            "scenario",
+            "systemPrompt",
+            "prompt",
+            "content",
+        ],
+        "lorebook" | "prompt_preset" => {
+            &["id", "name", "title", "subtitle", "comment", "summary", "description"]
+        }
+        "lorebook_entry" => &["id", "name", "comment", "keys", "content"],
+        "prompt_section" => &[
+            "id",
+            "name",
+            "identifier",
+            "comment",
+            "description",
+            "content",
+            "prompt",
+            "systemPrompt",
+        ],
+        "prompt_variable" => &[
+            "id",
+            "name",
+            "variableName",
+            "question",
+            "options",
+            "comment",
+            "description",
+        ],
+        _ => &["id", "name", "title", "subtitle", "comment", "summary"],
+    }
+}
+
+fn push_search_field(values: &mut Vec<String>, row: &Value, key: &str) {
+    let Some(value) = row.get(key) else {
+        return;
+    };
+    push_search_value(values, value);
+}
+
+fn push_search_value(values: &mut Vec<String>, value: &Value) {
     match value {
-        Value::Null => String::new(),
-        Value::Bool(value) => value.to_string(),
-        Value::Number(value) => value.to_string(),
-        Value::String(value) => value.to_ascii_lowercase(),
-        Value::Array(values) => values
-            .iter()
-            .map(searchable_text)
-            .collect::<Vec<_>>()
-            .join(" "),
-        Value::Object(map) => map
-            .iter()
-            .filter(|(key, _)| {
-                !matches!(
-                    key.as_str(),
-                    "content"
-                        | "prompt"
-                        | "systemPrompt"
-                        | "description"
-                        | "personality"
-                        | "scenario"
-                        | "backstory"
-                        | "firstMessage"
-                )
-            })
-            .map(|(_, value)| searchable_text(value))
-            .collect::<Vec<_>>()
-            .join(" "),
+        Value::Null => {}
+        Value::Bool(value) => values.push(value.to_string()),
+        Value::Number(value) => values.push(value.to_string()),
+        Value::String(value) => values.push(value.clone()),
+        Value::Array(items) => {
+            for item in items {
+                push_search_value(values, item);
+            }
+        }
+        Value::Object(map) => {
+            for value in map.values() {
+                push_search_value(values, value);
+            }
+        }
     }
 }
 
@@ -564,7 +694,10 @@ mod tests {
                     "id": "char-rina",
                     "data": {
                         "name": "Rina",
-                        "description": "Full character body that should not appear in overview"
+                        "description": "Full character body that should not appear in overview",
+                        "privateMetadata": {
+                            "internalTag": "hidden-nested-marker"
+                        }
                     }
                 }),
             )
@@ -648,6 +781,8 @@ mod tests {
         .expect("overview should succeed");
 
         assert_eq!(result["total"], json!(1));
+        assert_eq!(result["matchingTotal"], json!(1));
+        assert_eq!(result["pageCount"], json!(1));
         assert_eq!(result["items"][0]["type"], json!("character"));
         assert_eq!(result["items"][0]["name"], json!("Rina"));
         let serialized = serde_json::to_string(&result).expect("serialize overview");
@@ -675,6 +810,132 @@ mod tests {
     }
 
     #[test]
+    fn overview_reports_total_matches_and_page_count_separately() {
+        let state = test_state("overview-pagination");
+        seed_library(&state);
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "char-zed",
+                    "data": {
+                        "name": "Zed"
+                    }
+                }),
+            )
+            .expect("seed character");
+
+        let result = overview(
+            &state,
+            LibraryOverviewQuery {
+                item_type: Some("character".to_string()),
+                types: Vec::new(),
+                query: None,
+                limit: Some(1),
+                offset: Some(1),
+            },
+        )
+        .expect("overview should succeed");
+
+        assert_eq!(result["total"], json!(2));
+        assert_eq!(result["matchingTotal"], json!(2));
+        assert_eq!(result["pageCount"], json!(1));
+        assert_eq!(result["items"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            result["contract"]["countSemantics"],
+            json!("matchingTotal/total is the full number of matching overview rows before pagination. pageCount is the number of rows returned in items.")
+        );
+    }
+
+    #[test]
+    fn overview_searches_whitelisted_user_facing_fields_only() {
+        let state = test_state("overview-search");
+        seed_library(&state);
+
+        let lorebook_entry = overview(
+            &state,
+            LibraryOverviewQuery {
+                item_type: Some("lorebook_entry".to_string()),
+                types: Vec::new(),
+                query: Some("Koi pond details".to_string()),
+                limit: None,
+                offset: None,
+            },
+        )
+        .expect("lorebook entry content should be searchable");
+        assert_eq!(lorebook_entry["total"], json!(1));
+        assert_eq!(lorebook_entry["items"][0]["id"], json!("entry-koi"));
+
+        let prompt_section = overview(
+            &state,
+            LibraryOverviewQuery {
+                item_type: Some("prompt_section".to_string()),
+                types: Vec::new(),
+                query: Some("Full prompt section".to_string()),
+                limit: None,
+                offset: None,
+            },
+        )
+        .expect("prompt section content should be searchable");
+        assert_eq!(prompt_section["total"], json!(1));
+        assert_eq!(prompt_section["items"][0]["id"], json!("section-main"));
+
+        let nested_metadata = overview(
+            &state,
+            LibraryOverviewQuery {
+                item_type: Some("character".to_string()),
+                types: Vec::new(),
+                query: Some("hidden-nested-marker".to_string()),
+                limit: None,
+                offset: None,
+            },
+        )
+        .expect("overview should ignore unrelated nested metadata");
+        assert_eq!(nested_metadata["total"], json!(0));
+    }
+
+    #[test]
+    fn overview_parent_counts_follow_active_query() {
+        let state = test_state("overview-filtered-counts");
+        seed_library(&state);
+
+        let lorebook = overview(
+            &state,
+            LibraryOverviewQuery {
+                item_type: Some("lorebook".to_string()),
+                types: Vec::new(),
+                query: Some("pond".to_string()),
+                limit: None,
+                offset: None,
+            },
+        )
+        .expect("lorebook overview should succeed");
+        assert_eq!(lorebook["items"][0]["stats"]["entryCount"], json!(1));
+        assert_eq!(lorebook["items"][0]["stats"]["totalEntryCount"], json!(2));
+
+        let preset = overview(
+            &state,
+            LibraryOverviewQuery {
+                item_type: Some("prompt_preset".to_string()),
+                types: Vec::new(),
+                query: Some("Preset".to_string()),
+                limit: None,
+                offset: None,
+            },
+        )
+        .expect("prompt preset overview should succeed");
+        let prompt_main = preset["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == json!("prompt-main"))
+            .expect("prompt-main should be returned");
+        assert_eq!(prompt_main["stats"]["sectionCount"], json!(0));
+        assert_eq!(prompt_main["stats"]["totalSectionCount"], json!(1));
+    }
+
+    #[test]
     fn overview_accepts_user_facing_type_aliases() {
         let state = test_state("overview-aliases");
         seed_library(&state);
@@ -684,7 +945,7 @@ mod tests {
             LibraryOverviewQuery {
                 item_type: Some("presets".to_string()),
                 types: vec!["promptSections".to_string()],
-                query: Some("prompt-main".to_string()),
+                query: Some("prompt".to_string()),
                 limit: None,
                 offset: None,
             },
@@ -702,6 +963,28 @@ mod tests {
             .unwrap()
             .iter()
             .any(|item| item["type"] == json!("prompt_section")));
+    }
+
+    #[test]
+    fn items_includes_lorebook_entries_by_default() {
+        let state = test_state("items-lorebook-default");
+        seed_library(&state);
+
+        let result = items(
+            &state,
+            vec![LibraryItemRequest {
+                item_type: "lorebook".to_string(),
+                id: "book-pond".to_string(),
+                include_entries: None,
+                entry_query: None,
+                entry_limit: None,
+                entry_offset: None,
+            }],
+        )
+        .expect("selected lorebook should read");
+
+        assert_eq!(result["items"][0]["entries"]["included"], json!(true));
+        assert_eq!(result["items"][0]["entries"]["total"], json!(2));
     }
 
     #[test]
