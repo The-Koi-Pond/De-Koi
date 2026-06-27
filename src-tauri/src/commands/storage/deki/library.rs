@@ -557,10 +557,14 @@ fn searchable_library_text(library_type: LibraryType, row: &Value) -> String {
 
 #[derive(Clone, Copy)]
 enum SearchField {
+    /// Search a documented root-level field on the stored record.
     Top(&'static str),
+    /// Search a documented field under the card-style `data` object.
     Data(&'static str),
 }
 
+/// Schema contract for overview search. Each entry names one exact storage
+/// location; adding a searchable field requires a focused test for that type.
 fn searchable_fields_for(library_type: LibraryType) -> &'static [SearchField] {
     match library_type.overview_type {
         "character" => &[
@@ -931,6 +935,55 @@ mod tests {
             },
         )
         .expect("overview should ignore object values under searchable fields");
+        assert_eq!(nested_metadata["matchingTotal"], json!(0));
+    }
+
+    #[test]
+    fn overview_search_contract_respects_exact_data_locations() {
+        let state = test_state("overview-search-contract");
+        seed_library(&state);
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "char-contract",
+                    "data": {
+                        "name": "Contract Character",
+                        "description": "declared data description marker",
+                        "privateMetadata": {
+                            "description": "nested metadata description marker"
+                        }
+                    }
+                }),
+            )
+            .expect("seed contract character");
+
+        let visible_data_field = overview(
+            &state,
+            LibraryOverviewQuery {
+                item_type: Some("character".to_string()),
+                types: Vec::new(),
+                query: Some("declared data description marker".to_string()),
+                limit: None,
+                offset: None,
+            },
+        )
+        .expect("declared data description should be searchable");
+        assert_eq!(visible_data_field["matchingTotal"], json!(1));
+        assert_eq!(visible_data_field["items"][0]["id"], json!("char-contract"));
+
+        let nested_metadata = overview(
+            &state,
+            LibraryOverviewQuery {
+                item_type: Some("character".to_string()),
+                types: Vec::new(),
+                query: Some("nested metadata description marker".to_string()),
+                limit: None,
+                offset: None,
+            },
+        )
+        .expect("nested metadata under data should not be searchable");
         assert_eq!(nested_metadata["matchingTotal"], json!(0));
     }
 
