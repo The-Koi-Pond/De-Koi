@@ -549,99 +549,121 @@ fn matches_library_query(library_type: LibraryType, row: &Value, needle: Option<
 
 fn searchable_library_text(library_type: LibraryType, row: &Value) -> String {
     let mut values = Vec::new();
-    for key in searchable_fields_for(library_type) {
-        push_search_field(&mut values, row, key);
-        if let Some(data) = row.get("data") {
-            push_search_field(&mut values, data, key);
-        }
+    for field in searchable_fields_for(library_type) {
+        push_search_field(&mut values, row, field);
     }
     values.join(" ").to_ascii_lowercase()
 }
 
-fn searchable_fields_for(library_type: LibraryType) -> &'static [&'static str] {
+#[derive(Clone, Copy)]
+enum SearchField {
+    Top(&'static str),
+    Data(&'static str),
+}
+
+fn searchable_fields_for(library_type: LibraryType) -> &'static [SearchField] {
     match library_type.overview_type {
         "character" => &[
-            "id",
-            "name",
-            "title",
-            "subtitle",
-            "comment",
-            "summary",
-            "description",
-            "personality",
-            "scenario",
-            "backstory",
-            "firstMessage",
-            "systemPrompt",
-            "creatorNotes",
+            SearchField::Top("id"),
+            SearchField::Top("name"),
+            SearchField::Data("name"),
+            SearchField::Data("title"),
+            SearchField::Data("subtitle"),
+            SearchField::Data("comment"),
+            SearchField::Data("summary"),
+            SearchField::Data("description"),
+            SearchField::Data("personality"),
+            SearchField::Data("scenario"),
+            SearchField::Data("backstory"),
+            SearchField::Data("firstMessage"),
+            SearchField::Data("systemPrompt"),
+            SearchField::Data("creatorNotes"),
         ],
         "character_group" | "persona_group" => &[
-            "id",
-            "name",
-            "title",
-            "subtitle",
-            "comment",
-            "summary",
-            "description",
+            SearchField::Top("id"),
+            SearchField::Top("name"),
+            SearchField::Top("title"),
+            SearchField::Top("subtitle"),
+            SearchField::Top("comment"),
+            SearchField::Top("summary"),
+            SearchField::Top("description"),
         ],
         "prompt_group" => &[
-            "id",
-            "name",
-            "title",
-            "subtitle",
-            "comment",
-            "summary",
-            "description",
+            SearchField::Top("id"),
+            SearchField::Top("name"),
+            SearchField::Top("title"),
+            SearchField::Top("subtitle"),
+            SearchField::Top("comment"),
+            SearchField::Top("summary"),
+            SearchField::Top("description"),
         ],
         "persona" => &[
-            "id",
-            "name",
-            "title",
-            "subtitle",
-            "comment",
-            "summary",
-            "description",
-            "personality",
-            "scenario",
-            "systemPrompt",
-            "prompt",
-            "content",
+            SearchField::Top("id"),
+            SearchField::Top("name"),
+            SearchField::Data("name"),
+            SearchField::Data("title"),
+            SearchField::Data("subtitle"),
+            SearchField::Data("comment"),
+            SearchField::Data("summary"),
+            SearchField::Data("description"),
+            SearchField::Data("personality"),
+            SearchField::Data("scenario"),
+            SearchField::Data("systemPrompt"),
+            SearchField::Data("prompt"),
+            SearchField::Data("content"),
         ],
         "lorebook" | "prompt_preset" => &[
-            "id",
-            "name",
-            "title",
-            "subtitle",
-            "comment",
-            "summary",
-            "description",
+            SearchField::Top("id"),
+            SearchField::Top("name"),
+            SearchField::Top("title"),
+            SearchField::Top("subtitle"),
+            SearchField::Top("comment"),
+            SearchField::Top("summary"),
+            SearchField::Top("description"),
         ],
-        "lorebook_entry" => &["id", "name", "comment", "keys", "content"],
+        "lorebook_entry" => &[
+            SearchField::Top("id"),
+            SearchField::Top("name"),
+            SearchField::Top("comment"),
+            SearchField::Top("keys"),
+            SearchField::Top("content"),
+        ],
         "prompt_section" => &[
-            "id",
-            "name",
-            "identifier",
-            "comment",
-            "description",
-            "content",
-            "prompt",
-            "systemPrompt",
+            SearchField::Top("id"),
+            SearchField::Top("name"),
+            SearchField::Top("identifier"),
+            SearchField::Top("comment"),
+            SearchField::Top("description"),
+            SearchField::Top("content"),
+            SearchField::Top("prompt"),
+            SearchField::Top("systemPrompt"),
         ],
         "prompt_variable" => &[
-            "id",
-            "name",
-            "variableName",
-            "question",
-            "options",
-            "comment",
-            "description",
+            SearchField::Top("id"),
+            SearchField::Top("name"),
+            SearchField::Top("variableName"),
+            SearchField::Top("question"),
+            SearchField::Top("options"),
+            SearchField::Top("comment"),
+            SearchField::Top("description"),
         ],
-        _ => &["id", "name", "title", "subtitle", "comment", "summary"],
+        _ => &[
+            SearchField::Top("id"),
+            SearchField::Top("name"),
+            SearchField::Top("title"),
+            SearchField::Top("subtitle"),
+            SearchField::Top("comment"),
+            SearchField::Top("summary"),
+        ],
     }
 }
 
-fn push_search_field(values: &mut Vec<String>, row: &Value, key: &str) {
-    let Some(value) = row.get(key) else {
+fn push_search_field(values: &mut Vec<String>, row: &Value, field: &SearchField) {
+    let value = match field {
+        SearchField::Top(key) => row.get(key),
+        SearchField::Data(key) => row.get("data").and_then(|data| data.get(key)),
+    };
+    let Some(value) = value else {
         return;
     };
     push_search_value(values, value);
@@ -655,7 +677,12 @@ fn push_search_value(values: &mut Vec<String>, value: &Value) {
         Value::String(value) => values.push(value.clone()),
         Value::Array(items) => {
             for item in items {
-                push_search_value(values, item);
+                match item {
+                    Value::Bool(value) => values.push(value.to_string()),
+                    Value::Number(value) => values.push(value.to_string()),
+                    Value::String(value) => values.push(value.clone()),
+                    Value::Null | Value::Array(_) | Value::Object(_) => {}
+                }
             }
         }
         Value::Object(_) => {}
