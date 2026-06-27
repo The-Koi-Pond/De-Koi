@@ -2,6 +2,7 @@
 // Chat: Settings Drawer — per-chat configuration
 // ──────────────────────────────────────────────
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useQueryClient, useQueries } from "@tanstack/react-query";
 import {
   X,
@@ -17,7 +18,6 @@ import {
   MessageSquare,
   Sparkles,
   Image,
-  Info,
   Pencil,
   Clock,
   AlertTriangle,
@@ -860,6 +860,40 @@ function ChatSettingsDrawerInner({
         .filter((character): character is DrawerCharacter => !!character),
     [chatCharIds, characters],
   );
+
+  const profilePopoverCharacter = useMemo(
+    () =>
+      profilePopoverCharacterId
+        ? (chatCharacters.find((character) => character.id === profilePopoverCharacterId) ??
+          characters.find((character) => character.id === profilePopoverCharacterId) ??
+          null)
+        : null,
+    [characters, chatCharacters, profilePopoverCharacterId],
+  );
+
+  const openCharacterProfilePreview = useCallback((characterId: string) => {
+    setProfilePopoverCharacterId((current) => (current === characterId ? null : characterId));
+  }, []);
+
+  const openCharacterDetailFromProfile = useCallback(
+    (characterId: string) => {
+      setProfilePopoverCharacterId(null);
+      onClose();
+      useUIStore.getState().openCharacterDetail(characterId);
+    },
+    [onClose],
+  );
+
+  useEffect(() => {
+    if (!profilePopoverCharacterId) return undefined;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProfilePopoverCharacterId(null);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [profilePopoverCharacterId]);
 
   const activePersona = useMemo(
     () => (chat.personaId ? (personas.find((persona) => persona.id === chat.personaId) ?? null) : null),
@@ -2172,12 +2206,9 @@ function ChatSettingsDrawerInner({
                           className="flex items-center gap-2.5 rounded-lg bg-[var(--primary)]/10 px-3 py-2 ring-1 ring-[var(--primary)]/30"
                         >
                           <button
-                            onClick={() => {
-                              onClose();
-                              useUIStore.getState().openCharacterDetail(c.id);
-                            }}
+                            onClick={() => openCharacterProfilePreview(c.id)}
                             className="flex min-w-0 flex-1 items-center gap-2.5 text-left transition-colors hover:opacity-80"
-                            title="Open character card"
+                            title="Preview public profile"
                           >
                             {c.avatarPath ? (
                               <span className="relative block h-7 w-7 shrink-0 overflow-hidden rounded-full">
@@ -2197,39 +2228,6 @@ function ChatSettingsDrawerInner({
                               )}
                             </div>
                           </button>
-                          <div className="relative shrink-0">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setProfilePopoverCharacterId((current) => (current === c.id ? null : c.id));
-                              }}
-                              className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-                              title="Preview public profile"
-                            >
-                              <Info size="0.6875rem" />
-                            </button>
-                            {profilePopoverCharacterId === c.id && (
-                              <div
-                                className="absolute right-0 top-[calc(100%+0.5rem)] z-[70] w-72"
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                <CharacterPublicProfileCard
-                                  profile={resolveCharacterPublicProfile({
-                                    data: c.data as Record<string, unknown>,
-                                    comment: c.comment,
-                                  })}
-                                  avatarUrl={c.avatarPath}
-                                  compact
-                                  onOpenFullProfile={() => {
-                                    setProfilePopoverCharacterId(null);
-                                    onClose();
-                                    useUIStore.getState().openCharacterDetail(c.id);
-                                  }}
-                                />
-                              </div>
-                            )}
-                          </div>
                           <button
                             onClick={() => toggleCharacter(c.id)}
                             className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"
@@ -2499,12 +2497,9 @@ function ChatSettingsDrawerInner({
                             <GripVertical size="0.75rem" />
                           </div>
                           <button
-                            onClick={() => {
-                              onClose();
-                              useUIStore.getState().openCharacterDetail(c.id);
-                            }}
+                            onClick={() => openCharacterProfilePreview(c.id)}
                             className="flex items-center gap-2.5 min-w-0 flex-1 text-left transition-colors hover:opacity-80"
-                            title="Open character card"
+                            title="Preview public profile"
                           >
                             {c.avatarPath ? (
                               <span className="relative block h-7 w-7 shrink-0 overflow-hidden rounded-full">
@@ -2545,39 +2540,6 @@ function ChatSettingsDrawerInner({
                           >
                             {isInactive ? "Inactive" : "Active"}
                           </button>
-                          <div className="relative shrink-0">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setProfilePopoverCharacterId((current) => (current === c.id ? null : c.id));
-                              }}
-                              className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-                              title="Preview public profile"
-                            >
-                              <Info size="0.6875rem" />
-                            </button>
-                            {profilePopoverCharacterId === c.id && (
-                              <div
-                                className="absolute right-0 top-[calc(100%+0.5rem)] z-[70] w-72"
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                <CharacterPublicProfileCard
-                                  profile={resolveCharacterPublicProfile({
-                                    data: c.data as Record<string, unknown>,
-                                    comment: c.comment,
-                                  })}
-                                  avatarUrl={c.avatarPath}
-                                  compact
-                                  onOpenFullProfile={() => {
-                                    setProfilePopoverCharacterId(null);
-                                    onClose();
-                                    useUIStore.getState().openCharacterDetail(c.id);
-                                  }}
-                                />
-                              </div>
-                            )}
-                          </div>
                           <button
                             onClick={() => toggleCharacter(c.id)}
                             className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"
@@ -5975,6 +5937,32 @@ function ChatSettingsDrawerInner({
           </div>
         )}
       </Modal>
+
+      {profilePopoverCharacter &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[90] flex items-start justify-end bg-transparent px-3 pt-16 max-sm:justify-center max-sm:px-2 max-sm:pt-14"
+            onClick={() => setProfilePopoverCharacterId(null)}
+          >
+            <div
+              data-profile-popover
+              className="max-h-[calc(100vh-4.5rem)] w-[min(20rem,calc(100vw-1rem))] overflow-y-auto"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <CharacterPublicProfileCard
+                profile={resolveCharacterPublicProfile({
+                  data: profilePopoverCharacter.data as Record<string, unknown>,
+                  comment: profilePopoverCharacter.comment,
+                })}
+                avatarUrl={profilePopoverCharacter.avatarPath}
+                compact
+                onOpenFullProfile={() => openCharacterDetailFromProfile(profilePopoverCharacter.id)}
+              />
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {/* First message confirmation dialog */}
       {firstMesConfirm && (
