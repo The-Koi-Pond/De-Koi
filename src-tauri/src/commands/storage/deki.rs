@@ -711,6 +711,7 @@ fn deki_workspace_connection_summary(state: &AppState, connection_id: &str) -> A
 
 pub(crate) async fn deki_workspace_abort(_state: &AppState) -> AppResult<Value> {
     Ok(json!({
+        "status": "not_running",
         "aborted": false,
         "active": false,
         "reason": "Deki workspace runtime is not running.",
@@ -2061,6 +2062,23 @@ mod tests {
             .as_str()
             .unwrap_or_default()
             .contains("selected connection"));
+    }
+
+    #[tokio::test]
+    async fn deki_workspace_abort_reports_not_running() {
+        let state = test_state("workspace-abort-not-running");
+
+        let result = deki_workspace_abort(&state)
+            .await
+            .expect("workspace abort should return");
+
+        assert_eq!(result["status"], json!("not_running"));
+        assert_eq!(result["aborted"], json!(false));
+        assert_eq!(result["active"], json!(false));
+        assert!(result["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("not running"));
     }
 
     #[test]

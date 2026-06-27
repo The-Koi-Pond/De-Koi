@@ -250,9 +250,7 @@ function normalizeDekiWorkspaceHistoryEntry(value: unknown): DekiWorkspaceHistor
     return malformedDekiWorkspaceHistoryItem(value, "invalid current history required field");
   }
   if (!status || !validationStatus) {
-    return hasFutureDekiWorkspaceHistoryMarker(object)
-      ? unknownDekiWorkspaceHistoryItem(value)
-      : malformedDekiWorkspaceHistoryItem(value, "invalid current history status");
+    return malformedDekiWorkspaceHistoryItem(value, "invalid current history status");
   }
   const operationHash = readTrimmedString(object.operationHash);
   const completedAt = readTrimmedString(object.completedAt);
@@ -310,13 +308,6 @@ function isPartialCurrentDekiWorkspaceHistory(
   return !values.id || !values.sessionId || !values.command || !values.createdAt;
 }
 
-function hasFutureDekiWorkspaceHistoryMarker(object: Record<string, unknown>): boolean {
-  const kind = readTrimmedString(object.kind);
-  const type = readTrimmedString(object.type);
-  const schemaVersion = readTrimmedString(object.schemaVersion);
-  return !!kind || !!type || !!schemaVersion;
-}
-
 function normalizeDekiWorkspaceCountRecord(value: unknown): Record<string, number> {
   const object = asRecord(value);
   return Object.fromEntries(
@@ -344,24 +335,6 @@ function requireDekiWorkspaceRuntime(command: string): void {
     code: "deki_workspace_runtime_unavailable",
     command,
   });
-}
-
-function unavailableDekiWorkspaceStatus(connectionId?: string | null): DekiWorkspaceStatus {
-  const requestedConnection = readTrimmedString(connectionId);
-  return {
-    enabled: false,
-    workspace: null,
-    dataDir: null,
-    tools: Array.from(DEKI_WORKSPACE_TOOL_NAMES),
-    dataAccess: "server-managed",
-    connection: null,
-    active: false,
-    pendingApprovals: [],
-    history: [],
-    error: requestedConnection
-      ? `${DEKI_WORKSPACE_UNAVAILABLE_REASON} Requested connection: ${requestedConnection}.`
-      : DEKI_WORKSPACE_UNAVAILABLE_REASON,
-  };
 }
 
 function normalizeDekiActionApplication(value: unknown): DekiActionApplication | null {
@@ -781,19 +754,13 @@ export const dekiApi = {
     }),
   workspace: {
     status: async (connectionId?: string | null): Promise<DekiWorkspaceStatus> => {
-      if (!hasDekiWorkspaceRuntime()) return unavailableDekiWorkspaceStatus(connectionId);
+      requireDekiWorkspaceRuntime("deki_workspace_status");
       return invokeTauri<DekiWorkspaceStatus>("deki_workspace_status", {
         connectionId: connectionId ?? null,
       });
     },
     abort: async (): Promise<DekiWorkspaceAbortResult> => {
-      if (!hasDekiWorkspaceRuntime()) {
-        return {
-          aborted: false,
-          active: false,
-          reason: DEKI_WORKSPACE_UNAVAILABLE_REASON,
-        };
-      }
+      requireDekiWorkspaceRuntime("deki_workspace_abort");
       return invokeTauri<DekiWorkspaceAbortResult>("deki_workspace_abort");
     },
     approve: async (id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {

@@ -346,14 +346,17 @@ describe("dekiApi settings persistence", () => {
               {
                 id: "future-history",
                 kind: "future_history",
-                sessionId: "session-1",
-                command: "future command",
-                status: "archived",
-                validationStatus: "reviewing",
+                schemaVersion: "2",
+                payload: {
+                  command: "future command",
+                  status: "archived",
+                  validationStatus: "reviewing",
+                },
                 createdAt: "2026-06-24T00:02:00.000Z",
               },
               {
                 id: "invalid-current-status",
+                kind: "future_history",
                 sessionId: "session-1",
                 command: "invalid current status",
                 status: "archived",
@@ -412,8 +415,11 @@ describe("dekiApi settings persistence", () => {
           createdAt: "2026-06-24T00:02:00.000Z",
           raw: expect.objectContaining({
             kind: "future_history",
-            status: "archived",
-            validationStatus: "reviewing",
+            schemaVersion: "2",
+            payload: expect.objectContaining({
+              status: "archived",
+              validationStatus: "reviewing",
+            }),
           }),
         },
         {
@@ -422,6 +428,7 @@ describe("dekiApi settings persistence", () => {
           createdAt: "2026-06-24T00:02:30.000Z",
           reason: "invalid current history status",
           raw: expect.objectContaining({
+            kind: "future_history",
             status: "archived",
             validationStatus: "reviewing",
           }),
@@ -439,18 +446,29 @@ describe("dekiApi settings persistence", () => {
     });
   });
 
-  it("returns unsupported status but fails approval actions when no runtime is configured", async () => {
+  it("fails workspace runtime calls when no runtime is configured", async () => {
     embeddedMock.mockReturnValue(false);
     remoteRuntimeTargetMock.mockReturnValue(null);
 
-    const status = await dekiApi.workspace.status("conn-1");
+    const status = dekiApi.workspace.status("conn-1");
+    const abort = dekiApi.workspace.abort();
     const approval = dekiApi.workspace.approve("approval-1");
 
-    expect(status).toMatchObject({
-      enabled: false,
-      connection: null,
-      active: false,
-      error: expect.stringContaining("requires the Tauri app shell or a configured remote runtime"),
+    await expect(status).rejects.toMatchObject({
+      message: "Deki workspace runtime requires the Tauri app shell or a configured remote runtime.",
+      status: 400,
+      details: expect.objectContaining({
+        code: "deki_workspace_runtime_unavailable",
+        command: "deki_workspace_status",
+      }),
+    });
+    await expect(abort).rejects.toMatchObject({
+      message: "Deki workspace runtime requires the Tauri app shell or a configured remote runtime.",
+      status: 400,
+      details: expect.objectContaining({
+        code: "deki_workspace_runtime_unavailable",
+        command: "deki_workspace_abort",
+      }),
     });
     await expect(approval).rejects.toMatchObject({
       message: "Deki workspace runtime requires the Tauri app shell or a configured remote runtime.",
@@ -481,6 +499,25 @@ describe("dekiApi settings persistence", () => {
     await dekiApi.workspace.status("conn-1");
 
     expect(invokeMock).toHaveBeenCalledWith("deki_workspace_status", { connectionId: "conn-1" });
+  });
+
+  it("routes workspace abort and preserves the not-running result", async () => {
+    embeddedMock.mockReturnValue(true);
+    remoteRuntimeTargetMock.mockReturnValue(null);
+    invokeMock.mockResolvedValueOnce({
+      status: "not_running",
+      aborted: false,
+      active: false,
+      reason: "Deki workspace runtime is not running.",
+    });
+
+    await expect(dekiApi.workspace.abort()).resolves.toMatchObject({
+      status: "not_running",
+      aborted: false,
+      active: false,
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("deki_workspace_abort");
   });
 
   it("routes workspace approval calls through the remote runtime when configured", async () => {

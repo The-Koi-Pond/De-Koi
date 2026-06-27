@@ -158,6 +158,7 @@ export type DekiWorkspacePromptEvent =
   | { type: "error"; data: string };
 
 export type DekiWorkspaceAbortResult = {
+  status: "aborted" | "not_running";
   aborted: boolean;
   active: boolean;
   reason?: string | null;
