@@ -68,6 +68,13 @@ type DekiActionApplyResult = {
   compaction: DekiCompactionState | null;
 };
 
+type DekiActionCurrentRecordResult = {
+  entity: DekiActionEntity;
+  storageEntity: StorageEntity;
+  id: string;
+  record: Record<string, unknown> | null;
+};
+
 type DekiHistorySnapshot = {
   session: DekiSession;
   messages: DekiMessage[];
@@ -773,6 +780,17 @@ export const dekiApi = {
     },
   },
   actions: {
+    currentRecord: async (action: DekiEntryAction): Promise<DekiActionCurrentRecordResult | null> => {
+      if (action.type !== "edit_record") return null;
+      const storageEntity = storageEntityForDekiAction(action.entity);
+      const record = await storageApi.get<Record<string, unknown>>(storageEntity, action.id);
+      return {
+        entity: action.entity,
+        storageEntity,
+        id: action.id,
+        record,
+      };
+    },
     apply: async (
       action: DekiEntryAction,
       options?: { actionId?: string; messageId?: string; sessionId?: string | null },

@@ -156,9 +156,7 @@ describe("dekiApi.actions.apply", () => {
         return {
           id: "preset-1",
           sectionOrder:
-            promptGetCount === 1
-              ? ["section-existing"]
-              : ["section-existing", "deki-prompt-sections-message-1"],
+            promptGetCount === 1 ? ["section-existing"] : ["section-existing", "deki-prompt-sections-message-1"],
         };
       }
       return null;
@@ -379,5 +377,56 @@ describe("dekiApi.actions.apply", () => {
     expect(result).toMatchObject({
       resultId: "section-new",
     });
+  });
+});
+
+describe("dekiApi.actions.currentRecord", () => {
+  beforeEach(() => {
+    storageApiMock.create.mockReset();
+    storageApiMock.delete.mockReset();
+    storageApiMock.get.mockReset();
+    storageApiMock.update.mockReset();
+  });
+
+  it("reads the current target record for edit actions", async () => {
+    const action: DekiEntryAction = {
+      type: "edit_record",
+      entity: "lorebook-entries",
+      id: "entry-1",
+      patch: {
+        content: "Updated entry.",
+      },
+    };
+    storageApiMock.get.mockResolvedValue({
+      id: "entry-1",
+      content: "Old entry.",
+    });
+
+    const result = await dekiApi.actions.currentRecord(action);
+
+    expect(storageApiMock.get).toHaveBeenCalledWith("lorebook-entries", "entry-1");
+    expect(storageApiMock.update).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      entity: "lorebook-entries",
+      storageEntity: "lorebook-entries",
+      id: "entry-1",
+      record: {
+        id: "entry-1",
+        content: "Old entry.",
+      },
+    });
+  });
+
+  it("does not read storage for create actions", async () => {
+    const action: DekiEntryAction = {
+      type: "create_record",
+      entity: "personas",
+      draft: {
+        name: "Sol",
+      },
+    };
+
+    await expect(dekiApi.actions.currentRecord(action)).resolves.toBeNull();
+    expect(storageApiMock.get).not.toHaveBeenCalled();
   });
 });

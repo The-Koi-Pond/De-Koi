@@ -37,6 +37,10 @@ vi.mock("../../../../shared/api/deki-api", () => ({
       delete: vi.fn(),
     },
     prompt: vi.fn(),
+    actions: {
+      currentRecord: vi.fn(),
+      apply: vi.fn(),
+    },
   },
 }));
 
@@ -134,6 +138,9 @@ describe("DekiSurface message retry actions", () => {
         reason: "Test response.",
       },
     });
+    vi.mocked(dekiApi.actions.apply).mockReset();
+    vi.mocked(dekiApi.actions.currentRecord).mockReset();
+    vi.mocked(dekiApi.actions.currentRecord).mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -229,5 +236,111 @@ describe("DekiSurface message retry actions", () => {
       }),
       dekiApi,
     );
+  });
+
+  it("shows proposed edit actions as a current-record diff", async () => {
+    const actionMessage = {
+      ...assistantMessage,
+      action: {
+        type: "edit_record" as const,
+        entity: "personas" as const,
+        id: "persona-1",
+        patch: {
+          description: "New notes",
+        },
+        label: "Update persona notes",
+      },
+    };
+    vi.mocked(dekiApi.history.get).mockResolvedValue({
+      session: {
+        id: "session-1",
+        title: "Help",
+        messages: [userMessage, actionMessage],
+        compaction: EMPTY_DEKI_COMPACTION,
+        createdAt: "2026-06-25T12:00:00.000Z",
+        updatedAt: "2026-06-25T12:00:01.000Z",
+      },
+      messages: [userMessage, actionMessage],
+      compaction: EMPTY_DEKI_COMPACTION,
+    });
+    vi.mocked(dekiApi.actions.currentRecord).mockResolvedValue({
+      entity: "personas",
+      storageEntity: "personas",
+      id: "persona-1",
+      record: {
+        id: "persona-1",
+        description: "Old notes",
+      },
+    });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <DekiSurface sessionId="session-1" />
+        </QueryClientProvider>,
+      );
+    });
+    await tick();
+    await tick();
+
+    expect(dekiApi.actions.currentRecord).toHaveBeenCalledWith(actionMessage.action);
+    expect(container!.textContent).toContain("Diff preview");
+    expect(container!.textContent).toContain("Description");
+    expect(container!.textContent).toContain("Old");
+    expect(container!.textContent).toContain("New notes");
+    expect(container!.textContent).toContain("1 changed");
+  });
+
+  it("hides the diff preview after an action has been applied", async () => {
+    const actionMessage = {
+      ...assistantMessage,
+      action: {
+        type: "edit_record" as const,
+        entity: "personas" as const,
+        id: "persona-1",
+        patch: {
+          description: "New notes",
+        },
+        label: "Update persona notes",
+      },
+      actionApplication: {
+        status: "applied" as const,
+        appliedAt: "2026-06-25T12:00:02.000Z",
+        resultId: "persona-1",
+      },
+    };
+    vi.mocked(dekiApi.history.get).mockResolvedValue({
+      session: {
+        id: "session-1",
+        title: "Help",
+        messages: [userMessage, actionMessage],
+        compaction: EMPTY_DEKI_COMPACTION,
+        createdAt: "2026-06-25T12:00:00.000Z",
+        updatedAt: "2026-06-25T12:00:01.000Z",
+      },
+      messages: [userMessage, actionMessage],
+      compaction: EMPTY_DEKI_COMPACTION,
+    });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <DekiSurface sessionId="session-1" />
+        </QueryClientProvider>,
+      );
+    });
+    await tick();
+    await tick();
+
+    expect(dekiApi.actions.currentRecord).not.toHaveBeenCalled();
+    expect(container!.textContent).toContain("Applied");
+    expect(container!.textContent).toContain("Update persona notes");
+    expect(container!.textContent).not.toContain("Diff preview");
+    expect(container!.textContent).not.toContain("0 changed");
+    expect(container!.textContent).not.toContain("Record");
+    expect(container!.textContent).not.toContain("Description");
+    expect(container!.textContent).not.toContain("New notes");
   });
 });

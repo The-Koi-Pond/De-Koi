@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { Check, ChevronUp, CircleUser, FileText, Link, Loader2, Plus, Send, Sparkles, X } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  ChevronUp,
+  CircleUser,
+  FileText,
+  Link,
+  Loader2,
+  Plus,
+  Send,
+  Sparkles,
+  X,
+} from "lucide-react";
 import {
   type DekiActionEntity,
   type DekiAttachment,
@@ -26,6 +38,7 @@ import { cn, normalizeAvatarCropValue } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { runDetachedDekiSend } from "../lib/deki-send";
 import { DEKI_SCENE_POSES, getDekiSceneMood, type DekiSceneMood } from "../lib/deki-scene";
+import { createDekiActionDiffRows, type DekiActionDiffPart, type DekiActionDiffRow } from "../lib/deki-action-diff";
 
 const DEKI_AVATAR_URL = "/koi-mark.svg";
 const DEKI_CHARACTER_ID = "__deki_shell__";
@@ -94,6 +107,12 @@ type DekiPersona = {
   scenario?: string | null;
   backstory?: string | null;
   appearance?: string | null;
+};
+
+type DekiActionCurrentRecordState = {
+  status: "idle" | "loading" | "loaded" | "error";
+  record: Record<string, unknown> | null;
+  error: string | null;
 };
 
 function newId(prefix: string) {
@@ -168,15 +187,6 @@ function previewValue(value: unknown): string | null {
     return text || null;
   }
   return null;
-}
-
-function formatActionPayload(action: DekiEntryAction): string {
-  const payload = actionPayload(action);
-  try {
-    return JSON.stringify(payload, null, 2);
-  } catch {
-    return String(payload);
-  }
 }
 
 function actionPreviewRows(action: DekiEntryAction): Array<{ label: string; value: string }> {
@@ -1007,12 +1017,59 @@ function DekiActionCard({
   onApply: (message: DekiMessage) => void;
 }) {
   const action = message?.action;
+  const applied = message?.actionApplication?.status === "applied";
+  const [currentRecordState, setCurrentRecordState] = useState<DekiActionCurrentRecordState>({
+    status: "idle",
+    record: null,
+    error: null,
+  });
+
+  useEffect(() => {
+    let active = true;
+    if (!action || action.type !== "edit_record" || applied) {
+      setCurrentRecordState({ status: "idle", record: null, error: null });
+      return () => {
+        active = false;
+      };
+    }
+
+    setCurrentRecordState({ status: "loading", record: null, error: null });
+    void dekiApi.actions
+      .currentRecord(action)
+      .then((result) => {
+        if (!active) return;
+        setCurrentRecordState({ status: "loaded", record: result?.record ?? null, error: null });
+      })
+      .catch((recordError) => {
+        if (!active) return;
+        setCurrentRecordState({
+          status: "error",
+          record: null,
+          error: recordError instanceof Error ? recordError.message : "Current record could not be loaded.",
+        });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [action, applied]);
+
+  const diffRows = useMemo(
+    () =>
+      action && action.type !== "none" && !applied
+        ? createDekiActionDiffRows(action, currentRecordState.record)
+        : [],
+    [action, applied, currentRecordState.record],
+  );
+
   if (!message || !action || action.type === "none") return null;
-  const applied = message.actionApplication?.status === "applied";
   const rows = actionPreviewRows(action);
-  const payloadText = formatActionPayload(action);
+  const diffWarning =
+    action.type === "edit_record" && currentRecordState.status === "loaded" && !currentRecordState.record
+      ? "Current record was not found."
+      : currentRecordState.error;
   return (
-    <div className="mx-4 mb-3 ml-14 max-w-[min(42rem,calc(100%-4rem))] rounded-xl border border-sky-400/30 bg-[var(--card)] px-3 py-3 text-xs text-[var(--foreground)] shadow-lg shadow-sky-500/10">
+    <div className="mb-3 ml-[4.5rem] mr-4 mt-2 rounded-xl border border-sky-400/30 bg-[var(--card)] px-3 py-3 text-xs text-[var(--foreground)] shadow-lg shadow-sky-500/10">
       <div className="flex flex-wrap items-center gap-2">
         <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-400">
           <Sparkles size="0.875rem" />
@@ -1031,7 +1088,7 @@ function DekiActionCard({
         )}
       </div>
       {action.rationale && <p className="mt-2 leading-relaxed text-[var(--foreground)]/75">{action.rationale}</p>}
-      {rows.length > 0 && (
+      {!applied && rows.length > 0 && (
         <dl className="mt-2 grid gap-1.5">
           {rows.map((row) => (
             <div key={row.label} className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
@@ -1041,31 +1098,128 @@ function DekiActionCard({
           ))}
         </dl>
       )}
-      <div className="mt-3 rounded-lg border border-[var(--border)]/70 bg-[var(--secondary)]/55">
-        <div className="border-b border-[var(--border)]/70 px-2.5 py-1.5 text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">
-          Full payload to apply
-        </div>
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words px-2.5 py-2 font-mono text-[0.6875rem] leading-relaxed text-[var(--foreground)]/85">
-          {payloadText}
-        </pre>
-      </div>
+      {!applied && (
+        <DekiActionDiffView
+          action={action}
+          rows={diffRows}
+          loading={action.type === "edit_record" && currentRecordState.status === "loading"}
+          warning={diffWarning}
+        />
+      )}
       {error && <div className="mt-2 rounded-lg bg-red-500/10 px-2 py-1.5 text-[0.6875rem] text-red-500">{error}</div>}
-      <div className="mt-3 flex justify-end">
-        <button
-          type="button"
-          disabled={applied || applying}
-          onClick={() => onApply(message)}
+      {!applied && (
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            disabled={applying}
+            onClick={() => onApply(message)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-sky-500 px-3 font-semibold text-white transition-all hover:bg-sky-400 active:scale-95 disabled:cursor-wait disabled:bg-sky-500/60"
+          >
+            {applying ? <Loader2 size="0.8125rem" className="animate-spin" /> : <Check size="0.8125rem" />}
+            Apply
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DekiActionDiffView({
+  action,
+  rows,
+  loading,
+  warning,
+}: {
+  action: Exclude<DekiEntryAction, { type: "none" }>;
+  rows: DekiActionDiffRow[];
+  loading: boolean;
+  warning?: string | null;
+}) {
+  const changedRows = rows.filter((row) => row.status !== "unchanged").length;
+  return (
+    <div className="mt-3 overflow-hidden rounded-lg border border-[var(--border)]/70 bg-[var(--secondary)]/55">
+      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)]/70 px-2.5 py-1.5">
+        <div className="min-w-0 flex-1 text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">Diff preview</div>
+        <span className="rounded-full bg-[var(--card)] px-2 py-0.5 text-[0.625rem] font-semibold text-[var(--muted-foreground)]">
+          {action.type === "create_record" ? `${rows.length} added` : `${changedRows} changed`}
+        </span>
+      </div>
+      {warning && (
+        <div className="flex items-center gap-1.5 border-b border-[var(--border)]/70 px-2.5 py-1.5 text-[0.6875rem] text-amber-500">
+          <AlertCircle size="0.75rem" className="shrink-0" />
+          <span className="min-w-0">{warning}</span>
+        </div>
+      )}
+      {loading ? (
+        <div className="flex items-center gap-2 px-2.5 py-3 text-[0.6875rem] text-[var(--muted-foreground)]">
+          <Loader2 size="0.75rem" className="animate-spin" />
+          Loading current record...
+        </div>
+      ) : rows.length > 0 ? (
+        <div className="max-h-80 overflow-auto">
+          {rows.map((row) => (
+            <DekiActionDiffRowView key={row.path} row={row} create={action.type === "create_record"} />
+          ))}
+        </div>
+      ) : (
+        <div className="px-2.5 py-3 text-[0.6875rem] text-[var(--muted-foreground)]">No payload fields.</div>
+      )}
+    </div>
+  );
+}
+
+function DekiActionDiffRowView({ row, create }: { row: DekiActionDiffRow; create: boolean }) {
+  return (
+    <div className="border-b border-[var(--border)]/60 px-2.5 py-2 last:border-b-0">
+      <div className="mb-1.5 flex flex-wrap items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-[0.6875rem] font-semibold text-[var(--foreground)]/85">
+          {formatDekiActionDiffLabel(row.path)}
+        </span>
+        <span
           className={cn(
-            "inline-flex h-8 items-center gap-1.5 rounded-lg px-3 font-semibold transition-all active:scale-95",
-            applied
-              ? "cursor-default bg-emerald-500/10 text-emerald-500"
-              : "bg-sky-500 text-white hover:bg-sky-400 disabled:cursor-wait disabled:bg-sky-500/60",
+            "rounded-full px-2 py-0.5 text-[0.625rem] font-semibold",
+            row.status === "added" && "bg-emerald-500/10 text-emerald-500",
+            row.status === "changed" && "bg-sky-500/10 text-sky-500",
+            row.status === "unchanged" && "bg-[var(--card)] text-[var(--muted-foreground)]",
           )}
         >
-          {applying ? <Loader2 size="0.8125rem" className="animate-spin" /> : <Check size="0.8125rem" />}
-          {applied ? "Applied" : "Apply"}
-        </button>
+          {row.status}
+        </span>
       </div>
+      <DekiActionInlineDiff parts={create ? [{ text: row.after, kind: "added" }] : row.inlineDiff} />
+    </div>
+  );
+}
+
+function formatDekiActionDiffLabel(path: string): string {
+  const label = path
+    .split(".")
+    .filter((segment) => segment !== "data")
+    .at(-1);
+  const fallback = label || path;
+  return fallback
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function DekiActionInlineDiff({ parts }: { parts: DekiActionDiffPart[] }) {
+  return (
+    <div className="min-h-9 whitespace-pre-wrap break-words rounded-md bg-[var(--card)]/70 px-2.5 py-2 text-[0.75rem] leading-relaxed text-[var(--foreground)]/85">
+      {parts.length > 0
+        ? parts.map((part, index) => (
+            <span
+              key={index}
+              className={cn(
+                part.kind === "added" && "rounded-sm bg-emerald-500/15 font-semibold text-emerald-400",
+                part.kind === "removed" &&
+                  "rounded-sm bg-red-500/10 text-red-400 line-through decoration-red-400/80 decoration-2",
+              )}
+            >
+              {part.text}
+            </span>
+          ))
+        : "-"}
     </div>
   );
 }
