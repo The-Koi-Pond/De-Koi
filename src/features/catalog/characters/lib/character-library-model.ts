@@ -1,4 +1,5 @@
 import type { CharacterSearchData } from "./character-search";
+import { resolveCharacterPublicProfile } from "./character-public-profile";
 
 type CharacterData = CharacterSearchData & {
   name?: string;
@@ -48,13 +49,7 @@ export function getText(value: unknown): string {
 }
 
 export function getCharacterSummary(char: ParsedCharacterRow): string {
-  const creatorNotes = getText(char.parsed.creator_notes);
-  if (creatorNotes) return creatorNotes;
-
-  const comment = getText(char.comment);
-  if (comment) return comment;
-
-  return "No creator notes yet.";
+  return resolveCharacterPublicProfile({ data: char.parsed, comment: char.comment }).bio;
 }
 
 export function getCharacterMeta(char: ParsedCharacterRow): string | null {

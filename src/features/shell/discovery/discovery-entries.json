@@ -47,10 +47,10 @@
     "id": "characters",
     "title": "Characters",
     "category": "Library",
-    "summary": "Create, import, organize into groups, and edit character cards used across Conversation, Roleplay, and Game chats.",
-    "keywords": ["card", "character", "bot", "import", "avatar", "sprite", "persona", "library", "groups", "drag and drop"],
+    "summary": "Create, import, organize into groups, edit character cards, and maintain outward-facing public profiles used by quick inspect cards and shallow social context.",
+    "keywords": ["card", "character", "bot", "import", "avatar", "sprite", "persona", "library", "groups", "drag and drop", "public profile", "about me", "bio", "handle", "tags", "quick inspect"],
     "audience": "Users building or collecting characters to chat or roleplay with.",
-    "where": "Title bar > Characters.",
+    "where": "Title bar > Characters, then open a character > Metadata > Public Profile.",
     "actions": [{ "type": "open-panel", "panel": "characters", "label": "Open Characters" }],
     "coverage": "core"
   },

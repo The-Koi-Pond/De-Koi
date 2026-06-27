@@ -1,13 +1,31 @@
 import { useState } from "react";
 import { Maximize2, Tag, X } from "lucide-react";
 
-import type { CharacterData } from "../../../../engine/contracts/types/character";
+import type { CharacterData, CharacterPublicProfile } from "../../../../engine/contracts/types/character";
 import { AvatarCropWidget } from "../../../../shared/components/ui/AvatarCropWidget";
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 import type { AvatarCrop } from "../../../../shared/lib/utils";
 import { CharacterEditorSectionHeader as SectionHeader } from "./CharacterEditorSectionHeader";
 import { CharacterVersionHistoryPanel } from "./CharacterVersionHistoryPanel";
+
+function readPublicProfile(value: unknown): CharacterPublicProfile {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as CharacterPublicProfile) : {};
+}
+
+function parsePublicTagsInput(value: string): string[] {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const part of value.split(",")) {
+    const tag = part.trim();
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+  }
+  return tags;
+}
 
 export function CharacterMetadataTab({
   characterId,
@@ -39,6 +57,9 @@ export function CharacterMetadataTab({
   // Read the saved source-rectangle crop and write the same current shape on edit.
   const savedCrop = (formData.extensions.avatarCrop as AvatarCrop | undefined) ?? null;
   const talkativeness = typeof formData.extensions.talkativeness === "number" ? formData.extensions.talkativeness : 0.5;
+  const publicProfile = readPublicProfile(formData.extensions.publicProfile);
+  const updatePublicProfile = (patch: CharacterPublicProfile) =>
+    updateExtension("publicProfile", { ...publicProfile, ...patch });
 
   return (
     <div className="space-y-5">
@@ -161,6 +182,72 @@ export function CharacterMetadataTab({
           >
             Add
           </button>
+        </div>
+      </div>
+
+      <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/35 p-4">
+        <SectionHeader title="Public Profile" subtitle="Outward-facing identity used by quick inspect cards." />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="space-y-1.5">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+              Display Name{" "}
+              <HelpTooltip text="Optional name for profile previews. Chat still uses the character name above." />
+            </span>
+            <input
+              value={publicProfile.displayName ?? ""}
+              onChange={(event) => updatePublicProfile({ displayName: event.target.value })}
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              placeholder={formData.name}
+            />
+          </label>
+          <label className="space-y-1.5">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+              Handle <HelpTooltip text="Optional short username shown on profile previews." />
+            </span>
+            <input
+              value={publicProfile.handle ?? ""}
+              onChange={(event) => updatePublicProfile({ handle: event.target.value })}
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              placeholder="@username"
+            />
+          </label>
+        </div>
+        <label className="space-y-1.5 block">
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+            Bio <HelpTooltip text="Short public blurb for profile previews." />
+          </span>
+          <textarea
+            value={publicProfile.bio ?? ""}
+            onChange={(event) => updatePublicProfile({ bio: event.target.value })}
+            rows={3}
+            className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+            placeholder="A short outward-facing intro..."
+          />
+        </label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="space-y-1.5">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+              Public Tags{" "}
+              <HelpTooltip text="Comma-separated tags shown on profile previews. Falls back to card tags when blank." />
+            </span>
+            <input
+              value={(publicProfile.tags ?? []).join(", ")}
+              onChange={(event) => updatePublicProfile({ tags: parsePublicTagsInput(event.target.value) })}
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              placeholder="friendly, mysterious"
+            />
+          </label>
+          <label className="space-y-1.5">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+              Banner Image <HelpTooltip text="Optional image URL for profile previews." />
+            </span>
+            <input
+              value={publicProfile.bannerImage ?? ""}
+              onChange={(event) => updatePublicProfile({ bannerImage: event.target.value })}
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              placeholder="https://..."
+            />
+          </label>
         </div>
       </div>
 
