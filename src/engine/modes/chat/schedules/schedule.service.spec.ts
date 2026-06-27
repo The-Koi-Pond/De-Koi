@@ -6,6 +6,7 @@ import type { StorageEntity, StorageGateway } from "../../../capabilities/storag
 import {
   getAvailabilityAutonomousPolicy,
   getAvailabilityDecision,
+  getCurrentStatus,
   generateConversationSchedules,
   getAvailabilityExplanation,
   getAvailabilityResponseDelay,
@@ -78,6 +79,30 @@ describe("getAvailabilityDecision", () => {
       canMessageFirst: false,
       delayKind: "blocked",
       reason: "sleeping",
+    });
+  });
+
+  it("carries sparse overnight blocks from the previous day into the next morning", () => {
+    const schedule: WeekSchedule = {
+      ...baseSchedule,
+      days: {
+        Monday: [{ time: "23:00-07:00", activity: "sleeping", status: "offline" }],
+        Tuesday: [],
+        Wednesday: [],
+        Thursday: [],
+        Friday: [],
+        Saturday: [],
+        Sunday: [],
+      },
+    };
+
+    expect(getCurrentStatus(schedule, tuesdayAt(1, 15))).toEqual({ status: "offline", activity: "sleeping" });
+    expect(getAvailabilityDecision(schedule, tuesdayAt(1, 15))).toMatchObject({
+      status: "offline",
+      activity: "sleeping",
+      availability: "unavailable",
+      canReplyNow: false,
+      canMessageFirst: false,
     });
   });
 
@@ -329,6 +354,18 @@ describe("generateConversationSchedules availability output", () => {
       { time: "09:00-17:00", activity: "focused research", status: "dnd" },
       { time: "17:00-23:59", activity: "open chat", status: "online" },
     ]);
+  });
+
+  it("asks the LLM for sparse availability patterns instead of full-day schedules", async () => {
+    const storage = scheduleStorageGateway();
+    const llm = llmWithSchedule(generatedAvailabilityScheduleJson());
+
+    await generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true });
+
+    const systemPrompt = llm.requests[0]?.messages[0]?.content ?? "";
+    expect(systemPrompt).toContain("Sparse availability patterns");
+    expect(systemPrompt).toContain("Do not fill every hour of the day");
+    expect(systemPrompt).not.toContain("covering the full 24 hours");
   });
   it("rejects conflicting availability and legacy status rows", async () => {
     const storage = scheduleStorageGateway();
