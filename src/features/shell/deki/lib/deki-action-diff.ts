@@ -33,20 +33,14 @@ function parseJsonObject(value: unknown): Record<string, unknown> | null {
   }
 }
 
-function normalizeComparableValue(value: unknown): unknown {
-  const object = parseJsonObject(value);
-  if (!object) return value;
-  return Object.fromEntries(Object.entries(object).map(([key, child]) => [key, normalizeComparableValue(child)]));
-}
-
 function valueAtPath(source: unknown, path: string[]): unknown {
   let current = source;
   for (const segment of path) {
-    const comparable = normalizeComparableValue(current);
+    const comparable = parseJsonObject(current);
     if (!isRecord(comparable)) return undefined;
     current = comparable[segment];
   }
-  return normalizeComparableValue(current);
+  return current;
 }
 
 function flattenProposedValue(value: unknown, prefix = ""): FlatValue[] {

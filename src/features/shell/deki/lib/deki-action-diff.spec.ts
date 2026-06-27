@@ -135,4 +135,53 @@ describe("createDekiActionDiffRows", () => {
       }),
     ]);
   });
+
+  it("normalizes only the traversed current branch when siblings use different shapes", () => {
+    const action: DekiEntryAction = {
+      type: "edit_record",
+      entity: "characters",
+      id: "character-1",
+      patch: {
+        data: {
+          profile: {
+            tastes: {
+              music: "classical piano",
+            },
+          },
+          metadata: {
+            source: "manual",
+          },
+        },
+      },
+    };
+    const rows = createDekiActionDiffRows(action, {
+      id: "character-1",
+      data: {
+        profile: JSON.stringify({
+          tastes: JSON.stringify({
+            music: "old film scores",
+          }),
+        }),
+        metadata: {
+          source: "manual",
+          imported: true,
+        },
+      },
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        path: "data.profile.tastes.music",
+        before: "old film scores",
+        after: "classical piano",
+        status: "changed",
+      }),
+      expect.objectContaining({
+        path: "data.metadata.source",
+        before: "manual",
+        after: "manual",
+        status: "unchanged",
+      }),
+    ]);
+  });
 });
