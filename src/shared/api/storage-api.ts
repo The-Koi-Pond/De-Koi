@@ -456,11 +456,17 @@ export const storageApi: StorageGateway = {
       }),
       storageDeleteInvalidationKinds(entity),
     ),
-  listChatMessages: (chatId, options) =>
-    storageApi.list("messages", {
-      ...options,
-      filters: { chatId },
-    }),
+  listChatMessages: (chatId, options) => {
+    const { role, characterId, ...listOptions } = options ?? {};
+    return storageApi.list("messages", {
+      ...listOptions,
+      filters: {
+        chatId,
+        ...(role ? { role } : {}),
+        ...(characterId ? { characterId } : {}),
+      },
+    });
+  },
   getChatMessage: (messageId, options) => storageApi.get("messages", messageId, options),
   createChatMessage: (chatId, value) => storageApi.create("messages", chatMessageDefaults(chatId, value)),
   updateChatMessage: (messageId, patch) => storageApi.update("messages", messageId, normalizeMessageWrite(patch)),

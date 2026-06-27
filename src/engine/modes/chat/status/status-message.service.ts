@@ -217,12 +217,15 @@ function buildStatusMessagePrompt(args: {
   currentStatus: ConversationStatusKind;
   currentActivity: string;
   recentContext: string;
+  typingStyleContext: string;
 }): LlmMessage[] {
   const system = [
     "Generate one short first-person custom status for a fictional chat character.",
     "Write it as if the character typed it themselves as a Discord-style custom status under their own name.",
-    "Use the character's personality, current availability, current activity, and recent continuity as context only.",
+    "Use the character's personality, current availability, current activity, recent continuity, and typing style evidence as context only.",
     "Follow the default Conversation mode style reference: casual DM text, specific, reactive, and natural to the character.",
+    "Write with the same typing quirks, spelling, casing, punctuation habits, and perspective the character uses in Conversation mode replies.",
+    "If typing style evidence conflicts with generic status grammar, the character's actual Conversation typing style wins.",
     "Do not write a schedule label or third-person activity summary. Do not narrate what the character is doing from outside.",
     "Do not invent a major life event. Do not mention being an AI or mention this instruction.",
     'Return JSON only: {"message":"short status blurb"}.',
@@ -236,6 +239,7 @@ function buildStatusMessagePrompt(args: {
     `Availability: ${args.currentStatus}`,
     `Current activity: ${args.currentActivity}`,
     args.recentContext ? `Recent continuity: ${args.recentContext}` : "",
+    args.typingStyleContext ? `<typing_style_evidence>\n${args.typingStyleContext}\n</typing_style_evidence>` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -255,6 +259,84 @@ function recentContinuityFromChat(meta: JsonRecord, characterData: JsonRecord): 
     .slice(-5);
   if (memories.length > 0) parts.push(`Memories: ${memories.join("; ").slice(0, 700)}`);
   return parts.join("\n").slice(0, 1200);
+}
+
+function compactStyleText(value: string, maxLength: number): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+function messageCreatedAtMs(message: JsonRecord): number {
+  const value = Date.parse(readString(message.createdAt));
+  return Number.isFinite(value) ? value : 0;
+}
+
+async function recentCharacterReplies(
+  storage: StorageGateway,
+  chatId: string,
+  characterId: string,
+): Promise<string[]> {
+  const rows = await storage.listChatMessages<JsonRecord>(chatId, {
+    role: "assistant",
+    characterId,
+    fields: ["content", "createdAt"],
+    orderBy: "createdAt",
+    descending: true,
+    limit: 6,
+  });
+  return rows
+    .sort((a, b) => messageCreatedAtMs(b) - messageCreatedAtMs(a))
+    .slice(0, 6)
+    .reverse()
+    .map((message) => compactStyleText(readString(message.content), 140))
+    .filter(Boolean);
+}
+
+function characterExampleTurnFromBlock(block: string): string {
+  const lines = block.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  if (lines.length === 0) return "";
+
+  const charTurns: string[] = [];
+  let expectedSpeaker: "user" | "char" = "user";
+  for (const line of lines) {
+    const match = line.trim().match(/^\{\{(user|char)\}\}\s*:\s*(.*)$/i);
+    if (!match) return "";
+    const speaker = match[1]?.toLowerCase();
+    if (speaker !== expectedSpeaker) return "";
+    if (speaker === "char") {
+      const content = compactStyleText(match[2] ?? "", 180);
+      if (!content) return "";
+      charTurns.push(content);
+      expectedSpeaker = "user";
+    } else {
+      expectedSpeaker = "char";
+    }
+  }
+  if (charTurns.length === 0 || expectedSpeaker !== "user") return "";
+  return compactStyleText(charTurns.join(" / "), 220);
+}
+
+function characterExampleTurns(value: string): string[] {
+  return readString(value)
+    .split(/\*\*\*|<START>/)
+    .map(characterExampleTurnFromBlock)
+    .filter(Boolean)
+    .slice(-4);
+}
+
+function typingStyleFromCharacter(characterData: JsonRecord, recentReplies: string[]): string {
+  const parts: string[] = [];
+  const systemPrompt = compactStyleText(readString(characterData.system_prompt ?? characterData.systemPrompt), 600);
+  const postHistoryInstructions = compactStyleText(
+    readString(characterData.post_history_instructions ?? characterData.postHistoryInstructions),
+    600,
+  );
+  const examples = characterExampleTurns(readString(characterData.mes_example ?? characterData.exampleDialogue));
+
+  if (systemPrompt) parts.push(`Character system prompt: ${systemPrompt}`);
+  if (postHistoryInstructions) parts.push(`Post-history instructions: ${postHistoryInstructions}`);
+  if (examples.length > 0) parts.push(`Card message examples:\n- ${examples.join("\n- ")}`);
+  if (recentReplies.length > 0) parts.push(`Recent Conversation replies:\n- ${recentReplies.join("\n- ")}`);
+  return parts.join("\n").slice(0, 1800);
 }
 
 async function resolveConnection(storage: StorageGateway, chat: JsonRecord): Promise<JsonRecord | null> {
@@ -348,6 +430,10 @@ export async function maybeRefreshConversationStatusMessages(
       currentStatus,
       currentActivity,
       recentContext: recentContinuityFromChat(meta, data),
+      typingStyleContext: typingStyleFromCharacter(
+        data,
+        await recentCharacterReplies(capabilities.storage, input.chatId, characterId),
+      ),
     });
     const message = parseGeneratedStatusMessage(raw);
     if (!message) {
