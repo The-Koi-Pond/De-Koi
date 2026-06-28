@@ -488,18 +488,47 @@ export async function checkRemoteRuntimeHealth(
   }
 }
 
+const REMOTE_ERROR_BODY_PREVIEW_CHARS = 500;
+
+function retryAfterDetails(
+  retryAfterMs: number | null,
+  details?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const base = details ?? {};
+  if (retryAfterMs === null) return Object.keys(base).length ? base : undefined;
+  return { ...base, retryAfterMs };
+}
+
+function summarizeRemoteErrorText(text: string): string | null {
+  const normalized = text
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return null;
+  return normalized.length > REMOTE_ERROR_BODY_PREVIEW_CHARS
+    ? normalized.slice(0, REMOTE_ERROR_BODY_PREVIEW_CHARS) + "..."
+    : normalized;
+}
+
 export async function readRemoteError(response: Response): Promise<ApiError> {
   const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
   try {
-    const body = await response.json();
+    const body = await response.clone().json();
     const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-    const message = typeof record.message === "string" ? record.message : `Remote runtime returned ${response.status}`;
+    const message =
+      typeof record.message === "string"
+        ? record.message
+        : typeof record.error === "string"
+          ? record.error
+          : "Remote runtime returned " + response.status;
     return new ApiError(message, response.status, retryAfterMs === null ? record : { ...record, retryAfterMs });
   } catch {
+    const body = summarizeRemoteErrorText(await response.text().catch(() => ""));
+    const message = "Remote runtime returned " + response.status;
     return new ApiError(
-      `Remote runtime returned ${response.status}`,
+      body ? message + ": " + body : message,
       response.status,
-      retryAfterMs === null ? undefined : { retryAfterMs },
+      retryAfterDetails(retryAfterMs, body ? { body } : undefined),
     );
   }
 }
