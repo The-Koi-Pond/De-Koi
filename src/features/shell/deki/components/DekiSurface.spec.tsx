@@ -596,6 +596,93 @@ describe("DekiSurface message retry actions", () => {
     );
   });
 
+  it("asks before web research and reruns the turn with a scoped grant when approved", async () => {
+    const webResearchMessage = {
+      id: "deki-assistant-web-1",
+      role: "assistant" as const,
+      content: "I should check current sources before changing that card.",
+      createdAt: "2026-06-28T12:00:01.000Z",
+      action: {
+        type: "request_web_research" as const,
+        scope: {
+          type: "query" as const,
+          query: "Ghostface Dead by Daylight lore personality",
+          allowedDomains: ["deadbydaylight.fandom.com"],
+        },
+        reason: "Verify whether the current card matches Dead by Daylight sources.",
+        sources: ["Dead by Daylight Wiki"],
+        label: "Check Ghostface sources",
+      },
+    };
+    vi.mocked(dekiApi.history.get).mockResolvedValueOnce({
+      session: {
+        id: "session-1",
+        title: "Help",
+        messages: [userMessage, webResearchMessage],
+        compaction: EMPTY_DEKI_COMPACTION,
+        createdAt: "2026-06-25T12:00:00.000Z",
+        updatedAt: "2026-06-28T12:00:01.000Z",
+      },
+      messages: [userMessage, webResearchMessage],
+      compaction: EMPTY_DEKI_COMPACTION,
+    });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <DekiSurface sessionId="session-1" />
+        </QueryClientProvider>,
+      );
+    });
+    await tick();
+
+    expect(container!.textContent).toContain("Search the web");
+    expect(container!.textContent).toContain("read public source pages");
+    const searchButton = Array.from(container!.querySelectorAll<HTMLButtonElement>("button")).find((button) =>
+      button.textContent?.includes("Search web"),
+    );
+    expect(searchButton).not.toBeNull();
+
+    await act(async () => {
+      searchButton!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(dekiApi.history.markActionApplied).toHaveBeenCalledWith(
+      webResearchMessage.id,
+      expect.objectContaining({
+        status: "applied",
+        resultId: expect.stringContaining("deki-web-research-grant"),
+      }),
+      "session-1",
+    );
+    expect(dekiApi.history.replaceMessages).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "session-1",
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            id: webResearchMessage.id,
+            actionApplication: expect.objectContaining({ status: "applied" }),
+          }),
+        ]),
+      }),
+    );
+    expect(runDekiEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: userMessage.content,
+        webResearchGrants: [
+          expect.objectContaining({
+            actionMessageId: webResearchMessage.id,
+            scope: webResearchMessage.action.scope,
+          }),
+        ],
+      }),
+      dekiApi,
+    );
+  });
   it("restores approved chat grants from history before retrying", async () => {
     const grantedAt = "2026-06-25T12:00:02.000Z";
     const actionMessage = {

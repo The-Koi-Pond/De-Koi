@@ -246,6 +246,20 @@ export type DekiPersonaContext = {
   appearance?: string | null;
 };
 
+export type DekiWebResearchScope = {
+  type: "query";
+  query: string;
+  allowedDomains?: string[];
+};
+
+export type DekiWebResearchGrant = {
+  id: string;
+  actionMessageId: string;
+  scope: DekiWebResearchScope;
+  grantedAt: string;
+  expiresAt?: string | null;
+};
+
 export type DekiEntryRequest = {
   userMessage: string;
   messages: DekiMessage[];
@@ -254,6 +268,7 @@ export type DekiEntryRequest = {
   persona?: DekiPersonaContext | null;
   attachments?: DekiAttachment[];
   chatAccessGrants?: DekiChatAccessGrant[];
+  webResearchGrants?: DekiWebResearchGrant[];
 };
 
 const DEKI_ACTION_ENTITIES = [
@@ -276,6 +291,13 @@ export type DekiEntryAction =
       type: "none";
       capability: "read_only" | "workspace_agent";
       reason: string;
+    }
+  | {
+      type: "request_web_research";
+      scope: DekiWebResearchScope;
+      reason: string;
+      sources?: string[];
+      label?: string;
     }
   | {
       type: "create_record";
@@ -337,6 +359,7 @@ export async function runDekiEntry(input: DekiEntryRequest, gateway: DekiGateway
     compactedSummary: input.compactedSummary ?? null,
     attachments: input.attachments ?? [],
     chatAccessGrants: input.chatAccessGrants ?? [],
+    webResearchGrants: input.webResearchGrants ?? [],
     connectionId: input.connectionId ?? null,
     persona: input.persona ?? null,
   });
@@ -369,6 +392,24 @@ export function normalizeDekiEntryAction(value: unknown): DekiEntryAction {
       ...(typeof value.rationale === "string" ? { rationale: value.rationale } : {}),
     };
   }
+  const webResearchScope = normalizeDekiWebResearchScope(value.scope);
+  if (
+    value.type === "request_web_research" &&
+    webResearchScope &&
+    typeof value.reason === "string" &&
+    value.reason.trim()
+  ) {
+    const sources = Array.isArray(value.sources)
+      ? value.sources.filter((source): source is string => typeof source === "string" && source.trim().length > 0)
+      : undefined;
+    return {
+      type: "request_web_research",
+      scope: webResearchScope,
+      reason: value.reason.trim(),
+      ...(sources && sources.length > 0 ? { sources: sources.map((source) => source.trim()).slice(0, 6) } : {}),
+      ...(typeof value.label === "string" && value.label.trim() ? { label: value.label.trim() } : {}),
+    };
+  }
   if (
     value.type === "edit_record" &&
     isDekiActionEntity(value.entity) &&
@@ -396,6 +437,23 @@ export function normalizeDekiEntryAction(value: unknown): DekiEntryAction {
     };
   }
   return DEKI_DEFAULT_ACTION;
+}
+
+function normalizeDekiWebResearchScope(value: unknown): DekiWebResearchScope | null {
+  if (!isRecord(value)) return null;
+  if (value.type !== "query") return null;
+  const query = typeof value.query === "string" ? value.query.trim() : "";
+  if (!query) return null;
+  const allowedDomains = Array.isArray(value.allowedDomains)
+    ? value.allowedDomains.filter((domain): domain is string => typeof domain === "string" && domain.trim().length > 0)
+    : undefined;
+  return {
+    type: "query",
+    query,
+    ...(allowedDomains && allowedDomains.length > 0
+      ? { allowedDomains: allowedDomains.map((domain) => domain.trim()).slice(0, 10) }
+      : {}),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

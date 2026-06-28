@@ -798,7 +798,7 @@ export const dekiApi = {
       action: DekiEntryAction,
       options?: { actionId?: string; messageId?: string; sessionId?: string | null },
     ): Promise<DekiActionApplyResult> => {
-      if (action.type === "none" || action.type === "request_chat_access") {
+      if (action.type === "none" || action.type === "request_chat_access" || action.type === "request_web_research") {
         throw new Error("Deki-senpai did not provide an applyable action.");
       }
       const storageEntity = storageEntityForDekiAction(action.entity);

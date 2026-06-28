@@ -79,7 +79,7 @@ For code changes, final responses must include behavior changed, primary files/m
 - `src/features/shell/discovery`: In-app Discover guide, feature metadata registry, search/filter helpers, and discoverability action routing.
 - `src/features/shell/plugins`: Bundled opt-in core module registry, settings UI, React Query hooks, runtime contribution mounting, and the ME Notes chat notepad module.
 - `src/engine/deki`: TypeScript request/response contract for the Deki-senpai entrypoint.
-- `src-tauri/src/commands/storage/deki.rs` and `src-tauri/src/commands/storage/deki/*`: Privileged Deki-senpai agent execution, tool definitions, codebase search/read/edit access, scoped chat-read access, and extension/custom-agent creation.
+- `src-tauri/src/commands/storage/deki.rs` and `src-tauri/src/commands/storage/deki/*`: Privileged Deki-senpai agent execution, tool definitions, codebase search/read/edit access, scoped chat-read access, consent-gated web research/page reads, and extension/custom-agent creation.
 - `src/shared/api/deki-api.ts`: Focused frontend runtime wrapper for the Deki-senpai command.
 - `src/shared/api/local-sidecar-api.ts`: Focused frontend runtime wrapper for Local Model sidecar status, config, runtime/model downloads, process control, and smoke tests.
 - `src/shared/api/plugin-memory-api.ts`: Focused frontend wrapper for namespaced plugin memory stored in the `plugin-memory` collection and routed through embedded or remote runtime storage.

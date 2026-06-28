@@ -23,6 +23,7 @@ import {
   type DekiChatAccessWindow,
   type DekiEntryAction,
   type DekiMessage,
+  type DekiWebResearchGrant,
 } from "../../../../engine/deki/deki-entry";
 import {
   EMPTY_DEKI_COMPACTION,
@@ -91,6 +92,7 @@ const DEKI_CREATIVE_LIBRARY_QUERY_KEYS: readonly (readonly unknown[])[] = [
 
 type ClientDekiAttachment = DekiAttachment & { id: string };
 type DekiChatAccessRequestAction = Extract<DekiEntryAction, { type: "request_chat_access" }>;
+type DekiWebResearchDecision = { type: "web_research_decision"; approve: boolean };
 type DekiChatAccessScopeOption = {
   id: string;
   label: string;
@@ -185,6 +187,7 @@ function actionPayload(action: DekiEntryAction): Record<string, unknown> {
 function actionTitle(action: DekiEntryAction) {
   if (action.type === "none") return "Deki-senpai action";
   if (action.type === "request_chat_access") return action.label?.trim() || "Grant Deki chat access";
+  if (action.type === "request_web_research") return action.label?.trim() || "Search the web";
   if (action.label?.trim()) return action.label.trim();
   const verb = action.type === "create_record" ? "Create" : "Update";
   return `${verb} ${DEKI_ACTION_ENTITY_LABELS[action.entity]}`;
@@ -250,6 +253,20 @@ function createDekiChatAccessGrant(
     scope: action.scope,
     window: normalizeDekiChatAccessWindow(action.window),
     grantedAt: new Date().toISOString(),
+    expiresAt: null,
+  };
+}
+
+function createDekiWebResearchGrant(
+  message: DekiMessage,
+  action: Extract<DekiEntryAction, { type: "request_web_research" }>,
+): DekiWebResearchGrant {
+  const grantedAt = new Date().toISOString();
+  return {
+    id: newId("deki-web-research-grant"),
+    actionMessageId: message.id,
+    scope: action.scope,
+    grantedAt,
     expiresAt: null,
   };
 }
@@ -389,6 +406,17 @@ function previewValue(value: unknown): string | null {
 
 function actionPreviewRows(action: DekiEntryAction): Array<{ label: string; value: string }> {
   if (action.type === "none" || action.type === "request_chat_access") return [];
+  if (action.type === "request_web_research") {
+    const fields: Array<[string, unknown]> = [
+      ["Query", action.scope.query],
+      ["Sources", action.sources],
+      ["Domains", action.scope.allowedDomains],
+    ];
+    return fields
+      .map(([label, value]) => ({ label, value: previewValue(value) }))
+      .filter((row): row is { label: string; value: string } => !!row.value)
+      .slice(0, 4);
+  }
   const payload = actionPayload(action);
   const nestedData =
     payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)
@@ -439,7 +467,7 @@ function uniqueQueryKeys(queryKeys: readonly (readonly unknown[])[]): readonly (
 }
 
 async function invalidateDekiActionQueries(queryClient: QueryClient, action: DekiEntryAction) {
-  if (action.type === "none" || action.type === "request_chat_access") return;
+  if (action.type === "none" || action.type === "request_chat_access" || action.type === "request_web_research") return;
   await Promise.all(
     uniqueQueryKeys([...DEKI_CREATIVE_LIBRARY_QUERY_KEYS, ...DEKI_ACTION_QUERY_KEYS[action.entity]]).map((queryKey) =>
       queryClient.invalidateQueries({
@@ -912,9 +940,17 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
     }
   };
 
-  const applyDekiAction = async (message: DekiMessage, approvedAction?: DekiChatAccessRequestAction) => {
-    const action =
-      approvedAction && message.action?.type === "request_chat_access" ? approvedAction : message.action;
+  const applyDekiAction = async (
+    message: DekiMessage,
+    approvedAction?: DekiChatAccessRequestAction | DekiWebResearchDecision,
+  ) => {
+    const webResearchDecision: DekiWebResearchDecision | null =
+      approvedAction?.type === "web_research_decision" ? approvedAction : null;
+    const chatAccessAction: DekiChatAccessRequestAction | null =
+      approvedAction && approvedAction.type === "request_chat_access" && message.action?.type === "request_chat_access"
+        ? approvedAction
+        : null;
+    const action: DekiEntryAction | null | undefined = chatAccessAction ?? message.action;
     if (!action || action.type === "none" || message.actionApplication?.status === "applied") return;
     setApplyingActionMessageId(message.id);
     setActionErrors((current) => {
@@ -922,6 +958,64 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
       return rest;
     });
     try {
+      if (action.type === "request_web_research") {
+        if (webResearchDecision?.approve && (sending || !historyLoaded || !preferencesReady)) return;
+        if (webResearchDecision?.approve && !preparePrompting()) return;
+        const retryTurn = findUserTurnForRetry(message.id);
+        if (!retryTurn) {
+          setActionErrors((current) => ({
+            ...current,
+            [message.id]: "Deki-senpai needs the original user message before searching the web.",
+          }));
+          return;
+        }
+        const grant = createDekiWebResearchGrant(message, action);
+        const application = {
+          status: "applied" as const,
+          appliedAt: grant.grantedAt,
+          resultId: webResearchDecision?.approve ? grant.id : "web-research-declined",
+        };
+        const messagesWithDecision = messages.map((item) =>
+          item.id === message.id ? { ...item, actionApplication: application } : item,
+        );
+        await dekiApi.history.replaceMessages({
+          sessionId,
+          messages: messagesWithDecision,
+          compaction,
+        });
+        await dekiApi.history.markActionApplied(message.id, application, sessionId);
+        setMessages(messagesWithDecision);
+        void onSessionsChanged?.();
+        if (!webResearchDecision?.approve) return;
+        setSending(true);
+        await runDetachedDekiSend({
+          sessionId,
+          userMessage: retryTurn.user.content,
+          existingUser: retryTurn.user,
+          messages: messagesWithDecision,
+          compaction,
+          connection: selectedConnection!,
+          llm: llmApi,
+          gateway: dekiApi,
+          history: dekiApi.history,
+          persona: selectedPersonaRequest(),
+          attachments: [],
+          chatAccessGrants,
+          webResearchGrants: [grant],
+          onUserMessagePersisted: (_user, messagesWithUser) => {
+            if (mountedRef.current) setMessages(messagesWithUser);
+            void onSessionsChanged?.();
+          },
+          onCompactionSaved: (nextCompaction) => {
+            if (mountedRef.current) setCompaction(nextCompaction);
+          },
+          onAssistantMessagePersisted: (_assistant, messagesWithAssistant) => {
+            if (mountedRef.current) setMessages(messagesWithAssistant);
+            void onSessionsChanged?.();
+          },
+        });
+        return;
+      }
       if (action.type === "request_chat_access") {
         if (sending || !historyLoaded || !preferencesReady) return;
         if (!preparePrompting()) return;
@@ -1011,7 +1105,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
       }));
     } finally {
       if (mountedRef.current) {
-        if (action.type === "request_chat_access") setSending(false);
+        if (action.type === "request_chat_access" || action.type === "request_web_research") setSending(false);
         setApplyingActionMessageId(null);
         requestAnimationFrame(() => inputRef.current?.focus());
       }
@@ -1304,7 +1398,7 @@ function DekiActionCard({
   message?: DekiMessage;
   applying: boolean;
   error?: string;
-  onApply: (message: DekiMessage, approvedAction?: DekiChatAccessRequestAction) => void;
+  onApply: (message: DekiMessage, approvedAction?: DekiChatAccessRequestAction | DekiWebResearchDecision) => void;
 }) {
   const action = message?.action;
   const applied = message?.actionApplication?.status === "applied";
@@ -1351,6 +1445,20 @@ function DekiActionCard({
   }, [action, actionPreviewKey, applied, currentRecordState.record]);
 
   if (!message || !action || action.type === "none") return null;
+  const rows = actionPreviewRows(action);
+  if (action.type === "request_web_research") {
+    return (
+      <DekiWebResearchCard
+        message={message}
+        action={action}
+        handled={applied}
+        applying={applying}
+        error={error}
+        rows={rows}
+        onApply={onApply}
+      />
+    );
+  }
   if (action.type === "request_chat_access") {
     return (
       <DekiChatAccessCard
@@ -1363,7 +1471,6 @@ function DekiActionCard({
       />
     );
   }
-  const rows = actionPreviewRows(action);
   const diffWarning =
     action.type === "edit_record" && currentRecordState.status === "loaded" && !currentRecordState.record
       ? "Current record was not found."
@@ -1468,6 +1575,76 @@ function DekiActionDiffView({
   );
 }
 
+function DekiWebResearchCard({
+  message,
+  action,
+  handled,
+  applying,
+  error,
+  rows,
+  onApply,
+}: {
+  message: DekiMessage;
+  action: Extract<DekiEntryAction, { type: "request_web_research" }>;
+  handled: boolean;
+  applying: boolean;
+  error?: string;
+  rows: Array<{ label: string; value: string }>;
+  onApply: (message: DekiMessage, approvedAction?: DekiChatAccessRequestAction | DekiWebResearchDecision) => void;
+}) {
+  return (
+    <div className="mb-3 ml-[4.5rem] mr-4 mt-2 rounded-xl border border-cyan-400/30 bg-[var(--card)] px-3 py-3 text-xs text-[var(--foreground)] shadow-lg shadow-cyan-500/10">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-500">
+          <Link size="0.875rem" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold">{actionTitle(action)}</div>
+          <div className="text-[0.6875rem] text-[var(--muted-foreground)]">Search the web and read public source pages with your approval</div>
+        </div>
+        {handled && (
+          <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-lg bg-emerald-500/10 px-2 font-semibold text-emerald-500">
+            <Check size="0.75rem" />
+            Handled
+          </span>
+        )}
+      </div>
+      <p className="mt-2 leading-relaxed text-[var(--foreground)]/75">{action.reason}</p>
+      {rows.length > 0 && (
+        <dl className="mt-2 grid gap-1.5">
+          {rows.map((row) => (
+            <div key={row.label} className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
+              <dt className="text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">{row.label}</dt>
+              <dd className="min-w-0 truncate text-[var(--foreground)]/85">{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {error && <div className="mt-2 rounded-lg bg-red-500/10 px-2 py-1.5 text-[0.6875rem] text-red-500">{error}</div>}
+      {!handled && (
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            disabled={applying}
+            onClick={() => onApply(message, { type: "web_research_decision", approve: false })}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 font-semibold text-[var(--foreground)]/75 transition-all hover:bg-[var(--accent)] active:scale-95 disabled:cursor-default disabled:opacity-60"
+          >
+            Not now
+          </button>
+          <button
+            type="button"
+            disabled={applying}
+            onClick={() => onApply(message, { type: "web_research_decision", approve: true })}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-cyan-500 px-3 font-semibold text-white transition-all hover:bg-cyan-400 active:scale-95 disabled:cursor-wait disabled:bg-cyan-500/60"
+          >
+            {applying ? <Loader2 size="0.8125rem" className="animate-spin" /> : <Link size="0.8125rem" />}
+            Search web
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 function DekiChatAccessCard({
   message,
   action,
@@ -1481,7 +1658,7 @@ function DekiChatAccessCard({
   granted: boolean;
   applying: boolean;
   error?: string;
-  onApply: (message: DekiMessage, approvedAction?: DekiChatAccessRequestAction) => void;
+  onApply: (message: DekiMessage, approvedAction?: DekiChatAccessRequestAction | DekiWebResearchDecision) => void;
 }) {
   const normalizedAction = useMemo(() => normalizeDekiChatAccessRequestAction(action), [action]);
   const scopeOptions = useMemo(() => chatAccessScopeOptions(normalizedAction), [normalizedAction]);

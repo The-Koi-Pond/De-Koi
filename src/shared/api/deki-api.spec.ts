@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DekiEntryAction } from "../../engine/deki/deki-entry";
+import { normalizeDekiEntryAction, type DekiEntryAction } from "../../engine/deki/deki-entry";
 import { dekiApi } from "./deki-api";
 
 const { storageApiMock } = vi.hoisted(() => ({
@@ -14,6 +14,36 @@ const { storageApiMock } = vi.hoisted(() => ({
 vi.mock("./storage-api", () => ({
   storageApi: storageApiMock,
 }));
+
+describe("normalizeDekiEntryAction web research", () => {
+  it("keeps a web research permission request pending until the shell grants it", () => {
+    const action = normalizeDekiEntryAction({
+      type: "request_web_research",
+      scope: { type: "query", query: "Ghostface Dead by Daylight lore personality" },
+      reason: "Compare public sources with the selected character card.",
+      sources: ["official", "wiki"],
+      label: "Check Ghostface sources",
+    });
+
+    expect(action).toEqual({
+      type: "request_web_research",
+      scope: { type: "query", query: "Ghostface Dead by Daylight lore personality" },
+      reason: "Compare public sources with the selected character card.",
+      sources: ["official", "wiki"],
+      label: "Check Ghostface sources",
+    });
+  });
+
+  it("falls back to the default action when the query scope is blank", () => {
+    const action = normalizeDekiEntryAction({
+      type: "request_web_research",
+      scope: { type: "query", query: "   " },
+      reason: "Search public sources.",
+    });
+
+    expect(action).toMatchObject({ type: "none", capability: "read_only" });
+  });
+});
 
 describe("dekiApi.actions.apply", () => {
   beforeEach(() => {
