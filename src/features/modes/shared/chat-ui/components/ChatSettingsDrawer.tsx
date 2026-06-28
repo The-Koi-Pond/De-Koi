@@ -80,6 +80,7 @@ import {
   metadataTranslationProvider,
 } from "../lib/chat-settings-metadata";
 import { toggleChatAgent, toggleConversationStatusMessages } from "../lib/chat-settings-actions";
+import { resolveConversationStatusMessagesEnabled } from "../../../../../engine/modes/chat/status/conversation-status-settings";
 import { buildContinuityOverviewViewModel } from "../lib/continuity-overview";
 import {
   AgentCategorySection,
@@ -113,6 +114,7 @@ import {
 } from "../../../../catalog/chats/index";
 import { generateConversationSchedules as runGenerateConversationSchedules } from "../../../../../engine/modes/chat/schedules/schedule.service";
 import { maybeRefreshConversationStatusMessages } from "../../../../../engine/modes/chat/status/status-message.service";
+import { conversationSettingsApi, conversationSettingsKeys } from "../../../../../shared/api/conversation-settings-api";
 import { conversationCommandPromptEnabled } from "../../../../../engine/modes/chat/commands/activation";
 import { agentApi } from "../../../../../shared/api/agent-api";
 import { llmApi } from "../../../../../shared/api/llm-api";
@@ -566,7 +568,20 @@ function ChatSettingsDrawerInner({
   const conversationSchedulesEnabled =
     metadata.conversationSchedulesEnabled === true ||
     (metadata.conversationSchedulesEnabled == null && hasGeneratedConversationSchedules);
-  const conversationStatusMessagesEnabled = metadata.conversationStatusMessagesEnabled === true;
+  const conversationSettingsQuery = useQuery({
+    queryKey: conversationSettingsKeys.settings,
+    queryFn: conversationSettingsApi.settings.get,
+  });
+  const conversationStatusMessagesDefaultEnabled =
+    conversationSettingsQuery.data?.statusMessagesEnabledByDefault === true;
+  const conversationStatusMessagesOverride =
+    metadata.conversationStatusMessagesEnabled === true || metadata.conversationStatusMessagesEnabled === false
+      ? metadata.conversationStatusMessagesEnabled
+      : null;
+  const conversationStatusMessagesEnabled = resolveConversationStatusMessagesEnabled(
+    metadata,
+    conversationStatusMessagesDefaultEnabled,
+  );
   const activeLorebookIds = useMemo<string[]>(
     () => metadataStringArray(metadata.activeLorebookIds),
     [metadata.activeLorebookIds],
@@ -1440,10 +1455,38 @@ function ChatSettingsDrawerInner({
     },
     [chat.id, chatCharIds, qc],
   );
+  const handleToggleConversationStatusMessagesDefault = useCallback(() => {
+    const nextEnabled = !conversationStatusMessagesDefaultEnabled;
+    void (async () => {
+      try {
+        await conversationSettingsApi.settings.setStatusMessagesEnabledByDefault(nextEnabled);
+        await qc.invalidateQueries({ queryKey: conversationSettingsKeys.settings });
+        if (!nextEnabled || conversationStatusMessagesOverride === false) return;
+
+        const result = await maybeRefreshConversationStatusMessages(
+          { storage: storageApi, llm: llmApi },
+          { chatId: chat.id },
+        );
+        if (result.refreshed.length > 0) {
+          invalidateCharacterCollectionQueries(qc);
+          await qc.invalidateQueries({ queryKey: chatKeys.detail(chat.id) });
+        }
+      } catch (error) {
+        await conversationSettingsApi.settings
+          .setStatusMessagesEnabledByDefault(conversationStatusMessagesDefaultEnabled)
+          .catch(() => undefined);
+        await qc.invalidateQueries({ queryKey: conversationSettingsKeys.settings });
+        toast.error(error instanceof Error ? error.message : "Status blurb generation failed.");
+      }
+    })();
+  }, [chat.id, conversationStatusMessagesDefaultEnabled, conversationStatusMessagesOverride, qc]);
   const handleToggleConversationStatusMessages = useCallback(() => {
+    const nextEnabled = !conversationStatusMessagesEnabled;
     void toggleConversationStatusMessages({
       chat,
       enabled: conversationStatusMessagesEnabled,
+      nextEnabled,
+      rollbackEnabled: conversationStatusMessagesOverride === true,
       updateMeta,
       refreshStatusMessages: (chatId) =>
         maybeRefreshConversationStatusMessages({ storage: storageApi, llm: llmApi }, { chatId }),
@@ -1453,7 +1496,7 @@ function ChatSettingsDrawerInner({
         toast.error(message);
       },
     });
-  }, [chat, conversationStatusMessagesEnabled, qc, updateMeta]);
+  }, [chat, conversationStatusMessagesEnabled, conversationStatusMessagesOverride, qc, updateMeta]);
 
   const [scenePromptExpanded, setScenePromptExpanded] = useState(false);
   const [scenePromptDraft, setScenePromptDraft] = useState(sceneSystemPrompt);
@@ -3094,6 +3137,35 @@ function ChatSettingsDrawerInner({
                 </button>
 
                 <button
+                  onClick={handleToggleConversationStatusMessagesDefault}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                    conversationStatusMessagesDefaultEnabled
+                      ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                      : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                  )}
+                >
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-medium">Auto-enable Status Blurbs</span>
+                    <p className="text-[0.625rem] text-[var(--muted-foreground)]">Default for conversation chats</p>
+                  </div>
+                  <div
+                    className={cn(
+                      "h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
+                      conversationStatusMessagesDefaultEnabled
+                        ? "bg-[var(--primary)]"
+                        : "bg-[var(--muted-foreground)]/50",
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                        conversationStatusMessagesDefaultEnabled && "translate-x-3.5",
+                      )}
+                    />
+                  </div>
+                </button>
+                <button
                   onClick={handleToggleConversationStatusMessages}
                   className={cn(
                     "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
@@ -3103,9 +3175,13 @@ function ChatSettingsDrawerInner({
                   )}
                 >
                   <div className="flex-1 min-w-0">
-                    <span className="text-xs font-medium">Status Blurbs</span>
+                    <span className="text-xs font-medium">This Chat</span>
                     <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                      Short generated updates based on routines and recent context
+                      {conversationStatusMessagesOverride === null
+                        ? `Using global default (${conversationStatusMessagesDefaultEnabled ? "on" : "off"})`
+                        : conversationStatusMessagesEnabled
+                          ? "Explicitly on for this chat"
+                          : "Explicitly off for this chat"}
                     </p>
                   </div>
                   <div

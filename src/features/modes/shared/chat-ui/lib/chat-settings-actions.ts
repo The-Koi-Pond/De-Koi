@@ -74,6 +74,8 @@ type RefreshStatusMessages = (chatId: string) => Promise<{ refreshed: string[]; 
 type StatusMessagesToggleOptions = {
   chat: Pick<Chat, "id">;
   enabled: boolean;
+  nextEnabled?: boolean;
+  rollbackEnabled?: boolean;
   updateMeta: UpdateMetadataMutation;
   refreshStatusMessages: RefreshStatusMessages;
   invalidateCharacters: () => void | Promise<void>;
@@ -84,15 +86,17 @@ type StatusMessagesToggleOptions = {
 export async function toggleConversationStatusMessages({
   chat,
   enabled,
+  nextEnabled,
+  rollbackEnabled = false,
   updateMeta,
   refreshStatusMessages,
   invalidateCharacters,
   invalidateChat,
   showRefreshFailure,
 }: StatusMessagesToggleOptions): Promise<void> {
-  const nextEnabled = !enabled;
-  await updateMeta.mutateAsync({ id: chat.id, conversationStatusMessagesEnabled: nextEnabled });
-  if (!nextEnabled) return;
+  const targetEnabled = nextEnabled ?? !enabled;
+  await updateMeta.mutateAsync({ id: chat.id, conversationStatusMessagesEnabled: targetEnabled });
+  if (!targetEnabled) return;
 
   try {
     const result = await refreshStatusMessages(chat.id);
@@ -101,7 +105,9 @@ export async function toggleConversationStatusMessages({
       await invalidateChat();
     }
   } catch (error) {
-    await updateMeta.mutateAsync({ id: chat.id, conversationStatusMessagesEnabled: false }).catch(() => undefined);
+    await updateMeta
+      .mutateAsync({ id: chat.id, conversationStatusMessagesEnabled: rollbackEnabled })
+      .catch(() => undefined);
     await invalidateChat();
     await showRefreshFailure(error instanceof Error ? error.message : "Status blurb generation failed.");
   }
@@ -153,9 +159,7 @@ export async function toggleChatAgent({
 
   const current = readLatestActiveAgentIds();
   const isRemoving = wasRemoving;
-  const nextAgentIds = isRemoving
-    ? current.filter((id) => id !== agentId)
-    : Array.from(new Set([...current, agentId]));
+  const nextAgentIds = isRemoving ? current.filter((id) => id !== agentId) : Array.from(new Set([...current, agentId]));
   let metadataSaved = false;
   try {
     await updateMeta.mutateAsync(

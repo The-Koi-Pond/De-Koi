@@ -137,6 +137,24 @@ describe("chat settings actions", () => {
     expect(refreshStatusMessages).toHaveBeenCalledWith("chat-1");
     expect(events).toEqual(["save:true", "refresh:chat-1", "invalidateCharacters", "invalidateChat"]);
   });
+  it("can opt a globally enabled chat out without refreshing", async () => {
+    const updateMeta = { mutateAsync: vi.fn().mockResolvedValue(undefined) };
+    const refreshStatusMessages = vi.fn().mockResolvedValue({ refreshed: [], skipped: [] });
+
+    await toggleConversationStatusMessages({
+      chat: { id: "chat-1", mode: "conversation", metadata: {} } as Chat,
+      enabled: true,
+      nextEnabled: false,
+      updateMeta,
+      refreshStatusMessages,
+      invalidateCharacters: vi.fn(),
+      invalidateChat: vi.fn(),
+      showRefreshFailure: vi.fn(),
+    });
+
+    expect(updateMeta.mutateAsync).toHaveBeenCalledWith({ id: "chat-1", conversationStatusMessagesEnabled: false });
+    expect(refreshStatusMessages).not.toHaveBeenCalled();
+  });
   it("rolls status blurbs back when immediate refresh fails", async () => {
     const updateMeta = { mutateAsync: vi.fn().mockResolvedValue(undefined) };
     const refreshStatusMessages = vi.fn().mockRejectedValue(new Error("No model configured"));
