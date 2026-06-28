@@ -4567,8 +4567,8 @@ function ChatSettingsDrawerInner({
                   </div>
                 )}
 
-                {/* Manual trackers toggle — not for game mode */}
-                {agentsEnabled && !isGame && (
+                {/* Manual trackers toggle - roleplay only */}
+                {agentsEnabled && isRoleplayMode && (
                   <button
                     onClick={() => updateMeta.mutate({ id: chat.id, manualTrackers: !manualTrackersEnabled })}
                     className={cn(

@@ -1086,8 +1086,16 @@ function skippedLorebookKeeperTargetResult(agent: JsonRecord): AgentResult {
 function suppressAgentForTurn(input: GenerationAgentRuntimeInput, type: string): boolean {
   const isRegeneration = !!readString(input.regenerateMessageId).trim();
   if (isRegeneration && type === "echo-chamber") return true;
-  if (!input.agentTypes && boolish(chatMetadata(input).manualTrackers, false) && TRACKER_AGENT_TYPES.has(type))
+  const mode = chatMode(input);
+  const manualTrackerMode = mode !== "conversation" && mode !== "game";
+  if (
+    manualTrackerMode &&
+    !input.agentTypes &&
+    boolish(chatMetadata(input).manualTrackers, false) &&
+    TRACKER_AGENT_TYPES.has(type)
+  ) {
     return true;
+  }
   return false;
 }
 

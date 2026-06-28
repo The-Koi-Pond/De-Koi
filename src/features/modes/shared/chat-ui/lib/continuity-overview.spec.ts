@@ -35,11 +35,11 @@ describe("continuity overview view model", () => {
       ],
       activeAgentIds: ["chat-summary", "world-state", "custom-tracker"],
       activeLorebookIds: ["moon-station"],
-      enableMemoryRecall: undefined,
+      enableMemoryRecall: true,
     };
 
     const model = buildContinuityOverviewViewModel({
-      chatMode: "conversation",
+      chatMode: "roleplay",
       metadata,
       activeLorebookCount: 2,
       totalMessageCount: 42,
@@ -98,4 +98,21 @@ describe("continuity overview view model", () => {
       ["trackers", "idle", "None"],
     ]);
   });
-});
+
+  it("describes conversation tracker-category agents as automation instead of trackers", () => {
+    const model = buildContinuityOverviewViewModel({
+      chatMode: "conversation",
+      metadata: { summary: null, activeAgentIds: ["schedule-planner"] },
+      activeLorebookCount: 0,
+      totalMessageCount: 0,
+    });
+
+    expect(model.sections.find((section) => section.id === "trackers")).toEqual(
+      expect.objectContaining({
+        label: "Automation",
+        status: "active",
+        value: "1 agent",
+        detail: "Schedule Planner can update Conversation automation after messages.",
+      }),
+    );
+  });});

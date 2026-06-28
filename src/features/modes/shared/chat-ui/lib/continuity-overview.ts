@@ -68,7 +68,12 @@ function activeTrackerAgentNames(activeAgentIds: readonly string[] | undefined):
   );
 }
 
-function trackerDetail(names: string[]): string {
+function trackerDetail(names: string[], chatMode: ChatMode): string {
+  if (chatMode === "conversation") {
+    if (names.length === 0) return "No Conversation automation agents are active for this chat.";
+    if (names.length <= 3) return `${names.join(" and ")} can update Conversation automation after messages.`;
+    return `${names.length} automation agents can update Conversation automation after messages.`;
+  }
   if (names.length === 0) return "No tracker or world-state agents are active for this chat.";
   if (names.length <= 3) return `${names.join(" and ")} can update continuity after messages.`;
   return `${names.length} tracker agents can update continuity after messages.`;
@@ -120,10 +125,10 @@ export function buildContinuityOverviewViewModel(input: ContinuityOverviewInput)
     },
     {
       id: "trackers",
-      label: "Trackers",
+      label: input.chatMode === "conversation" ? "Automation" : "Trackers",
       status: trackerNames.length > 0 ? "active" : "idle",
       value: trackerNames.length > 0 ? pluralize(trackerNames.length, "agent") : "None",
-      detail: trackerDetail(trackerNames),
+      detail: trackerDetail(trackerNames, input.chatMode),
       action: "manage_agents",
     },
   ];

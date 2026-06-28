@@ -218,4 +218,56 @@ describe("default agent connection warnings", () => {
       }),
     ]);
   });
-});
+
+  it("does not let stale manual tracker metadata suppress conversation automation agents", async () => {
+    const results: JsonRecord[] = [];
+    const schedulePlannerLlm = {
+      async *stream() {
+        yield { type: "token", text: "Schedules reviewed." };
+        yield { type: "done" };
+      },
+    } as unknown as LlmGateway;
+
+    await createGenerationAgentRuntime(
+      {
+        storage: runtimeStorage({
+          connections: [],
+          agents: [
+            {
+              id: "schedule-planner",
+              type: "schedule-planner",
+              name: "Schedule Planner",
+              enabled: true,
+              promptTemplate: "Review the current conversation schedules.",
+            },
+          ],
+        }),
+        llm: schedulePlannerLlm,
+        integrations,
+      },
+      {
+        chat: {
+          id: "chat-1",
+          mode: "conversation",
+          metadata: {
+            activeAgentIds: ["schedule-planner"],
+            manualTrackers: true,
+          },
+        },
+        connection: { id: "chat-conn", name: "Chat", provider: "openai", model: "chat-model" },
+        storedMessages: [{ id: "user-1", role: "user", content: "Who is around today?" }],
+        characters: [],
+        persona: null,
+        activatedLorebookEntries: [],
+        chatSummary: null,
+      },
+      (result) => results.push(result as unknown as JsonRecord),
+    );
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        agentType: "schedule-planner",
+        success: true,
+      }),
+    ]);
+  });});
