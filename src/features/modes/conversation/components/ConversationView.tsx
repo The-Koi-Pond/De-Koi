@@ -56,7 +56,12 @@ import { TOOLS_PANELS, useTopBarActions } from "../../../../shared/components/mo
 import { usePageActivity } from "../../../../shared/hooks/use-page-activity";
 import { useIsMobile } from "../../../../shared/hooks/use-is-mobile";
 import { ActiveWorldInfoButton, ActiveWorldInfoModal } from "../../../runtime/visuals/index";
-import { invalidateCharacterCollectionQueries } from "../../../catalog/characters/index";
+import {
+  CharacterPublicProfilePopover,
+  invalidateCharacterCollectionQueries,
+  resolveCharacterPublicProfile,
+  type CharacterPublicProfilePopoverAnchor,
+} from "../../../catalog/characters/index";
 
 import { getConversationStatus } from "../../../../engine/modes/chat/autonomous/autonomous.service";
 import { resolveConversationStatusMessagesEnabled } from "../../../../engine/modes/chat/status/conversation-status-settings";
@@ -102,6 +107,13 @@ function setElementInert(element: HTMLElement | null, inert: boolean) {
   else element.removeAttribute("aria-hidden");
 }
 
+type ConversationProfileCharacter = {
+  id: string;
+  data: Record<string, unknown>;
+  comment?: string | null;
+  avatarPath?: string | null;
+};
+
 interface ConversationViewProps {
   chatId: string;
   messages: Message[] | undefined;
@@ -118,6 +130,7 @@ interface ConversationViewProps {
   chatName?: string;
   chatGroupId?: string | null;
   chatCharIds: string[];
+  allCharacters?: ConversationProfileCharacter[];
   /** Active characters whose card CSS targets the typing indicator (exclusive mode only). */
   typingStyledCharacterIds?: Set<string>;
   onDelete: (messageId: string) => void;
@@ -361,6 +374,7 @@ export function ConversationView({
   chatName,
   chatGroupId,
   chatCharIds,
+  allCharacters,
   typingStyledCharacterIds,
   onDelete,
   onRegenerate,
@@ -604,8 +618,11 @@ export function ConversationView({
   const openRightPanel = useUIStore((s) => s.openRightPanel);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
-  const setTrackerPanelOpen = useUIStore((s) => s.setTrackerPanelOpen);
-  const [charActivityPopupId, setCharActivityPopupId] = useState<string | null>(null);
+  const openCharacterDetail = useUIStore((s) => s.openCharacterDetail);
+  const [profilePopover, setProfilePopover] = useState<{
+    characterId: string;
+    anchorRect: CharacterPublicProfilePopoverAnchor | null;
+  } | null>(null);
   const mobileBranchSelectorRef = useRef<ChatBranchSelectorHandle>(null);
   const updateMeta = useUpdateChatMetadata();
   const summaryContextSize =
@@ -628,20 +645,33 @@ export function ConversationView({
     isStreaming: false,
   });
 
-  useEffect(() => {
-    if (!charActivityPopupId) return;
-    let removeClickListener = () => {};
-    const timer = window.setTimeout(() => {
-      const handleDocumentClick = () => setCharActivityPopupId(null);
-      document.addEventListener("click", handleDocumentClick);
-      removeClickListener = () => document.removeEventListener("click", handleDocumentClick);
-    }, 0);
+  const profilePopoverCharacter = useMemo(
+    () =>
+      profilePopover ? (allCharacters?.find((character) => character.id === profilePopover.characterId) ?? null) : null,
+    [allCharacters, profilePopover],
+  );
 
-    return () => {
-      window.clearTimeout(timer);
-      removeClickListener();
+  const openCharacterProfilePopover = useCallback(
+    (characterId: string, anchorRect: CharacterPublicProfilePopoverAnchor | null) => {
+      setProfilePopover((current) => (current?.characterId === characterId ? null : { characterId, anchorRect }));
+    },
+    [],
+  );
+
+  const openFullProfileFromPopover = useCallback(() => {
+    if (!profilePopoverCharacter) return;
+    setProfilePopover(null);
+    openCharacterDetail(profilePopoverCharacter.id);
+  }, [openCharacterDetail, profilePopoverCharacter]);
+
+  useEffect(() => {
+    if (!profilePopover) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProfilePopover(null);
     };
-  }, [charActivityPopupId]);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [profilePopover]);
 
   useEffect(() => {
     const activeSheet = toolsSheetOpen ? toolsSheetRef.current : moreMenuOpen ? moreSheetRef.current : null;
@@ -1344,14 +1374,14 @@ export function ConversationView({
               if (chars.length === 1) {
                 const c = chars[0]!;
                 const statusExplanation = c.conversationAvailabilityExplanation;
-                const statusTitle = statusExplanation ? `${c.name}: ${statusExplanation}` : "View schedule";
+                const profileTitle = `Open ${c.name} profile`;
                 return (
                   <button
                     type="button"
                     className="flex items-center gap-2 rounded-lg bg-[var(--card)]/80 px-2.5 py-1.5 backdrop-blur-sm dark:bg-black/30 cursor-pointer hover:bg-[var(--card)] transition-colors"
-                    onClick={() => setTrackerPanelOpen(true)}
-                    title={statusTitle}
-                    aria-label={statusTitle}
+                    onClick={(event) => openCharacterProfilePopover(c.id, event.currentTarget.getBoundingClientRect())}
+                    title={profileTitle}
+                    aria-label={profileTitle}
                   >
                     <div className="relative flex-shrink-0">
                       {c.avatarUrl ? (
@@ -1386,67 +1416,40 @@ export function ConversationView({
                 );
               }
 
-              // Multiple characters - individual clickable avatars showing activity on click
+              // Multiple characters - individual profile triggers with status dots
               return (
                 <div className="flex items-center gap-2 rounded-lg bg-[var(--card)]/80 px-2.5 py-1.5 backdrop-blur-sm dark:bg-black/30">
                   <div
                     className="relative flex-shrink-0"
                     style={{ width: `${Math.min(chars.length, 3) * 12 + 8}px`, height: 20 }}
                   >
-                    {chars.slice(0, 3).map((c, i) => {
-                      const isOpen = charActivityPopupId === c.id;
-                      return (
-                        <div
-                          key={c.id}
-                          className="absolute top-0"
-                          style={{ left: i * 12, zIndex: isOpen ? 10 : 3 - i }}
+                    {chars.slice(0, 3).map((c, i) => (
+                      <div key={c.id} className="absolute top-0" style={{ left: i * 12, zIndex: 3 - i }}>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openCharacterProfilePopover(c.id, event.currentTarget.getBoundingClientRect());
+                          }}
+                          className="relative block transition-transform active:scale-90"
+                          title={c.conversationAvailabilityExplanation ?? c.conversationActivity ?? c.name}
+                          aria-label={`Open ${c.name} profile`}
                         >
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setCharActivityPopupId(isOpen ? null : c.id);
-                            }}
-                            className="relative block transition-transform active:scale-90"
-                            title={c.conversationAvailabilityExplanation ?? c.conversationActivity ?? c.name}
-                            aria-label={
-                              c.conversationAvailabilityExplanation
-                                ? `${c.name}: ${c.conversationAvailabilityExplanation}`
-                                : c.name
-                            }
-                          >
-                            {c.avatarUrl ? (
-                              <span className="relative block h-5 w-5 overflow-hidden rounded-full ring-1 ring-[var(--border)]">
-                                <AvatarImage src={c.avatarUrl} alt={c.name} crop={c.avatarCrop} />
-                              </span>
-                            ) : (
-                              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-foreground/20 text-[0.5rem] font-bold text-foreground ring-1 ring-[var(--border)]">
-                                {c.name[0]}
-                              </div>
-                            )}
-                            <span
-                              className={`absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full ring-[1px] ring-[var(--border)] ${statusColor(c.conversationStatus)}`}
-                            />
-                          </button>
-                          {isOpen && (
-                            <div className="absolute left-1/2 top-full mt-1.5 z-50 min-w-[7rem] -translate-x-1/2 rounded-xl border border-[var(--border)]/60 bg-[var(--card)] px-3 py-2 shadow-lg backdrop-blur-xl">
-                              <p className="text-[0.7rem] font-semibold text-[var(--foreground)] leading-tight">
-                                {c.name}
-                              </p>
-                              {(c.conversationStatusMessage ||
-                                c.conversationAvailabilityExplanation ||
-                                c.conversationActivity) && (
-                                <p className="mt-0.5 max-w-[12rem] text-[0.6rem] text-[var(--muted-foreground)]/70 leading-tight">
-                                  {c.conversationStatusMessage ||
-                                    c.conversationAvailabilityExplanation ||
-                                    c.conversationActivity}
-                                </p>
-                              )}
+                          {c.avatarUrl ? (
+                            <span className="relative block h-5 w-5 overflow-hidden rounded-full ring-1 ring-[var(--border)]">
+                              <AvatarImage src={c.avatarUrl} alt={c.name} crop={c.avatarCrop} />
+                            </span>
+                          ) : (
+                            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-foreground/20 text-[0.5rem] font-bold text-foreground ring-1 ring-[var(--border)]">
+                              {c.name[0]}
                             </div>
                           )}
-                        </div>
-                      );
-                    })}
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full ring-[1px] ring-[var(--border)] ${statusColor(c.conversationStatus)}`}
+                          />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                   <span className="text-[0.75rem] font-medium text-[var(--foreground)]/90">
                     {chars.length <= 2
@@ -1613,6 +1616,7 @@ export function ConversationView({
                         onPeekPrompt={onPeekPrompt}
                         onToggleHiddenFromAI={onToggleHiddenFromAI}
                         onBranch={onBranch}
+                        onOpenCharacterProfile={openCharacterProfilePopover}
                         onSaveMomentSummary={onSaveMomentSummary}
                         onIllustrateMoment={onIllustrate}
                         isLastAssistantMessage={msg.id === lastAssistantMessageId}
@@ -1934,6 +1938,18 @@ export function ConversationView({
           </Suspense>
         )}
       </div>
+      {profilePopoverCharacter && (
+        <CharacterPublicProfilePopover
+          profile={resolveCharacterPublicProfile({
+            data: profilePopoverCharacter.data,
+            comment: profilePopoverCharacter.comment,
+          })}
+          avatarUrl={profilePopoverCharacter.avatarPath}
+          anchorRect={profilePopover?.anchorRect ?? null}
+          onClose={() => setProfilePopover(null)}
+          onOpenFullProfile={openFullProfileFromPopover}
+        />
+      )}
       <ActiveWorldInfoModal chatId={chatId} open={mobileWorldInfoOpen} onClose={() => setMobileWorldInfoOpen(false)} />
     </div>
   );

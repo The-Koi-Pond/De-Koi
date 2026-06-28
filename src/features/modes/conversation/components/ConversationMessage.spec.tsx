@@ -222,6 +222,36 @@ describe("ConversationMessage memo subscriptions", () => {
     expect(container!.textContent).toContain("\u201chello\u201d");
   });
 
+  it("opens the character profile from the assistant name", () => {
+    const onOpenCharacterProfile = vi.fn();
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={message}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+            onOpenCharacterProfile={onOpenCharacterProfile}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const profileButton = container!.querySelector<HTMLButtonElement>('button[aria-label="Open Aster profile"]');
+    expect(profileButton).not.toBeNull();
+
+    act(() => {
+      profileButton!.click();
+    });
+
+    expect(onOpenCharacterProfile).toHaveBeenCalledWith(
+      "character-1",
+      expect.objectContaining({ width: expect.any(Number) }),
+    );
+  });
+
   it("uses the soft reveal treatment while assistant text streams", () => {
     const streamingMessage: Message = {
       ...message,

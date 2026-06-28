@@ -40,6 +40,12 @@ type ConversationSurfaceProps = {
   personaInfo?: PersonaInfo;
   chatMeta: Record<string, unknown>;
   chatCharIds: string[];
+  allCharacters?: Array<{
+    id: string;
+    data: Record<string, unknown>;
+    comment?: string | null;
+    avatarPath?: string | null;
+  }>;
   typingStyledCharacterIds?: Set<string>;
   enabledAgentTypes?: Set<string>;
   connectedChatName?: string;
@@ -107,6 +113,7 @@ export function ChatConversationSurface({
   personaInfo,
   chatMeta,
   chatCharIds,
+  allCharacters,
   typingStyledCharacterIds,
   enabledAgentTypes,
   connectedChatName,
@@ -182,6 +189,7 @@ export function ChatConversationSurface({
           chatName={chat?.name}
           chatGroupId={chat?.groupId ?? null}
           chatCharIds={chatCharIds}
+          allCharacters={allCharacters}
           typingStyledCharacterIds={typingStyledCharacterIds}
           onDelete={onDelete}
           onRegenerate={onRegenerate}

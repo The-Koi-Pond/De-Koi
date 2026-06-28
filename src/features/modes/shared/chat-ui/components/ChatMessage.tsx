@@ -401,6 +401,7 @@ interface ChatMessageProps {
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
   onBranch?: (messageId: string) => void;
+  onOpenCharacterProfile?: (characterId: string, anchorRect: DOMRect) => void;
   onSaveMomentSummary?: (source: SaveMomentSource) => void;
   onIllustrateMoment?: (source: SaveMomentSource) => void | Promise<void>;
   onCloneSceneFromHere?: (messageId: string) => void;
@@ -994,6 +995,7 @@ export const ChatMessage = memo(function ChatMessage({
   onToggleHiddenFromAI,
   onPeekPrompt,
   onBranch,
+  onOpenCharacterProfile,
   onSaveMomentSummary,
   onIllustrateMoment,
   onCloneSceneFromHere,
@@ -1785,6 +1787,34 @@ export const ChatMessage = memo(function ChatMessage({
     ? `${Math.max(1, Math.min(1.75, 1.125 * roleplayAvatarScale))}rem`
     : `${Math.max(0.875, Math.min(1.5, roleplayAvatarScale))}rem`;
   const hideRoleplayAvatar = isRoleplay && roleplayAvatarStyle === "none";
+  const canOpenCharacterProfile = !!onOpenCharacterProfile && !isUser && !!message.characterId && !isMergedGroup;
+  const renderCharacterName = (className: string, style?: React.CSSProperties): ReactNode => {
+    if (!canOpenCharacterProfile) {
+      return (
+        <span className={className} style={style}>
+          {isMergedGroup ? mergedNameElement : displayName}
+        </span>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        className={cn(
+          className,
+          "cursor-pointer border-0 bg-transparent p-0 text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/60",
+        )}
+        style={style}
+        aria-label={`Open ${displayName} profile`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpenCharacterProfile?.(message.characterId!, event.currentTarget.getBoundingClientRect());
+        }}
+      >
+        {displayName}
+      </button>
+    );
+  };
   const showRoleplayAvatarPanel = isRoleplay && roleplayAvatarStyle === "panel" && !isGrouped;
   const showCompactAvatar = !isGrouped && !showRoleplayAvatarPanel && !hideRoleplayAvatar;
   const roleplayAvatarPanelTail = showRoleplayAvatarPanel ? (
@@ -2124,15 +2154,13 @@ export const ChatMessage = memo(function ChatMessage({
             {!isGrouped && (
               <div className={cn("flex items-baseline gap-2 px-1", isUser && "flex-row-reverse")}>
                 {hiddenFromAIHeader}
-                <span
-                  className={cn(
+                {renderCharacterName(
+                  cn(
                     "mari-message-name text-[0.75rem] font-bold tracking-tight",
                     !msgNameColor && !isMergedGroup && (isUser ? "text-neutral-300" : "rpg-char-name"),
-                  )}
-                  style={!isMergedGroup ? nameColorStyle(msgNameColor) : undefined}
-                >
-                  {isMergedGroup ? mergedNameElement : displayName}
-                </span>
+                  ),
+                  !isMergedGroup ? nameColorStyle(msgNameColor) : undefined,
+                )}
                 <span className="text-[0.625rem] text-white/30">{formatTime(message.createdAt)}</span>
                 {genLabel && (
                   <span className="max-w-[15.625rem] truncate text-[0.5625rem] italic text-white/45" title={genLabel}>
@@ -2681,15 +2709,13 @@ export const ChatMessage = memo(function ChatMessage({
           {!isGrouped && !isUser && (
             <div className="flex items-center gap-2 px-3">
               {hiddenFromAIHeader}
-              <span
-                className={cn(
+              {renderCharacterName(
+                cn(
                   "mari-message-name text-[0.6875rem] font-semibold",
                   !msgNameColor && !isMergedGroup && "text-[var(--muted-foreground)]",
-                )}
-                style={!isMergedGroup ? nameColorStyle(msgNameColor) : undefined}
-              >
-                {isMergedGroup ? mergedNameElement : displayName}
-              </span>
+                ),
+                !isMergedGroup ? nameColorStyle(msgNameColor) : undefined,
+              )}
             </div>
           )}
 
