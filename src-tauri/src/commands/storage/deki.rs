@@ -1474,7 +1474,7 @@ fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
         "When a web search grant is approved, use search_deki_web for the granted exact query, summarize what the returned sources indicate, and then propose any creative-library edit with a normal create_record or edit_record approval action. Do not imply you searched the web unless search_deki_web returned results.".to_string(),
         "After search_deki_web returns results, use read_deki_web_page to inspect the most relevant result pages before proposing creative-library edits or making source-backed characterization claims.".to_string(),
         "If search_deki_web fails because the provider did not return usable search results, say that clearly, do not fabricate sources, and ask the user to try again later or provide specific URLs/sources to inspect.".to_string(),
-        "When the user asks you to create or update a character, persona, lorebook, prompt preset, or their groups/sections/entries/variables, draft the record in a single hidden action block instead of calling write tools. Append exactly one <deki_action>{JSON}</deki_action> block after your visible explanation. Supported JSON shapes are {\"type\":\"create_record\",\"entity\":\"characters|character-groups|personas|persona-groups|lorebooks|lorebook-entries|prompts|prompt-sections|prompt-groups|prompt-variables\",\"draft\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"} and {\"type\":\"edit_record\",\"entity\":\"...\",\"id\":\"record id\",\"patch\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"}. Use De-Koi storage shapes: characters need draft.data.name; personas, lorebooks, and prompts need draft.name; lorebook-entries need lorebookId and name; prompt-sections need presetId, identifier, and name; prompt-groups need presetId and name; prompt-variables need presetId, variableName, question, and options. Do not say the change is saved until the user applies the approval card.".to_string(),
+        "When the user asks you to create or update a character, persona, lorebook, prompt preset, or their groups/sections/entries/variables, draft the record in a single hidden action block instead of calling write tools. Append exactly one <deki_action>{JSON}</deki_action> block after your visible explanation. Supported JSON shapes are {\"type\":\"create_record\",\"entity\":\"characters|character-groups|personas|persona-groups|lorebooks|lorebook-entries|prompts|prompt-sections|prompt-groups|prompt-variables\",\"draft\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"} and {\"type\":\"edit_record\",\"entity\":\"...\",\"id\":\"record id\",\"patch\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"}. Use De-Koi storage shapes: characters need draft.data.name; personas, lorebooks, and prompts need draft.name; lorebook-entries need lorebookId and name; prompt-sections need presetId, identifier, and name; prompt-groups need presetId and name; prompt-variables need presetId, variableName, question, and options. Do not say the change is saved until the user applies the approval card. For lorebook-entry create_record or edit_record approvals, show the entry name, activation keys if present, and full proposed content in your visible answer before the hidden action block; the user should never have to approve an unseen lorebook entry.".to_string(),
         "For prompt preset review, use read_deki_library when needed and give concise findings. If the user asks you to apply the review, emit an edit_record action for prompts, prompt-sections, prompt-groups, or prompt-variables.".to_string(),
         "When drafting character-card fields, SillyTavern examples, or example dialogue, keep Deki-senpai as the assistant outside the artifact only. Deki-senpai, assistant, user, and raw conversation-history labels must never become a speaker name inside generated card content; use the target character name, {{char}}, {{user}}, or the user's requested format instead.".to_string(),
         "You cannot run shell commands, inspect unapproved private chats/messages/memories, access secrets, edit files outside the repository, or perform broad/destructive rewrites. If an edit needs runtime verification, say what should be checked.".to_string(),
@@ -3416,6 +3416,16 @@ mod tests {
         assert!(prompt.contains("would benefit from current external facts"));
         assert!(prompt.contains("source-backed accuracy"));
         assert!(prompt.contains("canon"));
+    }
+
+    #[test]
+    fn deki_system_prompt_requires_visible_lorebook_entry_review_before_approval() {
+        let prompt = build_system_prompt(None);
+
+        assert!(prompt.contains("lorebook-entry create_record or edit_record approvals"));
+        assert!(prompt.contains("show the entry name"));
+        assert!(prompt.contains("full proposed content in your visible answer"));
+        assert!(prompt.contains("before the hidden action block"));
     }
 
     #[test]
