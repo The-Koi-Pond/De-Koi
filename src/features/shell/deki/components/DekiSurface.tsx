@@ -185,6 +185,7 @@ function toConversationMessage(message: DekiMessage): Message {
 function actionPayload(action: DekiEntryAction): Record<string, unknown> {
   if (action.type === "create_record") return action.draft;
   if (action.type === "edit_record") return action.patch;
+  if (action.type === "apply_lorebook_redraft") return { lorebook: action.lorebook, entries: action.entries };
   return {};
 }
 
@@ -193,6 +194,7 @@ function actionTitle(action: DekiEntryAction) {
   if (action.type === "request_chat_access") return action.label?.trim() || "Grant Deki chat access";
   if (action.type === "request_web_research") return action.label?.trim() || "Search the web";
   if (action.label?.trim()) return action.label.trim();
+  if (action.type === "apply_lorebook_redraft") return "Apply lorebook redraft";
   const verb = action.type === "create_record" ? "Create" : "Update";
   return `${verb} ${DEKI_ACTION_ENTITY_LABELS[action.entity]}`;
 }
@@ -420,6 +422,18 @@ function actionPreviewRows(action: DekiEntryAction): Array<{ label: string; valu
       .filter((row): row is { label: string; value: string } => !!row.value)
       .slice(0, 4);
   }
+  if (action.type === "apply_lorebook_redraft") {
+    const fields: Array<[string, unknown]> = [
+      ["Name", action.lorebook.name],
+      ["Description", action.lorebook.description],
+      ["Entries", action.entries.length],
+      ["Record", action.id],
+    ];
+    return fields
+      .map(([label, value]) => ({ label, value: previewValue(value) }))
+      .filter((row): row is { label: string; value: string } => !!row.value)
+      .slice(0, 4);
+  }
   const payload = actionPayload(action);
   const nestedData =
     payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)
@@ -474,8 +488,10 @@ function uniqueQueryKeys(queryKeys: readonly (readonly unknown[])[]): readonly (
 
 async function invalidateDekiActionQueries(queryClient: QueryClient, action: DekiEntryAction) {
   if (action.type === "none" || action.type === "request_chat_access" || action.type === "request_web_research") return;
+  const actionQueryKeys =
+    action.type === "apply_lorebook_redraft" ? DEKI_ACTION_QUERY_KEYS.lorebooks : DEKI_ACTION_QUERY_KEYS[action.entity];
   await Promise.all(
-    uniqueQueryKeys([...DEKI_CREATIVE_LIBRARY_QUERY_KEYS, ...DEKI_ACTION_QUERY_KEYS[action.entity]]).map((queryKey) =>
+    uniqueQueryKeys([...DEKI_CREATIVE_LIBRARY_QUERY_KEYS, ...actionQueryKeys]).map((queryKey) =>
       queryClient.invalidateQueries({
         queryKey,
       }),
@@ -1462,7 +1478,14 @@ function DekiActionCard({
   }, [action, actionPreviewKey, applied]);
 
   const diffRows = useMemo(() => {
-    if (!action || action.type === "none" || action.type === "request_chat_access" || applied) return [];
+    if (
+      !action ||
+      action.type === "none" ||
+      action.type === "request_chat_access" ||
+      action.type === "apply_lorebook_redraft" ||
+      applied
+    )
+      return [];
     return createDekiActionDiffRows(action, currentRecordState.record);
   }, [action, actionPreviewKey, applied, currentRecordState.record]);
 
@@ -1506,7 +1529,9 @@ function DekiActionCard({
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{actionTitle(action)}</div>
           <div className="text-[0.6875rem] text-[var(--muted-foreground)]">
-            {action.type === "create_record" ? "Create" : "Update"} {DEKI_ACTION_ENTITY_LABELS[action.entity]}
+            {action.type === "apply_lorebook_redraft"
+              ? "Apply lorebook redraft"
+              : `${action.type === "create_record" ? "Create" : "Update"} ${DEKI_ACTION_ENTITY_LABELS[action.entity]}`}
           </div>
         </div>
         {applied && (

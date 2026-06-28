@@ -286,6 +286,10 @@ const DEKI_ACTION_ENTITIES = [
 
 export type DekiActionEntity = (typeof DEKI_ACTION_ENTITIES)[number];
 
+type DekiLorebookRedraftEntry = Record<string, unknown> & {
+  id?: string;
+};
+
 export type DekiEntryAction =
   | {
       type: "none";
@@ -315,6 +319,14 @@ export type DekiEntryAction =
       rationale?: string;
     }
   | {
+      type: "apply_lorebook_redraft";
+      id?: string;
+      lorebook: Record<string, unknown>;
+      entries: DekiLorebookRedraftEntry[];
+      label?: string;
+      rationale?: string;
+    }
+  | {
       type: "request_chat_access";
       scope: DekiChatAccessScope;
       window?: DekiChatAccessWindow;
@@ -328,8 +340,7 @@ export type DekiActionApplication = {
   resultId?: string | null;
 };
 
-const DEKI_DEFAULT_ACTION_REASON =
-  "Deki-senpai returned a plain response with no pending UI approval action.";
+const DEKI_DEFAULT_ACTION_REASON = "Deki-senpai returned a plain response with no pending UI approval action.";
 
 const DEKI_DEFAULT_ACTION: DekiEntryAction = {
   type: "none",
@@ -382,6 +393,20 @@ export function normalizeDekiEntryAction(value: unknown): DekiEntryAction {
       capability: value.capability,
       reason: typeof value.reason === "string" && value.reason.trim() ? value.reason : DEKI_DEFAULT_ACTION_REASON,
     };
+  }
+  if (value.type === "apply_lorebook_redraft" && isRecord(value.lorebook) && Array.isArray(value.entries)) {
+    const entries = value.entries.filter(isRecord);
+    if (entries.length > 0) {
+      const id = typeof value.id === "string" && value.id.trim() ? value.id.trim() : undefined;
+      return {
+        type: "apply_lorebook_redraft",
+        ...(id ? { id } : {}),
+        lorebook: value.lorebook,
+        entries,
+        ...(typeof value.label === "string" ? { label: value.label } : {}),
+        ...(typeof value.rationale === "string" ? { rationale: value.rationale } : {}),
+      };
+    }
   }
   if (value.type === "create_record" && isDekiActionEntity(value.entity) && isRecord(value.draft)) {
     return {
@@ -466,7 +491,8 @@ function isDekiActionEntity(value: unknown): value is DekiActionEntity {
 
 function normalizeDekiChatAccessWindow(value: unknown): DekiChatAccessWindow {
   if (!isRecord(value)) return { messageCount: 50 };
-  if ("messageCount" in value && value.messageCount === null) return { messageCount: DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT };
+  if ("messageCount" in value && value.messageCount === null)
+    return { messageCount: DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT };
   const messageCount =
     typeof value.messageCount === "number" && Number.isFinite(value.messageCount)
       ? Math.max(1, Math.min(DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT, Math.floor(value.messageCount)))
