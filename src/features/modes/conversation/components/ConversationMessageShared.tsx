@@ -357,9 +357,18 @@ export function parseNamePrefixFormat(content: string, knownNames: Set<string>):
   let currentSpeaker: string | null = null;
   let currentLines: string[] = [];
   let found = false;
+  let inCodeFence = false;
 
   for (const line of lines) {
-    const colonIdx = line.indexOf(": ");
+    const trimmedStart = line.trimStart();
+    const fenceMatch = /^`{3,}/.exec(trimmedStart);
+    if (fenceMatch && !trimmedStart.slice(fenceMatch[0].length).includes("`")) {
+      inCodeFence = !inCodeFence;
+      currentLines.push(line);
+      continue;
+    }
+
+    const colonIdx = inCodeFence ? -1 : line.indexOf(": ");
     if (colonIdx > 0) {
       const potentialName = line.slice(0, colonIdx).trim();
       if (knownNames.has(potentialName.toLowerCase())) {
