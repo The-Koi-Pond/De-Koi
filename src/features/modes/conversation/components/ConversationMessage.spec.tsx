@@ -252,6 +252,28 @@ describe("ConversationMessage memo subscriptions", () => {
     );
   });
 
+
+  it("does not advertise a profile button for an orphaned assistant character ID", () => {
+    const onOpenCharacterProfile = vi.fn();
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={{ ...message, characterId: "missing-character" }}
+            characterMap={characterMap}
+            chatCharacterIds={["missing-character"]}
+            onOpenCharacterProfile={onOpenCharacterProfile}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const profileButton = container!.querySelector<HTMLButtonElement>('button[aria-label$=" profile"]');
+    expect(profileButton).toBeNull();
+    expect(onOpenCharacterProfile).not.toHaveBeenCalled();
+  });
   it("uses the soft reveal treatment while assistant text streams", () => {
     const streamingMessage: Message = {
       ...message,

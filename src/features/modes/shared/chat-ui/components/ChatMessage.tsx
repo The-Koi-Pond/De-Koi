@@ -1791,7 +1791,7 @@ export const ChatMessage = memo(function ChatMessage({
   const renderCharacterName = (className: string, style?: React.CSSProperties): ReactNode => {
     if (!canOpenCharacterProfile) {
       return (
-        <span className={className} style={style}>
+        <span className={cn(className, isMergedGroup && "cursor-default no-underline hover:no-underline")} style={style}>
           {isMergedGroup ? mergedNameElement : displayName}
         </span>
       );

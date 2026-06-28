@@ -163,6 +163,7 @@ export interface ConversationMessageRenderContext {
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
   onBranch?: (messageId: string) => void;
   onOpenCharacterProfile?: (characterId: string, anchorRect: DOMRect) => void;
+  canOpenCharacterProfile?: boolean;
   onSaveMomentSummary?: (source: SaveMomentSource) => void;
   onIllustrateMoment?: (source: SaveMomentSource) => void | Promise<void>;
   onDelete?: (messageId: string) => void;
@@ -813,7 +814,7 @@ export function ConversationMessageMeta({ context }: { context: ConversationMess
       )}
     >
       {context.hiddenFromAIHeader}
-      {context.onOpenCharacterProfile && !context.isUser && context.message.characterId ? (
+      {context.canOpenCharacterProfile && context.onOpenCharacterProfile && context.message.characterId ? (
         <button
           type="button"
           className="mari-message-name cursor-pointer border-0 bg-transparent p-0 text-left text-[0.9375rem] font-semibold leading-tight hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/60"

@@ -87,4 +87,39 @@ describe("ChatMessage", () => {
       expect.objectContaining({ width: expect.any(Number) }),
     );
   });
+  it("renders merged group names as plain text instead of a dead profile button", () => {
+    const onOpenCharacterProfile = vi.fn();
+    const groupCharacterMap = new Map([
+      ...characterMap,
+      [
+        "character-2",
+        {
+          name: "Briar",
+          avatarUrl: null,
+        },
+      ],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ChatMessage
+            message={message}
+            characterMap={groupCharacterMap}
+            chatCharacterIds={["character-1", "character-2"]}
+            groupChatMode="merged"
+            onOpenCharacterProfile={onOpenCharacterProfile}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container!.querySelector<HTMLButtonElement>('button[aria-label$=" profile"]')).toBeNull();
+    const mergedName = container!.querySelector<HTMLElement>(".mari-message-name");
+    expect(mergedName).not.toBeNull();
+    expect(mergedName!.className).toContain("cursor-default");
+
+    expect(onOpenCharacterProfile).not.toHaveBeenCalled();
+  });
 });

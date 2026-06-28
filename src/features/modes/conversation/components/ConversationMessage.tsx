@@ -683,6 +683,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     onToggleHiddenFromAI,
     onBranch,
     onOpenCharacterProfile,
+    canOpenCharacterProfile: !!onOpenCharacterProfile && !isUser && !!message.characterId && !!charInfo,
     onSaveMomentSummary,
     onIllustrateMoment,
     onDelete,
