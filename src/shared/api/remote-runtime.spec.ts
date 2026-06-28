@@ -1,13 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "./api-errors";
-import { checkRemoteRuntimeHealth, invokeRemote } from "./remote-runtime";
+import { checkRemoteRuntimeHealth, invokeRemote, readRemoteError } from "./remote-runtime";
 import { useUIStore } from "../stores/ui.store";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { "content-type": "application/json" },
+    ...init,
+  });
+}
+
+function textResponse(body: string, init: ResponseInit = {}): Response {
+  return new Response(body, {
+    status: 502,
+    headers: { "content-type": "text/plain" },
     ...init,
   });
 }
@@ -73,6 +81,28 @@ describe("checkRemoteRuntimeHealth", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("readRemoteError", () => {
+  it("uses a JSON error field when the remote runtime omits message", async () => {
+    const error = await readRemoteError(jsonResponse({ error: "Provider gateway timed out" }, { status: 502 }));
+
+    expect(error.message).toBe("Provider gateway timed out");
+    expect(error.status).toBe(502);
+    expect(error.details).toMatchObject({
+      error: "Provider gateway timed out",
+    });
+  });
+
+  it("keeps a short non-JSON error body in the remote runtime message", async () => {
+    const error = await readRemoteError(textResponse("Provider gateway timed out"));
+
+    expect(error.message).toBe("Remote runtime returned 502: Provider gateway timed out");
+    expect(error.status).toBe(502);
+    expect(error.details).toMatchObject({
+      body: "Provider gateway timed out",
+    });
   });
 });
 
