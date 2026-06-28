@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { StorageEntity, StorageGateway } from "../../../capabilities/storage";
-import { getMonday, type WeekSchedule } from "../schedules/schedule.service";
+import { getMonday, type ConversationRoutine, type WeekSchedule } from "../schedules/schedule.service";
 import { getConversationStatus } from "./autonomous.service";
 
 type JsonRecord = Record<string, unknown>;
@@ -95,7 +95,64 @@ function allDaySchedule(activity: string, status: "online" | "idle" | "dnd" | "o
     },
   };
 }
+
+function alwaysBusyRoutine(): ConversationRoutine {
+  return {
+    weekStart: getMonday().toISOString(),
+    generatedAt: new Date().toISOString(),
+    sleep: "Usually sleeps late night.",
+    busy: [{ when: "mornings afternoons evenings night", summary: "classes", availability: "busy" }],
+    freeish: ["quiet evenings"],
+    replyStyle: "Slow when in class.",
+    checkInStyle: "Likes texting at night.",
+    socialEnergy: { level: "medium", reason: "Warm but focused." },
+    inactivityThresholdMinutes: 45,
+    talkativeness: 70,
+  };
+}
 describe("getConversationStatus", () => {
+  it("uses fuzzy routines before legacy schedules when reporting conversation status", async () => {
+    const routine = alwaysBusyRoutine();
+    const legacySchedule = allDaySchedule("legacy free time", "online");
+    const storage = storageGateway({
+      chats: [
+        {
+          id: "chat-1",
+          mode: "conversation",
+          characterIds: ["char-1"],
+          metadata: {
+            conversationSchedulesEnabled: true,
+            characterRoutines: { "char-1": routine },
+            characterSchedules: { "char-1": legacySchedule },
+          },
+        },
+      ],
+      characters: [{ id: "char-1", data: { extensions: {} } }],
+    });
+
+    const result = await getConversationStatus(storage, "chat-1");
+
+    expect(result.statuses["char-1"]).toMatchObject({
+      status: "dnd",
+      activity: "classes",
+      routine,
+      availabilityExplanation: {
+        label: "Busy",
+        detail: "classes",
+        message: "Busy: classes.",
+      },
+    });
+    await expect(storage.get<JsonRecord>("characters", "char-1")).resolves.toMatchObject({
+      data: {
+        extensions: {
+          conversationStatus: "dnd",
+          conversationActivity: "classes",
+          conversationStatusSource: "routine",
+        },
+      },
+    });
+  });
+
   it("returns a plain-language availability explanation with each status row", async () => {
     const schedule = allDaySchedule("in class", "dnd");
     const storage = storageGateway({

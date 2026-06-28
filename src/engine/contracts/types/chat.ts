@@ -261,7 +261,9 @@ export interface ChatMetadata {
   conversationSchedulesEnabled?: boolean;
   /** Allow conversation characters to use hidden command tags. Default: true. */
   characterCommands?: boolean;
-  /** Chat-scoped generated schedules for conversation characters. */
+  /** Chat-scoped fuzzy routines for conversation characters. */
+  characterRoutines?: Record<string, unknown>;
+  /** Legacy chat-scoped generated schedules for conversation characters. */
   characterSchedules?: Record<string, unknown>;
   /** Week start timestamp for the current generated conversation schedules. */
   scheduleWeekStart?: string;

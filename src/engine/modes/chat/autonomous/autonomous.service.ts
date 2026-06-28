@@ -4,10 +4,11 @@ import {
   getAvailabilityDecision,
   getAvailabilityExplanation,
   getAvailabilityResponseDelay,
-  getCurrentStatus,
+  getEnabledConversationRoutines,
   getEnabledConversationSchedules,
   getMonday,
   scheduleNeedsRefresh,
+  type ConversationRoutine,
   type WeekSchedule,
 } from "../schedules/schedule.service.js";
 
@@ -31,6 +32,7 @@ export interface ConversationStatusResult {
       status: string;
       activity: string;
       schedule?: unknown;
+      routine?: unknown;
       availabilityExplanation: ReturnType<typeof getAvailabilityExplanation>;
     }
   >;
@@ -97,10 +99,14 @@ function characterSchedules(meta: Record<string, unknown>): Record<string, WeekS
   return getEnabledConversationSchedules(meta);
 }
 
+function characterRoutines(meta: Record<string, unknown>): Record<string, ConversationRoutine> {
+  return getEnabledConversationRoutines(meta);
+}
+
 async function syncStoredConversationStatus(
   storage: StorageGateway,
   characterId: string,
-  status: { status: string; activity: string; availabilityExplanation?: string } | null,
+  status: { status: string; activity: string; availabilityExplanation?: string; source?: "routine" | "schedule" } | null,
 ): Promise<void> {
   const character = await storage.get<Record<string, unknown>>("characters", characterId);
   if (!character) return;
@@ -110,7 +116,7 @@ async function syncStoredConversationStatus(
   if (status) {
     nextExtensions.conversationStatus = status.status;
     nextExtensions.conversationActivity = status.activity;
-    nextExtensions.conversationStatusSource = "schedule";
+    nextExtensions.conversationStatusSource = status.source ?? "schedule";
     if (status.availabilityExplanation) {
       nextExtensions.conversationAvailabilityExplanation = status.availabilityExplanation;
     } else {
@@ -181,59 +187,96 @@ export async function getConversationStatus(
 ): Promise<ConversationStatusResult> {
   const chat = await requireChat(storage, chatId);
   const meta = metadataRecord(chat.metadata);
+  const routines = characterRoutines(meta);
   const schedules = characterSchedules(meta);
+  const statusRoutines: Record<string, ConversationRoutine> = { ...routines };
   const statusSchedules: Record<string, WeekSchedule> = { ...schedules };
   const statuses: ConversationStatusResult["statuses"] = {};
   let needsRefresh = false;
-  let inheritedFreshSchedule = false;
+  let inheritedFreshAvailability = false;
+  let otherConversationRoutines: Promise<Map<string, ConversationRoutine>> | null = null;
   let otherConversationSchedules: Promise<Map<string, WeekSchedule>> | null = null;
 
   for (const characterId of chatCharacterIds(chat)) {
-    let schedule = statusSchedules[characterId];
-    if (schedule && scheduleNeedsRefresh(schedule)) {
+    let routine = statusRoutines[characterId];
+    let schedule: WeekSchedule | undefined = statusSchedules[characterId];
+    if (routine && scheduleNeedsRefresh(routine)) {
+      otherConversationRoutines ??= loadFreshConversationRoutines(storage, chatId);
+      const inherited = (await otherConversationRoutines).get(characterId);
+      if (inherited) {
+        routine = inherited;
+        statusRoutines[characterId] = inherited;
+        delete statusSchedules[characterId];
+        schedule = undefined;
+        inheritedFreshAvailability = true;
+      } else {
+        needsRefresh = true;
+      }
+    } else if (!routine && schedule && scheduleNeedsRefresh(schedule)) {
       otherConversationSchedules ??= loadFreshConversationSchedules(storage, chatId);
       const inherited = (await otherConversationSchedules).get(characterId);
       if (inherited) {
         schedule = inherited;
         statusSchedules[characterId] = inherited;
-        inheritedFreshSchedule = true;
+        inheritedFreshAvailability = true;
       } else {
         needsRefresh = true;
       }
     }
-    const status = schedule ? getCurrentStatus(schedule) : null;
-    const fallbackActivity = status?.activity ?? (schedule ? "scheduled" : "unknown (no schedule)");
-    const availability = getAvailabilityDecision(schedule, new Date(), fallbackActivity);
+
+    const profile = routine ?? schedule;
+    const availability = getAvailabilityDecision(profile, new Date(), profile ? "scheduled" : "unknown (no schedule)");
     const availabilityExplanation = getAvailabilityExplanation(availability);
     statuses[characterId] = {
       status: availability.status,
       activity: availability.activity,
       schedule,
+      routine,
       availabilityExplanation,
     };
-    if (availability.source === "schedule") {
+    if (profile) {
       await syncStoredConversationStatus(storage, characterId, {
         status: availability.status,
         activity: availability.activity,
         availabilityExplanation: availabilityExplanation.message,
+        source: routine ? "routine" : "schedule",
       });
     } else {
       await syncStoredConversationStatus(storage, characterId, null);
     }
   }
 
-  if (inheritedFreshSchedule) {
-    await storage.patchChatMetadata(chatId, {
+  if (inheritedFreshAvailability) {
+    const nextMeta: Record<string, unknown> = {
       ...meta,
       conversationSchedulesEnabled: true,
-      characterSchedules: statusSchedules,
       scheduleWeekStart: getMonday().toISOString(),
-    });
+    };
+    if (Object.keys(statusRoutines).length > 0) nextMeta.characterRoutines = statusRoutines;
+    if (Object.keys(statusSchedules).length > 0) nextMeta.characterSchedules = statusSchedules;
+    await storage.patchChatMetadata(chatId, nextMeta);
   }
 
   return { statuses, needsRefresh };
 }
 
+async function loadFreshConversationRoutines(
+  storage: StorageGateway,
+  currentChatId: string,
+): Promise<Map<string, ConversationRoutine>> {
+  const routines = new Map<string, ConversationRoutine>();
+  const chats = await storage.list<StoredChat>("chats");
+  for (const chat of chats) {
+    if (chat.id === currentChatId || chat.mode !== "conversation") continue;
+    const meta = metadataRecord(chat.metadata);
+    for (const [characterId, routine] of Object.entries(characterRoutines(meta))) {
+      if (!routines.has(characterId) && routine && !scheduleNeedsRefresh(routine)) {
+        routines.set(characterId, routine);
+      }
+    }
+  }
+  return routines;
+}
 async function loadFreshConversationSchedules(
   storage: StorageGateway,
   currentChatId: string,
@@ -278,13 +321,14 @@ export async function checkConversationAutonomous(
 
   const ids = chatCharacterIds(chat);
   const schedules = characterSchedules(meta);
-  const autonomySchedules: Record<string, WeekSchedule> = { ...schedules };
+  const routines = characterRoutines(meta);
+  const autonomyProfiles: Record<string, WeekSchedule | ConversationRoutine> = { ...schedules, ...routines };
   await Promise.all(
     ids
-      .filter((characterId) => !autonomySchedules[characterId])
+      .filter((characterId) => !autonomyProfiles[characterId])
       .map(async (characterId) => {
         const character = await storage.get("characters", characterId);
-        autonomySchedules[characterId] = createSchedulelessAutonomySchedule(
+        autonomyProfiles[characterId] = createSchedulelessAutonomySchedule(
           characterTalkativeness(character),
           userStatus,
         );
@@ -293,20 +337,20 @@ export async function checkConversationAutonomous(
 
   const sceneBusyIds = stringSet(meta.sceneBusyCharIds);
   for (const busyId of sceneBusyIds) {
-    delete autonomySchedules[busyId];
+    delete autonomyProfiles[busyId];
   }
 
-  const scheduled = checkAutonomousMessaging(input.chatId, autonomySchedules, ids.length > 1, {
+  const scheduled = checkAutonomousMessaging(input.chatId, autonomyProfiles, ids.length > 1, {
     maxFollowups: input.maxFollowups,
   });
   if (scheduled.shouldTrigger) return scheduled;
 
-  if (Object.keys(schedules).length > 0) {
+  if (Object.keys(schedules).length > 0 || Object.keys(routines).length > 0) {
     const last = messages[messages.length - 1];
     if (last?.role === "user") {
       const onlineIds = ids.filter((characterId) => {
         if (sceneBusyIds.has(characterId)) return false;
-        const decision = getAvailabilityDecision(schedules[characterId] ?? autonomySchedules[characterId]!);
+        const decision = getAvailabilityDecision(routines[characterId] ?? schedules[characterId] ?? autonomyProfiles[characterId]!);
         return getAvailabilityAutonomousPolicy(decision).canMessageFirst;
       });
       if (onlineIds.length > 0) {
@@ -328,10 +372,11 @@ export async function getConversationBusyDelay(
   input: { chatId: string; characterId: string },
 ): Promise<BusyDelayResult> {
   const chat = await requireChat(storage, input.chatId);
-  const schedule = characterSchedules(metadataRecord(chat.metadata))[input.characterId];
-  const decision = getAvailabilityDecision(schedule ?? null, new Date(), schedule ? "scheduled" : "unknown");
+  const meta = metadataRecord(chat.metadata);
+  const profile = characterRoutines(meta)[input.characterId] ?? characterSchedules(meta)[input.characterId];
+  const decision = getAvailabilityDecision(profile ?? null, new Date(), profile ? "scheduled" : "unknown");
   return {
-    delayMs: getAvailabilityResponseDelay(decision, schedule),
+    delayMs: getAvailabilityResponseDelay(decision, profile),
     status: decision.status,
     activity: decision.activity,
   };
@@ -346,7 +391,7 @@ export async function checkConversationCharacterExchange(
   if (meta.characterExchanges !== true) {
     return { shouldTrigger: false, characterIds: [], reason: "disabled", inactivityMs: 0 };
   }
-  return checkCharacterExchange(input.chatId, input.lastSpeakerCharId, characterSchedules(meta));
+  return checkCharacterExchange(input.chatId, input.lastSpeakerCharId, { ...characterSchedules(meta), ...characterRoutines(meta) });
 }
 
 export type AutonomousClientPresenceStatus = "active" | "idle" | "dnd";
@@ -502,7 +547,7 @@ export function recordAutonomousClientPresence(
  */
 function checkAutonomousMessaging(
   chatId: string,
-  characterSchedules: Record<string, WeekSchedule>,
+  characterSchedules: Record<string, WeekSchedule | ConversationRoutine>,
   isGroupChat: boolean,
   opts: { maxFollowups?: number } = {},
 ): AutonomousCheckResult {
@@ -610,7 +655,7 @@ function checkAutonomousMessaging(
 function checkCharacterExchange(
   chatId: string,
   lastSpeakerCharId: string,
-  characterSchedules: Record<string, WeekSchedule>,
+  characterSchedules: Record<string, WeekSchedule | ConversationRoutine>,
 ): AutonomousCheckResult {
   const noTrigger: AutonomousCheckResult = {
     shouldTrigger: false,

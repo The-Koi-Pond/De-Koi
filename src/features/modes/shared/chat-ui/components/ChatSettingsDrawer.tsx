@@ -71,6 +71,7 @@ import {
 } from "./settings/ScopedRegexControls";
 import { SpriteDisplayModeToggle, SpriteToggleButton } from "./settings/SpriteDisplayControls";
 import {
+  metadataCharacterRoutines,
   metadataCharacterSchedules,
   metadataChoiceSelections,
   metadataNumber,
@@ -563,11 +564,17 @@ function ChatSettingsDrawerInner({
     () => metadataCharacterSchedules(metadata.characterSchedules),
     [metadata.characterSchedules],
   );
+  const characterRoutines = useMemo(
+    () => metadataCharacterRoutines(metadata.characterRoutines),
+    [metadata.characterRoutines],
+  );
   const isSceneChat = metadata.sceneStatus === "active" || typeof metadata.sceneOriginChatId === "string";
   const hasGeneratedConversationSchedules = Object.keys(characterSchedules).length > 0;
+  const hasGeneratedConversationRoutines = Object.keys(characterRoutines).length > 0;
+  const hasGeneratedConversationAvailability = hasGeneratedConversationRoutines || hasGeneratedConversationSchedules;
   const conversationSchedulesEnabled =
     metadata.conversationSchedulesEnabled === true ||
-    (metadata.conversationSchedulesEnabled == null && hasGeneratedConversationSchedules);
+    (metadata.conversationSchedulesEnabled == null && hasGeneratedConversationAvailability);
   const conversationSettingsQuery = useQuery({
     queryKey: conversationSettingsKeys.settings,
     queryFn: conversationSettingsApi.settings.get,
@@ -3104,7 +3111,7 @@ function ChatSettingsDrawerInner({
                   onClick={() => {
                     const nextEnabled = !conversationSchedulesEnabled;
                     updateMeta.mutate({ id: chat.id, conversationSchedulesEnabled: nextEnabled });
-                    if (nextEnabled && !hasGeneratedConversationSchedules) {
+                    if (nextEnabled && !hasGeneratedConversationAvailability) {
                       void generateConversationSchedules(false);
                     }
                   }}
@@ -3118,7 +3125,7 @@ function ChatSettingsDrawerInner({
                   <div className="flex-1 min-w-0">
                     <span className="text-xs font-medium">Availability</span>
                     <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                      Simple character availability and response timing
+                      Fuzzy character routines and response timing
                     </p>
                   </div>
                   <div
@@ -3206,13 +3213,15 @@ function ChatSettingsDrawerInner({
                     <span className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]">
                       {!conversationSchedulesEnabled
                         ? "Availability is off - autonomous messages will not use routines."
-                        : hasGeneratedConversationSchedules
-                          ? "Availability patterns generated - status uses character availability."
-                          : "Availability enabled - generate patterns when you're ready."}
+                        : hasGeneratedConversationRoutines
+                          ? "Routines generated - status uses character habits."
+                          : hasGeneratedConversationSchedules
+                            ? "Legacy schedules found - regenerate to replace them with routines."
+                            : "Availability enabled - generate routines when you're ready."}
                     </span>
                     <p className="text-[0.59375rem] text-[var(--muted-foreground)]/60 mt-0.5">
                       {conversationSchedulesEnabled
-                        ? "Availability refreshes only after you enable or regenerate it."
+                        ? "Routines refresh only after you enable or regenerate them."
                         : "Turn availability on if you want character timing to matter."}
                     </p>
                   </div>
@@ -3230,20 +3239,21 @@ function ChatSettingsDrawerInner({
                         ? "cursor-not-allowed text-[var(--muted-foreground)]/60"
                         : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
                     )}
-                    title={isRegeneratingSchedules ? "Regenerating availability..." : "Generate availability patterns"}
+                    title={isRegeneratingSchedules ? "Regenerating availability..." : "Generate character routines"}
                   >
                     <RefreshCw size="0.6875rem" className={cn(isRegeneratingSchedules && "animate-spin")} />
                     {isRegeneratingSchedules
-                      ? "Regenerating…"
-                      : hasGeneratedConversationSchedules
+                      ? "Regenerating..."
+                      : hasGeneratedConversationAvailability
                         ? "Regenerate"
                         : "Generate"}
                   </button>
                 </div>
 
                 {/* Availability editor per character */}
-                {conversationSchedulesEnabled && hasGeneratedConversationSchedules && (
+                {conversationSchedulesEnabled && hasGeneratedConversationAvailability && (
                   <ScheduleEditor
+                    characterRoutines={characterRoutines}
                     characterSchedules={characterSchedules}
                     chatCharIds={chatCharIds}
                     charNameMap={charNameMap}

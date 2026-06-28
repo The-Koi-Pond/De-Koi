@@ -8,6 +8,33 @@ export interface ScheduleBlock {
   status: "online" | "idle" | "dnd" | "offline";
 }
 
+export type RoutineBusyAvailability = "available" | "delayed" | "busy" | "unavailable";
+export type RoutineSocialEnergyLevel = "low" | "medium" | "high";
+
+export interface ConversationRoutineBusyPeriod {
+  when: string;
+  summary: string;
+  availability: RoutineBusyAvailability;
+}
+
+export interface ConversationRoutine {
+  weekStart: string;
+  generatedAt: string;
+  sleep: string;
+  busy: ConversationRoutineBusyPeriod[];
+  freeish: string[];
+  replyStyle: string;
+  checkInStyle: string;
+  socialEnergy: {
+    level: RoutineSocialEnergyLevel;
+    reason: string;
+  };
+  inactivityThresholdMinutes: number;
+  idleResponseDelayMinutes?: number;
+  dndResponseDelayMinutes?: number;
+  talkativeness: number;
+}
+
 type CharacterScheduleMap = Record<
   string,
   {
@@ -19,6 +46,8 @@ type CharacterScheduleMap = Record<
     talkativeness: number;
   }
 >;
+
+export type CharacterRoutineMap = Record<string, ConversationRoutine>;
 
 export function metadataString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
@@ -49,6 +78,16 @@ function metadataOptionalNumber(value: unknown, min: number, max: number): numbe
 
 function metadataScheduleStatus(value: unknown): ScheduleBlock["status"] {
   return value === "online" || value === "idle" || value === "dnd" || value === "offline" ? value : "online";
+}
+
+function metadataRoutineAvailability(value: unknown): RoutineBusyAvailability {
+  return value === "available" || value === "delayed" || value === "busy" || value === "unavailable"
+    ? value
+    : "delayed";
+}
+
+function metadataSocialEnergyLevel(value: unknown): RoutineSocialEnergyLevel {
+  return value === "low" || value === "medium" || value === "high" ? value : "medium";
 }
 
 export function normalizeScheduleBlocks(value: unknown): ScheduleBlock[] {
@@ -94,6 +133,67 @@ export function metadataCharacterSchedules(value: unknown): CharacterScheduleMap
     }
   }
   return characterSchedules;
+}
+
+function metadataRoutineBusyPeriods(value: unknown): ConversationRoutineBusyPeriod[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): ConversationRoutineBusyPeriod[] => {
+    const period = metadataRecord(item);
+    const when = metadataString(period.when).trim();
+    const summary = metadataString(period.summary).trim();
+    if (!when || !summary) return [];
+    return [{ when, summary, availability: metadataRoutineAvailability(period.availability) }];
+  });
+}
+
+export function metadataCharacterRoutines(value: unknown): CharacterRoutineMap {
+  const rawRoutines = metadataRecord(value);
+  const characterRoutines: CharacterRoutineMap = {};
+  for (const [characterId, rawRoutine] of Object.entries(rawRoutines)) {
+    if (!characterId.trim()) continue;
+    const routine = metadataRecord(rawRoutine);
+    const weekStart = metadataString(routine.weekStart).trim();
+    const generatedAt = metadataString(routine.generatedAt).trim();
+    const sleep = metadataString(routine.sleep).trim();
+    const busy = metadataRoutineBusyPeriods(routine.busy);
+    const freeish = metadataStringArray(routine.freeish).map((item) => item.trim()).filter(Boolean);
+    const replyStyle = metadataString(routine.replyStyle).trim();
+    const checkInStyle = metadataString(routine.checkInStyle).trim();
+    const socialEnergyRaw = metadataRecord(routine.socialEnergy);
+    const socialEnergy = {
+      level: metadataSocialEnergyLevel(socialEnergyRaw.level),
+      reason: metadataString(socialEnergyRaw.reason).trim(),
+    };
+    const hasRoutineSignal =
+      sleep.length > 0 ||
+      busy.length > 0 ||
+      freeish.length > 0 ||
+      replyStyle.length > 0 ||
+      checkInStyle.length > 0 ||
+      socialEnergy.reason.length > 0;
+    if (!weekStart || !generatedAt || !hasRoutineSignal) continue;
+    characterRoutines[characterId] = {
+      weekStart,
+      generatedAt,
+      sleep,
+      busy,
+      freeish,
+      replyStyle,
+      checkInStyle,
+      socialEnergy,
+      inactivityThresholdMinutes: metadataClampedNumber(routine.inactivityThresholdMinutes, 120, 15, 360),
+      talkativeness: metadataClampedNumber(routine.talkativeness, 50, 0, 100),
+    };
+    const idleResponseDelayMinutes = metadataOptionalNumber(routine.idleResponseDelayMinutes, 0, 120);
+    if (idleResponseDelayMinutes !== undefined) {
+      characterRoutines[characterId].idleResponseDelayMinutes = idleResponseDelayMinutes;
+    }
+    const dndResponseDelayMinutes = metadataOptionalNumber(routine.dndResponseDelayMinutes, 0, 120);
+    if (dndResponseDelayMinutes !== undefined) {
+      characterRoutines[characterId].dndResponseDelayMinutes = dndResponseDelayMinutes;
+    }
+  }
+  return characterRoutines;
 }
 
 export function metadataChoiceSelections(value: unknown): ChoiceSelections {

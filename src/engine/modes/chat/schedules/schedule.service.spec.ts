@@ -10,6 +10,8 @@ import {
   generateConversationSchedules,
   getAvailabilityExplanation,
   getAvailabilityResponseDelay,
+  getEnabledConversationRoutines,
+  type ConversationRoutine,
   type WeekSchedule,
 } from "./schedule.service";
 
@@ -33,6 +35,19 @@ const baseSchedule: WeekSchedule = {
   },
 };
 
+const baseRoutine: ConversationRoutine = {
+  weekStart: "2026-06-22T00:00:00.000Z",
+  generatedAt: "2026-06-22T12:00:00.000Z",
+  sleep: "Usually sleeps late night to mid-morning.",
+  busy: [{ when: "Weekday afternoons", summary: "classes", availability: "busy" }],
+  freeish: ["Evenings after dinner are usually relaxed."],
+  replyStyle: "Fast when relaxed, slow when busy.",
+  checkInStyle: "Likes texting at night.",
+  socialEnergy: { level: "medium", reason: "Warm but focused." },
+  inactivityThresholdMinutes: 45,
+  talkativeness: 72,
+};
+
 function tuesdayAt(hour: number, minute = 0): Date {
   return new Date(2026, 5, 23, hour, minute, 0, 0);
 }
@@ -51,7 +66,7 @@ describe("getAvailabilityDecision", () => {
     });
   });
 
-  it("treats idle and dnd schedule blocks as delayed rather than unavailable", () => {
+  it("treats idle schedule blocks as delayed and dnd blocks as busy", () => {
     expect(getAvailabilityDecision(baseSchedule, tuesdayAt(10, 30))).toMatchObject({
       status: "idle",
       availability: "delayed",
@@ -62,7 +77,7 @@ describe("getAvailabilityDecision", () => {
     });
     expect(getAvailabilityDecision(baseSchedule, tuesdayAt(11, 30))).toMatchObject({
       status: "dnd",
-      availability: "delayed",
+      availability: "busy",
       canReplyNow: false,
       canMessageFirst: true,
       delayKind: "long",
@@ -138,6 +153,42 @@ describe("getAvailabilityDecision", () => {
     };
 
     expect(getCurrentStatus(schedule, tuesdayAt(1, 15))).toEqual({ status: "offline", activity: "sleeping" });
+  });
+
+  it("resolves weekday afternoon class routines as busy without exact blocks", () => {
+    expect(getAvailabilityDecision(baseRoutine, tuesdayAt(14, 15))).toMatchObject({
+      source: "routine",
+      status: "dnd",
+      availability: "busy",
+      activity: "classes",
+      canReplyNow: false,
+      canMessageFirst: true,
+      delayKind: "long",
+    });
+  });
+
+  it("resolves evening texting routines as available and likely to message first", () => {
+    expect(getAvailabilityDecision(baseRoutine, tuesdayAt(20, 30))).toMatchObject({
+      source: "routine",
+      status: "online",
+      availability: "available",
+      activity: "Evenings after dinner are usually relaxed.",
+      canReplyNow: true,
+      canMessageFirst: true,
+      delayKind: "none",
+    });
+  });
+
+  it("resolves sleep tendency as unavailable without exact sleep blocks", () => {
+    expect(getAvailabilityDecision(baseRoutine, tuesdayAt(2, 15))).toMatchObject({
+      source: "routine",
+      status: "offline",
+      availability: "unavailable",
+      activity: "Usually sleeps late night to mid-morning.",
+      canReplyNow: false,
+      canMessageFirst: false,
+      delayKind: "blocked",
+    });
   });
 
   it("falls back to available when no schedule exists", () => {
@@ -243,6 +294,10 @@ describe("getAvailabilityDecision", () => {
 
 type JsonRecord = Record<string, unknown>;
 
+function parseJsonRecord(value: unknown): JsonRecord {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {};
+}
+
 function generatedAvailabilityScheduleJson(): string {
   const blocks = [
     { time: "00:00-06:00", activity: "dreaming", availability: "unavailable" },
@@ -262,6 +317,19 @@ function generatedAvailabilityScheduleJson(): string {
       Saturday: blocks,
       Sunday: blocks,
     },
+  });
+}
+
+function generatedConversationRoutineJson(): string {
+  return JSON.stringify({
+    talkativeness: 72,
+    inactivityThresholdMinutes: 45,
+    sleep: "Usually sleeps late night to mid-morning.",
+    busy: [{ when: "Weekday afternoons", summary: "classes", availability: "busy" }],
+    freeish: ["Evenings after dinner are usually relaxed."],
+    replyStyle: "Fast when relaxed, slow when busy.",
+    checkInStyle: "Likes texting at night.",
+    socialEnergy: { level: "medium", reason: "Warm but focused." },
   });
 }
 
@@ -392,6 +460,58 @@ function scheduleStorageGateway(): StorageGateway {
 }
 
 describe("generateConversationSchedules availability output", () => {
+  it("generates fuzzy routines and stores them beside legacy schedules", async () => {
+    const storage = scheduleStorageGateway();
+    const llm = llmWithRawResponse(generatedConversationRoutineJson());
+
+    const result = await generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true });
+    const chat = await storage.get<JsonRecord>("chats", "chat-1");
+
+    expect(result.routines["char-1"]).toMatchObject({
+      sleep: "Usually sleeps late night to mid-morning.",
+      busy: [{ when: "Weekday afternoons", summary: "classes", availability: "busy" }],
+      freeish: ["Evenings after dinner are usually relaxed."],
+      replyStyle: "Fast when relaxed, slow when busy.",
+      checkInStyle: "Likes texting at night.",
+      socialEnergy: { level: "medium", reason: "Warm but focused." },
+      inactivityThresholdMinutes: 45,
+      talkativeness: 72,
+    });
+    expect(parseJsonRecord(chat?.metadata).characterRoutines).toMatchObject(result.routines);
+    expect(parseJsonRecord(chat?.metadata).characterSchedules).toBeUndefined();
+  });
+
+  it("asks the LLM for fuzzy routines instead of schedule blocks", async () => {
+    const storage = scheduleStorageGateway();
+    const llm = llmWithRawResponse(generatedConversationRoutineJson());
+
+    await generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true });
+
+    const systemPrompt = llm.requests[0]?.messages[0]?.content ?? "";
+    expect(systemPrompt).toContain("fuzzy conversation routine");
+    expect(systemPrompt).toContain("Do not create a calendar");
+    expect(systemPrompt).not.toContain("time blocks");
+    expect(systemPrompt).not.toContain("Include ALL 7 day keys");
+  });
+
+  it("ignores malformed routine metadata safely", () => {
+    expect(
+      getEnabledConversationRoutines({
+        conversationSchedulesEnabled: true,
+        characterRoutines: {
+          "char-1": {
+            sleep: "",
+            busy: [],
+            freeish: [],
+            replyStyle: "",
+            checkInStyle: "",
+            socialEnergy: { level: "medium", reason: "" },
+          },
+        },
+      }),
+    ).toEqual({});
+  });
+
   it("accepts availability labels from the LLM while saving legacy schedule statuses", async () => {
     const storage = scheduleStorageGateway();
     const llm = llmWithRawResponse(generatedAvailabilityScheduleJson());
@@ -406,15 +526,16 @@ describe("generateConversationSchedules availability output", () => {
     ]);
   });
 
-  it("asks the LLM for sparse availability exceptions instead of full-day schedules", async () => {
+  it("no longer asks the LLM for sparse schedule block exceptions", async () => {
     const storage = scheduleStorageGateway();
     const llm = llmWithRawResponse(generatedAvailabilityScheduleJson());
 
     await generateConversationSchedules({ storage, llm }, { chatId: "chat-1", forceRefresh: true });
 
     const systemPrompt = llm.requests[0]?.messages[0]?.content ?? "";
-    expect(systemPrompt).toContain("availability exceptions");
-    expect(systemPrompt).toContain("Do not fill every hour of the day");
+    expect(systemPrompt).toContain("fuzzy conversation routine");
+    expect(systemPrompt).not.toContain("availability exceptions");
+    expect(systemPrompt).not.toContain("Do not fill every hour of the day");
     expect(systemPrompt).not.toContain("covering the full 24 hours");
   });
 
