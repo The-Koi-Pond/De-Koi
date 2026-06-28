@@ -137,6 +137,10 @@ function newId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function dekiSessionRunKey(sessionId: string | null | undefined) {
+  return sessionId ?? "__active-deki-session__";
+}
+
 function isDekiImageFile(file: File) {
   if (file.type.startsWith("image/")) return true;
   const extension = file.name.includes(".") ? file.name.split(".").pop()?.toLowerCase() : null;
@@ -243,10 +247,7 @@ function chatAccessWindowLabel(action: DekiChatAccessRequestAction): string {
   return "Up to 50 recent messages per chat";
 }
 
-function createDekiChatAccessGrant(
-  message: DekiMessage,
-  action: DekiChatAccessRequestAction,
-): DekiChatAccessGrant {
+function createDekiChatAccessGrant(message: DekiMessage, action: DekiChatAccessRequestAction): DekiChatAccessGrant {
   return {
     id: `chat-grant-${message.id}`,
     actionMessageId: message.id,
@@ -271,7 +272,9 @@ function createDekiWebResearchGrant(
   };
 }
 
-function characterScopeParts(scope: DekiChatAccessScope): { characterId?: string | null; characterName?: string | null } | null {
+function characterScopeParts(
+  scope: DekiChatAccessScope,
+): { characterId?: string | null; characterName?: string | null } | null {
   if (scope.type !== "character" && scope.type !== "latest_character") return null;
   if (!scope.characterId && !scope.characterName) return null;
   return {
@@ -445,7 +448,10 @@ function stableJsonKey(value: unknown): string {
   }
 }
 
-function dekiActionPreviewKey(messageId: string | null | undefined, action: DekiEntryAction | null | undefined): string {
+function dekiActionPreviewKey(
+  messageId: string | null | undefined,
+  action: DekiEntryAction | null | undefined,
+): string {
   if (!action) return `${messageId ?? "no-message"}:no-action`;
   if (action.type === "edit_record") {
     return [messageId ?? "no-message", action.type, action.entity, action.id, stableJsonKey(action.patch)].join(":");
@@ -502,7 +508,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
   const [personaMenuOpen, setPersonaMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [connectionSetupPromptOpen, setConnectionSetupPromptOpen] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [sendingSessionKeys, setSendingSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [applyingActionMessageId, setApplyingActionMessageId] = useState<string | null>(null);
@@ -514,8 +520,23 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
   const persistedConnectionIdRef = useRef<DekiPreferences["selectedConnectionId"] | undefined>(undefined);
   const persistedPersonaIdRef = useRef<DekiPreferences["selectedPersonaId"] | undefined>(undefined);
   const mountedRef = useRef(false);
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
   const connectionSelectionTouchedRef = useRef(false);
   const personaSelectionTouchedRef = useRef(false);
+  const currentSessionRunKey = dekiSessionRunKey(sessionId);
+  const sending = sendingSessionKeys.has(currentSessionRunKey);
+  const markSessionSending = (targetSessionId: string | null | undefined, active: boolean) => {
+    const key = dekiSessionRunKey(targetSessionId);
+    setSendingSessionKeys((current) => {
+      const next = new Set(current);
+      if (active) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+  const isVisibleSession = (targetSessionId: string | null | undefined) =>
+    mountedRef.current && sessionIdRef.current === (targetSessionId ?? null);
   const preferencesReady = preferencesLoaded;
   const canSend = (draft.trim().length > 0 || attachments.length > 0) && !sending && historyLoaded && preferencesReady;
   const connections = useMemo(
@@ -792,7 +813,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
       setSendError("Deki-senpai needs a user message before retrying.");
       return;
     }
-    setSending(true);
+    markSessionSending(sessionId, true);
     setRegeneratingMessageId(messageId);
     setSendError(null);
     try {
@@ -818,14 +839,14 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
         attachments: [],
         chatAccessGrants,
         onUserMessagePersisted: (_user, messagesWithUser) => {
-          if (mountedRef.current) setMessages(messagesWithUser);
+          if (isVisibleSession(sessionId)) setMessages(messagesWithUser);
           void onSessionsChanged?.();
         },
         onCompactionSaved: (nextCompaction) => {
-          if (mountedRef.current) setCompaction(nextCompaction);
+          if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
         },
         onAssistantMessagePersisted: (_assistant, messagesWithAssistant) => {
-          if (mountedRef.current) setMessages(messagesWithAssistant);
+          if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
           void onSessionsChanged?.();
         },
       });
@@ -835,7 +856,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
       }
     } finally {
       if (mountedRef.current) {
-        setSending(false);
+        markSessionSending(sessionId, false);
         setRegeneratingMessageId(null);
         requestAnimationFrame(() => inputRef.current?.focus());
       }
@@ -854,7 +875,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
       setDraft("");
       setAttachments([]);
       setSendError(null);
-      setSending(true);
+      markSessionSending(sessionId, true);
       try {
         if (onCreateSession) {
           await onCreateSession();
@@ -867,7 +888,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
       } catch (error) {
         setSendError(error instanceof Error ? error.message : "Deki-senpai chat could not be created.");
       } finally {
-        setSending(false);
+        markSessionSending(sessionId, false);
         requestAnimationFrame(() => inputRef.current?.focus());
       }
       return;
@@ -894,7 +915,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
     setDraft("");
     setAttachments([]);
     setSendError(null);
-    setSending(true);
+    markSessionSending(sessionId, true);
     requestAnimationFrame(() => inputRef.current?.focus());
     try {
       await runDetachedDekiSend({
@@ -916,26 +937,26 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
         })),
         chatAccessGrants,
         onUserMessagePersisted: (_user, messagesWithUser) => {
-          if (mountedRef.current) setMessages(messagesWithUser);
+          if (isVisibleSession(sessionId)) setMessages(messagesWithUser);
           void onSessionsChanged?.();
         },
         onCompactionSaved: (nextCompaction) => {
-          if (mountedRef.current) setCompaction(nextCompaction);
+          if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
         },
         onAssistantMessagePersisted: (_assistant, messagesWithAssistant) => {
-          if (mountedRef.current) setMessages(messagesWithAssistant);
+          if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
           void onSessionsChanged?.();
         },
       });
     } catch (error) {
       if (mountedRef.current) {
         setSendError(error instanceof Error ? error.message : "Deki-senpai failed to respond.");
-        setSending(false);
+        markSessionSending(sessionId, false);
       }
       return;
     }
     if (mountedRef.current) {
-      setSending(false);
+      markSessionSending(sessionId, false);
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   };
@@ -987,7 +1008,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
         setMessages(messagesWithDecision);
         void onSessionsChanged?.();
         if (!webResearchDecision?.approve) return;
-        setSending(true);
+        markSessionSending(sessionId, true);
         await runDetachedDekiSend({
           sessionId,
           userMessage: retryTurn.user.content,
@@ -1003,14 +1024,14 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
           chatAccessGrants,
           webResearchGrants: [grant],
           onUserMessagePersisted: (_user, messagesWithUser) => {
-            if (mountedRef.current) setMessages(messagesWithUser);
+            if (isVisibleSession(sessionId)) setMessages(messagesWithUser);
             void onSessionsChanged?.();
           },
           onCompactionSaved: (nextCompaction) => {
-            if (mountedRef.current) setCompaction(nextCompaction);
+            if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
           },
           onAssistantMessagePersisted: (_assistant, messagesWithAssistant) => {
-            if (mountedRef.current) setMessages(messagesWithAssistant);
+            if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
             void onSessionsChanged?.();
           },
         });
@@ -1051,7 +1072,7 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
         await dekiApi.history.markActionApplied(message.id, application, sessionId);
         setChatAccessGrants(nextGrants);
         setMessages(messagesWithGrant);
-        setSending(true);
+        markSessionSending(sessionId, true);
         await runDetachedDekiSend({
           sessionId,
           userMessage: dekiChatAccessResumePrompt(retryTurn.user.content),
@@ -1066,14 +1087,14 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
           attachments: [],
           chatAccessGrants: nextGrants,
           onUserMessagePersisted: (_user, messagesWithUser) => {
-            if (mountedRef.current) setMessages(messagesWithUser);
+            if (isVisibleSession(sessionId)) setMessages(messagesWithUser);
             void onSessionsChanged?.();
           },
           onCompactionSaved: (nextCompaction) => {
-            if (mountedRef.current) setCompaction(nextCompaction);
+            if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
           },
           onAssistantMessagePersisted: (_assistant, messagesWithAssistant) => {
-            if (mountedRef.current) setMessages(messagesWithAssistant);
+            if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
             void onSessionsChanged?.();
           },
         });
@@ -1105,7 +1126,8 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
       }));
     } finally {
       if (mountedRef.current) {
-        if (action.type === "request_chat_access" || action.type === "request_web_research") setSending(false);
+        if (action.type === "request_chat_access" || action.type === "request_web_research")
+          markSessionSending(sessionId, false);
         setApplyingActionMessageId(null);
         requestAnimationFrame(() => inputRef.current?.focus());
       }
@@ -1600,7 +1622,9 @@ function DekiWebResearchCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{actionTitle(action)}</div>
-          <div className="text-[0.6875rem] text-[var(--muted-foreground)]">Search the web and read public source pages with your approval</div>
+          <div className="text-[0.6875rem] text-[var(--muted-foreground)]">
+            Search the web and read public source pages with your approval
+          </div>
         </div>
         {handled && (
           <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-lg bg-emerald-500/10 px-2 font-semibold text-emerald-500">

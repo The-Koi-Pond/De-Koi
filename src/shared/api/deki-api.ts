@@ -551,7 +551,7 @@ function updateSession(
   const session = sessionId ? state.sessions.find((item) => item.id === sessionId) : getActiveDekiSession(state);
   const target = session ?? getActiveDekiSession(state);
   return {
-    activeSessionId: target.id,
+    activeSessionId: state.activeSessionId,
     sessions: state.sessions.map((item) => (item.id === target.id ? update(target) : item)),
   };
 }

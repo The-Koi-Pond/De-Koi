@@ -506,10 +506,7 @@ describe("DekiSurface message retry actions", () => {
     expect(windowSelect).not.toBeNull();
     const scopeOptionLabels = Array.from(scopeSelect!.options).map((option) => option.textContent);
     const windowOptionLabels = Array.from(windowSelect!.options).map((option) => option.textContent);
-    expect(scopeOptionLabels).toEqual([
-      "Deki's suggestion: Chats involving Makima",
-      "Latest chat with Makima",
-    ]);
+    expect(scopeOptionLabels).toEqual(["Deki's suggestion: Chats involving Makima", "Latest chat with Makima"]);
     expect(windowOptionLabels).toEqual([
       "10 recent messages per chat",
       "25 recent messages per chat",
@@ -762,5 +759,180 @@ describe("DekiSurface message retry actions", () => {
       }),
       dekiApi,
     );
+  });
+});
+
+describe("DekiSurface concurrent sessions", () => {
+  let root: Root | null = null;
+  let container: HTMLDivElement | null = null;
+  let queryClient: QueryClient | null = null;
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    };
+    queryClient = new QueryClient();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    vi.mocked(dekiApi.history.get).mockImplementation(async (targetSessionId) => {
+      const id = targetSessionId ?? "session-1";
+      return {
+        session: {
+          id,
+          title: id === "session-2" ? "Second" : "First",
+          messages: [],
+          compaction: EMPTY_DEKI_COMPACTION,
+          createdAt: "2026-06-28T12:00:00.000Z",
+          updatedAt: "2026-06-28T12:00:00.000Z",
+        },
+        messages: [],
+        compaction: EMPTY_DEKI_COMPACTION,
+      };
+    });
+    vi.mocked(dekiApi.preferences.get).mockResolvedValue({
+      selectedConnectionId: "conn-1",
+      selectedPersonaId: null,
+    });
+    vi.mocked(dekiApi.preferences.save).mockResolvedValue({
+      selectedConnectionId: "conn-1",
+      selectedPersonaId: null,
+    });
+    vi.mocked(dekiApi.actions.apply).mockReset();
+    vi.mocked(dekiApi.actions.currentRecord).mockReset();
+    vi.mocked(dekiApi.actions.currentRecord).mockResolvedValue(null);
+    let messageCount = 0;
+    vi.mocked(dekiApi.history.appendMessage).mockImplementation(async ({ sessionId, role, content, action }) => {
+      messageCount += 1;
+      return {
+        id: (sessionId ?? "active") + "-" + role + "-" + messageCount,
+        role,
+        content,
+        ...(action && action.type !== "none" ? { action } : {}),
+        createdAt: "2026-06-28T12:00:0" + messageCount + ".000Z",
+      };
+    });
+    vi.mocked(dekiApi.history.saveCompaction).mockImplementation(async (_sessionId, compaction) => compaction);
+  });
+
+  afterEach(() => {
+    if (root) {
+      act(() => {
+        root?.unmount();
+      });
+    }
+    root = null;
+    queryClient?.clear();
+    queryClient = null;
+    container?.remove();
+    container = null;
+    vi.restoreAllMocks();
+  });
+
+  const renderSurface = (sessionId: string) => {
+    root!.render(
+      <QueryClientProvider client={queryClient!}>
+        <DekiSurface sessionId={sessionId} />
+      </QueryClientProvider>,
+    );
+  };
+
+  const setInputValue = async (value: string) => {
+    const input = container!.querySelector<HTMLTextAreaElement>("textarea");
+    expect(input).not.toBeNull();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(input, value);
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+    });
+  };
+
+  const sendButton = () => {
+    const button = container!.querySelector<HTMLButtonElement>("button[aria-label= Send]");
+    expect(button).not.toBeNull();
+    return button!;
+  };
+
+  it("allows a new session to send while another session is generating", async () => {
+    let resolveFirst:
+      | ((value: {
+          content: string;
+          createdAt: string;
+          action: { type: "none"; capability: "workspace_agent"; reason: string };
+        }) => void)
+      | null = null;
+    const firstResponse = new Promise<{
+      content: string;
+      createdAt: string;
+      action: { type: "none"; capability: "workspace_agent"; reason: string };
+    }>((resolve) => {
+      resolveFirst = resolve;
+    });
+    vi.mocked(runDekiEntry).mockImplementation(async (request) => {
+      if (request.userMessage === "First question") return firstResponse;
+      return {
+        content: "Reply to " + request.userMessage,
+        createdAt: "2026-06-28T12:00:10.000Z",
+        action: {
+          type: "none",
+          capability: "workspace_agent",
+          reason: "Test response.",
+        },
+      };
+    });
+
+    await act(async () => {
+      root = createRoot(container!);
+      renderSurface("session-1");
+    });
+    await tick();
+
+    await setInputValue("First question");
+    expect(sendButton().disabled).toBe(false);
+    await act(async () => {
+      sendButton().click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      renderSurface("session-2");
+    });
+    await tick();
+    await setInputValue("Second question");
+
+    expect(sendButton().disabled).toBe(false);
+
+    await act(async () => {
+      sendButton().click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(runDekiEntry).toHaveBeenCalledWith(
+      expect.objectContaining({ userMessage: "Second question", connectionId: "conn-1" }),
+      dekiApi,
+    );
+    expect(container!.textContent).toContain("Reply to Second question");
+
+    await act(async () => {
+      resolveFirst?.({
+        content: "Reply to First question",
+        createdAt: "2026-06-28T12:00:20.000Z",
+        action: {
+          type: "none",
+          capability: "workspace_agent",
+          reason: "Test response.",
+        },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container!.textContent).toContain("Reply to Second question");
+    expect(container!.textContent).not.toContain("Reply to First question");
   });
 });
