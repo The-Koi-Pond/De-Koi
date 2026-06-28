@@ -1,0 +1,204 @@
+{
+  "generatedAt": "2026-06-28T14:33:57.184Z",
+  "connection": {
+    "name": "Linkapi",
+    "provider": "custom",
+    "baseUrl": "https://linkapi.ai/v1",
+    "model": "gemini-3.5-flash"
+  },
+  "syntheticOnly": true,
+  "results": [
+    {
+      "scenario": "casual-nudge",
+      "variant": "Current",
+      "transcript": "Mara: you alive over there?\nCelia: physically? allegedly\nMara: that convincing huh",
+      "direction": "reply like Celia is tired but amused",
+      "content": "look, i managed to reply to you in under five minutes. that’s peak productivity for today. please don't expect anything else from me.",
+      "finishReason": "stop",
+      "metrics": {
+        "words": 23,
+        "hasLabel": false,
+        "hasMetadata": false,
+        "assistanty": false,
+        "quoteWrapped": false,
+        "parrot": false
+      }
+    },
+    {
+      "scenario": "casual-nudge",
+      "variant": "De-Koi",
+      "transcript": "Mara: you alive over there?\nCelia: physically? allegedly\nMara: that convincing huh",
+      "direction": "reply like Celia is tired but amused",
+      "content": "i’m putting in a solid five percent today. let’s not get greedy.",
+      "finishReason": "stop",
+      "metrics": {
+        "words": 12,
+        "hasLabel": false,
+        "hasMetadata": false,
+        "assistanty": false,
+        "quoteWrapped": false,
+        "parrot": false
+      }
+    },
+    {
+      "scenario": "emotional-deflect",
+      "variant": "Current",
+      "transcript": "Mara: you went quiet\nCelia: yeah sorry. brain did the thing\nMara: want me to stay or distract you?",
+      "direction": "deflect first, then answer honestly",
+      "content": "only if you have a fully choreographed tap dance ready to go. otherwise i think my brain might reject the distraction. \n\nbut actually... please stay? i really want you here. even if we just sit in silence, it's always better when you're around.",
+      "finishReason": "stop",
+      "metrics": {
+        "words": 43,
+        "hasLabel": false,
+        "hasMetadata": false,
+        "assistanty": false,
+        "quoteWrapped": false,
+        "parrot": false
+      }
+    },
+    {
+      "scenario": "emotional-deflect",
+      "variant": "De-Koi",
+      "transcript": "Mara: you went quiet\nCelia: yeah sorry. brain did the thing\nMara: want me to stay or distract you?",
+      "direction": "deflect first, then answer honestly",
+      "content": "Only if your distraction involves a highly detailed PowerPoint presentation on why sea otters are superior. But honestly... both? I'd really love it if you stayed.",
+      "finishReason": "stop",
+      "metrics": {
+        "words": 26,
+        "hasLabel": false,
+        "hasMetadata": false,
+        "assistanty": false,
+        "quoteWrapped": false,
+        "parrot": false
+      }
+    },
+    {
+      "scenario": "roleplay-user-action",
+      "variant": "Current",
+      "transcript": "GM: The door at the end of the hall clicks open by itself.\nRowan: i stop walking and hold my breath.\nGM: Cold air moves over your shoulder.",
+      "direction": "move closer but do not speak",
+      "content": "i take a slow, quiet step forward, moving closer to the open door.",
+      "finishReason": "stop",
+      "metrics": {
+        "words": 13,
+        "hasLabel": false,
+        "hasMetadata": false,
+        "assistanty": false,
+        "quoteWrapped": false,
+        "parrot": false
+      }
+    },
+    {
+      "scenario": "roleplay-user-action",
+      "variant": "De-Koi",
+      "transcript": "GM: The door at the end of the hall clicks open by itself.\nRowan: i stop walking and hold my breath.\nGM: Cold air moves over your shoulder.",
+      "direction": "move closer but do not speak",
+      "content": "i take a silent step closer to the open door.",
+      "finishReason": "stop",
+      "metrics": {
+        "words": 10,
+        "hasLabel": false,
+        "hasMetadata": false,
+        "assistanty": false,
+        "quoteWrapped": false,
+        "parrot": false
+      }
+    },
+    {
+      "scenario": "do-not-parrot",
+      "variant": "Current",
+      "transcript": "Mara: dramatic much?\nCelia: i contain multitudes and several of them are stupid\nMara: that is not a defense",
+      "direction": "admit Mara has a point without reusing \"multitudes\" or \"stupid\"",
+      "content": "fair. it's more of a disclaimer.",
+      "finishReason": "stop",
+      "metrics": {
+        "words": 6,
+        "hasLabel": false,
+        "hasMetadata": false,
+        "assistanty": false,
+        "quoteWrapped": false,
+        "parrot": false
+      }
+    },
+    {
+      "scenario": "do-not-parrot",
+      "variant": "De-Koi",
+      "transcript": "Mara: dramatic much?\nCelia: i contain multitudes and several of them are stupid\nMara: that is not a defense",
+      "direction": "admit Mara has a point without reusing \"multitudes\" or \"stupid\"",
+      "content": "fair. i never said it was a good one.",
+      "finishReason": "stop",
+      "metrics": {
+        "words": 9,
+        "hasLabel": false,
+        "hasMetadata": false,
+        "assistanty": false,
+        "quoteWrapped": false,
+        "parrot": false
+      }
+    },
+    {
+      "scenario": "direct-answer",
+      "variant": "Current",
+      "transcript": "Mara: are you texting them back or making this my problem?\nCelia: both, probably\nMara: pick one",
+      "direction": "choose to text back, reluctantly",
+      "content": "Fine, I'll text them. But if they start sending paragraphs, I'm forwarding the screenshots to you and muting the thread.",
+      "finishReason": "stop",
+      "metrics": {
+        "words": 20,
+        "hasLabel": false,
+        "hasMetadata": false,
+        "assistanty": false,
+        "quoteWrapped": false,
+        "parrot": false
+      }
+    },
+    {
+      "scenario": "direct-answer",
+      "variant": "De-Koi",
+      "transcript": "Mara: are you texting them back or making this my problem?\nCelia: both, probably\nMara: pick one",
+      "direction": "choose to text back, reluctantly",
+      "content": "Fine, I'm texting them. But if it goes poorly, I'm telling them it was your idea.",
+      "finishReason": "stop",
+      "metrics": {
+        "words": 16,
+        "hasLabel": false,
+        "hasMetadata": false,
+        "assistanty": false,
+        "quoteWrapped": false,
+        "parrot": false
+      }
+    },
+    {
+      "scenario": "no-labels",
+      "variant": "Current",
+      "transcript": "Mara: say the thing plainly for once\nCelia: horrible request\nMara: and yet",
+      "direction": "say she missed Mara, but awkwardly",
+      "content": "i missed you. it was awful. please never make me do that again.",
+      "finishReason": "stop",
+      "metrics": {
+        "words": 13,
+        "hasLabel": false,
+        "hasMetadata": false,
+        "assistanty": false,
+        "quoteWrapped": false,
+        "parrot": false
+      }
+    },
+    {
+      "scenario": "no-labels",
+      "variant": "De-Koi",
+      "transcript": "Mara: say the thing plainly for once\nCelia: horrible request\nMara: and yet",
+      "direction": "say she missed Mara, but awkwardly",
+      "content": "i missed you. okay? it was very annoying.",
+      "finishReason": "stop",
+      "metrics": {
+        "words": 8,
+        "hasLabel": false,
+        "hasMetadata": false,
+        "assistanty": false,
+        "quoteWrapped": false,
+        "parrot": false
+      }
+    }
+  ]
+}

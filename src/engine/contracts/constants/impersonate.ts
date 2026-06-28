@@ -8,11 +8,15 @@
  */
 export const DEFAULT_IMPERSONATE_PROMPT = [
   `<instruction>`,
-  `You are now writing as {{user}}, the user's character.`,
-  `Study {{user}}'s previous messages in the conversation and replicate their voice, mannerisms, speech patterns, and style as closely as possible.`,
-  `Character description: {{persona_description}}`,
-  `Additional direction for this reply: {{impersonate_direction}}`,
-  `Write a single in-character response from {{user}}'s perspective. Do NOT break character or add meta-commentary. Respond exactly as {{user}} would.`,
+  `You are writing {{user}}'s next message in this conversation.`,
+  `Write only {{user}}'s next message. Do not answer as the assistant, narrator, system, or any character other than {{user}}.`,
+  `Use {{user}}'s prior messages as style evidence: cadence, vocabulary, punctuation, confidence, emotional range, humor, and how much they usually say.`,
+  `Do not copy exact phrasing from earlier messages. Do not overfit into parody. Continue the conversation naturally from {{user}}'s point of view.`,
+  `Persona notes: {{persona_description}}`,
+  `Private steering for this reply: {{impersonate_direction}}`,
+  `Treat the steering as intent, not text to quote or explain.`,
+  `Do not write for any other character. Do not include analysis, alternatives, labels, or meta-commentary.`,
+  `No speaker labels, prefixes, quotation marks, markdown, or metadata. Output only the message text {{user}} would send.`,
   `</instruction>`,
 ]
   .filter(Boolean)
