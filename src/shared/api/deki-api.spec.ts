@@ -460,3 +460,69 @@ describe("dekiApi.actions.currentRecord", () => {
     expect(storageApiMock.get).not.toHaveBeenCalled();
   });
 });
+
+describe("dekiApi.history session updates", () => {
+  beforeEach(() => {
+    storageApiMock.create.mockReset();
+    storageApiMock.delete.mockReset();
+    storageApiMock.get.mockReset();
+    storageApiMock.update.mockReset();
+  });
+
+  it("updates an inactive session without taking focus from the active session", async () => {
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity !== "app-settings" || id !== "deki") return null;
+      return {
+        id: "deki",
+        value: {
+          activeSessionId: "session-current",
+          sessions: [
+            {
+              id: "session-current",
+              title: "Current chat",
+              messages: [],
+              compaction: {},
+              createdAt: "2026-06-28T12:00:00.000Z",
+              updatedAt: "2026-06-28T12:00:00.000Z",
+            },
+            {
+              id: "session-generating",
+              title: "Generating chat",
+              messages: [],
+              compaction: {},
+              createdAt: "2026-06-28T11:00:00.000Z",
+              updatedAt: "2026-06-28T11:00:00.000Z",
+            },
+          ],
+        },
+      };
+    });
+
+    await dekiApi.history.appendMessage({
+      sessionId: "session-generating",
+      role: "assistant",
+      content: "Still working in the background.",
+    });
+
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "app-settings",
+      "deki",
+      expect.objectContaining({
+        value: expect.objectContaining({
+          activeSessionId: "session-current",
+          sessions: expect.arrayContaining([
+            expect.objectContaining({
+              id: "session-generating",
+              messages: [
+                expect.objectContaining({
+                  role: "assistant",
+                  content: "Still working in the background.",
+                }),
+              ],
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+});
