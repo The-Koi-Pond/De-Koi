@@ -1470,7 +1470,7 @@ fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
         "You can inspect the creative library through read_deki_library when the user asks about their characters, personas, lorebooks, prompt presets, or groups. read_deki_library returns only an overview. Use read_deki_library_items with exact ids when you need full selected records. Do not request full item details until the overview identifies likely relevant records.".to_string(),
         "You can inspect chats and messages only after the user grants scoped read access. If the task needs prior chat, roleplay, or game conversation context and no approved grant is available, explain the needed scope and append exactly one hidden <deki_action>{JSON}</deki_action> block with {\"type\":\"request_chat_access\",\"scope\":{\"type\":\"specific_chats\",\"chatIds\":[\"...\"]}|{\"type\":\"character\",\"characterId\":\"optional\",\"characterName\":\"known character name\"}|{\"type\":\"mode\",\"modes\":[\"conversation\"|\"roleplay\"|\"game\"]},\"window\":{\"messageCount\":50},\"label\":\"short label\",\"rationale\":\"why this chat context is needed\"}. Prefer the narrowest scope; for a named character, characterName is acceptable even if you do not know the id. After a grant exists, the backend injects a bounded approved chat context snapshot into the prompt; use that evidence before drafting. Use chat tools only if the snapshot is missing a clearly necessary bounded window. Never claim to have read chats unless the approved snapshot or chat tools returned data.".to_string(),
         "When the user asks for suggestions, edits, summaries, examples, or character/persona/prompt changes that would materially benefit from their prior chats or roleplay interactions, proactively request scoped chat access before giving evidence-based changes. Do not say you can do it without reading conversations when the request depends on how the user and a character interacted.".to_string(),
-        "You may search the public web only after the user approves a web-research action card. If current external facts, fandom/wiki/game-source details, or source-backed character accuracy would help, ask first by appending exactly one <deki_action>{JSON}</deki_action> block with {\"type\":\"request_web_research\",\"scope\":{\"type\":\"query\",\"query\":\"precise search query\",\"allowedDomains\":[\"optional.example\"]},\"reason\":\"why web research is needed\",\"sources\":[\"expected source names\"],\"label\":\"short label\"}. Do not call search_deki_web unless the latest task prompt lists an approved grant for that exact query.".to_string(),
+        "You may search the public web only after the user approves a web-research action card. When the task would benefit from current external facts, fandom/wiki/game-source details, canon checks, source-backed accuracy, real-world product or rules information, or verification that a character/persona/card matches source material, proactively request web research. Ask first by appending exactly one <deki_action>{JSON}</deki_action> block with {\"type\":\"request_web_research\",\"scope\":{\"type\":\"query\",\"query\":\"precise search query\",\"allowedDomains\":[\"optional.example\"]},\"reason\":\"why web research is needed\",\"sources\":[\"expected source names\"],\"label\":\"short label\"}. Do not call search_deki_web unless the latest task prompt lists an approved grant for that exact query.".to_string(),
         "When a web search grant is approved, use search_deki_web for the granted exact query, summarize what the returned sources indicate, and then propose any creative-library edit with a normal create_record or edit_record approval action. Do not imply you searched the web unless search_deki_web returned results.".to_string(),
         "After search_deki_web returns results, use read_deki_web_page to inspect the most relevant result pages before proposing creative-library edits or making source-backed characterization claims.".to_string(),
         "If search_deki_web fails because the provider did not return usable search results, say that clearly, do not fabricate sources, and ask the user to try again later or provide specific URLs/sources to inspect.".to_string(),
@@ -3406,6 +3406,16 @@ mod tests {
         assert!(prompt.contains("read_deki_web_page"));
         assert!(prompt.contains("inspect the most relevant result pages"));
         assert!(prompt.contains("before proposing creative-library edits"));
+    }
+
+    #[test]
+    fn deki_system_prompt_proactively_requests_web_research_for_source_accuracy() {
+        let prompt = build_system_prompt(None);
+
+        assert!(prompt.contains("proactively request web research"));
+        assert!(prompt.contains("would benefit from current external facts"));
+        assert!(prompt.contains("source-backed accuracy"));
+        assert!(prompt.contains("canon"));
     }
 
     #[test]
