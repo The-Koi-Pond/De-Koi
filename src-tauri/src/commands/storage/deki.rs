@@ -15,16 +15,18 @@ use autoagents::llm::embedding::EmbeddingProvider;
 use autoagents::llm::error::LLMError;
 use autoagents::llm::models::{ModelListRequest, ModelListResponse, ModelsProvider};
 use autoagents::llm::{FunctionCall, LLMProvider, ToolCall};
-use autoagents::prelude::{AgentHooks, ToolInput, ToolInputT, ToolT, agent, tool};
-use marinara_core::{AppError, AppResult, now_iso};
+use autoagents::prelude::{agent, tool, AgentHooks, ToolInput, ToolInputT, ToolT};
+use marinara_core::{now_iso, AppError, AppResult};
 use marinara_security::{assert_inside_dir, assert_relative_safe_path};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::env;
 use std::fmt;
 use std::fs;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 #[path = "deki/chat_access.rs"]
 mod chat_access;
@@ -78,6 +80,10 @@ const DEKI_INITIAL_MAX_TOKENS: u64 = 2048;
 const DEKI_POST_TOOL_MAX_TOKENS: u64 = 8192;
 const DEKI_AGENT_MAX_TURNS: usize = 10;
 const DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT: u64 = 200;
+const DEKI_WEB_SEARCH_MAX_RESULTS: usize = 8;
+const DEKI_WEB_SEARCH_TIMEOUT_SECS: u64 = 12;
+const DEKI_WEB_PAGE_MAX_BYTES: usize = 768 * 1024;
+const DEKI_WEB_PAGE_MAX_CHARS: usize = 16 * 1024;
 const DEKI_REPO_ROOT_ENV: &str = "DE_KOI_REPO_ROOT";
 const LEGACY_DEKI_REPO_ROOT_ENV: &str = "MARINARA_REPO_ROOT";
 const DEKI_WORKSPACE_TOOLS: &[&str] = &[
@@ -107,6 +113,7 @@ struct DekiPromptRequest {
     attachments: Vec<DekiAttachment>,
     #[serde(default)]
     chat_access_grants: Vec<chat_access::DekiChatAccessGrant>,
+    web_research_grants: Vec<DekiWebResearchGrant>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,6 +142,26 @@ struct DekiAttachment {
     #[serde(default)]
     size: u64,
     content: String,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DekiWebResearchGrant {
+    id: String,
+    action_message_id: String,
+    scope: DekiWebResearchScope,
+    granted_at: String,
+    #[serde(default)]
+    expires_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DekiWebResearchScope {
+    #[serde(rename = "type")]
+    scope_type: String,
+    query: String,
+    #[serde(default)]
+    allowed_domains: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -240,8 +267,12 @@ fn deki_request_parameters(
         .map(|message| message.content.as_str())
         .unwrap_or_default();
     let routing_message = deki_prompt_routing_message(latest_user);
-    if !tools.is_empty() && !has_tool_result && looks_like_codebase_question(routing_message)
+    if !has_tool_result
+        && has_deki_tool(tools, "search_deki_web")
+        && looks_like_approved_web_research_task(latest_user)
     {
+        parameters["toolChoice"] = deki_forced_tool_choice(connection, "search_deki_web");
+    } else if !tools.is_empty() && !has_tool_result && looks_like_codebase_question(routing_message) {
         parameters["toolChoice"] = deki_forced_tool_choice(connection, "search_deki_code");
     } else if !tools.is_empty()
         && !has_tool_result
@@ -253,6 +284,14 @@ fn deki_request_parameters(
     parameters
 }
 
+fn has_deki_tool(tools: &[Tool], name: &str) -> bool {
+    tools.iter().any(|tool| tool.function.name == name)
+}
+
+fn looks_like_approved_web_research_task(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("approved web research grants") && lower.contains("search_deki_web")
+}
 fn deki_forced_tool_choice(connection: &marinara_llm::LlmConnection, tool_name: &str) -> Value {
     if connection.provider == "custom" {
         return json!("required");
@@ -474,6 +513,61 @@ impl ToolRuntime for ReadDekiLibraryItemsTool {
 }
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
+struct SearchDekiWebArgs {
+    #[input(description = "Exact approved search query.")]
+    query: String,
+    #[input(description = "Optional maximum number of search results to return.")]
+    #[serde(default)]
+    max_results: Option<usize>,
+}
+
+#[tool(
+    name = "search_deki_web",
+    description = "Search the public web for an exact query that the user already approved through a Deki web-research action card. Calls without a matching approved grant are rejected.",
+    input = SearchDekiWebArgs,
+)]
+struct SearchDekiWebTool {
+    grants: Vec<DekiWebResearchGrant>,
+}
+
+#[async_trait]
+impl ToolRuntime for SearchDekiWebTool {
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        let args: SearchDekiWebArgs = serde_json::from_value(args)
+            .map_err(|error| deki_tool_error("deki_web_search_invalid_args", error))?;
+        search_deki_web(args, &self.grants)
+            .await
+            .map_err(|error| deki_tool_error("deki_web_search_failed", error))
+    }
+}
+#[derive(Serialize, Deserialize, ToolInput, Debug)]
+struct ReadDekiWebPageArgs {
+    #[input(description = "Exact approved search query that authorized this page read.")]
+    query: String,
+    #[input(description = "Public HTTP(S) URL from the approved web research results to read.")]
+    url: String,
+}
+
+#[tool(
+    name = "read_deki_web_page",
+    description = "Read readable text from a public web page after the user approved the matching web-research query. The URL must be public and must match the approved grant domains when domains were specified.",
+    input = ReadDekiWebPageArgs,
+)]
+struct ReadDekiWebPageTool {
+    grants: Vec<DekiWebResearchGrant>,
+}
+
+#[async_trait]
+impl ToolRuntime for ReadDekiWebPageTool {
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        let args: ReadDekiWebPageArgs = serde_json::from_value(args)
+            .map_err(|error| deki_tool_error("deki_web_page_invalid_args", error))?;
+        read_deki_web_page(args, &self.grants)
+            .await
+            .map_err(|error| deki_tool_error("deki_web_page_read_failed", error))
+    }
+}
+#[derive(Serialize, Deserialize, ToolInput, Debug)]
 struct SearchDekiCodeArgs {
     #[input(description = "Literal text to search for.")]
     query: String,
@@ -680,6 +774,8 @@ impl ToolRuntime for ReadDekiChatMessagesTool {
         ReadDekiLibraryItemsTool { state: self.state.clone() },
         ReadDekiChatsTool { state: self.state.clone(), grants: self.chat_access_grants.clone() },
         ReadDekiChatMessagesTool { state: self.state.clone(), grants: self.chat_access_grants.clone() },
+        SearchDekiWebTool { grants: self.web_research_grants.clone() },
+        ReadDekiWebPageTool { grants: self.web_research_grants.clone() },
         SearchDekiCodeTool {},
         ReadDekiCodeFileTool {},
         EditDekiCodeFileTool {},
@@ -691,6 +787,7 @@ impl ToolRuntime for ReadDekiChatMessagesTool {
 struct DekiAgent {
     state: AppState,
     chat_access_grants: Vec<chat_access::DekiChatAccessGrant>,
+    web_research_grants: Vec<DekiWebResearchGrant>,
 }
 
 pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Value> {
@@ -739,6 +836,7 @@ pub(crate) async fn deki_prompt(state: &AppState, body: Value) -> AppResult<Valu
         DekiAgent {
             state: state.clone(),
             chat_access_grants: input.chat_access_grants.clone(),
+            web_research_grants: input.web_research_grants.clone(),
         },
         DEKI_AGENT_MAX_TURNS,
     );
@@ -1008,6 +1106,92 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    if action_type == "request_web_research" {
+        let scope = object
+            .get("scope")
+            .and_then(Value::as_object)
+            .ok_or_else(|| {
+                AppError::new(
+                    "deki_action_invalid",
+                    "Deki-senpai web research action requires a scope object.",
+                )
+            })?;
+        let scope_type = scope
+            .get("type")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default();
+        if scope_type != "query" {
+            return Err(AppError::new(
+                "deki_action_invalid",
+                "Deki-senpai web research scope must be a query.",
+            ));
+        }
+        let query = scope
+            .get("query")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                AppError::new(
+                    "deki_action_invalid",
+                    "Deki-senpai web research action requires a query.",
+                )
+            })?;
+        let reason = object
+            .get("reason")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                AppError::new(
+                    "deki_action_invalid",
+                    "Deki-senpai web research action requires a reason.",
+                )
+            })?;
+        let allowed_domains = scope
+            .get("allowedDomains")
+            .and_then(Value::as_array)
+            .map(|domains| {
+                domains
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let sources = object
+            .get("sources")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let mut normalized = json!({
+            "type": "request_web_research",
+            "scope": {
+                "type": "query",
+                "query": query,
+            },
+            "reason": reason,
+        });
+        if !allowed_domains.is_empty() {
+            normalized["scope"]["allowedDomains"] = json!(allowed_domains);
+        }
+        if !sources.is_empty() {
+            normalized["sources"] = json!(sources);
+        }
+        if let Some(label) = label {
+            normalized["label"] = json!(label);
+        }
+        return Ok(normalized);
+    }
     match action_type {
         "create_record" => {
             let entity = deki_action_entity(object)?;
@@ -1286,6 +1470,10 @@ fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
         "You can inspect the creative library through read_deki_library when the user asks about their characters, personas, lorebooks, prompt presets, or groups. read_deki_library returns only an overview. Use read_deki_library_items with exact ids when you need full selected records. Do not request full item details until the overview identifies likely relevant records.".to_string(),
         "You can inspect chats and messages only after the user grants scoped read access. If the task needs prior chat, roleplay, or game conversation context and no approved grant is available, explain the needed scope and append exactly one hidden <deki_action>{JSON}</deki_action> block with {\"type\":\"request_chat_access\",\"scope\":{\"type\":\"specific_chats\",\"chatIds\":[\"...\"]}|{\"type\":\"character\",\"characterId\":\"optional\",\"characterName\":\"known character name\"}|{\"type\":\"mode\",\"modes\":[\"conversation\"|\"roleplay\"|\"game\"]},\"window\":{\"messageCount\":50},\"label\":\"short label\",\"rationale\":\"why this chat context is needed\"}. Prefer the narrowest scope; for a named character, characterName is acceptable even if you do not know the id. After a grant exists, the backend injects a bounded approved chat context snapshot into the prompt; use that evidence before drafting. Use chat tools only if the snapshot is missing a clearly necessary bounded window. Never claim to have read chats unless the approved snapshot or chat tools returned data.".to_string(),
         "When the user asks for suggestions, edits, summaries, examples, or character/persona/prompt changes that would materially benefit from their prior chats or roleplay interactions, proactively request scoped chat access before giving evidence-based changes. Do not say you can do it without reading conversations when the request depends on how the user and a character interacted.".to_string(),
+        "You may search the public web only after the user approves a web-research action card. If current external facts, fandom/wiki/game-source details, or source-backed character accuracy would help, ask first by appending exactly one <deki_action>{JSON}</deki_action> block with {\"type\":\"request_web_research\",\"scope\":{\"type\":\"query\",\"query\":\"precise search query\",\"allowedDomains\":[\"optional.example\"]},\"reason\":\"why web research is needed\",\"sources\":[\"expected source names\"],\"label\":\"short label\"}. Do not call search_deki_web unless the latest task prompt lists an approved grant for that exact query.".to_string(),
+        "When a web search grant is approved, use search_deki_web for the granted exact query, summarize what the returned sources indicate, and then propose any creative-library edit with a normal create_record or edit_record approval action. Do not imply you searched the web unless search_deki_web returned results.".to_string(),
+        "After search_deki_web returns results, use read_deki_web_page to inspect the most relevant result pages before proposing creative-library edits or making source-backed characterization claims.".to_string(),
+        "If search_deki_web fails because the provider did not return usable search results, say that clearly, do not fabricate sources, and ask the user to try again later or provide specific URLs/sources to inspect.".to_string(),
         "When the user asks you to create or update a character, persona, lorebook, prompt preset, or their groups/sections/entries/variables, draft the record in a single hidden action block instead of calling write tools. Append exactly one <deki_action>{JSON}</deki_action> block after your visible explanation. Supported JSON shapes are {\"type\":\"create_record\",\"entity\":\"characters|character-groups|personas|persona-groups|lorebooks|lorebook-entries|prompts|prompt-sections|prompt-groups|prompt-variables\",\"draft\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"} and {\"type\":\"edit_record\",\"entity\":\"...\",\"id\":\"record id\",\"patch\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"}. Use De-Koi storage shapes: characters need draft.data.name; personas, lorebooks, and prompts need draft.name; lorebook-entries need lorebookId and name; prompt-sections need presetId, identifier, and name; prompt-groups need presetId and name; prompt-variables need presetId, variableName, question, and options. Do not say the change is saved until the user applies the approval card.".to_string(),
         "For prompt preset review, use read_deki_library when needed and give concise findings. If the user asks you to apply the review, emit an edit_record action for prompts, prompt-sections, prompt-groups, or prompt-variables.".to_string(),
         "When drafting character-card fields, SillyTavern examples, or example dialogue, keep Deki-senpai as the assistant outside the artifact only. Deki-senpai, assistant, user, and raw conversation-history labels must never become a speaker name inside generated card content; use the target character name, {{char}}, {{user}}, or the user's requested format instead.".to_string(),
@@ -1427,6 +1615,27 @@ fn build_task_prompt(
     {
         sections.push(format!(
             "Current repository guidance from AGENTS.md. Use this as the current source map, then verify exact answers with search_deki_code/read_deki_code_file before citing files:\n{repo_guidance}"
+        ));
+    }
+    if !input.web_research_grants.is_empty() {
+        let grants = input
+            .web_research_grants
+            .iter()
+            .map(|grant| {
+                let domains = if grant.scope.allowed_domains.is_empty() {
+                    "any public web result".to_string()
+                } else {
+                    grant.scope.allowed_domains.join(", ")
+                };
+                format!(
+                    "Grant {} from action {}: query=\"{}\"; allowed domains: {}; grantedAt: {}",
+                    grant.id, grant.action_message_id, grant.scope.query, domains, grant.granted_at
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        sections.push(format!(
+            "Approved web research grants for this turn. search_deki_web may be used only for these exact queries:\n{grants}"
         ));
     }
     sections.push(format!(
@@ -1781,6 +1990,558 @@ fn resolve_repo_file(path: &str) -> AppResult<(PathBuf, PathBuf, String)> {
     Ok((root, resolved, display_path))
 }
 
+async fn search_deki_web(
+    args: SearchDekiWebArgs,
+    grants: &[DekiWebResearchGrant],
+) -> AppResult<Value> {
+    let query = args.query.trim();
+    if query.is_empty() {
+        return Err(AppError::invalid_input("Web search query is required"));
+    }
+    let grant = deki_web_grant_for_query(query, grants).ok_or_else(|| {
+        AppError::invalid_input(
+            "Deki-senpai can only search the web after the user approves the exact search query.",
+        )
+    })?;
+    let max_results = args
+        .max_results
+        .unwrap_or(DEKI_WEB_SEARCH_MAX_RESULTS)
+        .clamp(1, DEKI_WEB_SEARCH_MAX_RESULTS);
+    let effective_query = deki_web_effective_query(query, &grant.scope.allowed_domains);
+    let url = deki_web_search_url(&effective_query)?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(DEKI_WEB_SEARCH_TIMEOUT_SECS))
+        .user_agent("De-Koi Deki-senpai web research/1.0")
+        .redirect(reqwest::redirect::Policy::limited(4))
+        .build()
+        .map_err(|error| AppError::new("deki_web_search_client_failed", error.to_string()))?;
+    let html = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| AppError::new("deki_web_search_request_failed", error.to_string()))?
+        .error_for_status()
+        .map_err(|error| AppError::new("deki_web_search_status_failed", error.to_string()))?
+        .text()
+        .await
+        .map_err(|error| AppError::new("deki_web_search_body_failed", error.to_string()))?;
+    let results = deki_web_results_or_parse_error(&html, query, max_results)?;
+    Ok(json!({
+        "query": query,
+        "grantId": grant.id,
+        "actionMessageId": grant.action_message_id,
+        "allowedDomains": grant.scope.allowed_domains,
+        "results": results,
+    }))
+}
+
+async fn read_deki_web_page(
+    args: ReadDekiWebPageArgs,
+    grants: &[DekiWebResearchGrant],
+) -> AppResult<Value> {
+    let query = args.query.trim();
+    if query.is_empty() {
+        return Err(AppError::invalid_input("Web page read query is required"));
+    }
+    let grant = deki_web_grant_for_query(query, grants).ok_or_else(|| {
+        AppError::invalid_input(
+            "Deki-senpai can only read web pages after the user approves the matching web research query.",
+        )
+    })?;
+    let url = deki_web_page_url_for_grant(&args.url, grant)?;
+    let client = deki_web_page_client()?;
+    let fetch_url = deki_fandom_api_url_for_page(&url).unwrap_or_else(|| url.clone());
+    let bytes = client
+        .get(fetch_url.clone())
+        .send()
+        .await
+        .map_err(|error| AppError::new("deki_web_page_request_failed", error.to_string()))?
+        .error_for_status()
+        .map_err(|error| AppError::new("deki_web_page_status_failed", error.to_string()))?
+        .bytes()
+        .await
+        .map_err(|error| AppError::new("deki_web_page_body_failed", error.to_string()))?;
+    let truncated = bytes.len() > DEKI_WEB_PAGE_MAX_BYTES;
+    let slice_len = bytes.len().min(DEKI_WEB_PAGE_MAX_BYTES);
+    let body = String::from_utf8_lossy(&bytes[..slice_len]);
+    let text = if fetch_url != url {
+        extract_deki_mediawiki_page_text(&body, DEKI_WEB_PAGE_MAX_CHARS)?
+    } else {
+        extract_deki_web_page_text(&body, DEKI_WEB_PAGE_MAX_CHARS)
+    };
+    if text.trim().is_empty() {
+        return Err(AppError::new(
+            "deki_web_page_no_readable_text",
+            format!("No readable text could be extracted from {}", url.as_str()),
+        ));
+    }
+    Ok(json!({
+        "query": query,
+        "grantId": grant.id,
+        "url": url.as_str(),
+        "text": text,
+        "truncated": truncated,
+    }))
+}
+
+fn deki_web_page_client() -> AppResult<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(DEKI_WEB_SEARCH_TIMEOUT_SECS))
+        .user_agent("De-Koi Deki-senpai web research/1.0")
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|error| AppError::new("deki_web_page_client_failed", error.to_string()))
+}
+fn deki_fandom_api_url_for_page(url: &reqwest::Url) -> Option<reqwest::Url> {
+    let host = url.host_str()?;
+    if !deki_web_domain_matches(host, "fandom.com") {
+        return None;
+    }
+    let title = url.path().strip_prefix("/wiki/")?.trim_matches('/');
+    if title.is_empty() {
+        return None;
+    }
+    let mut api = reqwest::Url::parse(&format!("{}://{host}/api.php", url.scheme())).ok()?;
+    api.query_pairs_mut()
+        .append_pair("action", "query")
+        .append_pair("prop", "extracts")
+        .append_pair("explaintext", "1")
+        .append_pair("redirects", "1")
+        .append_pair("format", "json")
+        .append_pair("titles", title);
+    Some(api)
+}
+
+fn extract_deki_mediawiki_page_text(body: &str, max_chars: usize) -> AppResult<String> {
+    let parsed: Value = serde_json::from_str(body).map_err(|error| {
+        AppError::new(
+            "deki_web_page_mediawiki_invalid_json",
+            format!("MediaWiki response was not valid JSON: {error}"),
+        )
+    })?;
+    let pages = parsed
+        .get("query")
+        .and_then(|query| query.get("pages"))
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            AppError::new(
+                "deki_web_page_mediawiki_missing_extract",
+                "MediaWiki response did not include pages.",
+            )
+        })?;
+    let page = pages.values().next().ok_or_else(|| {
+        AppError::new(
+            "deki_web_page_mediawiki_missing_extract",
+            "MediaWiki response did not include a page.",
+        )
+    })?;
+    let title = page
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    let extract = page
+        .get("extract")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            AppError::new(
+                "deki_web_page_mediawiki_missing_extract",
+                "MediaWiki response did not include readable extract text.",
+            )
+        })?;
+    let combined = if title.is_empty() || extract.contains(title) {
+        extract.to_string()
+    } else {
+        format!("{title}\n\n{extract}")
+    };
+    Ok(truncate_to_chars(&combined, max_chars).0)
+}
+fn deki_web_page_url_for_grant(url: &str, grant: &DekiWebResearchGrant) -> AppResult<reqwest::Url> {
+    let parsed = reqwest::Url::parse(url.trim())
+        .map_err(|error| AppError::invalid_input(format!("Web page URL is invalid: {error}")))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(AppError::new(
+            "deki_web_page_scheme_not_allowed",
+            "Only HTTP and HTTPS web page URLs are allowed.",
+        ));
+    }
+    let host = parsed.host_str().unwrap_or_default();
+    if !deki_web_host_is_public(host) {
+        return Err(AppError::new(
+            "deki_web_page_url_not_public",
+            "Deki-senpai can only read public web page URLs.",
+        ));
+    }
+    if !grant.scope.allowed_domains.is_empty()
+        && !grant
+            .scope
+            .allowed_domains
+            .iter()
+            .any(|domain| deki_web_domain_matches(host, domain))
+    {
+        return Err(AppError::new(
+            "deki_web_page_domain_not_allowed",
+            "That URL is outside the domains approved for this web research grant.",
+        ));
+    }
+    Ok(parsed)
+}
+
+fn deki_web_host_is_public(host: &str) -> bool {
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty() || host == "localhost" || host.ends_with(".localhost") {
+        return false;
+    }
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return match ip {
+            IpAddr::V4(ip) => {
+                !(ip.is_private()
+                    || ip.is_loopback()
+                    || ip.is_link_local()
+                    || ip.is_unspecified()
+                    || ip.is_broadcast()
+                    || ip.octets()[0] == 0)
+            }
+            IpAddr::V6(ip) => {
+                !(ip.is_loopback()
+                    || ip.is_unspecified()
+                    || ip.is_unique_local()
+                    || ip.is_unicast_link_local())
+            }
+        };
+    }
+    true
+}
+
+fn deki_web_domain_matches(host: &str, approved_domain: &str) -> bool {
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    let approved = approved_domain
+        .trim()
+        .trim_end_matches('.')
+        .trim_start_matches("*.")
+        .to_ascii_lowercase();
+    !approved.is_empty() && (host == approved || host.ends_with(&format!(".{approved}")))
+}
+
+fn extract_deki_web_page_text(html: &str, max_chars: usize) -> String {
+    let without_scripts = remove_deki_html_element_blocks(html, "script");
+    let without_styles = remove_deki_html_element_blocks(&without_scripts, "style");
+    let without_noscript = remove_deki_html_element_blocks(&without_styles, "noscript");
+    let title = html_tag_text(&without_noscript, "title");
+    let body = html_tag_text(&without_noscript, "body");
+    let source = if body.trim().is_empty() {
+        without_noscript.as_str()
+    } else {
+        body.as_str()
+    };
+    let text = strip_deki_html(&decode_deki_html_entities(source));
+    let combined = if title.trim().is_empty() {
+        text
+    } else if text.trim().is_empty() || text.contains(title.trim()) {
+        title
+    } else {
+        format!("{}\n\n{}", title.trim(), text.trim())
+    };
+    truncate_to_chars(&combined, max_chars).0
+}
+
+fn html_tag_text(value: &str, tag: &str) -> String {
+    let lower = value.to_ascii_lowercase();
+    let open_prefix = format!("<{tag}");
+    let Some(open_start) = lower.find(&open_prefix) else {
+        return String::new();
+    };
+    let Some(content_start_relative) = value[open_start..].find('>') else {
+        return String::new();
+    };
+    let content_start = open_start + content_start_relative + 1;
+    let close = format!("</{tag}>");
+    let content_end = lower[content_start..]
+        .find(&close)
+        .map(|index| content_start + index)
+        .unwrap_or(value.len());
+    strip_deki_html(&decode_deki_html_entities(
+        &value[content_start..content_end],
+    ))
+}
+
+fn remove_deki_html_element_blocks(value: &str, tag: &str) -> String {
+    let mut output = String::new();
+    let mut rest = value;
+    let open_prefix = format!("<{tag}");
+    let close = format!("</{tag}>");
+    loop {
+        let lower = rest.to_ascii_lowercase();
+        let Some(start) = lower.find(&open_prefix) else {
+            output.push_str(rest);
+            break;
+        };
+        output.push_str(&rest[..start]);
+        let after_start = &rest[start..];
+        let after_lower = after_start.to_ascii_lowercase();
+        let Some(close_index) = after_lower.find(&close) else {
+            break;
+        };
+        rest = &after_start[close_index + close.len()..];
+    }
+    output
+}
+fn deki_web_search_url(query: &str) -> AppResult<reqwest::Url> {
+    reqwest::Url::parse_with_params("https://search.brave.com/search", &[("q", query)])
+        .map_err(|error| AppError::new("deki_web_search_invalid_url", error.to_string()))
+}
+fn deki_web_grant_for_query<'a>(
+    query: &str,
+    grants: &'a [DekiWebResearchGrant],
+) -> Option<&'a DekiWebResearchGrant> {
+    let normalized_query = normalize_deki_web_query(query);
+    grants.iter().find(|grant| {
+        grant.scope.scope_type == "query"
+            && normalize_deki_web_query(&grant.scope.query) == normalized_query
+            && !deki_web_grant_is_expired(grant)
+    })
+}
+
+fn deki_web_grant_is_expired(grant: &DekiWebResearchGrant) -> bool {
+    let Some(expires_at) = grant
+        .expires_at
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    chrono::DateTime::parse_from_rfc3339(expires_at)
+        .map(|expires_at| expires_at.with_timezone(&chrono::Utc) <= chrono::Utc::now())
+        .unwrap_or(true)
+}
+
+fn normalize_deki_web_query(query: &str) -> String {
+    query
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
+fn deki_web_effective_query(query: &str, allowed_domains: &[String]) -> String {
+    let domains = allowed_domains
+        .iter()
+        .map(|domain| domain.trim())
+        .filter(|domain| !domain.is_empty())
+        .map(|domain| format!("site:{domain}"))
+        .collect::<Vec<_>>();
+    if domains.is_empty() {
+        query.to_string()
+    } else {
+        format!("{} {}", query, domains.join(" OR "))
+    }
+}
+
+fn deki_web_results_or_parse_error(
+    html: &str,
+    query: &str,
+    max_results: usize,
+) -> AppResult<Vec<Value>> {
+    let results = extract_deki_web_results(html, max_results);
+    if results.is_empty() {
+        return Err(AppError::new(
+            "deki_web_search_no_results",
+            format!(
+                "No parseable web search results were returned for '{query}'. The search provider may have returned an interstitial or changed its HTML."
+            ),
+        ));
+    }
+    Ok(results)
+}
+fn extract_deki_web_results(html: &str, max_results: usize) -> Vec<Value> {
+    let mut results = extract_duckduckgo_web_results(html, max_results);
+    if results.len() < max_results {
+        for result in extract_brave_web_results(html, max_results - results.len()) {
+            let url = result
+                .get("url")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if !results
+                .iter()
+                .any(|existing| existing.get("url").and_then(Value::as_str) == Some(url))
+            {
+                results.push(result);
+            }
+        }
+    }
+    results.truncate(max_results);
+    results
+}
+
+fn extract_duckduckgo_web_results(html: &str, max_results: usize) -> Vec<Value> {
+    let mut results = Vec::new();
+    let mut rest = html;
+    while results.len() < max_results {
+        let Some(anchor_start) = rest.find("<a") else {
+            break;
+        };
+        rest = &rest[anchor_start..];
+        let Some(tag_end) = rest.find('>') else {
+            break;
+        };
+        let anchor_tag = &rest[..tag_end];
+        if !anchor_tag.contains("result__a") {
+            rest = &rest[tag_end..];
+            continue;
+        }
+        let Some(anchor_close) = rest[tag_end + 1..].find("</a>") else {
+            break;
+        };
+        let title_html = &rest[tag_end + 1..tag_end + 1 + anchor_close];
+        let href = html_attr_value(anchor_tag, "href")
+            .map(|href| normalize_deki_web_result_url(&href))
+            .unwrap_or_default();
+        let title = strip_deki_html(&decode_deki_html_entities(title_html));
+        let after_anchor = &rest[tag_end + 1 + anchor_close + "</a>".len()..];
+        let snippet = deki_web_snippet_after_anchor(after_anchor);
+        if !title.trim().is_empty() || !href.trim().is_empty() {
+            results.push(json!({
+                "title": title.trim(),
+                "url": href,
+                "snippet": snippet,
+            }));
+        }
+        rest = after_anchor;
+    }
+    results
+}
+
+fn extract_brave_web_results(html: &str, max_results: usize) -> Vec<Value> {
+    let mut results = Vec::new();
+    let mut rest = html;
+    while results.len() < max_results {
+        let Some(snippet_start) = rest.find("<div class=\"snippet") else {
+            break;
+        };
+        rest = &rest[snippet_start..];
+        let next_snippet = rest["<div class=\"snippet".len()..]
+            .find("<div class=\"snippet")
+            .map(|index| index + "<div class=\"snippet".len())
+            .unwrap_or(rest.len());
+        let block = &rest[..next_snippet];
+        if !block.contains("data-type=\"web\"") {
+            rest = &rest[next_snippet..];
+            continue;
+        }
+        let Some(anchor_start) = block.find("<a") else {
+            rest = &rest[next_snippet..];
+            continue;
+        };
+        let anchor = &block[anchor_start..];
+        let Some(tag_end) = anchor.find('>') else {
+            rest = &rest[next_snippet..];
+            continue;
+        };
+        let anchor_tag = &anchor[..tag_end];
+        let href = html_attr_value(anchor_tag, "href")
+            .map(|href| normalize_deki_web_result_url(&href))
+            .unwrap_or_default();
+        let title = html_class_text(block, "search-snippet-title");
+        let snippet = html_class_text(block, "generic-snippet");
+        if !title.trim().is_empty() || !href.trim().is_empty() {
+            results.push(json!({
+                "title": title.trim(),
+                "url": href,
+                "snippet": snippet,
+            }));
+        }
+        rest = &rest[next_snippet..];
+    }
+    results
+}
+
+fn html_class_text(value: &str, class_marker: &str) -> String {
+    let Some(class_index) = value.find(class_marker) else {
+        return String::new();
+    };
+    let value = &value[class_index..];
+    let Some(start) = value.find('>') else {
+        return String::new();
+    };
+    let after_start = &value[start + 1..];
+    let end = after_start.find("</div>").unwrap_or(after_start.len());
+    strip_deki_html(&decode_deki_html_entities(&after_start[..end]))
+        .trim()
+        .to_string()
+}
+fn deki_web_snippet_after_anchor(value: &str) -> String {
+    let Some(snippet_index) = value.find("result__snippet") else {
+        return String::new();
+    };
+    let snippet = &value[snippet_index..];
+    let Some(start) = snippet.find('>') else {
+        return String::new();
+    };
+    let after_start = &snippet[start + 1..];
+    let end = after_start
+        .find("</a>")
+        .or_else(|| after_start.find("</div>"))
+        .unwrap_or(after_start.len());
+    strip_deki_html(&decode_deki_html_entities(&after_start[..end]))
+        .trim()
+        .to_string()
+}
+
+fn html_attr_value(tag: &str, attr: &str) -> Option<String> {
+    let double_quote_pattern = format!("{attr}=\"");
+    if let Some(start) = tag.find(&double_quote_pattern) {
+        let rest = &tag[start + double_quote_pattern.len()..];
+        let end = rest.find('"')?;
+        return Some(decode_deki_html_entities(&rest[..end]));
+    }
+    let single_quote_pattern = format!("{attr}='");
+    let start = tag.find(&single_quote_pattern)? + single_quote_pattern.len();
+    let rest = &tag[start..];
+    let end = rest.find('\'')?;
+    Some(decode_deki_html_entities(&rest[..end]))
+}
+
+fn normalize_deki_web_result_url(href: &str) -> String {
+    let href = href.trim();
+    let parsed = reqwest::Url::parse(href)
+        .or_else(|_| reqwest::Url::parse("https://duckduckgo.com")?.join(href));
+    let Ok(parsed) = parsed else {
+        return href.to_string();
+    };
+    if parsed.domain() == Some("duckduckgo.com") && parsed.path().starts_with("/l/") {
+        if let Some((_, target)) = parsed.query_pairs().find(|(key, _)| key == "uddg") {
+            return target.into_owned();
+        }
+    }
+    parsed.to_string()
+}
+
+fn decode_deki_html_entities(value: &str) -> String {
+    value
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&#x27;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+}
+
+fn strip_deki_html(value: &str) -> String {
+    let mut output = String::new();
+    let mut in_tag = false;
+    for character in value.chars() {
+        match character {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => output.push(character),
+            _ => {}
+        }
+    }
+    output.split_whitespace().collect::<Vec<_>>().join(" ")
+}
 fn search_deki_code(args: SearchDekiCodeArgs) -> AppResult<Value> {
     let query = args.query.trim();
     if query.is_empty() {
@@ -2628,6 +3389,25 @@ mod tests {
         assert!(prompt.contains("Deki-senpai"));
         assert!(prompt.contains("must never become a speaker name"));
     }
+
+    #[test]
+    fn deki_system_prompt_explains_web_search_provider_failures() {
+        let prompt = build_system_prompt(None);
+
+        assert!(prompt.contains("search_deki_web fails"));
+        assert!(prompt.contains("provider did not return usable search results"));
+        assert!(prompt.contains("do not fabricate sources"));
+    }
+
+    #[test]
+    fn deki_system_prompt_tells_web_research_to_read_source_pages() {
+        let prompt = build_system_prompt(None);
+
+        assert!(prompt.contains("read_deki_web_page"));
+        assert!(prompt.contains("inspect the most relevant result pages"));
+        assert!(prompt.contains("before proposing creative-library edits"));
+    }
+
     #[test]
     fn deki_custom_connections_use_string_tool_choice() {
         let connection = test_connection("custom");
@@ -2696,6 +3476,7 @@ mod tests {
             persona: None,
             attachments: Vec::new(),
             chat_access_grants: Vec::new(),
+            web_research_grants: Vec::new(),
         };
         let task_prompt = build_task_prompt(&input, None, None);
         let messages = [text_message(&task_prompt)];
@@ -2732,6 +3513,7 @@ mod tests {
                 granted_at: "2026-06-27T10:00:00.000Z".to_string(),
                 expires_at: None,
             }],
+            web_research_grants: Vec::new(),
         };
         let task_prompt = build_task_prompt(
             &input,
@@ -2780,6 +3562,7 @@ mod tests {
                 granted_at: "2026-06-27T10:00:00.000Z".to_string(),
                 expires_at: None,
             }],
+            web_research_grants: Vec::new(),
         };
         let task_prompt = build_task_prompt(
             &input,
@@ -2830,6 +3613,25 @@ mod tests {
     }
 
     #[test]
+    fn deki_approved_web_research_grants_force_web_search_tool_choice() {
+        let connection = test_connection("openai");
+        let messages = [text_message(
+            "Approved web research grants for this turn. search_deki_web may be used only for these exact queries:\nGrant grant-1 from action message-1: query=\"Ghostface Dead by Daylight lore personality\"; allowed domains: deadbydaylight.fandom.com; grantedAt: 2026-06-28T12:00:00Z\n\nLatest user message:\nCan you check Ghostface?",
+        )];
+        let tools = [test_tool("search_deki_web")];
+
+        let parameters = deki_request_parameters(&connection, &messages, &tools);
+
+        assert_eq!(
+            parameters["toolChoice"],
+            json!({
+                "type": "function",
+                "function": { "name": "search_deki_web" }
+            })
+        );
+    }
+
+    #[test]
     fn deki_plain_response_returns_no_pending_action_contract() {
         let (content, action) =
             deki_response_content_and_action("Plain answer.").expect("plain response should parse");
@@ -2837,18 +3639,14 @@ mod tests {
         assert_eq!(content, "Plain answer.");
         assert_eq!(action["type"], "none");
         assert_eq!(action["capability"], "read_only");
-        assert!(
-            action["reason"]
-                .as_str()
-                .unwrap_or_default()
-                .contains("no pending UI approval action")
-        );
-        assert!(
-            !action["reason"]
-                .as_str()
-                .unwrap_or_default()
-                .contains("source edits")
-        );
+        assert!(action["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no pending UI approval action"));
+        assert!(!action["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("source edits"));
     }
 
     #[test]
@@ -2860,18 +3658,14 @@ mod tests {
 
         assert_eq!(content, "No change needed.");
         assert_eq!(action["type"], "none");
-        assert!(
-            action["reason"]
-                .as_str()
-                .unwrap_or_default()
-                .contains("no pending UI approval action")
-        );
-        assert!(
-            !action["reason"]
-                .as_str()
-                .unwrap_or_default()
-                .contains("source edits")
-        );
+        assert!(action["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no pending UI approval action"));
+        assert!(!action["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("source edits"));
     }
 
     #[test]
@@ -2938,6 +3732,32 @@ mod tests {
     }
 
     #[test]
+    fn deki_response_extracts_web_research_request_action() {
+        let raw = r#"I should check current sources first.
+
+<deki_action>{"type":"request_web_research","scope":{"type":"query","query":"Ghostface Dead by Daylight lore personality","allowedDomains":["deadbydaylight.fandom.com"]},"reason":"Verify card characterization against current wiki sources.","sources":["Dead by Daylight Wiki"],"label":"Check Ghostface sources"}</deki_action>"#;
+
+        let (content, action) =
+            deki_response_content_and_action(raw).expect("web action should parse");
+
+        assert_eq!(content, "I should check current sources first.");
+        assert_eq!(action["type"], "request_web_research");
+        assert_eq!(action["scope"]["type"], "query");
+        assert_eq!(
+            action["scope"]["query"],
+            "Ghostface Dead by Daylight lore personality"
+        );
+        assert_eq!(
+            action["scope"]["allowedDomains"][0],
+            "deadbydaylight.fandom.com"
+        );
+        assert_eq!(
+            action["reason"],
+            "Verify card characterization against current wiki sources."
+        );
+    }
+
+    #[test]
     fn deki_response_accepts_character_name_only_chat_access_request() {
         let raw = r#"I need permission to read the relevant Makima chats.
 <deki_action>{"type":"request_chat_access","scope":{"type":"character","characterName":"Makima"},"window":{"messageCount":50},"label":"Read Makima chats"}</deki_action>"#;
@@ -2967,6 +3787,270 @@ mod tests {
         assert_eq!(action["type"], "create_record");
         assert_eq!(action["entity"], "personas");
         assert_eq!(action["draft"]["name"], "Sol");
+    }
+
+    #[test]
+    fn deki_web_search_url_uses_brave_endpoint() {
+        let url =
+            deki_web_search_url("Ghostface Dead by Daylight").expect("search URL should build");
+
+        assert_eq!(url.domain(), Some("search.brave.com"));
+        assert_eq!(url.path(), "/search");
+        assert_eq!(
+            url.query_pairs()
+                .find(|(key, _)| key == "q")
+                .map(|(_, value)| value.into_owned()),
+            Some("Ghostface Dead by Daylight".to_string())
+        );
+    }
+
+    #[test]
+    fn deki_web_result_parser_handles_brave_result_blocks() {
+        let html = r#"
+            <div class="snippet svelte-jmfu5f" data-pos="0" data-type="web" data-keynav="true">
+              <div class="result-content svelte-1rq4ngz">
+                <a href="https://deadbydaylight.fandom.com/wiki/Danny_Johnson_alias_Jed_Olsen" target="_self" class="svelte-14r20fy l1">
+                  <div class="title search-snippet-title line-clamp-1 svelte-14r20fy" title="Danny Johnson - The Ghost Face - Official Dead by Daylight Wiki">Danny Johnson - The Ghost Face - Official Dead by Daylight Wiki</div>
+                </a>
+                <div class="generic-snippet svelte-1cwdgg3">
+                  <div class="content desktop-default-regular t-primary line-clamp-dynamic svelte-1cwdgg3"><span class="t-secondary">5 days ago -</span> His personal Perks, I&amp;#x27;m All Ears, Thrilling Tremors, and Furtive Chase, make his chases unpredictable.</div>
+                </div>
+              </div>
+            </div>
+        "#;
+
+        let results = extract_deki_web_results(html, 4);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0]["title"],
+            "Danny Johnson - The Ghost Face - Official Dead by Daylight Wiki"
+        );
+        assert_eq!(
+            results[0]["url"],
+            "https://deadbydaylight.fandom.com/wiki/Danny_Johnson_alias_Jed_Olsen"
+        );
+        assert_eq!(
+            results[0]["snippet"],
+            "5 days ago - His personal Perks, I'm All Ears, Thrilling Tremors, and Furtive Chase, make his chases unpredictable."
+        );
+    }
+
+    #[test]
+    fn deki_web_result_parser_rejects_markerless_response_body() {
+        let html = "<html><body>Please wait while we process your request.</body></html>";
+
+        let error = deki_web_results_or_parse_error(html, "Ghostface Dead by Daylight", 4)
+            .expect_err("markerless search pages should not look successful");
+
+        assert_eq!(error.code, "deki_web_search_no_results");
+    }
+
+    #[test]
+    fn deki_web_result_parser_handles_duckduckgo_redirects_and_single_quoted_attrs() {
+        let html = r#"
+            <div class='result'>
+              <a rel='nofollow' class='result__a' href='//duckduckgo.com/l/?uddg=https%3A%2F%2Fdeadbydaylight.fandom.com%2Fwiki%2FDanny_Johnson&amp;rut=abc'>Ghost Face &amp; Danny <b>Johnson</b></a>
+              <span class='result__snippet'>A stealth-focused Killer also known as <b>The Ghost Face</b>.</span>
+            </div>
+        "#;
+
+        let results = extract_deki_web_results(html, 4);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["title"], "Ghost Face & Danny Johnson");
+        assert_eq!(
+            results[0]["url"],
+            "https://deadbydaylight.fandom.com/wiki/Danny_Johnson"
+        );
+        assert_eq!(
+            results[0]["snippet"],
+            "A stealth-focused Killer also known as The Ghost Face."
+        );
+    }
+
+    #[test]
+    fn deki_web_page_client_does_not_follow_redirects() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind redirect server");
+        let address = listener.local_addr().expect("read listener address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept redirect request");
+            let mut buffer = [0u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut buffer);
+            std::io::Write::write_all(
+                &mut stream,
+                b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/private\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+            .expect("write redirect response");
+        });
+
+        let response = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build test runtime")
+            .block_on(async {
+                deki_web_page_client()
+                    .expect("page client should build")
+                    .get(format!("http://{address}/redirect"))
+                    .send()
+                    .await
+            })
+            .expect("request should return redirect response without following it");
+        server.join().expect("redirect server should finish");
+
+        assert_eq!(response.status(), reqwest::StatusCode::FOUND);
+    }
+
+    #[test]
+    fn deki_web_page_tool_rejects_reads_without_matching_grant() {
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build test runtime")
+            .block_on(ReadDekiWebPageTool { grants: Vec::new() }.execute(json!({
+                "query": "Ghostface Dead by Daylight lore personality",
+                "url": "https://deadbydaylight.fandom.com/wiki/Danny_Johnson_alias_Jed_Olsen"
+            })));
+
+        let error = result.expect_err("page reads should require a matching grant");
+        let message = format!("{error:?}");
+
+        assert!(message.contains("matching web research query"));
+    }
+
+    #[test]
+    fn deki_fandom_api_url_uses_mediawiki_extract_endpoint() {
+        let page_url = reqwest::Url::parse(
+            "https://deadbydaylight.fandom.com/wiki/Danny_Johnson_alias_Jed_Olsen",
+        )
+        .expect("page URL should parse");
+
+        let api_url = deki_fandom_api_url_for_page(&page_url).expect("fandom API URL should build");
+
+        assert_eq!(api_url.domain(), Some("deadbydaylight.fandom.com"));
+        assert_eq!(api_url.path(), "/api.php");
+        assert!(api_url.as_str().contains("prop=extracts"));
+        assert!(api_url
+            .as_str()
+            .contains("titles=Danny_Johnson_alias_Jed_Olsen"));
+    }
+
+    #[test]
+    fn deki_mediawiki_extract_parser_reads_page_extract() {
+        let json = r#"{"query":{"pages":{"12531":{"title":"Danny Johnson alias Jed Olsen","extract":"Danny Johnson or \"The Ghost Face\" is a Killer.\nHis personal Perks include I\u0027m All Ears."}}}}"#;
+
+        let text = extract_deki_mediawiki_page_text(json, 400).expect("extract should parse");
+
+        assert!(text.contains("Danny Johnson alias Jed Olsen"));
+        assert!(text.contains("The Ghost Face"));
+        assert!(text.contains("I'm All Ears"));
+    }
+
+    #[test]
+    fn deki_web_page_url_requires_matching_approved_domain() {
+        let grant = DekiWebResearchGrant {
+            id: "grant-1".to_string(),
+            action_message_id: "message-1".to_string(),
+            scope: DekiWebResearchScope {
+                scope_type: "query".to_string(),
+                query: "Ghostface Dead by Daylight lore personality".to_string(),
+                allowed_domains: vec!["deadbydaylight.fandom.com".to_string()],
+            },
+            granted_at: "2026-06-28T12:00:00Z".to_string(),
+            expires_at: None,
+        };
+
+        let allowed = deki_web_page_url_for_grant(
+            "https://deadbydaylight.fandom.com/wiki/Danny_Johnson_alias_Jed_Olsen",
+            &grant,
+        )
+        .expect("matching approved domain should be readable");
+        let rejected = deki_web_page_url_for_grant("https://example.com/wiki/Danny", &grant)
+            .expect_err("unapproved domain should be rejected");
+        let local = deki_web_page_url_for_grant("http://127.0.0.1:8080/private", &grant)
+            .expect_err("local network URL should be rejected");
+
+        assert_eq!(allowed.domain(), Some("deadbydaylight.fandom.com"));
+        assert_eq!(rejected.code, "deki_web_page_domain_not_allowed");
+        assert_eq!(local.code, "deki_web_page_url_not_public");
+    }
+
+    #[test]
+    fn deki_web_page_text_extraction_removes_scripts_and_markup() {
+        let html = r#"
+            <html>
+              <head><title>Danny Johnson - The Ghost Face</title><style>.hidden{display:none}</style></head>
+              <body>
+                <script>window.secret = "ignore me";</script>
+                <h1>Danny Johnson</h1>
+                <p>His personal Perks, I&amp;#x27;m All Ears and Thrilling Tremors, reveal his stalking playstyle.</p>
+              </body>
+            </html>
+        "#;
+
+        let text = extract_deki_web_page_text(html, 400);
+
+        assert!(text.contains("Danny Johnson - The Ghost Face"));
+        assert!(text.contains("Danny Johnson"));
+        assert!(text.contains("I'm All Ears"));
+        assert!(!text.contains("window.secret"));
+        assert!(!text.contains("hidden"));
+        assert!(!text.contains("<p>"));
+    }
+
+    #[test]
+    fn deki_web_grant_matches_only_exact_normalized_query() {
+        let grant = DekiWebResearchGrant {
+            id: "grant-1".to_string(),
+            action_message_id: "message-1".to_string(),
+            scope: DekiWebResearchScope {
+                scope_type: "query".to_string(),
+                query: "Ghostface Dead by Daylight lore personality".to_string(),
+                allowed_domains: vec!["deadbydaylight.fandom.com".to_string()],
+            },
+            granted_at: "2026-06-28T12:00:00Z".to_string(),
+            expires_at: None,
+        };
+        let grants = vec![grant];
+
+        assert!(deki_web_grant_for_query(
+            "  ghostface   dead by daylight lore personality  ",
+            &grants
+        )
+        .is_some());
+        assert!(deki_web_grant_for_query("Ghostface build guide", &grants).is_none());
+    }
+
+    #[test]
+    fn deki_prompt_lists_approved_web_research_grants() {
+        let prompt = build_task_prompt(
+            &DekiPromptRequest {
+                user_message: "Can you check Ghostface?".to_string(),
+                messages: Vec::new(),
+                compacted_summary: None,
+                connection_id: Some("connection".to_string()),
+                persona: None,
+                attachments: Vec::new(),
+                chat_access_grants: Vec::new(),
+                web_research_grants: vec![DekiWebResearchGrant {
+                    id: "grant-1".to_string(),
+                    action_message_id: "message-1".to_string(),
+                    scope: DekiWebResearchScope {
+                        scope_type: "query".to_string(),
+                        query: "Ghostface Dead by Daylight lore personality".to_string(),
+                        allowed_domains: vec!["deadbydaylight.fandom.com".to_string()],
+                    },
+                    granted_at: "2026-06-28T12:00:00Z".to_string(),
+                    expires_at: None,
+                }],
+            },
+            None,
+            None,
+        );
+
+        assert!(prompt.contains("Approved web research grants"));
+        assert!(prompt.contains("Ghostface Dead by Daylight lore personality"));
+        assert!(prompt.contains("deadbydaylight.fandom.com"));
     }
 
     #[test]
@@ -3055,6 +4139,7 @@ Extra visible text."#;
                 persona: None,
                 attachments,
                 chat_access_grants: Vec::new(),
+                web_research_grants: Vec::new(),
             },
             None,
             None,

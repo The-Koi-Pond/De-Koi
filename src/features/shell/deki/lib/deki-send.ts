@@ -6,6 +6,7 @@ import {
   type DekiGateway,
   type DekiMessage,
   type DekiPersonaContext,
+  type DekiWebResearchGrant,
 } from "../../../../engine/deki/deki-entry";
 import {
   compactDekiHistory,
@@ -35,6 +36,7 @@ export type DetachedDekiSendInput = {
   persona: DekiPersonaContext | null;
   attachments: DekiAttachment[];
   chatAccessGrants?: DekiChatAccessGrant[];
+  webResearchGrants?: DekiWebResearchGrant[];
   history: DekiHistoryWriter;
   llm: LlmGateway;
   gateway: DekiGateway;
@@ -87,6 +89,7 @@ export async function runDetachedDekiSend(input: DetachedDekiSendInput): Promise
       persona: input.persona,
       attachments: input.attachments,
       chatAccessGrants: input.chatAccessGrants ?? [],
+      webResearchGrants: input.webResearchGrants ?? [],
     },
     input.gateway,
   );
