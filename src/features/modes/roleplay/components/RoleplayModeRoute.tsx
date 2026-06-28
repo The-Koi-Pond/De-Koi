@@ -24,11 +24,7 @@ import { useEncounter } from "../encounter/hooks/use-encounter";
 import { useAgentInjectionReview } from "../hooks/use-agent-injection-review";
 import { useRoleplayTranscriptScroll } from "../hooks/use-roleplay-transcript-scroll";
 import { useScene } from "../hooks/use-scene";
-import {
-  getSpriteOwnerId,
-  getSpriteOwnerKind,
-  makeSpriteOwnerKey,
-} from "../../../runtime/visuals/sprite-owner-keys";
+import { getSpriteOwnerId, getSpriteOwnerKind, makeSpriteOwnerKey } from "../../../runtime/visuals/sprite-owner-keys";
 import {
   getSpriteExpressionForCharacter,
   getSpriteExpressionForOwnerKey,
@@ -141,9 +137,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
     lastRenderableMessagesRef.current = { chatId: activeChatId, messages: data.messages };
   }
   const cachedMessagesForActiveChat =
-    lastRenderableMessagesRef.current?.chatId === activeChatId
-      ? lastRenderableMessagesRef.current.messages
-      : undefined;
+    lastRenderableMessagesRef.current?.chatId === activeChatId ? lastRenderableMessagesRef.current.messages : undefined;
   const renderMessages = data.messages ?? cachedMessagesForActiveChat;
   const isRenderingCachedMessages = data.messages === undefined && cachedMessagesForActiveChat !== undefined;
   const spriteState = useSpriteMetadataState({ chat: data.chat, chatMeta: data.chatMeta, messages: renderMessages });
@@ -339,15 +333,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
       return;
     }
     overlays.finishWizard();
-  }, [
-    activeChatId,
-    data.chatCharIds,
-    data.messages,
-    data.totalMessageCount,
-    deleteChat,
-    overlays,
-    setActiveChatId,
-  ]);
+  }, [activeChatId, data.chatCharIds, data.messages, data.totalMessageCount, deleteChat, overlays, setActiveChatId]);
 
   const cardCssMode = (() => {
     const mode = data.chatMeta.cardCssMode;
@@ -389,6 +375,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         spriteArrangeMode={overlays.spriteArrangeMode}
         enabledAgentTypes={enabledAgentTypes}
         chatCharIds={data.chatCharIds}
+        allCharacters={data.allCharacters}
         characterMap={data.characterMap}
         characterNames={data.characterNames}
         personaInfo={data.personaInfo}

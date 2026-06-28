@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   useMemo,
+  useCallback,
   type ComponentProps,
   type CSSProperties,
   type ReactNode,
@@ -38,7 +39,17 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useIsMobile } from "../../../../shared/hooks/use-is-mobile";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useGameStateStore } from "../../../runtime/world-state/index";
-import { buildSaveMomentSummaryDraft, ChatMessage, getTranscriptRenderWindow, TRANSCRIPT_RENDER_WINDOW_STEP } from "../../shared/chat-ui/index";
+import {
+  buildSaveMomentSummaryDraft,
+  ChatMessage,
+  getTranscriptRenderWindow,
+  TRANSCRIPT_RENDER_WINDOW_STEP,
+} from "../../shared/chat-ui/index";
+import {
+  CharacterPublicProfilePopover,
+  resolveCharacterPublicProfile,
+  type CharacterPublicProfilePopoverAnchor,
+} from "../../../catalog/characters/index";
 import { ChatInput } from "../../shared/chat-ui/index";
 import { CyoaChoices } from "./CyoaChoices";
 import { ChatBranchSelector, type ChatBranchSelectorHandle } from "../../shared/chat-ui/index";
@@ -59,6 +70,13 @@ import type {
 import type { SaveMomentSource, SaveMomentSummaryDraft } from "../../shared/chat-ui/index";
 
 type ChatData = ComponentProps<typeof ChatCommonOverlays>["chat"];
+
+type RoleplayProfileCharacter = {
+  id: string;
+  data: Record<string, unknown>;
+  comment?: string | null;
+  avatarPath?: string | null;
+};
 
 const RoleplayHUD = lazy(async () => {
   const module = await import("./RoleplayHUD");
@@ -306,7 +324,15 @@ function RpToolbarButton({
   );
 }
 
-function ToolbarMenu({ children, mobilePortal = true, variant = "inline" }: { children: ReactNode; mobilePortal?: boolean; variant?: "inline" | "fab" }) {
+function ToolbarMenu({
+  children,
+  mobilePortal = true,
+  variant = "inline",
+}: {
+  children: ReactNode;
+  mobilePortal?: boolean;
+  variant?: "inline" | "fab";
+}) {
   const compact = useUIStore((s) => s.centerCompact);
   const mobileChatToolsOpen = useUIStore((s) => s.mobileChatToolsOpen);
   const setMobileChatToolsOpen = useUIStore((s) => s.setMobileChatToolsOpen);
@@ -375,10 +401,7 @@ function ToolbarMenu({ children, mobilePortal = true, variant = "inline" }: { ch
         createPortal(
           isMobileViewport && mobilePortal ? (
             <>
-              <div
-                className="fixed inset-0 z-[9998] bg-black/50 backdrop-blur-sm"
-                onClick={handleClose}
-              />
+              <div className="fixed inset-0 z-[9998] bg-black/50 backdrop-blur-sm" onClick={handleClose} />
               <div
                 ref={popRef}
                 className="fixed bottom-0 left-0 right-0 z-[9999] flex flex-wrap items-center justify-center gap-2 rounded-t-2xl border-t border-foreground/10 bg-[var(--card)] p-4 shadow-xl backdrop-blur-xl"
@@ -602,6 +625,7 @@ type RoleplaySurfaceProps = {
   spriteArrangeMode: boolean;
   enabledAgentTypes: Set<string>;
   chatCharIds: string[];
+  allCharacters?: RoleplayProfileCharacter[];
   characterMap: CharacterMap;
   characterNames: string[];
   personaInfo?: PersonaInfo;
@@ -705,6 +729,7 @@ export function ChatRoleplaySurface({
   spriteArrangeMode,
   enabledAgentTypes,
   chatCharIds,
+  allCharacters,
   characterMap,
   personaInfo,
   messages,
@@ -781,6 +806,27 @@ export function ChatRoleplaySurface({
   isGrouped,
 }: RoleplaySurfaceProps) {
   const [summaryDraft, setSummaryDraft] = useState<SaveMomentSummaryDraft | null>(null);
+  const [profilePopover, setProfilePopover] = useState<{
+    characterId: string;
+    anchorRect: CharacterPublicProfilePopoverAnchor | null;
+  } | null>(null);
+  const openCharacterDetail = useUIStore((s) => s.openCharacterDetail);
+  const profilePopoverCharacter = useMemo(
+    () =>
+      profilePopover ? (allCharacters?.find((character) => character.id === profilePopover.characterId) ?? null) : null,
+    [allCharacters, profilePopover],
+  );
+  const openCharacterProfilePopover = useCallback(
+    (characterId: string, anchorRect: CharacterPublicProfilePopoverAnchor | null) => {
+      setProfilePopover((current) => (current?.characterId === characterId ? null : { characterId, anchorRect }));
+    },
+    [],
+  );
+  const openFullProfileFromPopover = useCallback(() => {
+    if (!profilePopoverCharacter) return;
+    setProfilePopover(null);
+    openCharacterDetail(profilePopoverCharacter.id);
+  }, [openCharacterDetail, profilePopoverCharacter]);
   const handleSaveMomentSummary = (source: SaveMomentSource) => {
     setSummaryDraft(buildSaveMomentSummaryDraft(source));
   };
@@ -859,8 +905,7 @@ export function ChatRoleplaySurface({
   const newestMsgId = messages?.[messages.length - 1]?.id;
   useEffect(() => {
     const previousTail = previousTailRef.current;
-    const tailMessageChanged =
-      !!newestMsgId && !!previousTail.messageId && previousTail.messageId !== newestMsgId;
+    const tailMessageChanged = !!newestMsgId && !!previousTail.messageId && previousTail.messageId !== newestMsgId;
     const streamingStarted = isStreaming && !previousTail.isStreaming;
     if (transcriptWindowStart !== null && (tailMessageChanged || streamingStarted)) {
       setTranscriptWindowStart(null);
@@ -935,7 +980,10 @@ export function ChatRoleplaySurface({
   }, [moreMenuOpen]);
 
   useEffect(() => {
-    if (!chat) { setRightSlot(null); return; }
+    if (!chat) {
+      setRightSlot(null);
+      return;
+    }
     setRightSlot(
       <>
         <button
@@ -969,7 +1017,9 @@ export function ChatRoleplaySurface({
         </button>
       </>,
     );
-    return () => { setRightSlot(null); };
+    return () => {
+      setRightSlot(null);
+    };
   }, [chat, moreMenuOpen, toolsSheetOpen, setRightSlot]);
 
   const overlaySpriteDisplayModes = useMemo(
@@ -1138,10 +1188,8 @@ export function ChatRoleplaySurface({
                         injectionSourceMessages={messages}
                       />
                     </Suspense>
-
                   </div>
                 )}
-
               </div>
             </div>
 
@@ -1223,6 +1271,7 @@ export function ChatRoleplaySurface({
                           onToggleHiddenFromAI={messageActions.onToggleHiddenFromAI}
                           onPeekPrompt={onPeekPrompt}
                           onBranch={messageActions.onBranch}
+                          onOpenCharacterProfile={openCharacterProfilePopover}
                           onSaveMomentSummary={handleSaveMomentSummary}
                           onIllustrateMoment={onIllustrate}
                           onCloneSceneFromHere={messageActions.onCloneSceneFromHere}
@@ -1254,6 +1303,7 @@ export function ChatRoleplaySurface({
                           onToggleHiddenFromAI={messageActions.onToggleHiddenFromAI}
                           onPeekPrompt={onPeekPrompt}
                           onBranch={messageActions.onBranch}
+                          onOpenCharacterProfile={openCharacterProfilePopover}
                           onSaveMomentSummary={handleSaveMomentSummary}
                           onIllustrateMoment={onIllustrate}
                           onCloneSceneFromHere={messageActions.onCloneSceneFromHere}
@@ -1435,135 +1485,153 @@ export function ChatRoleplaySurface({
                 className="fixed left-0 right-0 z-[9999] max-h-[70dvh] overflow-y-auto rounded-b-3xl border-b border-[var(--border)]/50 bg-[var(--card)] shadow-2xl backdrop-blur-2xl animate-fade-in-down md:hidden"
                 style={{ top: "calc(3.25rem + env(safe-area-inset-top))" }}
               >
-              <p className="px-5 pt-4 pb-3 text-[0.7rem] font-semibold uppercase tracking-widest text-[var(--muted-foreground)]/60">
-                Chat Options
-              </p>
+                <p className="px-5 pt-4 pb-3 text-[0.7rem] font-semibold uppercase tracking-widest text-[var(--muted-foreground)]/60">
+                  Chat Options
+                </p>
 
-              <div className="flex flex-col pb-3">
-                {/* Branches */}
-                {chat?.groupId && (
+                <div className="flex flex-col pb-3">
+                  {/* Branches */}
+                  {chat?.groupId && (
+                    <div
+                      className="relative flex w-full items-center gap-3 px-5 py-3 transition-all active:bg-[var(--accent)]/30 cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        branchSelectorRef.current?.toggle();
+                      }}
+                    >
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-sm">
+                        <GitBranch size="0.9rem" />
+                      </div>
+                      <span className="text-sm font-medium text-[var(--foreground)]">Branches</span>
+                      <div className="absolute inset-0 opacity-0 pointer-events-auto">
+                        <ChatBranchSelector
+                          ref={branchSelectorRef}
+                          activeChatId={activeChatId}
+                          activeChatName={chat?.name}
+                          groupId={chat?.groupId ?? null}
+                          variant="roleplay"
+                          compact
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Connected Chat */}
+                  {chat?.connectedChatId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!chat.connectedChatId) return;
+                        setMoreMenuOpen(false);
+                        useChatStore.getState().setActiveChatId(chat.connectedChatId);
+                      }}
+                      className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
+                    >
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 text-white shadow-sm">
+                        <ArrowRightLeft size="0.9rem" />
+                      </div>
+                      <span className="text-sm font-medium text-[var(--foreground)]">
+                        {linkedChatName ? `Switch to ${linkedChatName}` : "Connected chat"}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Summary */}
+                  <SummaryButton
+                    chatId={chat?.id ?? null}
+                    summary={metadataString(chatMeta.summary) || null}
+                    summaryContextSize={summaryContextSize}
+                    totalMessageCount={totalMessageCount}
+                    onContextSizeChange={onSummaryContextSizeChange}
+                    buttonClassName="relative flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-sm">
+                      <ScrollText size="0.9rem" />
+                    </div>
+                    <span className="text-sm font-medium text-[var(--foreground)]">Summary</span>
+                  </SummaryButton>
+
+                  {/* World Info */}
                   <div
                     className="relative flex w-full items-center gap-3 px-5 py-3 transition-all active:bg-[var(--accent)]/30 cursor-pointer"
-                    onClick={(e) => { e.stopPropagation(); branchSelectorRef.current?.toggle(); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.currentTarget.querySelector("button")?.click();
+                    }}
                   >
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-sm">
-                      <GitBranch size="0.9rem" />
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-500 text-white shadow-sm">
+                      <Globe size="0.9rem" />
                     </div>
-                    <span className="text-sm font-medium text-[var(--foreground)]">Branches</span>
+                    <span className="text-sm font-medium text-[var(--foreground)]">World Info</span>
                     <div className="absolute inset-0 opacity-0 pointer-events-auto">
-                      <ChatBranchSelector
-                        ref={branchSelectorRef}
-                        activeChatId={activeChatId}
-                        activeChatName={chat?.name}
-                        groupId={chat?.groupId ?? null}
-                        variant="roleplay"
-                        compact
-                      />
+                      <ActiveWorldInfoButton chatId={chat?.id ?? null} />
                     </div>
                   </div>
-                )}
 
-                {/* Connected Chat */}
-                {chat?.connectedChatId && (
+                  {/* Author Notes */}
+                  <div
+                    className="relative flex w-full items-center gap-3 px-5 py-3 transition-all active:bg-[var(--accent)]/30 cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.currentTarget.querySelector("button")?.click();
+                    }}
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-sm">
+                      <PenLine size="0.9rem" />
+                    </div>
+                    <span className="text-sm font-medium text-[var(--foreground)]">Author Notes</span>
+                    <div className="absolute inset-0 opacity-0 pointer-events-auto">
+                      <AuthorNotesButton chatId={chat?.id ?? null} chatMeta={chatMeta} />
+                    </div>
+                  </div>
+
+                  {/* Gallery */}
                   <button
                     type="button"
                     onClick={() => {
-                      if (!chat.connectedChatId) return;
                       setMoreMenuOpen(false);
-                      useChatStore.getState().setActiveChatId(chat.connectedChatId);
+                      onOpenGallery();
                     }}
                     className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
                   >
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 text-white shadow-sm">
-                      <ArrowRightLeft size="0.9rem" />
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 text-white shadow-sm">
+                      <Image size="0.9rem" />
                     </div>
-                    <span className="text-sm font-medium text-[var(--foreground)]">
-                      {linkedChatName ? `Switch to ${linkedChatName}` : "Connected chat"}
-                    </span>
+                    <span className="text-sm font-medium text-[var(--foreground)]">Gallery</span>
                   </button>
-                )}
 
-                {/* Summary */}
-                <SummaryButton
-                  chatId={chat?.id ?? null}
-                  summary={metadataString(chatMeta.summary) || null}
-                  summaryContextSize={summaryContextSize}
-                  totalMessageCount={totalMessageCount}
-                  onContextSizeChange={onSummaryContextSizeChange}
-                  buttonClassName="relative flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
-                >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-sm">
-                    <ScrollText size="0.9rem" />
-                  </div>
-                  <span className="text-sm font-medium text-[var(--foreground)]">Summary</span>
-                </SummaryButton>
+                  {/* Chat Files */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      onOpenFiles();
+                    }}
+                    className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 text-white shadow-sm">
+                      <FolderOpen size="0.9rem" />
+                    </div>
+                    <span className="text-sm font-medium text-[var(--foreground)]">Chat Files</span>
+                  </button>
 
-                {/* World Info */}
-                <div
-                  className="relative flex w-full items-center gap-3 px-5 py-3 transition-all active:bg-[var(--accent)]/30 cursor-pointer"
-                  onClick={(e) => { e.stopPropagation(); e.currentTarget.querySelector('button')?.click(); }}
-                >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-500 text-white shadow-sm">
-                    <Globe size="0.9rem" />
-                  </div>
-                  <span className="text-sm font-medium text-[var(--foreground)]">World Info</span>
-                  <div className="absolute inset-0 opacity-0 pointer-events-auto">
-                    <ActiveWorldInfoButton chatId={chat?.id ?? null} />
-                  </div>
+                  <div className="mx-5 my-1 h-px bg-[var(--border)]/30" />
+
+                  {/* Chat Settings */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      onOpenSettings();
+                    }}
+                    className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-sm">
+                      <Settings2 size="0.9rem" />
+                    </div>
+                    <span className="text-sm font-medium text-[var(--foreground)]">Chat Settings</span>
+                  </button>
                 </div>
-
-                {/* Author Notes */}
-                <div
-                  className="relative flex w-full items-center gap-3 px-5 py-3 transition-all active:bg-[var(--accent)]/30 cursor-pointer"
-                  onClick={(e) => { e.stopPropagation(); e.currentTarget.querySelector('button')?.click(); }}
-                >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-sm">
-                    <PenLine size="0.9rem" />
-                  </div>
-                  <span className="text-sm font-medium text-[var(--foreground)]">Author Notes</span>
-                  <div className="absolute inset-0 opacity-0 pointer-events-auto">
-                    <AuthorNotesButton chatId={chat?.id ?? null} chatMeta={chatMeta} />
-                  </div>
-                </div>
-
-                {/* Gallery */}
-                <button
-                  type="button"
-                  onClick={() => { setMoreMenuOpen(false); onOpenGallery(); }}
-                  className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
-                >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 text-white shadow-sm">
-                    <Image size="0.9rem" />
-                  </div>
-                  <span className="text-sm font-medium text-[var(--foreground)]">Gallery</span>
-                </button>
-
-                {/* Chat Files */}
-                <button
-                  type="button"
-                  onClick={() => { setMoreMenuOpen(false); onOpenFiles(); }}
-                  className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
-                >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 text-white shadow-sm">
-                    <FolderOpen size="0.9rem" />
-                  </div>
-                  <span className="text-sm font-medium text-[var(--foreground)]">Chat Files</span>
-                </button>
-
-                <div className="mx-5 my-1 h-px bg-[var(--border)]/30" />
-
-                {/* Chat Settings */}
-                <button
-                  type="button"
-                  onClick={() => { setMoreMenuOpen(false); onOpenSettings(); }}
-                  className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
-                >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-sm">
-                    <Settings2 size="0.9rem" />
-                  </div>
-                  <span className="text-sm font-medium text-[var(--foreground)]">Chat Settings</span>
-                </button>
-              </div>
               </div>
             </>,
             document.body,
@@ -1575,6 +1643,19 @@ export function ChatRoleplaySurface({
           </Suspense>
         )}
       </div>
+
+      {profilePopoverCharacter && (
+        <CharacterPublicProfilePopover
+          profile={resolveCharacterPublicProfile({
+            data: profilePopoverCharacter.data,
+            comment: profilePopoverCharacter.comment,
+          })}
+          avatarUrl={profilePopoverCharacter.avatarPath}
+          anchorRect={profilePopover?.anchorRect ?? null}
+          onClose={() => setProfilePopover(null)}
+          onOpenFullProfile={openFullProfileFromPopover}
+        />
+      )}
 
       <ChatCommonOverlays
         chat={chat}

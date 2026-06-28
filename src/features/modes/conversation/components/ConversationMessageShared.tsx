@@ -47,6 +47,7 @@ export interface ConversationMessageProps {
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
   onBranch?: (messageId: string) => void;
+  onOpenCharacterProfile?: (characterId: string, anchorRect: DOMRect) => void;
   onSaveMomentSummary?: (source: SaveMomentSource) => void;
   onIllustrateMoment?: (source: SaveMomentSource) => void | Promise<void>;
   isLastAssistantMessage?: boolean;
@@ -161,6 +162,8 @@ export interface ConversationMessageRenderContext {
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
   onBranch?: (messageId: string) => void;
+  onOpenCharacterProfile?: (characterId: string, anchorRect: DOMRect) => void;
+  canOpenCharacterProfile?: boolean;
   onSaveMomentSummary?: (source: SaveMomentSource) => void;
   onIllustrateMoment?: (source: SaveMomentSource) => void | Promise<void>;
   onDelete?: (messageId: string) => void;
@@ -811,12 +814,27 @@ export function ConversationMessageMeta({ context }: { context: ConversationMess
       )}
     >
       {context.hiddenFromAIHeader}
-      <span
-        className="mari-message-name text-[0.9375rem] font-semibold leading-tight hover:underline cursor-default"
-        style={nameColorStyle(context.nameColor)}
-      >
-        {context.displayName}
-      </span>
+      {context.canOpenCharacterProfile && context.onOpenCharacterProfile && context.message.characterId ? (
+        <button
+          type="button"
+          className="mari-message-name cursor-pointer border-0 bg-transparent p-0 text-left text-[0.9375rem] font-semibold leading-tight hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/60"
+          style={nameColorStyle(context.nameColor)}
+          aria-label={`Open ${context.displayName} profile`}
+          onClick={(event) => {
+            event.stopPropagation();
+            context.onOpenCharacterProfile?.(context.message.characterId!, event.currentTarget.getBoundingClientRect());
+          }}
+        >
+          {context.displayName}
+        </button>
+      ) : (
+        <span
+          className="mari-message-name text-[0.9375rem] font-semibold leading-tight hover:underline cursor-default"
+          style={nameColorStyle(context.nameColor)}
+        >
+          {context.displayName}
+        </span>
+      )}
       {!context.hideTimestamp && (
         <span className="mari-message-timestamp text-[0.6875rem] text-[var(--muted-foreground)]/60">
           {formatTimestamp(context.message.createdAt)}

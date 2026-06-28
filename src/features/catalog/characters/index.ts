@@ -5,3 +5,4 @@ export * from "./lib/character-avatar-url";
 export * from "./lib/character-public-profile";
 export * from "./components/CharacterAvatarImage";
 export * from "./components/CharacterPublicProfileCard";
+export * from "./components/CharacterPublicProfilePopover";

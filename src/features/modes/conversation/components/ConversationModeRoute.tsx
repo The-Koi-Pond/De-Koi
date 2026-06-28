@@ -201,6 +201,7 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
         personaInfo={data.personaInfo}
         chatMeta={data.chatMeta}
         chatCharIds={data.chatCharIds}
+        allCharacters={data.allCharacters}
         typingStyledCharacterIds={typingStyledCharacterIds}
         enabledAgentTypes={agentThoughtBubbleTypes}
         connectedChatName={data.connectedChatName}
