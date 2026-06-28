@@ -268,6 +268,63 @@ describe("manual Illustrator requests", () => {
     expect(systemPrompt).toContain("Do not return shouldGenerate false merely because");
     expect(systemPrompt).toContain("Return shouldGenerate false only when");
   });
+  it("repairs valid manual paintbrush responses that omit the image prompt", async () => {
+    const calls: ChatMessage[][] = [];
+    const provider: BaseLLMProvider = {
+      maxTokensOverrideValue: null,
+      async chatComplete(messages) {
+        calls.push(messages);
+        if (calls.length === 1) {
+          return {
+            content: JSON.stringify({ shouldGenerate: false, reason: "not a major scene" }),
+            usage: { totalTokens: 3 },
+          };
+        }
+        return {
+          content: JSON.stringify({
+            shouldGenerate: true,
+            reason: "Manual paintbrush request",
+            prompt: "Cam Bellamy pauses in warm afternoon light, cinematic portrait.",
+          }),
+          usage: { totalTokens: 7 },
+        };
+      },
+    };
+    const config: AgentExecConfig = {
+      id: "illustrator-agent",
+      type: "illustrator",
+      name: "Illustrator",
+      phase: "post",
+      promptTemplate: "",
+      connectionId: null,
+      settings: {},
+    };
+
+    const result = await executeAgent(
+      config,
+      {
+        ...spotifyContext(),
+        chatMode: "conversation",
+        recentMessages: [{ role: "assistant", content: "Cam Bellamy pauses in warm afternoon light." }],
+        mainResponse: "Cam Bellamy pauses in warm afternoon light.",
+        memory: { _illustratorManualRequest: true },
+      },
+      provider,
+      "test-model",
+    );
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.[calls[1].length - 1]?.content).toContain(
+      "Your previous Illustrator response did not include a usable image prompt",
+    );
+    expect(result.success).toBe(true);
+    expect(result.tokensUsed).toBe(10);
+    expect(result.data).toEqual({
+      shouldGenerate: true,
+      reason: "Manual paintbrush request",
+      prompt: "Cam Bellamy pauses in warm afternoon light, cinematic portrait.",
+    });
+  });
 });
 
 describe("Spotify agent fallback playback", () => {

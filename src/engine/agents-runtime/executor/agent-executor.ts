@@ -304,11 +304,33 @@ export async function executeAgent(
       logger,
       emit,
     });
-    const { parsed } = retryParsed;
+    let { parsed } = retryParsed;
     totalTokens = retryParsed.totalTokens;
     durationMs = retryParsed.durationMs;
     if (parsed.error) {
       return makeError(config, formatAgentParseError(config, parsed.error), startTime);
+    }
+
+    const promptRepair = await repairManualIllustratorPromptResponse({
+      config,
+      context,
+      messages,
+      parsed,
+      provider,
+      model,
+      temperature,
+      maxTokens,
+      streamResponses,
+      totalTokens,
+      durationMs,
+      startTime,
+      logger,
+      emit,
+    });
+    if (promptRepair) {
+      parsed = promptRepair.parsed;
+      totalTokens = promptRepair.totalTokens;
+      durationMs = promptRepair.durationMs;
     }
 
     const fallback = await applySpotifyPlaybackFallback(
@@ -1618,6 +1640,150 @@ async function parseAgentResponseWithInvalidJsonRetry(args: {
   return { parsed, totalTokens, durationMs };
 }
 
+function manualIllustratorPromptText(data: unknown): string {
+  if (!isJsonRecord(data)) return "";
+  const value =
+    data.prompt ??
+    data.imagePrompt ??
+    data.image_prompt ??
+    data.positivePrompt ??
+    data.positive_prompt ??
+    data.promptText ??
+    data.prompt_text;
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function manualIllustratorShouldGenerate(data: unknown): boolean {
+  if (!isJsonRecord(data)) return false;
+  const value =
+    data.shouldGenerate ??
+    data.should_generate ??
+    data.generateImage ??
+    data.generate_image ??
+    data.createImage ??
+    data.create_image ??
+    data.generate;
+  if (value === undefined || value === null) return false;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return false;
+  return !["false", "0", "no", "off"].includes(normalized);
+}
+
+function manualIllustratorHasUsablePrompt(data: unknown): boolean {
+  return manualIllustratorShouldGenerate(data) && manualIllustratorPromptText(data).length > 0;
+}
+
+function shouldRepairManualIllustratorPrompt(args: {
+  config: Pick<AgentExecConfig, "type">;
+  context: Pick<AgentContext, "memory" | "signal">;
+  parsed: ReturnType<typeof parseAgentResponse>;
+}): boolean {
+  return (
+    args.config.type === ILLUSTRATOR_AGENT_TYPE &&
+    args.context.memory._illustratorManualRequest === true &&
+    !args.context.signal?.aborted &&
+    !args.parsed.error &&
+    !manualIllustratorHasUsablePrompt(args.parsed.data)
+  );
+}
+
+function buildManualIllustratorPromptRepairMessages(messages: ChatMessage[]): ChatMessage[] {
+  return [
+    ...messages,
+    {
+      role: "user",
+      content: [
+        "Your previous Illustrator response did not include a usable image prompt for this manual paintbrush request.",
+        "The selected assistant_response is still the source of truth. The user explicitly clicked the paintbrush to illustrate that message.",
+        "Return ONLY one valid JSON object with shouldGenerate true and a concrete prompt for any drawable visual content in the selected assistant_response.",
+        "Return shouldGenerate false only if the selected assistant_response is blank, pure metadata, or impossible to represent visually.",
+        "Do not include markdown fences, XML tags, commentary, explanations, or any text before or after the JSON.",
+      ].join("\n"),
+    },
+  ];
+}
+
+async function repairManualIllustratorPromptResponse(args: {
+  config: AgentExecConfig;
+  context: AgentContext;
+  messages: ChatMessage[];
+  parsed: ReturnType<typeof parseAgentResponse>;
+  provider: BaseLLMProvider;
+  model: string;
+  temperature: number | undefined;
+  maxTokens: number;
+  streamResponses: boolean;
+  totalTokens: number;
+  durationMs: number;
+  startTime: number;
+  logger: AgentRuntimeDebugLogger;
+  emit: (entry: AgentRuntimeDebugEntry) => void;
+}): Promise<{
+  parsed: ReturnType<typeof parseAgentResponse>;
+  totalTokens: number;
+  durationMs: number;
+} | null> {
+  if (!shouldRepairManualIllustratorPrompt(args)) return null;
+
+  args.logger.warn(
+    "[agent] illustrator manual response omitted an image prompt; retrying once with strict prompt reminder",
+  );
+  args.emit({
+    level: "warn",
+    phase: args.config.phase,
+    message: "manual-illustrator-prompt-retry",
+    args: [args.config.type],
+  });
+
+  let repairResponseText = "";
+  const repairResult = await args.provider.chatComplete(
+    buildManualIllustratorPromptRepairMessages(args.messages),
+    buildChatCompleteOptions({
+      model: args.model,
+      temperature: args.temperature,
+      maxTokens: args.maxTokens,
+      stream: args.streamResponses,
+      onToken: args.streamResponses
+        ? (chunk) => {
+            repairResponseText += chunk;
+          }
+        : undefined,
+      signal: args.context.signal,
+    }),
+  );
+  const totalTokens = args.totalTokens + (repairResult.usage?.totalTokens ?? 0);
+  if (!repairResponseText && repairResult.content) repairResponseText = repairResult.content;
+  repairResponseText = repairResponseText.trim();
+  const durationMs = Date.now() - args.startTime;
+
+  args.logger.info(
+    "[agent] illustrator manual prompt retry done (%d chars, %dms)",
+    repairResponseText.length,
+    durationMs,
+  );
+  args.logger.debug("[agent] illustrator manual prompt retry raw response: %s", repairResponseText.slice(0, 500));
+  args.emit({
+    level: "info",
+    phase: args.config.phase,
+    message: "manual-illustrator-prompt-retry-complete",
+    args: [args.config.type, repairResponseText.length, durationMs],
+  });
+  args.emit({
+    level: "debug",
+    phase: args.config.phase,
+    message: "manual-illustrator-prompt-retry-raw-response",
+    args: [args.config.type, repairResponseText.slice(0, 500)],
+  });
+
+  const repaired = parseAgentResponse(args.config, repairResponseText);
+  if (repaired.error || !manualIllustratorHasUsablePrompt(repaired.data)) {
+    return { parsed: args.parsed, totalTokens, durationMs };
+  }
+  return { parsed: repaired, totalTokens, durationMs };
+}
 function shouldRetryInvalidJsonAgent(config: Pick<AgentExecConfig, "type" | "settings">): boolean {
   return config.type !== "spotify" && agentResponseIsJson(config);
 }
