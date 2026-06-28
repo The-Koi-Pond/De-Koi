@@ -68,16 +68,34 @@ function activeTrackerAgentNames(activeAgentIds: readonly string[] | undefined):
   );
 }
 
-function trackerDetail(names: string[]): string {
-  if (names.length === 0) return "No tracker or world-state agents are active for this chat.";
-  if (names.length <= 3) return `${names.join(" and ")} can update continuity after messages.`;
-  return `${names.length} tracker agents can update continuity after messages.`;
+function trackerPresentation(names: string[], chatMode: ChatMode): Pick<ContinuityOverviewSection, "label" | "detail"> {
+  if (chatMode === "conversation") {
+    return {
+      label: "Automation",
+      detail:
+        names.length === 0
+          ? "No Conversation automation agents are active for this chat."
+          : names.length <= 3
+            ? `${names.join(" and ")} can update Conversation automation after messages.`
+            : `${names.length} automation agents can update Conversation automation after messages.`,
+    };
+  }
+  return {
+    label: "Trackers",
+    detail:
+      names.length === 0
+        ? "No tracker or world-state agents are active for this chat."
+        : names.length <= 3
+          ? `${names.join(" and ")} can update continuity after messages.`
+          : `${names.length} tracker agents can update continuity after messages.`,
+  };
 }
 
 export function buildContinuityOverviewViewModel(input: ContinuityOverviewInput): ContinuityOverviewViewModel {
   const summaryCount = enabledSummaryEntryCount(input.metadata);
   const memoryEnabled = memoryRecallEnabled(input.chatMode, input.metadata);
   const trackerNames = activeTrackerAgentNames(input.metadata.activeAgentIds);
+  const trackerCopy = trackerPresentation(trackerNames, input.chatMode);
   const automaticSummaryEnabled = input.metadata.activeAgentIds?.includes("chat-summary") === true;
   const activeLorebookCount = Math.max(0, Math.trunc(input.activeLorebookCount));
 
@@ -120,10 +138,10 @@ export function buildContinuityOverviewViewModel(input: ContinuityOverviewInput)
     },
     {
       id: "trackers",
-      label: "Trackers",
+      label: trackerCopy.label,
       status: trackerNames.length > 0 ? "active" : "idle",
       value: trackerNames.length > 0 ? pluralize(trackerNames.length, "agent") : "None",
-      detail: trackerDetail(trackerNames),
+      detail: trackerCopy.detail,
       action: "manage_agents",
     },
   ];
