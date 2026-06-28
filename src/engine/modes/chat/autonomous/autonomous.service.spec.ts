@@ -100,8 +100,8 @@ function alwaysBusyRoutine(): ConversationRoutine {
   return {
     weekStart: getMonday().toISOString(),
     generatedAt: new Date().toISOString(),
-    sleep: "Usually sleeps late night.",
-    busy: [{ when: "mornings afternoons evenings night", summary: "classes", availability: "busy" }],
+    sleep: "Keeps flexible hours.",
+    busy: [{ when: "mornings afternoons evenings late night", summary: "classes", availability: "busy" }],
     freeish: ["quiet evenings"],
     replyStyle: "Slow when in class.",
     checkInStyle: "Likes texting at night.",

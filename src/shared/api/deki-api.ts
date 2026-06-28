@@ -24,6 +24,12 @@ import {
 } from "../../engine/deki/deki-history";
 import { appSettingsResponseSchema, appSettingsUpdateSchema } from "../../engine/contracts/schemas/app-settings.schema";
 import {
+  createLorebookEntrySchema,
+  createLorebookSchema,
+  updateLorebookEntrySchema,
+  updateLorebookSchema,
+} from "../../engine/contracts/schemas/lorebook.schema";
+import {
   createChoiceBlockSchema,
   createPromptGroupSchema,
   createPromptSectionSchema,
@@ -713,6 +719,70 @@ async function applyCreateDekiAction(
   return result;
 }
 
+function stripRecordId(record: Record<string, unknown>): { id: string | null; payload: Record<string, unknown> } {
+  const { id: rawId, ...payload } = record;
+  return { id: readTrimmedString(rawId), payload };
+}
+
+async function applyLorebookRedraftEntry(
+  lorebookId: string,
+  entry: Record<string, unknown>,
+  index: number,
+  actionId: string | undefined,
+): Promise<unknown> {
+  const { id: entryId, payload } = stripRecordId(entry);
+  if (entryId) {
+    return storageApi.update(
+      "lorebook-entries",
+      entryId,
+      updateLorebookEntrySchema.parse({
+        ...payload,
+        lorebookId,
+      }),
+    );
+  }
+
+  const generatedId = createActionRecordId("lorebook-entries", actionId ? `${actionId}-${index + 1}` : undefined);
+  const parsed = createLorebookEntrySchema.parse({
+    ...payload,
+    lorebookId,
+  });
+  const draft = generatedId ? { id: generatedId, ...parsed } : parsed;
+  return createDekiActionRecord("lorebook-entries", draft, generatedId);
+}
+
+async function applyLorebookRedraftAction(
+  action: Extract<DekiEntryAction, { type: "apply_lorebook_redraft" }>,
+  actionId: string | undefined,
+): Promise<{ lorebook: unknown; entries: unknown[] }> {
+  const { id: lorebookPayloadId, payload: lorebookPayload } = stripRecordId(action.lorebook);
+  const requestedLorebookId = readTrimmedString(action.id) ?? lorebookPayloadId;
+  const generatedLorebookId = createActionRecordId("lorebooks", actionId);
+  const lorebook = requestedLorebookId
+    ? await storageApi.update("lorebooks", requestedLorebookId, updateLorebookSchema.parse(lorebookPayload))
+    : await createDekiActionRecord(
+        "lorebooks",
+        generatedLorebookId
+          ? { id: generatedLorebookId, ...createLorebookSchema.parse(lorebookPayload) }
+          : createLorebookSchema.parse(lorebookPayload),
+        generatedLorebookId,
+      );
+  const lorebookId = recordId(lorebook) ?? requestedLorebookId;
+  if (!lorebookId) throw new Error("Deki-senpai lorebook redraft did not produce a lorebook id.");
+
+  const entries = [];
+  for (let index = 0; index < action.entries.length; index += 1) {
+    entries.push(await applyLorebookRedraftEntry(lorebookId, action.entries[index]!, index, actionId));
+  }
+  return { lorebook, entries };
+}
+
+function dekiActionResultId(action: DekiEntryAction, result: unknown): string | null {
+  if (action.type === "apply_lorebook_redraft") {
+    return recordId(asRecord(result).lorebook);
+  }
+  return recordId(result);
+}
 async function markDekiActionApplied(
   messageId: string,
   application: DekiActionApplication,
@@ -801,12 +871,15 @@ export const dekiApi = {
       if (action.type === "none" || action.type === "request_chat_access" || action.type === "request_web_research") {
         throw new Error("Deki-senpai did not provide an applyable action.");
       }
-      const storageEntity = storageEntityForDekiAction(action.entity);
+      const storageEntity =
+        action.type === "apply_lorebook_redraft" ? "lorebooks" : storageEntityForDekiAction(action.entity);
       const result =
-        action.type === "create_record"
-          ? await applyCreateDekiAction(action, options?.actionId)
-          : await storageApi.update(storageEntity, action.id, action.patch);
-      const resultId = recordId(result);
+        action.type === "apply_lorebook_redraft"
+          ? await applyLorebookRedraftAction(action, options?.actionId)
+          : action.type === "create_record"
+            ? await applyCreateDekiAction(action, options?.actionId)
+            : await storageApi.update(storageEntity, action.id, action.patch);
+      const resultId = dekiActionResultId(action, result);
       const appliedStatus = options?.messageId
         ? await writeDekiActionApplication(options.sessionId, options.messageId, {
             status: "applied",
@@ -815,7 +888,7 @@ export const dekiApi = {
           })
         : null;
       return {
-        entity: action.entity,
+        entity: action.type === "apply_lorebook_redraft" ? "lorebooks" : action.entity,
         storageEntity,
         result,
         resultId,

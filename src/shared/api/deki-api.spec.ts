@@ -15,6 +15,49 @@ vi.mock("./storage-api", () => ({
   storageApi: storageApiMock,
 }));
 
+describe("normalizeDekiEntryAction lorebook redrafts", () => {
+  it("keeps a whole-lorebook redraft as one pending action", () => {
+    const action = normalizeDekiEntryAction({
+      type: "apply_lorebook_redraft",
+      id: "lorebook-1",
+      lorebook: {
+        name: "Ravenloft Gazetteer",
+        description: "A rewritten gothic setting guide.",
+      },
+      entries: [
+        { id: "entry-1", name: "Castle Ravenloft", content: "A hungry silhouette above the valley." },
+        { name: "Barovia", content: "Mist, hunger, and old roads." },
+      ],
+      label: "Apply Ravenloft redraft",
+      rationale: "Turns the entry list into one reviewable lorebook update.",
+    });
+
+    expect(action).toEqual({
+      type: "apply_lorebook_redraft",
+      id: "lorebook-1",
+      lorebook: {
+        name: "Ravenloft Gazetteer",
+        description: "A rewritten gothic setting guide.",
+      },
+      entries: [
+        { id: "entry-1", name: "Castle Ravenloft", content: "A hungry silhouette above the valley." },
+        { name: "Barovia", content: "Mist, hunger, and old roads." },
+      ],
+      label: "Apply Ravenloft redraft",
+      rationale: "Turns the entry list into one reviewable lorebook update.",
+    });
+  });
+
+  it("falls back to the default action when a lorebook redraft has no entries", () => {
+    const action = normalizeDekiEntryAction({
+      type: "apply_lorebook_redraft",
+      lorebook: { name: "Empty Book" },
+      entries: [],
+    });
+
+    expect(action).toMatchObject({ type: "none", capability: "read_only" });
+  });
+});
 describe("normalizeDekiEntryAction web research", () => {
   it("keeps a web research permission request pending until the shell grants it", () => {
     const action = normalizeDekiEntryAction({
@@ -53,6 +96,67 @@ describe("dekiApi.actions.apply", () => {
     storageApiMock.update.mockReset();
   });
 
+  it("applies a whole-lorebook redraft as one action", async () => {
+    const action: DekiEntryAction = {
+      type: "apply_lorebook_redraft",
+      id: "lorebook-1",
+      lorebook: {
+        name: "Ravenloft Gazetteer",
+        description: "A rewritten gothic setting guide.",
+      },
+      entries: [
+        { id: "entry-1", name: "Castle Ravenloft", content: "A hungry silhouette above the valley." },
+        { name: "Barovia", content: "Mist, hunger, and old roads." },
+      ],
+      label: "Apply Ravenloft redraft",
+    };
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (entity === "lorebook-entries" && id === "deki-lorebook-entries-message-1-2") return null;
+      return null;
+    });
+    storageApiMock.update.mockImplementation(async (entity: string, id: string, patch: Record<string, unknown>) => ({
+      id,
+      ...patch,
+      entity,
+    }));
+    storageApiMock.create.mockImplementation(async (_entity: string, draft: Record<string, unknown>) => ({
+      ...draft,
+      id: draft.id ?? "created-entry",
+    }));
+
+    const result = await dekiApi.actions.apply(action, { actionId: "message-1" });
+
+    expect(storageApiMock.update).toHaveBeenCalledWith("lorebooks", "lorebook-1", {
+      name: "Ravenloft Gazetteer",
+      description: "A rewritten gothic setting guide.",
+    });
+    expect(storageApiMock.update).toHaveBeenCalledWith("lorebook-entries", "entry-1", {
+      lorebookId: "lorebook-1",
+      name: "Castle Ravenloft",
+      content: "A hungry silhouette above the valley.",
+    });
+    expect(storageApiMock.create).toHaveBeenCalledWith(
+      "lorebook-entries",
+      expect.objectContaining({
+        id: "deki-lorebook-entries-message-1-2",
+        lorebookId: "lorebook-1",
+        name: "Barovia",
+        content: "Mist, hunger, and old roads.",
+      }),
+    );
+    expect(result).toMatchObject({
+      entity: "lorebooks",
+      storageEntity: "lorebooks",
+      resultId: "lorebook-1",
+      result: {
+        lorebook: expect.objectContaining({ id: "lorebook-1" }),
+        entries: [
+          expect.objectContaining({ id: "entry-1" }),
+          expect.objectContaining({ id: "deki-lorebook-entries-message-1-2" }),
+        ],
+      },
+    });
+  });
   it("keeps draft record actions pending until the user applies them", async () => {
     const action: DekiEntryAction = {
       type: "create_record",

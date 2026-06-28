@@ -226,11 +226,10 @@ impl ChatProvider for DekiLlmProvider {
             .collect::<Vec<_>>();
         let synthesized_forced_tool_call = tool_calls.is_empty();
         if synthesized_forced_tool_call {
-            tool_calls = deki_forced_chat_tool_call(&deki_request_parameters(
-                &self.connection,
-                messages,
+            tool_calls = deki_forced_chat_tool_call(
+                &deki_request_parameters(&self.connection, messages, tools.unwrap_or_default()),
                 tools.unwrap_or_default(),
-            ), tools.unwrap_or_default());
+            );
         }
         Ok(Box::new(DekiChatResponse {
             content: if synthesized_forced_tool_call && !tool_calls.is_empty() {
@@ -272,7 +271,8 @@ fn deki_request_parameters(
         && looks_like_approved_web_research_task(latest_user)
     {
         parameters["toolChoice"] = deki_forced_tool_choice(connection, "search_deki_web");
-    } else if !tools.is_empty() && !has_tool_result && looks_like_codebase_question(routing_message) {
+    } else if !tools.is_empty() && !has_tool_result && looks_like_codebase_question(routing_message)
+    {
         parameters["toolChoice"] = deki_forced_tool_choice(connection, "search_deki_code");
     } else if !tools.is_empty()
         && !has_tool_result
@@ -1193,6 +1193,56 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
         return Ok(normalized);
     }
     match action_type {
+        "apply_lorebook_redraft" => {
+            let lorebook = object
+                .get("lorebook")
+                .filter(|value| value.is_object())
+                .ok_or_else(|| {
+                    AppError::new(
+                        "deki_action_invalid",
+                        "Deki-senpai lorebook redraft action requires a lorebook object.",
+                    )
+                })?;
+            let entries = object
+                .get("entries")
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    AppError::new(
+                        "deki_action_invalid",
+                        "Deki-senpai lorebook redraft action requires entries.",
+                    )
+                })?
+                .iter()
+                .filter(|value| value.is_object())
+                .cloned()
+                .collect::<Vec<_>>();
+            if entries.is_empty() {
+                return Err(AppError::new(
+                    "deki_action_invalid",
+                    "Deki-senpai lorebook redraft action requires at least one entry object.",
+                ));
+            }
+            let mut normalized = json!({
+                "type": "apply_lorebook_redraft",
+                "lorebook": lorebook,
+                "entries": entries,
+            });
+            if let Some(id) = object
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                normalized["id"] = json!(id);
+            }
+            if let Some(label) = label {
+                normalized["label"] = json!(label);
+            }
+            if let Some(rationale) = rationale {
+                normalized["rationale"] = json!(rationale);
+            }
+            Ok(normalized)
+        }
         "create_record" => {
             let entity = deki_action_entity(object)?;
             let draft = object
@@ -1474,7 +1524,8 @@ fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
         "When a web search grant is approved, use search_deki_web for the granted exact query, summarize what the returned sources indicate, and then propose any creative-library edit with a normal create_record or edit_record approval action. Do not imply you searched the web unless search_deki_web returned results.".to_string(),
         "After search_deki_web returns results, use read_deki_web_page to inspect the most relevant result pages before proposing creative-library edits or making source-backed characterization claims.".to_string(),
         "If search_deki_web fails because the provider did not return usable search results, say that clearly, do not fabricate sources, and ask the user to try again later or provide specific URLs/sources to inspect.".to_string(),
-        "When the user asks you to create or update a character, persona, lorebook, prompt preset, or their groups/sections/entries/variables, draft the record in a single hidden action block instead of calling write tools. Append exactly one <deki_action>{JSON}</deki_action> block after your visible explanation. Supported JSON shapes are {\"type\":\"create_record\",\"entity\":\"characters|character-groups|personas|persona-groups|lorebooks|lorebook-entries|prompts|prompt-sections|prompt-groups|prompt-variables\",\"draft\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"} and {\"type\":\"edit_record\",\"entity\":\"...\",\"id\":\"record id\",\"patch\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"}. Use De-Koi storage shapes: characters need draft.data.name; personas, lorebooks, and prompts need draft.name; lorebook-entries need lorebookId and name; prompt-sections need presetId, identifier, and name; prompt-groups need presetId and name; prompt-variables need presetId, variableName, question, and options. Do not say the change is saved until the user applies the approval card.".to_string(),
+        "When the user asks you to create or update a character, persona, lorebook, prompt preset, or their groups/sections/entries/variables, draft the record in a single hidden action block instead of calling write tools. Append exactly one <deki_action>{JSON}</deki_action> block after your visible explanation. Supported JSON shapes are {\"type\":\"create_record\",\"entity\":\"characters|character-groups|personas|persona-groups|lorebooks|lorebook-entries|prompts|prompt-sections|prompt-groups|prompt-variables\",\"draft\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"}, {\"type\":\"edit_record\",\"entity\":\"...\",\"id\":\"record id\",\"patch\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"}, and {\"type\":\"apply_lorebook_redraft\",\"id\":\"optional existing lorebook id\",\"lorebook\":{...},\"entries\":[{...}],\"label\":\"short label\",\"rationale\":\"why this change helps\"}. Use De-Koi storage shapes: characters need draft.data.name; personas, lorebooks, and prompts need draft.name; apply_lorebook_redraft needs lorebook.name and entries with name/content; lorebook-entries need lorebookId and name; prompt-sections need presetId, identifier, and name; prompt-groups need presetId and name; prompt-variables need presetId, variableName, question, and options. Do not say the change is saved until the user applies the approval card.".to_string(),
+        "For full-lorebook creation, overhaul, rewrite, or redraft requests, show the whole lorebook redraft in your visible answer so the user can review the complete structure at once. Prefer apply_lorebook_redraft and one approval card for the whole lorebook-level change; do not make users approve separate lorebook-entries approval actions one entry at a time unless they explicitly ask for entry-by-entry work or only one entry is changing.".to_string(),
         "For prompt preset review, use read_deki_library when needed and give concise findings. If the user asks you to apply the review, emit an edit_record action for prompts, prompt-sections, prompt-groups, or prompt-variables.".to_string(),
         "When drafting character-card fields, SillyTavern examples, or example dialogue, keep Deki-senpai as the assistant outside the artifact only. Deki-senpai, assistant, user, and raw conversation-history labels must never become a speaker name inside generated card content; use the target character name, {{char}}, {{user}}, or the user's requested format instead.".to_string(),
         "You cannot run shell commands, inspect unapproved private chats/messages/memories, access secrets, edit files outside the repository, or perform broad/destructive rewrites. If an edit needs runtime verification, say what should be checked.".to_string(),
@@ -1598,9 +1649,7 @@ fn build_task_prompt(
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            sections.push(format!(
-                "Approved chat context snapshot:\n{chat_context}"
-            ));
+            sections.push(format!("Approved chat context snapshot:\n{chat_context}"));
         }
         if looks_like_chat_context_question(&input.user_message) {
             sections.push(
@@ -3238,12 +3287,10 @@ mod tests {
         assert_eq!(status["connection"]["name"], json!("Workspace Test"));
         assert_eq!(status["connection"]["provider"], json!("openai"));
         assert_eq!(status["connection"]["model"], json!("gpt-4.1"));
-        assert!(
-            status["error"]
-                .as_str()
-                .unwrap_or_default()
-                .contains("selected connection")
-        );
+        assert!(status["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("selected connection"));
     }
 
     #[tokio::test]
@@ -3257,12 +3304,10 @@ mod tests {
         assert_eq!(result["status"], json!("not_running"));
         assert_eq!(result["aborted"], json!(false));
         assert_eq!(result["active"], json!(false));
-        assert!(
-            result["reason"]
-                .as_str()
-                .unwrap_or_default()
-                .contains("not running")
-        );
+        assert!(result["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("not running"));
     }
 
     #[test]
@@ -3380,6 +3425,15 @@ mod tests {
         assert_eq!(updated, original);
     }
 
+    #[test]
+    fn deki_system_prompt_prefers_whole_lorebook_redraft_actions() {
+        let prompt = build_system_prompt(None);
+
+        assert!(prompt.contains("whole lorebook"));
+        assert!(prompt.contains("one approval card"));
+        assert!(prompt.contains("apply_lorebook_redraft"));
+        assert!(prompt.contains("lorebook-entries approval actions"));
+    }
     #[test]
     fn deki_system_prompt_blocks_assistant_label_leakage_in_character_card_examples() {
         let prompt = build_system_prompt(None);
@@ -3741,6 +3795,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn deki_response_extracts_lorebook_redraft_action_without_visible_json() {
+        let raw = r#"I drafted the whole lorebook for approval.
+
+<deki_action>{"type":"apply_lorebook_redraft","id":"lorebook-1","lorebook":{"name":"Ravenloft Gazetteer","description":"A rewritten gothic setting guide."},"entries":[{"id":"entry-1","name":"Castle Ravenloft","content":"A hungry silhouette above the valley."},{"name":"Barovia","content":"Mist, hunger, and old roads."}],"label":"Apply Ravenloft redraft","rationale":"One review for the whole lorebook."}</deki_action>"#;
+
+        let (content, action) = deki_response_content_and_action(raw).expect("action should parse");
+
+        assert_eq!(content, "I drafted the whole lorebook for approval.");
+        assert_eq!(action["type"], "apply_lorebook_redraft");
+        assert_eq!(action["id"], "lorebook-1");
+        assert_eq!(action["lorebook"]["name"], "Ravenloft Gazetteer");
+        assert_eq!(action["entries"][0]["id"], "entry-1");
+        assert_eq!(action["entries"][1]["name"], "Barovia");
+        assert_eq!(action["label"], "Apply Ravenloft redraft");
+        assert!(!content.contains("deki_action"));
+    }
     #[test]
     fn deki_response_extracts_web_research_request_action() {
         let raw = r#"I should check current sources first.

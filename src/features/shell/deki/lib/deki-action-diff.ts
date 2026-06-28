@@ -96,7 +96,11 @@ function inlineDiffString(before: string, after: string): DekiActionDiffPart[] {
   return parts.filter((part) => part.text.length > 0);
 }
 
-function inlineDiffForRow(before: string | null, after: string, status: DekiActionDiffRow["status"]): DekiActionDiffPart[] {
+function inlineDiffForRow(
+  before: string | null,
+  after: string,
+  status: DekiActionDiffRow["status"],
+): DekiActionDiffPart[] {
   if (status === "added") return after ? [{ text: after, kind: "added" }] : [];
   if (status === "unchanged") return after ? [{ text: after, kind: "unchanged" }] : [];
   return inlineDiffString(before ?? "", after);
@@ -119,7 +123,13 @@ export function createDekiActionDiffRows(
   action: DekiEntryAction,
   currentRecord?: Record<string, unknown> | null,
 ): DekiActionDiffRow[] {
-  if (action.type === "none" || action.type === "request_chat_access" || action.type === "request_web_research") return [];
+  if (
+    action.type === "none" ||
+    action.type === "request_chat_access" ||
+    action.type === "request_web_research" ||
+    action.type === "apply_lorebook_redraft"
+  )
+    return [];
   const payload = action.type === "create_record" ? action.draft : action.patch;
   return flattenProposedValue(payload).map((entry) => {
     const path = entry.path.split(".");
