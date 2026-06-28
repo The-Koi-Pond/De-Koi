@@ -2,7 +2,7 @@
 // Chat: Conversation View ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Discord-style composite
 // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 import { Fragment, Suspense, lazy, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
   ChevronUp,
@@ -59,7 +59,9 @@ import { ActiveWorldInfoButton, ActiveWorldInfoModal } from "../../../runtime/vi
 import { invalidateCharacterCollectionQueries } from "../../../catalog/characters/index";
 
 import { getConversationStatus } from "../../../../engine/modes/chat/autonomous/autonomous.service";
+import { resolveConversationStatusMessagesEnabled } from "../../../../engine/modes/chat/status/conversation-status-settings";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { conversationSettingsApi, conversationSettingsKeys } from "../../../../shared/api/conversation-settings-api";
 import type { CharacterMap, MessageSelectionToggle, PeekPromptOptions, PersonaInfo } from "../../shared/chat-ui/types";
 import type { SaveMomentSource } from "../../shared/chat-ui/index";
 import type { Message } from "../../../../engine/contracts/types/chat";
@@ -521,11 +523,9 @@ export function ConversationView({
                 ? info.availabilityExplanation.message
                 : null;
             const availabilityExplanationChanged =
-              nextAvailabilityExplanation !== null &&
-              currentAvailabilityExplanation !== nextAvailabilityExplanation;
+              nextAvailabilityExplanation !== null && currentAvailabilityExplanation !== nextAvailabilityExplanation;
             const staleAvailabilityExplanation =
-              nextAvailabilityExplanation === null &&
-              currentAvailabilityExplanation !== "";
+              nextAvailabilityExplanation === null && currentAvailabilityExplanation !== "";
             if (
               currentStatus !== info.status ||
               currentActivity !== info.activity ||
@@ -581,7 +581,14 @@ export function ConversationView({
     return { background: `linear-gradient(135deg, ${g.from}, ${g.to})` };
   }, [convoGradient, theme]);
   const hasAutonomousMessaging = !!chatMeta.autonomousMessages || !!chatMeta.characterExchanges;
-  const conversationStatusMessagesEnabled = chatMeta.conversationStatusMessagesEnabled === true;
+  const conversationSettingsQuery = useQuery({
+    queryKey: conversationSettingsKeys.settings,
+    queryFn: conversationSettingsApi.settings.get,
+  });
+  const conversationStatusMessagesEnabled = resolveConversationStatusMessagesEnabled(
+    chatMeta,
+    conversationSettingsQuery.data?.statusMessagesEnabledByDefault === true,
+  );
   const shouldMountAutonomousEffects = hasAutonomousMessaging || conversationStatusMessagesEnabled;
   const [summaryOpen, setSummaryOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -1362,9 +1369,16 @@ export function ConversationView({
                     </div>
                     <div className="flex flex-col leading-tight">
                       <span className="text-[0.75rem] font-medium text-foreground/90">{c.name}</span>
-                      {(c.conversationStatusMessage || c.conversationAvailabilityExplanation || c.conversationActivity) && (
-                        <span className="max-w-[12rem] truncate text-[0.5625rem] text-foreground/50" title={statusExplanation}>
-                          {c.conversationStatusMessage || c.conversationAvailabilityExplanation || c.conversationActivity}
+                      {(c.conversationStatusMessage ||
+                        c.conversationAvailabilityExplanation ||
+                        c.conversationActivity) && (
+                        <span
+                          className="max-w-[12rem] truncate text-[0.5625rem] text-foreground/50"
+                          title={statusExplanation}
+                        >
+                          {c.conversationStatusMessage ||
+                            c.conversationAvailabilityExplanation ||
+                            c.conversationActivity}
                         </span>
                       )}
                     </div>
@@ -1419,9 +1433,13 @@ export function ConversationView({
                               <p className="text-[0.7rem] font-semibold text-[var(--foreground)] leading-tight">
                                 {c.name}
                               </p>
-                              {(c.conversationStatusMessage || c.conversationAvailabilityExplanation || c.conversationActivity) && (
+                              {(c.conversationStatusMessage ||
+                                c.conversationAvailabilityExplanation ||
+                                c.conversationActivity) && (
                                 <p className="mt-0.5 max-w-[12rem] text-[0.6rem] text-[var(--muted-foreground)]/70 leading-tight">
-                                  {c.conversationStatusMessage || c.conversationAvailabilityExplanation || c.conversationActivity}
+                                  {c.conversationStatusMessage ||
+                                    c.conversationAvailabilityExplanation ||
+                                    c.conversationActivity}
                                 </p>
                               )}
                             </div>

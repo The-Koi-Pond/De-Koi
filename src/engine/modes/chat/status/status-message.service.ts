@@ -5,6 +5,7 @@ import type { StorageGateway } from "../../../capabilities/storage";
 import { CONVERSATION_STATUS_STYLE_REFERENCE } from "../../../contracts/constants/conversation-prompt";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
 import { getCurrentStatus, getEnabledConversationSchedules } from "../schedules/schedule.service";
+import { resolveStoredConversationStatusMessagesEnabled } from "./conversation-status-settings";
 
 export interface ConversationStatusMessageMeta {
   generatedAt: string;
@@ -270,11 +271,7 @@ function messageCreatedAtMs(message: JsonRecord): number {
   return Number.isFinite(value) ? value : 0;
 }
 
-async function recentCharacterReplies(
-  storage: StorageGateway,
-  chatId: string,
-  characterId: string,
-): Promise<string[]> {
+async function recentCharacterReplies(storage: StorageGateway, chatId: string, characterId: string): Promise<string[]> {
   const rows = await storage.listChatMessages<JsonRecord>(chatId, {
     role: "assistant",
     characterId,
@@ -370,7 +367,7 @@ export async function maybeRefreshConversationStatusMessages(
   if (!chat || chat.mode !== "conversation") return { refreshed: [], skipped: [] };
 
   const meta = parseJsonObject(chat.metadata);
-  const enabled = meta.conversationStatusMessagesEnabled === true;
+  const enabled = await resolveStoredConversationStatusMessagesEnabled(capabilities.storage, meta);
   const ids = input.characterIds?.length
     ? input.characterIds
     : parseJsonArray<string>(chat.characterIds).filter(Boolean);

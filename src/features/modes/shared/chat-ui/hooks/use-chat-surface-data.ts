@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useChat, useChatMessageCount, useChatMessages, type ChatMode } from "../../../../catalog/chats/index";
 import { characterAvatarUrl, useCharacterSummariesByIds } from "../../../../catalog/characters/index";
 import { useActivePersonaSummary, usePersonaSummary } from "../../../../catalog/personas/index";
@@ -10,6 +11,7 @@ import {
 } from "../../../../../shared/lib/chat-display";
 import { parseCharacterDisplayData } from "../../../../../shared/lib/character-display";
 import { normalizeAvatarCropValue, type AvatarCropValue } from "../../../../../shared/lib/utils";
+import { conversationSettingsApi, conversationSettingsKeys } from "../../../../../shared/api/conversation-settings-api";
 import { resolveConversationStatusDisplay } from "../lib/conversation-status-display";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import type { CharacterMap, MessageWithSwipes, PersonaInfo } from "../types";
@@ -239,6 +241,12 @@ export function useChatSurfaceData({
     return map;
   }, [messageOffset, messages]);
 
+  const conversationSettingsQuery = useQuery({
+    queryKey: conversationSettingsKeys.settings,
+    queryFn: conversationSettingsApi.settings.get,
+  });
+  const statusMessagesEnabledByDefault =
+    chat?.mode === "conversation" && conversationSettingsQuery.data?.statusMessagesEnabledByDefault === true;
   const chatCharIds = useMemo(() => normalizeChatCharacterIds(chat?.characterIds as unknown), [chat]);
   const neededCharacterIds = useMemo(
     () => normalizeIds([...chatCharIds, ...extractMessageCharacterIds(messages), ...collectGameCharacterIds(chatMeta)]),
@@ -252,7 +260,7 @@ export function useChatSurfaceData({
         const parsed = parseCharacterData(character.data);
         const extensions = readRecord(parsed.extensions);
         const conversationStatus = readString(extensions.conversationStatus);
-        const statusDisplay = resolveConversationStatusDisplay(extensions, chatMeta);
+        const statusDisplay = resolveConversationStatusDisplay(extensions, chatMeta, statusMessagesEnabledByDefault);
         map.set(character.id, {
           name: readString(parsed.name, "Unknown"),
           description: readString(parsed.description),
@@ -293,7 +301,7 @@ export function useChatSurfaceData({
       }
     }
     return map;
-  }, [characterRows, chatMeta]);
+  }, [characterRows, chatMeta, statusMessagesEnabledByDefault]);
 
   const characterMap = baseCharacterMap;
 

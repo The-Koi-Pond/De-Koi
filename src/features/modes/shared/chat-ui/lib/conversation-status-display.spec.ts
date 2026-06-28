@@ -15,6 +15,18 @@ describe("resolveConversationStatusDisplay", () => {
     });
   });
 
+  it("keeps generated blurbs when the global default is on and the chat has no explicit override", () => {
+    expect(
+      resolveConversationStatusDisplay(
+        { conversationStatusMessage: "quietly reading", conversationActivity: "sorting notes" },
+        {},
+        true,
+      ),
+    ).toEqual({
+      conversationStatusMessage: "quietly reading",
+      conversationActivity: "sorting notes",
+    });
+  });
   it("keeps generated blurbs and legacy activity when the chat opt-in is on", () => {
     expect(
       resolveConversationStatusDisplay(

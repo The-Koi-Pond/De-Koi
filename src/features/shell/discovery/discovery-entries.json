@@ -14,10 +14,10 @@
     "id": "conversation-mode",
     "title": "Conversation Mode",
     "category": "Chat modes",
-    "summary": "Casual character messaging with group chats, per-character bubble styling, schedules, first-person status blurbs, autonomous replies, commands, and familiar chat controls.",
-    "keywords": ["dm", "chat", "group", "status", "schedule", "status blurbs", "activity blurbs", "generated statuses", "custom status", "first-person status", "discord status", "autonomous", "texting", "message", "bubbles", "speaker bubbles", "card css"],
+    "summary": "Casual character messaging with group chats, per-character bubble styling, schedules, first-person status blurbs with a global default and per-chat overrides, autonomous replies, commands, and familiar chat controls.",
+    "keywords": ["dm", "chat", "group", "status", "schedule", "status blurbs", "auto-enable status blurbs", "status blurb default", "global status blurbs", "activity blurbs", "generated statuses", "custom status", "first-person status", "discord status", "autonomous", "texting", "message", "bubbles", "speaker bubbles", "card css"],
     "audience": "Users who want companion-style chats, quick conversations, or character group messages.",
-    "where": "Home > Conversation, then the chat setup wizard and chat settings drawer.",
+    "where": "Home > Conversation, then the chat setup wizard and chat settings drawer > Features > Status Blurbs.",
     "actions": [{ "type": "go-home", "label": "Go home" }],
     "coverage": "core"
   },

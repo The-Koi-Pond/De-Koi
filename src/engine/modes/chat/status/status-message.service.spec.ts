@@ -223,6 +223,47 @@ describe("maybeRefreshConversationStatusMessages", () => {
     );
   });
 
+  it("refreshes when the global status blurb default is enabled and the chat has no override", async () => {
+    const seed = {
+      "app-settings": {
+        conversation: {
+          id: "conversation",
+          value: { statusMessagesEnabledByDefault: true },
+        },
+      },
+      chats: {
+        chat1: {
+          id: "chat1",
+          mode: "conversation",
+          connectionId: "conn1",
+          characterIds: ["char1"],
+          metadata: {},
+        },
+      },
+      connections: {
+        conn1: { id: "conn1", model: "test-model" },
+      },
+      characters: {
+        char1: {
+          id: "char1",
+          data: {
+            name: "Ari",
+            extensions: { conversationStatus: "online", conversationActivity: "free time" },
+          },
+        },
+      },
+    };
+
+    const result = await maybeRefreshConversationStatusMessages(
+      { storage: memoryStorage(seed), llm: llmReturning(JSON.stringify({ message: "quietly reading" })) },
+      { chatId: "chat1", now },
+    );
+
+    expect(result).toEqual({ refreshed: ["char1"], skipped: [] });
+    expect((seed.characters.char1.data.extensions as Record<string, unknown>).conversationStatusMessage).toBe(
+      "quietly reading",
+    );
+  });
   it("stores a sanitized generated blurb and metadata when enabled", async () => {
     const seed = {
       chats: {
