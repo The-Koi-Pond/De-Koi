@@ -46,6 +46,41 @@ interface CharacterSchedules {
   [characterId: string]: WeekSchedule;
 }
 
+export type RoutineBusyAvailability = "available" | "delayed" | "busy" | "unavailable";
+export type RoutineSocialEnergyLevel = "low" | "medium" | "high";
+
+export interface ConversationRoutineBusyPeriod {
+  when: string;
+  summary: string;
+  availability: RoutineBusyAvailability;
+}
+
+export interface ConversationRoutineSocialEnergy {
+  level: RoutineSocialEnergyLevel;
+  reason: string;
+}
+
+export interface ConversationRoutine {
+  weekStart: string;
+  generatedAt: string;
+  sleep: string;
+  busy: ConversationRoutineBusyPeriod[];
+  freeish: string[];
+  replyStyle: string;
+  checkInStyle: string;
+  socialEnergy: ConversationRoutineSocialEnergy;
+  inactivityThresholdMinutes: number;
+  idleResponseDelayMinutes?: number;
+  dndResponseDelayMinutes?: number;
+  talkativeness: number;
+}
+
+interface CharacterRoutines {
+  [characterId: string]: ConversationRoutine;
+}
+
+type ConversationAvailabilityProfile = WeekSchedule | ConversationRoutine;
+
 type JsonRecord = Record<string, unknown>;
 
 interface ScheduleLorebookContextSource {
@@ -61,8 +96,9 @@ export interface GenerateConversationSchedulesInput {
 }
 
 export interface GenerateConversationSchedulesResult {
-  results: Record<string, { status: string; schedule?: WeekSchedule }>;
+  results: Record<string, { status: string; schedule?: WeekSchedule; routine?: ConversationRoutine }>;
   schedules: CharacterSchedules;
+  routines: CharacterRoutines;
 }
 
 // Constants
@@ -117,6 +153,7 @@ export async function generateConversationSchedules(
 
   const meta = parseJsonObject(chat.metadata);
   const existingSchedules = hasSchedules(meta.characterSchedules) ? meta.characterSchedules : {};
+  const existingRoutines = hasRoutines(meta.characterRoutines) ? normalizeCharacterRoutines(meta.characterRoutines) : {};
   const characterIds = input.characterIds?.length
     ? input.characterIds
     : parseJsonArray<string>(chat.characterIds).filter(Boolean);
@@ -124,16 +161,24 @@ export async function generateConversationSchedules(
   const provider = createScheduleProvider(capabilities.llm, connectionId, numberOrNull(connection.maxTokensOverride));
   const model = stringValue(connection.model);
   const mondayStr = getMonday().toISOString();
+  const generatedAt = new Date().toISOString();
   const userSchedulePreferences =
     typeof input.scheduleGenerationPreferences === "string" ? input.scheduleGenerationPreferences.trim() : "";
 
   const newSchedules: CharacterSchedules = { ...existingSchedules };
-  const results: Record<string, { status: string; schedule?: WeekSchedule }> = {};
+  const newRoutines: CharacterRoutines = { ...existingRoutines };
+  const results: GenerateConversationSchedulesResult["results"] = {};
   let otherChatSchedules: Map<string, WeekSchedule> | null = null;
   const getOtherChatSchedules = async () => {
     if (otherChatSchedules) return otherChatSchedules;
     otherChatSchedules = await loadOtherConversationSchedules(capabilities.storage, input.chatId);
     return otherChatSchedules;
+  };
+  let otherChatRoutines: Map<string, ConversationRoutine> | null = null;
+  const getOtherChatRoutines = async () => {
+    if (otherChatRoutines) return otherChatRoutines;
+    otherChatRoutines = await loadOtherConversationRoutines(capabilities.storage, input.chatId);
+    return otherChatRoutines;
   };
   let scheduleLorebookContextSource: Promise<ScheduleLorebookContextSource> | null = null;
   const getScheduleLorebookContextSource = () => {
@@ -142,19 +187,32 @@ export async function generateConversationSchedules(
   };
 
   for (const characterId of characterIds) {
-    const existing = existingSchedules[characterId];
-    if (existing && !input.forceRefresh && !scheduleNeedsRefresh(existing)) {
-      results[characterId] = { status: "fresh" };
+    const existingRoutine = newRoutines[characterId];
+    const existingSchedule = newSchedules[characterId];
+    if (existingRoutine && !input.forceRefresh && !scheduleNeedsRefresh(existingRoutine)) {
+      results[characterId] = { status: "fresh", routine: existingRoutine };
+      continue;
+    }
+    if (existingSchedule && !existingRoutine && !input.forceRefresh && !scheduleNeedsRefresh(existingSchedule)) {
+      results[characterId] = { status: "fresh_legacy", schedule: existingSchedule };
       continue;
     }
 
     if (!input.forceRefresh) {
-      const shared = (await getOtherChatSchedules()).get(characterId);
-      if (shared) {
-        const mergedShared = preserveTimingSettings(shared, existing);
+      const sharedRoutine = (await getOtherChatRoutines()).get(characterId);
+      if (sharedRoutine) {
+        const mergedShared = preserveRoutineTimingSettings(sharedRoutine, existingRoutine ?? existingSchedule);
+        newRoutines[characterId] = mergedShared;
+        await updateCharacterConversationStatus(capabilities.storage, characterId, mergedShared);
+        results[characterId] = { status: "shared", routine: mergedShared };
+        continue;
+      }
+      const sharedSchedule = (await getOtherChatSchedules()).get(characterId);
+      if (sharedSchedule) {
+        const mergedShared = preserveTimingSettings(sharedSchedule, existingSchedule);
         newSchedules[characterId] = mergedShared;
         await updateCharacterConversationStatus(capabilities.storage, characterId, mergedShared);
-        results[characterId] = { status: "shared", schedule: mergedShared };
+        results[characterId] = { status: "shared_legacy", schedule: mergedShared };
         continue;
       }
     }
@@ -171,9 +229,11 @@ export async function generateConversationSchedules(
     }
 
     try {
-      const recentContinuityContext = existing
-        ? buildScheduleContinuityContext({ meta, characterData, existingSchedule: existing })
-        : undefined;
+      const recentContinuityContext = existingRoutine
+        ? buildRoutineContinuityContext(existingRoutine)
+        : existingSchedule
+          ? buildScheduleContinuityContext({ meta, characterData, existingSchedule })
+          : undefined;
       const scheduleLorebookContext = await buildScheduleLorebookContext(
         await getScheduleLorebookContextSource(),
         chat,
@@ -181,7 +241,7 @@ export async function generateConversationSchedules(
         character,
         characterData,
       );
-      const { schedule } = await generateCharacterSchedule(
+      const generated = await generateCharacterRoutine(
         provider,
         model,
         stringValue(characterData.name) || "Character",
@@ -191,53 +251,84 @@ export async function generateConversationSchedules(
         recentContinuityContext,
         scheduleLorebookContext,
       );
-      const fullSchedule = preserveTimingSettings({ ...schedule, weekStart: mondayStr }, existing);
-      newSchedules[characterId] = fullSchedule;
-      await updateCharacterConversationStatus(
-        capabilities.storage,
-        characterId,
-        fullSchedule,
-        character,
-        characterData,
-      );
-      results[characterId] = { status: "generated", schedule: fullSchedule };
+      if (generated.routine) {
+        const fullRoutine = preserveRoutineTimingSettings(
+          { ...generated.routine, weekStart: mondayStr, generatedAt },
+          existingRoutine ?? existingSchedule,
+        );
+        newRoutines[characterId] = fullRoutine;
+        delete newSchedules[characterId];
+        await updateCharacterConversationStatus(
+          capabilities.storage,
+          characterId,
+          fullRoutine,
+          character,
+          characterData,
+        );
+        results[characterId] = { status: "generated", routine: fullRoutine };
+      } else if (generated.schedule) {
+        const fullSchedule = preserveTimingSettings({ ...generated.schedule, weekStart: mondayStr }, existingSchedule);
+        newSchedules[characterId] = fullSchedule;
+        await updateCharacterConversationStatus(
+          capabilities.storage,
+          characterId,
+          fullSchedule,
+          character,
+          characterData,
+        );
+        results[characterId] = { status: "generated_legacy", schedule: fullSchedule };
+      } else {
+        throw new Error("Routine generation returned no usable routine");
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Schedule generation failed";
+      const message = error instanceof Error ? error.message : "Routine generation failed";
       results[characterId] = { status: `error: ${message}` };
     }
   }
 
-  const hasRequestedSchedule = characterIds.some((characterId) => !!newSchedules[characterId]);
-  if (!hasRequestedSchedule) {
+  const hasRequestedRoutine = characterIds.some((characterId) => !!newRoutines[characterId] || !!newSchedules[characterId]);
+  if (!hasRequestedRoutine) {
     const failures = Object.values(results)
       .map((result) => result.status)
       .filter((status) => status.startsWith("error: "));
     throw new Error(
-      failures[0]?.replace(/^error:\s*/, "") || "No usable schedules were generated for this conversation",
+      failures[0]?.replace(/^error:\s*/, "") || "No usable routines were generated for this conversation",
     );
   }
 
-  if (Object.keys(newSchedules).length > 0) {
+  if (Object.keys(newRoutines).length > 0 || Object.keys(newSchedules).length > 0) {
     const freshChat = (await capabilities.storage.get<JsonRecord>("chats", input.chatId)) ?? chat;
     const freshMeta = parseJsonObject(freshChat.metadata);
-    await capabilities.storage.patchChatMetadata(input.chatId, {
+    const nextMeta: JsonRecord = {
       ...freshMeta,
       conversationSchedulesEnabled: true,
-      characterSchedules: newSchedules,
+      characterRoutines: newRoutines,
       scheduleWeekStart: mondayStr,
-    });
-    await syncGeneratedSchedulesToOtherChats(capabilities.storage, input.chatId, characterIds, results, newSchedules);
+    };
+    if (Object.keys(newSchedules).length > 0) {
+      nextMeta.characterSchedules = newSchedules;
+    } else {
+      delete nextMeta.characterSchedules;
+    }
+    await capabilities.storage.patchChatMetadata(input.chatId, nextMeta);
+    await syncGeneratedAvailabilityToOtherChats(
+      capabilities.storage,
+      input.chatId,
+      characterIds,
+      results,
+      newRoutines,
+      newSchedules,
+    );
   }
 
-  return { results, schedules: newSchedules };
+  return { results, schedules: newSchedules, routines: newRoutines };
 }
-
 // Schedule Generation
 
 /**
  * Generate a weekly schedule for a character using the LLM.
  */
-async function generateCharacterSchedule(
+async function generateCharacterRoutine(
   provider: BaseLLMProvider,
   model: string,
   characterName: string,
@@ -246,9 +337,10 @@ async function generateCharacterSchedule(
   userSchedulePreferences?: string,
   recentContinuityContext?: string,
   scheduleLorebookContext?: string,
-): Promise<{ schedule: Omit<WeekSchedule, "weekStart">; raw: string }> {
+): Promise<{ routine?: Omit<ConversationRoutine, "weekStart" | "generatedAt">; schedule?: Omit<WeekSchedule, "weekStart">; raw: string }> {
   const systemPrompt = [
-    `You are an availability generator. Create realistic weekly availability exceptions for a character based on their personality and description.`,
+    `You are a fuzzy conversation routine generator. Create an organic routine profile for a character based on their personality and description.`,
+    `The routine should feel like how a person would describe their life, not like a calendar export.`,
     ``,
     `Character: ${characterName}`,
     `Description: ${characterDescription}`,
@@ -257,9 +349,9 @@ async function generateCharacterSchedule(
     ...(recentContinuityContext?.trim()
       ? [
           `Recent continuity:`,
-          `This is not the first schedule for this character. Use the following recent memories, summaries, and previous routine to update the new week.`,
-          `If recent events changed the character's job, school, health, relationship status, location, obligations, sleep pattern, or priorities, reflect those changes in the schedule.`,
-          `If the continuity does not imply a durable routine change, preserve the character's established lifestyle.`,
+          `Use the following recent memories, summaries, and previous routine to update the character's durable habits.`,
+          `If recent events changed work, school, health, relationships, location, obligations, sleep, or priorities, reflect that in the routine.`,
+          `If continuity does not imply a durable habit change, preserve the established lifestyle.`,
           `<recent_continuity>`,
           recentContinuityContext.trim(),
           `</recent_continuity>`,
@@ -268,35 +360,28 @@ async function generateCharacterSchedule(
       : []),
     ...(scheduleLorebookContext?.trim()
       ? [
-          `Schedule lorebook context:`,
+          `Routine lorebook context:`,
           `The following lorebook facts are already active for this chat or character.`,
-          `Use them only when they imply durable weekly routine details, such as work, school, location, commute, obligations, sleep patterns, culture, or recurring responsibilities.`,
-          `Do not copy irrelevant lore into the schedule just because it is listed here.`,
-          `<schedule_lorebook_context>`,
+          `Use them only when they imply durable routine details such as work, school, location, commute, obligations, sleep patterns, culture, or recurring responsibilities.`,
+          `Do not copy irrelevant lore into the routine just because it is listed here.`,
+          `<routine_lorebook_context>`,
           scheduleLorebookContext.trim(),
-          `</schedule_lorebook_context>`,
+          `</routine_lorebook_context>`,
           ``,
         ]
       : []),
     ...(userSchedulePreferences?.trim()
       ? [
           `User preferences:`,
-          `The person using this app has provided the following scheduling guidance.`,
-          `Honor these preferences even when they would override typical patterns for this character:`,
+          `The person using this app has provided the following routine guidance.`,
+          `Honor these preferences even when they override typical patterns for this character:`,
           userSchedulePreferences.trim(),
           ``,
         ]
       : []),
-    `For each day of the week (Monday through Sunday), list only meaningful recurring availability windows, not a minute-by-minute day planner.`,
-    `Do not fill every hour of the day. Gaps mean the character is available and has free time.`,
-    `The patterns should be realistic and consistent with the character's lifestyle.`,
-    ``,
-    `Each time block must include availability-aware fields:`,
-    `- "availability": "available" | "delayed" | "busy" | "unavailable"`,
-    `- "status": legacy compatibility value derived from availability`,
-    `Map them exactly: "available" -> "online", "delayed" -> "idle", "busy" -> "dnd", "unavailable" -> "offline".`,
-    `Use "delayed" for semi-available activities like eating, commuting, showering, or cooking.`,
-    `Use "busy" for focused do-not-disturb activities like working, studying, training, or meetings.`,
+    `Create a fuzzy routine, not a strict timetable. Do not create a calendar, hourly plan, or exact Monday-through-Sunday block grid.`,
+    `Use phrases like "weekday afternoons", "around dinner", "late at night", "most mornings", and "after class".`,
+    `Exact clock times are allowed only inside natural prose when the character concept genuinely calls for them; they must not be required for interpretation.`,
     ``,
     `Also assess the character's talkativeness on a scale of 0-100:`,
     `- 0-20: Very introverted, rarely initiates conversation`,
@@ -305,48 +390,210 @@ async function generateCharacterSchedule(
     `- 61-80: Social, likes to chat frequently`,
     `- 81-100: Very chatty, always wants to talk`,
     ``,
-    `And estimate how long (in minutes) this character would wait before messaging someone who hasn't replied:`,
+    `Estimate how long (in minutes) this character would wait before messaging someone who hasn't replied:`,
     `- Very patient characters: 180-360 minutes`,
     `- Average characters: 60-180 minutes`,
     `- Impatient/chatty characters: 15-60 minutes`,
     ``,
     `RESPOND IN EXACTLY THIS JSON FORMAT (no markdown, no code blocks, just raw JSON).`,
-    `Include ALL 7 day keys (Monday through Sunday). Use an empty array for days with no meaningful availability exceptions.`,
-    `Example:`,
     `{`,
     `  "talkativeness": 65,`,
     `  "inactivityThresholdMinutes": 45,`,
-    `  "days": {`,
-    `    "Monday": [`,
-    `      { "time": "23:00-07:00", "activity": "sleeping", "availability": "unavailable", "status": "offline" },`,
-    `      { "time": "08:30-16:30", "activity": "working", "availability": "busy", "status": "dnd" },`,
-    `      { "time": "18:00-19:00", "activity": "dinner", "availability": "delayed", "status": "idle" }`,
-    `    ],`,
-    `    "Tuesday": [],`,
-    `    "Wednesday": [],`,
-    `    "Thursday": [],`,
-    `    "Friday": [],`,
-    `    "Saturday": [],`,
-    `    "Sunday": []`,
-    `  }`,
+    `  "sleep": "Usually sleeps late night to mid-morning.",`,
+    `  "busy": [`,
+    `    { "when": "weekday late mornings and afternoons", "summary": "classes", "availability": "busy" }`,
+    `  ],`,
+    `  "freeish": ["evenings after dinner", "slow weekend mornings"],`,
+    `  "replyStyle": "Fast when relaxed, slower when busy or in class.",`,
+    `  "checkInStyle": "Likes texting at night when things are quiet.",`,
+    `  "socialEnergy": { "level": "medium", "reason": "Warm but focused." }`,
     `}`,
-    `Follow this exact structure for all 7 days. Do NOT use ellipsis, comments, or placeholders.`,
+    `Use availability values exactly: "available", "delayed", "busy", or "unavailable".`,
+    `Keep every field short and readable.`,
   ].join("\n");
 
-  const scheduleMaxTokens = provider.maxTokensOverrideValue ?? 8192;
+  const scheduleMaxTokens = provider.maxTokensOverrideValue ?? 4096;
   const result = await provider.chatComplete(
     [
       { role: "system", content: systemPrompt },
-      { role: "user", content: "Generate the schedule now." },
+      { role: "user", content: "Generate the fuzzy conversation routine now." },
     ],
-    { model, temperature: 0.8, maxTokens: scheduleMaxTokens },
+    { model, temperature: 0.85, maxTokens: scheduleMaxTokens },
   );
 
   const content = result.content ?? "";
-  const parsed = parseScheduleResponse(content);
-  return { schedule: parsed, raw: content };
+  const parsed = parseAvailabilityGenerationResponse(content);
+  return { ...parsed, raw: content };
 }
 
+function parseAvailabilityGenerationResponse(
+  content: string,
+): { routine?: Omit<ConversationRoutine, "weekStart" | "generatedAt">; schedule?: Omit<WeekSchedule, "weekStart"> } {
+  const data = parseGeneratedJson(content);
+  const record = parseJsonObject(data);
+  if (record.days || parseJsonObject(record.schedule).days || parseJsonObject(record.weeklySchedule).days) {
+    return { schedule: parseScheduleResponse(content) };
+  }
+  return { routine: parseRoutineResponse(content) };
+}
+function parseGeneratedJson(content: string): unknown {
+  let jsonStr = content.trim();
+  const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonMatch) jsonStr = jsonMatch[1]!.trim();
+  const braceStart = jsonStr.indexOf("{");
+  const braceEnd = jsonStr.lastIndexOf("}");
+  if (braceStart !== -1 && braceEnd !== -1) jsonStr = jsonStr.slice(braceStart, braceEnd + 1);
+  jsonStr = repairGeneratedJson(jsonStr);
+  try {
+    return JSON.parse(jsonStr);
+  } catch (firstError) {
+    const repairedLines = jsonStr.split("\n").filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      if (/^[{}[\],]/.test(trimmed)) return true;
+      if (/^"/.test(trimmed)) return true;
+      if (/^\d/.test(trimmed)) return true;
+      if (/^[}\]]/.test(trimmed)) return true;
+      return false;
+    });
+    const repairedStr = repairedLines.join("\n").replace(/,\s*([\]}])/g, "$1");
+    try {
+      return JSON.parse(repairedStr);
+    } catch {
+      throw firstError;
+    }
+  }
+}
+
+function repairGeneratedJson(value: string): string {
+  return value
+    .replace(/\/\/[^\n]*/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/,\s*([\]}])/g, "$1")
+    .replace(/\.{3,}[^"}\]\n]*/g, "")
+    .replace(/\n\s*\n/g, "\n");
+}
+
+function parseRoutineResponse(content: string): Omit<ConversationRoutine, "weekStart" | "generatedAt"> {
+  const data = normalizeRoutineData(parseGeneratedJson(content));
+  const routine = normalizeConversationRoutine(data, { requireGeneratedAt: false, requireWeekStart: false });
+  if (!routine) throw new Error("Routine response did not include enough fuzzy routine details");
+  const { weekStart: _weekStart, generatedAt: _generatedAt, ...withoutDates } = routine;
+  return withoutDates;
+}
+
+function normalizeRoutineData(value: unknown): unknown {
+  const record = parseJsonObject(value);
+  const nested = parseJsonObject(record.routine);
+  if (hasRoutineSignal(nested) && !hasRoutineSignal(record)) return nested;
+  const conversationRoutine = parseJsonObject(record.conversationRoutine);
+  if (hasRoutineSignal(conversationRoutine) && !hasRoutineSignal(record)) return conversationRoutine;
+  return record;
+}
+
+function hasRoutineSignal(value: JsonRecord): boolean {
+  return (
+    !!stringValue(value.sleep).trim() ||
+    Array.isArray(value.busy) ||
+    Array.isArray(value.freeish) ||
+    !!stringValue(value.replyStyle).trim() ||
+    !!stringValue(value.checkInStyle).trim()
+  );
+}
+
+function normalizeConversationRoutine(
+  value: unknown,
+  opts: { requireGeneratedAt?: boolean; requireWeekStart?: boolean } = {},
+): ConversationRoutine | null {
+  const record = parseJsonObject(value);
+  const weekStart = stringValue(record.weekStart).trim();
+  const generatedAt = stringValue(record.generatedAt).trim();
+  if (opts.requireWeekStart !== false && !weekStart) return null;
+  if (opts.requireGeneratedAt !== false && !generatedAt) return null;
+
+  const sleep = stringValue(record.sleep).trim();
+  const busy = normalizeRoutineBusyPeriods(record.busy);
+  const freeish = normalizeRoutineTextList(record.freeish);
+  const replyStyle = stringValue(record.replyStyle).trim();
+  const checkInStyle = stringValue(record.checkInStyle).trim();
+  const socialEnergy = normalizeRoutineSocialEnergy(record.socialEnergy);
+  const hasReadableRoutine =
+    !!sleep || busy.length > 0 || freeish.length > 0 || !!replyStyle || !!checkInStyle || !!socialEnergy.reason;
+  if (!hasReadableRoutine) return null;
+
+  return {
+    weekStart,
+    generatedAt,
+    sleep,
+    busy,
+    freeish,
+    replyStyle,
+    checkInStyle,
+    socialEnergy,
+    inactivityThresholdMinutes: Math.max(15, Math.min(360, numberOrNull(record.inactivityThresholdMinutes) ?? 120)),
+    talkativeness: Math.max(0, Math.min(100, numberOrNull(record.talkativeness) ?? 50)),
+  };
+}
+
+function normalizeRoutineTextList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => stringValue(item).trim()).filter(Boolean);
+  const single = stringValue(value).trim();
+  return single ? [single] : [];
+}
+
+function normalizeRoutineBusyPeriods(value: unknown): ConversationRoutineBusyPeriod[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): ConversationRoutineBusyPeriod[] => {
+    if (typeof item === "string") {
+      const summary = item.trim();
+      return summary ? [{ when: summary, summary, availability: "busy" }] : [];
+    }
+    const record = parseJsonObject(item);
+    const when = stringValue(record.when).trim();
+    const summary = stringValue(record.summary).trim() || stringValue(record.activity).trim() || when;
+    if (!when && !summary) return [];
+    return [
+      {
+        when: when || summary,
+        summary,
+        availability: routineAvailability(record.availability) ?? "busy",
+      },
+    ];
+  });
+}
+
+function normalizeRoutineSocialEnergy(value: unknown): ConversationRoutineSocialEnergy {
+  const record = parseJsonObject(value);
+  const rawLevel = stringValue(record.level).trim().toLowerCase();
+  const level: RoutineSocialEnergyLevel = rawLevel === "low" || rawLevel === "high" ? rawLevel : "medium";
+  return { level, reason: stringValue(record.reason).trim() };
+}
+
+function routineAvailability(value: unknown): RoutineBusyAvailability | null {
+  const normalized = stringValue(value).trim().toLowerCase().replace(/[\s-]+/g, "_");
+  switch (normalized) {
+    case "available":
+    case "free":
+      return "available";
+    case "delayed":
+    case "semi_available":
+    case "idle":
+    case "away":
+      return "delayed";
+    case "busy":
+    case "focused":
+    case "dnd":
+    case "do_not_disturb":
+      return "busy";
+    case "unavailable":
+    case "offline":
+    case "asleep":
+    case "sleeping":
+      return "unavailable";
+    default:
+      return null;
+  }
+}
 /**
  * Parse the LLM's schedule response into a structured format.
  */
@@ -551,9 +798,9 @@ export function getCurrentStatus(
   return { status: "online", activity: "free time" };
 }
 
-export type ConversationAvailability = "available" | "delayed" | "unavailable";
+export type ConversationAvailability = "available" | "delayed" | "busy" | "unavailable";
 export type ConversationAvailabilityDelayKind = "none" | "short" | "long" | "blocked";
-export type ConversationAvailabilitySource = "schedule" | "fallback";
+export type ConversationAvailabilitySource = "schedule" | "routine" | "fallback";
 
 export interface ConversationAvailabilityDecision {
   source: ConversationAvailabilitySource;
@@ -566,8 +813,15 @@ export interface ConversationAvailabilityDecision {
   reason: string;
 }
 
+function isConversationRoutine(value: unknown): value is ConversationRoutine {
+  return !!value && typeof value === "object" && !Array.isArray(value) && !("days" in value);
+}
+
 function availabilityForStatus(status: "online" | "idle" | "dnd" | "offline"): ConversationAvailability {
-  return status === "online" ? "available" : status === "offline" ? "unavailable" : "delayed";
+  if (status === "online") return "available";
+  if (status === "idle") return "delayed";
+  if (status === "dnd") return "busy";
+  return "unavailable";
 }
 
 function delayKindForStatus(status: "online" | "idle" | "dnd" | "offline"): ConversationAvailabilityDelayKind {
@@ -583,16 +837,94 @@ function delayKindForStatus(status: "online" | "idle" | "dnd" | "offline"): Conv
   }
 }
 
+function statusForRoutineAvailability(value: RoutineBusyAvailability): "online" | "idle" | "dnd" | "offline" {
+  switch (value) {
+    case "available":
+      return "online";
+    case "delayed":
+      return "idle";
+    case "busy":
+      return "dnd";
+    case "unavailable":
+      return "offline";
+  }
+}
+
+function getRoutineCurrentStatus(
+  routine: ConversationRoutine,
+  now: Date = new Date(),
+): { status: "online" | "idle" | "dnd" | "offline"; activity: string } {
+  if (routineSleepMatches(routine.sleep, now)) {
+    return { status: "offline", activity: routine.sleep };
+  }
+
+  const busy = routine.busy.find((entry) => routineTimingMatches(`${entry.when} ${entry.summary}`, now));
+  if (busy) {
+    return { status: statusForRoutineAvailability(busy.availability), activity: busy.summary || busy.when };
+  }
+
+  const freeish = routine.freeish.find((entry) => routineTimingMatches(entry, now));
+  if (freeish) return { status: "online", activity: freeish };
+
+  if (routineTimingMatches(routine.checkInStyle, now)) {
+    return { status: "online", activity: routine.checkInStyle };
+  }
+
+  return { status: "online", activity: "free time" };
+}
+
+function routineSleepMatches(value: string, now: Date): boolean {
+  const text = value.toLowerCase();
+  if (!text.trim()) return false;
+  const hour = now.getHours();
+  if (/late\s*night|night|asleep|sleep/.test(text) && (hour >= 23 || hour <= 4)) return true;
+  if (/mid-?morning|sleeps?\s+in|late\s+morning/.test(text) && hour <= 9) return true;
+  if (/early\s+morning/.test(text) && hour <= 6) return true;
+  return false;
+}
+
+function routineTimingMatches(value: string, now: Date): boolean {
+  const text = value.toLowerCase();
+  if (!text.trim()) return false;
+  return routineDayMatches(text, now) && routinePeriodMatches(text, now);
+}
+
+function routineDayMatches(text: string, now: Date): boolean {
+  const day = scheduleDayName(now).toLowerCase();
+  const isWeekday = now.getDay() >= 1 && now.getDay() <= 5;
+  if (/weekdays?|school\s+days?|class\s+days?/.test(text)) return isWeekday;
+  if (/weekends?/.test(text)) return !isWeekday;
+  const namedDays = DAYS.map((item) => item.toLowerCase()).filter((item) => text.includes(item));
+  return namedDays.length === 0 || namedDays.includes(day);
+}
+
+function routinePeriodMatches(text: string, now: Date): boolean {
+  const hour = now.getHours();
+  const checks: Array<[RegExp, boolean]> = [
+    [/late\s*night|after\s+midnight/, hour >= 23 || hour <= 4],
+    [/night|at\s+night/, hour >= 20 || hour <= 4],
+    [/morning/, hour >= 5 && hour <= 11],
+    [/lunch|midday|noon/, hour >= 11 && hour <= 13],
+    [/afternoon/, hour >= 12 && hour <= 17],
+    [/dinner|after\s+dinner|evening/, hour >= 17 && hour <= 22],
+    [/after\s+class|after\s+work|gets?\s+home/, hour >= 16 && hour <= 22],
+  ];
+  return checks.some(([pattern, matches]) => pattern.test(text) && matches);
+}
+
 export function getAvailabilityDecision(
-  schedule: WeekSchedule | null | undefined,
+  profile: ConversationAvailabilityProfile | null | undefined,
   now: Date = new Date(),
   fallbackActivity = "free time",
 ): ConversationAvailabilityDecision {
-  const current = schedule
-    ? getCurrentStatus(schedule, now)
+  const current = profile
+    ? isConversationRoutine(profile)
+      ? getRoutineCurrentStatus(profile, now)
+      : getCurrentStatus(profile, now)
     : { status: "online" as const, activity: fallbackActivity };
+  const source: ConversationAvailabilitySource = profile ? (isConversationRoutine(profile) ? "routine" : "schedule") : "fallback";
   return {
-    source: schedule ? "schedule" : "fallback",
+    source,
     status: current.status,
     activity: current.activity,
     availability: availabilityForStatus(current.status),
@@ -602,7 +934,6 @@ export function getAvailabilityDecision(
     reason: current.activity,
   };
 }
-
 export type ConversationAvailabilityExplanationLabel = "Available" | "Delayed" | "Busy" | "Unavailable";
 
 export interface ConversationAvailabilityExplanation {
@@ -672,7 +1003,7 @@ export function getAvailabilityAutonomousPolicy(
 /**
  * Check if a schedule needs regeneration (older than 7 days from current Monday).
  */
-export function scheduleNeedsRefresh(schedule: WeekSchedule, now: Date = new Date()): boolean {
+export function scheduleNeedsRefresh(schedule: Pick<ConversationAvailabilityProfile, "weekStart">, now: Date = new Date()): boolean {
   const weekStart = new Date(schedule.weekStart);
   const currentMonday = getMonday(now);
   return currentMonday.getTime() > weekStart.getTime();
@@ -850,16 +1181,36 @@ function hasSchedules(value: unknown): value is CharacterSchedules {
   return !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length > 0;
 }
 
+function hasRoutines(value: unknown): value is CharacterRoutines {
+  return !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length > 0;
+}
+
+function normalizeCharacterRoutines(value: unknown): CharacterRoutines {
+  const rawRoutines = parseJsonObject(value);
+  const routines: CharacterRoutines = {};
+  for (const [characterId, rawRoutine] of Object.entries(rawRoutines)) {
+    if (!characterId.trim()) continue;
+    const routine = normalizeConversationRoutine(rawRoutine);
+    if (routine) routines[characterId] = routine;
+  }
+  return routines;
+}
+
 function areConversationSchedulesEnabled(meta: JsonRecord): boolean {
   return typeof meta.conversationSchedulesEnabled === "boolean"
     ? meta.conversationSchedulesEnabled
-    : hasSchedules(meta.characterSchedules);
+    : hasRoutines(meta.characterRoutines) || hasSchedules(meta.characterSchedules);
+}
+
+export function getEnabledConversationRoutines(meta: JsonRecord): CharacterRoutines {
+  return areConversationSchedulesEnabled(meta) && hasRoutines(meta.characterRoutines)
+    ? normalizeCharacterRoutines(meta.characterRoutines)
+    : {};
 }
 
 export function getEnabledConversationSchedules(meta: JsonRecord): CharacterSchedules {
   return areConversationSchedulesEnabled(meta) && hasSchedules(meta.characterSchedules) ? meta.characterSchedules : {};
 }
-
 function createScheduleProvider(
   llm: LlmGateway,
   connectionId: string,
@@ -942,6 +1293,25 @@ async function loadOtherConversationSchedules(
   return schedules;
 }
 
+async function loadOtherConversationRoutines(
+  storage: StorageGateway,
+  currentChatId: string,
+): Promise<Map<string, ConversationRoutine>> {
+  const routines = new Map<string, ConversationRoutine>();
+  const allChats = await storage.list<JsonRecord>("chats");
+  for (const chat of allChats) {
+    if (chat.id === currentChatId || chat.mode !== "conversation") continue;
+    const meta = parseJsonObject(chat.metadata);
+    if (!areConversationSchedulesEnabled(meta)) continue;
+    for (const [characterId, routine] of Object.entries(getEnabledConversationRoutines(meta))) {
+      if (!routines.has(characterId) && routine && !scheduleNeedsRefresh(routine)) {
+        routines.set(characterId, routine);
+      }
+    }
+  }
+  return routines;
+}
+
 function preserveTimingSettings(schedule: WeekSchedule, existing?: WeekSchedule): WeekSchedule {
   if (!existing) return schedule;
   const merged: WeekSchedule = {
@@ -957,22 +1327,40 @@ function preserveTimingSettings(schedule: WeekSchedule, existing?: WeekSchedule)
   return merged;
 }
 
+function preserveRoutineTimingSettings(
+  routine: ConversationRoutine,
+  existing?: Pick<ConversationRoutine | WeekSchedule, "inactivityThresholdMinutes" | "idleResponseDelayMinutes" | "dndResponseDelayMinutes">,
+): ConversationRoutine {
+  if (!existing) return routine;
+  const merged: ConversationRoutine = {
+    ...routine,
+    inactivityThresholdMinutes: existing.inactivityThresholdMinutes,
+  };
+  if (typeof existing.idleResponseDelayMinutes === "number") {
+    merged.idleResponseDelayMinutes = existing.idleResponseDelayMinutes;
+  }
+  if (typeof existing.dndResponseDelayMinutes === "number") {
+    merged.dndResponseDelayMinutes = existing.dndResponseDelayMinutes;
+  }
+  return merged;
+}
+
 async function updateCharacterConversationStatus(
   storage: StorageGateway,
   characterId: string,
-  schedule: WeekSchedule,
+  profile: ConversationAvailabilityProfile,
   loadedCharacter?: JsonRecord,
   loadedCharacterData?: JsonRecord,
 ): Promise<void> {
   const character = loadedCharacter ?? (await storage.get<JsonRecord>("characters", characterId));
   if (!character) return;
   const characterData = loadedCharacterData ?? parseJsonObject(character.data);
-  const current = getCurrentStatus(schedule);
+  const current = isConversationRoutine(profile) ? getRoutineCurrentStatus(profile) : getCurrentStatus(profile);
   const extensions = {
     ...parseJsonObject(characterData.extensions),
     conversationStatus: current.status,
     conversationActivity: current.activity,
-    conversationStatusSource: "schedule",
+    conversationStatusSource: isConversationRoutine(profile) ? "routine" : "schedule",
   };
   await storage.update("characters", characterId, {
     data: {
@@ -982,44 +1370,70 @@ async function updateCharacterConversationStatus(
   });
 }
 
-async function syncGeneratedSchedulesToOtherChats(
+async function syncGeneratedAvailabilityToOtherChats(
   storage: StorageGateway,
   currentChatId: string,
   requestedCharacterIds: string[],
-  results: Record<string, { status: string; schedule?: WeekSchedule }>,
+  results: GenerateConversationSchedulesResult["results"],
+  newRoutines: CharacterRoutines,
   newSchedules: CharacterSchedules,
 ): Promise<void> {
-  const generatedCharacterIds = requestedCharacterIds.filter((id) => results[id]?.status === "generated");
-  if (generatedCharacterIds.length === 0) return;
+  const generatedRoutineIds = requestedCharacterIds.filter((id) => results[id]?.routine && results[id]?.status === "generated");
+  const generatedScheduleIds = requestedCharacterIds.filter((id) => results[id]?.schedule && results[id]?.status === "generated_legacy");
+  if (generatedRoutineIds.length === 0 && generatedScheduleIds.length === 0) return;
 
   const allChats = await storage.list<JsonRecord>("chats");
   for (const chat of allChats) {
     const chatId = stringValue(chat.id);
     if (chatId === currentChatId || chat.mode !== "conversation") continue;
     const chatCharacterIds = parseJsonArray<string>(chat.characterIds);
-    const overlap = generatedCharacterIds.filter((id) => chatCharacterIds.includes(id));
-    if (overlap.length === 0) continue;
+    const routineOverlap = generatedRoutineIds.filter((id) => chatCharacterIds.includes(id));
+    const scheduleOverlap = generatedScheduleIds.filter((id) => chatCharacterIds.includes(id));
+    if (routineOverlap.length === 0 && scheduleOverlap.length === 0) continue;
     const meta = parseJsonObject(chat.metadata);
     if (!areConversationSchedulesEnabled(meta)) continue;
+    const chatRoutines = normalizeCharacterRoutines(meta.characterRoutines);
     const chatSchedules = hasSchedules(meta.characterSchedules) ? { ...meta.characterSchedules } : {};
     let changed = false;
-    for (const characterId of overlap) {
+
+    for (const characterId of routineOverlap) {
+      const routine = newRoutines[characterId];
+      if (!routine) continue;
+      chatRoutines[characterId] = preserveRoutineTimingSettings(routine, chatRoutines[characterId] ?? chatSchedules[characterId]);
+      delete chatSchedules[characterId];
+      changed = true;
+    }
+    for (const characterId of scheduleOverlap) {
       const schedule = newSchedules[characterId];
       if (!schedule) continue;
       chatSchedules[characterId] = preserveTimingSettings(schedule, chatSchedules[characterId]);
       changed = true;
     }
     if (changed) {
-      await storage.patchChatMetadata(chatId, {
+      const nextMeta: JsonRecord = {
         ...meta,
         conversationSchedulesEnabled: true,
-        characterSchedules: chatSchedules,
+        characterRoutines: chatRoutines,
         scheduleWeekStart: getMonday().toISOString(),
-      });
+      };
+      if (Object.keys(chatSchedules).length > 0) nextMeta.characterSchedules = chatSchedules;
+      await storage.patchChatMetadata(chatId, nextMeta);
     }
   }
 }
 
+function buildRoutineContinuityContext(routine: ConversationRoutine): string {
+  const parts = [
+    `Previous fuzzy routine:`,
+    `Sleep: ${routine.sleep || "unknown"}`,
+    routine.busy.length ? `Busy: ${routine.busy.map((item) => `${item.when}: ${item.summary}`).join("; ")}` : "Busy: none noted",
+    routine.freeish.length ? `Free-ish: ${routine.freeish.join("; ")}` : "Free-ish: none noted",
+    `Reply style: ${routine.replyStyle || "unknown"}`,
+    `Check-in style: ${routine.checkInStyle || "unknown"}`,
+    `Social energy: ${routine.socialEnergy.level}${routine.socialEnergy.reason ? `, ${routine.socialEnergy.reason}` : ""}`,
+  ];
+  return parts.join("\n").slice(0, SCHEDULE_CONTINUITY_MAX_CHARS);
+}
 type SummaryEntry = { summary: string; keyDetails: string[] };
 type CharacterMemoryEntry = { from?: string; summary?: string; createdAt?: string };
 

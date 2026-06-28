@@ -1,7 +1,7 @@
 import { ChevronRight, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { cn } from "../../../../../../shared/lib/utils";
-import { normalizeScheduleBlocks, type ScheduleBlock } from "../../lib/chat-settings-metadata";
+import { normalizeScheduleBlocks, type ConversationRoutine, type ScheduleBlock } from "../../lib/chat-settings-metadata";
 import {
   availabilityKeyForStatus,
   availabilityLabelForKey,
@@ -99,7 +99,141 @@ export function SelfiePromptControls({
     </div>
   );
 }
+type CharacterSchedules = Record<
+  string,
+  {
+    weekStart: string;
+    days: Record<string, ScheduleBlock[]>;
+    inactivityThresholdMinutes: number;
+    idleResponseDelayMinutes?: number;
+    dndResponseDelayMinutes?: number;
+    talkativeness: number;
+  }
+>;
+
 export function ScheduleEditor({
+  characterRoutines = {},
+  characterSchedules,
+  chatCharIds,
+  charNameMap,
+  onSave,
+}: {
+  characterRoutines?: Record<string, ConversationRoutine>;
+  characterSchedules: CharacterSchedules;
+  chatCharIds: string[];
+  charNameMap: Map<string, string>;
+  onSave: (updated: CharacterSchedules) => void;
+}) {
+  const charsWithRoutines = chatCharIds.filter((cid) => characterRoutines[cid]);
+  const charsWithSchedules = chatCharIds.filter((cid) => characterSchedules[cid]);
+  if (charsWithRoutines.length === 0 && charsWithSchedules.length === 0) return null;
+
+  return (
+    <div className="mt-2 space-y-2">
+      {charsWithRoutines.length > 0 && (
+        <div className="space-y-2">
+          <div>
+            <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Character Routines</span>
+            <p className="mt-0.5 text-[0.5625rem] leading-relaxed text-[var(--muted-foreground)]/70">
+              De-Koi uses these habits to make soft availability calls without treating the character like a calendar.
+            </p>
+          </div>
+          {charsWithRoutines.map((charId) => {
+            const routine = characterRoutines[charId]!;
+            const name = charNameMap.get(charId) ?? "Unknown";
+            return (
+              <div key={charId} className="rounded-lg bg-[var(--secondary)] px-3 py-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate text-[0.6875rem] font-semibold text-[var(--foreground)]">
+                      {name}
+                    </span>
+                    <span className="mt-0.5 block text-[0.5625rem] text-[var(--muted-foreground)]">
+                      {routine.socialEnergy.level} energy{routine.socialEnergy.reason ? ` - ${routine.socialEnergy.reason}` : ""}
+                    </span>
+                  </div>
+                  <AvailabilityBadge availabilityKey={routineAvailabilityKey(routine)}>
+                    {routineAvailabilityLabel(routine)}
+                  </AvailabilityBadge>
+                </div>
+                <div className="mt-2 grid gap-1.5">
+                  <RoutineSummaryRow label="Sleep" value={routineText(routine.sleep, "No sleep tendency noted yet.")} />
+                  <RoutineSummaryRow label="Busy" value={routineBusySummary(routine)} />
+                  <RoutineSummaryRow label="Free-ish" value={routineListSummary(routine.freeish, "No relaxed window noted yet.")} />
+                  <RoutineSummaryRow label="Reply style" value={routineText(routine.replyStyle, "Varies by mood and context.")} />
+                  <RoutineSummaryRow label="Check-in style" value={routineText(routine.checkInStyle, "No first-message habit noted yet.")} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {charsWithSchedules.length > 0 && (
+        <details className="rounded-lg border border-[var(--border)] bg-[var(--background)]">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]">
+            <SlidersHorizontal size="0.6875rem" />
+            Legacy schedule details
+          </summary>
+          <div className="border-t border-[var(--border)] px-2 pb-2">
+            <LegacyScheduleEditor
+              characterSchedules={characterSchedules}
+              chatCharIds={chatCharIds}
+              charNameMap={charNameMap}
+              onSave={onSave}
+            />
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function routineText(value: string, fallback: string): string {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : fallback;
+}
+
+function routineListSummary(items: string[], fallback: string): string {
+  const cleanItems = items.map((item) => item.trim()).filter(Boolean);
+  return cleanItems.length > 0 ? cleanItems.join("; ") : fallback;
+}
+
+function routineBusySummary(routine: ConversationRoutine): string {
+  if (routine.busy.length === 0) return "No recurring busy period noted yet.";
+  return routine.busy.map((period) => `${period.when}: ${period.summary}`).join("; ");
+}
+
+function routineAvailabilityKey(routine: ConversationRoutine): AvailabilityKey {
+  if (routine.busy.some((period) => period.availability === "unavailable")) return "unavailable";
+  if (routine.busy.some((period) => period.availability === "busy")) return "busy";
+  if (routine.busy.some((period) => period.availability === "delayed")) return "delayed";
+  return routine.freeish.length > 0 || routine.checkInStyle.trim().length > 0 ? "available" : "delayed";
+}
+
+function routineAvailabilityLabel(routine: ConversationRoutine): string {
+  switch (routineAvailabilityKey(routine)) {
+    case "available":
+      return "Flexible";
+    case "delayed":
+      return "Variable";
+    case "busy":
+      return "Often busy";
+    case "unavailable":
+      return "Often away";
+  }
+}
+
+function RoutineSummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1 rounded-md bg-[var(--background)] px-2 py-1.5 sm:grid-cols-[5.5rem_1fr]">
+      <span className="text-[0.5625rem] font-semibold uppercase text-[var(--muted-foreground)]">{label}</span>
+      <span className="text-[0.625rem] leading-relaxed text-[var(--foreground)]">{value}</span>
+    </div>
+  );
+}
+
+function LegacyScheduleEditor({
   characterSchedules,
   chatCharIds,
   charNameMap,
