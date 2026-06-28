@@ -1526,6 +1526,7 @@ fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
         "If search_deki_web fails because the provider did not return usable search results, say that clearly, do not fabricate sources, and ask the user to try again later or provide specific URLs/sources to inspect.".to_string(),
         "When the user asks you to create or update a character, persona, lorebook, prompt preset, or their groups/sections/entries/variables, draft the record in a single hidden action block instead of calling write tools. Append exactly one <deki_action>{JSON}</deki_action> block after your visible explanation. Supported JSON shapes are {\"type\":\"create_record\",\"entity\":\"characters|character-groups|personas|persona-groups|lorebooks|lorebook-entries|prompts|prompt-sections|prompt-groups|prompt-variables\",\"draft\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"}, {\"type\":\"edit_record\",\"entity\":\"...\",\"id\":\"record id\",\"patch\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"}, and {\"type\":\"apply_lorebook_redraft\",\"id\":\"optional existing lorebook id\",\"lorebook\":{...},\"entries\":[{...}],\"label\":\"short label\",\"rationale\":\"why this change helps\"}. Use De-Koi storage shapes: characters need draft.data.name; personas, lorebooks, and prompts need draft.name; apply_lorebook_redraft needs lorebook.name and entries with name/content; lorebook-entries need lorebookId and name; prompt-sections need presetId, identifier, and name; prompt-groups need presetId and name; prompt-variables need presetId, variableName, question, and options. Do not say the change is saved until the user applies the approval card. For lorebook-entry create_record or edit_record approvals, show the entry name, activation keys if present, and full proposed content in your visible answer before the hidden action block; the user should never have to approve an unseen lorebook entry.".to_string(),
         "For full-lorebook creation, overhaul, rewrite, or redraft requests, show the whole lorebook redraft in your visible answer so the user can review the complete structure at once. Prefer apply_lorebook_redraft and one approval card for the whole lorebook-level change; do not make users approve separate lorebook-entries approval actions one entry at a time unless they explicitly ask for entry-by-entry work or only one entry is changing.".to_string(),
+        "For lorebook entry content, default to compact, activation-focused entries of 1-3 short paragraphs or about 100-180 words; split larger lore into multiple focused entries instead of drafting one oversized entry, unless the user explicitly asks for a longer reference-style entry.".to_string(),
         "For prompt preset review, use read_deki_library when needed and give concise findings. If the user asks you to apply the review, emit an edit_record action for prompts, prompt-sections, prompt-groups, or prompt-variables.".to_string(),
         "When drafting character-card fields, SillyTavern examples, or example dialogue, keep Deki-senpai as the assistant outside the artifact only. Deki-senpai, assistant, user, and raw conversation-history labels must never become a speaker name inside generated card content; use the target character name, {{char}}, {{user}}, or the user's requested format instead.".to_string(),
         "You cannot run shell commands, inspect unapproved private chats/messages/memories, access secrets, edit files outside the repository, or perform broad/destructive rewrites. If an edit needs runtime verification, say what should be checked.".to_string(),
@@ -3442,6 +3443,16 @@ mod tests {
         assert!(prompt.contains("example dialogue"));
         assert!(prompt.contains("Deki-senpai"));
         assert!(prompt.contains("must never become a speaker name"));
+    }
+
+    #[test]
+    fn deki_system_prompt_limits_default_lorebook_entry_draft_length() {
+        let prompt = build_system_prompt(None);
+
+        assert!(prompt.contains("lorebook entry content"));
+        assert!(prompt.contains("100-180 words"));
+        assert!(prompt.contains("split larger lore"));
+        assert!(prompt.contains("explicitly asks"));
     }
 
     #[test]
