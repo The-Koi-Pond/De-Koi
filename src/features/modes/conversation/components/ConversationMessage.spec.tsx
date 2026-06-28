@@ -252,6 +252,56 @@ describe("ConversationMessage memo subscriptions", () => {
     );
   });
 
+  it("keeps markdown blocks when fenced examples contain a known speaker prefix", () => {
+    const markdownMessage: Message = {
+      ...message,
+      id: "message-markdown-speaker-prefix-code",
+      content: [
+        "## Example texting style",
+        "",
+        "```text",
+        "Deki-senpai: Michael? Are you actually there?",
+        "Michael: here",
+        "```",
+      ].join("\n"),
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+
+    const dekiCharacterMap = new Map([
+      [
+        "character-1",
+        {
+          name: "Deki-senpai",
+          avatarUrl: null,
+        },
+      ],
+    ]);
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={markdownMessage}
+            characterMap={dekiCharacterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const heading = container!.querySelector<HTMLElement>("h2.mari-md-heading");
+    const code = container!.querySelector<HTMLElement>("pre.mari-md-codeblock code");
+
+    expect(heading?.textContent).toBe("Example texting style");
+    expect(code?.textContent).toContain("Deki-senpai: Michael? Are you actually there?");
+    expect(code?.textContent).toContain("Michael: here");
+  });
 
   it("does not advertise a profile button for an orphaned assistant character ID", () => {
     const onOpenCharacterProfile = vi.fn();
