@@ -28,7 +28,7 @@ function cleanMultiline(value: string | null | undefined): string {
 }
 
 function truncateBio(value: string, maxLength = 280): string {
-  const compact = cleanText(value).replace(/^['\"]|['\"]$/g, "");
+  const compact = cleanText(value).replace(/^['"]|['"]$/g, "");
   if (compact.length <= maxLength) return compact;
   const sliced = compact.slice(0, maxLength - 3);
   const lastSpace = sliced.lastIndexOf(" ");
