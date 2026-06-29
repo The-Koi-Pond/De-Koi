@@ -1,4 +1,4 @@
-﻿{
+{
   "coreClaim": "Manual Illustrator paintbrush retries no longer send raw avatar or sprite reference image payloads in the LLM prompt-writing request, avoiding oversized upstream prompt requests while preserving capped references for image generation.",
   "scope": {
     "inScope": [
@@ -46,7 +46,7 @@
     "actualEnforcement": "buildStandardAgentMessages now returns text messages directly for Illustrator, and the visual reference block says avatar/sprite references are passed directly to the image generator after prompt creation.",
     "primaryOwnerLane": "src/engine",
     "primaryOwnerDetail": "Engine generation and agent executor prompt assembly.",
-    "consumerOnlyLanes": ["src/features/modes/conversation", "src/features/modes/roleplay"],
+    "consumerOnlyLanes": ["src/engine", "src/features"],
     "wrongLaneFixToAvoid": "Do not hide the issue with a UI-only toast guard; the oversized payload must not be sent to the LLM request.",
     "regressionProof": [
       "src/engine/agents-runtime/executor/agent-executor.illustrator.spec.ts fails on main because messages include image payloads, then passes after the fix.",
