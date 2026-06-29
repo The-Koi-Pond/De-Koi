@@ -8,7 +8,7 @@ import { parseGameJsonish } from "../parsing-jsonish.js";
 
 const VALID_KINDS = new Set<ChatSummaryEntryKind>(["rolling"]);
 const VALID_ORIGINS = new Set<ChatSummaryEntryOrigin>(["manual", "automated", "legacy"]);
-const VALID_SOURCES = new Set<ChatSummaryEntrySource>(["last", "range", "agent"]);
+const VALID_SOURCES = new Set<ChatSummaryEntrySource>(["all", "last", "range", "agent"]);
 
 const COMPILED_CHAT_SUMMARY_MAX_BYTES = 64 * 1024;
 

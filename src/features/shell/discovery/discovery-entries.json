@@ -490,10 +490,10 @@
     "id": "chat-memory-summaries",
     "title": "Chat Continuity Overview",
     "category": "Advanced",
-    "summary": "See what a chat can remember at a glance: Memory Recall, saved summaries, active world info, and tracker agents, with shortcuts to the existing editors.",
-    "keywords": ["continuity", "continuity overview", "memory", "summary", "summaries", "recall", "context", "long chat", "remember", "world info", "lorebooks", "trackers", "what will this chat remember"],
+    "summary": "See what a chat can remember at a glance: Memory Recall, saved summaries, full-chat or targeted rolling summary entries, active world info, and tracker agents, with shortcuts to the existing editors.",
+    "keywords": ["continuity", "continuity overview", "memory", "summary", "summaries", "full chat summary", "manual summary", "rolling summary", "range summary", "recall", "context", "long chat", "remember", "world info", "lorebooks", "trackers", "what will this chat remember"],
     "audience": "Users running long conversations, roleplays, or campaigns who want to know what context can carry forward.",
-    "where": "Open a chat > Chat Settings > Continuity, with details in Memory Recall, Automatic Summarization, Lorebooks, and Function Calling.",
+    "where": "Open a chat > Chat Summary for All, Last, and Range generation, or Chat Settings > Continuity for Memory Recall, Automatic Summarization, Lorebooks, and Function Calling.",
     "actions": [{ "type": "go-home", "label": "Open a chat" }],
     "coverage": "advanced"
   }

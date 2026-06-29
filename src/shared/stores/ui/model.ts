@@ -35,7 +35,7 @@ export type UserStatus = "active" | "idle" | "dnd";
 export type RoleplayAvatarStyle = "none" | "circles" | "rectangles" | "panel";
 export type GameDialogueDisplayMode = "classic" | "stacked";
 export type ConversationMessageStyle = "classic" | "bubble";
-export type SummaryPopoverSourceMode = "last" | "range";
+export type SummaryPopoverSourceMode = "all" | "last" | "range";
 export type QuickReplyActionScope = "global" | "mode" | "chat";
 export type QuickReplyModeScope = "conversation" | "roleplay" | "game";
 export const QUICK_REPLY_ICON_IDS = [
@@ -141,7 +141,7 @@ export const DEFAULT_GAME_SETUP_REMEMBERED_TEXT: GameSetupRememberedText = {
   preferences: "",
 };
 export const DEFAULT_SUMMARY_POPOVER_SETTINGS: SummaryPopoverSettings = {
-  sourceMode: "last",
+  sourceMode: "all",
   contextSize: null,
   rangeStart: null,
   rangeEnd: null,
@@ -227,7 +227,7 @@ export function normalizeSummaryPopoverSettings(value: unknown): SummaryPopoverS
   const raw = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
   const numberOrNull = (next: unknown) => (typeof next === "number" && Number.isFinite(next) ? Math.round(next) : null);
   return {
-    sourceMode: raw.sourceMode === "range" ? "range" : "last",
+    sourceMode: raw.sourceMode === "range" ? "range" : raw.sourceMode === "last" ? "last" : "all",
     contextSize: numberOrNull(raw.contextSize),
     rangeStart: numberOrNull(raw.rangeStart),
     rangeEnd: numberOrNull(raw.rangeEnd),

@@ -31,6 +31,20 @@ describe("chat summary entries", () => {
     expect(appended.summary).toBe("A new manually entered summary.");
   });
 
+  it("preserves full-chat source metadata on generated summary entries", () => {
+    const appended = appendChatSummaryEntryToMetadata(
+      {},
+      { content: "A generated full-roleplay summary.", sourceMode: "all", messageCount: 12 },
+    );
+
+    expect(appended.entry).toMatchObject({
+      origin: "manual",
+      sourceMode: "all",
+      messageCount: 12,
+      title: "Summary of 12 messages",
+    });
+  });
+
   it("unwraps model JSON summary responses before storing entry content", () => {
     const appended = appendChatSummaryEntryToMetadata(
       {},

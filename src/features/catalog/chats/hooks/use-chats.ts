@@ -32,6 +32,7 @@ import { visualAssetsApi } from "../../../../shared/api/visual-assets-api";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { getExportErrorMessage } from "../../../shared/lib/export-feedback";
+import { selectChatSummarySourceMessages, type ChatSummarySourceMode } from "../lib/chat-summary-source";
 import {
   chatExportFilename,
   formatChatJsonl,
@@ -906,13 +907,9 @@ function parseRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-function messageHiddenFromAi(message: Message) {
-  const extra = parseRecord(message.extra);
-  return extra.hiddenFromAI === true || extra.hiddenFromAi === true;
-}
-
 export type GenerateSummaryInput = {
   chatId: string;
+  sourceMode?: ChatSummarySourceMode;
   contextSize?: number;
   rangeStartIndex?: number;
   rangeEndIndex?: number;
@@ -956,11 +953,8 @@ async function resolveSummaryConnectionId(chat: Chat): Promise<string> {
 }
 
 async function generateLlmChatSummary(input: GenerateSummaryInput): Promise<GenerateSummaryResult> {
-  const { chatId, contextSize, rangeStartIndex, rangeEndIndex, promptTemplateId } = input;
-  const [chat, allMessages] = await Promise.all([
-    storageApi.get<Chat>("chats", chatId),
-    storageApi.listChatMessages<Message>(chatId),
-  ]);
+  const { chatId, sourceMode, contextSize, rangeStartIndex, rangeEndIndex, promptTemplateId } = input;
+  const chat = await storageApi.get<Chat>("chats", chatId);
   if (!chat) throw new Error("Chat was not found.");
   const storedContextSize = Number((chat.metadata as { summaryContextSize?: unknown } | null)?.summaryContextSize);
   const limit = Math.max(
@@ -968,20 +962,18 @@ async function generateLlmChatSummary(input: GenerateSummaryInput): Promise<Gene
     Math.min(200, Math.trunc(contextSize ?? (Number.isFinite(storedContextSize) ? storedContextSize : 50))),
   );
   const hasRange = Number.isInteger(rangeStartIndex) && Number.isInteger(rangeEndIndex);
-  const rangeLow = hasRange ? Math.max(1, Math.min(rangeStartIndex!, rangeEndIndex!)) : null;
-  const rangeHigh = hasRange ? Math.max(rangeStartIndex!, rangeEndIndex!) : null;
-  if (hasRange) {
-    if (!rangeLow || !rangeHigh || rangeHigh > allMessages.length) {
-      throw new Error("Summary range is outside this chat's message history.");
-    }
-    if (rangeHigh - rangeLow + 1 > 200) {
-      throw new Error("Summary ranges cannot include more than 200 messages.");
-    }
-  }
-  const sourceMessages = hasRange
-    ? allMessages.slice(rangeLow! - 1, rangeHigh ?? undefined)
-    : allMessages.slice(-limit);
-  const selected = sourceMessages.filter((message) => !messageHiddenFromAi(message) && !!message.content?.trim());
+  const requestedSourceMode = sourceMode ?? (hasRange ? "range" : "last");
+  const allMessages = await storageApi.listChatMessages<Message>(
+    chatId,
+    requestedSourceMode === "last" ? { limit } : undefined,
+  );
+  const selection = selectChatSummarySourceMessages(allMessages, {
+    sourceMode: requestedSourceMode,
+    limit,
+    rangeStartIndex,
+    rangeEndIndex,
+  });
+  const selected = selection.messages;
   if (selected.length === 0) throw new Error("No non-hidden messages available for the requested summary.");
 
   const connectionId = await resolveSummaryConnectionId(chat);
@@ -1017,11 +1009,16 @@ async function generateLlmChatSummary(input: GenerateSummaryInput): Promise<Gene
     {
       content,
       origin: "manual",
-      sourceMode: hasRange ? "range" : "last",
-      title: hasRange ? `Summary messages ${rangeLow}-${rangeHigh}` : "Summary of recent messages",
-      messageCount: hasRange ? undefined : selected.length,
-      rangeStartIndex: rangeLow ?? undefined,
-      rangeEndIndex: rangeHigh ?? undefined,
+      sourceMode: selection.sourceMode,
+      title:
+        selection.sourceMode === "all"
+          ? "Summary of full chat"
+          : selection.sourceMode === "range"
+            ? `Summary messages ${selection.rangeStartIndex}-${selection.rangeEndIndex}`
+            : "Summary of recent messages",
+      messageCount: selection.sourceMode === "last" || selection.sourceMode === "all" ? selected.length : undefined,
+      rangeStartIndex: selection.rangeStartIndex,
+      rangeEndIndex: selection.rangeEndIndex,
       messageIds: selected.map((message) => message.id),
       promptTemplateId: promptTemplate.id,
     },
