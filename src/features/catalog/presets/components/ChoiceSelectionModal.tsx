@@ -10,7 +10,8 @@ import { usePresetFull, useUpdatePreset } from "../hooks/use-presets";
 import { useUpdateChatMetadata } from "../../chats/index";
 import { CheckCircle2, Circle, CheckSquare2, Square, Sparkles, ListChecks, Shuffle, Save } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
-import type { ChoiceBlock, ChoiceOption } from "../../../../engine/contracts/types/prompt";
+import type { ChoiceBlock, ChoiceOption, ChoiceVisibilityRule } from "../../../../engine/contracts/types/prompt";
+import { choiceOptionDisplayText, choiceVariableVisible } from "../lib/choice-display";
 import { isRecord, normalizeChoiceSelections, type ChoiceSelections } from "../lib/choice-selections";
 
 interface ChoiceSelectionModalProps {
@@ -29,6 +30,7 @@ interface VariableData {
   options: ChoiceOption[];
   multiSelect: boolean;
   randomPick: boolean;
+  visibilityRule: ChoiceVisibilityRule | null;
 }
 
 function stringField(value: unknown, fallback: string): string {
@@ -76,8 +78,18 @@ function normalizeChoiceOption(value: unknown, index: number): ChoiceOption | nu
   return {
     id: isRecord(value) ? stringField(value.id, `option-${index}-${rawValue}`) : `option-${index}-${rawValue}`,
     label: isRecord(value) ? stringField(value.label, rawValue) : rawValue,
+    description: isRecord(value) ? stringField(value.description, "") || undefined : undefined,
     value: rawValue,
   };
+}
+
+function normalizeVisibilityRule(value: unknown): ChoiceVisibilityRule | null {
+  if (!isRecord(value)) return null;
+  const variableName = stringField(value.variableName, stringField(value.variable_name, ""));
+  const values = Array.isArray(value.values)
+    ? value.values.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  return variableName && values.length > 0 ? { variableName, values } : null;
 }
 
 function choiceSelectionCandidates(selection: ChoiceSelections[string] | undefined): string[] {
@@ -143,6 +155,7 @@ export function ChoiceSelectionModal({
         options,
         multiSelect: boolishChoice(cb.multiSelect) || boolishChoice(legacyField(cb, "multi_select")),
         randomPick: boolishChoice(cb.randomPick) || boolishChoice(legacyField(cb, "random_pick")),
+        visibilityRule: normalizeVisibilityRule(cb.visibilityRule ?? legacyField(cb, "visibility_rule")),
       };
     });
   }, [data?.choiceBlocks]);
@@ -195,8 +208,12 @@ export function ChoiceSelectionModal({
 
   // Merged view: base + user overrides
   const selections = useMemo(() => ({ ...baseSelections, ...overrides }), [baseSelections, overrides]);
+  const visibleVariables = useMemo(
+    () => variables.filter((v) => choiceVariableVisible(v.visibilityRule, selections)),
+    [selections, variables],
+  );
 
-  const allSelected = variables.every((v) => {
+  const allSelected = visibleVariables.every((v) => {
     const sel = selections[v.variableName];
     if (v.multiSelect) return Array.isArray(sel) && sel.length > 0;
     // Single-option variables are boolean toggles — both ON and OFF are valid
@@ -243,7 +260,7 @@ export function ChoiceSelectionModal({
             This preset has configurable variables. Select option(s) for each to customize your experience.
           </p>
 
-          {variables.map((v) => (
+          {visibleVariables.map((v) => (
             <div key={v.id} className="rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-3">
               <h4 className="mb-1 text-xs font-semibold text-[var(--foreground)]">{v.question}</h4>
               <div className="mb-2 flex items-center gap-2">
@@ -295,7 +312,7 @@ export function ChoiceSelectionModal({
                             <span className={cn("text-xs font-medium", isSelected && "text-purple-400")}>
                               {opt.label}
                             </span>
-                            <ChoiceOptionValue value={opt.value} />
+                            <ChoiceOptionValue value={choiceOptionDisplayText(opt)} />
                           </div>
                         </button>
                       );
@@ -320,7 +337,7 @@ export function ChoiceSelectionModal({
                           >
                             <div className="min-w-0 flex-1">
                               <span className={cn("text-xs font-medium", isOn && "text-purple-400")}>{opt.label}</span>
-                              <ChoiceOptionValue value={opt.value} />
+                              <ChoiceOptionValue value={choiceOptionDisplayText(opt)} />
                             </div>
                             <div
                               className={cn(
@@ -359,7 +376,7 @@ export function ChoiceSelectionModal({
                               <span className={cn("text-xs font-medium", isSelected && "text-purple-400")}>
                                 {opt.label}
                               </span>
-                              <ChoiceOptionValue value={opt.value} />
+                              <ChoiceOptionValue value={choiceOptionDisplayText(opt)} />
                             </div>
                           </button>
                         );
