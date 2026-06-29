@@ -91,6 +91,15 @@ You need:
 - Rust stable toolchain
 - Tauri platform prerequisites for your operating system
 
+On CachyOS, Arch, Manjaro, EndeavourOS, and other Arch-family systems, the
+shortest source setup is:
+
+```sh
+sudo pacman -Syu
+sudo pacman -S --needed git nodejs pnpm rustup webkit2gtk-4.1 base-devel curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool
+rustup default stable
+```
+
 Install dependencies:
 
 ```sh
@@ -124,6 +133,31 @@ pnpm tauri build
 The desktop development path is the normal way to try De-Koi locally. The web
 shell is useful for UI work, but Tauri-only capabilities may be unavailable
 without the desktop host.
+
+If the Linux Tauri window opens blank, crashes, or has WebKit/GPU rendering
+trouble, try the desktop command with WebKit's DMA-BUF renderer disabled:
+
+```sh
+WEBKIT_DISABLE_DMABUF_RENDERER=1 pnpm tauri dev
+```
+
+On Wayland systems with stubborn WebKit rendering issues, also try forcing the
+GTK backend to X11 for that run:
+
+```sh
+GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1 pnpm tauri dev
+```
+
+As a browser-only fallback, run the web shell in one terminal, optionally run
+the Rust runtime in another, then open the Vite URL in Firefox:
+
+```sh
+pnpm dev
+cargo run --manifest-path src-tauri/Cargo.toml --bin de-koi-server
+```
+
+The web shell opens at `http://127.0.0.1:1420/`. If the runtime is running, set
+Settings > Advanced > Remote Runtime URL to `http://127.0.0.1:8787`.
 
 Track `main` from a source checkout on Windows:
 
