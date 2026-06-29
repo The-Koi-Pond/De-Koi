@@ -1,0 +1,144 @@
+﻿{
+  "coreClaim": "Manual Illustrator paintbrush retries no longer send raw avatar or sprite reference image payloads in the LLM prompt-writing request, avoiding oversized upstream prompt requests while preserving capped references for image generation.",
+  "scope": {
+    "inScope": [
+      "Illustrator agent LLM prompt request construction",
+      "Manual paintbrush retry prompt generation",
+      "Regression proof for omitted base64 reference images in LLM messages"
+    ],
+    "outOfScope": [
+      "Image provider transport changes",
+      "Rust HTTP body limits",
+      "Gallery persistence schema",
+      "Conversation or roleplay UI redesign"
+    ],
+    "intendedFiles": [
+      "src/engine/agents-runtime/executor/agent-executor.ts",
+      "src/engine/agents-runtime/executor/agent-executor.illustrator.spec.ts",
+      ".github/pr-evidence/paintbrush-413-fix/proof-ledger.json"
+    ],
+    "riskFlags": ["prompt-agent-lorebook", "remote-runtime payload size"]
+  },
+  "claimBoundary": {
+    "coreClaim": "The LLM prompt-writing request for Illustrator contains text context only and does not include base64 avatar or sprite reference images.",
+    "riskType": "prompt-agent remote payload size",
+    "entrypoints": [
+      "Conversation mode paintbrush retry",
+      "Roleplay mode paintbrush retry",
+      "retryGenerationAgents with agentTypes=[illustrator]"
+    ],
+    "currentPathsOrFormats": [
+      "src/engine/agents-runtime/executor/agent-executor.ts buildStandardAgentMessages",
+      "src/engine/generation/start-generation.ts image generation request",
+      "src/engine/generation-core/images/illustration-reference-selection.ts capped image reference selection"
+    ],
+    "legacyPathsOrFormats": [],
+    "outOfScopeClaims": [
+      "No live Pi browser click was captured in this PR because the in-app browser connector failed in the local session.",
+      "This PR does not change the image provider's own reference-image request path, which already has a serialized payload cap."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "The Illustrator prompt-writing LLM request carried raw reference image payloads even though the later image-generation request already owns capped image references.",
+    "producer": "src/engine/agents-runtime/executor/agent-executor.ts",
+    "consumer": "src/engine/generation/agent-runner.ts and src/engine/generation/start-generation.ts",
+    "impliedContract": "The prompt writer should create an image prompt from text context; binary image references are for the image generator request where payload limits are enforced.",
+    "actualEnforcement": "buildStandardAgentMessages now returns text messages directly for Illustrator, and the visual reference block says avatar/sprite references are passed directly to the image generator after prompt creation.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "Engine generation and agent executor prompt assembly.",
+    "consumerOnlyLanes": ["src/features/modes/conversation", "src/features/modes/roleplay"],
+    "wrongLaneFixToAvoid": "Do not hide the issue with a UI-only toast guard; the oversized payload must not be sent to the LLM request.",
+    "regressionProof": [
+      "src/engine/agents-runtime/executor/agent-executor.illustrator.spec.ts fails on main because messages include image payloads, then passes after the fix.",
+      "src/engine/generation/start-generation.retry-agents.spec.ts confirms existing capped image-generation reference behavior remains intact.",
+      "pnpm check passed after the final code diff before PR creation."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Illustrator LLM prompt requests do not carry image payloads.",
+        "evidence": "pnpm vitest run src/engine/agents-runtime/executor/agent-executor.illustrator.spec.ts passed with 1 test after the fix."
+      },
+      {
+        "claim": "The regression test catches the previous bad request shape.",
+        "evidence": "The same focused test failed before the production change because a captured message had images attached."
+      },
+      {
+        "claim": "Image-generation references remain capped and retry behavior still works.",
+        "evidence": "pnpm vitest run src/engine/generation/start-generation.retry-agents.spec.ts passed with 20 tests."
+      },
+      {
+        "claim": "The PR preserves TypeScript and architecture boundaries.",
+        "evidence": "pnpm typecheck and pnpm check:architecture passed."
+      },
+      {
+        "claim": "The repo gate was green before PR creation.",
+        "evidence": "pnpm check passed, including line endings, scratch, architecture, storage contracts, frontend, Rust, docs, discovery, agent workflow, launcher safety, and warning-only unused-code reporting."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Reference images should still be available to the actual image generator when enabled.",
+        "evidence": "Existing start-generation retry tests cover illustrationReferenceImagesForRequest and serialized request byte caps; this PR did not remove that path."
+      },
+      {
+        "claim": "Prompt text should still know which subjects have references.",
+        "evidence": "The visual_references text block keeps ordered subject names and owner types while removing image payload attachment."
+      }
+    ],
+    "legacyDefaultRows": [],
+    "untestedRows": [
+      "No live Pi browser click was captured after the fix because the local in-app browser connector failed before shipping."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Nginx on the Pi did not log HTTP 413 responses around the reported clicks, making an upstream provider payload rejection more likely than the Pi web proxy body limit.",
+      "sourceType": "measured",
+      "evidence": "Live Pi log inspection in the debugging session found zero nginx 413 responses while the app surfaced Remote runtime returned 413."
+    },
+    {
+      "description": "Image-generation reference payloads already have a 16 MiB serialized request cap on main.",
+      "sourceType": "derived",
+      "evidence": "src/engine/generation-core/images/illustration-reference-selection.ts and src/engine/generation/start-generation.ts enforce the image request cap."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Live Pi post-merge browser verification",
+      "blockingCoreClaim": false,
+      "reason": "The code-level request shape is directly covered by the regression test; the Pi needs merged container images before a live click can verify the deployed behavior."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "edgeRowsTested": [
+      "Illustrator context with _illustratorReferenceImages",
+      "Manual paintbrush retry text context",
+      "Existing illustration reference payload filtering"
+    ],
+    "negativeRowsTested": [
+      "Captured LLM messages must not include message.images",
+      "Captured serialized LLM messages must not include the base64 reference image string"
+    ],
+    "afterEvidence": [
+      "pnpm vitest run src/engine/agents-runtime/executor/agent-executor.illustrator.spec.ts",
+      "pnpm vitest run src/engine/generation/start-generation.retry-agents.spec.ts",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "pnpm check"
+    ],
+    "baselineCommand": "pnpm check",
+    "baselinePassed": true
+  },
+  "pr": {
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/695",
+    "evidencePublished": true,
+    "checks": "local pnpm check passed before PR creation; CI pending at ledger creation",
+    "automatedReview": "Bunny pending at ledger creation"
+  },
+  "finalGate": {
+    "coreClaimProven": true
+  }
+}
