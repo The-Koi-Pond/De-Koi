@@ -1026,7 +1026,7 @@ fn deki_response_content_and_action(raw_content: &str) -> AppResult<(String, Val
 }
 
 fn parse_deki_action_json(action_json: &str) -> AppResult<Value> {
-    match serde_json::from_str::<Value>(action_json) {
+    match parse_deki_action_json_candidate(action_json) {
         Ok(parsed) => Ok(parsed),
         Err(initial_error) => {
             let Some((start, end)) = first_json_object_bounds(action_json) else {
@@ -1035,13 +1035,81 @@ fn parse_deki_action_json(action_json: &str) -> AppResult<Value> {
                     format!("Deki-senpai returned malformed action JSON: {initial_error}"),
                 ));
             };
-            serde_json::from_str::<Value>(&action_json[start..end]).map_err(|error| {
+            parse_deki_action_json_candidate(&action_json[start..end]).map_err(|error| {
                 AppError::new(
                     "deki_action_invalid",
                     format!("Deki-senpai returned malformed action JSON: {error}"),
                 )
             })
         }
+    }
+}
+
+fn parse_deki_action_json_candidate(candidate: &str) -> Result<Value, serde_json::Error> {
+    match serde_json::from_str::<Value>(candidate) {
+        Ok(parsed) => Ok(parsed),
+        Err(original_error) => {
+            let Some(repaired) = escape_control_chars_in_json_strings(candidate) else {
+                return Err(original_error);
+            };
+            serde_json::from_str::<Value>(&repaired).map_err(|_| original_error)
+        }
+    }
+}
+
+fn escape_control_chars_in_json_strings(input: &str) -> Option<String> {
+    let mut output = String::with_capacity(input.len());
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut changed = false;
+
+    for character in input.chars() {
+        if in_string {
+            if escaped {
+                output.push(character);
+                escaped = false;
+                continue;
+            }
+            match character {
+                '\\' => {
+                    output.push(character);
+                    escaped = true;
+                }
+                '"' => {
+                    output.push(character);
+                    in_string = false;
+                }
+                '\n' => {
+                    output.push_str("\\n");
+                    changed = true;
+                }
+                '\r' => {
+                    output.push_str("\\r");
+                    changed = true;
+                }
+                '\t' => {
+                    output.push_str("\\t");
+                    changed = true;
+                }
+                control if control.is_control() => {
+                    output.push_str(&format!("\\u{:04x}", control as u32));
+                    changed = true;
+                }
+                _ => output.push(character),
+            }
+            continue;
+        }
+
+        output.push(character);
+        if character == '"' {
+            in_string = true;
+        }
+    }
+
+    if changed {
+        Some(output)
+    } else {
+        None
     }
 }
 
@@ -3806,6 +3874,19 @@ mod tests {
         assert!(!content.contains("deki_action"));
     }
 
+    #[test]
+    fn deki_response_repairs_raw_newlines_inside_action_strings() {
+        let raw = "I drafted Sol for approval.\n\n<deki_action>{\"type\":\"create_record\",\"entity\":\"personas\",\"draft\":{\"name\":\"Sol\",\"description\":\"Line one
+Line two\"},\"label\":\"Create Sol\",\"rationale\":\"Matches the user's brief.\"}</deki_action>";
+
+        let (content, action) = deki_response_content_and_action(raw)
+            .expect("action strings with raw newlines should parse");
+
+        assert_eq!(content, "I drafted Sol for approval.");
+        assert_eq!(action["type"], "create_record");
+        assert_eq!(action["entity"], "personas");
+        assert_eq!(action["draft"]["description"], "Line one\nLine two");
+    }
     #[test]
     fn deki_response_extracts_action_from_fenced_json_block() {
         let raw = r#"Draft ready.
