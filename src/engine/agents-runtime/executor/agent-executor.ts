@@ -1828,18 +1828,6 @@ function illustratorReferenceEntries(context: AgentContext): Array<{ name: strin
     .filter((entry) => entry.name && entry.image);
 }
 
-function attachImagesToLastUserMessage(messages: ChatMessage[], images: string[]): ChatMessage[] {
-  if (images.length === 0) return messages;
-  const next = messages.map((message) => ({ ...message }));
-  for (let index = next.length - 1; index >= 0; index -= 1) {
-    if (next[index]?.role !== "user") continue;
-    const existingImages = Array.isArray(next[index]!.images) ? (next[index]!.images as string[]) : [];
-    next[index] = { ...next[index]!, images: [...existingImages, ...images] };
-    return next;
-  }
-  next.push({ role: "user", content: "", images });
-  return next;
-}
 
 function buildStandardAgentMessages(config: AgentExecConfig, template: string, context: AgentContext): ChatMessage[] {
   // Build the agent's system prompt with <role> + <lore> + <agents> + extras
@@ -1862,12 +1850,7 @@ function buildStandardAgentMessages(config: AgentExecConfig, template: string, c
 
   // Build multi-turn message array for this agent (sliced to its own contextSize)
   const agentContextSize = normalizeAgentContextSize(config.settings.contextSize);
-  const messages = buildAgentMessages(systemParts.join("\n"), context, config.type, agentContextSize);
-  if (config.type !== ILLUSTRATOR_AGENT_TYPE) return messages;
-  return attachImagesToLastUserMessage(
-    messages,
-    illustratorReferenceEntries(context).map((reference) => reference.image),
-  );
+  return buildAgentMessages(systemParts.join("\n"), context, config.type, agentContextSize);
 }
 
 function buildKnowledgeRetrievalAgentMessages(
@@ -2479,7 +2462,7 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
     if (references.length > 0) {
       parts.push(`<visual_references>`);
       parts.push(
-        `Attached reference images are provided to preserve visible identity details such as eye color, hair, face, body proportions, skin tone, scars, markings, and distinctive accessories. They correspond to these subjects in order:`,
+        `Avatar and sprite reference images will be passed directly to the image generator after you return the prompt. Use the character/profile text for prompt wording, and write the prompt to preserve visible identity details for these reference subjects:`,
       );
       for (let index = 0; index < references.length; index += 1) {
         const reference = references[index]!;
