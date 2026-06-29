@@ -16,6 +16,7 @@ import type { CharacterGroup } from "../../../../engine/contracts/types/characte
 import type { Lorebook } from "../../../../engine/contracts/types/lorebook";
 import { CharacterMakerGeneratedPreview } from "./CharacterMakerGeneratedPreview";
 import {
+  buildGeneratedCharacterPublicProfile,
   characterLorebookContent,
   mergeTags,
   nameKeywords,
@@ -121,6 +122,7 @@ export function CharacterMakerModal({ open, onClose }: Props) {
     try {
       const referenceTags = parseTagsInput(referenceTagsInput);
       const savedTags = mergeTags(generated.tags, referenceTags);
+      const publicProfile = buildGeneratedCharacterPublicProfile(generated, finalName, savedTags);
       const characterData = {
         data: {
           name: finalName,
@@ -143,6 +145,7 @@ export function CharacterMakerModal({ open, onClose }: Props) {
             depth_prompt: { prompt: "", depth: 4, role: "system" },
             backstory: generated.backstory ?? "",
             appearance: generated.appearance ?? "",
+            publicProfile,
             marinara: {
               aiCharacterMaker: {
                 referenceTags,

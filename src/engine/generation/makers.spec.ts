@@ -34,6 +34,24 @@ function tokenText(events: MakerEvent[]): string {
 }
 
 describe("generateCharacterMaker", () => {
+  it("requests public profile fields for generated character previews", async () => {
+    const llm = completeLlm("{}");
+
+    await collectEvents(
+      generateCharacterMaker(
+        {
+          llm,
+        },
+        { prompt: "Create Mira", connectionId: "conn-1" },
+      ),
+    );
+
+    const request = (llm.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as LlmRequest | undefined;
+    const systemPrompt = request?.messages.map((message) => message.content).join("\n") ?? "";
+
+    expect(systemPrompt).toContain('"publicProfile"');
+    expect(systemPrompt).toContain('"bio"');
+  });
   it("does not emit leading thinking as streamed token events while still parsing visible JSON", async () => {
     const events = await collectEvents(
       generateCharacterMaker(
