@@ -719,6 +719,44 @@ async function applyCreateDekiAction(
   return result;
 }
 
+type DekiLorebookScopeMode = "all" | "disabled" | "specific";
+
+function normalizeDekiLorebookScope(value: unknown): { mode: DekiLorebookScopeMode; chatIds: string[] } {
+  let raw = value;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    try {
+      raw = trimmed ? JSON.parse(trimmed) : null;
+    } catch {
+      raw = trimmed.toLowerCase();
+    }
+  }
+  const object = asRecord(raw);
+  const rawMode = typeof raw === "string" ? raw : object.mode;
+  const mode: DekiLorebookScopeMode =
+    rawMode === "disabled" || rawMode === "specific" || rawMode === "all" ? rawMode : "all";
+  const chatIds =
+    mode === "specific" && Array.isArray(object.chatIds)
+      ? Array.from(
+          new Set(
+            object.chatIds
+              .filter((id): id is string => typeof id === "string")
+              .map((id) => id.trim())
+              .filter(Boolean),
+          ),
+        )
+      : [];
+  return { mode, chatIds };
+}
+
+function normalizeDekiLorebookPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  if (!("scope" in payload)) return payload;
+  return {
+    ...payload,
+    scope: normalizeDekiLorebookScope(payload.scope),
+  };
+}
+
 function stripRecordId(record: Record<string, unknown>): { id: string | null; payload: Record<string, unknown> } {
   const { id: rawId, ...payload } = record;
   return { id: readTrimmedString(rawId), payload };
@@ -755,7 +793,8 @@ async function applyLorebookRedraftAction(
   action: Extract<DekiEntryAction, { type: "apply_lorebook_redraft" }>,
   actionId: string | undefined,
 ): Promise<{ lorebook: unknown; entries: unknown[] }> {
-  const { id: lorebookPayloadId, payload: lorebookPayload } = stripRecordId(action.lorebook);
+  const { id: lorebookPayloadId, payload: rawLorebookPayload } = stripRecordId(action.lorebook);
+  const lorebookPayload = normalizeDekiLorebookPayload(rawLorebookPayload);
   const requestedLorebookId = readTrimmedString(action.id) ?? lorebookPayloadId;
   const generatedLorebookId = createActionRecordId("lorebooks", actionId);
   const lorebook = requestedLorebookId
