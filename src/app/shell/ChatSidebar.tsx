@@ -1079,9 +1079,8 @@ export function ChatSidebar({
                   <MessageSquare size="0.8125rem" />
                   {hasUnread && (
                     <span
+                      aria-hidden="true"
                       className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-sky-400 ring-2 ring-[var(--background)]"
-                      title="New Deki message"
-                      aria-label="New Deki message"
                     />
                   )}
                 </div>
