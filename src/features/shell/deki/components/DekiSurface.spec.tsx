@@ -648,6 +648,8 @@ describe("DekiSurface message retry actions", () => {
       await Promise.resolve();
     });
 
+    expect(container!.textContent).toContain("Approved");
+    expect(container!.textContent).not.toContain("Handled");
     expect(dekiApi.history.markActionApplied).toHaveBeenCalledWith(
       webResearchMessage.id,
       expect.objectContaining({

@@ -1450,6 +1450,8 @@ function DekiActionCard({
 }) {
   const action = message?.action;
   const applied = message?.actionApplication?.status === "applied";
+  const webResearchStatusLabel =
+    applied && message?.actionApplication?.resultId === "web-research-declined" ? "Declined" : "Approved";
   const actionPreviewKey = dekiActionPreviewKey(message?.id, action);
   const [currentRecordState, setCurrentRecordState] = useState<DekiActionCurrentRecordState>({
     status: "idle",
@@ -1507,6 +1509,7 @@ function DekiActionCard({
         message={message}
         action={action}
         handled={applied}
+        statusLabel={webResearchStatusLabel}
         applying={applying}
         error={error}
         rows={rows}
@@ -1636,6 +1639,7 @@ function DekiWebResearchCard({
   message,
   action,
   handled,
+  statusLabel,
   applying,
   error,
   rows,
@@ -1644,6 +1648,7 @@ function DekiWebResearchCard({
   message: DekiMessage;
   action: Extract<DekiEntryAction, { type: "request_web_research" }>;
   handled: boolean;
+  statusLabel: string;
   applying: boolean;
   error?: string;
   rows: Array<{ label: string; value: string }>;
@@ -1664,7 +1669,7 @@ function DekiWebResearchCard({
         {handled && (
           <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-lg bg-emerald-500/10 px-2 font-semibold text-emerald-500">
             <Check size="0.75rem" />
-            Handled
+            {statusLabel}
           </span>
         )}
       </div>
