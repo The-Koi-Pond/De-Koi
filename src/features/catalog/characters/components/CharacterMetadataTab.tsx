@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { Maximize2, Tag, X } from "lucide-react";
+import { AlertCircle, Loader2, Maximize2, Tag, Wand2, X } from "lucide-react";
 
 import type { CharacterData, CharacterPublicProfile } from "../../../../engine/contracts/types/character";
+import { generateCharacterPublicProfileBio } from "../../../../engine/generation/public-profile";
 import { AvatarCropWidget } from "../../../../shared/components/ui/AvatarCropWidget";
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
+import { llmApi } from "../../../../shared/api/llm-api";
 import type { AvatarCrop } from "../../../../shared/lib/utils";
 import { CharacterEditorSectionHeader as SectionHeader } from "./CharacterEditorSectionHeader";
 import { CharacterVersionHistoryPanel } from "./CharacterVersionHistoryPanel";
+import { useConnections } from "../../connections/index";
 
 function readPublicProfile(value: unknown): CharacterPublicProfile {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as CharacterPublicProfile) : {};
@@ -53,13 +56,41 @@ export function CharacterMetadataTab({
   avatarPreview: string | null;
 }) {
   const [expandedCreatorNotes, setExpandedCreatorNotes] = useState(false);
+  const [generatingPublicBio, setGeneratingPublicBio] = useState(false);
+  const [publicBioError, setPublicBioError] = useState<string | null>(null);
+  const [publicBioConnectionId, setPublicBioConnectionId] = useState("");
+  const { data: rawConnections } = useConnections();
   const creatorNotesId = "character-creator-notes";
   // Read the saved source-rectangle crop and write the same current shape on edit.
   const savedCrop = (formData.extensions.avatarCrop as AvatarCrop | undefined) ?? null;
   const talkativeness = typeof formData.extensions.talkativeness === "number" ? formData.extensions.talkativeness : 0.5;
   const publicProfile = readPublicProfile(formData.extensions.publicProfile);
+  const connections = rawConnections ?? [];
+  const selectedPublicBioConnectionId = publicBioConnectionId || connections[0]?.id || "";
   const updatePublicProfile = (patch: CharacterPublicProfile) =>
     updateExtension("publicProfile", { ...publicProfile, ...patch });
+
+  const handleGeneratePublicBio = async () => {
+    if (!selectedPublicBioConnectionId || generatingPublicBio) return;
+    setGeneratingPublicBio(true);
+    setPublicBioError(null);
+    try {
+      const bio = await generateCharacterPublicProfileBio(
+        { llm: llmApi },
+        {
+          connectionId: selectedPublicBioConnectionId,
+          character: formData,
+          comment: characterComment,
+          existingProfile: publicProfile,
+        },
+      );
+      updatePublicProfile({ bio });
+    } catch (error) {
+      setPublicBioError(error instanceof Error ? error.message : "Profile bio generation failed.");
+    } finally {
+      setGeneratingPublicBio(false);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -186,7 +217,35 @@ export function CharacterMetadataTab({
       </div>
 
       <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/35 p-4">
-        <SectionHeader title="Public Profile" subtitle="Outward-facing identity used by quick inspect cards." />
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <SectionHeader title="Public Profile" subtitle="Outward-facing identity used by quick inspect cards." />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {connections.length > 1 && (
+              <select
+                value={selectedPublicBioConnectionId}
+                onChange={(event) => setPublicBioConnectionId(event.target.value)}
+                className="max-w-44 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs outline-none focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+                aria-label="Profile bio model connection"
+              >
+                {connections.map((connection) => (
+                  <option key={connection.id} value={connection.id}>
+                    {connection.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              type="button"
+              onClick={handleGeneratePublicBio}
+              disabled={generatingPublicBio || !selectedPublicBioConnectionId}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+              title={selectedPublicBioConnectionId ? "Generate public bio" : "Add a model connection to generate a bio"}
+            >
+              {generatingPublicBio ? <Loader2 size="0.75rem" className="animate-spin" /> : <Wand2 size="0.75rem" />}
+              Generate bio
+            </button>
+          </div>
+        </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1.5">
             <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
@@ -224,6 +283,12 @@ export function CharacterMetadataTab({
             placeholder="A short outward-facing intro..."
           />
         </label>
+        {publicBioError && (
+          <p className="flex items-start gap-1.5 rounded-lg border border-[var(--destructive)]/25 bg-[var(--destructive)]/5 px-2.5 py-2 text-xs text-[var(--destructive)]">
+            <AlertCircle size="0.75rem" className="mt-0.5 shrink-0" />
+            {publicBioError}
+          </p>
+        )}
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1.5">
             <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">

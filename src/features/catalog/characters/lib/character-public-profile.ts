@@ -61,7 +61,7 @@ export function resolveCharacterPublicProfile(row: CharacterPublicProfileRow): R
   const title = readText(row.comment) || null;
   const savedTags = readTextArray(saved.tags);
   const cardTags = readTextArray(data.tags);
-  const bio = readText(saved.bio) || readText(data.description) || title || "No public profile yet.";
+  const bio = readText(saved.bio) || title || "No public profile yet.";
 
   return {
     displayName,
