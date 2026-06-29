@@ -1518,6 +1518,10 @@ fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
         "For questions about De-Koi internals, architecture, UI behavior, agent behavior, storage, imports, providers, or bugs, search the codebase before answering. Prefer AGENTS.md and the relevant owner files over memory. Never cite package-era paths unless search/read tools confirm they exist in the current repository.".to_string(),
         "You can create user extensions with create_deki_extension and custom agent configurations with create_deki_custom_agent. Prefer those record-creation tools when the user asks for an extension or agent.".to_string(),
         "You can inspect the creative library through read_deki_library when the user asks about their characters, personas, lorebooks, prompt presets, or groups. read_deki_library returns only an overview. Use read_deki_library_items with exact ids when you need full selected records. Do not request full item details until the overview identifies likely relevant records.".to_string(),
+        "Treat requests to look at, review, improve, polish, update, or sanity-check characters, personas, lorebooks, lorebook entries, prompt presets, or groups as a creative-library quality audit even when the user does not explicitly ask for one. Use read_deki_library and then read_deki_library_items when current stored fields, linked entries, or neighboring records matter.".to_string(),
+        "For character cards and personas, proactively estimate whole-card length and flag anything over the recommended ~3,200 estimated tokens. Warn when an otherwise helpful addition would make a card too long, and prefer tighter, more specific wording over expansion unless the user explicitly chooses the length tradeoff.".to_string(),
+        "During creative-library quality audits, check for shallow characterization, overly tropey or generic archetype behavior, repetition, vague traits without behavior, duplicate facts across fields, and lorebook entries that are too broad to activate cleanly. If a character feels shallow or generic, deepen it with concrete motives, contradictions, habits, memories, relationships, sensory details, and situation-specific behaviors.".to_string(),
+        "Before emitting a create_record, edit_record, or apply_lorebook_redraft action, self-review the proposed additions for length, repetition, specificity, and whether they would push the card over the recommended length. If source-backed canon, fandom/wiki/game-source details, or outside context would provide gold nuggets that remove shallow behavior, request web research instead of guessing.".to_string(),
         "You can inspect chats and messages only after the user grants scoped read access. If the task needs prior chat, roleplay, or game conversation context and no approved grant is available, explain the needed scope and append exactly one hidden <deki_action>{JSON}</deki_action> block with {\"type\":\"request_chat_access\",\"scope\":{\"type\":\"specific_chats\",\"chatIds\":[\"...\"]}|{\"type\":\"character\",\"characterId\":\"optional\",\"characterName\":\"known character name\"}|{\"type\":\"mode\",\"modes\":[\"conversation\"|\"roleplay\"|\"game\"]},\"window\":{\"messageCount\":50},\"label\":\"short label\",\"rationale\":\"why this chat context is needed\"}. Prefer the narrowest scope; for a named character, characterName is acceptable even if you do not know the id. After a grant exists, the backend injects a bounded approved chat context snapshot into the prompt; use that evidence before drafting. Use chat tools only if the snapshot is missing a clearly necessary bounded window. Never claim to have read chats unless the approved snapshot or chat tools returned data.".to_string(),
         "When the user asks for suggestions, edits, summaries, examples, or character/persona/prompt changes that would materially benefit from their prior chats or roleplay interactions, proactively request scoped chat access before giving evidence-based changes. Do not say you can do it without reading conversations when the request depends on how the user and a character interacted.".to_string(),
         "You may search the public web only after the user approves a web-research action card. When the task would benefit from current external facts, fandom/wiki/game-source details, canon checks, source-backed accuracy, real-world product or rules information, or verification that a character/persona/card matches source material, proactively request web research. Ask first by appending exactly one <deki_action>{JSON}</deki_action> block with {\"type\":\"request_web_research\",\"scope\":{\"type\":\"query\",\"query\":\"precise search query\",\"allowedDomains\":[\"optional.example\"]},\"reason\":\"why web research is needed\",\"sources\":[\"expected source names\"],\"label\":\"short label\"}. Do not call search_deki_web unless the latest task prompt lists an approved grant for that exact query.".to_string(),
@@ -3462,6 +3466,31 @@ mod tests {
         assert!(prompt.contains("100-180 words"));
         assert!(prompt.contains("split larger lore"));
         assert!(prompt.contains("explicitly asks"));
+    }
+
+    #[test]
+    fn deki_system_prompt_requires_creative_library_quality_audits() {
+        let prompt = build_system_prompt(None);
+
+        assert!(prompt.contains("creative-library quality audit"));
+        assert!(prompt.contains("read_deki_library"));
+        assert!(prompt.contains("~3,200 estimated tokens"));
+        assert!(prompt.contains("shallow characterization"));
+        assert!(prompt.contains("generic archetype"));
+        assert!(prompt.contains("repetition"));
+    }
+
+    #[test]
+    fn deki_system_prompt_requires_self_review_and_source_backed_depth() {
+        let prompt = build_system_prompt(None);
+
+        assert!(prompt.contains(
+            "Before emitting a create_record, edit_record, or apply_lorebook_redraft action"
+        ));
+        assert!(prompt.contains("self-review the proposed additions"));
+        assert!(prompt.contains("would push the card over"));
+        assert!(prompt.contains("request web research"));
+        assert!(prompt.contains("gold nuggets"));
     }
 
     #[test]
