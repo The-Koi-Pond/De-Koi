@@ -1164,9 +1164,9 @@ fn marinara_preset_imports_universal_v2_artifact() {
         .filter(|variable| variable.get("presetId").and_then(Value::as_str) == Some(preset_id))
         .collect::<Vec<_>>();
 
-    assert_eq!(sections.len(), 13);
+    assert_eq!(sections.len(), 14);
     assert_eq!(groups.len(), 1);
-    assert_eq!(variables.len(), 10);
+    assert_eq!(variables.len(), 11);
 
     let marker_types = sections
         .iter()
@@ -1204,6 +1204,7 @@ fn marinara_preset_imports_universal_v2_artifact() {
         "tense",
         "length",
         "language",
+        "eroticTone",
     ] {
         assert!(
             variables.iter().any(
