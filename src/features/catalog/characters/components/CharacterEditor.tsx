@@ -25,11 +25,8 @@ import {
   normalizeCharacterEditorData,
 } from "../lib/character-editor-model";
 import { estimateCharacterCardTokens } from "../lib/character-token-count";
-import {
-  CARD_TOKEN_RECOMMENDED_LIMIT,
-  formatEstimatedTokens,
-  isCardTokenEstimateOverRecommendation,
-} from "../../lib/card-token-recommendation";
+import { getCardLengthToastActions } from "../../lib/card-token-recommendation";
+
 import { CharacterEditorDialogs } from "./CharacterEditorDialogs";
 import { CharacterEditorHeader } from "./CharacterEditorHeader";
 import { CharacterEditorTabContent } from "./CharacterEditorTabContent";
@@ -162,26 +159,40 @@ export function CharacterEditor() {
   }, [rawCharacter, setAvatarPreview, setDirtyState]);
 
   useEffect(() => {
-    if (!characterId || !formData) {
-      cardLengthWarningCharacterIdRef.current = null;
-      return;
-    }
+    const actions = getCardLengthToastActions({
+      cardKind: "character",
+      cardId: characterId,
+      tokenEstimate: formData ? estimateCharacterCardTokens(formData) : null,
+      previousToastId: cardLengthWarningCharacterIdRef.current,
+    });
 
-    const tokenEstimate = estimateCharacterCardTokens(formData);
-    if (!isCardTokenEstimateOverRecommendation(tokenEstimate)) {
-      if (cardLengthWarningCharacterIdRef.current === characterId) {
+    for (const action of actions) {
+      if (action.action === "dismiss") {
+        toast.dismiss(action.toastId);
+        if (cardLengthWarningCharacterIdRef.current === action.toastId) {
+          cardLengthWarningCharacterIdRef.current = null;
+        }
+        continue;
+      }
+
+      toast.warning(action.title, {
+        id: action.toastId,
+        description: action.description,
+        duration: action.duration,
+        closeButton: action.closeButton,
+      });
+      cardLengthWarningCharacterIdRef.current = action.toastId;
+    }
+  }, [characterId, formData]);
+
+  useEffect(() => {
+    return () => {
+      if (cardLengthWarningCharacterIdRef.current) {
+        toast.dismiss(cardLengthWarningCharacterIdRef.current);
         cardLengthWarningCharacterIdRef.current = null;
       }
-      return;
-    }
-
-    if (cardLengthWarningCharacterIdRef.current === characterId) return;
-    cardLengthWarningCharacterIdRef.current = characterId;
-    toast.warning("Character card is longer than recommended.", {
-      id: `character-card-length-${characterId}`,
-      description: `${formatEstimatedTokens(tokenEstimate)} used. Recommendation: ${formatEstimatedTokens(CARD_TOKEN_RECOMMENDED_LIMIT)}. It will still save.`,
-    });
-  }, [characterId, formData]);
+    };
+  }, []);
 
   const handleSave = async () => {
     if (!characterId || !formData) return false;
