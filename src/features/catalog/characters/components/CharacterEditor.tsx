@@ -24,6 +24,12 @@ import {
   formatCharacterEditorField,
   normalizeCharacterEditorData,
 } from "../lib/character-editor-model";
+import { estimateCharacterCardTokens } from "../lib/character-token-count";
+import {
+  CARD_TOKEN_RECOMMENDED_LIMIT,
+  formatEstimatedTokens,
+  isCardTokenEstimateOverRecommendation,
+} from "../../lib/card-token-recommendation";
 import { CharacterEditorDialogs } from "./CharacterEditorDialogs";
 import { CharacterEditorHeader } from "./CharacterEditorHeader";
 import { CharacterEditorTabContent } from "./CharacterEditorTabContent";
@@ -66,6 +72,7 @@ export function CharacterEditor() {
   const [characterComment, setCharacterComment] = useState("");
   const [dirty, setDirty] = useState(false);
   const loadedCharacterIdRef = useRef<string | null>(null);
+  const cardLengthWarningCharacterIdRef = useRef<string | null>(null);
   const dirtyRef = useRef(false);
   const editRevisionRef = useRef(0);
   const setEditorDirty = useUIStore((s) => s.setEditorDirty);
@@ -153,6 +160,28 @@ export function CharacterEditor() {
     setAvatarPreview(char.avatarPath);
     setDirtyState(false);
   }, [rawCharacter, setAvatarPreview, setDirtyState]);
+
+  useEffect(() => {
+    if (!characterId || !formData) {
+      cardLengthWarningCharacterIdRef.current = null;
+      return;
+    }
+
+    const tokenEstimate = estimateCharacterCardTokens(formData);
+    if (!isCardTokenEstimateOverRecommendation(tokenEstimate)) {
+      if (cardLengthWarningCharacterIdRef.current === characterId) {
+        cardLengthWarningCharacterIdRef.current = null;
+      }
+      return;
+    }
+
+    if (cardLengthWarningCharacterIdRef.current === characterId) return;
+    cardLengthWarningCharacterIdRef.current = characterId;
+    toast.warning("Character card is longer than recommended.", {
+      id: `character-card-length-${characterId}`,
+      description: `${formatEstimatedTokens(tokenEstimate)} used. Recommendation: ${formatEstimatedTokens(CARD_TOKEN_RECOMMENDED_LIMIT)}. It will still save.`,
+    });
+  }, [characterId, formData]);
 
   const handleSave = async () => {
     if (!characterId || !formData) return false;

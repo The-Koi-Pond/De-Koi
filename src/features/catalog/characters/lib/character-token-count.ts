@@ -4,8 +4,9 @@ import type {
   CharacterData,
   DepthPrompt,
 } from "../../../../engine/contracts/types/character";
+import { estimateTextTokens } from "../../lib/card-token-recommendation";
 
-const CHARS_PER_TOKEN = 4;
+export { formatEstimatedTokens } from "../../lib/card-token-recommendation";
 
 export type CharacterTokenData = Partial<
   Omit<CharacterData, "alternate_greetings" | "character_book" | "extensions">
@@ -27,9 +28,6 @@ const CARD_TEXT_FIELDS: Array<keyof CharacterData> = [
   "post_history_instructions",
 ];
 
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / CHARS_PER_TOKEN);
-}
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -91,9 +89,5 @@ export function estimateCharacterCardTokens(data: CharacterTokenData | null | un
 
   collectCharacterBook(data.character_book, textParts);
 
-  return estimateTokens(textParts.join("\n"));
-}
-
-export function formatEstimatedTokens(tokens: number): string {
-  return `~${tokens.toLocaleString()} tokens`;
+  return estimateTextTokens(textParts.join("\n"));
 }

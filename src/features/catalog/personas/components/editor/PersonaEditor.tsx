@@ -47,6 +47,12 @@ import {
   type PersonaFormData,
   type PersonaRow,
 } from "../../lib/persona-editor-model";
+import { estimatePersonaCardTokens } from "../../lib/persona-token-count";
+import {
+  CARD_TOKEN_RECOMMENDED_LIMIT,
+  formatEstimatedTokens,
+  isCardTokenEstimateOverRecommendation,
+} from "../../../lib/card-token-recommendation";
 import { PersonaColorsTab } from "./PersonaColorsTab";
 import { PersonaDescriptionTab } from "./PersonaDescriptionTab";
 import { PersonaGalleryTab } from "./PersonaGalleryTab";
@@ -100,6 +106,7 @@ export function PersonaEditor() {
   const [avatarGeneratorOpen, setAvatarGeneratorOpen] = useState(false);
   const loadedPersonaIdRef = useRef<string | null>(null);
   const latestAvatarUploadTokenRef = useRef<string | null>(null);
+  const cardLengthWarningPersonaIdRef = useRef<string | null>(null);
   const setEditorDirty = useUIStore((s) => s.setEditorDirty);
   useEffect(() => {
     setEditorDirty(dirty);
@@ -125,6 +132,28 @@ export function PersonaEditor() {
     setAvatarPreview(persona.avatarPath);
     setDirty(false);
   }, [persona, dirty]);
+
+  useEffect(() => {
+    if (!personaId || !formData) {
+      cardLengthWarningPersonaIdRef.current = null;
+      return;
+    }
+
+    const tokenEstimate = estimatePersonaCardTokens(formData);
+    if (!isCardTokenEstimateOverRecommendation(tokenEstimate)) {
+      if (cardLengthWarningPersonaIdRef.current === personaId) {
+        cardLengthWarningPersonaIdRef.current = null;
+      }
+      return;
+    }
+
+    if (cardLengthWarningPersonaIdRef.current === personaId) return;
+    cardLengthWarningPersonaIdRef.current = personaId;
+    toast.warning("Persona card is longer than recommended.", {
+      id: `persona-card-length-${personaId}`,
+      description: `${formatEstimatedTokens(tokenEstimate)} used. Recommendation: ${formatEstimatedTokens(CARD_TOKEN_RECOMMENDED_LIMIT)}. It will still save.`,
+    });
+  }, [formData, personaId]);
 
   const updateField = useCallback(<K extends keyof PersonaFormData>(key: K, value: PersonaFormData[K]) => {
     setFormData((prev) => (prev ? { ...prev, [key]: value } : prev));
