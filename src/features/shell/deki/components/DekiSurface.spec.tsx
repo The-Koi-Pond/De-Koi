@@ -935,4 +935,40 @@ describe("DekiSurface concurrent sessions", () => {
     expect(container!.textContent).toContain("Reply to Second question");
     expect(container!.textContent).not.toContain("Reply to First question");
   });
+  it("notifies when an assistant reply is persisted", async () => {
+    const onAssistantMessagePersisted = vi.fn();
+    vi.mocked(runDekiEntry).mockResolvedValue({
+      content: "Reply with a sidebar ping",
+      createdAt: "2026-06-28T12:00:10.000Z",
+      action: {
+        type: "none",
+        capability: "workspace_agent",
+        reason: "Test response.",
+      },
+    });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <DekiSurface sessionId="session-1" onAssistantMessagePersisted={onAssistantMessagePersisted} />
+        </QueryClientProvider>,
+      );
+    });
+    await tick();
+
+    await setInputValue("Ping the sidebar");
+    await act(async () => {
+      sendButton().click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onAssistantMessagePersisted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: "assistant",
+        content: "Reply with a sidebar ping",
+      }),
+    );
+  });
 });

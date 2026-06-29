@@ -263,6 +263,7 @@ export function AppShell() {
   const [dekiOpen, setDekiOpen] = useState(false);
   const [dekiSessions, setDekiSessions] = useState<DekiSession[]>([]);
   const [activeDekiSessionId, setActiveDekiSessionId] = useState<string | null>(null);
+  const [unreadDekiSessionIds, setUnreadDekiSessionIds] = useState<ReadonlySet<string>>(() => new Set());
   const chatNotificationCount = useChatStore((s) => s.chatNotifications.size);
   const [notificationBubblesMounted, setNotificationBubblesMounted] = useState(false);
   const debugMode = useUIStore((s) => s.debugMode);
@@ -444,6 +445,33 @@ export function AppShell() {
     syncDekiSessionState(state);
   }, [syncDekiSessionState]);
 
+  const markDekiSessionRead = useCallback((sessionId: string | null) => {
+    if (!sessionId) return;
+    setUnreadDekiSessionIds((current) => {
+      if (!current.has(sessionId)) return current;
+      const next = new Set(current);
+      next.delete(sessionId);
+      return next;
+    });
+  }, []);
+
+  const handleDekiAssistantMessage = useCallback(
+    (sessionId: string | null) => {
+      if (!sessionId || (dekiOpen && activeDekiSessionId === sessionId)) return;
+      setUnreadDekiSessionIds((current) => {
+        if (current.has(sessionId)) return current;
+        const next = new Set(current);
+        next.add(sessionId);
+        return next;
+      });
+    },
+    [activeDekiSessionId, dekiOpen],
+  );
+
+  useEffect(() => {
+    if (dekiOpen) markDekiSessionRead(activeDekiSessionId);
+  }, [activeDekiSessionId, dekiOpen, markDekiSessionRead]);
+
   useEffect(() => {
     let active = true;
     void dekiApi.sessions
@@ -473,13 +501,14 @@ export function AppShell() {
       try {
         const state = await dekiApi.sessions.select(sessionId);
         syncDekiSessionState(state);
+        markDekiSessionRead(sessionId);
         openDekiShell();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Deki-senpai chat could not be opened.";
         toast.error(message);
       }
     },
-    [openDekiShell, syncDekiSessionState],
+    [markDekiSessionRead, openDekiShell, syncDekiSessionState],
   );
 
   const createDekiSession = useCallback(async () => {
@@ -498,19 +527,21 @@ export function AppShell() {
       try {
         const state = await dekiApi.sessions.delete(sessionId);
         syncDekiSessionState(state);
+        markDekiSessionRead(sessionId);
         if (dekiOpen) setDekiOpen(true);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Deki-senpai chat could not be deleted.";
         toast.error(message);
       }
     },
-    [dekiOpen, syncDekiSessionState],
+    [dekiOpen, markDekiSessionRead, syncDekiSessionState],
   );
 
   const openActiveDeki = useCallback(() => {
     openDekiShell();
+    markDekiSessionRead(activeDekiSessionId);
     if (!activeDekiSessionId) void refreshDekiSessions();
-  }, [activeDekiSessionId, openDekiShell, refreshDekiSessions]);
+  }, [activeDekiSessionId, markDekiSessionRead, openDekiShell, refreshDekiSessions]);
 
   const openNoModelShowcase = useCallback(() => {
     void ensureNoModelGameShowcase()
@@ -1228,6 +1259,7 @@ export function AppShell() {
                 onActiveTabChange={setActiveChatSidebarTab}
                 dekiSessions={dekiSessions}
                 activeDekiSessionId={activeDekiSessionId}
+                unreadDekiSessionIds={unreadDekiSessionIds}
                 dekiOpen={dekiOpen}
                 onOpenDekiSession={(sessionId) => void openDekiSession(sessionId)}
                 onCreateDekiSession={() => void createDekiSession()}
@@ -1288,6 +1320,7 @@ export function AppShell() {
                   sessionId={activeDekiSessionId}
                   onCreateSession={createDekiSession}
                   onSessionsChanged={refreshDekiSessions}
+                  onAssistantMessagePersisted={() => handleDekiAssistantMessage(activeDekiSessionId)}
                 />
               </MountOnceWhenOpened>
               <div

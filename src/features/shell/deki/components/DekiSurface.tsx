@@ -503,9 +503,15 @@ type DekiSurfaceProps = {
   sessionId: string | null;
   onCreateSession?: () => void | Promise<void>;
   onSessionsChanged?: () => void | Promise<void>;
+  onAssistantMessagePersisted?: (assistant: DekiMessage) => void;
 };
 
-export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: DekiSurfaceProps) {
+export function DekiSurface({
+  sessionId,
+  onCreateSession,
+  onSessionsChanged,
+  onAssistantMessagePersisted,
+}: DekiSurfaceProps) {
   const queryClient = useQueryClient();
   const { data: rawConnections } = useConnections();
   const { data: rawPersonas } = usePersonaSummaries();
@@ -861,9 +867,10 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
         onCompactionSaved: (nextCompaction) => {
           if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
         },
-        onAssistantMessagePersisted: (_assistant, messagesWithAssistant) => {
+        onAssistantMessagePersisted: (assistant, messagesWithAssistant) => {
           if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
           void onSessionsChanged?.();
+          onAssistantMessagePersisted?.(assistant);
         },
       });
     } catch (error) {
@@ -959,9 +966,10 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
         onCompactionSaved: (nextCompaction) => {
           if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
         },
-        onAssistantMessagePersisted: (_assistant, messagesWithAssistant) => {
+        onAssistantMessagePersisted: (assistant, messagesWithAssistant) => {
           if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
           void onSessionsChanged?.();
+          onAssistantMessagePersisted?.(assistant);
         },
       });
     } catch (error) {
@@ -1046,9 +1054,10 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
           onCompactionSaved: (nextCompaction) => {
             if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
           },
-          onAssistantMessagePersisted: (_assistant, messagesWithAssistant) => {
+          onAssistantMessagePersisted: (assistant, messagesWithAssistant) => {
             if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
             void onSessionsChanged?.();
+            onAssistantMessagePersisted?.(assistant);
           },
         });
         return;
@@ -1109,9 +1118,10 @@ export function DekiSurface({ sessionId, onCreateSession, onSessionsChanged }: D
           onCompactionSaved: (nextCompaction) => {
             if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
           },
-          onAssistantMessagePersisted: (_assistant, messagesWithAssistant) => {
+          onAssistantMessagePersisted: (assistant, messagesWithAssistant) => {
             if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
             void onSessionsChanged?.();
+            onAssistantMessagePersisted?.(assistant);
           },
         });
         return;

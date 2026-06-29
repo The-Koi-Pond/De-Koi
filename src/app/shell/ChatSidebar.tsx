@@ -74,6 +74,7 @@ type ChatSidebarProps = {
   onActiveTabChange: (tab: ChatSidebarTab) => void;
   dekiSessions: DekiSession[];
   activeDekiSessionId: string | null;
+  unreadDekiSessionIds: ReadonlySet<string>;
   dekiOpen: boolean;
   onOpenDekiSession: (sessionId: string) => void;
   onCreateDekiSession: () => void;
@@ -147,6 +148,7 @@ export function ChatSidebar({
   onActiveTabChange,
   dekiSessions,
   activeDekiSessionId,
+  unreadDekiSessionIds,
   dekiOpen,
   onOpenDekiSession,
   onCreateDekiSession,
@@ -1047,12 +1049,15 @@ export function ChatSidebar({
         <div className="flex max-h-36 flex-col gap-0.5 overflow-y-auto pr-0.5">
           {dekiSessions.map((session) => {
             const isActive = dekiOpen && activeDekiSessionId === session.id;
+            const hasUnread = unreadDekiSessionIds.has(session.id);
             return (
               <div
                 key={session.id}
                 role="button"
                 tabIndex={0}
                 data-deki-session-id={session.id}
+                data-deki-session-unread={hasUnread ? "true" : undefined}
+                aria-label={hasUnread ? session.title + ", new Deki message" : session.title}
                 onClick={() => handleOpenDekiSession(session.id)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
@@ -1070,8 +1075,15 @@ export function ChatSidebar({
                 {isActive && (
                   <span className="absolute -left-0.5 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-sky-400" />
                 )}
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-500">
+                <div className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-500">
                   <MessageSquare size="0.8125rem" />
+                  {hasUnread && (
+                    <span
+                      className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-sky-400 ring-2 ring-[var(--background)]"
+                      title="New Deki message"
+                      aria-label="New Deki message"
+                    />
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-medium">{session.title}</span>
