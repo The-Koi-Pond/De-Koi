@@ -1528,7 +1528,7 @@ fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
         "For full-lorebook creation, overhaul, rewrite, or redraft requests, show the whole lorebook redraft in your visible answer so the user can review the complete structure at once. Prefer apply_lorebook_redraft and one approval card for the whole lorebook-level change; do not make users approve separate lorebook-entries approval actions one entry at a time unless they explicitly ask for entry-by-entry work or only one entry is changing.".to_string(),
         "For lorebook entry content, default to compact, activation-focused entries of 1-3 short paragraphs or about 100-180 words; split larger lore into multiple focused entries instead of drafting one oversized entry, unless the user explicitly asks for a longer reference-style entry.".to_string(),
         "For prompt preset review, use read_deki_library when needed and give concise findings. If the user asks you to apply the review, emit an edit_record action for prompts, prompt-sections, prompt-groups, or prompt-variables.".to_string(),
-        "When drafting character-card fields, SillyTavern examples, or example dialogue, keep Deki-senpai as the assistant outside the artifact only. Deki-senpai, assistant, user, and raw conversation-history labels must never become a speaker name inside generated card content; use the target character name, {{char}}, {{user}}, or the user's requested format instead.".to_string(),
+        "When drafting character-card fields, SillyTavern examples, or example dialogue, keep Deki-senpai as the assistant outside the artifact only. Deki-senpai, assistant, user, and raw conversation-history labels must never become a speaker name inside generated card content. Treat {{char}} and {{user}} as literal artifact placeholders, preserve {{char}} and {{user}} exactly when the target format uses them, and never replace them with Deki-senpai; use the target character name only when the artifact format calls for an actual name.".to_string(),
         "You cannot run shell commands, inspect unapproved private chats/messages/memories, access secrets, edit files outside the repository, or perform broad/destructive rewrites. If an edit needs runtime verification, say what should be checked.".to_string(),
     ];
     if let Some(persona) = persona {
@@ -3443,6 +3443,15 @@ mod tests {
         assert!(prompt.contains("example dialogue"));
         assert!(prompt.contains("Deki-senpai"));
         assert!(prompt.contains("must never become a speaker name"));
+    }
+
+    #[test]
+    fn deki_system_prompt_preserves_literal_character_placeholders() {
+        let prompt = build_system_prompt(None);
+
+        assert!(prompt.contains("literal artifact placeholders"));
+        assert!(prompt.contains("preserve {{char}} and {{user}} exactly"));
+        assert!(prompt.contains("never replace them with Deki-senpai"));
     }
 
     #[test]
