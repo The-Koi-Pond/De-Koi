@@ -48,11 +48,8 @@ import {
   type PersonaRow,
 } from "../../lib/persona-editor-model";
 import { estimatePersonaCardTokens } from "../../lib/persona-token-count";
-import {
-  CARD_TOKEN_RECOMMENDED_LIMIT,
-  formatEstimatedTokens,
-  isCardTokenEstimateOverRecommendation,
-} from "../../../lib/card-token-recommendation";
+import { getCardLengthToastActions } from "../../../lib/card-token-recommendation";
+
 import { PersonaColorsTab } from "./PersonaColorsTab";
 import { PersonaDescriptionTab } from "./PersonaDescriptionTab";
 import { PersonaGalleryTab } from "./PersonaGalleryTab";
@@ -134,26 +131,40 @@ export function PersonaEditor() {
   }, [persona, dirty]);
 
   useEffect(() => {
-    if (!personaId || !formData) {
-      cardLengthWarningPersonaIdRef.current = null;
-      return;
-    }
+    const actions = getCardLengthToastActions({
+      cardKind: "persona",
+      cardId: personaId,
+      tokenEstimate: formData ? estimatePersonaCardTokens(formData) : null,
+      previousToastId: cardLengthWarningPersonaIdRef.current,
+    });
 
-    const tokenEstimate = estimatePersonaCardTokens(formData);
-    if (!isCardTokenEstimateOverRecommendation(tokenEstimate)) {
-      if (cardLengthWarningPersonaIdRef.current === personaId) {
+    for (const action of actions) {
+      if (action.action === "dismiss") {
+        toast.dismiss(action.toastId);
+        if (cardLengthWarningPersonaIdRef.current === action.toastId) {
+          cardLengthWarningPersonaIdRef.current = null;
+        }
+        continue;
+      }
+
+      toast.warning(action.title, {
+        id: action.toastId,
+        description: action.description,
+        duration: action.duration,
+        closeButton: action.closeButton,
+      });
+      cardLengthWarningPersonaIdRef.current = action.toastId;
+    }
+  }, [formData, personaId]);
+
+  useEffect(() => {
+    return () => {
+      if (cardLengthWarningPersonaIdRef.current) {
+        toast.dismiss(cardLengthWarningPersonaIdRef.current);
         cardLengthWarningPersonaIdRef.current = null;
       }
-      return;
-    }
-
-    if (cardLengthWarningPersonaIdRef.current === personaId) return;
-    cardLengthWarningPersonaIdRef.current = personaId;
-    toast.warning("Persona card is longer than recommended.", {
-      id: `persona-card-length-${personaId}`,
-      description: `${formatEstimatedTokens(tokenEstimate)} used. Recommendation: ${formatEstimatedTokens(CARD_TOKEN_RECOMMENDED_LIMIT)}. It will still save.`,
-    });
-  }, [formData, personaId]);
+    };
+  }, []);
 
   const updateField = useCallback(<K extends keyof PersonaFormData>(key: K, value: PersonaFormData[K]) => {
     setFormData((prev) => (prev ? { ...prev, [key]: value } : prev));
