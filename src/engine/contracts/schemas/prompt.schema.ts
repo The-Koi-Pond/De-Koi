@@ -80,7 +80,13 @@ const promptVariableGroupSchema = z.object({
 const choiceOptionSchema = z.object({
   id: z.string(),
   label: z.string(),
+  description: z.string().optional(),
   value: z.string(),
+});
+
+const choiceVisibilityRuleSchema = z.object({
+  variableName: z.string().min(1),
+  values: z.array(z.string()).min(1),
 });
 
 export const createChoiceBlockSchema = z.object({
@@ -88,6 +94,7 @@ export const createChoiceBlockSchema = z.object({
   variableName: z.string().min(1).max(100).regex(/^\w+$/, "Variable name must be alphanumeric/underscores only"),
   question: z.string().min(1).max(500),
   options: z.array(choiceOptionSchema).min(1),
+  visibilityRule: choiceVisibilityRuleSchema.nullable().optional(),
   multiSelect: z.boolean().default(false),
   separator: z.string().max(20).default(", "),
   randomPick: z.boolean().default(false),
@@ -102,6 +109,7 @@ export const updateChoiceBlockSchema = z.object({
     .optional(),
   question: z.string().min(1).max(500).optional(),
   options: z.array(choiceOptionSchema).min(1).optional(),
+  visibilityRule: choiceVisibilityRuleSchema.nullable().optional(),
   multiSelect: z.boolean().optional(),
   separator: z.string().max(20).optional(),
   randomPick: z.boolean().optional(),

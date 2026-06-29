@@ -68,7 +68,305 @@ fn seed_prompt_preset_bundle(
     seed_related_prompt_rows_if_missing(storage, "prompt-groups", data.get("groups"))?;
     seed_related_prompt_rows_if_missing(storage, "prompt-sections", data.get("sections"))?;
     seed_related_prompt_rows_if_missing(storage, "prompt-variables", data.get("choiceBlocks"))?;
+    refresh_universal_v2_boundary_rows(storage, data)?;
     Ok(())
+}
+
+fn refresh_universal_v2_boundary_rows(storage: &FileStorage, data: &Value) -> AppResult<()> {
+    refresh_universal_v2_prompt_metadata(storage, data)?;
+
+    let desired_agency = data
+        .get("sections")
+        .and_then(Value::as_array)
+        .and_then(|sections| {
+            sections.iter().find(|section| {
+                section.get("id").and_then(Value::as_str) == Some("section_v2_agency_boundaries")
+            })
+        })
+        .and_then(|section| section.get("content"))
+        .cloned();
+    if let Some(desired_agency) = desired_agency {
+        refresh_universal_v2_agency_section(storage, desired_agency)?;
+    }
+
+    let desired_boundary_option = data
+        .get("choiceBlocks")
+        .and_then(Value::as_array)
+        .and_then(|blocks| {
+            blocks.iter().find(|block| {
+                block.get("id").and_then(Value::as_str) == Some("choice_v2_content_boundary")
+            })
+        })
+        .and_then(|block| block.get("options"))
+        .and_then(Value::as_array)
+        .and_then(|options| {
+            options.iter().find(|option| {
+                option.get("id").and_then(Value::as_str) == Some("boundary_mature_dark")
+            })
+        })
+        .cloned();
+    if let Some(desired_boundary_option) = desired_boundary_option {
+        refresh_universal_v2_boundary_choice(storage, desired_boundary_option)?;
+    }
+    refresh_universal_v2_choice_metadata(storage, data)?;
+
+    Ok(())
+}
+
+fn refresh_universal_v2_prompt_metadata(storage: &FileStorage, data: &Value) -> AppResult<()> {
+    let Some(prompt) = storage.get("prompts", UNIVERSAL_V2_PRESET_ID)? else {
+        return Ok(());
+    };
+
+    let desired_preset = data.get("preset").and_then(Value::as_object);
+    let desired_default_choices = desired_preset
+        .and_then(|preset| preset.get("defaultChoices"))
+        .and_then(Value::as_object);
+
+    let mut patch = Map::new();
+    let mut default_choices = prompt
+        .get("defaultChoices")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let mut default_choices_changed = false;
+
+    if let Some(desired_boundary) = desired_default_choices
+        .and_then(|choices| choices.get("contentBoundary"))
+        .cloned()
+    {
+        let current_boundary = default_choices
+            .get("contentBoundary")
+            .and_then(Value::as_str);
+        if current_boundary
+            .map(looks_like_legacy_v2_boundary)
+            .unwrap_or(false)
+        {
+            default_choices.insert("contentBoundary".to_string(), desired_boundary);
+            default_choices_changed = true;
+        }
+    }
+
+    if let Some(desired_erotic_tone) = desired_default_choices
+        .and_then(|choices| choices.get("eroticTone"))
+        .cloned()
+    {
+        if !default_choices.contains_key("eroticTone") {
+            default_choices.insert("eroticTone".to_string(), desired_erotic_tone);
+            default_choices_changed = true;
+        }
+    }
+
+    if default_choices_changed {
+        patch.insert("defaultChoices".to_string(), Value::Object(default_choices));
+    }
+
+    refresh_prompt_order_field(
+        &prompt,
+        desired_preset,
+        &mut patch,
+        "sectionOrder",
+        "section_v2_erotic_tone",
+        "section_v2_agency_boundaries",
+    );
+    refresh_prompt_order_field(
+        &prompt,
+        desired_preset,
+        &mut patch,
+        "variableOrder",
+        "choice_v2_erotic_tone",
+        "choice_v2_content_boundary",
+    );
+
+    if !patch.is_empty() {
+        storage.patch("prompts", UNIVERSAL_V2_PRESET_ID, Value::Object(patch))?;
+    }
+    Ok(())
+}
+
+fn refresh_prompt_order_field(
+    prompt: &Value,
+    desired_preset: Option<&Map<String, Value>>,
+    patch: &mut Map<String, Value>,
+    field: &str,
+    id: &str,
+    after_id: &str,
+) {
+    let current_order = prompt.get(field).and_then(Value::as_array).cloned();
+    if current_order
+        .as_ref()
+        .map(|order| value_array_contains_str(order, id))
+        .unwrap_or(false)
+    {
+        return;
+    }
+
+    let desired_order = desired_preset
+        .and_then(|preset| preset.get(field))
+        .and_then(Value::as_array)
+        .cloned();
+    let Some(order) = current_order.or(desired_order) else {
+        return;
+    };
+    patch.insert(
+        field.to_string(),
+        Value::Array(insert_string_after_if_missing(order, id, after_id)),
+    );
+}
+
+fn insert_string_after_if_missing(mut order: Vec<Value>, id: &str, after_id: &str) -> Vec<Value> {
+    if value_array_contains_str(&order, id) {
+        return order;
+    }
+    let insert_at = order
+        .iter()
+        .position(|value| value.as_str() == Some(after_id))
+        .map(|index| index + 1)
+        .unwrap_or(order.len());
+    order.insert(insert_at, Value::String(id.to_string()));
+    order
+}
+
+fn value_array_contains_str(values: &[Value], expected: &str) -> bool {
+    values.iter().any(|value| value.as_str() == Some(expected))
+}
+
+fn refresh_universal_v2_agency_section(
+    storage: &FileStorage,
+    desired_content: Value,
+) -> AppResult<()> {
+    let Some(section) = storage.get("prompt-sections", "section_v2_agency_boundaries")? else {
+        return Ok(());
+    };
+    let Some(current) = section.get("content").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    if looks_like_legacy_v2_boundary(current) {
+        storage.patch(
+            "prompt-sections",
+            "section_v2_agency_boundaries",
+            json!({ "content": desired_content }),
+        )?;
+    }
+    Ok(())
+}
+
+fn refresh_universal_v2_boundary_choice(
+    storage: &FileStorage,
+    desired_boundary_option: Value,
+) -> AppResult<()> {
+    let Some(choice) = storage.get("prompt-variables", "choice_v2_content_boundary")? else {
+        return Ok(());
+    };
+    let Some(current_options) = choice.get("options").and_then(Value::as_array) else {
+        return Ok(());
+    };
+
+    let mut changed = false;
+    let options = current_options
+        .iter()
+        .map(|option| {
+            if option.get("id").and_then(Value::as_str) == Some("boundary_mature_dark") {
+                let should_refresh = option
+                    .get("label")
+                    .and_then(Value::as_str)
+                    .map(|label| label == "Mature Dark" || label == "Adult Dark")
+                    .unwrap_or(false)
+                    || option
+                        .get("value")
+                        .and_then(Value::as_str)
+                        .map(looks_like_legacy_v2_boundary)
+                        .unwrap_or(false);
+                if should_refresh {
+                    changed = true;
+                    return desired_boundary_option.clone();
+                }
+            }
+            option.clone()
+        })
+        .collect::<Vec<_>>();
+
+    if changed {
+        storage.patch(
+            "prompt-variables",
+            "choice_v2_content_boundary",
+            json!({ "options": options }),
+        )?;
+    }
+    Ok(())
+}
+
+fn refresh_universal_v2_choice_metadata(storage: &FileStorage, data: &Value) -> AppResult<()> {
+    let Some(desired_blocks) = data.get("choiceBlocks").and_then(Value::as_array) else {
+        return Ok(());
+    };
+
+    for desired_block in desired_blocks {
+        let Some(id) = desired_block.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(current_block) = storage.get("prompt-variables", id)? else {
+            continue;
+        };
+
+        let mut patch = Map::new();
+        if current_block.get("visibilityRule") != desired_block.get("visibilityRule") {
+            if let Some(rule) = desired_block.get("visibilityRule").cloned() {
+                patch.insert("visibilityRule".to_string(), rule);
+            }
+        }
+
+        if let Some(options) = refreshed_choice_option_descriptions(&current_block, desired_block) {
+            patch.insert("options".to_string(), Value::Array(options));
+        }
+
+        if !patch.is_empty() {
+            storage.patch("prompt-variables", id, Value::Object(patch))?;
+        }
+    }
+
+    Ok(())
+}
+
+fn refreshed_choice_option_descriptions(
+    current_block: &Value,
+    desired_block: &Value,
+) -> Option<Vec<Value>> {
+    let current_options = current_block.get("options").and_then(Value::as_array)?;
+    let desired_options = desired_block.get("options").and_then(Value::as_array)?;
+    let mut changed = false;
+    let options = current_options
+        .iter()
+        .map(|current_option| {
+            let Some(option_id) = current_option.get("id").and_then(Value::as_str) else {
+                return current_option.clone();
+            };
+            let Some(desired_option) = desired_options
+                .iter()
+                .find(|option| option.get("id").and_then(Value::as_str) == Some(option_id))
+            else {
+                return current_option.clone();
+            };
+            let Some(desired_description) = desired_option.get("description").cloned() else {
+                return current_option.clone();
+            };
+            if current_option.get("description") == Some(&desired_description) {
+                return current_option.clone();
+            }
+            let mut object = current_option.as_object().cloned().unwrap_or_default();
+            object.insert("description".to_string(), desired_description);
+            changed = true;
+            Value::Object(object)
+        })
+        .collect::<Vec<_>>();
+
+    changed.then_some(options)
+}
+
+fn looks_like_legacy_v2_boundary(value: &str) -> bool {
+    value.contains("Sexual content must involve adult characters with clear, ongoing consent")
+        || value.contains("Keep consent, age, capacity, and boundaries legible")
+        || value.contains("Do not eroticize coercion, minors, impaired consent, or unclear consent")
 }
 
 fn set_bundled_prompt_default(storage: &FileStorage) -> AppResult<()> {
@@ -442,6 +740,196 @@ mod tests {
             .iter()
             .any(|section| section.get("presetId").and_then(Value::as_str)
                 == Some("preset_universal_v2")));
+    }
+
+    #[test]
+    fn refreshes_existing_universal_v2_boundary_rows() {
+        let (storage, root) = temp_storage();
+        let old_boundary = "Mature-dark fiction is allowed: danger, profanity, moral ambiguity, fear, injury, and severe consequences may appear when they fit the story. Sexual content must involve adult characters with clear, ongoing consent and capacity. If age, consent, capacity, or boundaries are unclear, state the boundary plainly, then clarify, redirect, or fade out. Do not eroticize coercion, minors, impaired consent, or unclear consent.";
+        let old_agency = "{{agencyStrictness}}\n\nApply this content boundary: {{contentBoundary}}\n\nKeep consent, age, capacity, and boundaries legible. If explicit sexual content is requested while age, consent, capacity, or boundaries are unclear, do not continue the explicit content.";
+
+        storage
+            .create(
+                "prompts",
+                json!({
+                    "id": UNIVERSAL_V2_PRESET_ID,
+                    "name": UNIVERSAL_V2_PRESET_NAME,
+                    "author": MARINARA_PRESET_AUTHOR,
+                    "isDefault": false,
+                    "sectionOrder": [
+                        "section_v2_role",
+                        "section_v2_agency_boundaries",
+                        "section_v2_style"
+                    ],
+                    "variableOrder": [
+                        "choice_v2_mode",
+                        "choice_v2_content_boundary",
+                        "choice_v2_agency"
+                    ],
+                    "defaultChoices": {
+                        "contentBoundary": old_boundary,
+                        "language": "English"
+                    }
+                }),
+            )
+            .expect("existing V2 prompt should insert");
+        storage
+            .create(
+                "prompt-sections",
+                json!({
+                    "id": "section_v2_agency_boundaries",
+                    "presetId": UNIVERSAL_V2_PRESET_ID,
+                    "content": old_agency
+                }),
+            )
+            .expect("existing agency section should insert");
+        storage
+            .create(
+                "prompt-variables",
+                json!({
+                    "id": "choice_v2_content_boundary",
+                    "presetId": UNIVERSAL_V2_PRESET_ID,
+                    "options": [
+                        {
+                            "id": "boundary_mature_dark",
+                            "label": "Mature Dark",
+                            "value": old_boundary
+                        },
+                        {
+                            "id": "boundary_sfw",
+                            "label": "SFW",
+                            "value": "Keep the scene SFW."
+                        }
+                    ]
+                }),
+            )
+            .expect("existing boundary variable should insert");
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        let prompt = storage
+            .get("prompts", UNIVERSAL_V2_PRESET_ID)
+            .expect("prompt should read")
+            .expect("V2 prompt should remain available");
+        let default_choices = prompt
+            .get("defaultChoices")
+            .and_then(Value::as_object)
+            .expect("default choices should stay an object");
+        assert_eq!(
+            default_choices.get("language").and_then(Value::as_str),
+            Some("English")
+        );
+        assert!(default_choices
+            .get("contentBoundary")
+            .and_then(Value::as_str)
+            .expect("boundary should be present")
+            .contains("author-level consent"));
+        assert!(default_choices
+            .get("eroticTone")
+            .and_then(Value::as_str)
+            .expect("erotic tone default should be present")
+            .contains("no erotic tone preference"));
+
+        let section_order = prompt
+            .get("sectionOrder")
+            .and_then(Value::as_array)
+            .expect("section order should stay an array");
+        let agency_index = section_order
+            .iter()
+            .position(|value| value.as_str() == Some("section_v2_agency_boundaries"))
+            .expect("agency section should stay in order");
+        assert_eq!(
+            section_order.get(agency_index + 1).and_then(Value::as_str),
+            Some("section_v2_erotic_tone")
+        );
+
+        let variable_order = prompt
+            .get("variableOrder")
+            .and_then(Value::as_array)
+            .expect("variable order should stay an array");
+        let boundary_index = variable_order
+            .iter()
+            .position(|value| value.as_str() == Some("choice_v2_content_boundary"))
+            .expect("content boundary choice should stay in order");
+        assert_eq!(
+            variable_order
+                .get(boundary_index + 1)
+                .and_then(Value::as_str),
+            Some("choice_v2_erotic_tone")
+        );
+
+        let erotic_section = storage
+            .get("prompt-sections", "section_v2_erotic_tone")
+            .expect("erotic tone section should read")
+            .expect("erotic tone section should be seeded");
+        assert!(erotic_section
+            .get("content")
+            .and_then(Value::as_str)
+            .expect("erotic tone content should be present")
+            .contains("controls how explicit, blunt, or dirty sexual language becomes"));
+
+        let erotic_choice = storage
+            .get("prompt-variables", "choice_v2_erotic_tone")
+            .expect("erotic tone variable should read")
+            .expect("erotic tone variable should be seeded");
+        let erotic_options = erotic_choice
+            .get("options")
+            .and_then(Value::as_array)
+            .expect("erotic tone options should stay an array");
+        assert_eq!(erotic_options.len(), 5);
+        assert!(erotic_options.iter().any(|option| {
+            option.get("id").and_then(Value::as_str) == Some("erotic_tone_filthy")
+                && option.get("label").and_then(Value::as_str) == Some("Filthy")
+        }));
+
+        let agency = storage
+            .get("prompt-sections", "section_v2_agency_boundaries")
+            .expect("agency section should read")
+            .expect("agency section should remain available");
+        assert!(agency
+            .get("content")
+            .and_then(Value::as_str)
+            .expect("agency content should be present")
+            .contains("separate writer consent from character consent"));
+
+        let boundary_choice = storage
+            .get("prompt-variables", "choice_v2_content_boundary")
+            .expect("boundary variable should read")
+            .expect("boundary variable should remain available");
+        let options = boundary_choice
+            .get("options")
+            .and_then(Value::as_array)
+            .expect("options should stay an array");
+        let adult_dark = options
+            .iter()
+            .find(|option| option.get("id").and_then(Value::as_str) == Some("boundary_mature_dark"))
+            .expect("adult dark option should remain available");
+        assert_eq!(
+            adult_dark.get("label").and_then(Value::as_str),
+            Some("NSFW / Adult Fiction")
+        );
+        assert!(adult_dark
+            .get("value")
+            .and_then(Value::as_str)
+            .expect("adult dark value should be present")
+            .contains("author-level consent"));
+        let sfw = options
+            .iter()
+            .find(|option| option.get("id").and_then(Value::as_str) == Some("boundary_sfw"))
+            .expect("SFW option should remain available");
+        assert_eq!(
+            sfw.get("value").and_then(Value::as_str),
+            Some("Keep the scene SFW.")
+        );
+        assert_eq!(
+            sfw.get("description").and_then(Value::as_str),
+            Some("No explicit sex; danger, profanity, grief, and restrained violence may still appear.")
+        );
+        assert_eq!(
+            adult_dark.get("description").and_then(Value::as_str),
+            Some("NSFW adult fiction with dark, messy, or unhealthy dynamics allowed by writer intent.")
+        );
     }
 
     #[test]

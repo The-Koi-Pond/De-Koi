@@ -120,6 +120,11 @@ export interface PromptSection {
   forbidOverrides: boolean;
 }
 
+export interface ChoiceVisibilityRule {
+  variableName: string;
+  values: string[];
+}
+
 /** A preset-level variable — the user picks one option per chat, referenced via {{variableName}} in prompts. */
 export interface ChoiceBlock {
   id: string;
@@ -129,6 +134,8 @@ export interface ChoiceBlock {
   /** Human-readable question shown when selecting (e.g. "What POV do you prefer?") */
   question: string;
   options: ChoiceOption[];
+  /** Optional rule for hiding this selector until another selector has an allowed value. */
+  visibilityRule?: ChoiceVisibilityRule | null;
   /** If true, the user can select multiple options instead of just one. */
   multiSelect: boolean;
   /** Separator used to join multiple selected values (default ", "). Only used when multiSelect=true and randomPick=false. */
@@ -142,6 +149,8 @@ export interface ChoiceBlock {
 export interface ChoiceOption {
   id: string;
   label: string;
+  /** Short user-facing helper text; falls back to value for imported legacy presets. */
+  description?: string;
   /** The value injected when this option is selected */
   value: string;
 }
