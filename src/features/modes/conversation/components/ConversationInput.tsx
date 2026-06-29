@@ -88,6 +88,10 @@ import { SpeechToTextButton } from "../../../../shared/components/ui/SpeechToTex
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { buildGuidedGenerationInstructionMessage } from "../../../../engine/shared/text/generation-guide";
 import type { PeekPromptOptions } from "../../shared/chat-ui";
+import {
+  getConversationCharacterStatusDetail,
+  getConversationCharacterStatusTitle,
+} from "../lib/conversation-status-display";
 
 interface Attachment {
   type: string;
@@ -1694,8 +1698,7 @@ export function ConversationInput({
         : status === "idle"
           ? "bg-yellow-500"
           : "bg-green-500";
-  const statusLabel = (status?: string) =>
-    status === "offline" ? "Offline" : status === "dnd" ? "Busy" : status === "idle" ? "Away" : null;
+
   const renderAttachButton = () => (
     <button
       onClick={() => fileInputRef.current?.click()}
@@ -2080,50 +2083,47 @@ export function ConversationInput({
               Trigger Response
             </div>
             <div className="overflow-y-auto p-1">
-              {chatCharacters!.map((char) => (
-                <button
-                  key={char.id}
-                  onClick={() => handleCharacterResponse(char.id)}
-                  title={char.conversationAvailabilityExplanation ?? char.conversationActivity ?? char.name}
-                  aria-label={`Trigger response from ${char.name}`}
-                  className={cn(
-                    "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
-                    (char.conversationStatus === "dnd" || char.conversationStatus === "offline") && "opacity-60",
-                  )}
-                >
-                  <div className="relative shrink-0">
-                    {char.avatarUrl ? (
-                      <span className="relative block h-7 w-7 overflow-hidden rounded-full">
-                        <AvatarImage src={char.avatarUrl} alt={char.name} crop={char.avatarCrop} />
-                      </span>
-                    ) : (
-                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--secondary)] text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">
-                        {(char.name || "?")[0].toUpperCase()}
-                      </div>
+              {chatCharacters!.map((char) => {
+                const statusDetail = getConversationCharacterStatusDetail(char);
+                return (
+                  <button
+                    key={char.id}
+                    onClick={() => handleCharacterResponse(char.id)}
+                    title={getConversationCharacterStatusTitle(char, char.name)}
+                    aria-label={`Trigger response from ${char.name}`}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
+                      (char.conversationStatus === "dnd" || char.conversationStatus === "offline") && "opacity-60",
                     )}
-                    <span
-                      className={cn(
-                        "absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-[var(--card)]",
-                        statusDotClass(char.conversationStatus),
+                  >
+                    <div className="relative shrink-0">
+                      {char.avatarUrl ? (
+                        <span className="relative block h-7 w-7 overflow-hidden rounded-full">
+                          <AvatarImage src={char.avatarUrl} alt={char.name} crop={char.avatarCrop} />
+                        </span>
+                      ) : (
+                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--secondary)] text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">
+                          {(char.name || "?")[0].toUpperCase()}
+                        </div>
                       )}
-                    />
-                  </div>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs">{char.name}</span>
-                    {(char.conversationStatusMessage ||
-                      char.conversationAvailabilityExplanation ||
-                      char.conversationActivity ||
-                      statusLabel(char.conversationStatus)) && (
-                      <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
-                        {char.conversationStatusMessage ||
-                          char.conversationAvailabilityExplanation ||
-                          char.conversationActivity ||
-                          statusLabel(char.conversationStatus)}
-                      </span>
-                    )}
-                  </span>
-                </button>
-              ))}
+                      <span
+                        className={cn(
+                          "absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-[var(--card)]",
+                          statusDotClass(char.conversationStatus),
+                        )}
+                      />
+                    </div>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs">{char.name}</span>
+                      {statusDetail && (
+                        <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
+                          {statusDetail}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>,
           document.body,
