@@ -69,7 +69,9 @@ function formatTokenCount(tokens: number): string {
 
 function summaryEntryMetaLine(entry: ChatSummaryEntry): string {
   const details: string[] = [];
-  if (entry.sourceMode === "range" && entry.rangeStartIndex && entry.rangeEndIndex) {
+  if (entry.sourceMode === "all") {
+    details.push(entry.messageCount ? `Full chat (${entry.messageCount} messages)` : "Full chat");
+  } else if (entry.sourceMode === "range" && entry.rangeStartIndex && entry.rangeEndIndex) {
     details.push(`Messages ${entry.rangeStartIndex}-${entry.rangeEndIndex}`);
   } else if (entry.sourceMode === "last" && entry.messageCount) {
     details.push(`${entry.messageCount} ${entry.messageCount === 1 ? "message" : "messages"}`);
@@ -191,13 +193,17 @@ export function SummaryPopover({
   const selectedRangeCount = totalMessageCount > 0 ? rangeHigh - rangeLow + 1 : 0;
   const rangeTooLarge = selectedRangeCount > MAX_SUMMARY_MESSAGES;
   const sourceSummary =
-    summaryPopoverSettings.sourceMode === "range"
+    summaryPopoverSettings.sourceMode === "all"
       ? totalMessageCount > 0
-        ? `Messages ${rangeLow}-${rangeHigh} of ${totalMessageCount}`
+        ? `Full chat: ${totalMessageCount} ${totalMessageCount === 1 ? "message" : "messages"}`
         : "No messages yet"
-      : totalMessageCount > 0
-        ? `Last ${Math.min(normalizedLastSize, totalMessageCount)} of ${totalMessageCount} messages`
-        : "No messages yet";
+      : summaryPopoverSettings.sourceMode === "range"
+        ? totalMessageCount > 0
+          ? `Messages ${rangeLow}-${rangeHigh} of ${totalMessageCount}`
+          : "No messages yet"
+        : totalMessageCount > 0
+          ? `Last ${Math.min(normalizedLastSize, totalMessageCount)} of ${totalMessageCount} messages`
+          : "No messages yet";
   const chatMetadata = useMemo<Record<string, unknown>>(
     () => (chatQuery.data?.metadata && typeof chatQuery.data.metadata === "object" ? chatQuery.data.metadata : {}),
     [chatQuery.data?.metadata],
@@ -336,6 +342,7 @@ export function SummaryPopover({
         {
           chatId,
           contextSize: normalizedLastSize,
+          sourceMode: "range",
           rangeStartIndex: rangeLow,
           rangeEndIndex: rangeHigh,
           promptTemplateId: activeSummaryPromptTemplateId || null,
@@ -353,9 +360,34 @@ export function SummaryPopover({
       return;
     }
 
+    if (summaryPopoverSettings.sourceMode === "all") {
+      if (totalMessageCount === 0) {
+        setErrorText("No messages available for summary generation.");
+        return;
+      }
+      generateSummary.mutate(
+        { chatId, sourceMode: "all", promptTemplateId: activeSummaryPromptTemplateId || null },
+        {
+          onSuccess: (data) => {
+            setDraft(data.summary);
+            setEditingEntryId(null);
+            setEditing(false);
+            maybeHideSummarizedMessages(data.messageIds);
+          },
+          onError: (error) => setErrorText(error instanceof Error ? error.message : "Could not generate summary."),
+        },
+      );
+      return;
+    }
+
     persistContextSize(normalizedLastSize);
     generateSummary.mutate(
-      { chatId, contextSize: normalizedLastSize, promptTemplateId: activeSummaryPromptTemplateId || null },
+      {
+        chatId,
+        sourceMode: "last",
+        contextSize: normalizedLastSize,
+        promptTemplateId: activeSummaryPromptTemplateId || null,
+      },
       {
         onSuccess: (data) => {
           setDraft(data.summary);
@@ -502,8 +534,8 @@ export function SummaryPopover({
 
         {settingsOpen && (
           <div className="space-y-3 border-b border-[var(--border)] px-3 py-3">
-            <div className="grid grid-cols-2 rounded-lg bg-[var(--secondary)] p-0.5 text-[0.6875rem] font-medium">
-              {(["last", "range"] as SummaryPopoverSourceMode[]).map((mode) => (
+            <div className="grid grid-cols-3 rounded-lg bg-[var(--secondary)] p-0.5 text-[0.6875rem] font-medium">
+              {(["all", "last", "range"] as SummaryPopoverSourceMode[]).map((mode) => (
                 <button
                   key={mode}
                   type="button"
@@ -515,7 +547,7 @@ export function SummaryPopover({
                       : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
                   )}
                 >
-                  {mode === "last" ? "Last" : "Range"}
+                  {mode === "all" ? "All" : mode === "last" ? "Last" : "Range"}
                 </button>
               ))}
             </div>
@@ -539,7 +571,7 @@ export function SummaryPopover({
                   className="w-full rounded-md bg-[var(--secondary)] px-2 py-1 text-xs tabular-nums ring-1 ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
                 />
               </label>
-            ) : (
+            ) : summaryPopoverSettings.sourceMode === "range" ? (
               <div className="space-y-1">
                 <div className="grid grid-cols-2 gap-2">
                   <label className="block space-y-1">
@@ -573,7 +605,7 @@ export function SummaryPopover({
                   </p>
                 )}
               </div>
-            )}
+            ) : null}
 
             <div className="space-y-2">
               <label className="block space-y-1">

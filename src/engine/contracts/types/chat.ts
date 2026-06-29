@@ -96,7 +96,7 @@ export type ChatSummaryEntryKind = "rolling";
 export type ChatSummaryEntryOrigin = "manual" | "automated" | "legacy";
 
 /** Source selector used to create a rolling summary entry. */
-export type ChatSummaryEntrySource = "last" | "range" | "agent";
+export type ChatSummaryEntrySource = "all" | "last" | "range" | "agent";
 
 /** A single structured rolling chat summary entry. */
 export interface ChatSummaryEntry {
