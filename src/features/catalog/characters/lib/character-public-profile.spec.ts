@@ -54,4 +54,19 @@ describe("resolveCharacterPublicProfile", () => {
     expect(profile.tags).toEqual(["android", "pilot"]);
     expect(profile.hasSavedProfile).toBe(false);
   });
+  it("does not use raw character descriptions as unsaved public bios", () => {
+    const profile = resolveCharacterPublicProfile({
+      id: "char-3",
+      data: {
+        name: "The Ghost Face",
+        description: "Danny Johnson, known to some as Jed Olsen, is The Ghost Face: a methodical killer.",
+        tags: ["dbd", "slasher"],
+        extensions: {},
+      },
+      comment: "Freelance journalist with a taste for fear",
+    });
+
+    expect(profile.bio).toBe("Freelance journalist with a taste for fear");
+    expect(profile.bio).not.toContain("Danny Johnson");
+  });
 });
