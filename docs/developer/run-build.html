@@ -56,6 +56,15 @@
           </tbody>
         </table>
 
+        <h2>Arch And CachyOS Prerequisites</h2>
+        <p>
+          On CachyOS, Arch, Manjaro, EndeavourOS, and other Arch-family systems, install the Tauri Linux
+          prerequisites plus Node.js, pnpm, and rustup with pacman:
+        </p>
+        <pre><code>sudo pacman -Syu
+sudo pacman -S --needed git nodejs pnpm rustup webkit2gtk-4.1 base-devel curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool
+rustup default stable</code></pre>
+
         <h2>Install Dependencies</h2>
         <p>Run from the repo root:</p>
         <pre><code>pnpm install</code></pre>
@@ -71,6 +80,22 @@
           Port <code>1420</code> is strict in <code>vite.config.ts</code>. If it is already in use, stop the process
           using that port before running Tauri dev.
         </div>
+
+        <h2>Linux WebKit Rendering Fallbacks</h2>
+        <p>
+          If the Linux Tauri window opens blank, crashes, or has WebKit/GPU rendering trouble, try the desktop command
+          with WebKit's DMA-BUF renderer disabled:
+        </p>
+        <pre><code>WEBKIT_DISABLE_DMABUF_RENDERER=1 pnpm tauri dev</code></pre>
+        <p>On Wayland systems with stubborn WebKit rendering issues, also try forcing GTK to use X11 for that run:</p>
+        <pre><code>GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1 pnpm tauri dev</code></pre>
+        <p>
+          As a browser-only fallback, run the web shell in one terminal, optionally run the Rust runtime in another, then
+          open <code>http://127.0.0.1:1420/</code> in Firefox. If the runtime is running, set Settings &gt; Advanced &gt;
+          Remote Runtime URL to <code>http://127.0.0.1:8787</code>.
+        </p>
+        <pre><code>pnpm dev
+cargo run --manifest-path src-tauri/Cargo.toml --bin de-koi-server</code></pre>
 
         <h2>Monitor Tauri Performance</h2>
         <p>
