@@ -58,7 +58,6 @@ package "React application and feature layer" {
         component "[folder]\ngeneration\nfrontend generation hooks" as RuntimeGeneration <<healthy>>
         component "[folder]\nworld-state\ntracker store and API facade" as WorldState <<healthy>>
         component "[folder]\nvisuals\nsprites, backgrounds, weather" as Visuals <<healthy>>
-        component "[folder]\nhaptics" as Haptics <<healthy>>
     }
 
     package "src/features/catalog" {
