@@ -218,10 +218,10 @@ describe("startGeneration group typing", () => {
     expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-b"]);
   });
 
-  it("lets smart conversation group selection choose no automatic responders", async () => {
+  it("falls back to conversation group turn order when smart selection chooses nobody", async () => {
     const { storage, messages } = groupTypingStorage({ groupResponseOrder: "smart" });
 
-    const events = await collectEvents(
+    await collectEvents(
       startGeneration(
         {
           storage,
@@ -231,7 +231,7 @@ describe("startGeneration group typing", () => {
         {
           chatId: "chat-1",
           connectionId: "conn-1",
-          userMessage: "just dropping this here for later",
+          userMessage: "Hi",
           impersonateBlockAgents: true,
         },
       ),
@@ -239,7 +239,6 @@ describe("startGeneration group typing", () => {
 
     const assistantMessages = messages.filter((message) => message.role === "assistant");
 
-    expect(events.at(-1)).toEqual({ type: "done" });
-    expect(assistantMessages).toEqual([]);
+    expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-a", "char-b"]);
   });
 });
