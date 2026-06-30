@@ -70,6 +70,7 @@ export type CharacterPanelSummary = {
       fav?: unknown;
       importMetadata?: unknown;
       nameColor?: string;
+      publicProfile?: unknown;
     };
   };
   comment?: string | null;
@@ -129,6 +130,7 @@ const CHARACTER_PANEL_SUMMARY_OPTIONS = {
       "extensions.fav",
       "extensions.importMetadata",
       "extensions.nameColor",
+      "extensions.publicProfile",
     ],
   },
 };
