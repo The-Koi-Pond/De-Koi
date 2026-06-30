@@ -1076,16 +1076,16 @@ fn parse_deki_action_json_candidate(candidate: &str) -> Result<Value, serde_json
 
 #[derive(Clone, Copy)]
 enum DekiJsonObjectState {
-    ExpectKeyOrEnd,
-    ExpectColon,
-    ExpectValue,
-    ExpectCommaOrEnd,
+    KeyOrEnd,
+    Colon,
+    Value,
+    CommaOrEnd,
 }
 
 #[derive(Clone, Copy)]
 enum DekiJsonArrayState {
-    ExpectValueOrEnd,
-    ExpectCommaOrEnd,
+    ValueOrEnd,
+    CommaOrEnd,
 }
 
 #[derive(Clone, Copy)]
@@ -1167,10 +1167,10 @@ fn repair_deki_action_json_strings(input: &str) -> Option<String> {
 
         match character {
             '{' => stack.push(DekiJsonContainer::Object(
-                DekiJsonObjectState::ExpectKeyOrEnd,
+                DekiJsonObjectState::KeyOrEnd,
             )),
             '[' => stack.push(DekiJsonContainer::Array(
-                DekiJsonArrayState::ExpectValueOrEnd,
+                DekiJsonArrayState::ValueOrEnd,
             )),
             '"' => {
                 string_role = deki_json_next_string_role(&stack);
@@ -1179,21 +1179,21 @@ fn repair_deki_action_json_strings(input: &str) -> Option<String> {
             }
             ':' => {
                 if let Some(DekiJsonContainer::Object(state)) = stack.last_mut() {
-                    if matches!(state, DekiJsonObjectState::ExpectColon) {
-                        *state = DekiJsonObjectState::ExpectValue;
+                    if matches!(state, DekiJsonObjectState::Colon) {
+                        *state = DekiJsonObjectState::Value;
                     }
                 }
             }
             ',' => match stack.last_mut() {
                 Some(DekiJsonContainer::Object(state))
-                    if matches!(state, DekiJsonObjectState::ExpectCommaOrEnd) =>
+                    if matches!(state, DekiJsonObjectState::CommaOrEnd) =>
                 {
-                    *state = DekiJsonObjectState::ExpectKeyOrEnd;
+                    *state = DekiJsonObjectState::KeyOrEnd;
                 }
                 Some(DekiJsonContainer::Array(state))
-                    if matches!(state, DekiJsonArrayState::ExpectCommaOrEnd) =>
+                    if matches!(state, DekiJsonArrayState::CommaOrEnd) =>
                 {
-                    *state = DekiJsonArrayState::ExpectValueOrEnd;
+                    *state = DekiJsonArrayState::ValueOrEnd;
                 }
                 _ => {}
             },
@@ -1221,7 +1221,7 @@ fn repair_deki_action_json_strings(input: &str) -> Option<String> {
 
 fn deki_json_next_string_role(stack: &[DekiJsonContainer]) -> DekiJsonStringRole {
     match stack.last() {
-        Some(DekiJsonContainer::Object(DekiJsonObjectState::ExpectKeyOrEnd)) => {
+        Some(DekiJsonContainer::Object(DekiJsonObjectState::KeyOrEnd)) => {
             DekiJsonStringRole::Key
         }
         _ => DekiJsonStringRole::Value,
@@ -1232,7 +1232,7 @@ fn deki_json_after_string(stack: &mut [DekiJsonContainer], role: DekiJsonStringR
     match role {
         DekiJsonStringRole::Key => {
             if let Some(DekiJsonContainer::Object(state)) = stack.last_mut() {
-                *state = DekiJsonObjectState::ExpectColon;
+                *state = DekiJsonObjectState::Colon;
             }
         }
         DekiJsonStringRole::Value => deki_json_after_value(stack),
@@ -1241,8 +1241,8 @@ fn deki_json_after_string(stack: &mut [DekiJsonContainer], role: DekiJsonStringR
 
 fn deki_json_after_value(stack: &mut [DekiJsonContainer]) {
     match stack.last_mut() {
-        Some(DekiJsonContainer::Object(state)) => *state = DekiJsonObjectState::ExpectCommaOrEnd,
-        Some(DekiJsonContainer::Array(state)) => *state = DekiJsonArrayState::ExpectCommaOrEnd,
+        Some(DekiJsonContainer::Object(state)) => *state = DekiJsonObjectState::CommaOrEnd,
+        Some(DekiJsonContainer::Array(state)) => *state = DekiJsonArrayState::CommaOrEnd,
         None => {}
     }
 }
