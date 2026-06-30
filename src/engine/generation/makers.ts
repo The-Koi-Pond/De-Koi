@@ -86,12 +86,14 @@ Return ONLY valid JSON with these fields:
   "appearance": "Detailed physical description - height, build, hair, eyes, clothing, distinguishing features.",
   "publicProfile": {
     "displayName": "Short public display name shown in previews",
-    "handle": "Optional short public handle, like @username",
-    "bio": "Safe outward-facing blurb for previews (1-2 sentences). Do not include creator notes, hidden twists, or private setup instructions.",
-    "tags": ["publicTag1", "publicTag2"],
+    "handle": "Optional short public handle the character would choose for themself, like @username",
+    "bio": "In-character public blurb the character would write for their own profile (1-2 sentences). Do not include creator notes, hidden twists, or private setup instructions.",
+    "tags": ["inCharacterPublicTag1", "inCharacterPublicTag2"],
     "bannerImage": ""
   }
 }
+
+The publicProfile fields are chosen by the character as their own public self-presentation, not by an outside catalog writer. Write the handle, bio, and public tags in the character's voice: what this character would choose to show strangers about themself while staying safe for previews.
 
 Be creative, detailed, and consistent. Make the character feel alive and three-dimensional.`;
 
@@ -383,7 +385,7 @@ async function* runMakerRequest(
   const request = {
     connectionId: input.connectionId,
     messages,
-    parameters: { temperature: 1, maxTokens },
+    parameters: { temperature: 1, maxTokens, responseFormat: "json_object" },
   };
   if (!input.streaming) {
     const raw = await llm.complete(request, signal);
