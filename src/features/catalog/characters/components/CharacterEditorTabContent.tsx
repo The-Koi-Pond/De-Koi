@@ -64,7 +64,9 @@ export function CharacterEditorTabContent({
             imageConnections={imageConnections}
           />
         )}
-        {activeTab === "description" && <CharacterDescriptionTab formData={formData} updateField={updateField} />}
+        {activeTab === "description" && (
+          <CharacterDescriptionTab formData={formData} characterComment={characterComment} updateField={updateField} />
+        )}
         {activeTab === "personality" && (
           <CharacterTextareaTab
             title="Personality"
@@ -73,6 +75,9 @@ export function CharacterEditorTabContent({
             onChange={(v) => updateField("personality", v)}
             placeholder="Energetic, curious, and fiercely loyal. Speaks in short bursts. Has a habit of…"
             rows={8}
+            generationField="personality"
+            generationData={formData}
+            characterComment={characterComment}
           />
         )}
         {activeTab === "backstory" && (
@@ -83,6 +88,9 @@ export function CharacterEditorTabContent({
             onChange={(v) => updateExtension("backstory", v)}
             placeholder="Born in a small village on the outskirts of the empire…"
             rows={12}
+            generationField="backstory"
+            generationData={formData}
+            characterComment={characterComment}
           />
         )}
         {activeTab === "appearance" && (
@@ -93,6 +101,9 @@ export function CharacterEditorTabContent({
             onChange={(v) => updateExtension("appearance", v)}
             placeholder="Tall and willowy with silver-streaked dark hair. Wears a battered leather coat over…"
             rows={8}
+            generationField="appearance"
+            generationData={formData}
+            characterComment={characterComment}
           />
         )}
         {activeTab === "scenario" && (
@@ -103,11 +114,21 @@ export function CharacterEditorTabContent({
             onChange={(v) => updateField("scenario", v)}
             placeholder="A bustling port city during a trade festival. The streets are alive with merchants and performers…"
             rows={8}
+            generationField="scenario"
+            generationData={formData}
+            characterComment={characterComment}
           />
         )}
-        {activeTab === "dialogue" && <CharacterDialogueTab formData={formData} updateField={updateField} />}
+        {activeTab === "dialogue" && (
+          <CharacterDialogueTab formData={formData} characterComment={characterComment} updateField={updateField} />
+        )}
         {activeTab === "advanced" && (
-          <CharacterAdvancedTab formData={formData} updateField={updateField} updateExtension={updateExtension} />
+          <CharacterAdvancedTab
+            formData={formData}
+            characterComment={characterComment}
+            updateField={updateField}
+            updateExtension={updateExtension}
+          />
         )}
         {activeTab === "sprites" && characterId && (
           <CharacterSpritesTab

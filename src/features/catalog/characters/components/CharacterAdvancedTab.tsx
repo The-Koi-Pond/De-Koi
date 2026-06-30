@@ -5,13 +5,16 @@ import type { CharacterData } from "../../../../engine/contracts/types/character
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 import { CharacterEditorSectionHeader as SectionHeader } from "./CharacterEditorSectionHeader";
+import { CharacterFieldGenerationButton } from "./CharacterFieldGenerationButton";
 
 export function CharacterAdvancedTab({
   formData,
+  characterComment,
   updateField,
   updateExtension,
 }: {
   formData: CharacterData;
+  characterComment: string;
   updateField: <K extends keyof CharacterData>(key: K, value: CharacterData[K]) => void;
   updateExtension: (key: string, value: unknown) => void;
 }) {
@@ -31,14 +34,22 @@ export function CharacterAdvancedTab({
             System Prompt{" "}
             <HelpTooltip text="Overrides or appends to the main system prompt when this character is active. Use this for character-specific instructions the AI must follow." />
           </span>
-          <button
-            type="button"
-            onClick={() => setExpandedField("system_prompt")}
-            className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-            title="Expand editor"
-          >
-            <Maximize2 size="0.875rem" />
-          </button>
+          <div className="flex items-center gap-1">
+            <CharacterFieldGenerationButton
+              field="system_prompt"
+              data={formData}
+              comment={characterComment}
+              onApply={(value) => typeof value === "string" && updateField("system_prompt", value)}
+            />
+            <button
+              type="button"
+              onClick={() => setExpandedField("system_prompt")}
+              className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+              title="Expand editor"
+            >
+              <Maximize2 size="0.875rem" />
+            </button>
+          </div>
         </div>
         <textarea
           value={formData.system_prompt}
@@ -55,14 +66,22 @@ export function CharacterAdvancedTab({
             Post-History Instructions{" "}
             <HelpTooltip text="Text inserted after the chat history, right before the AI generates. Great for reminders like 'stay in character' or 'respond in 2 paragraphs'." />
           </span>
-          <button
-            type="button"
-            onClick={() => setExpandedField("post_history")}
-            className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-            title="Expand editor"
-          >
-            <Maximize2 size="0.875rem" />
-          </button>
+          <div className="flex items-center gap-1">
+            <CharacterFieldGenerationButton
+              field="post_history_instructions"
+              data={formData}
+              comment={characterComment}
+              onApply={(value) => typeof value === "string" && updateField("post_history_instructions", value)}
+            />
+            <button
+              type="button"
+              onClick={() => setExpandedField("post_history")}
+              className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+              title="Expand editor"
+            >
+              <Maximize2 size="0.875rem" />
+            </button>
+          </div>
         </div>
         <textarea
           value={formData.post_history_instructions}
@@ -79,14 +98,24 @@ export function CharacterAdvancedTab({
             Depth Prompt{" "}
             <HelpTooltip text="Injects text at a specific position in the chat history. Depth 0 = at the end, depth 4 = 4 messages back. Useful for persistent reminders." />
           </span>
-          <button
-            type="button"
-            onClick={() => setExpandedField("depth_prompt")}
-            className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-            title="Expand editor"
-          >
-            <Maximize2 size="0.875rem" />
-          </button>
+          <div className="flex items-center gap-1">
+            <CharacterFieldGenerationButton
+              field="depth_prompt"
+              data={formData}
+              comment={characterComment}
+              onApply={(value) =>
+                typeof value === "object" && !Array.isArray(value) && updateExtension("depth_prompt", value)
+              }
+            />
+            <button
+              type="button"
+              onClick={() => setExpandedField("depth_prompt")}
+              className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+              title="Expand editor"
+            >
+              <Maximize2 size="0.875rem" />
+            </button>
+          </div>
         </div>
         <textarea
           value={depthPrompt.prompt}

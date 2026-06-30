@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { Maximize2 } from "lucide-react";
 
+import type { CharacterData } from "../../../../engine/contracts/types/character";
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
 import { CharacterEditorSectionHeader as SectionHeader } from "./CharacterEditorSectionHeader";
+import { CharacterFieldGenerationButton } from "./CharacterFieldGenerationButton";
+import type { CharacterFieldGenerationField } from "../lib/character-field-generation";
 
 export function CharacterTextareaTab({
   title,
@@ -10,6 +13,9 @@ export function CharacterTextareaTab({
   value,
   onChange,
   placeholder,
+  generationField,
+  generationData,
+  characterComment,
   rows = 8,
 }: {
   title: string;
@@ -17,6 +23,9 @@ export function CharacterTextareaTab({
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
+  generationField?: CharacterFieldGenerationField;
+  generationData?: CharacterData;
+  characterComment?: string;
   rows?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -25,14 +34,24 @@ export function CharacterTextareaTab({
     <div>
       <div className="flex items-start justify-between gap-2 mb-4">
         <SectionHeader title={title} subtitle={subtitle} />
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="mt-0.5 shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-          title="Expand editor"
-        >
-          <Maximize2 size="0.875rem" />
-        </button>
+        <div className="mt-0.5 flex items-center gap-1">
+          {generationField && generationData && (
+            <CharacterFieldGenerationButton
+              field={generationField}
+              data={generationData}
+              comment={characterComment}
+              onApply={(nextValue) => typeof nextValue === "string" && onChange(nextValue)}
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+            title="Expand editor"
+          >
+            <Maximize2 size="0.875rem" />
+          </button>
+        </div>
       </div>
       <textarea
         value={value}
