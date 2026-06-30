@@ -4421,7 +4421,7 @@ Line two\",\"personality\":\"Bright\",\"scenario\":\"Roadside inn\",\"backstory\
     fn deki_response_extracts_action_from_fenced_json_block() {
         let raw = r#"Draft ready.
 <deki_action>```json
-{"type":"create_record","entity":"personas","draft":{"name":"Sol"}}
+{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"Sunny traveler","personality":"Bright","scenario":"Roadside inn","backstory":"Raised by caravan cooks.","appearance":"Sun-faded cloak and quick hands."}}
 ```</deki_action>"#;
 
         let (content, action) =
@@ -4529,7 +4529,7 @@ Line two\",\"personality\":\"Bright\",\"scenario\":\"Roadside inn\",\"backstory\
     #[test]
     fn deki_response_extracts_action_when_hidden_block_has_trailing_text() {
         let raw = r#"Draft ready.
-<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol"}} This draft creates the requested persona.</deki_action>"#;
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"Sunny traveler","personality":"Bright","scenario":"Roadside inn","backstory":"Raised by caravan cooks.","appearance":"Sun-faded cloak and quick hands."}} This draft creates the requested persona.</deki_action>"#;
 
         let (content, action) = deki_response_content_and_action(raw)
             .expect("action with hidden trailing text should parse");
@@ -4844,7 +4844,7 @@ Line two\",\"personality\":\"Bright\",\"scenario\":\"Roadside inn\",\"backstory\
     #[test]
     fn deki_response_rejects_multiple_action_blocks() {
         let raw = r#"Draft ready.
-<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol"}}</deki_action>
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"Sunny traveler","personality":"Bright","scenario":"Roadside inn","backstory":"Raised by caravan cooks.","appearance":"Sun-faded cloak and quick hands."}}</deki_action>
 <deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Luna"}}</deki_action>"#;
 
         let error =
@@ -4856,7 +4856,7 @@ Line two\",\"personality\":\"Bright\",\"scenario\":\"Roadside inn\",\"backstory\
     #[test]
     fn deki_response_preserves_visible_text_after_action_block() {
         let raw = r#"Draft ready.
-<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol"}}</deki_action>
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"Sunny traveler","personality":"Bright","scenario":"Roadside inn","backstory":"Raised by caravan cooks.","appearance":"Sun-faded cloak and quick hands."}}</deki_action>
 Extra visible text."#;
 
         let (content, action) =
