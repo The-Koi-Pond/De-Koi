@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { LlmGateway } from "../../../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../../../capabilities/storage";
-import { concludeRoleplayScene, reopenRoleplayScene } from "./scene-service";
+import { concludeRoleplayScene, createRoleplayScene, reopenRoleplayScene } from "./scene-service";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -10,11 +10,16 @@ function storageForScene(args: {
   chats: JsonRecord[];
   messages: Record<string, JsonRecord[]>;
   connections?: JsonRecord[];
-}): { storage: StorageGateway; createdMessages: Array<{ chatId: string; value: JsonRecord }> } {
+}): {
+  storage: StorageGateway;
+  createdRecords: Array<{ entity: StorageEntity; value: JsonRecord }>;
+  createdMessages: Array<{ chatId: string; value: JsonRecord }>;
+} {
   const chats = new Map(args.chats.map((chat) => [String(chat.id), { ...chat }]));
   const messages = new Map(
     Object.entries(args.messages).map(([chatId, rows]) => [chatId, rows.map((row) => ({ ...row }))]),
   );
+  const createdRecords: Array<{ entity: StorageEntity; value: JsonRecord }> = [];
   const createdMessages: Array<{ chatId: string; value: JsonRecord }> = [];
 
   const storage = {
@@ -38,8 +43,12 @@ function storageForScene(args: {
       }
       return { id, ...patch } as T;
     },
-    async create<T>(_entity: StorageEntity, value: JsonRecord) {
-      return { id: `created-${createdMessages.length + 1}`, ...value } as T;
+    async create<T>(entity: StorageEntity, value: JsonRecord) {
+      if (entity === "chats" && value.mode === "roleplay" && value.folderId === "conversation-folder") {
+        throw new Error("Chat folder conversation-folder is for conversation chats, not roleplay chats");
+      }
+      createdRecords.push({ entity, value });
+      return { id: "created-" + createdRecords.length, ...value } as T;
     },
     async delete() {
       return { deleted: true };
@@ -93,7 +102,7 @@ function storageForScene(args: {
     },
   } as unknown as StorageGateway;
 
-  return { storage, createdMessages };
+  return { storage, createdRecords, createdMessages };
 }
 
 const idleLlm: LlmGateway = {
@@ -108,6 +117,85 @@ const idleLlm: LlmGateway = {
   },
 };
 
+describe("createRoleplayScene", () => {
+  const basePlan = {
+    name: "Scene: Dinner",
+    description: "The dinner turns dramatic.",
+    scenario: "A tense dinner scene.",
+    firstMessage: "The room goes quiet.",
+    background: null,
+    characterIds: ["char-1"],
+    systemPrompt: "Keep the roleplay grounded.",
+    rating: "sfw" as const,
+    relationshipHistory: "They were talking over dinner.",
+    participationGuide: "",
+  };
+
+  async function createSceneFromOrigin(origin: JsonRecord) {
+    const fixture = storageForScene({
+      chats: [
+        {
+          id: "origin",
+          name: "Dinner Chat",
+          characterIds: ["char-1"],
+          metadata: {},
+          ...origin,
+        },
+      ],
+      messages: {
+        origin: [{ id: "message-1", role: "user", content: "Let this become a focused scene." }],
+      },
+    });
+
+    const create = createRoleplayScene(fixture.storage, {
+      originChatId: "origin",
+      initiatorCharId: null,
+      connectionId: null,
+      plan: basePlan,
+    });
+
+    return { ...fixture, create };
+  }
+
+  it("does not place a branched roleplay scene in the origin conversation folder", async () => {
+    const { create, createdRecords } = await createSceneFromOrigin({
+      mode: "conversation",
+      folderId: "conversation-folder",
+    });
+
+    await expect(create).resolves.toMatchObject({ chatId: "created-1", chatName: "Scene: Dinner" });
+
+    const createdScene = createdRecords.find((record) => record.entity === "chats")?.value;
+    expect(createdScene).toMatchObject({ mode: "roleplay" });
+    expect(createdScene).not.toHaveProperty("folderId", "conversation-folder");
+  });
+
+  it.each([
+    ["roleplay", "roleplay-folder"],
+    ["visual_novel", "legacy-roleplay-folder"],
+  ])("inherits a roleplay-compatible folder from %s origins", async (mode, folderId) => {
+    const { create, createdRecords } = await createSceneFromOrigin({ mode, folderId });
+
+    await expect(create).resolves.toMatchObject({ chatId: "created-1" });
+
+    const createdScene = createdRecords.find((record) => record.entity === "chats")?.value;
+    expect(createdScene).toMatchObject({ mode: "roleplay", folderId });
+  });
+
+  it.each([
+    ["missing mode", {}],
+    ["blank mode", { mode: "   " }],
+    ["typo mode", { mode: "chat" }],
+  ])("rejects %s instead of silently creating an unfiled scene", async (_label, origin) => {
+    const { create, createdRecords } = await createSceneFromOrigin({
+      folderId: "conversation-folder",
+      ...origin,
+    });
+
+    await expect(create).rejects.toThrow("Cannot create roleplay scene from chat mode");
+    expect(createdRecords).toHaveLength(0);
+  });
+});
 describe("roleplay scene conclusion summaries", () => {
   it("uses clean prose for the no-LLM fallback instead of raw role-prefixed transcript slices", async () => {
     const longSceneBeat = [
@@ -189,7 +277,6 @@ describe("roleplay scene conclusion summaries", () => {
     expect(result.summary).toBe("The Trapper waited in the fog while the persona held their ground.");
   });
 });
-
 
 describe("reopenRoleplayScene", () => {
   it("restores a concluded scene as the active scene on its origin conversation", async () => {
