@@ -18,14 +18,12 @@ describe("buildGeneratedCharacterPublicProfile", () => {
         },
       },
       "Mira",
-      ["bard", "friend"],
     );
 
     expect(profile).toEqual({
       displayName: "Mira Vale",
       handle: "@moonbard",
       bio: "A cheerful bard who remembers every song half-wrong.",
-      tags: ["music", "sunny"],
       bannerImage: "gallery://banner-1",
     });
     expect(JSON.stringify(profile)).not.toContain("Never show");
@@ -38,13 +36,11 @@ describe("buildGeneratedCharacterPublicProfile", () => {
         tags: ["archivist"],
       },
       "Mira",
-      ["archivist", "mystery"],
     );
 
     expect(profile).toEqual({
       displayName: "Mira",
       bio: "A city archivist with too many keys.",
-      tags: ["archivist", "mystery"],
     });
   });
 });

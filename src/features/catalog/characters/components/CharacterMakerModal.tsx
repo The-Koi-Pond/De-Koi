@@ -122,7 +122,7 @@ export function CharacterMakerModal({ open, onClose }: Props) {
     try {
       const referenceTags = parseTagsInput(referenceTagsInput);
       const savedTags = mergeTags(generated.tags, referenceTags);
-      const publicProfile = buildGeneratedCharacterPublicProfile(generated, finalName, savedTags);
+      const publicProfile = buildGeneratedCharacterPublicProfile(generated, finalName);
       const characterData = {
         data: {
           name: finalName,

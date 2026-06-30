@@ -69,7 +69,6 @@ export interface CharacterPublicProfile {
   displayName?: string;
   handle?: string;
   bio?: string;
-  tags?: string[];
   bannerImage?: string;
 }
 
