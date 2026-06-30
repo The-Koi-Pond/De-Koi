@@ -2043,11 +2043,12 @@ async function resolveIndividualGroupTurnIds(args: {
   const order = readString(metadata.groupResponseOrder, "smart");
   if (order === "manual") return [];
   if (order === "smart") {
-    return smartRoleplayGroupTargets({
+    const smartTargets = await smartRoleplayGroupTargets({
       ...args,
       activeIds,
       selectionMode: "multi",
     });
+    if (smartTargets.length > 0 || !isConversationGroup) return smartTargets;
   }
   return sequentialGroupTurnOrder(args.storedMessages, activeIds);
 }
