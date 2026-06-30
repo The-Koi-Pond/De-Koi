@@ -212,10 +212,10 @@
     "id": "deki",
     "title": "Deki-senpai",
     "category": "Help",
-    "summary": "A dedicated Deki-senpai surface for app questions, codebase help, creative-library drafts with approval cards, scoped chat-access controls, approved web research/source-page checks, retryable sessions, and guided changes separate from active chats.",
-    "keywords": ["help", "assistant", "deki", "senpai", "ask", "support", "customize", "codebase", "approval", "draft", "chat access", "scoped access", "web research", "source check", "wiki check", "character maker", "persona maker", "lorebook maker", "preset review", "retry", "sessions"],
+    "summary": "A dedicated Deki-senpai surface for app questions, codebase help, creative-library drafts with approval cards, scoped chat-access controls, approved web research/source-page checks, retryable sessions, batch session cleanup, and guided changes separate from active chats.",
+    "keywords": ["help", "assistant", "deki", "senpai", "ask", "support", "customize", "codebase", "approval", "draft", "chat access", "scoped access", "web research", "source check", "wiki check", "character maker", "persona maker", "lorebook maker", "preset review", "retry", "sessions", "delete sessions", "batch delete", "multi-select"],
     "audience": "Users who want help understanding, customizing, or drafting De-Koi library records without interrupting a chat.",
-    "where": "Deki-senpai button in the title bar or mobile top bar.",
+    "where": "Deki-senpai button in the title bar or mobile top bar, then the Deki session sidebar.",
     "actions": [{ "type": "open-deki", "label": "Open Deki-senpai" }],
     "coverage": "core"
   },
