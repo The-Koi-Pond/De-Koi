@@ -47,10 +47,10 @@
     "id": "characters",
     "title": "Characters",
     "category": "Library",
-    "summary": "Create, import, organize into groups, edit character cards, and maintain outward-facing public profiles with generated bios for chat profile popouts, quick inspect cards, and shallow social context.",
-    "keywords": ["card", "character", "bot", "import", "avatar", "sprite", "persona", "library", "groups", "drag and drop", "public profile", "about me", "bio", "generated bio", "generate bio", "profile bio", "handle", "tags", "quick inspect", "profile popout", "discord profile", "chat name profile", "status profile", "chat settings profile", "party profile"],
+    "summary": "Create, import, organize into groups, edit character cards, and maintain outward-facing public profiles, including Character Maker bios for chat profile popouts, quick inspect cards, and shallow social context.",
+    "keywords": ["card", "character", "bot", "character maker", "import", "avatar", "sprite", "persona", "library", "groups", "drag and drop", "public profile", "about me", "bio", "generated bio", "generate bio", "profile bio", "handle", "tags", "quick inspect", "profile popout", "discord profile", "chat name profile", "status profile", "chat settings profile", "party profile"],
     "audience": "Users building or collecting characters to chat or roleplay with.",
-    "where": "Title bar > Characters, then open a character > Metadata > Public Profile > Generate bio. In chats, click a character name in the transcript, click the header identity/status pill, or open Settings and click a party character row.",
+    "where": "Title bar > Characters, then create with Character Maker or open a character > Metadata > Public Profile. In chats, click a character name in the transcript, click the header identity/status pill, or open Settings and click a party character row.",
     "actions": [{ "type": "open-panel", "panel": "characters", "label": "Open Characters" }],
     "coverage": "core"
   },
