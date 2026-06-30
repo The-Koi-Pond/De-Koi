@@ -33,6 +33,10 @@ import {
   shouldShowConversationTypingIndicator,
 } from "../lib/conversation-streaming-draft";
 import {
+  getConversationCharacterStatusDetail,
+  getConversationCharacterStatusTitle,
+} from "../lib/conversation-status-display";
+import {
   ChatBranchSelector,
   type ChatBranchSelectorHandle,
   getTranscriptRenderWindow,
@@ -1373,7 +1377,7 @@ export function ConversationView({
 
               if (chars.length === 1) {
                 const c = chars[0]!;
-                const statusExplanation = c.conversationAvailabilityExplanation;
+                const statusDetail = getConversationCharacterStatusDetail(c);
                 const profileTitle = `Open ${c.name} profile`;
                 return (
                   <button
@@ -1399,16 +1403,12 @@ export function ConversationView({
                     </div>
                     <div className="flex flex-col leading-tight">
                       <span className="text-[0.75rem] font-medium text-foreground/90">{c.name}</span>
-                      {(c.conversationStatusMessage ||
-                        c.conversationAvailabilityExplanation ||
-                        c.conversationActivity) && (
+                      {statusDetail && (
                         <span
                           className="max-w-[12rem] truncate text-[0.5625rem] text-foreground/50"
-                          title={statusExplanation}
+                          title={statusDetail}
                         >
-                          {c.conversationStatusMessage ||
-                            c.conversationAvailabilityExplanation ||
-                            c.conversationActivity}
+                          {statusDetail}
                         </span>
                       )}
                     </div>
@@ -1432,7 +1432,7 @@ export function ConversationView({
                             openCharacterProfilePopover(c.id, event.currentTarget.getBoundingClientRect());
                           }}
                           className="relative block transition-transform active:scale-90"
-                          title={c.conversationAvailabilityExplanation ?? c.conversationActivity ?? c.name}
+                          title={getConversationCharacterStatusTitle(c, `Open ${c.name} profile`)}
                           aria-label={`Open ${c.name} profile`}
                         >
                           {c.avatarUrl ? (
