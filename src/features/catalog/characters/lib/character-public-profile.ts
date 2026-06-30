@@ -1,6 +1,6 @@
 import type { CharacterPublicProfile } from "../../../../engine/contracts/types/character";
 
-type CharacterPublicProfileData = Record<string, unknown> & {
+type CharacterPublicProfileData = {
   name?: unknown;
   description?: unknown;
   creator_notes?: unknown;
@@ -22,6 +22,13 @@ export type ResolvedCharacterPublicProfile = {
   tags: string[];
   bannerImage: string | null;
   hasSavedProfile: boolean;
+};
+
+export type CharacterPublicProfileSuggestionField = "displayName" | "handle";
+
+export type CharacterPublicProfileSuggestionInput = {
+  data: CharacterPublicProfileData;
+  comment?: string | null;
 };
 
 function readRecord(value: unknown): Record<string, unknown> {
@@ -47,11 +54,39 @@ function readTextArray(value: unknown): string[] {
   return result;
 }
 
+function toProfileHandle(value: string): string {
+  const normalized = value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_{2,}/g, "_")
+    .slice(0, 32)
+    .replace(/_+$/g, "");
+  return normalized ? `@${normalized}` : "@username";
+}
+
 export function getSavedCharacterPublicProfile(
   data: CharacterPublicProfileData | null | undefined,
 ): CharacterPublicProfile {
   const extensions = readRecord(data?.extensions);
   return readRecord(extensions.publicProfile) as CharacterPublicProfile;
+}
+
+export function suggestCharacterPublicProfileField(
+  field: CharacterPublicProfileSuggestionField,
+  input: CharacterPublicProfileSuggestionInput,
+): string {
+  const saved = getSavedCharacterPublicProfile(input.data);
+  const cardName = readText(input.data.name);
+  const title = readText(input.comment);
+
+  if (field === "displayName") {
+    return cardName || readText(saved.displayName) || title || "Unnamed";
+  }
+
+  return toProfileHandle(readText(saved.displayName) || cardName || title || "username");
 }
 
 export function resolveCharacterPublicProfile(row: CharacterPublicProfileRow): ResolvedCharacterPublicProfile {

@@ -1,6 +1,39 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveCharacterPublicProfile } from "./character-public-profile";
+import { resolveCharacterPublicProfile, suggestCharacterPublicProfileField } from "./character-public-profile";
+import type { CharacterData } from "../../../../engine/contracts/types/character";
+
+function characterData(overrides: Partial<CharacterData> = {}): CharacterData {
+  return {
+    name: "Mira Vale",
+    description: "",
+    personality: "",
+    scenario: "",
+    first_mes: "",
+    mes_example: "",
+    creator_notes: "",
+    system_prompt: "",
+    post_history_instructions: "",
+    tags: [],
+    creator: "",
+    character_version: "",
+    alternate_greetings: [],
+    extensions: {
+      talkativeness: 0.5,
+      fav: false,
+      world: "",
+      depth_prompt: {
+        prompt: "",
+        depth: 4,
+        role: "system",
+      },
+      backstory: "",
+      appearance: "",
+    },
+    character_book: null,
+    ...overrides,
+  };
+}
 
 describe("resolveCharacterPublicProfile", () => {
   it("uses saved public profile fields before derived character-card fields", () => {
@@ -68,5 +101,55 @@ describe("resolveCharacterPublicProfile", () => {
 
     expect(profile.bio).toBe("Freelance journalist with a taste for fear");
     expect(profile.bio).not.toContain("Danny Johnson");
+  });
+});
+
+describe("suggestCharacterPublicProfileField", () => {
+  it("suggests display name and handle independently from public-safe character fields", () => {
+    const data = characterData({
+      name: "Dr. Mira Vale",
+      description: "A city archivist with too many keys.",
+      creator_notes: "Private setup instructions and model settings.",
+      extensions: {
+        talkativeness: 0.5,
+        fav: false,
+        world: "",
+        depth_prompt: {
+          prompt: "",
+          depth: 4,
+          role: "system",
+        },
+        backstory: "",
+        appearance: "",
+        publicProfile: {
+          displayName: "Mira Vale",
+        },
+      },
+    });
+
+    expect(suggestCharacterPublicProfileField("displayName", { data, comment: "Night-shift archive keeper" })).toBe(
+      "Dr. Mira Vale",
+    );
+    expect(suggestCharacterPublicProfileField("handle", { data, comment: "Night-shift archive keeper" })).toBe(
+      "@mira_vale",
+    );
+    expect(suggestCharacterPublicProfileField("displayName", { data, comment: "Night-shift archive keeper" })).not.toContain(
+      "Private setup",
+    );
+  });
+
+  it("falls back to the public comment when the character name is blank", () => {
+    const data = characterData({
+      name: "",
+      description: "",
+      creator_notes: "Private note.",
+    });
+
+    expect(suggestCharacterPublicProfileField("displayName", { data, comment: "Night-shift archive keeper" })).toBe(
+      "Night-shift archive keeper",
+    );
+    expect(suggestCharacterPublicProfileField("handle", { data, comment: "Night-shift archive keeper" })).toBe(
+      "@night_shift_archive_keeper",
+    );
   });
 });

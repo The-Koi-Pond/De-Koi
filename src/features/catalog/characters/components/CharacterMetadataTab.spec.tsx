@@ -83,9 +83,7 @@ describe("CharacterMetadataTab public profile generation", () => {
       );
     });
 
-    const generateButton = Array.from(container!.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("Generate bio"),
-    ) as HTMLButtonElement | undefined;
+    const generateButton = container!.querySelector<HTMLButtonElement>("button[aria-label=\"Generate bio\"]");
     expect(generateButton).toBeTruthy();
 
     await act(async () => {

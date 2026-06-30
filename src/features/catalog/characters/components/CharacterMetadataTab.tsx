@@ -10,6 +10,10 @@ import { llmApi } from "../../../../shared/api/llm-api";
 import type { AvatarCrop } from "../../../../shared/lib/utils";
 import { CharacterEditorSectionHeader as SectionHeader } from "./CharacterEditorSectionHeader";
 import { CharacterVersionHistoryPanel } from "./CharacterVersionHistoryPanel";
+import {
+  suggestCharacterPublicProfileField,
+  type CharacterPublicProfileSuggestionField,
+} from "../lib/character-public-profile";
 import { useConnections } from "../../connections/index";
 
 function readPublicProfile(value: unknown): CharacterPublicProfile {
@@ -69,6 +73,12 @@ export function CharacterMetadataTab({
   const selectedPublicBioConnectionId = publicBioConnectionId || connections[0]?.id || "";
   const updatePublicProfile = (patch: CharacterPublicProfile) =>
     updateExtension("publicProfile", { ...publicProfile, ...patch });
+  const applyPublicProfileSuggestion = (field: CharacterPublicProfileSuggestionField) =>
+    updatePublicProfile({
+      [field]: suggestCharacterPublicProfileField(field, { data: formData, comment: characterComment }),
+    } as CharacterPublicProfile);
+  const profileWandButtonClass =
+    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--primary)]/10 hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/30 disabled:cursor-not-allowed disabled:opacity-50";
 
   const handleGeneratePublicBio = async () => {
     if (!selectedPublicBioConnectionId || generatingPublicBio) return;
@@ -234,24 +244,26 @@ export function CharacterMetadataTab({
                 ))}
               </select>
             )}
-            <button
-              type="button"
-              onClick={handleGeneratePublicBio}
-              disabled={generatingPublicBio || !selectedPublicBioConnectionId}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
-              title={selectedPublicBioConnectionId ? "Generate public bio" : "Add a model connection to generate a bio"}
-            >
-              {generatingPublicBio ? <Loader2 size="0.75rem" className="animate-spin" /> : <Wand2 size="0.75rem" />}
-              Generate bio
-            </button>
+
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1.5">
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-              Display Name{" "}
-              <HelpTooltip text="Optional name for profile previews. Chat still uses the character name above." />
-            </span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+                Display Name{" "}
+                <HelpTooltip text="Optional name for profile previews. Chat still uses the character name above." />
+              </span>
+              <button
+                type="button"
+                onClick={() => applyPublicProfileSuggestion("displayName")}
+                className={profileWandButtonClass}
+                title="Generate display name"
+                aria-label="Generate display name"
+              >
+                <Wand2 size="0.875rem" />
+              </button>
+            </div>
             <input
               value={publicProfile.displayName ?? ""}
               onChange={(event) => updatePublicProfile({ displayName: event.target.value })}
@@ -260,9 +272,20 @@ export function CharacterMetadataTab({
             />
           </label>
           <label className="space-y-1.5">
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-              Handle <HelpTooltip text="Optional short username shown on profile previews." />
-            </span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+                Handle <HelpTooltip text="Optional short username shown on profile previews." />
+              </span>
+              <button
+                type="button"
+                onClick={() => applyPublicProfileSuggestion("handle")}
+                className={profileWandButtonClass}
+                title="Generate handle"
+                aria-label="Generate handle"
+              >
+                <Wand2 size="0.875rem" />
+              </button>
+            </div>
             <input
               value={publicProfile.handle ?? ""}
               onChange={(event) => updatePublicProfile({ handle: event.target.value })}
@@ -272,9 +295,21 @@ export function CharacterMetadataTab({
           </label>
         </div>
         <label className="space-y-1.5 block">
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-            Bio <HelpTooltip text="Short public blurb for profile previews." />
-          </span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+              Bio <HelpTooltip text="Short public blurb for profile previews." />
+            </span>
+            <button
+              type="button"
+              onClick={handleGeneratePublicBio}
+              disabled={generatingPublicBio || !selectedPublicBioConnectionId}
+              className={profileWandButtonClass}
+              title={selectedPublicBioConnectionId ? "Generate bio" : "Add a model connection to generate a bio"}
+              aria-label="Generate bio"
+            >
+              {generatingPublicBio ? <Loader2 size="0.875rem" className="animate-spin" /> : <Wand2 size="0.875rem" />}
+            </button>
+          </div>
           <textarea
             value={publicProfile.bio ?? ""}
             onChange={(event) => updatePublicProfile({ bio: event.target.value })}
