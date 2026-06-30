@@ -5,12 +5,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CharacterData } from "../../../../engine/contracts/types/character";
 import { CharacterMetadataTab } from "./CharacterMetadataTab";
 
-vi.mock("../../connections/index", () => ({
-  useConnections: () => ({ data: [{ id: "conn-1", name: "Main", model: "gpt-test" }] }),
+const apiMocks = vi.hoisted(() => ({
+  listConnections: vi.fn(async () => [{ id: "conn-1", provider: "openai", isDefault: true }]),
+  streamCompletion: vi.fn(async function* () {
+    yield { type: "token", text: "I turn fear into a headline. Smile for the camera." };
+  }),
 }));
 
-vi.mock("../../../../engine/generation/public-profile", () => ({
-  generateCharacterPublicProfileBio: vi.fn(async () => "I turn fear into a headline. Smile for the camera."),
+vi.mock("../../../../shared/api/storage-api", () => ({
+  storageApi: { list: apiMocks.listConnections },
+}));
+
+vi.mock("../../../../shared/api/llm-api", () => ({
+  llmApi: { stream: apiMocks.streamCompletion },
 }));
 
 vi.mock("./CharacterVersionHistoryPanel", () => ({
@@ -83,13 +90,22 @@ describe("CharacterMetadataTab public profile generation", () => {
       );
     });
 
-    const generateButton = container!.querySelector<HTMLButtonElement>("button[aria-label=\"Generate bio\"]");
+    const generateButton = container!.querySelector<HTMLButtonElement>('button[aria-label="Generate bio"]');
     expect(generateButton).toBeTruthy();
 
     await act(async () => {
       generateButton!.click();
     });
 
+    expect(apiMocks.streamCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: "conn-1",
+        messages: expect.arrayContaining([
+          expect.objectContaining({ content: expect.stringContaining("roleplaying") }),
+        ]),
+      }),
+      expect.any(AbortSignal),
+    );
     expect(updateExtension).toHaveBeenCalledWith("publicProfile", {
       bio: "I turn fear into a headline. Smile for the camera.",
     });
