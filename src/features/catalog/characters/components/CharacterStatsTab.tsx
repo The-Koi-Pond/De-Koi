@@ -1,9 +1,34 @@
-import { useRef } from "react";
-import { Plus, X } from "lucide-react";
+import { useRef, useState } from "react";
+import { Loader2, Plus, Wand2, X } from "lucide-react";
 import type { CharacterData, RPGStatsConfig } from "../../../../engine/contracts/types/character";
+import { llmApi } from "../../../../shared/api/llm-api";
+import { storageApi } from "../../../../shared/api/storage-api";
 import { generateClientId } from "../../../../shared/lib/utils";
 import { DEFAULT_RPG_STATS } from "../lib/character-editor-model";
+import { generateCharacterRpgStatsConfig } from "../lib/character-rpg-stats-generation";
 import { CharacterEditorSectionHeader } from "./CharacterEditorSectionHeader";
+
+type ConnectionRecord = {
+  id?: unknown;
+  provider?: unknown;
+  isDefault?: unknown;
+  default?: unknown;
+};
+
+function boolish(value: unknown): boolean {
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+async function resolveDefaultTextConnectionId(): Promise<string> {
+  const connections = await storageApi.list<ConnectionRecord>("connections");
+  const textConnections = connections.filter((connection) => connection.provider !== "image_generation");
+  const selected =
+    textConnections.find((connection) => boolish(connection.isDefault) || boolish(connection.default)) ??
+    textConnections[0];
+  const connectionId = typeof selected?.id === "string" ? selected.id.trim() : "";
+  if (!connectionId) throw new Error("No text connection configured");
+  return connectionId;
+}
 
 export function CharacterStatsTab({
   formData,
@@ -12,6 +37,8 @@ export function CharacterStatsTab({
   formData: CharacterData;
   updateExtension: (key: string, value: unknown) => void;
 }) {
+  const [generatingStats, setGeneratingStats] = useState(false);
+  const [generationError, setGenerationError] = useState("");
   const stats: RPGStatsConfig = (formData.extensions.rpgStats as RPGStatsConfig) ?? DEFAULT_RPG_STATS;
   const attributeKeysRef = useRef<string[]>([]);
   while (attributeKeysRef.current.length < stats.attributes.length) {
@@ -41,6 +68,26 @@ export function CharacterStatsTab({
     update({ attributes: stats.attributes.filter((_, i) => i !== index) });
   };
 
+  const generateStats = async () => {
+    if (generatingStats) return;
+    setGeneratingStats(true);
+    setGenerationError("");
+
+    try {
+      const connectionId = await resolveDefaultTextConnectionId();
+      const generated = await generateCharacterRpgStatsConfig({
+        data: formData,
+        connectionId,
+        llm: llmApi,
+      });
+      updateExtension("rpgStats", generated);
+    } catch (err) {
+      setGenerationError(err instanceof Error ? err.message : "RPG stats generation failed");
+    } finally {
+      setGeneratingStats(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <CharacterEditorSectionHeader
@@ -65,6 +112,14 @@ export function CharacterStatsTab({
 
       {stats.enabled && (
         <>
+          {generationError && (
+            <div
+              role="alert"
+              className="rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/8 px-3 py-2 text-xs font-medium text-[var(--destructive)]"
+            >
+              {generationError}
+            </div>
+          )}
           <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
             <div className="flex items-center gap-2">
               <div className="h-2 w-2 rounded-full bg-red-500" />
@@ -83,16 +138,29 @@ export function CharacterStatsTab({
           </div>
 
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-semibold">Attributes</h3>
-              <button
-                type="button"
-                onClick={addAttribute}
-                className="flex items-center gap-1 rounded-lg bg-purple-500/15 px-2.5 py-1 text-[0.6875rem] font-medium text-purple-400 transition-colors hover:bg-purple-500/25"
-              >
-                <Plus size="0.75rem" />
-                Add
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={generateStats}
+                  disabled={generatingStats}
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--primary)]/10 hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/30 disabled:cursor-wait disabled:opacity-60"
+                  title="Generate RPG stats"
+                  aria-label="Generate RPG stats"
+                  aria-busy={generatingStats}
+                >
+                  {generatingStats ? <Loader2 size="0.875rem" className="animate-spin" /> : <Wand2 size="0.875rem" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={addAttribute}
+                  className="flex items-center gap-1 rounded-lg bg-purple-500/15 px-2.5 py-1 text-[0.6875rem] font-medium text-purple-400 transition-colors hover:bg-purple-500/25"
+                >
+                  <Plus size="0.75rem" />
+                  Add
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -129,12 +197,12 @@ export function CharacterStatsTab({
             <h4 className="mb-1.5 text-xs font-semibold">How stats work</h4>
             <ul className="space-y-1 text-[0.6875rem] text-[var(--muted-foreground)]">
               <li>
-                &bull; <strong className="text-[var(--foreground)]">HP</strong> — Injected into the prompt so the AI
+                &bull; <strong className="text-[var(--foreground)]">HP</strong> â€” Injected into the prompt so the AI
                 knows the character&apos;s current health.
               </li>
               <li>
-                &bull; <strong className="text-[var(--foreground)]">Attributes</strong> — Custom stats (STR, DEX, etc.)
-                that define the character&apos;s capabilities.
+                &bull; <strong className="text-[var(--foreground)]">Attributes</strong> â€” Custom stats (STR, DEX,
+                etc.) that define the character&apos;s capabilities.
               </li>
               <li>
                 &bull; The Character Tracker agent adjusts these values based on narrative events (combat, healing,
