@@ -15,6 +15,7 @@ import {
   type ImageGenerationConnectionOption,
 } from "../../../../shared/types/image-generation";
 import { CharacterEditorSectionHeader as SectionHeader } from "./CharacterEditorSectionHeader";
+import { CharacterFieldGenerationButton } from "./CharacterFieldGenerationButton";
 import { CharacterVersionHistoryPanel } from "./CharacterVersionHistoryPanel";
 import {
   buildCharacterPublicProfileBannerPrompt,
@@ -98,6 +99,21 @@ export function CharacterMetadataTab({
     updateExtension("publicProfile", { ...publicProfile, ...patch });
   const defaultImageConnectionId =
     imageConnections.find(isDefaultImageGenerationConnection)?.id ?? imageConnections[0]?.id ?? null;
+  const applyGeneratedTags = (value: unknown) => {
+    if (!Array.isArray(value)) return;
+    const seen = new Set(formData.tags.map((tag) => tag.toLowerCase()));
+    const merged = [...formData.tags];
+    for (const item of value) {
+      if (typeof item !== "string") continue;
+      const tag = item.trim();
+      if (!tag) continue;
+      const key = tag.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(tag);
+    }
+    updateField("tags", merged);
+  };
   const applyPublicProfileSuggestion = async (field: CharacterPublicProfileSuggestionField) => {
     if (publicProfileGeneratingField) return;
     publicProfileAbortRef.current?.abort();
@@ -236,15 +252,24 @@ export function CharacterMetadataTab({
             Tags{" "}
             <HelpTooltip text="Labels for organizing characters. Use tags like 'fantasy', 'sci-fi', 'OC' etc. to categorize and search." />
           </span>
-          {formData.tags.length > 0 && (
-            <button
-              type="button"
-              onClick={removeAllTags}
-              className="rounded-lg px-2 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
-            >
-              Remove All
-            </button>
-          )}
+          <div className="flex items-center gap-1">
+            <CharacterFieldGenerationButton
+              field="tags"
+              data={formData}
+              comment={characterComment}
+              mode="direct"
+              onApply={applyGeneratedTags}
+            />
+            {formData.tags.length > 0 && (
+              <button
+                type="button"
+                onClick={removeAllTags}
+                className="rounded-lg px-2 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+              >
+                Remove All
+              </button>
+            )}
+          </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {formData.tags.map((tag) => (
@@ -433,14 +458,22 @@ export function CharacterMetadataTab({
             Creator Notes{" "}
             <HelpTooltip text="Private notes about this character - tips for use, known quirks, recommended settings. Not sent to the AI." />
           </label>
-          <button
-            type="button"
-            onClick={() => setExpandedCreatorNotes(true)}
-            className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-            title="Expand editor"
-          >
-            <Maximize2 size="0.875rem" />
-          </button>
+          <div className="flex items-center gap-1">
+            <CharacterFieldGenerationButton
+              field="creator_notes"
+              data={formData}
+              comment={characterComment}
+              onApply={(value) => typeof value === "string" && updateField("creator_notes", value)}
+            />
+            <button
+              type="button"
+              onClick={() => setExpandedCreatorNotes(true)}
+              className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+              title="Expand editor"
+            >
+              <Maximize2 size="0.875rem" />
+            </button>
+          </div>
         </div>
         <textarea
           id={creatorNotesId}

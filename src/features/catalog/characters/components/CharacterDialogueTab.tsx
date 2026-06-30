@@ -5,12 +5,15 @@ import type { CharacterData } from "../../../../engine/contracts/types/character
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 import { CharacterEditorSectionHeader as SectionHeader } from "./CharacterEditorSectionHeader";
+import { CharacterFieldGenerationButton } from "./CharacterFieldGenerationButton";
 
 export function CharacterDialogueTab({
   formData,
+  characterComment,
   updateField,
 }: {
   formData: CharacterData;
+  characterComment: string;
   updateField: <K extends keyof CharacterData>(key: K, value: CharacterData[K]) => void;
 }) {
   const [expandedField, setExpandedField] = useState<"first_mes" | "mes_example" | number | null>(null);
@@ -46,14 +49,22 @@ export function CharacterDialogueTab({
             First Message{" "}
             <HelpTooltip text="The character's opening message when a new chat starts. Good first messages set the scene and establish the character's voice." />
           </span>
-          <button
-            type="button"
-            onClick={() => setExpandedField("first_mes")}
-            className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-            title="Expand editor"
-          >
-            <Maximize2 size="0.875rem" />
-          </button>
+          <div className="flex items-center gap-1">
+            <CharacterFieldGenerationButton
+              field="first_mes"
+              data={formData}
+              comment={characterComment}
+              onApply={(value) => typeof value === "string" && updateField("first_mes", value)}
+            />
+            <button
+              type="button"
+              onClick={() => setExpandedField("first_mes")}
+              className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+              title="Expand editor"
+            >
+              <Maximize2 size="0.875rem" />
+            </button>
+          </div>
         </div>
         <textarea
           value={formData.first_mes}
@@ -114,14 +125,22 @@ export function CharacterDialogueTab({
             Example Dialogue{" "}
             <HelpTooltip text="Sample conversations showing how the character talks. Helps the AI learn the character's speaking style, vocabulary, and mannerisms." />
           </span>
-          <button
-            type="button"
-            onClick={() => setExpandedField("mes_example")}
-            className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-            title="Expand editor"
-          >
-            <Maximize2 size="0.875rem" />
-          </button>
+          <div className="flex items-center gap-1">
+            <CharacterFieldGenerationButton
+              field="mes_example"
+              data={formData}
+              comment={characterComment}
+              onApply={(value) => typeof value === "string" && updateField("mes_example", value)}
+            />
+            <button
+              type="button"
+              onClick={() => setExpandedField("mes_example")}
+              className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+              title="Expand editor"
+            >
+              <Maximize2 size="0.875rem" />
+            </button>
+          </div>
         </div>
         <p className="text-[0.625rem] text-[var(--muted-foreground)]/70">
           {"Use <START> to separate exchanges. Use {{user}} and {{char}} as placeholders."}

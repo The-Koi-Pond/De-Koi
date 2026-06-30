@@ -4,12 +4,15 @@ import { Maximize2 } from "lucide-react";
 import type { CharacterData } from "../../../../engine/contracts/types/character";
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
 import { CharacterEditorSectionHeader as SectionHeader } from "./CharacterEditorSectionHeader";
+import { CharacterFieldGenerationButton } from "./CharacterFieldGenerationButton";
 
 export function CharacterDescriptionTab({
   formData,
+  characterComment,
   updateField,
 }: {
   formData: CharacterData;
+  characterComment: string;
   updateField: <K extends keyof CharacterData>(key: K, value: CharacterData[K]) => void;
 }) {
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
@@ -22,14 +25,22 @@ export function CharacterDescriptionTab({
             title="Description"
             subtitle="The character's general description. This is sent in every prompt as part of the character's identity."
           />
-          <button
-            type="button"
-            onClick={() => setDescriptionExpanded(true)}
-            className="mt-0.5 shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-            title="Expand editor"
-          >
-            <Maximize2 size="0.875rem" />
-          </button>
+          <div className="mt-0.5 flex items-center gap-1">
+            <CharacterFieldGenerationButton
+              field="description"
+              data={formData}
+              comment={characterComment}
+              onApply={(value) => typeof value === "string" && updateField("description", value)}
+            />
+            <button
+              type="button"
+              onClick={() => setDescriptionExpanded(true)}
+              className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+              title="Expand editor"
+            >
+              <Maximize2 size="0.875rem" />
+            </button>
+          </div>
         </div>
         <textarea
           value={formData.description}
