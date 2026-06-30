@@ -181,9 +181,7 @@ export async function createRoleplayScene(
   ].filter((id, index, ids) => ids.indexOf(id) === index);
   const inheritedSceneOptions = sceneCarryoverOptions(originMeta);
   const sceneSystemPrompt = [plan.systemPrompt, SCENE_GUIDELINES].filter((part) => part.trim()).join("\n\n");
-  const originMode = stringValue(originChat.mode).trim();
-  const sceneFolderId =
-    originMode === "roleplay" || originMode === "visual_novel" ? (originChat.folderId ?? null) : null;
+  const sceneFolderId = sceneFolderIdForOriginMode(originChat.mode, originChat.folderId);
 
   const metadata: JsonRecord = {
     sceneOriginChatId: input.originChatId,
@@ -1018,6 +1016,13 @@ function stringArray(value: unknown): string[] {
 
 function isRecord(value: unknown): value is JsonRecord {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function sceneFolderIdForOriginMode(mode: unknown, folderId: unknown): unknown {
+  const originMode = stringValue(mode).trim();
+  if (originMode === "conversation") return null;
+  if (originMode === "roleplay" || originMode === "visual_novel") return folderId ?? null;
+  throw new Error(`Cannot create roleplay scene from chat mode: ${originMode || "(missing)"}`);
 }
 
 function errorMessage(error: unknown): string {

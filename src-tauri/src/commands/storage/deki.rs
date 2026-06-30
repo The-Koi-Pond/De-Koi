@@ -1075,6 +1075,7 @@ fn parse_deki_action_json_candidate(candidate: &str) -> Result<Value, serde_json
 }
 
 #[derive(Clone, Copy)]
+#[allow(clippy::enum_variant_names)]
 enum DekiJsonObjectState {
     ExpectKeyOrEnd,
     ExpectColon,
