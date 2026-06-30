@@ -61,6 +61,7 @@ export function CharacterEditorTabContent({
             removeTag={removeTag}
             removeAllTags={removeAllTags}
             avatarPreview={avatarPreview}
+            imageConnections={imageConnections}
           />
         )}
         {activeTab === "description" && <CharacterDescriptionTab formData={formData} updateField={updateField} />}

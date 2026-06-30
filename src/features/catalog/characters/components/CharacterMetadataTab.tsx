@@ -5,12 +5,19 @@ import type { CharacterData, CharacterPublicProfile } from "../../../../engine/c
 import { AvatarCropWidget } from "../../../../shared/components/ui/AvatarCropWidget";
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
+import { imageGenerationApi } from "../../../../shared/api/image-generation-api";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import type { AvatarCrop } from "../../../../shared/lib/utils";
+import { useUIStore } from "../../../../shared/stores/ui.store";
+import {
+  isDefaultImageGenerationConnection,
+  type ImageGenerationConnectionOption,
+} from "../../../../shared/types/image-generation";
 import { CharacterEditorSectionHeader as SectionHeader } from "./CharacterEditorSectionHeader";
 import { CharacterVersionHistoryPanel } from "./CharacterVersionHistoryPanel";
 import {
+  buildCharacterPublicProfileBannerPrompt,
   generateCharacterPublicProfileField,
   type CharacterPublicProfileSuggestionField,
 } from "../lib/character-public-profile";
@@ -59,6 +66,7 @@ export function CharacterMetadataTab({
   removeTag,
   removeAllTags,
   avatarPreview,
+  imageConnections,
 }: {
   characterId: string | null;
   formData: CharacterData;
@@ -71,19 +79,25 @@ export function CharacterMetadataTab({
   removeTag: (tag: string) => void;
   removeAllTags: () => void;
   avatarPreview: string | null;
+  imageConnections: ImageGenerationConnectionOption[];
 }) {
   const [expandedCreatorNotes, setExpandedCreatorNotes] = useState(false);
   const [publicProfileGeneratingField, setPublicProfileGeneratingField] =
     useState<CharacterPublicProfileSuggestionField | null>(null);
   const [publicProfileGenerationError, setPublicProfileGenerationError] = useState("");
+  const [publicProfileBannerGenerating, setPublicProfileBannerGenerating] = useState(false);
   const publicProfileAbortRef = useRef<AbortController | null>(null);
   const creatorNotesId = "character-creator-notes";
   // Read the saved source-rectangle crop and write the same current shape on edit.
   const savedCrop = (formData.extensions.avatarCrop as AvatarCrop | undefined) ?? null;
+  const imageBackgroundWidth = useUIStore((state) => state.imageBackgroundWidth);
+  const imageBackgroundHeight = useUIStore((state) => state.imageBackgroundHeight);
   const talkativeness = typeof formData.extensions.talkativeness === "number" ? formData.extensions.talkativeness : 0.5;
   const publicProfile = readPublicProfile(formData.extensions.publicProfile);
   const updatePublicProfile = (patch: CharacterPublicProfile) =>
     updateExtension("publicProfile", { ...publicProfile, ...patch });
+  const defaultImageConnectionId =
+    imageConnections.find(isDefaultImageGenerationConnection)?.id ?? imageConnections[0]?.id ?? null;
   const applyPublicProfileSuggestion = async (field: CharacterPublicProfileSuggestionField) => {
     if (publicProfileGeneratingField) return;
     publicProfileAbortRef.current?.abort();
@@ -114,6 +128,33 @@ export function CharacterMetadataTab({
       }
     }
   };
+  const applyPublicProfileBannerImage = async () => {
+    if (!defaultImageConnectionId || publicProfileBannerGenerating) return;
+    setPublicProfileBannerGenerating(true);
+    setPublicProfileGenerationError("");
+
+    try {
+      const result = await imageGenerationApi.generate<{ image?: string; base64?: string; mimeType?: string }>({
+        connectionId: defaultImageConnectionId,
+        prompt: buildCharacterPublicProfileBannerPrompt({ data: formData, comment: characterComment }),
+        width: imageBackgroundWidth,
+        height: imageBackgroundHeight,
+      });
+      const generatedImage =
+        typeof result.image === "string" && result.image.trim()
+          ? result.image.trim()
+          : typeof result.base64 === "string" && result.base64.trim()
+            ? `data:${result.mimeType || "image/png"};base64,${result.base64.trim()}`
+            : "";
+      if (!generatedImage) throw new Error("Image provider returned no banner image.");
+      updatePublicProfile({ bannerImage: generatedImage });
+    } catch (err) {
+      setPublicProfileGenerationError(err instanceof Error ? err.message : "Banner image generation failed");
+    } finally {
+      setPublicProfileBannerGenerating(false);
+    }
+  };
+
   const profileWandButtonClass =
     "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--primary)]/10 hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/30 disabled:cursor-wait disabled:opacity-60";
 
@@ -243,14 +284,16 @@ export function CharacterMetadataTab({
 
       <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/35 p-4">
         <SectionHeader title="Public Profile" subtitle="Outward-facing identity used by quick inspect cards." />
-        {publicProfileGeneratingField && (
+        {(publicProfileGeneratingField || publicProfileBannerGenerating) && (
           <div
             role="status"
             aria-live="polite"
             className="inline-flex items-center gap-2 rounded-lg border border-[var(--primary)]/20 bg-[var(--primary)]/8 px-2.5 py-1.5 text-xs font-medium text-[var(--primary)]"
           >
             <Loader2 size="0.75rem" className="animate-spin" />
-            Generating {publicProfileFieldLabels[publicProfileGeneratingField]}...
+            {publicProfileGeneratingField
+              ? `Generating ${publicProfileFieldLabels[publicProfileGeneratingField]}...`
+              : "Generating banner image..."}
           </div>
         )}
         {publicProfileGenerationError && (
@@ -351,9 +394,26 @@ export function CharacterMetadataTab({
         </label>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1.5">
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-              Banner Image <HelpTooltip text="Optional image URL for profile previews." />
-            </span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+                Banner Image <HelpTooltip text="Optional image URL for profile previews." />
+              </span>
+              <button
+                type="button"
+                onClick={applyPublicProfileBannerImage}
+                disabled={!defaultImageConnectionId || publicProfileBannerGenerating}
+                className={profileWandButtonClass}
+                title={defaultImageConnectionId ? "Generate banner image" : "No image generation connection configured"}
+                aria-label="Generate banner image"
+                aria-busy={publicProfileBannerGenerating}
+              >
+                {publicProfileBannerGenerating ? (
+                  <Loader2 size="0.875rem" className="animate-spin" />
+                ) : (
+                  <Wand2 size="0.875rem" />
+                )}
+              </button>
+            </div>
             <input
               value={publicProfile.bannerImage ?? ""}
               onChange={(event) => updatePublicProfile({ bannerImage: event.target.value })}
