@@ -2172,24 +2172,39 @@ async fn read_deki_web_page(
     })?;
     let url = deki_web_page_url_for_grant(&args.url, grant)?;
     let client = deki_web_page_client()?;
-    let fetch_url = deki_fandom_api_url_for_page(&url).unwrap_or_else(|| url.clone());
-    let bytes = client
-        .get(fetch_url.clone())
-        .send()
-        .await
-        .map_err(|error| AppError::new("deki_web_page_request_failed", error.to_string()))?
-        .error_for_status()
-        .map_err(|error| AppError::new("deki_web_page_status_failed", error.to_string()))?
-        .bytes()
-        .await
-        .map_err(|error| AppError::new("deki_web_page_body_failed", error.to_string()))?;
-    let truncated = bytes.len() > DEKI_WEB_PAGE_MAX_BYTES;
-    let slice_len = bytes.len().min(DEKI_WEB_PAGE_MAX_BYTES);
-    let body = String::from_utf8_lossy(&bytes[..slice_len]);
-    let text = if fetch_url != url {
-        extract_deki_mediawiki_page_text(&body, DEKI_WEB_PAGE_MAX_CHARS)?
+    let (text, truncated) = if let Some(api_url) = deki_fandom_api_url_for_page(&url) {
+        match fetch_deki_web_page_body(&client, &api_url).await {
+            Ok((api_body, api_truncated)) => {
+                match extract_deki_mediawiki_page_text(&api_body, DEKI_WEB_PAGE_MAX_CHARS) {
+                    Ok(text) if !text.trim().is_empty() => (text, api_truncated),
+                    _ => {
+                        let (html_body, html_truncated) =
+                            fetch_deki_web_page_body(&client, &url).await?;
+                        (
+                            extract_deki_fandom_page_text(
+                                &api_body,
+                                &html_body,
+                                DEKI_WEB_PAGE_MAX_CHARS,
+                            )?,
+                            html_truncated,
+                        )
+                    }
+                }
+            }
+            Err(_) => {
+                let (html_body, html_truncated) = fetch_deki_web_page_body(&client, &url).await?;
+                (
+                    extract_deki_web_page_text(&html_body, DEKI_WEB_PAGE_MAX_CHARS),
+                    html_truncated,
+                )
+            }
+        }
     } else {
-        extract_deki_web_page_text(&body, DEKI_WEB_PAGE_MAX_CHARS)
+        let (body, truncated) = fetch_deki_web_page_body(&client, &url).await?;
+        (
+            extract_deki_web_page_text(&body, DEKI_WEB_PAGE_MAX_CHARS),
+            truncated,
+        )
     };
     if text.trim().is_empty() {
         return Err(AppError::new(
@@ -2206,6 +2221,25 @@ async fn read_deki_web_page(
     }))
 }
 
+async fn fetch_deki_web_page_body(
+    client: &reqwest::Client,
+    url: &reqwest::Url,
+) -> AppResult<(String, bool)> {
+    let bytes = client
+        .get(url.clone())
+        .send()
+        .await
+        .map_err(|error| AppError::new("deki_web_page_request_failed", error.to_string()))?
+        .error_for_status()
+        .map_err(|error| AppError::new("deki_web_page_status_failed", error.to_string()))?
+        .bytes()
+        .await
+        .map_err(|error| AppError::new("deki_web_page_body_failed", error.to_string()))?;
+    let truncated = bytes.len() > DEKI_WEB_PAGE_MAX_BYTES;
+    let slice_len = bytes.len().min(DEKI_WEB_PAGE_MAX_BYTES);
+    let body = String::from_utf8_lossy(&bytes[..slice_len]).to_string();
+    Ok((body, truncated))
+}
 fn deki_web_page_client() -> AppResult<reqwest::Client> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(DEKI_WEB_SEARCH_TIMEOUT_SECS))
@@ -2234,6 +2268,26 @@ fn deki_fandom_api_url_for_page(url: &reqwest::Url) -> Option<reqwest::Url> {
     Some(api)
 }
 
+fn extract_deki_fandom_page_text(
+    mediawiki_body: &str,
+    fallback_html: &str,
+    max_chars: usize,
+) -> AppResult<String> {
+    if let Ok(text) = extract_deki_mediawiki_page_text(mediawiki_body, max_chars) {
+        if !text.trim().is_empty() {
+            return Ok(text);
+        }
+    }
+
+    let fallback_text = extract_deki_web_page_text(fallback_html, max_chars);
+    if fallback_text.trim().is_empty() {
+        return Err(AppError::new(
+            "deki_web_page_no_readable_text",
+            "Fandom API did not include readable extract text, and no readable text could be extracted from the page HTML.",
+        ));
+    }
+    Ok(fallback_text)
+}
 fn extract_deki_mediawiki_page_text(body: &str, max_chars: usize) -> AppResult<String> {
     let parsed: Value = serde_json::from_str(body).map_err(|error| {
         AppError::new(
@@ -4182,6 +4236,27 @@ Line two\"},\"label\":\"Create Sol\",\"rationale\":\"Matches the user's brief.\"
         assert!(text.contains("Danny Johnson alias Jed Olsen"));
         assert!(text.contains("The Ghost Face"));
         assert!(text.contains("I'm All Ears"));
+    }
+
+    #[test]
+    fn deki_fandom_page_text_falls_back_to_html_when_extract_is_missing() {
+        let json = r#"{"query":{"pages":{"12531":{"title":"Pierrot","extract":""}}}}"#;
+        let html = r#"
+            <html>
+              <head><title>Pierrot | Freak Circus Wiki</title></head>
+              <body>
+                <h1>Pierrot</h1>
+                <p>Pierrot enjoys music boxes, card tricks, and tending to the circus props.</p>
+              </body>
+            </html>
+        "#;
+
+        let text = extract_deki_fandom_page_text(json, html, 400)
+            .expect("Fandom HTML should be readable when the API extract is empty");
+
+        assert!(text.contains("Pierrot | Freak Circus Wiki"));
+        assert!(text.contains("music boxes"));
+        assert!(text.contains("card tricks"));
     }
 
     #[test]
