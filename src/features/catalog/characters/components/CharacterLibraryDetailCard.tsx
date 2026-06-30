@@ -35,6 +35,7 @@ export function CharacterLibraryDetailCard({
   const publicProfile = resolveCharacterPublicProfile({ data: character.parsed, comment: character.comment });
   const sections = getCharacterSections(character);
   const avatarUrl = characterAvatarUrl(character);
+  const avatarCrop = character.parsed.extensions?.avatarCrop;
   const tokenEstimate = estimateCharacterCardTokens(character.parsed);
   const startDisabled = isStartingChat || fullRecordLoading || fullRecordError;
 
@@ -48,7 +49,9 @@ export function CharacterLibraryDetailCard({
               avatarFilePath={character.avatarFilePath}
               avatarFilename={character.avatarFilename}
               alt={characterName || "Selected character"}
-              crop={character.parsed.extensions?.avatarCrop}
+              crop={avatarCrop}
+              thumbnailSize={avatarCrop ? 256 : undefined}
+              upgradeToFullResolution={Boolean(avatarCrop)}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-white/85">

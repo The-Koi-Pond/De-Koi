@@ -8,6 +8,7 @@ export function CharacterAvatarImage({
   crop,
   className,
   thumbnailSize,
+  upgradeToFullResolution,
   onError,
 }: {
   src?: string | null;
@@ -17,6 +18,7 @@ export function CharacterAvatarImage({
   crop?: unknown;
   className?: string;
   thumbnailSize?: AvatarImageSizeHint;
+  upgradeToFullResolution?: boolean;
   onError?: () => void;
 }) {
   return (
@@ -28,6 +30,7 @@ export function CharacterAvatarImage({
       crop={crop}
       className={className}
       thumbnailSize={thumbnailSize}
+      upgradeToFullResolution={upgradeToFullResolution}
       onError={onError}
     />
   );

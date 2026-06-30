@@ -27,6 +27,7 @@ export function CharacterLibraryCard({ character, active, onSelect }: CharacterL
   const isFavorite = !!character.parsed.extensions?.fav;
   const tags = getCharacterTagsFromData(character.parsed);
   const avatarUrl = characterAvatarUrl(character);
+  const avatarCrop = character.parsed.extensions?.avatarCrop;
   const tokenEstimate = estimateCharacterCardTokens(character.parsed);
 
   return (
@@ -45,9 +46,10 @@ export function CharacterLibraryCard({ character, active, onSelect }: CharacterL
             avatarFilePath={character.avatarFilePath}
             avatarFilename={character.avatarFilename}
             alt={characterName}
-            crop={character.parsed.extensions?.avatarCrop}
+            crop={avatarCrop}
             className="transition-transform duration-300 group-hover:scale-[1.03]"
             thumbnailSize={256}
+            upgradeToFullResolution={Boolean(avatarCrop)}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-white/85">
