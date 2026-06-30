@@ -1,23 +1,50 @@
-import { useState } from "react";
-import { AlertCircle, Loader2, Maximize2, Tag, Wand2, X } from "lucide-react";
+import { useRef, useState } from "react";
+import { Loader2, Maximize2, Tag, Wand2, X } from "lucide-react";
 
 import type { CharacterData, CharacterPublicProfile } from "../../../../engine/contracts/types/character";
-import { generateCharacterPublicProfileBio } from "../../../../engine/generation/public-profile";
 import { AvatarCropWidget } from "../../../../shared/components/ui/AvatarCropWidget";
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 import { llmApi } from "../../../../shared/api/llm-api";
+import { storageApi } from "../../../../shared/api/storage-api";
 import type { AvatarCrop } from "../../../../shared/lib/utils";
 import { CharacterEditorSectionHeader as SectionHeader } from "./CharacterEditorSectionHeader";
 import { CharacterVersionHistoryPanel } from "./CharacterVersionHistoryPanel";
 import {
-  suggestCharacterPublicProfileField,
+  generateCharacterPublicProfileField,
   type CharacterPublicProfileSuggestionField,
 } from "../lib/character-public-profile";
-import { useConnections } from "../../connections/index";
 
 function readPublicProfile(value: unknown): CharacterPublicProfile {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as CharacterPublicProfile) : {};
+}
+
+type ConnectionRecord = {
+  id?: unknown;
+  provider?: unknown;
+  isDefault?: unknown;
+  default?: unknown;
+};
+
+const publicProfileFieldLabels: Record<CharacterPublicProfileSuggestionField, string> = {
+  displayName: "display name",
+  handle: "handle",
+  bio: "bio",
+};
+
+function boolish(value: unknown): boolean {
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+async function resolveDefaultTextConnectionId(): Promise<string> {
+  const connections = await storageApi.list<ConnectionRecord>("connections");
+  const textConnections = connections.filter((connection) => connection.provider !== "image_generation");
+  const selected =
+    textConnections.find((connection) => boolish(connection.isDefault) || boolish(connection.default)) ??
+    textConnections[0];
+  const connectionId = typeof selected?.id === "string" ? selected.id.trim() : "";
+  if (!connectionId) throw new Error("No text connection configured");
+  return connectionId;
 }
 
 export function CharacterMetadataTab({
@@ -46,51 +73,53 @@ export function CharacterMetadataTab({
   avatarPreview: string | null;
 }) {
   const [expandedCreatorNotes, setExpandedCreatorNotes] = useState(false);
-  const [generatingPublicBio, setGeneratingPublicBio] = useState(false);
-  const [publicBioError, setPublicBioError] = useState<string | null>(null);
-  const [publicBioConnectionId, setPublicBioConnectionId] = useState("");
-  const { data: rawConnections } = useConnections();
+  const [publicProfileGeneratingField, setPublicProfileGeneratingField] =
+    useState<CharacterPublicProfileSuggestionField | null>(null);
+  const [publicProfileGenerationError, setPublicProfileGenerationError] = useState("");
+  const publicProfileAbortRef = useRef<AbortController | null>(null);
   const creatorNotesId = "character-creator-notes";
   // Read the saved source-rectangle crop and write the same current shape on edit.
   const savedCrop = (formData.extensions.avatarCrop as AvatarCrop | undefined) ?? null;
   const talkativeness = typeof formData.extensions.talkativeness === "number" ? formData.extensions.talkativeness : 0.5;
   const publicProfile = readPublicProfile(formData.extensions.publicProfile);
-  const connections = rawConnections ?? [];
-  const selectedPublicBioConnectionId = publicBioConnectionId || connections[0]?.id || "";
   const updatePublicProfile = (patch: CharacterPublicProfile) =>
     updateExtension("publicProfile", { ...publicProfile, ...patch });
-  const applyPublicProfileSuggestion = (field: CharacterPublicProfileSuggestionField) =>
-    updatePublicProfile({
-      [field]: suggestCharacterPublicProfileField(field, { data: formData, comment: characterComment }),
-    } as CharacterPublicProfile);
-  const profileWandButtonClass =
-    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--primary)]/10 hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/30 disabled:cursor-not-allowed disabled:opacity-50";
+  const applyPublicProfileSuggestion = async (field: CharacterPublicProfileSuggestionField) => {
+    if (publicProfileGeneratingField) return;
+    publicProfileAbortRef.current?.abort();
+    const abort = new AbortController();
+    publicProfileAbortRef.current = abort;
+    setPublicProfileGeneratingField(field);
+    setPublicProfileGenerationError("");
 
-  const handleGeneratePublicBio = async () => {
-    if (!selectedPublicBioConnectionId || generatingPublicBio) return;
-    setGeneratingPublicBio(true);
-    setPublicBioError(null);
     try {
-      const bio = await generateCharacterPublicProfileBio(
-        { llm: llmApi },
-        {
-          connectionId: selectedPublicBioConnectionId,
-          character: formData,
-          comment: characterComment,
-          existingProfile: publicProfile,
-        },
-      );
-      updatePublicProfile({ bio });
-    } catch (error) {
-      setPublicBioError(error instanceof Error ? error.message : "Profile bio generation failed.");
+      const connectionId = await resolveDefaultTextConnectionId();
+      const value = await generateCharacterPublicProfileField({
+        field,
+        data: formData,
+        comment: characterComment,
+        connectionId,
+        llm: llmApi,
+        signal: abort.signal,
+      });
+      updatePublicProfile({ [field]: value } as CharacterPublicProfile);
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") {
+        setPublicProfileGenerationError(err instanceof Error ? err.message : "Public profile generation failed");
+      }
     } finally {
-      setGeneratingPublicBio(false);
+      if (publicProfileAbortRef.current === abort) {
+        publicProfileAbortRef.current = null;
+        setPublicProfileGeneratingField(null);
+      }
     }
   };
+  const profileWandButtonClass =
+    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--primary)]/10 hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/30 disabled:cursor-wait disabled:opacity-60";
 
   return (
     <div className="space-y-5">
-      <SectionHeader title="Metadata" subtitle="Basic character info — name, creator, version, tags." />
+      <SectionHeader title="Metadata" subtitle="Basic character info - name, creator, version, tags." />
 
       {avatarPreview && (
         <AvatarCropWidget
@@ -199,7 +228,7 @@ export function CharacterMetadataTab({
             value={newTag}
             onChange={(event) => setNewTag(event.target.value)}
             onKeyDown={(event) => event.key === "Enter" && addTag()}
-            placeholder="Add tag…"
+            placeholder="Add tag..."
             className="flex-1 rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-3 py-1.5 text-xs outline-none focus:border-[var(--primary)]/40"
           />
           <button
@@ -213,26 +242,25 @@ export function CharacterMetadataTab({
       </div>
 
       <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/35 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <SectionHeader title="Public Profile" subtitle="Outward-facing identity used by quick inspect cards." />
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {connections.length > 1 && (
-              <select
-                value={selectedPublicBioConnectionId}
-                onChange={(event) => setPublicBioConnectionId(event.target.value)}
-                className="max-w-44 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs outline-none focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
-                aria-label="Profile bio model connection"
-              >
-                {connections.map((connection) => (
-                  <option key={connection.id} value={connection.id}>
-                    {connection.name}
-                  </option>
-                ))}
-              </select>
-            )}
-
+        <SectionHeader title="Public Profile" subtitle="Outward-facing identity used by quick inspect cards." />
+        {publicProfileGeneratingField && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="inline-flex items-center gap-2 rounded-lg border border-[var(--primary)]/20 bg-[var(--primary)]/8 px-2.5 py-1.5 text-xs font-medium text-[var(--primary)]"
+          >
+            <Loader2 size="0.75rem" className="animate-spin" />
+            Generating {publicProfileFieldLabels[publicProfileGeneratingField]}...
           </div>
-        </div>
+        )}
+        {publicProfileGenerationError && (
+          <div
+            role="alert"
+            className="rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/8 px-2.5 py-1.5 text-xs font-medium text-[var(--destructive)]"
+          >
+            {publicProfileGenerationError}
+          </div>
+        )}
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
@@ -243,11 +271,17 @@ export function CharacterMetadataTab({
               <button
                 type="button"
                 onClick={() => applyPublicProfileSuggestion("displayName")}
+                disabled={publicProfileGeneratingField !== null}
                 className={profileWandButtonClass}
                 title="Generate display name"
                 aria-label="Generate display name"
+                aria-busy={publicProfileGeneratingField === "displayName"}
               >
-                <Wand2 size="0.875rem" />
+                {publicProfileGeneratingField === "displayName" ? (
+                  <Loader2 size="0.875rem" className="animate-spin" />
+                ) : (
+                  <Wand2 size="0.875rem" />
+                )}
               </button>
             </div>
             <input
@@ -265,11 +299,17 @@ export function CharacterMetadataTab({
               <button
                 type="button"
                 onClick={() => applyPublicProfileSuggestion("handle")}
+                disabled={publicProfileGeneratingField !== null}
                 className={profileWandButtonClass}
                 title="Generate handle"
                 aria-label="Generate handle"
+                aria-busy={publicProfileGeneratingField === "handle"}
               >
-                <Wand2 size="0.875rem" />
+                {publicProfileGeneratingField === "handle" ? (
+                  <Loader2 size="0.875rem" className="animate-spin" />
+                ) : (
+                  <Wand2 size="0.875rem" />
+                )}
               </button>
             </div>
             <input
@@ -287,13 +327,18 @@ export function CharacterMetadataTab({
             </span>
             <button
               type="button"
-              onClick={handleGeneratePublicBio}
-              disabled={generatingPublicBio || !selectedPublicBioConnectionId}
+              onClick={() => applyPublicProfileSuggestion("bio")}
+              disabled={publicProfileGeneratingField !== null}
               className={profileWandButtonClass}
-              title={selectedPublicBioConnectionId ? "Generate bio" : "Add a model connection to generate a bio"}
+              title="Generate bio"
               aria-label="Generate bio"
+              aria-busy={publicProfileGeneratingField === "bio"}
             >
-              {generatingPublicBio ? <Loader2 size="0.875rem" className="animate-spin" /> : <Wand2 size="0.875rem" />}
+              {publicProfileGeneratingField === "bio" ? (
+                <Loader2 size="0.875rem" className="animate-spin" />
+              ) : (
+                <Wand2 size="0.875rem" />
+              )}
             </button>
           </div>
           <textarea
@@ -304,12 +349,6 @@ export function CharacterMetadataTab({
             placeholder="A short outward-facing intro..."
           />
         </label>
-        {publicBioError && (
-          <p className="flex items-start gap-1.5 rounded-lg border border-[var(--destructive)]/25 bg-[var(--destructive)]/5 px-2.5 py-2 text-xs text-[var(--destructive)]">
-            <AlertCircle size="0.75rem" className="mt-0.5 shrink-0" />
-            {publicBioError}
-          </p>
-        )}
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1.5">
             <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
@@ -332,7 +371,7 @@ export function CharacterMetadataTab({
             className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]"
           >
             Creator Notes{" "}
-            <HelpTooltip text="Private notes about this character — tips for use, known quirks, recommended settings. Not sent to the AI." />
+            <HelpTooltip text="Private notes about this character - tips for use, known quirks, recommended settings. Not sent to the AI." />
           </label>
           <button
             type="button"
@@ -349,7 +388,7 @@ export function CharacterMetadataTab({
           onChange={(event) => updateField("creator_notes", event.target.value)}
           rows={4}
           className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-3 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
-          placeholder="Notes about this character, intended use, tips for best results…"
+          placeholder="Notes about this character, intended use, tips for best results..."
         />
       </div>
 
@@ -359,7 +398,7 @@ export function CharacterMetadataTab({
         title="Creator Notes"
         value={formData.creator_notes}
         onChange={(value) => updateField("creator_notes", value)}
-        placeholder="Notes about this character, intended use, tips for best results…"
+        placeholder="Notes about this character, intended use, tips for best results..."
       />
     </div>
   );

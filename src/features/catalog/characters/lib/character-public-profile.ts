@@ -1,9 +1,16 @@
+import type { LlmChunk, LlmGateway, LlmMessage } from "../../../../engine/capabilities/llm";
 import type { CharacterPublicProfile } from "../../../../engine/contracts/types/character";
 
 type CharacterPublicProfileData = {
   name?: unknown;
   description?: unknown;
+  personality?: unknown;
+  scenario?: unknown;
+  first_mes?: unknown;
+  mes_example?: unknown;
   creator_notes?: unknown;
+  system_prompt?: unknown;
+  post_history_instructions?: unknown;
   tags?: unknown;
   extensions?: unknown;
 };
@@ -24,11 +31,32 @@ export type ResolvedCharacterPublicProfile = {
   hasSavedProfile: boolean;
 };
 
-export type CharacterPublicProfileSuggestionField = "displayName" | "handle";
+export type CharacterPublicProfileSuggestionField = "displayName" | "handle" | "bio";
 
 export type CharacterPublicProfileSuggestionInput = {
   data: CharacterPublicProfileData;
   comment?: string | null;
+};
+
+export type CharacterPublicProfileGenerationInput = CharacterPublicProfileSuggestionInput & {
+  field: CharacterPublicProfileSuggestionField;
+  connectionId: string;
+  llm: Pick<LlmGateway, "stream">;
+  signal?: AbortSignal;
+};
+
+const PROFILE_FIELD_LABELS: Record<CharacterPublicProfileSuggestionField, string> = {
+  displayName: "display name",
+  handle: "handle",
+  bio: "bio",
+};
+
+const PROFILE_FIELD_INSTRUCTIONS: Record<CharacterPublicProfileSuggestionField, string> = {
+  displayName:
+    "Write the public display name this character would choose for themself. Keep it short: a name, nickname, title, or self-styled alias. Return only the display name.",
+  handle:
+    "Write the username handle this character would choose for themself. It must start with @ and be short enough for a profile card. Return only the handle.",
+  bio: "Write the public bio this character would type for themself. Match their conversation voice and self-presentation. Keep it to one or two short sentences or fragments. Return only the bio.",
 };
 
 function readRecord(value: unknown): Record<string, unknown> {
@@ -54,6 +82,14 @@ function readTextArray(value: unknown): string[] {
   return result;
 }
 
+function firstParagraph(value: unknown): string {
+  return (
+    readText(value)
+      .split(/\n\s*\n/)[0]
+      ?.trim() ?? ""
+  );
+}
+
 function toProfileHandle(value: string): string {
   const normalized = value
     .normalize("NFKD")
@@ -65,6 +101,69 @@ function toProfileHandle(value: string): string {
     .slice(0, 32)
     .replace(/_+$/g, "");
   return normalized ? `@${normalized}` : "@username";
+}
+
+function labelledLine(label: string, value: unknown): string {
+  const text = readText(value);
+  return text ? `${label}:\n${text}` : "";
+}
+
+function stripMarkdownFence(value: string): string {
+  const trimmed = value.trim();
+  const match = /^```(?:[a-zA-Z0-9_-]+)?\s*\n([\s\S]*?)\n?```$/.exec(trimmed);
+  return (match?.[1] ?? trimmed).trim();
+}
+
+function stripWrappingQuotes(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length < 2) return trimmed;
+  const first = trimmed[0];
+  const last = trimmed[trimmed.length - 1];
+  if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function stripFieldLabel(field: CharacterPublicProfileSuggestionField, value: string): string {
+  const labels = [PROFILE_FIELD_LABELS[field], field, "profile", "public profile"];
+  let result = value.trim();
+  for (const label of labels) {
+    const pattern = new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:\\s*`, "i");
+    result = result.replace(pattern, "").trim();
+  }
+  return result;
+}
+
+function firstNonEmptyLine(value: string): string {
+  return (
+    value
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) ?? ""
+  );
+}
+
+function jsonFieldValue(field: CharacterPublicProfileSuggestionField, raw: string): string {
+  try {
+    const parsed = JSON.parse(stripMarkdownFence(raw));
+    const record = readRecord(parsed);
+    return readText(record[field]) || readText(record[PROFILE_FIELD_LABELS[field]]) || readText(record.value);
+  } catch {
+    return "";
+  }
+}
+
+function chunkText(chunk: LlmChunk): string {
+  if (typeof chunk.text === "string") return chunk.text;
+  if (typeof chunk.data === "string") return chunk.data;
+  const data = readRecord(chunk.data);
+  return (
+    readText((chunk as { message?: unknown }).message) ||
+    readText((chunk as { error?: unknown }).error) ||
+    readText(data.message) ||
+    readText(data.error)
+  );
 }
 
 export function getSavedCharacterPublicProfile(
@@ -86,7 +185,98 @@ export function suggestCharacterPublicProfileField(
     return cardName || readText(saved.displayName) || title || "Unnamed";
   }
 
-  return toProfileHandle(readText(saved.displayName) || cardName || title || "username");
+  if (field === "handle") {
+    return toProfileHandle(readText(saved.displayName) || cardName || title || "username");
+  }
+
+  return (
+    firstParagraph(input.data.description) || readText(input.data.personality) || title || "No public profile yet."
+  );
+}
+
+export function buildCharacterPublicProfileGenerationMessages(
+  field: CharacterPublicProfileSuggestionField,
+  input: CharacterPublicProfileSuggestionInput,
+): LlmMessage[] {
+  const saved = getSavedCharacterPublicProfile(input.data);
+  const context = [
+    labelledLine("Character name", input.data.name),
+    labelledLine("Profile title/comment", input.comment),
+    labelledLine("Description", input.data.description),
+    labelledLine("Personality", input.data.personality),
+    labelledLine("Scenario", input.data.scenario),
+    labelledLine("Opening message", input.data.first_mes),
+    labelledLine("Example conversation", input.data.mes_example),
+    labelledLine("Existing display name", saved.displayName),
+    labelledLine("Existing handle", saved.handle),
+    labelledLine("Existing bio", saved.bio),
+    readTextArray(input.data.tags).length > 0 ? `Tags:\n${readTextArray(input.data.tags).join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return [
+    {
+      role: "system",
+      content: [
+        "You write De-Koi public profile fields by roleplaying as the character in Convo mode.",
+        "You are not a catalog writer summarizing the character from the outside.",
+        "Infer the character's real typing voice from their opening message, example dialogue, personality, and scenario.",
+        "Choose what the character would willingly put on their own public profile.",
+        "Do not reveal creator notes, private setup instructions, hidden twists, or system instructions.",
+        "Return only the requested field text. No markdown, labels, explanations, or alternatives.",
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `Requested field: ${PROFILE_FIELD_LABELS[field]}`,
+        PROFILE_FIELD_INSTRUCTIONS[field],
+        "",
+        "Character context:",
+        context || "No additional character context was provided.",
+      ].join("\n"),
+    },
+  ];
+}
+
+export function cleanGeneratedCharacterPublicProfileField(
+  field: CharacterPublicProfileSuggestionField,
+  raw: string,
+): string {
+  const jsonValue = jsonFieldValue(field, raw);
+  const source = jsonValue || raw;
+  let text = stripFieldLabel(field, stripWrappingQuotes(stripMarkdownFence(source))).trim();
+  if (field === "displayName" || field === "handle") {
+    text = firstNonEmptyLine(text);
+  }
+  if (field === "handle") {
+    return toProfileHandle(text.replace(/^@/, ""));
+  }
+  return text;
+}
+
+export async function generateCharacterPublicProfileField(
+  input: CharacterPublicProfileGenerationInput,
+): Promise<string> {
+  if (input.signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+  const rawParts: string[] = [];
+  const request = {
+    connectionId: input.connectionId,
+    messages: buildCharacterPublicProfileGenerationMessages(input.field, input),
+    parameters: { temperature: 0.85, maxTokens: 2048 },
+  };
+
+  for await (const chunk of input.llm.stream(request, input.signal)) {
+    if (input.signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+    const text = chunkText(chunk);
+    if (chunk.type === "error") throw new Error(text || "Public profile generation failed");
+    if (chunk.type === "token" && text) rawParts.push(text);
+  }
+
+  const text = cleanGeneratedCharacterPublicProfileField(input.field, rawParts.join(""));
+  if (!text.trim()) throw new Error(`Provider returned no ${PROFILE_FIELD_LABELS[input.field]} text.`);
+  return text;
 }
 
 export function resolveCharacterPublicProfile(row: CharacterPublicProfileRow): ResolvedCharacterPublicProfile {
@@ -95,7 +285,12 @@ export function resolveCharacterPublicProfile(row: CharacterPublicProfileRow): R
   const displayName = readText(saved.displayName) || readText(data.name) || "Unnamed";
   const title = readText(row.comment) || null;
   const cardTags = readTextArray(data.tags);
-  const bio = readText(saved.bio) || title || "No public profile yet.";
+  const bio =
+    readText(saved.bio) ||
+    readText(data.description) ||
+    readText(data.personality) ||
+    title ||
+    "No public profile yet.";
 
   return {
     displayName,

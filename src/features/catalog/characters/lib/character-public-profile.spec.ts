@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveCharacterPublicProfile, suggestCharacterPublicProfileField } from "./character-public-profile";
+import {
+  buildCharacterPublicProfileGenerationMessages,
+  cleanGeneratedCharacterPublicProfileField,
+  resolveCharacterPublicProfile,
+  suggestCharacterPublicProfileField,
+} from "./character-public-profile";
 import type { CharacterData } from "../../../../engine/contracts/types/character";
 
 function characterData(overrides: Partial<CharacterData> = {}): CharacterData {
@@ -67,6 +72,23 @@ describe("resolveCharacterPublicProfile", () => {
     });
   });
 
+  it("derives a bio from public card personality when description is blank", () => {
+    const profile = resolveCharacterPublicProfile({
+      id: "char-3",
+      data: {
+        name: "Vera",
+        description: "",
+        personality: "Warm, exacting, and impossible to rush.",
+        creator_notes: "Private setup instructions.",
+        extensions: {},
+      },
+      comment: "",
+    });
+
+    expect(profile.bio).toBe("Warm, exacting, and impossible to rush.");
+    expect(profile.bio).not.toContain("Private setup");
+  });
+
   it("derives a shallow profile without exposing private creator notes", () => {
     const profile = resolveCharacterPublicProfile({
       id: "char-2",
@@ -87,28 +109,13 @@ describe("resolveCharacterPublicProfile", () => {
     expect(profile.tags).toEqual(["android", "pilot"]);
     expect(profile.hasSavedProfile).toBe(false);
   });
-  it("does not use raw character descriptions as unsaved public bios", () => {
-    const profile = resolveCharacterPublicProfile({
-      id: "char-3",
-      data: {
-        name: "The Ghost Face",
-        description: "Danny Johnson, known to some as Jed Olsen, is The Ghost Face: a methodical killer.",
-        tags: ["dbd", "slasher"],
-        extensions: {},
-      },
-      comment: "Freelance journalist with a taste for fear",
-    });
-
-    expect(profile.bio).toBe("Freelance journalist with a taste for fear");
-    expect(profile.bio).not.toContain("Danny Johnson");
-  });
 });
 
 describe("suggestCharacterPublicProfileField", () => {
-  it("suggests display name and handle independently from public-safe character fields", () => {
+  it("suggests display name, handle, and bio independently from public-safe character fields", () => {
     const data = characterData({
       name: "Dr. Mira Vale",
-      description: "A city archivist with too many keys.",
+      description: "A city archivist with too many keys.\n\nHer deeper secrets stay in the full card.",
       creator_notes: "Private setup instructions and model settings.",
       extensions: {
         talkativeness: 0.5,
@@ -133,15 +140,19 @@ describe("suggestCharacterPublicProfileField", () => {
     expect(suggestCharacterPublicProfileField("handle", { data, comment: "Night-shift archive keeper" })).toBe(
       "@mira_vale",
     );
-    expect(suggestCharacterPublicProfileField("displayName", { data, comment: "Night-shift archive keeper" })).not.toContain(
+    expect(suggestCharacterPublicProfileField("bio", { data, comment: "Night-shift archive keeper" })).toBe(
+      "A city archivist with too many keys.",
+    );
+    expect(suggestCharacterPublicProfileField("bio", { data, comment: "Night-shift archive keeper" })).not.toContain(
       "Private setup",
     );
   });
 
-  it("falls back to the public comment when the character name is blank", () => {
+  it("falls back to safe card fields when the preferred source is blank", () => {
     const data = characterData({
       name: "",
       description: "",
+      personality: "Warm, exacting, and impossible to rush.",
       creator_notes: "Private note.",
     });
 
@@ -150,6 +161,48 @@ describe("suggestCharacterPublicProfileField", () => {
     );
     expect(suggestCharacterPublicProfileField("handle", { data, comment: "Night-shift archive keeper" })).toBe(
       "@night_shift_archive_keeper",
+    );
+    expect(suggestCharacterPublicProfileField("bio", { data, comment: "Night-shift archive keeper" })).toBe(
+      "Warm, exacting, and impossible to rush.",
+    );
+  });
+});
+describe("buildCharacterPublicProfileGenerationMessages", () => {
+  it("asks for an in-character field using conversation-style card text without creator notes", () => {
+    const data = characterData({
+      name: "Mira Vale",
+      description: "A city archivist with too many keys.",
+      personality: "Dry, exacting, and allergic to sentiment.",
+      first_mes: "You lost again? Fine. Hand me the map.",
+      mes_example: "<START>\n{{user}}: you missed me\n{{char}}: tragically, yes. don't make it weird.",
+      creator_notes: "Private setup instructions and model settings.",
+    });
+
+    const messages = buildCharacterPublicProfileGenerationMessages("bio", {
+      data,
+      comment: "Night-shift archive keeper",
+    });
+
+    expect(messages[0]?.content).toContain("roleplaying as the character");
+    expect(messages[1]?.content).toContain("tragically, yes");
+    expect(messages[1]?.content).toContain("Night-shift archive keeper");
+    expect(messages[1]?.content).not.toContain("Private setup");
+  });
+});
+
+describe("cleanGeneratedCharacterPublicProfileField", () => {
+  it("extracts JSON field values and normalizes handles", () => {
+    expect(cleanGeneratedCharacterPublicProfileField("handle", '{ "handle": "Night Shift Keys" }')).toBe(
+      "@night_shift_keys",
+    );
+    expect(cleanGeneratedCharacterPublicProfileField("displayName", '{ "displayName": "Mira, after dark" }')).toBe(
+      "Mira, after dark",
+    );
+  });
+
+  it("cleans plain text without preserving labels or markdown fences", () => {
+    expect(cleanGeneratedCharacterPublicProfileField("bio", "```text\nBio: i keep the keys. you keep up.\n```")).toBe(
+      "i keep the keys. you keep up.",
     );
   });
 });
