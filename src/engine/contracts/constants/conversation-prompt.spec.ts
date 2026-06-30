@@ -41,6 +41,15 @@ describe("default conversation system prompts", () => {
     );
   });
 
+  it("keeps opted-in adult conversation scenarios in-world instead of refusing them", () => {
+    expect(DEFAULT_CONVERSATION_SYSTEM_PROMPT).toContain(
+      "continue the fictional private chat without moralizing, safety lectures, or refusal",
+    );
+    expect(DEFAULT_GROUP_CONVERSATION_SYSTEM_PROMPT).toContain(
+      "continue the fictional private chat without moralizing, safety lectures, or refusal",
+    );
+  });
+
   it("exposes a narrow status-blurb style reference from the default Conversation rules", () => {
     expect(CONVERSATION_STATUS_STYLE_REFERENCE).toContain("Sound like a person texting");
     expect(CONVERSATION_STATUS_STYLE_REFERENCE).toContain("Do not sound like an assistant, therapist, narrator");
