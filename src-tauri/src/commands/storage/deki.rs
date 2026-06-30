@@ -1076,16 +1076,16 @@ fn parse_deki_action_json_candidate(candidate: &str) -> Result<Value, serde_json
 
 #[derive(Clone, Copy)]
 enum DekiJsonObjectState {
-    ExpectKeyOrEnd,
-    ExpectColon,
-    ExpectValue,
-    ExpectCommaOrEnd,
+    KeyOrEnd,
+    Colon,
+    Value,
+    CommaOrEnd,
 }
 
 #[derive(Clone, Copy)]
 enum DekiJsonArrayState {
-    ExpectValueOrEnd,
-    ExpectCommaOrEnd,
+    ValueOrEnd,
+    CommaOrEnd,
 }
 
 #[derive(Clone, Copy)]
@@ -1167,10 +1167,10 @@ fn repair_deki_action_json_strings(input: &str) -> Option<String> {
 
         match character {
             '{' => stack.push(DekiJsonContainer::Object(
-                DekiJsonObjectState::ExpectKeyOrEnd,
+                DekiJsonObjectState::KeyOrEnd,
             )),
             '[' => stack.push(DekiJsonContainer::Array(
-                DekiJsonArrayState::ExpectValueOrEnd,
+                DekiJsonArrayState::ValueOrEnd,
             )),
             '"' => {
                 string_role = deki_json_next_string_role(&stack);
@@ -1179,21 +1179,21 @@ fn repair_deki_action_json_strings(input: &str) -> Option<String> {
             }
             ':' => {
                 if let Some(DekiJsonContainer::Object(state)) = stack.last_mut() {
-                    if matches!(state, DekiJsonObjectState::ExpectColon) {
-                        *state = DekiJsonObjectState::ExpectValue;
+                    if matches!(state, DekiJsonObjectState::Colon) {
+                        *state = DekiJsonObjectState::Value;
                     }
                 }
             }
             ',' => match stack.last_mut() {
                 Some(DekiJsonContainer::Object(state))
-                    if matches!(state, DekiJsonObjectState::ExpectCommaOrEnd) =>
+                    if matches!(state, DekiJsonObjectState::CommaOrEnd) =>
                 {
-                    *state = DekiJsonObjectState::ExpectKeyOrEnd;
+                    *state = DekiJsonObjectState::KeyOrEnd;
                 }
                 Some(DekiJsonContainer::Array(state))
-                    if matches!(state, DekiJsonArrayState::ExpectCommaOrEnd) =>
+                    if matches!(state, DekiJsonArrayState::CommaOrEnd) =>
                 {
-                    *state = DekiJsonArrayState::ExpectValueOrEnd;
+                    *state = DekiJsonArrayState::ValueOrEnd;
                 }
                 _ => {}
             },
@@ -1221,7 +1221,7 @@ fn repair_deki_action_json_strings(input: &str) -> Option<String> {
 
 fn deki_json_next_string_role(stack: &[DekiJsonContainer]) -> DekiJsonStringRole {
     match stack.last() {
-        Some(DekiJsonContainer::Object(DekiJsonObjectState::ExpectKeyOrEnd)) => {
+        Some(DekiJsonContainer::Object(DekiJsonObjectState::KeyOrEnd)) => {
             DekiJsonStringRole::Key
         }
         _ => DekiJsonStringRole::Value,
@@ -1232,7 +1232,7 @@ fn deki_json_after_string(stack: &mut [DekiJsonContainer], role: DekiJsonStringR
     match role {
         DekiJsonStringRole::Key => {
             if let Some(DekiJsonContainer::Object(state)) = stack.last_mut() {
-                *state = DekiJsonObjectState::ExpectColon;
+                *state = DekiJsonObjectState::Colon;
             }
         }
         DekiJsonStringRole::Value => deki_json_after_value(stack),
@@ -1241,8 +1241,8 @@ fn deki_json_after_string(stack: &mut [DekiJsonContainer], role: DekiJsonStringR
 
 fn deki_json_after_value(stack: &mut [DekiJsonContainer]) {
     match stack.last_mut() {
-        Some(DekiJsonContainer::Object(state)) => *state = DekiJsonObjectState::ExpectCommaOrEnd,
-        Some(DekiJsonContainer::Array(state)) => *state = DekiJsonArrayState::ExpectCommaOrEnd,
+        Some(DekiJsonContainer::Object(state)) => *state = DekiJsonObjectState::CommaOrEnd,
+        Some(DekiJsonContainer::Array(state)) => *state = DekiJsonArrayState::CommaOrEnd,
         None => {}
     }
 }
@@ -1328,6 +1328,199 @@ fn first_json_object_bounds(value: &str) -> Option<(usize, usize)> {
     None
 }
 
+fn deki_action_invalid(message: impl Into<String>) -> AppError {
+    AppError::new("deki_action_invalid", message.into())
+}
+
+fn validate_deki_action_known_fields(
+    object: &serde_json::Map<String, Value>,
+    allowed: &[&str],
+    owner: &str,
+) -> AppResult<()> {
+    let unknown = object
+        .keys()
+        .filter(|key| !allowed.contains(&key.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    Err(deki_action_invalid(format!(
+        "Deki-senpai {owner} contains unsupported field(s): {}.",
+        unknown.join(", ")
+    )))
+}
+
+fn validate_deki_action_required_text_fields(
+    object: &serde_json::Map<String, Value>,
+    fields: &[&str],
+    owner: &str,
+) -> AppResult<()> {
+    let missing = fields
+        .iter()
+        .filter(|field| {
+            object
+                .get(**field)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or_default()
+                .is_empty()
+        })
+        .copied()
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(deki_action_invalid(format!(
+        "Deki-senpai {owner} requires {}.",
+        missing.join(", ")
+    )))
+}
+
+fn validate_deki_persona_action_payload(payload: &Value, require_complete: bool) -> AppResult<()> {
+    let object = payload.as_object().ok_or_else(|| {
+        deki_action_invalid("Deki-senpai persona action payload must be an object.")
+    })?;
+    const ALLOWED: &[&str] = &[
+        "name",
+        "comment",
+        "description",
+        "personality",
+        "scenario",
+        "backstory",
+        "appearance",
+        "tags",
+    ];
+    const REQUIRED: &[&str] = &[
+        "name",
+        "description",
+        "personality",
+        "scenario",
+        "backstory",
+        "appearance",
+    ];
+    validate_deki_action_known_fields(object, ALLOWED, "persona card")?;
+    if require_complete {
+        validate_deki_action_required_text_fields(object, REQUIRED, "persona card")?;
+    }
+    Ok(())
+}
+
+fn validate_deki_character_extensions(
+    extensions: &serde_json::Map<String, Value>,
+    require_complete: bool,
+) -> AppResult<()> {
+    const ALLOWED: &[&str] = &[
+        "talkativeness",
+        "fav",
+        "world",
+        "depth_prompt",
+        "publicProfile",
+        "backstory",
+        "appearance",
+        "marinara",
+    ];
+    validate_deki_action_known_fields(extensions, ALLOWED, "character extensions")?;
+    if require_complete {
+        validate_deki_action_required_text_fields(
+            extensions,
+            &["backstory", "appearance"],
+            "character card",
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_deki_character_data(data: &Value, require_complete: bool) -> AppResult<()> {
+    let object = data.as_object().ok_or_else(|| {
+        deki_action_invalid("Deki-senpai character action data must be an object.")
+    })?;
+    const ALLOWED: &[&str] = &[
+        "name",
+        "description",
+        "personality",
+        "scenario",
+        "first_mes",
+        "mes_example",
+        "creator_notes",
+        "system_prompt",
+        "post_history_instructions",
+        "tags",
+        "creator",
+        "character_version",
+        "alternate_greetings",
+        "extensions",
+        "character_book",
+    ];
+    const REQUIRED: &[&str] = &[
+        "name",
+        "description",
+        "personality",
+        "scenario",
+        "first_mes",
+        "mes_example",
+        "creator_notes",
+        "system_prompt",
+    ];
+    validate_deki_action_known_fields(object, ALLOWED, "character card")?;
+    if require_complete {
+        validate_deki_action_required_text_fields(object, REQUIRED, "character card")?;
+    }
+    if let Some(tags) = object.get("tags") {
+        if !tags.is_array() {
+            return Err(deki_action_invalid(
+                "Deki-senpai character card tags must be an array.",
+            ));
+        }
+    } else if require_complete {
+        return Err(deki_action_invalid(
+            "Deki-senpai character card requires tags.",
+        ));
+    }
+    let Some(extensions) = object.get("extensions") else {
+        if require_complete {
+            return Err(deki_action_invalid(
+                "Deki-senpai character card requires extensions.backstory and extensions.appearance.",
+            ));
+        }
+        return Ok(());
+    };
+    let extensions = extensions.as_object().ok_or_else(|| {
+        deki_action_invalid("Deki-senpai character card extensions must be an object.")
+    })?;
+    validate_deki_character_extensions(extensions, require_complete)
+}
+
+fn validate_deki_character_action_payload(
+    payload: &Value,
+    require_complete: bool,
+) -> AppResult<()> {
+    let object = payload.as_object().ok_or_else(|| {
+        deki_action_invalid("Deki-senpai character action payload must be an object.")
+    })?;
+    validate_deki_action_known_fields(object, &["data"], "character draft")?;
+    let Some(data) = object.get("data") else {
+        if require_complete {
+            return Err(deki_action_invalid(
+                "Deki-senpai character action requires data.",
+            ));
+        }
+        return Ok(());
+    };
+    validate_deki_character_data(data, require_complete)
+}
+
+fn validate_deki_record_action_payload(
+    entity: &str,
+    payload: &Value,
+    require_complete: bool,
+) -> AppResult<()> {
+    match entity {
+        "characters" => validate_deki_character_action_payload(payload, require_complete),
+        "personas" => validate_deki_persona_action_payload(payload, require_complete),
+        _ => Ok(()),
+    }
+}
 fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
     let object = action.as_object().ok_or_else(|| {
         AppError::new(
@@ -1500,6 +1693,7 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
                         "Deki-senpai create action requires a draft object.",
                     )
                 })?;
+            validate_deki_record_action_payload(entity, draft, true)?;
             let mut normalized = json!({
                 "type": "create_record",
                 "entity": entity,
@@ -1535,6 +1729,7 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
                         "Deki-senpai edit action requires a patch object.",
                     )
                 })?;
+            validate_deki_record_action_payload(entity, patch, false)?;
             let mut normalized = json!({
                 "type": "edit_record",
                 "entity": entity,
@@ -1768,6 +1963,7 @@ fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
         "For character cards and personas, proactively estimate whole-card length and flag anything over the recommended ~3,200 estimated tokens. Warn when an otherwise helpful addition would make a card too long, and prefer tighter, more specific wording over expansion unless the user explicitly chooses the length tradeoff.".to_string(),
         "During creative-library quality audits, check for shallow characterization, overly tropey or generic archetype behavior, repetition, vague traits without behavior, duplicate facts across fields, and lorebook entries that are too broad to activate cleanly. If a character feels shallow or generic, deepen it with concrete motives, contradictions, habits, memories, relationships, sensory details, and situation-specific behaviors. When correcting character-card or persona characterization, phrase the correction as what they are and the behavior to add instead of what they are not; avoid \"(Character) is not ...\" negative framing unless the user explicitly asks for a contrast. For card or persona corrections, place each corrected trait in the single best-fit field. Do not repeat the same trait label across description, personality, scenario, backstory, appearance, creator notes, or example dialogue; replace duplicated trait labels with one concrete behavior, memory, contradiction, or sensory cue where it belongs.".to_string(),
         "Before emitting a create_record, edit_record, or apply_lorebook_redraft action, self-review the proposed additions for length, repetition, specificity, and whether they would push the card over the recommended length. If source-backed canon, fandom/wiki/game-source details, or outside context would provide gold nuggets that remove shallow behavior, request web research instead of guessing.".to_string(),
+        "Character/persona card field contract: new character and persona create_record actions must use the exact De-Koi card fields only. For characters, use draft.data.name, description, personality, scenario, first_mes, mes_example, creator_notes, system_prompt, post_history_instructions, tags, and draft.data.extensions.backstory plus draft.data.extensions.appearance. For personas, use draft.name, description, personality, scenario, backstory, and appearance. backstory and appearance are required for new cards. Do not invent separate fields such as quirks, typing style, speech style, likes, dislikes, relationships, outfit, or notes; weave those details into the best existing field.".to_string(),
         "You can inspect chats and messages only after the user grants scoped read access. If the task needs prior chat, roleplay, or game conversation context and no approved grant is available, explain the needed scope and append exactly one hidden <deki_action>{JSON}</deki_action> block with {\"type\":\"request_chat_access\",\"scope\":{\"type\":\"specific_chats\",\"chatIds\":[\"...\"]}|{\"type\":\"character\",\"characterId\":\"optional\",\"characterName\":\"known character name\"}|{\"type\":\"mode\",\"modes\":[\"conversation\"|\"roleplay\"|\"game\"]},\"window\":{\"messageCount\":50},\"label\":\"short label\",\"rationale\":\"why this chat context is needed\"}. Prefer the narrowest scope; for a named character, characterName is acceptable even if you do not know the id. After a grant exists, the backend injects a bounded approved chat context snapshot into the prompt; use that evidence before drafting. Use chat tools only if the snapshot is missing a clearly necessary bounded window. Never claim to have read chats unless the approved snapshot or chat tools returned data.".to_string(),
         "When the user asks for suggestions, edits, summaries, examples, or character/persona/prompt changes that would materially benefit from their prior chats or roleplay interactions, proactively request scoped chat access before giving evidence-based changes. Do not say you can do it without reading conversations when the request depends on how the user and a character interacted.".to_string(),
         "You may search the public web only after the user approves a web-research action card. When the task would benefit from current external facts, fandom/wiki/game-source details, canon checks, source-backed accuracy, real-world product or rules information, or verification that a character/persona/card matches source material, proactively request web research. Ask first by appending exactly one <deki_action>{JSON}</deki_action> block with {\"type\":\"request_web_research\",\"scope\":{\"type\":\"query\",\"query\":\"precise search query\",\"allowedDomains\":[\"optional.example\"]},\"reason\":\"why web research is needed\",\"sources\":[\"expected source names\"],\"label\":\"short label\"}. Do not call search_deki_web unless the latest task prompt lists an approved grant for that exact query.".to_string(),
@@ -3798,6 +3994,16 @@ mod tests {
     }
 
     #[test]
+    fn deki_system_prompt_requires_exact_character_and_persona_card_fields() {
+        let prompt = build_system_prompt(None);
+
+        assert!(prompt.contains("Character/persona card field contract"));
+        assert!(prompt.contains("backstory and appearance are required"));
+        assert!(prompt.contains("Do not invent separate fields"));
+        assert!(prompt.contains("quirks"));
+        assert!(prompt.contains("typing style"));
+    }
+    #[test]
     fn deki_system_prompt_requires_self_review_and_source_backed_depth() {
         let prompt = build_system_prompt(None);
 
@@ -4112,7 +4318,7 @@ mod tests {
     fn deki_response_extracts_pending_create_action_without_visible_json() {
         let raw = r#"I drafted Sol for approval.
 
-<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"Sunny traveler"},"label":"Create Sol","rationale":"Matches the user's brief."}</deki_action>"#;
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"Sunny traveler","personality":"Bright","scenario":"Roadside inn","backstory":"Raised by caravan cooks.","appearance":"Sun-faded cloak and quick hands."},"label":"Create Sol","rationale":"Matches the user's brief."}</deki_action>"#;
 
         let (content, action) = deki_response_content_and_action(raw).expect("action should parse");
 
@@ -4124,9 +4330,48 @@ mod tests {
     }
 
     #[test]
+    fn deki_response_rejects_incomplete_persona_create_action() {
+        let raw = r#"I drafted Sol for approval.
+
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"Sunny traveler","personality":"Bright","scenario":"Roadside inn"},"label":"Create Sol","rationale":"Matches the user's brief."}</deki_action>"#;
+
+        let error = deki_response_content_and_action(raw)
+            .expect_err("new persona cards should require backstory and appearance");
+
+        assert_eq!(error.code, "deki_action_invalid");
+        assert!(error.message.contains("backstory"));
+        assert!(error.message.contains("appearance"));
+    }
+
+    #[test]
+    fn deki_response_rejects_invented_persona_create_fields() {
+        let raw = r#"I drafted Sol for approval.
+
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"Sunny traveler","personality":"Bright","scenario":"Roadside inn","backstory":"Raised by caravan cooks.","appearance":"Sun-faded cloak and quick hands.","quirks":"Collects blue glass."},"label":"Create Sol","rationale":"Matches the user's brief."}</deki_action>"#;
+
+        let error = deki_response_content_and_action(raw)
+            .expect_err("persona cards should reject invented template fields");
+
+        assert_eq!(error.code, "deki_action_invalid");
+        assert!(error.message.contains("quirks"));
+    }
+
+    #[test]
+    fn deki_response_rejects_incomplete_character_create_action() {
+        let raw = r#"I drafted Mira for approval.
+
+<deki_action>{"type":"create_record","entity":"characters","draft":{"data":{"name":"Mira","description":"Archivist","personality":"Careful","scenario":"A locked library","first_mes":"*Mira looks up.*","mes_example":"<START>\n{{user}}: Hello\n{{char}}: Shh.","creator_notes":"A mystery card.","system_prompt":"Roleplay Mira.","post_history_instructions":"","tags":["mystery"],"extensions":{"backstory":"Raised in the stacks."}}},"label":"Create Mira","rationale":"Matches the user's brief."}</deki_action>"#;
+
+        let error = deki_response_content_and_action(raw)
+            .expect_err("new character cards should require appearance");
+
+        assert_eq!(error.code, "deki_action_invalid");
+        assert!(error.message.contains("appearance"));
+    }
+    #[test]
     fn deki_response_repairs_raw_newlines_inside_action_strings() {
         let raw = "I drafted Sol for approval.\n\n<deki_action>{\"type\":\"create_record\",\"entity\":\"personas\",\"draft\":{\"name\":\"Sol\",\"description\":\"Line one
-Line two\"},\"label\":\"Create Sol\",\"rationale\":\"Matches the user's brief.\"}</deki_action>";
+Line two\",\"personality\":\"Bright\",\"scenario\":\"Roadside inn\",\"backstory\":\"Raised by caravan cooks.\",\"appearance\":\"Sun-faded cloak and quick hands.\"},\"label\":\"Create Sol\",\"rationale\":\"Matches the user's brief.\"}</deki_action>";
 
         let (content, action) = deki_response_content_and_action(raw)
             .expect("action strings with raw newlines should parse");
@@ -4140,7 +4385,7 @@ Line two\"},\"label\":\"Create Sol\",\"rationale\":\"Matches the user's brief.\"
     fn deki_response_repairs_unescaped_quotes_inside_action_strings() {
         let raw = r#"I drafted Sol for approval.
 
-<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"She says "go deeper" before acting."},"label":"Create Sol","rationale":"Matches the user's brief."}</deki_action>"#;
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"She says "go deeper" before acting.","personality":"Bright","scenario":"Roadside inn","backstory":"Raised by caravan cooks.","appearance":"Sun-faded cloak and quick hands."},"label":"Create Sol","rationale":"Matches the user's brief."}</deki_action>"#;
 
         let (content, action) = deki_response_content_and_action(raw)
             .expect("action strings with raw quotes should parse");
@@ -4176,7 +4421,7 @@ Line two\"},\"label\":\"Create Sol\",\"rationale\":\"Matches the user's brief.\"
     fn deki_response_extracts_action_from_fenced_json_block() {
         let raw = r#"Draft ready.
 <deki_action>```json
-{"type":"create_record","entity":"personas","draft":{"name":"Sol"}}
+{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"Sunny traveler","personality":"Bright","scenario":"Roadside inn","backstory":"Raised by caravan cooks.","appearance":"Sun-faded cloak and quick hands."}}
 ```</deki_action>"#;
 
         let (content, action) =
@@ -4284,7 +4529,7 @@ Line two\"},\"label\":\"Create Sol\",\"rationale\":\"Matches the user's brief.\"
     #[test]
     fn deki_response_extracts_action_when_hidden_block_has_trailing_text() {
         let raw = r#"Draft ready.
-<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol"}} This draft creates the requested persona.</deki_action>"#;
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"Sunny traveler","personality":"Bright","scenario":"Roadside inn","backstory":"Raised by caravan cooks.","appearance":"Sun-faded cloak and quick hands."}} This draft creates the requested persona.</deki_action>"#;
 
         let (content, action) = deki_response_content_and_action(raw)
             .expect("action with hidden trailing text should parse");
@@ -4599,7 +4844,7 @@ Line two\"},\"label\":\"Create Sol\",\"rationale\":\"Matches the user's brief.\"
     #[test]
     fn deki_response_rejects_multiple_action_blocks() {
         let raw = r#"Draft ready.
-<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol"}}</deki_action>
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"Sunny traveler","personality":"Bright","scenario":"Roadside inn","backstory":"Raised by caravan cooks.","appearance":"Sun-faded cloak and quick hands."}}</deki_action>
 <deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Luna"}}</deki_action>"#;
 
         let error =
@@ -4611,7 +4856,7 @@ Line two\"},\"label\":\"Create Sol\",\"rationale\":\"Matches the user's brief.\"
     #[test]
     fn deki_response_preserves_visible_text_after_action_block() {
         let raw = r#"Draft ready.
-<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol"}}</deki_action>
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"Sunny traveler","personality":"Bright","scenario":"Roadside inn","backstory":"Raised by caravan cooks.","appearance":"Sun-faded cloak and quick hands."}}</deki_action>
 Extra visible text."#;
 
         let (content, action) =

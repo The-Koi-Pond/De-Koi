@@ -58,6 +58,40 @@ describe("normalizeDekiEntryAction lorebook redrafts", () => {
     expect(action).toMatchObject({ type: "none", capability: "read_only" });
   });
 });
+describe("normalizeDekiEntryAction character and persona cards", () => {
+  it("drops incomplete persona create actions", () => {
+    const action = normalizeDekiEntryAction({
+      type: "create_record",
+      entity: "personas",
+      draft: {
+        name: "Sol",
+        description: "Sunny traveler",
+        personality: "Bright",
+        scenario: "Roadside inn",
+      },
+    });
+
+    expect(action).toMatchObject({ type: "none", capability: "read_only" });
+  });
+
+  it("drops persona create actions with invented card fields", () => {
+    const action = normalizeDekiEntryAction({
+      type: "create_record",
+      entity: "personas",
+      draft: {
+        name: "Sol",
+        description: "Sunny traveler",
+        personality: "Bright",
+        scenario: "Roadside inn",
+        backstory: "Raised by caravan cooks.",
+        appearance: "Sun-faded cloak and quick hands.",
+        quirks: "Collects blue glass.",
+      },
+    });
+
+    expect(action).toMatchObject({ type: "none", capability: "read_only" });
+  });
+});
 describe("normalizeDekiEntryAction web research", () => {
   it("keeps a web research permission request pending until the shell grants it", () => {
     const action = normalizeDekiEntryAction({
@@ -164,6 +198,10 @@ describe("dekiApi.actions.apply", () => {
       draft: {
         name: "Sol",
         description: "Sunny traveler",
+        personality: "Bright",
+        scenario: "Roadside inn",
+        backstory: "Raised by caravan cooks.",
+        appearance: "Sun-faded cloak and quick hands.",
       },
       label: "Create Sol",
     };
@@ -177,6 +215,10 @@ describe("dekiApi.actions.apply", () => {
     expect(storageApiMock.create).toHaveBeenCalledWith("personas", {
       name: "Sol",
       description: "Sunny traveler",
+      personality: "Bright",
+      scenario: "Roadside inn",
+      backstory: "Raised by caravan cooks.",
+      appearance: "Sun-faded cloak and quick hands.",
     });
     expect(storageApiMock.update).not.toHaveBeenCalled();
     expect(result).toMatchObject({
@@ -186,6 +228,24 @@ describe("dekiApi.actions.apply", () => {
     });
   });
 
+  it("rejects manually applied persona drafts with invented card fields", async () => {
+    const action: DekiEntryAction = {
+      type: "create_record",
+      entity: "personas",
+      draft: {
+        name: "Sol",
+        description: "Sunny traveler",
+        personality: "Bright",
+        scenario: "Roadside inn",
+        backstory: "Raised by caravan cooks.",
+        appearance: "Sun-faded cloak and quick hands.",
+        quirks: "Collects blue glass.",
+      },
+    };
+
+    await expect(dekiApi.actions.apply(action)).rejects.toThrow(/quirks/);
+    expect(storageApiMock.create).not.toHaveBeenCalled();
+  });
   it("appends Deki-created prompt sections to the parent preset order", async () => {
     const action: DekiEntryAction = {
       type: "create_record",
@@ -248,6 +308,10 @@ describe("dekiApi.actions.apply", () => {
       draft: {
         name: "Sol",
         description: "Sunny traveler",
+        personality: "Bright",
+        scenario: "Roadside inn",
+        backstory: "Raised by caravan cooks.",
+        appearance: "Sun-faded cloak and quick hands.",
       },
     };
     storageApiMock.get.mockResolvedValue({
@@ -320,6 +384,10 @@ describe("dekiApi.actions.apply", () => {
       draft: {
         name: "Sol",
         description: "Sunny traveler",
+        personality: "Bright",
+        scenario: "Roadside inn",
+        backstory: "Raised by caravan cooks.",
+        appearance: "Sun-faded cloak and quick hands.",
       },
     };
     storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
@@ -396,6 +464,11 @@ describe("dekiApi.actions.apply", () => {
       entity: "personas",
       draft: {
         name: "Sol",
+        description: "Sunny traveler",
+        personality: "Bright",
+        scenario: "Roadside inn",
+        backstory: "Raised by caravan cooks.",
+        appearance: "Sun-faded cloak and quick hands.",
       },
     };
     storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
@@ -557,6 +630,11 @@ describe("dekiApi.actions.currentRecord", () => {
       entity: "personas",
       draft: {
         name: "Sol",
+        description: "Sunny traveler",
+        personality: "Bright",
+        scenario: "Roadside inn",
+        backstory: "Raised by caravan cooks.",
+        appearance: "Sun-faded cloak and quick hands.",
       },
     };
 
@@ -710,4 +788,3 @@ describe("dekiApi.sessions.deleteMany", () => {
     expect(state.activeSessionId).toBe(state.sessions[0]!.id);
   });
 });
-

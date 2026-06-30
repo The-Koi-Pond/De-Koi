@@ -1,5 +1,6 @@
 import {
   normalizeDekiEntryAction,
+  validateDekiRecordActionPayload,
   type DekiActionApplication,
   type DekiActionEntity,
   type DekiChatAccessGrant,
@@ -23,6 +24,7 @@ import {
   type DekiSessionsState,
 } from "../../engine/deki/deki-history";
 import { appSettingsResponseSchema, appSettingsUpdateSchema } from "../../engine/contracts/schemas/app-settings.schema";
+import { createCharacterSchema } from "../../engine/contracts/schemas/character.schema";
 import {
   createLorebookEntrySchema,
   createLorebookSchema,
@@ -636,11 +638,25 @@ function withCreateActionId(
     : { draft, idempotencyId: null };
 }
 
+function assertDekiRecordActionPayload(
+  action: Extract<DekiEntryAction, { type: "create_record" | "edit_record" }>,
+  requireCompleteCard: boolean,
+): void {
+  const payload = action.type === "create_record" ? action.draft : action.patch;
+  const error = validateDekiRecordActionPayload(action.entity, payload, { requireCompleteCard });
+  if (error) throw new Error(`Deki-senpai ${action.entity} action is invalid: ${error}`);
+}
 function normalizeCreateActionDraft(
   action: Extract<DekiEntryAction, { type: "create_record" }>,
   actionId: string | undefined,
 ): { draft: Record<string, unknown>; idempotencyId: string | null } {
   switch (action.entity) {
+    case "characters":
+      assertDekiRecordActionPayload(action, true);
+      return withCreateActionId(action.entity, createCharacterSchema.parse(action.draft), actionId);
+    case "personas":
+      assertDekiRecordActionPayload(action, true);
+      return withCreateActionId(action.entity, action.draft, actionId);
     case "prompt-sections":
       return withCreateActionId(action.entity, createPromptSectionSchema.parse(action.draft), actionId);
     case "prompt-groups":
@@ -708,6 +724,13 @@ async function appendPromptChildToParentOrder(
   throw new Error(`${entity} action could not reconcile ${orderField} for prompt preset ${presetId}.`);
 }
 
+async function applyEditDekiAction(
+  action: Extract<DekiEntryAction, { type: "edit_record" }>,
+  storageEntity: StorageEntity,
+): Promise<unknown> {
+  assertDekiRecordActionPayload(action, false);
+  return storageApi.update(storageEntity, action.id, action.patch);
+}
 async function applyCreateDekiAction(
   action: Extract<DekiEntryAction, { type: "create_record" }>,
   actionId: string | undefined,
@@ -878,7 +901,7 @@ export const dekiApi = {
           ? await applyLorebookRedraftAction(action, options?.actionId)
           : action.type === "create_record"
             ? await applyCreateDekiAction(action, options?.actionId)
-            : await storageApi.update(storageEntity, action.id, action.patch);
+            : await applyEditDekiAction(action, storageEntity);
       const resultId = dekiActionResultId(action, result);
       const appliedStatus = options?.messageId
         ? await writeDekiActionApplication(options.sessionId, options.messageId, {
@@ -1037,4 +1060,3 @@ export const dekiApi = {
 };
 
 export type { DekiChatAccessGrant };
-
