@@ -2019,14 +2019,27 @@ async function resolveIndividualGroupTurnIds(args: {
 }): Promise<string[] | null> {
   if (args.input.impersonate === true || readString(args.input.regenerateMessageId).trim()) return null;
   if (Array.isArray(args.input.messages) && args.input.messages.length > 0) return null;
-  if (readString(args.chat.mode || args.chat.chatMode).trim() !== "roleplay") return null;
   const metadata = parseRecord(args.chat.metadata);
-  if (readString(metadata.groupChatMode, "merged") !== "individual") return null;
+  const chatMode = readString(args.chat.mode || args.chat.chatMode).trim();
+  const isRoleplayIndividualGroup =
+    chatMode === "roleplay" && readString(metadata.groupChatMode, "merged") === "individual";
+  const isConversationGroup = chatMode === "conversation";
+  if (!isRoleplayIndividualGroup && !isConversationGroup) return null;
 
-  const activeIds = activeCharacterIds(args.chat);
+  const activeIds = isConversationGroup ? conversationGroupCharacterIds(args.chat) : activeCharacterIds(args.chat);
   if (activeIds.length <= 1) return null;
   const explicit = explicitGroupTarget(args.input, args.storedMessages, activeIds);
   if (explicit) return [explicit];
+
+  if (isConversationGroup) {
+    const candidates = await loadSmartResponderCandidates(args.deps.storage, activeIds);
+    const mentionedIds = mentionedSmartResponderIds({
+      candidates,
+      latestUserInput: args.latestUserInput,
+      mentionedNames: args.mentionedNames,
+    });
+    if (mentionedIds.length > 0) return mentionedIds;
+  }
 
   const order = readString(metadata.groupResponseOrder, "sequential");
   if (order === "manual") return [];
