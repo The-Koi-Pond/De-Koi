@@ -83,7 +83,14 @@ Return ONLY valid JSON with these fields:
   "post_history_instructions": "",
   "tags": ["tag1", "tag2", "tag3"],
   "backstory": "The character's history, origin, and key life events (2-3 paragraphs).",
-  "appearance": "Detailed physical description - height, build, hair, eyes, clothing, distinguishing features."
+  "appearance": "Detailed physical description - height, build, hair, eyes, clothing, distinguishing features.",
+  "publicProfile": {
+    "displayName": "Short public display name shown in previews",
+    "handle": "Optional short public handle, like @username",
+    "bio": "Safe outward-facing blurb for previews (1-2 sentences). Do not include creator notes, hidden twists, or private setup instructions.",
+    "tags": ["publicTag1", "publicTag2"],
+    "bannerImage": ""
+  }
 }
 
 Be creative, detailed, and consistent. Make the character feel alive and three-dimensional.`;

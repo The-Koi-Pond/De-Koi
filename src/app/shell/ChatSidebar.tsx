@@ -60,6 +60,7 @@ import { Modal } from "../../shared/components/ui/Modal";
 import { Reorder, useDragControls } from "framer-motion";
 import { parseChatMetadata, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
 import { useStartNewChat } from "./useStartNewChat";
+import { getDekiBatchDeleteCopy, getSelectedDekiSessionIds, toggleDekiSessionSelection } from "./deki-sidebar-selection";
 
 type ChatSortOption = "newest" | "oldest" | "name-asc" | "name-desc";
 export type ChatSidebarTab = "conversation" | "roleplay" | "game";
@@ -79,6 +80,7 @@ type ChatSidebarProps = {
   onOpenDekiSession: (sessionId: string) => void;
   onCreateDekiSession: () => void;
   onDeleteDekiSession: (sessionId: string) => void;
+  onDeleteDekiSessions: (sessionIds: string[]) => void;
 };
 
 const CHAT_DRAG_MIME = "application/x-de-koi-chat-id";
@@ -153,6 +155,7 @@ export function ChatSidebar({
   onOpenDekiSession,
   onCreateDekiSession,
   onDeleteDekiSession,
+  onDeleteDekiSessions,
 }: ChatSidebarProps) {
   const { data: chats, isError: chatsError, isLoading, isFetching, refetch: refetchChats } = useChatSummaries();
   const deleteChat = useDeleteChat();
@@ -272,6 +275,8 @@ export function ChatSidebar({
   const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
   const [lastActiveChatIdsByGroup, setLastActiveChatIdsByGroup] = useState<Map<string, string>>(() => new Map());
   const [batchExportMenuOpen, setBatchExportMenuOpen] = useState(false);
+  const [dekiMultiSelectMode, setDekiMultiSelectMode] = useState(false);
+  const [selectedDekiSessionIds, setSelectedDekiSessionIds] = useState<Set<string>>(new Set());
 
   const toggleSelectChat = useCallback((chatId: string) => {
     setSelectedChatIds((prev) => {
@@ -288,12 +293,32 @@ export function ChatSidebar({
     setBatchExportMenuOpen(false);
   }, []);
 
+  const orderedDekiSessionIds = useMemo(() => dekiSessions.map((session) => session.id), [dekiSessions]);
+  const selectedVisibleDekiSessionIds = useMemo(
+    () => getSelectedDekiSessionIds(selectedDekiSessionIds, orderedDekiSessionIds),
+    [orderedDekiSessionIds, selectedDekiSessionIds],
+  );
+
+  const exitDekiMultiSelect = useCallback(() => {
+    setDekiMultiSelectMode(false);
+    setSelectedDekiSessionIds(new Set());
+  }, []);
+
+  const toggleSelectDekiSession = useCallback((sessionId: string) => {
+    setSelectedDekiSessionIds((current) => toggleDekiSessionSelection(current, sessionId));
+  }, []);
+
+  useEffect(() => {
+    setSelectedDekiSessionIds((current) => new Set(getSelectedDekiSessionIds(current, orderedDekiSessionIds)));
+  }, [orderedDekiSessionIds]);
+
   // Exit multi-select when switching tabs
   useEffect(() => {
     exitMultiSelect();
+    exitDekiMultiSelect();
     setActiveTag(null);
     setTagsExpanded(false);
-  }, [activeTab, exitMultiSelect]);
+  }, [activeTab, exitDekiMultiSelect, exitMultiSelect]);
 
   const modeChats = useMemo(
     () =>
@@ -583,6 +608,23 @@ export function ChatSidebar({
     },
     [onDeleteDekiSession],
   );
+
+  const handleDeleteSelectedDekiSessions = useCallback(async () => {
+    const sessionIds = getSelectedDekiSessionIds(selectedDekiSessionIds, orderedDekiSessionIds);
+    if (sessionIds.length === 0) return;
+    const copy = getDekiBatchDeleteCopy(sessionIds.length);
+    if (
+      await showConfirmDialog({
+        title: copy.title,
+        message: copy.message,
+        confirmLabel: "Delete",
+        tone: "destructive",
+      })
+    ) {
+      onDeleteDekiSessions(sessionIds);
+      exitDekiMultiSelect();
+    }
+  }, [exitDekiMultiSelect, onDeleteDekiSessions, orderedDekiSessionIds, selectedDekiSessionIds]);
 
   // ── Folder handlers ──
   const handleCreateFolder = useCallback(() => {
@@ -1036,20 +1078,40 @@ export function ChatSidebar({
             <MessageSquare size="0.6875rem" className="shrink-0" />
             <span className="truncate">Deki-senpai</span>
           </div>
-          <button
-            type="button"
-            onClick={handleCreateDekiSession}
-            className="rounded-md p-1 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90"
-            title="New Deki chat"
-            aria-label="New Deki chat"
-          >
-            <Plus size="0.8125rem" />
-          </button>
+          <div className="flex items-center gap-1">
+            {dekiSessions.length > 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (dekiMultiSelectMode) exitDekiMultiSelect();
+                  else setDekiMultiSelectMode(true);
+                }}
+                className={cn(
+                  "rounded-md p-1 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90",
+                  dekiMultiSelectMode && "bg-[var(--sidebar-accent)] text-[var(--primary)]",
+                )}
+                title={dekiMultiSelectMode ? "Cancel Deki selection" : "Select Deki chats"}
+                aria-label={dekiMultiSelectMode ? "Cancel Deki selection" : "Select Deki chats"}
+              >
+                {dekiMultiSelectMode ? <X size="0.8125rem" /> : <CheckSquare size="0.8125rem" />}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleCreateDekiSession}
+              className="rounded-md p-1 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90"
+              title="New Deki chat"
+              aria-label="New Deki chat"
+            >
+              <Plus size="0.8125rem" />
+            </button>
+          </div>
         </div>
         <div className="flex max-h-36 flex-col gap-0.5 overflow-y-auto pr-0.5">
           {dekiSessions.map((session) => {
             const isActive = dekiOpen && activeDekiSessionId === session.id;
             const hasUnread = unreadDekiSessionIds.has(session.id);
+            const isSelected = selectedDekiSessionIds.has(session.id);
             return (
               <div
                 key={session.id}
@@ -1058,29 +1120,51 @@ export function ChatSidebar({
                 data-deki-session-id={session.id}
                 data-deki-session-unread={hasUnread ? "true" : undefined}
                 aria-label={hasUnread ? session.title + ", new Deki message" : session.title}
-                onClick={() => handleOpenDekiSession(session.id)}
+                onClick={() => {
+                  if (dekiMultiSelectMode) {
+                    toggleSelectDekiSession(session.id);
+                    return;
+                  }
+                  handleOpenDekiSession(session.id);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
+                    if (dekiMultiSelectMode) {
+                      toggleSelectDekiSession(session.id);
+                      return;
+                    }
                     handleOpenDekiSession(session.id);
                   }
                 }}
                 className={cn(
                   "group relative flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-all",
-                  isActive
-                    ? "bg-[var(--sidebar-accent)] text-[var(--sidebar-accent-foreground)] shadow-sm"
-                    : "text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-accent)]/60",
+                  dekiMultiSelectMode && isSelected
+                    ? "bg-sky-500/10 text-[var(--sidebar-foreground)] ring-1 ring-sky-400/25"
+                    : isActive
+                      ? "bg-[var(--sidebar-accent)] text-[var(--sidebar-accent-foreground)] shadow-sm"
+                      : "text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-accent)]/60",
                 )}
               >
-                {isActive && (
+                {dekiMultiSelectMode && (
+                  <div className="shrink-0 text-sky-500">
+                    {isSelected ? (
+                      <CheckSquare size="0.875rem" />
+                    ) : (
+                      <SquareIcon size="0.875rem" className="text-[var(--muted-foreground)]" />
+                    )}
+                  </div>
+                )}
+                {isActive && !dekiMultiSelectMode && (
                   <span className="absolute -left-0.5 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-sky-400" />
                 )}
                 <div className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-500">
                   <MessageSquare size="0.8125rem" />
                   {hasUnread && (
                     <span
-                      aria-hidden="true"
                       className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-sky-400 ring-2 ring-[var(--background)]"
+                      title="New Deki message"
+                      aria-label="New Deki message"
                     />
                   )}
                 </div>
@@ -1090,22 +1174,51 @@ export function ChatSidebar({
                     {session.messages.length} message{session.messages.length === 1 ? "" : "s"}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void handleDeleteDekiSession(session);
-                  }}
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] opacity-0 transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--destructive)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--destructive)]/35 active:scale-90 group-hover:opacity-100 max-md:opacity-100"
-                  title="Delete Deki chat"
-                  aria-label={`Delete ${session.title}`}
-                >
-                  <Trash2 size="0.8125rem" strokeWidth={1.9} aria-hidden="true" />
-                </button>
+                {!dekiMultiSelectMode && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleDeleteDekiSession(session);
+                    }}
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] opacity-0 transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--destructive)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--destructive)]/35 active:scale-90 group-hover:opacity-100 max-md:opacity-100"
+                    title="Delete Deki chat"
+                    aria-label={`Delete ${session.title}`}
+                  >
+                    <Trash2 size="0.8125rem" strokeWidth={1.9} aria-hidden="true" />
+                  </button>
+                )}
               </div>
             );
           })}
         </div>
+        {dekiMultiSelectMode && (
+          <div className="mt-2 rounded-lg border border-[var(--border)]/35 bg-[var(--card)]/70 p-2">
+            <div className="mb-2 text-center text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
+              {selectedVisibleDekiSessionIds.length} selected
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={exitDekiMultiSelect}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium transition-all hover:bg-[var(--accent)]"
+              >
+                <X size="0.75rem" />
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteSelectedDekiSessions()}
+                disabled={selectedVisibleDekiSessionIds.length === 0}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-xs font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:opacity-40"
+                aria-label="Delete selected Deki chats"
+              >
+                <Trash2 size="0.75rem" />
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
