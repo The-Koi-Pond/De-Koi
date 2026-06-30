@@ -14,7 +14,6 @@ const publicProfileSchema = z
     displayName: z.string().default(""),
     handle: z.string().default(""),
     bio: z.string().default(""),
-    tags: z.array(z.string()).default([]),
     bannerImage: z.string().default(""),
   })
   .partial()

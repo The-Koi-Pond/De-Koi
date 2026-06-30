@@ -88,12 +88,11 @@ Return ONLY valid JSON with these fields:
     "displayName": "Short public display name shown in previews",
     "handle": "Optional short public handle the character would choose for themself, like @username",
     "bio": "In-character public blurb the character would write for their own profile (1-2 sentences). Do not include creator notes, hidden twists, or private setup instructions.",
-    "tags": ["inCharacterPublicTag1", "inCharacterPublicTag2"],
     "bannerImage": ""
   }
 }
 
-The publicProfile fields are chosen by the character as their own public self-presentation, not by an outside catalog writer. Write the handle, bio, and public tags in the character's voice: what this character would choose to show strangers about themself while staying safe for previews.
+The publicProfile fields are chosen by the character as their own public self-presentation, not by an outside catalog writer. Write the handle and bio in the character's voice: what this character would choose to show strangers about themself while staying safe for previews.
 
 Be creative, detailed, and consistent. Make the character feel alive and three-dimensional.`;
 

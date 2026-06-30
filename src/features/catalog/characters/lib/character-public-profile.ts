@@ -59,7 +59,6 @@ export function resolveCharacterPublicProfile(row: CharacterPublicProfileRow): R
   const saved = getSavedCharacterPublicProfile(data);
   const displayName = readText(saved.displayName) || readText(data.name) || "Unnamed";
   const title = readText(row.comment) || null;
-  const savedTags = readTextArray(saved.tags);
   const cardTags = readTextArray(data.tags);
   const bio = readText(saved.bio) || title || "No public profile yet.";
 
@@ -68,13 +67,12 @@ export function resolveCharacterPublicProfile(row: CharacterPublicProfileRow): R
     handle: readText(saved.handle) || null,
     title,
     bio,
-    tags: savedTags.length > 0 ? savedTags : cardTags,
+    tags: cardTags,
     bannerImage: readText(saved.bannerImage) || null,
     hasSavedProfile:
       !!readText(saved.displayName) ||
       !!readText(saved.handle) ||
       !!readText(saved.bio) ||
-      savedTags.length > 0 ||
       !!readText(saved.bannerImage),
   };
 }

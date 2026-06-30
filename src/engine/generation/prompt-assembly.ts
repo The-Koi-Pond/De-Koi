@@ -115,7 +115,6 @@ interface GenerationCharacterPublicProfile {
   displayName?: string;
   handle?: string;
   bio?: string;
-  tags: string[];
 }
 
 export interface GenerationPersonaContext {
@@ -469,17 +468,12 @@ function characterPublicProfile(extensions: JsonRecord): GenerationCharacterPubl
   const displayName = field(profile, "displayName") || field(profile, "name");
   const handle = field(profile, "handle");
   const bio = field(profile, "bio");
-  const tags = stringArray(profile.tags)
-    .map((tag) => cleanPromptText(tag).trim())
-    .filter(Boolean)
-    .slice(0, 8);
 
-  if (!displayName && !handle && !bio && tags.length === 0) return undefined;
+  if (!displayName && !handle && !bio) return undefined;
   return {
     displayName: displayName || undefined,
     handle: handle || undefined,
     bio: bio || undefined,
-    tags,
   };
 }
 
@@ -489,7 +483,6 @@ function characterPublicProfileText(profile: GenerationCharacterPublicProfile | 
     profile.displayName ? "Display name: " + profile.displayName : "",
     profile.handle ? "Handle: " + profile.handle : "",
     profile.bio ? "Bio: " + profile.bio : "",
-    profile.tags.length > 0 ? "Tags: " + profile.tags.join(", ") : "",
   ].filter(Boolean);
   return parts.join("\n");
 }

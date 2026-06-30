@@ -88,7 +88,8 @@ describe("generateCharacterMaker", () => {
     const systemPrompt = request?.messages.map((message) => message.content).join("\n") ?? "";
 
     expect(systemPrompt).toContain("chosen by the character as their own public self-presentation");
-    expect(systemPrompt).toContain("Write the handle, bio, and public tags in the character's voice");
+    expect(systemPrompt).toContain("Write the handle and bio in the character's voice");
+    expect(systemPrompt).not.toContain("inCharacterPublicTag");
   });
 
   it("does not emit leading thinking as streamed token events while still parsing visible JSON", async () => {

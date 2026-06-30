@@ -20,7 +20,7 @@ export type GeneratedCharacterData = {
   tags?: string[];
   backstory?: string;
   appearance?: string;
-  publicProfile?: CharacterPublicProfile;
+  publicProfile?: unknown;
 };
 
 export function parseTagsInput(value: string): string[] {
@@ -56,21 +56,6 @@ function readText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function readTextArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const item of value) {
-    const text = readText(item);
-    if (!text) continue;
-    const key = text.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(text);
-  }
-  return result;
-}
-
 function firstParagraph(value: unknown): string {
   return (
     readText(value)
@@ -82,11 +67,8 @@ function firstParagraph(value: unknown): string {
 export function buildGeneratedCharacterPublicProfile(
   generated: GeneratedCharacterData,
   finalName: string,
-  savedTags: string[],
 ): CharacterPublicProfile {
   const explicit = readRecord(generated.publicProfile);
-  const explicitTags = readTextArray(explicit.tags);
-  const tags = explicitTags.length > 0 ? explicitTags : readTextArray(savedTags).slice(0, 8);
   const profile: CharacterPublicProfile = {};
   const displayName = readText(explicit.displayName) || readText(explicit.name) || finalName.trim();
   const handle = readText(explicit.handle);
@@ -96,7 +78,6 @@ export function buildGeneratedCharacterPublicProfile(
   if (displayName) profile.displayName = displayName;
   if (handle) profile.handle = handle;
   if (bio) profile.bio = bio;
-  if (tags.length > 0) profile.tags = tags;
   if (bannerImage) profile.bannerImage = bannerImage;
   return profile;
 }

@@ -117,7 +117,7 @@ describe("character public profiles in prompt assembly", () => {
     expect(promptText).toContain("Mira Vale");
     expect(promptText).toContain("@moonbard");
     expect(promptText).toContain("A cheerful bard who remembers every song half-wrong.");
-    expect(promptText).toContain("music, sunny");
+    expect(promptText).not.toContain("music, sunny");
     expect(promptText).not.toContain("Private setup notes");
   });
 });

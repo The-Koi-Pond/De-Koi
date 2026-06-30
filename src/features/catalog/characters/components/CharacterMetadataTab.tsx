@@ -16,20 +16,6 @@ function readPublicProfile(value: unknown): CharacterPublicProfile {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as CharacterPublicProfile) : {};
 }
 
-function parsePublicTagsInput(value: string): string[] {
-  const seen = new Set<string>();
-  const tags: string[] = [];
-  for (const part of value.split(",")) {
-    const tag = part.trim();
-    if (!tag) continue;
-    const key = tag.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    tags.push(tag);
-  }
-  return tags;
-}
-
 export function CharacterMetadataTab({
   characterId,
   formData,
@@ -290,18 +276,6 @@ export function CharacterMetadataTab({
           </p>
         )}
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="space-y-1.5">
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-              Public Tags{" "}
-              <HelpTooltip text="Comma-separated tags shown on profile previews. Falls back to card tags when blank." />
-            </span>
-            <input
-              value={(publicProfile.tags ?? []).join(", ")}
-              onChange={(event) => updatePublicProfile({ tags: parsePublicTagsInput(event.target.value) })}
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
-              placeholder="friendly, mysterious"
-            />
-          </label>
           <label className="space-y-1.5">
             <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
               Banner Image <HelpTooltip text="Optional image URL for profile previews." />

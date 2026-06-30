@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { resolveCharacterPublicProfile } from "./character-public-profile";
 
 describe("resolveCharacterPublicProfile", () => {
-  it("uses saved public profile fields before derived character-card fields", () => {
+  it("uses saved public profile fields but keeps character-card tags", () => {
     const profile = resolveCharacterPublicProfile({
       id: "char-1",
       data: {
@@ -28,7 +28,7 @@ describe("resolveCharacterPublicProfile", () => {
       handle: "@lockbox",
       title: "Night-shift archive keeper",
       bio: "Keeps secrets for people who know how to ask.",
-      tags: ["quiet", "keys"],
+      tags: ["archivist", "mystery"],
       bannerImage: "gallery://banner-1",
       hasSavedProfile: true,
     });
