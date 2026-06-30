@@ -1271,6 +1271,13 @@ fn apply_custom_parameters_to_object(
     }
 }
 
+fn is_gemini_model(model: &str) -> bool {
+    let normalized = model.to_ascii_lowercase();
+    normalized.starts_with("gemini-")
+        || normalized.starts_with("google/gemini-")
+        || normalized.contains("/gemini-")
+}
+
 fn is_gemini_3_model(model: &str) -> bool {
     let normalized = model.to_ascii_lowercase();
     normalized.starts_with("gemini-3")
@@ -2159,6 +2166,21 @@ fn content_part_text(value: &Value) -> Option<String> {
     if value.get("type").and_then(Value::as_str) == Some("thinking") {
         return None;
     }
+    if value
+        .get("thought")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    if let Some(parts) = value.get("parts").and_then(Value::as_array) {
+        let text = parts
+            .iter()
+            .filter_map(content_part_text)
+            .collect::<Vec<_>>()
+            .join("");
+        return (!text.trim().is_empty()).then_some(text);
+    }
     value
         .get("text")
         .and_then(Value::as_str)
@@ -2187,15 +2209,36 @@ fn content_thinking_text(value: &Value) -> String {
             .filter(|text| !text.trim().is_empty())
             .collect::<Vec<_>>()
             .join(""),
-        Value::Object(_) if value.get("type").and_then(Value::as_str) == Some("thinking") => value
-            .get("thinking")
-            .map(content_text)
-            .filter(|text| !text.trim().is_empty())
-            .or_else(|| {
-                value
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
+        Value::Object(_)
+            if value.get("type").and_then(Value::as_str) == Some("thinking")
+                || value
+                    .get("thought")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false) =>
+        {
+            value
+                .get("thinking")
+                .map(content_text)
+                .filter(|text| !text.trim().is_empty())
+                .or_else(|| {
+                    value
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .or_else(|| value.get("content").map(content_text))
+                .unwrap_or_default()
+        }
+        Value::Object(_) => value
+            .get("parts")
+            .and_then(Value::as_array)
+            .map(|parts| {
+                parts
+                    .iter()
+                    .map(content_thinking_text)
+                    .filter(|text| !text.trim().is_empty())
+                    .collect::<Vec<_>>()
+                    .join("")
             })
             .unwrap_or_default(),
         _ => String::new(),
@@ -4144,6 +4187,54 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
     }
 
     #[test]
+    fn custom_gemini_openai_body_defaults_json_requests_to_no_reasoning() {
+        let request = request_for(
+            "custom",
+            "gemini-3.5-flash",
+            json!({
+                "responseFormat": "json_object"
+            }),
+        );
+        let mut body = json!({});
+
+        apply_openai_parameters(&mut body, &request);
+
+        assert_eq!(body["reasoning_effort"], json!("none"));
+        assert_eq!(body["response_format"], json!({ "type": "json_object" }));
+    }
+
+    #[test]
+    fn custom_gemini_openai_body_preserves_explicit_reasoning_effort() {
+        let request = request_for(
+            "custom",
+            "gemini-3.5-flash",
+            json!({
+                "reasoningEffort": "low",
+                "responseFormat": "json_object"
+            }),
+        );
+        let mut body = json!({});
+
+        apply_openai_parameters(&mut body, &request);
+
+        assert_eq!(body["reasoning_effort"], json!("low"));
+    }
+
+    #[test]
+    fn custom_non_gemini_openai_body_does_not_add_reasoning_effort() {
+        let request = request_for(
+            "custom",
+            "llama-3.1-70b",
+            json!({ "responseFormat": "json_object" }),
+        );
+        let mut body = json!({});
+
+        apply_openai_parameters(&mut body, &request);
+
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
     fn openai_responses_body_strips_sampling_for_restricted_models() {
         let request = request_for(
             "openai",
@@ -4181,6 +4272,22 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
 
         assert_eq!(body["temperature"], json!(0.8));
         assert_eq!(body["top_p"], json!(0.9));
+    }
+
+    #[test]
+    fn openai_compatible_content_reads_gemini_parts_object() {
+        let message = json!({
+            "content": {
+                "parts": [
+                    { "text": "visible " },
+                    { "text": "private thought", "thought": true },
+                    { "text": "answer" }
+                ]
+            }
+        });
+
+        assert_eq!(assistant_message_text(&message), "visible answer");
+        assert_eq!(content_thinking_text(&message["content"]), "private thought");
     }
 
     #[test]
