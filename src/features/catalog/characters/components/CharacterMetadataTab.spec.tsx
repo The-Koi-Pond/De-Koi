@@ -10,6 +10,7 @@ const apiMocks = vi.hoisted(() => ({
   streamCompletion: vi.fn(async function* () {
     yield { type: "token", text: "I turn fear into a headline. Smile for the camera." };
   }),
+  generateImage: vi.fn(async () => ({ image: "data:image/png;base64,banner" })),
 }));
 
 vi.mock("../../../../shared/api/storage-api", () => ({
@@ -18,6 +19,10 @@ vi.mock("../../../../shared/api/storage-api", () => ({
 
 vi.mock("../../../../shared/api/llm-api", () => ({
   llmApi: { stream: apiMocks.streamCompletion },
+}));
+
+vi.mock("../../../../shared/api/image-generation-api", () => ({
+  imageGenerationApi: { generate: apiMocks.generateImage },
 }));
 
 vi.mock("./CharacterVersionHistoryPanel", () => ({
@@ -86,6 +91,9 @@ describe("CharacterMetadataTab public profile generation", () => {
           removeTag={vi.fn()}
           removeAllTags={vi.fn()}
           avatarPreview={null}
+          imageConnections={[
+            { id: "image-1", name: "Default Image", provider: "image_generation", defaultForAgents: true },
+          ]}
         />,
       );
     });
@@ -108,6 +116,49 @@ describe("CharacterMetadataTab public profile generation", () => {
     );
     expect(updateExtension).toHaveBeenCalledWith("publicProfile", {
       bio: "I turn fear into a headline. Smile for the camera.",
+    });
+  });
+
+  it("writes a generated in-character banner image into the public profile", async () => {
+    const updateExtension = vi.fn();
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <CharacterMetadataTab
+          characterId="char-1"
+          formData={formData}
+          characterComment="Freelance journalist with a taste for fear"
+          updateField={vi.fn()}
+          updateExtension={updateExtension}
+          newTag=""
+          setNewTag={vi.fn()}
+          addTag={vi.fn()}
+          removeTag={vi.fn()}
+          removeAllTags={vi.fn()}
+          avatarPreview={null}
+          imageConnections={[
+            { id: "image-1", name: "Default Image", provider: "image_generation", defaultForAgents: true },
+          ]}
+        />,
+      );
+    });
+
+    const generateButton = container!.querySelector<HTMLButtonElement>('button[aria-label="Generate banner image"]');
+    expect(generateButton).toBeTruthy();
+
+    await act(async () => {
+      generateButton!.click();
+    });
+
+    expect(apiMocks.generateImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: "image-1",
+        prompt: expect.stringContaining("the public profile banner this character would choose for themself"),
+      }),
+    );
+    expect(updateExtension).toHaveBeenCalledWith("publicProfile", {
+      bannerImage: "data:image/png;base64,banner",
     });
   });
 });

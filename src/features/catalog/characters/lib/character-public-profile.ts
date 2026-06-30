@@ -45,6 +45,8 @@ export type CharacterPublicProfileGenerationInput = CharacterPublicProfileSugges
   signal?: AbortSignal;
 };
 
+export type CharacterPublicProfileBannerPromptInput = CharacterPublicProfileSuggestionInput;
+
 const PROFILE_FIELD_LABELS: Record<CharacterPublicProfileSuggestionField, string> = {
   displayName: "display name",
   handle: "handle",
@@ -164,6 +166,49 @@ function chunkText(chunk: LlmChunk): string {
     readText(data.message) ||
     readText(data.error)
   );
+}
+
+function trimmedSnippet(value: unknown, maxLength = 900): string {
+  const text = readText(value).replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength).trim()}...`;
+}
+
+function labelledSnippet(label: string, value: unknown, maxLength?: number): string {
+  const text = trimmedSnippet(value, maxLength);
+  return text ? `${label}: ${text}` : "";
+}
+
+export function buildCharacterPublicProfileBannerPrompt(input: CharacterPublicProfileBannerPromptInput): string {
+  const saved = getSavedCharacterPublicProfile(input.data);
+  const extensions = readRecord(input.data.extensions);
+  const tags = readTextArray(input.data.tags);
+  const context = [
+    labelledSnippet("Character name", input.data.name, 160),
+    labelledSnippet("Public display name", saved.displayName, 160),
+    labelledSnippet("Public handle", saved.handle, 80),
+    labelledSnippet("Public bio", saved.bio, 260),
+    labelledSnippet("Profile title/comment", input.comment, 220),
+    labelledSnippet("Appearance", extensions.appearance, 600),
+    labelledSnippet("Description", input.data.description, 700),
+    labelledSnippet("Personality", input.data.personality, 500),
+    labelledSnippet("Scenario", input.data.scenario, 500),
+    labelledSnippet("Opening message voice", input.data.first_mes, 500),
+    labelledSnippet("Example conversation voice", input.data.mes_example, 700),
+    tags.length > 0 ? `Tags: ${tags.join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return [
+    "Create the public profile banner this character would choose for themself, not an outside illustration of what would fit them.",
+    "Treat the image as their own social/profile header: a chosen mood, place, symbol, aesthetic, keepsake, or view they would intentionally display.",
+    "Stay in character through visual choices. Do not depict private creator notes, hidden instructions, UI chrome, captions, typography, logos, watermarks, or speech bubbles.",
+    "Wide banner composition, readable when cropped horizontally, polished image generation prompt.",
+    "",
+    "Public-safe character context:",
+    context || "No additional public character context was provided.",
+  ].join("\n");
 }
 
 export function getSavedCharacterPublicProfile(

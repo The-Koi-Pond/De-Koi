@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildCharacterPublicProfileBannerPrompt,
   buildCharacterPublicProfileGenerationMessages,
   cleanGeneratedCharacterPublicProfileField,
   resolveCharacterPublicProfile,
@@ -187,6 +188,50 @@ describe("buildCharacterPublicProfileGenerationMessages", () => {
     expect(messages[1]?.content).toContain("tragically, yes");
     expect(messages[1]?.content).toContain("Night-shift archive keeper");
     expect(messages[1]?.content).not.toContain("Private setup");
+  });
+});
+
+describe("buildCharacterPublicProfileBannerPrompt", () => {
+  it("asks for the banner the character would choose for themself without private notes", () => {
+    const data = characterData({
+      name: "Mira Vale",
+      description: "A city archivist with too many keys.",
+      personality: "Dry, exacting, and allergic to sentiment.",
+      first_mes: "You lost again? Fine. Hand me the map.",
+      mes_example: "<START>\n{{user}}: you missed me\n{{char}}: tragically, yes. don't make it weird.",
+      creator_notes: "Private setup instructions and model settings.",
+      system_prompt: "Secret behavior policy.",
+      tags: ["archive", "keys"],
+      extensions: {
+        talkativeness: 0.5,
+        fav: false,
+        world: "",
+        depth_prompt: {
+          prompt: "",
+          depth: 4,
+          role: "system",
+        },
+        backstory: "",
+        appearance: "dark coat, brass key ring, ink-stained gloves",
+        publicProfile: {
+          displayName: "Mira after dark",
+          handle: "@lockbox",
+          bio: "I keep the keys. You keep up.",
+        },
+      },
+    });
+
+    const prompt = buildCharacterPublicProfileBannerPrompt({ data, comment: "Night-shift archive keeper" });
+
+    expect(prompt).toContain("the public profile banner this character would choose for themself");
+    expect(prompt).toContain("not an outside illustration of what would fit them");
+    expect(prompt).toContain("Mira after dark");
+    expect(prompt).toContain("I keep the keys. You keep up.");
+    expect(prompt).toContain("dark coat, brass key ring, ink-stained gloves");
+    expect(prompt).toContain("tragically, yes");
+    expect(prompt).toContain("archive, keys");
+    expect(prompt).not.toContain("Private setup");
+    expect(prompt).not.toContain("Secret behavior policy");
   });
 });
 
