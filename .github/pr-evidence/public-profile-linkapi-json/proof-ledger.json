@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Public profile generation works with LinkAPI and writes in-character profile fields",
+    "source": "User report: LinkAPI returned no assistant text/tool calls and generated handles, bios, and tags were not in character.",
+    "classification": "prompt-generation provider compatibility",
+    "status": "waiting_on_ci"
+  },
+  "coreClaim": "Character maker public profile generation requests JSON output and frames public handle, bio, and tags as the character's own self-presentation.",
+  "rootCause": "The character maker asked for JSON only in prose and described public profile fields as generic catalog preview text, leaving OpenAI-compatible providers such as LinkAPI more room to return non-final or empty assistant text and encouraging out-of-character summary fields.",
+  "scope": {
+    "inScope": [
+      "Character maker prompt contract for publicProfile fields",
+      "Character maker LLM request parameters",
+      "Focused regression coverage for JSON mode and in-character public profile wording"
+    ],
+    "outOfScope": [
+      "Live LinkAPI network call",
+      "Provider parser changes",
+      "Character editor UI changes",
+      "Roleplay or game mode generation routing"
+    ],
+    "intendedFiles": [
+      "src/engine/generation/makers.ts",
+      "src/engine/generation/makers.spec.ts",
+      ".github/pr-evidence/public-profile-linkapi-json/proof-ledger.json"
+    ],
+    "touchedFiles": [
+      "src/engine/generation/makers.ts",
+      "src/engine/generation/makers.spec.ts",
+      ".github/pr-evidence/public-profile-linkapi-json/proof-ledger.json"
+    ],
+    "riskFlags": ["prompt-agent-lorebook", "provider compatibility"]
+  },
+  "claimBoundary": {
+    "coreClaim": "Character maker public profile requests now include JSON object mode and in-character public-profile instructions.",
+    "riskType": "prompt generation provider compatibility",
+    "entrypoints": [
+      "CharacterMakerModal handleGenerate",
+      "generateCharacterMaker",
+      "runMakerRequest using llmApi.complete or llmApi.stream"
+    ],
+    "currentPathsOrFormats": [
+      "src/engine/generation/makers.ts CHARACTER_SYSTEM_PROMPT publicProfile schema text",
+      "src/engine/generation/makers.ts runMakerRequest parameters responseFormat=json_object",
+      "src/shared/api/llm-api.ts LlmGateway complete/stream request boundary"
+    ],
+    "legacyPathsOrFormats": [
+      "OpenAI-compatible providers without JSON-mode support still receive the explicit JSON-only prompt text.",
+      "Google/Gemini LinkAPI-style connections use provider-specific generationConfig handling and may ignore responseFormat while preserving prompt instructions.",
+      "Existing Rust provider parser behavior remains unchanged for providers that return assistant text normally."
+    ],
+    "outOfScopeClaims": [
+      "This PR does not prove a live LinkAPI response because no external provider call was run in this shipping flow.",
+      "This PR does not change Rust provider parsing or provider endpoint selection.",
+      "This PR does not change persona or lorebook prompt content beyond the shared JSON-mode request parameter used by JSON makers."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "The character maker requested a JSON character card through prompt prose only and did not require public profile fields to be character-authored.",
+    "producer": "src/engine/generation/makers.ts generateJsonMaker and runMakerRequest",
+    "consumer": "src/shared/api/llm-api.ts and OpenAI-compatible provider transports including LinkAPI-style chat completions",
+    "impliedContract": "JSON maker requests should communicate both machine-readable JSON intent to capable providers and the product semantic contract for generated public profile fields.",
+    "actualEnforcement": "runMakerRequest now sends responseFormat=json_object, and CHARACTER_SYSTEM_PROMPT describes publicProfile handle, bio, and tags as the character's own public self-presentation.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "Engine generation owns maker prompt semantics and LLM request parameters for character creation.",
+    "consumerOnlyLanes": ["src/shared/api"],
+    "wrongLaneFixToAvoid": "Do not hide this with a UI-only retry or editor fallback; the generation request contract must be precise before it reaches provider transport.",
+    "regressionProof": [
+      "src/engine/generation/makers.spec.ts asserts character maker requests include responseFormat=json_object.",
+      "src/engine/generation/makers.spec.ts asserts the prompt frames publicProfile fields as character-chosen self-presentation.",
+      "pnpm check passed after the final pushed diff."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Character maker requests JSON object output for provider compatibility.",
+        "evidence": "pnpm vitest run src/engine/generation/makers.spec.ts --pool=threads --maxWorkers=1 --no-file-parallelism passed with 7 tests."
+      },
+      {
+        "claim": "Generated public profile fields are prompted as in-character choices.",
+        "evidence": "The focused maker spec asserts the prompt contains 'chosen by the character as their own public self-presentation' and 'Write the handle, bio, and public tags in the character's voice'."
+      },
+      {
+        "claim": "The change preserves TypeScript and architecture boundaries.",
+        "evidence": "pnpm typecheck and pnpm check:architecture passed after the branch was rebased onto origin/main."
+      },
+      {
+        "claim": "The PR baseline gate is green locally.",
+        "evidence": "pnpm check passed, including line endings, scratch, architecture, storage contracts, frontend, Rust, docs, discovery, agent workflow, launcher safety, and warning-only unused-code reporting."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The fix should not rely on broad provider parser changes or fake success handling.",
+        "evidence": "The diff is limited to src/engine/generation/makers.ts, src/engine/generation/makers.spec.ts, and this proof ledger; no Rust provider parser or UI fallback changed."
+      },
+      {
+        "claim": "The public profile prompt should still avoid private creator notes and hidden twists.",
+        "evidence": "The updated bio field keeps the existing instruction: 'Do not include creator notes, hidden twists, or private setup instructions.'"
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Providers that already returned valid JSON text keep the same visible prompt contract with stricter publicProfile wording.",
+        "evidence": "The existing maker tests for non-streaming and streaming visible JSON still pass in src/engine/generation/makers.spec.ts."
+      },
+      {
+        "claim": "Providers that ignore responseFormat are still guided by prompt text rather than a provider-specific fallback.",
+        "evidence": "CHARACTER_SYSTEM_PROMPT still says Return ONLY valid JSON and now includes the explicit publicProfile object schema."
+      }
+    ],
+    "untestedRows": [
+      "A live LinkAPI completion was not run from this environment; provider compatibility is proven by request shape and local generation-contract tests."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "OpenAI-compatible provider bodies consume responseFormat by mapping it to response_format.type.",
+      "sourceType": "derived",
+      "evidence": "src-tauri/crates/llm/src/providers/openai.rs reads responseFormat/response_format and writes body.response_format."
+    },
+    {
+      "description": "Character maker generation is owned by the TypeScript engine, not React UI or Rust provider parsing.",
+      "sourceType": "derived",
+      "evidence": "src/features/catalog/characters/components/CharacterMakerModal.tsx calls generateCharacterMaker, and the changed prompt/request construction lives in src/engine/generation/makers.ts."
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Live LinkAPI provider call",
+      "blockingCoreClaim": false,
+      "reason": "The core claim is the generated request contract and prompt framing. Live provider behavior remains a useful manual smoke test but is not required to prove the local code path."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "pnpm check exited 0 after line-ending normalization and re-run from the isolated PR worktree.",
+    "githubValidationPassed": false,
+    "reviewIterationFastPath": false
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 715,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/715",
+    "headRefName": "fix/public-profile-linkapi-json",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": false,
+    "prClean": false,
+    "bunnyReviewClean": false,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "The PR remains draft until template text, proof health, CI, and Bunny gates are clean."
+  ]
+}

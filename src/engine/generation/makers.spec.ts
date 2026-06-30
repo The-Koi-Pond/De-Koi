@@ -52,6 +52,45 @@ describe("generateCharacterMaker", () => {
     expect(systemPrompt).toContain('"publicProfile"');
     expect(systemPrompt).toContain('"bio"');
   });
+
+  it("asks the provider for JSON object output when generating a character", async () => {
+    const llm = completeLlm("{}");
+
+    await collectEvents(
+      generateCharacterMaker(
+        {
+          llm,
+        },
+        { prompt: "Create Mira", connectionId: "conn-1" },
+      ),
+    );
+
+    const request = (llm.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as LlmRequest | undefined;
+
+    expect(request?.parameters).toMatchObject({
+      responseFormat: "json_object",
+    });
+  });
+
+  it("frames public profile fields as choices the character would make", async () => {
+    const llm = completeLlm("{}");
+
+    await collectEvents(
+      generateCharacterMaker(
+        {
+          llm,
+        },
+        { prompt: "Create Mira", connectionId: "conn-1" },
+      ),
+    );
+
+    const request = (llm.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as LlmRequest | undefined;
+    const systemPrompt = request?.messages.map((message) => message.content).join("\n") ?? "";
+
+    expect(systemPrompt).toContain("chosen by the character as their own public self-presentation");
+    expect(systemPrompt).toContain("Write the handle, bio, and public tags in the character's voice");
+  });
+
   it("does not emit leading thinking as streamed token events while still parsing visible JSON", async () => {
     const events = await collectEvents(
       generateCharacterMaker(
