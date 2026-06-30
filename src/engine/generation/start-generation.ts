@@ -1910,8 +1910,7 @@ async function smartRoleplayGroupTargets(args: {
     mentionedNames: args.mentionedNames,
   });
   if (mentionedIds.length > 0) return args.selectionMode === "single" ? mentionedIds.slice(0, 1) : mentionedIds;
-  const sequentialFallback = sequentialGroupTarget(args.storedMessages, args.activeIds);
-  if (candidates.length === 0) return sequentialFallback ? [sequentialFallback] : [];
+  if (candidates.length === 0) return [];
 
   const personaId = readString(args.chat.personaId).trim();
   const persona = personaId ? await args.deps.storage.get<JsonRecord>("personas", personaId).catch(() => null) : null;
@@ -1920,8 +1919,8 @@ async function smartRoleplayGroupTargets(args: {
   const chatKind = chatMode === "conversation" ? "conversation group chat" : "individual-mode roleplay group chat";
   const selectionInstruction =
     args.selectionMode === "multi"
-      ? "Choose the character or characters who should respond in this send. Return one or more IDs when multiple characters should take turns."
-      : "Choose which character should respond next based on the latest message, direct address, conversation momentum, and talkativeness. Usually choose exactly one character.";
+      ? "Choose the character or characters who should respond in this send, in the order they should reply. Return an empty array when nobody should answer yet."
+      : "Choose which character should respond next based on the latest message, direct address, conversation momentum, and talkativeness. Return an empty array when nobody should answer yet.";
   const candidateLines = candidates
     .map((candidate) =>
       JSON.stringify({
@@ -1964,7 +1963,7 @@ async function smartRoleplayGroupTargets(args: {
   }
   const selected = parseSmartGroupSelectionIds(raw, args.activeIds);
   if (selected.length > 0) return args.selectionMode === "single" ? selected.slice(0, 1) : selected;
-  return sequentialFallback ? [sequentialFallback] : [];
+  return [];
 }
 
 async function resolveGroupTargetForGeneration(args: {
@@ -1999,7 +1998,7 @@ async function resolveGroupTargetForGeneration(args: {
   });
   if (continuation) return continuation;
 
-  const order = readString(parseRecord(args.chat.metadata).groupResponseOrder, "sequential");
+  const order = readString(parseRecord(args.chat.metadata).groupResponseOrder, "smart");
   if (order === "manual") return null;
   if (order === "smart") {
     return smartRoleplayGroupTarget({ ...args, activeIds });
@@ -2041,7 +2040,7 @@ async function resolveIndividualGroupTurnIds(args: {
     if (mentionedIds.length > 0) return mentionedIds;
   }
 
-  const order = readString(metadata.groupResponseOrder, "sequential");
+  const order = readString(metadata.groupResponseOrder, "smart");
   if (order === "manual") return [];
   if (order === "smart") {
     return smartRoleplayGroupTargets({

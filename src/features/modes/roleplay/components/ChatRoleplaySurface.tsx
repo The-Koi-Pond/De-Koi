@@ -1403,7 +1403,7 @@ export function ChatRoleplaySurface({
                     characterNames={activeCharacterNames}
                     groupResponseOrder={
                       activeChatCharIds.length > 1 && groupChatMode === "individual"
-                        ? metadataString(chatMeta.groupResponseOrder, "sequential")
+                        ? metadataString(chatMeta.groupResponseOrder, "smart")
                         : undefined
                     }
                     chatCharacters={activeChatCharIds

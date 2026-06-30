@@ -193,4 +193,53 @@ describe("startGeneration group typing", () => {
 
     expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-b", "char-a"]);
   });
+
+  it("defaults conversation group response order to smart selection", async () => {
+    const { storage, messages } = groupTypingStorage({});
+
+    await collectEvents(
+      startGeneration(
+        {
+          storage,
+          llm: groupTypingLlm('{"characterIds":["char-b"],"reason":"Bea is directly relevant"}'),
+          integrations: {} as IntegrationGateway,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "what do you think?",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    const assistantMessages = messages.filter((message) => message.role === "assistant");
+
+    expect(assistantMessages.map((message) => message.characterId)).toEqual(["char-b"]);
+  });
+
+  it("lets smart conversation group selection choose no automatic responders", async () => {
+    const { storage, messages } = groupTypingStorage({ groupResponseOrder: "smart" });
+
+    const events = await collectEvents(
+      startGeneration(
+        {
+          storage,
+          llm: groupTypingLlm('{"characterIds":[],"reason":"No one needs to answer yet"}'),
+          integrations: {} as IntegrationGateway,
+        },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "just dropping this here for later",
+          impersonateBlockAgents: true,
+        },
+      ),
+    );
+
+    const assistantMessages = messages.filter((message) => message.role === "assistant");
+
+    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(assistantMessages).toEqual([]);
+  });
 });
