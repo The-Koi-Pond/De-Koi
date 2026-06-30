@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { toast } from "sonner";
 import { useCharacter, useCharacterSummaries, type CharacterSummary } from "../hooks/use-characters";
 import {
   characterHasAnyExcludedTag,
@@ -17,11 +18,19 @@ import {
   type ParsedCharacterRow,
   type SortOption,
 } from "../lib/character-library-model";
+import {
+  characterLibrarySelectionLabel,
+  selectVisibleCharacterIds,
+  toggleCharacterLibrarySelection,
+} from "../lib/character-library-selection";
+import { exportApi } from "../../../../shared/api/export-api";
+import { ExportFormatDialog, type ExportFormatChoice } from "../../../../shared/components/ui/ExportFormatDialog";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { CharacterLibraryCard } from "./CharacterLibraryCard";
 import { CharacterLibraryDetailCard } from "./CharacterLibraryDetailCard";
 import { CharacterLibraryEmptyState } from "./CharacterLibraryEmptyState";
 import { CharacterLibraryToolbar } from "./CharacterLibraryToolbar";
+import { CharactersSelectionToolbar } from "./CharactersSelectionToolbar";
 
 function useDebouncedValue(value: string, delayMs: number): string {
   const [debounced, setDebounced] = useState(value);
@@ -113,6 +122,10 @@ export function CharacterLibraryView() {
   const [sort, setSort] = useState<SortOption>(readSessionSort);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<string>>(new Set());
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportingSelected, setExportingSelected] = useState(false);
   const debouncedSearch = useDebouncedValue(search, 180);
   const searchQuery = useMemo(() => parseCharacterSearchQuery(debouncedSearch), [debouncedSearch]);
   const { data: characters, isLoading, isFetching, isError, refetch } = useCharacterSummaries(true, searchQuery.text);
@@ -205,6 +218,53 @@ export function CharacterLibraryView() {
     return () => window.cancelAnimationFrame(frame);
   }, [rowVirtualizer, selectedCharacterDetail, selectedCharacterId]);
 
+  const selectedCount = selectedCharacterIds.size;
+  const selectedCountLabel = characterLibrarySelectionLabel(selectedCount);
+
+  const toggleSelectionMode = useCallback(() => {
+    setSelectionMode((current) => {
+      if (current) {
+        setSelectedCharacterIds(new Set());
+        return false;
+      }
+      return true;
+    });
+  }, []);
+
+  const exitSelectionMode = useCallback(() => {
+    setSelectionMode(false);
+    setSelectedCharacterIds(new Set());
+  }, []);
+
+  const toggleSelectedCharacter = useCallback((characterId: string) => {
+    setSelectedCharacterIds((current) => toggleCharacterLibrarySelection(current, characterId));
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedCharacterIds(new Set());
+  }, []);
+
+  const selectAllVisible = useCallback(() => {
+    setSelectedCharacterIds(selectVisibleCharacterIds(sortedCharacters));
+  }, [sortedCharacters]);
+
+  const handleExportSelected = useCallback(
+    async (format: ExportFormatChoice) => {
+      if (selectedCharacterIds.size === 0) return;
+      setExportingSelected(true);
+      setExportDialogOpen(false);
+      try {
+        exportApi.triggerDownload(await exportApi.charactersBulk([...selectedCharacterIds], format));
+        toast.success(`Exported ${selectedCharacterIds.size} character${selectedCharacterIds.size === 1 ? "" : "s"}`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to export characters");
+      } finally {
+        setExportingSelected(false);
+      }
+    },
+    [selectedCharacterIds],
+  );
+
   const handleSortChange = (value: string) => {
     if (!isSortOption(value)) return;
     setSort(value);
@@ -223,10 +283,37 @@ export function CharacterLibraryView() {
         onToggleFavorites={() => setFavoritesOnly((current) => !current)}
         sort={sort}
         onSortChange={handleSortChange}
+        selectionMode={selectionMode}
+        selectedCount={selectedCount}
+        onToggleSelectionMode={toggleSelectionMode}
         onClose={closeCharacterLibrary}
         onCreate={() => openModal("create-character")}
         onImport={() => openModal("import-character")}
         onOpenMaker={() => openModal("character-maker")}
+      />
+
+      {selectionMode && (
+        <div className="border-b border-[var(--border)]/30 bg-[var(--card)]/72 px-3 py-2 backdrop-blur-xl md:px-6">
+          <CharactersSelectionToolbar
+            selectedCount={selectedCount}
+            visibleCount={sortedCharacters.length}
+            exportingSelected={exportingSelected}
+            onSelectVisible={selectAllVisible}
+            onClearSelection={clearSelection}
+            onExportSelected={() => setExportDialogOpen(true)}
+            onDone={exitSelectionMode}
+          />
+          <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">{selectedCountLabel}</p>
+        </div>
+      )}
+
+      <ExportFormatDialog
+        open={exportDialogOpen}
+        title="Export Characters"
+        description="Native keeps De-Koi metadata and image payloads for re-import. Compatible exports direct Chara Card V2 JSON files for other platforms."
+        compatibleDescription="Exports direct Chara Card V2 JSON files without the native wrapper."
+        onClose={() => setExportDialogOpen(false)}
+        onSelect={handleExportSelected}
       />
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-0 xl:grid-cols-[minmax(0,1.1fr)_28rem]">
@@ -270,7 +357,13 @@ export function CharacterLibraryView() {
 
                       return (
                         <Fragment key={char.id}>
-                          <CharacterLibraryCard character={char} active={isActive} onSelect={setSelectedCharacterId} />
+                          <CharacterLibraryCard
+                            character={char}
+                            active={isActive}
+                            selectionMode={selectionMode}
+                            bulkSelected={selectedCharacterIds.has(char.id)}
+                            onSelect={selectionMode ? toggleSelectedCharacter : setSelectedCharacterId}
+                          />
 
                           {isActive && (
                             <div className="col-span-full lg:hidden">

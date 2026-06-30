@@ -1,4 +1,4 @@
-import { Hash, Star, User } from "lucide-react";
+import { Check, Hash, Star, User } from "lucide-react";
 import { characterAvatarUrl } from "../lib/character-avatar-url";
 import { getCharacterTagsFromData } from "../lib/character-search";
 import { estimateCharacterCardTokens, formatEstimatedTokens } from "../lib/character-token-count";
@@ -16,10 +16,18 @@ import { CharacterAvatarImage } from "./CharacterAvatarImage";
 type CharacterLibraryCardProps = {
   character: ParsedCharacterRow;
   active: boolean;
+  selectionMode?: boolean;
+  bulkSelected?: boolean;
   onSelect: (id: string) => void;
 };
 
-export function CharacterLibraryCard({ character, active, onSelect }: CharacterLibraryCardProps) {
+export function CharacterLibraryCard({
+  character,
+  active,
+  selectionMode = false,
+  bulkSelected = false,
+  onSelect,
+}: CharacterLibraryCardProps) {
   const characterName = getText(character.parsed.name) || "Unnamed";
   const characterTitle = getCharacterTitle({ name: characterName, comment: character.comment });
   const cardSummary = truncateText(getCharacterSummary(character), 180);
@@ -33,9 +41,14 @@ export function CharacterLibraryCard({ character, active, onSelect }: CharacterL
     <button
       type="button"
       onClick={() => onSelect(character.id)}
+      aria-pressed={selectionMode ? bulkSelected : active}
+      title={selectionMode ? `${bulkSelected ? "Deselect" : "Select"} ${characterName}` : `Open ${characterName}`}
       className={cn(
         "group flex h-full items-stretch overflow-hidden rounded-[1.25rem] border bg-[var(--card)]/70 text-left shadow-[0_20px_50px_-32px_rgba(15,23,42,0.75)] transition-all hover:border-[var(--primary)]/35 hover:shadow-[0_24px_60px_-32px_rgba(244,114,182,0.45)] sm:flex-col sm:rounded-[1.75rem] sm:hover:-translate-y-0.5",
         active ? "border-[var(--primary)]/45 ring-1 ring-[var(--primary)]/25" : "border-[var(--border)]/50",
+        selectionMode &&
+          bulkSelected &&
+          "border-[var(--primary)]/60 bg-[var(--primary)]/8 ring-2 ring-[var(--primary)]/30",
       )}
     >
       <div className="relative h-24 w-24 shrink-0 overflow-hidden bg-gradient-to-br from-pink-400/25 via-rose-500/15 to-sky-400/15 sm:h-auto sm:w-full sm:aspect-[4/3]">
@@ -52,6 +65,20 @@ export function CharacterLibraryCard({ character, active, onSelect }: CharacterL
         ) : (
           <div className="flex h-full w-full items-center justify-center text-white/85">
             <User size="1.5rem" className="sm:h-8 sm:w-8" />
+          </div>
+        )}
+
+        {selectionMode && (
+          <div
+            className={cn(
+              "absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full border-2 backdrop-blur-sm transition-colors sm:left-3 sm:top-3",
+              bulkSelected
+                ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                : "border-white/75 bg-black/35 text-transparent",
+            )}
+            aria-hidden="true"
+          >
+            <Check size="0.875rem" />
           </div>
         )}
 

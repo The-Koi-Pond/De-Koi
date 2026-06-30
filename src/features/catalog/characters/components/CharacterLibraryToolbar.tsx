@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowUpDown, Download, Plus, Search, Sparkles, Star } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, Check, Download, Plus, Search, Sparkles, Star } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import type { SortOption } from "../lib/character-library-model";
 
@@ -12,6 +12,9 @@ type CharacterLibraryToolbarProps = {
   onToggleFavorites: () => void;
   sort: SortOption;
   onSortChange: (value: string) => void;
+  selectionMode: boolean;
+  selectedCount: number;
+  onToggleSelectionMode: () => void;
   onClose: () => void;
   onCreate: () => void;
   onImport: () => void;
@@ -28,6 +31,9 @@ export function CharacterLibraryToolbar({
   onToggleFavorites,
   sort,
   onSortChange,
+  selectionMode,
+  selectedCount,
+  onToggleSelectionMode,
   onClose,
   onCreate,
   onImport,
@@ -79,6 +85,19 @@ export function CharacterLibraryToolbar({
           >
             <Sparkles size="0.8125rem" />
             <span className="truncate">AI Maker</span>
+          </button>
+          <button
+            onClick={onToggleSelectionMode}
+            className={cn(
+              "inline-flex min-w-[6rem] flex-1 items-center justify-center gap-1.5 rounded-2xl px-2.5 py-1.5 text-[0.8125rem] font-medium ring-1 transition-all sm:min-w-[8rem] sm:flex-none sm:px-3 sm:py-2 sm:text-sm",
+              selectionMode
+                ? "bg-[var(--primary)]/12 text-[var(--primary)] ring-[var(--primary)]/30"
+                : "bg-[var(--secondary)] text-[var(--secondary-foreground)] ring-[var(--border)] hover:bg-[var(--accent)]",
+            )}
+            title="Select characters"
+          >
+            <Check size="0.8125rem" />
+            <span className="truncate">{selectionMode ? `${selectedCount} Selected` : "Select"}</span>
           </button>
         </div>
       </div>

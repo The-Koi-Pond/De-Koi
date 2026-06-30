@@ -15,7 +15,7 @@ export function CharactersSelectionToolbar({
   exportingSelected: boolean;
   onSelectVisible: () => void;
   onClearSelection: () => void;
-  onDeleteSelected: () => void;
+  onDeleteSelected?: () => void;
   onExportSelected: () => void;
   onDone: () => void;
 }) {
@@ -36,14 +36,16 @@ export function CharactersSelectionToolbar({
       >
         Clear
       </button>
-      <button
-        onClick={onDeleteSelected}
-        disabled={selectedCount === 0}
-        className="inline-flex items-center gap-1 rounded-lg bg-[var(--destructive)]/12 px-2.5 py-1 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:opacity-40"
-      >
-        <Trash2 size="0.6875rem" />
-        Delete
-      </button>
+      {onDeleteSelected && (
+        <button
+          onClick={onDeleteSelected}
+          disabled={selectedCount === 0}
+          className="inline-flex items-center gap-1 rounded-lg bg-[var(--destructive)]/12 px-2.5 py-1 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:opacity-40"
+        >
+          <Trash2 size="0.6875rem" />
+          Delete
+        </button>
+      )}
       <button
         onClick={onExportSelected}
         disabled={selectedCount === 0 || exportingSelected}
