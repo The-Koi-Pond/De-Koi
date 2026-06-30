@@ -1216,8 +1216,17 @@ pub(crate) fn apply_openai_parameters(body: &mut Value, request: &LlmRequest) {
             body["stop"] = json!(stop);
         }
     }
-    if let Some(format) = param_string(parameters, &["responseFormat", "response_format"]) {
+    let response_format = param_string(parameters, &["responseFormat", "response_format"]);
+    if let Some(format) = response_format.as_deref() {
         body["response_format"] = json!({ "type": format });
+    }
+    if request.connection.provider == "custom" && is_gemini_model(&request.connection.model) {
+        let effort = openrouter_reasoning_effort(parameters).or_else(|| {
+            matches!(response_format.as_deref(), Some("json_object")).then_some("none")
+        });
+        if let Some(effort) = effort {
+            body["reasoning_effort"] = json!(effort);
+        }
     }
     if request.connection.provider == "openrouter" {
         if let Some(reasoning) = openrouter_reasoning_config(parameters) {
