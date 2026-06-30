@@ -76,7 +76,7 @@ const DEKI_ATTACHMENT_TOTAL_MAX_CHARS: usize = 48 * 1024;
 const DEKI_TEXT_ATTACHMENT_EXTENSIONS: &[&str] = &[
     "csv", "json", "jsonl", "log", "md", "markdown", "txt", "xml", "yaml", "yml",
 ];
-const DEKI_INITIAL_MAX_TOKENS: u64 = 2048;
+const DEKI_INITIAL_MAX_TOKENS: u64 = 8192;
 const DEKI_POST_TOOL_MAX_TOKENS: u64 = 8192;
 const DEKI_AGENT_MAX_TURNS: usize = 10;
 const DEKI_CHAT_ACCESS_MAX_MESSAGE_COUNT: u64 = 200;
@@ -977,6 +977,16 @@ fn deki_no_action_contract() -> Value {
     })
 }
 
+fn deki_unparseable_action_contract(error: &AppError) -> Value {
+    let parser_error = error.to_string();
+    json!({
+        "type": "none",
+        "capability": "read_only",
+        "reason": format!(
+            "Deki-senpai's approval action could not be parsed, so no change is pending. Ask Deki-senpai to retry with a shorter approval if you wanted to apply it. Parser error: {parser_error}"
+        ),
+    })
+}
 fn deki_response_content_and_action(raw_content: &str) -> AppResult<(String, Value)> {
     let open_count = raw_content.matches(DEKI_ACTION_OPEN_TAG).count();
     let close_count = raw_content.matches(DEKI_ACTION_CLOSE_TAG).count();
@@ -1010,17 +1020,24 @@ fn deki_response_content_and_action(raw_content: &str) -> AppResult<(String, Val
     };
     let end = after_open + relative_end;
     let trailing = raw_content[end + DEKI_ACTION_CLOSE_TAG.len()..].trim();
-    let action_json = raw_content[after_open..end].trim();
-    let parsed = parse_deki_action_json(action_json)?;
-    let action = normalize_deki_response_action(parsed)?;
     let content_parts = [raw_content[..start].trim(), trailing]
         .into_iter()
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>();
-    let content = if content_parts.is_empty() {
+    let visible_content = content_parts.join("\n\n");
+    let action_json = raw_content[after_open..end].trim();
+    let parsed = match parse_deki_action_json(action_json) {
+        Ok(parsed) => parsed,
+        Err(error) if !visible_content.is_empty() => {
+            return Ok((visible_content, deki_unparseable_action_contract(&error)));
+        }
+        Err(error) => return Err(error),
+    };
+    let action = normalize_deki_response_action(parsed)?;
+    let content = if visible_content.is_empty() {
         "I drafted a creative-library change for review.".to_string()
     } else {
-        content_parts.join("\n\n")
+        visible_content
     };
     Ok((content, action))
 }
@@ -1049,7 +1066,7 @@ fn parse_deki_action_json_candidate(candidate: &str) -> Result<Value, serde_json
     match serde_json::from_str::<Value>(candidate) {
         Ok(parsed) => Ok(parsed),
         Err(original_error) => {
-            let Some(repaired) = escape_control_chars_in_json_strings(candidate) else {
+            let Some(repaired) = repair_deki_action_json_strings(candidate) else {
                 return Err(original_error);
             };
             serde_json::from_str::<Value>(&repaired).map_err(|_| original_error)
@@ -1057,13 +1074,42 @@ fn parse_deki_action_json_candidate(candidate: &str) -> Result<Value, serde_json
     }
 }
 
-fn escape_control_chars_in_json_strings(input: &str) -> Option<String> {
+#[derive(Clone, Copy)]
+enum DekiJsonObjectState {
+    ExpectKeyOrEnd,
+    ExpectColon,
+    ExpectValue,
+    ExpectCommaOrEnd,
+}
+
+#[derive(Clone, Copy)]
+enum DekiJsonArrayState {
+    ExpectValueOrEnd,
+    ExpectCommaOrEnd,
+}
+
+#[derive(Clone, Copy)]
+enum DekiJsonContainer {
+    Object(DekiJsonObjectState),
+    Array(DekiJsonArrayState),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DekiJsonStringRole {
+    Key,
+    Value,
+}
+
+fn repair_deki_action_json_strings(input: &str) -> Option<String> {
     let mut output = String::with_capacity(input.len());
+    let mut stack = Vec::<DekiJsonContainer>::new();
     let mut in_string = false;
     let mut escaped = false;
     let mut changed = false;
+    let mut string_role = DekiJsonStringRole::Value;
+    let mut pending_literal_value = false;
 
-    for character in input.chars() {
+    for (index, character) in input.char_indices() {
         if in_string {
             if escaped {
                 output.push(character);
@@ -1076,8 +1122,15 @@ fn escape_control_chars_in_json_strings(input: &str) -> Option<String> {
                     escaped = true;
                 }
                 '"' => {
-                    output.push(character);
-                    in_string = false;
+                    let next_index = index + character.len_utf8();
+                    if deki_json_quote_can_close(input, next_index, string_role, &stack) {
+                        output.push(character);
+                        in_string = false;
+                        deki_json_after_string(&mut stack, string_role);
+                    } else {
+                        output.push_str("\\\"");
+                        changed = true;
+                    }
                 }
                 '\n' => {
                     output.push_str("\\n");
@@ -1100,17 +1153,142 @@ fn escape_control_chars_in_json_strings(input: &str) -> Option<String> {
             continue;
         }
 
+        if pending_literal_value
+            && (character.is_whitespace() || matches!(character, ',' | '}' | ']'))
+        {
+            deki_json_after_value(&mut stack);
+            pending_literal_value = false;
+        }
+
         output.push(character);
-        if character == '"' {
-            in_string = true;
+        if character.is_whitespace() {
+            continue;
+        }
+
+        match character {
+            '{' => stack.push(DekiJsonContainer::Object(
+                DekiJsonObjectState::ExpectKeyOrEnd,
+            )),
+            '[' => stack.push(DekiJsonContainer::Array(
+                DekiJsonArrayState::ExpectValueOrEnd,
+            )),
+            '"' => {
+                string_role = deki_json_next_string_role(&stack);
+                in_string = true;
+                escaped = false;
+            }
+            ':' => {
+                if let Some(DekiJsonContainer::Object(state)) = stack.last_mut() {
+                    if matches!(state, DekiJsonObjectState::ExpectColon) {
+                        *state = DekiJsonObjectState::ExpectValue;
+                    }
+                }
+            }
+            ',' => match stack.last_mut() {
+                Some(DekiJsonContainer::Object(state))
+                    if matches!(state, DekiJsonObjectState::ExpectCommaOrEnd) =>
+                {
+                    *state = DekiJsonObjectState::ExpectKeyOrEnd;
+                }
+                Some(DekiJsonContainer::Array(state))
+                    if matches!(state, DekiJsonArrayState::ExpectCommaOrEnd) =>
+                {
+                    *state = DekiJsonArrayState::ExpectValueOrEnd;
+                }
+                _ => {}
+            },
+            '}' => {
+                if matches!(stack.last(), Some(DekiJsonContainer::Object(_))) {
+                    stack.pop();
+                    deki_json_after_value(&mut stack);
+                }
+            }
+            ']' => {
+                if matches!(stack.last(), Some(DekiJsonContainer::Array(_))) {
+                    stack.pop();
+                    deki_json_after_value(&mut stack);
+                }
+            }
+            '-' | '0'..='9' | 't' | 'f' | 'n' => {
+                pending_literal_value = true;
+            }
+            _ => {}
         }
     }
 
-    if changed {
-        Some(output)
-    } else {
-        None
+    changed.then_some(output)
+}
+
+fn deki_json_next_string_role(stack: &[DekiJsonContainer]) -> DekiJsonStringRole {
+    match stack.last() {
+        Some(DekiJsonContainer::Object(DekiJsonObjectState::ExpectKeyOrEnd)) => {
+            DekiJsonStringRole::Key
+        }
+        _ => DekiJsonStringRole::Value,
     }
+}
+
+fn deki_json_after_string(stack: &mut [DekiJsonContainer], role: DekiJsonStringRole) {
+    match role {
+        DekiJsonStringRole::Key => {
+            if let Some(DekiJsonContainer::Object(state)) = stack.last_mut() {
+                *state = DekiJsonObjectState::ExpectColon;
+            }
+        }
+        DekiJsonStringRole::Value => deki_json_after_value(stack),
+    }
+}
+
+fn deki_json_after_value(stack: &mut [DekiJsonContainer]) {
+    match stack.last_mut() {
+        Some(DekiJsonContainer::Object(state)) => *state = DekiJsonObjectState::ExpectCommaOrEnd,
+        Some(DekiJsonContainer::Array(state)) => *state = DekiJsonArrayState::ExpectCommaOrEnd,
+        None => {}
+    }
+}
+
+fn deki_json_quote_can_close(
+    input: &str,
+    next_index: usize,
+    role: DekiJsonStringRole,
+    stack: &[DekiJsonContainer],
+) -> bool {
+    let Some((next_position, next)) = next_non_whitespace_char(input, next_index) else {
+        return true;
+    };
+    match role {
+        DekiJsonStringRole::Key => next == ':',
+        DekiJsonStringRole::Value => match next {
+            ',' => deki_json_comma_can_follow_value(input, next_position, stack),
+            '}' => matches!(stack.last(), Some(DekiJsonContainer::Object(_))),
+            ']' => matches!(stack.last(), Some(DekiJsonContainer::Array(_))),
+            _ => false,
+        },
+    }
+}
+
+fn deki_json_comma_can_follow_value(
+    input: &str,
+    comma_index: usize,
+    stack: &[DekiJsonContainer],
+) -> bool {
+    let Some((_, next)) = next_non_whitespace_char(input, comma_index + 1) else {
+        return false;
+    };
+    match stack.last() {
+        Some(DekiJsonContainer::Object(_)) => next == '"',
+        Some(DekiJsonContainer::Array(_)) => {
+            matches!(next, '"' | '{' | '[' | '-' | '0'..='9' | 't' | 'f' | 'n')
+        }
+        None => false,
+    }
+}
+
+fn next_non_whitespace_char(input: &str, start: usize) -> Option<(usize, char)> {
+    input[start..]
+        .char_indices()
+        .find(|(_, character)| !character.is_whitespace())
+        .map(|(offset, character)| (start + offset, character))
 }
 
 fn first_json_object_bounds(value: &str) -> Option<(usize, usize)> {
@@ -3905,6 +4083,42 @@ Line two\"},\"label\":\"Create Sol\",\"rationale\":\"Matches the user's brief.\"
         assert_eq!(action["draft"]["description"], "Line one\nLine two");
     }
     #[test]
+    fn deki_response_repairs_unescaped_quotes_inside_action_strings() {
+        let raw = r#"I drafted Sol for approval.
+
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"She says "go deeper" before acting."},"label":"Create Sol","rationale":"Matches the user's brief."}</deki_action>"#;
+
+        let (content, action) = deki_response_content_and_action(raw)
+            .expect("action strings with raw quotes should parse");
+
+        assert_eq!(content, "I drafted Sol for approval.");
+        assert_eq!(action["type"], "create_record");
+        assert_eq!(action["entity"], "personas");
+        assert_eq!(
+            action["draft"]["description"],
+            "She says \"go deeper\" before acting."
+        );
+    }
+
+    #[test]
+    fn deki_response_preserves_visible_content_when_action_json_is_incomplete() {
+        let raw = r#"I drafted Sol for approval.
+
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"Sunny traveler"}</deki_action>"#;
+
+        let (content, action) = deki_response_content_and_action(raw)
+            .expect("visible content should survive an incomplete action block");
+
+        assert_eq!(content, "I drafted Sol for approval.");
+        assert_eq!(action["type"], "none");
+        assert_eq!(action["capability"], "read_only");
+        assert!(action["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("approval action could not be parsed"));
+    }
+
+    #[test]
     fn deki_response_extracts_action_from_fenced_json_block() {
         let raw = r#"Draft ready.
 <deki_action>```json
@@ -4292,14 +4506,19 @@ Line two\"},\"label\":\"Create Sol\",\"rationale\":\"Matches the user's brief.\"
     }
 
     #[test]
-    fn deki_response_rejects_malformed_action_json() {
+    fn deki_response_preserves_visible_content_for_malformed_action_json() {
         let raw =
             r#"Draft ready.<deki_action>{"type":"create_record","entity":"personas"</deki_action>"#;
 
-        let error =
-            deki_response_content_and_action(raw).expect_err("malformed action should fail");
+        let (content, action) = deki_response_content_and_action(raw)
+            .expect("visible content should survive malformed action JSON");
 
-        assert_eq!(error.code, "deki_action_invalid");
+        assert_eq!(content, "Draft ready.");
+        assert_eq!(action["type"], "none");
+        assert!(action["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("approval action could not be parsed"));
     }
 
     #[test]
@@ -4338,14 +4557,14 @@ Extra visible text."#;
     }
 
     #[test]
-    fn deki_initial_tool_request_uses_compact_output_budget() {
+    fn deki_initial_tool_request_uses_action_sized_output_budget() {
         let connection = test_connection("custom");
         let messages = [text_message("What lorebooks are in my library?")];
         let tools = [test_tool("read_deki_library")];
 
         let parameters = deki_request_parameters(&connection, &messages, &tools);
 
-        assert_eq!(parameters["maxTokens"], json!(2048));
+        assert_eq!(parameters["maxTokens"], json!(8192));
     }
 
     #[test]
