@@ -4385,7 +4385,7 @@ Line two\",\"personality\":\"Bright\",\"scenario\":\"Roadside inn\",\"backstory\
     fn deki_response_repairs_unescaped_quotes_inside_action_strings() {
         let raw = r#"I drafted Sol for approval.
 
-<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"She says "go deeper" before acting."},"label":"Create Sol","rationale":"Matches the user's brief."}</deki_action>"#;
+<deki_action>{"type":"create_record","entity":"personas","draft":{"name":"Sol","description":"She says "go deeper" before acting.","personality":"Bright","scenario":"Roadside inn","backstory":"Raised by caravan cooks.","appearance":"Sun-faded cloak and quick hands."},"label":"Create Sol","rationale":"Matches the user's brief."}</deki_action>"#;
 
         let (content, action) = deki_response_content_and_action(raw)
             .expect("action strings with raw quotes should parse");
