@@ -181,6 +181,9 @@ export async function createRoleplayScene(
   ].filter((id, index, ids) => ids.indexOf(id) === index);
   const inheritedSceneOptions = sceneCarryoverOptions(originMeta);
   const sceneSystemPrompt = [plan.systemPrompt, SCENE_GUIDELINES].filter((part) => part.trim()).join("\n\n");
+  const originMode = stringValue(originChat.mode).trim();
+  const sceneFolderId =
+    originMode === "roleplay" || originMode === "visual_novel" ? (originChat.folderId ?? null) : null;
 
   const metadata: JsonRecord = {
     sceneOriginChatId: input.originChatId,
@@ -204,7 +207,7 @@ export async function createRoleplayScene(
     mode: "roleplay",
     characterIds,
     groupId: originChat.groupId ?? null,
-    folderId: originChat.folderId ?? null,
+    folderId: sceneFolderId,
     personaId: originChat.personaId ?? null,
     promptPresetId: originChat.promptPresetId ?? null,
     connectionId,
