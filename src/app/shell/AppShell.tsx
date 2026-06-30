@@ -445,15 +445,24 @@ export function AppShell() {
     syncDekiSessionState(state);
   }, [syncDekiSessionState]);
 
-  const markDekiSessionRead = useCallback((sessionId: string | null) => {
-    if (!sessionId) return;
+  const markDekiSessionsRead = useCallback((sessionIds: readonly string[]) => {
+    const ids = new Set(sessionIds.filter(Boolean));
+    if (ids.size === 0) return;
     setUnreadDekiSessionIds((current) => {
-      if (!current.has(sessionId)) return current;
+      if (![...ids].some((sessionId) => current.has(sessionId))) return current;
       const next = new Set(current);
-      next.delete(sessionId);
+      for (const sessionId of ids) next.delete(sessionId);
       return next;
     });
   }, []);
+
+  const markDekiSessionRead = useCallback(
+    (sessionId: string | null) => {
+      if (!sessionId) return;
+      markDekiSessionsRead([sessionId]);
+    },
+    [markDekiSessionsRead],
+  );
 
   const handleDekiAssistantMessage = useCallback(
     (sessionId: string | null) => {
@@ -535,6 +544,21 @@ export function AppShell() {
       }
     },
     [dekiOpen, markDekiSessionRead, syncDekiSessionState],
+  );
+
+  const deleteDekiSessions = useCallback(
+    async (sessionIds: string[]) => {
+      try {
+        const state = await dekiApi.sessions.deleteMany(sessionIds);
+        syncDekiSessionState(state);
+        markDekiSessionsRead(sessionIds);
+        if (dekiOpen) setDekiOpen(true);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Deki-senpai chats could not be deleted.";
+        toast.error(message);
+      }
+    },
+    [dekiOpen, markDekiSessionsRead, syncDekiSessionState],
   );
 
   const openActiveDeki = useCallback(() => {
@@ -1264,6 +1288,7 @@ export function AppShell() {
                 onOpenDekiSession={(sessionId) => void openDekiSession(sessionId)}
                 onCreateDekiSession={() => void createDekiSession()}
                 onDeleteDekiSession={(sessionId) => void deleteDekiSession(sessionId)}
+                onDeleteDekiSessions={(sessionIds) => void deleteDekiSessions(sessionIds)}
               />
             </div>
           </aside>
@@ -1515,3 +1540,4 @@ export function AppShell() {
     </TopBarActionsProvider>
   );
 }
+

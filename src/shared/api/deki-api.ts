@@ -926,13 +926,20 @@ export const dekiApi = {
       return saveSessionsState({ ...state, activeSessionId: nextActiveSessionId });
     },
     delete: async (sessionId: string): Promise<DekiSessionsState> => {
+      return dekiApi.sessions.deleteMany([sessionId]);
+    },
+    deleteMany: async (sessionIds: readonly string[]): Promise<DekiSessionsState> => {
+      const ids = new Set(sessionIds.map((id) => id.trim()).filter(Boolean));
       const state = await readSessionsState();
-      const remaining = state.sessions.filter((session) => session.id !== sessionId);
+      if (ids.size === 0) return state;
+
+      const remaining = state.sessions.filter((session) => !ids.has(session.id));
+      if (remaining.length === state.sessions.length) return state;
       if (remaining.length === 0) {
         const session = createEmptyDekiSession();
         return saveSessionsState({ activeSessionId: session.id, sessions: [session] });
       }
-      const activeSessionId = state.activeSessionId === sessionId ? remaining[0]!.id : state.activeSessionId;
+      const activeSessionId = ids.has(state.activeSessionId) ? remaining[0]!.id : state.activeSessionId;
       return saveSessionsState({ activeSessionId, sessions: remaining });
     },
   },
@@ -1030,3 +1037,4 @@ export const dekiApi = {
 };
 
 export type { DekiChatAccessGrant };
+

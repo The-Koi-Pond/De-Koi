@@ -630,3 +630,84 @@ describe("dekiApi.history session updates", () => {
     );
   });
 });
+describe("dekiApi.sessions.deleteMany", () => {
+  beforeEach(() => {
+    storageApiMock.create.mockReset();
+    storageApiMock.delete.mockReset();
+    storageApiMock.get.mockReset();
+    storageApiMock.update.mockReset();
+  });
+
+  it("deletes selected sessions in one settings rewrite while preserving the active survivor", async () => {
+    storageApiMock.get.mockResolvedValue({
+      id: "deki",
+      value: {
+        activeSessionId: "session-keep",
+        sessions: [
+          {
+            id: "session-delete-1",
+            title: "Delete one",
+            messages: [],
+            createdAt: "2026-06-28T10:00:00.000Z",
+            updatedAt: "2026-06-28T10:00:00.000Z",
+          },
+          {
+            id: "session-keep",
+            title: "Keep me",
+            messages: [],
+            createdAt: "2026-06-28T11:00:00.000Z",
+            updatedAt: "2026-06-28T11:00:00.000Z",
+          },
+          {
+            id: "session-delete-2",
+            title: "Delete two",
+            messages: [],
+            createdAt: "2026-06-28T12:00:00.000Z",
+            updatedAt: "2026-06-28T12:00:00.000Z",
+          },
+        ],
+      },
+    });
+
+    const state = await dekiApi.sessions.deleteMany(["session-delete-1", "session-delete-2"]);
+
+    expect(state.activeSessionId).toBe("session-keep");
+    expect(state.sessions.map((session) => session.id)).toEqual(["session-keep"]);
+    expect(storageApiMock.update).toHaveBeenCalledTimes(1);
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "app-settings",
+      "deki",
+      expect.objectContaining({
+        value: expect.objectContaining({
+          activeSessionId: "session-keep",
+          sessions: [expect.objectContaining({ id: "session-keep" })],
+        }),
+      }),
+    );
+  });
+
+  it("creates a fresh session when every Deki session is selected", async () => {
+    storageApiMock.get.mockResolvedValue({
+      id: "deki",
+      value: {
+        activeSessionId: "session-delete",
+        sessions: [
+          {
+            id: "session-delete",
+            title: "Delete me",
+            messages: [],
+            createdAt: "2026-06-28T10:00:00.000Z",
+            updatedAt: "2026-06-28T10:00:00.000Z",
+          },
+        ],
+      },
+    });
+
+    const state = await dekiApi.sessions.deleteMany(["session-delete"]);
+
+    expect(state.sessions).toHaveLength(1);
+    expect(state.sessions[0]!.id).not.toBe("session-delete");
+    expect(state.activeSessionId).toBe(state.sessions[0]!.id);
+  });
+});
+
