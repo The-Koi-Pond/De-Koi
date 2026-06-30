@@ -385,6 +385,145 @@ export async function runDekiEntry(input: DekiEntryRequest, gateway: DekiGateway
   };
 }
 
+const DEKI_PERSONA_CARD_ALLOWED_FIELDS = new Set([
+  "name",
+  "comment",
+  "description",
+  "personality",
+  "scenario",
+  "backstory",
+  "appearance",
+  "tags",
+]);
+
+const DEKI_PERSONA_CARD_REQUIRED_FIELDS = [
+  "name",
+  "description",
+  "personality",
+  "scenario",
+  "backstory",
+  "appearance",
+] as const;
+
+const DEKI_CHARACTER_DRAFT_ALLOWED_FIELDS = new Set(["data"]);
+
+const DEKI_CHARACTER_DATA_ALLOWED_FIELDS = new Set([
+  "name",
+  "description",
+  "personality",
+  "scenario",
+  "first_mes",
+  "mes_example",
+  "creator_notes",
+  "system_prompt",
+  "post_history_instructions",
+  "tags",
+  "creator",
+  "character_version",
+  "alternate_greetings",
+  "extensions",
+  "character_book",
+]);
+
+const DEKI_CHARACTER_DATA_REQUIRED_FIELDS = [
+  "name",
+  "description",
+  "personality",
+  "scenario",
+  "first_mes",
+  "mes_example",
+  "creator_notes",
+  "system_prompt",
+] as const;
+
+const DEKI_CHARACTER_EXTENSION_ALLOWED_FIELDS = new Set([
+  "talkativeness",
+  "fav",
+  "world",
+  "depth_prompt",
+  "publicProfile",
+  "backstory",
+  "appearance",
+  "marinara",
+]);
+
+function unsupportedFields(object: Record<string, unknown>, allowed: ReadonlySet<string>): string[] {
+  return Object.keys(object).filter((key) => !allowed.has(key));
+}
+
+function requiredText(object: Record<string, unknown>, field: string): boolean {
+  return typeof object[field] === "string" && object[field].trim().length > 0;
+}
+
+function validateKnownFields(
+  object: Record<string, unknown>,
+  allowed: ReadonlySet<string>,
+  owner: string,
+): string | null {
+  const unsupported = unsupportedFields(object, allowed);
+  return unsupported.length > 0 ? `${owner} contains unsupported field(s): ${unsupported.join(", ")}.` : null;
+}
+
+function validateRequiredTextFields(
+  object: Record<string, unknown>,
+  fields: readonly string[],
+  owner: string,
+): string | null {
+  const missing = fields.filter((field) => !requiredText(object, field));
+  return missing.length > 0 ? `${owner} requires ${missing.join(", ")}.` : null;
+}
+
+function validateDekiPersonaPayload(payload: Record<string, unknown>, requireCompleteCard: boolean): string | null {
+  const knownError = validateKnownFields(payload, DEKI_PERSONA_CARD_ALLOWED_FIELDS, "persona card");
+  if (knownError) return knownError;
+  if (!requireCompleteCard) return null;
+  return validateRequiredTextFields(payload, DEKI_PERSONA_CARD_REQUIRED_FIELDS, "persona card");
+}
+
+function validateDekiCharacterExtensions(
+  extensions: Record<string, unknown>,
+  requireCompleteCard: boolean,
+): string | null {
+  const knownError = validateKnownFields(extensions, DEKI_CHARACTER_EXTENSION_ALLOWED_FIELDS, "character extensions");
+  if (knownError) return knownError;
+  if (!requireCompleteCard) return null;
+  return validateRequiredTextFields(extensions, ["backstory", "appearance"], "character card");
+}
+
+function validateDekiCharacterData(data: Record<string, unknown>, requireCompleteCard: boolean): string | null {
+  const knownError = validateKnownFields(data, DEKI_CHARACTER_DATA_ALLOWED_FIELDS, "character card");
+  if (knownError) return knownError;
+  if (requireCompleteCard) {
+    const requiredError = validateRequiredTextFields(data, DEKI_CHARACTER_DATA_REQUIRED_FIELDS, "character card");
+    if (requiredError) return requiredError;
+    if (!Array.isArray(data.tags)) return "character card requires tags.";
+  } else if ("tags" in data && !Array.isArray(data.tags)) {
+    return "character card tags must be an array.";
+  }
+  if (!("extensions" in data)) {
+    return requireCompleteCard ? "character card requires extensions.backstory and extensions.appearance." : null;
+  }
+  if (!isRecord(data.extensions)) return "character card extensions must be an object.";
+  return validateDekiCharacterExtensions(data.extensions, requireCompleteCard);
+}
+
+function validateDekiCharacterPayload(payload: Record<string, unknown>, requireCompleteCard: boolean): string | null {
+  const knownError = validateKnownFields(payload, DEKI_CHARACTER_DRAFT_ALLOWED_FIELDS, "character draft");
+  if (knownError) return knownError;
+  if (!("data" in payload)) return requireCompleteCard ? "character draft requires data." : null;
+  if (!isRecord(payload.data)) return "character draft data must be an object.";
+  return validateDekiCharacterData(payload.data, requireCompleteCard);
+}
+
+export function validateDekiRecordActionPayload(
+  entity: DekiActionEntity,
+  payload: Record<string, unknown>,
+  options: { requireCompleteCard: boolean },
+): string | null {
+  if (entity === "personas") return validateDekiPersonaPayload(payload, options.requireCompleteCard);
+  if (entity === "characters") return validateDekiCharacterPayload(payload, options.requireCompleteCard);
+  return null;
+}
 export function normalizeDekiEntryAction(value: unknown): DekiEntryAction {
   if (!isRecord(value)) return DEKI_DEFAULT_ACTION;
   if (value.type === "none" && (value.capability === "read_only" || value.capability === "workspace_agent")) {
@@ -409,13 +548,16 @@ export function normalizeDekiEntryAction(value: unknown): DekiEntryAction {
     }
   }
   if (value.type === "create_record" && isDekiActionEntity(value.entity) && isRecord(value.draft)) {
-    return {
-      type: "create_record",
-      entity: value.entity,
-      draft: value.draft,
-      ...(typeof value.label === "string" ? { label: value.label } : {}),
-      ...(typeof value.rationale === "string" ? { rationale: value.rationale } : {}),
-    };
+    const payloadError = validateDekiRecordActionPayload(value.entity, value.draft, { requireCompleteCard: true });
+    if (!payloadError) {
+      return {
+        type: "create_record",
+        entity: value.entity,
+        draft: value.draft,
+        ...(typeof value.label === "string" ? { label: value.label } : {}),
+        ...(typeof value.rationale === "string" ? { rationale: value.rationale } : {}),
+      };
+    }
   }
   const webResearchScope = normalizeDekiWebResearchScope(value.scope);
   if (
@@ -442,14 +584,17 @@ export function normalizeDekiEntryAction(value: unknown): DekiEntryAction {
     value.id.trim() &&
     isRecord(value.patch)
   ) {
-    return {
-      type: "edit_record",
-      entity: value.entity,
-      id: value.id,
-      patch: value.patch,
-      ...(typeof value.label === "string" ? { label: value.label } : {}),
-      ...(typeof value.rationale === "string" ? { rationale: value.rationale } : {}),
-    };
+    const payloadError = validateDekiRecordActionPayload(value.entity, value.patch, { requireCompleteCard: false });
+    if (!payloadError) {
+      return {
+        type: "edit_record",
+        entity: value.entity,
+        id: value.id,
+        patch: value.patch,
+        ...(typeof value.label === "string" ? { label: value.label } : {}),
+        ...(typeof value.rationale === "string" ? { rationale: value.rationale } : {}),
+      };
+    }
   }
   const chatAccessScope = normalizeDekiChatAccessScope(value.scope);
   if (value.type === "request_chat_access" && chatAccessScope) {
