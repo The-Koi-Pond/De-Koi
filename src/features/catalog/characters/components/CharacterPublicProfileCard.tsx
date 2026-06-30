@@ -1,11 +1,15 @@
 import { ExternalLink, Hash, UserRound } from "lucide-react";
 
+import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { cn } from "../../../../shared/lib/utils";
 import type { ResolvedCharacterPublicProfile } from "../lib/character-public-profile";
 
 type CharacterPublicProfileCardProps = {
   profile: ResolvedCharacterPublicProfile;
   avatarUrl?: string | null;
+  avatarFilePath?: string | null;
+  avatarFilename?: string | null;
+  avatarCrop?: unknown;
   onOpenFullProfile?: () => void;
   compact?: boolean;
   className?: string;
@@ -14,6 +18,9 @@ type CharacterPublicProfileCardProps = {
 export function CharacterPublicProfileCard({
   profile,
   avatarUrl,
+  avatarFilePath,
+  avatarFilename,
+  avatarCrop,
   onOpenFullProfile,
   compact = false,
   className,
@@ -46,7 +53,14 @@ export function CharacterPublicProfileCard({
           )}
         >
           {avatarUrl ? (
-            <img src={avatarUrl} alt={profile.displayName} className="h-full w-full object-cover" />
+            <AvatarImage
+              src={avatarUrl}
+              avatarFilePath={avatarFilePath}
+              avatarFilename={avatarFilename}
+              alt={profile.displayName}
+              crop={avatarCrop}
+              thumbnailSize={64}
+            />
           ) : (
             <UserRound size={compact ? "1.45rem" : "1.65rem"} />
           )}

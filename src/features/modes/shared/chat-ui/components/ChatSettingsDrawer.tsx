@@ -6042,6 +6042,9 @@ function ChatSettingsDrawerInner({
                   comment: profilePopoverCharacter.comment,
                 })}
                 avatarUrl={profilePopoverCharacter.avatarPath}
+                avatarFilePath={profilePopoverCharacter.avatarFilePath}
+                avatarFilename={profilePopoverCharacter.avatarFilename}
+                avatarCrop={charAvatarCrop(profilePopoverCharacter)}
                 compact
                 onOpenFullProfile={() => openCharacterDetailFromProfile(profilePopoverCharacter.id)}
               />
