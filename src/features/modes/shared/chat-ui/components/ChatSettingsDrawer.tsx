@@ -2747,7 +2747,7 @@ function ChatSettingsDrawerInner({
                 onClick={() =>
                   updateMeta.mutate({
                     id: chat.id,
-                    groupResponseOrder: metadata.groupResponseOrder === "manual" ? "sequential" : "manual",
+                    groupResponseOrder: metadata.groupResponseOrder === "manual" ? "smart" : "manual",
                   })
                 }
                 className={cn(
@@ -2871,7 +2871,7 @@ function ChatSettingsDrawerInner({
                       onClick={() => updateMeta.mutate({ id: chat.id, groupResponseOrder: "sequential" })}
                       className={cn(
                         "flex-1 px-3 py-2 text-[0.6875rem] font-medium transition-colors rounded-l-lg",
-                        (metadata.groupResponseOrder ?? "sequential") === "sequential"
+                        metadata.groupResponseOrder === "sequential"
                           ? "bg-[var(--primary)] text-white"
                           : "text-[var(--muted-foreground)] hover:bg-[var(--accent)]",
                       )}
@@ -2882,7 +2882,7 @@ function ChatSettingsDrawerInner({
                       onClick={() => updateMeta.mutate({ id: chat.id, groupResponseOrder: "smart" })}
                       className={cn(
                         "flex-1 px-3 py-2 text-[0.6875rem] font-medium transition-colors",
-                        metadata.groupResponseOrder === "smart"
+                        (metadata.groupResponseOrder ?? "smart") === "smart"
                           ? "bg-[var(--primary)] text-white"
                           : "text-[var(--muted-foreground)] hover:bg-[var(--accent)]",
                       )}
@@ -2904,7 +2904,7 @@ function ChatSettingsDrawerInner({
                   <p className="text-[0.625rem] text-[var(--muted-foreground)]">
                     {metadata.groupResponseOrder === "manual"
                       ? "No automatic responses — use the character picker in the input bar to trigger responses one at a time."
-                      : metadata.groupResponseOrder === "smart"
+                      : (metadata.groupResponseOrder ?? "smart") === "smart"
                         ? "An AI agent decides which characters should respond based on the scene context."
                         : "Characters respond one by one in their listed order."}
                   </p>

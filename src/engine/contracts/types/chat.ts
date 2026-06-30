@@ -178,7 +178,7 @@ export interface ChatMetadata {
   groupSpeakerColors?: boolean;
   /** Group individual mode: prefix prompt history turns with speaker names. */
   groupSpeakerNamesInHistory?: boolean;
-  /** Group individual mode response order: "sequential" or "smart" (agent-decided) */
+  /** Group individual mode response order: "smart" (default), "sequential", or "manual". */
   groupResponseOrder?: GroupResponseOrder;
   /** Character IDs attached to this chat but muted/excluded from generation. */
   inactiveCharacterIds?: string[];

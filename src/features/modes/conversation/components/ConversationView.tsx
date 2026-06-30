@@ -1729,7 +1729,7 @@ export function ConversationView({
             activeChatCharIds.length > 1
               ? chatMeta.groupResponseOrder === "manual"
                 ? "manual"
-                : chatMetaString(chatMeta.groupResponseOrder, "sequential")
+                : chatMetaString(chatMeta.groupResponseOrder, "smart")
               : undefined
           }
           chatCharacters={
