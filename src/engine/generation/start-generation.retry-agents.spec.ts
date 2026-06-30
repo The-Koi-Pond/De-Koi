@@ -637,8 +637,9 @@ describe("retryGenerationAgents manual Illustrator retries", () => {
       }),
     ).toBe(false);
   });
-  it("emits a visible illustration error without persisting when a manual paintbrush retry returns no image prompt", async () => {
-    const { storage, writes } = retryIllustrationStorage();
+  it("uses selected message text as a fallback prompt when manual paintbrush retries return no image prompt", async () => {
+    const { storage, writes, state } = retryIllustrationStorage();
+    const imagePrompts: string[] = [];
     const llm = {
       async *stream(_request: LlmRequest) {
         yield {
@@ -651,9 +652,17 @@ describe("retryGenerationAgents manual Illustrator retries", () => {
         return [];
       },
     } as unknown as LlmGateway;
+    const integrations = {
+      image: {
+        async generate(input: Record<string, unknown>) {
+          imagePrompts.push(String(input.prompt ?? ""));
+          return { base64: "QUJD", mimeType: "image/png", provider: "test-image", model: "test-model" };
+        },
+      },
+    } as unknown as IntegrationGateway;
 
     const result = await retryGenerationAgents(
-      { storage: storage as never, llm, integrations: {} as IntegrationGateway },
+      { storage: storage as never, llm, integrations },
       {
         chatId: "chat-1",
         agentTypes: ["illustrator"],
@@ -661,11 +670,19 @@ describe("retryGenerationAgents manual Illustrator retries", () => {
       },
     );
 
-    expect(result.events).toContainEqual({
-      type: "illustration_error",
-      data: { error: "Illustrator did not return an image prompt for this message." },
-    });
-    expect(writes).toEqual([]);
+    expect(result.events.some((event) => event.type === "illustration_error")).toBe(false);
+    expect(result.events.some((event) => event.type === "illustration")).toBe(true);
+    expect(imagePrompts[0]).toContain("Mira catches the candle before it hits the floor.");
+    expect(writes).toEqual(
+      expect.arrayContaining([
+        { type: "create", entity: "agent-runs" },
+        { type: "create", entity: "gallery" },
+        { type: "patchChatMessageExtra", messageId: "assistant-1" },
+      ]),
+    );
+    expect((state.get("assistant-1")?.extra as { attachments?: unknown[] }).attachments).toEqual([
+      expect.objectContaining({ type: "image", galleryId: "gallery-1" }),
+    ]);
   });
 
   it("persists gallery attachments and agent results when a manual paintbrush retry returns an image prompt", async () => {

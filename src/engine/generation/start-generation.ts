@@ -946,6 +946,48 @@ export function illustratorPromptData(result: AgentResult): IllustrationPromptDa
   };
 }
 
+function isIllustratorResult(result: AgentResult): boolean {
+  return result.agentType === "illustrator" || result.type === "image_prompt";
+}
+
+function manualIllustratorFallbackPrompt(target: JsonRecord | null): string {
+  const content = readString(target?.content).replace(/\s+/g, " ").trim();
+  if (!content) return "";
+  return [
+    "Illustrate the selected roleplay message as a visual scene.",
+    `Selected message: ${content}`,
+  ].join("\n\n");
+}
+
+function manualIllustratorFallbackResult(args: {
+  target: JsonRecord | null;
+  illustratorManualRequest: boolean;
+  agentTypes: ReadonlySet<string>;
+  results: readonly AgentResult[];
+}): AgentResult | null {
+  if (!args.target || !args.illustratorManualRequest || !args.agentTypes.has("illustrator")) return null;
+  if (args.results.some((result) => illustratorPromptData(result) !== null)) return null;
+  const illustratorResults = args.results.filter(isIllustratorResult);
+  if (illustratorResults.length === 0 || illustratorResults.some((result) => !result.success)) return null;
+  const prompt = manualIllustratorFallbackPrompt(args.target);
+  if (!prompt) return null;
+  const source = illustratorResults[0];
+  return {
+    agentId: source?.agentId || "illustrator",
+    agentType: "illustrator",
+    type: "image_prompt",
+    data: {
+      shouldGenerate: true,
+      reason: "Manual paintbrush fallback from the selected message.",
+      prompt,
+    },
+    tokensUsed: 0,
+    durationMs: 0,
+    success: true,
+    error: null,
+  };
+}
+
 export function shouldReturnManualIllustratorRetryWithoutCommit(args: {
   hasTarget: boolean;
   illustratorManualRequest: boolean;
@@ -3570,7 +3612,16 @@ async function runGenerationAgentsForTarget(args: {
   for (const result of [...runtime.preResults, ...results]) {
     unique.set(resultKey(result), result);
   }
-  const speculativeResults = [...unique.values()];
+  let speculativeResults = [...unique.values()];
+  const manualIllustratorFallback = manualIllustratorFallbackResult({
+    target,
+    illustratorManualRequest: input.options?.illustratorManualRequest === true,
+    agentTypes,
+    results: speculativeResults,
+  });
+  if (manualIllustratorFallback) {
+    speculativeResults = [...speculativeResults.filter((result) => !isIllustratorResult(result)), manualIllustratorFallback];
+  }
   const isManualIllustratorRetryWithoutPrompt =
     target !== null &&
     input.options?.illustratorManualRequest === true &&
