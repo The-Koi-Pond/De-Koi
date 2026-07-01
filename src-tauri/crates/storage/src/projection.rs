@@ -234,6 +234,117 @@ impl<'de, 'a> Visitor<'de> for ProjectedRowsVisitor<'a> {
     }
 }
 
+pub(crate) struct ProjectedRowsWhereVisitor<'a> {
+    pub(crate) filters: &'a Map<String, Value>,
+    pub(crate) fields: &'a HashSet<String>,
+    pub(crate) field_selections: &'a HashMap<String, HashSet<String>>,
+}
+
+impl<'de, 'a> Visitor<'de> for ProjectedRowsWhereVisitor<'a> {
+    type Value = Vec<Value>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a JSON array of filtered records")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let mut rows = Vec::new();
+        while let Some(row) = seq.next_element_seed(ProjectedRowWhereSeed {
+            filters: self.filters,
+            fields: self.fields,
+            field_selections: self.field_selections,
+        })? {
+            if let Some(row) = row {
+                rows.push(row);
+            }
+        }
+        Ok(rows)
+    }
+}
+
+pub(crate) struct ProjectedRowWhereSeed<'a> {
+    pub(crate) filters: &'a Map<String, Value>,
+    pub(crate) fields: &'a HashSet<String>,
+    pub(crate) field_selections: &'a HashMap<String, HashSet<String>>,
+}
+
+impl<'de, 'a> DeserializeSeed<'de> for ProjectedRowWhereSeed<'a> {
+    type Value = Option<Value>;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_map(ProjectedRowWhereVisitor {
+            filters: self.filters,
+            fields: self.fields,
+            field_selections: self.field_selections,
+        })
+    }
+}
+
+pub(crate) struct ProjectedRowWhereVisitor<'a> {
+    pub(crate) filters: &'a Map<String, Value>,
+    pub(crate) fields: &'a HashSet<String>,
+    pub(crate) field_selections: &'a HashMap<String, HashSet<String>>,
+}
+
+impl<'de, 'a> Visitor<'de> for ProjectedRowWhereVisitor<'a> {
+    type Value = Option<Value>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a filtered record object")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut object = Map::new();
+        let mut matched_filter_count = 0usize;
+        let mut rejected = false;
+        while let Some(key) = map.next_key::<String>()? {
+            if let Some(expected) = self.filters.get(&key) {
+                let value = map.next_value::<Value>()?;
+                if &value != expected {
+                    rejected = true;
+                    object.clear();
+                    continue;
+                }
+                matched_filter_count += 1;
+                if self.fields.contains(&key) {
+                    object.insert(key, value);
+                }
+                continue;
+            }
+
+            if rejected {
+                let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                continue;
+            }
+
+            if !self.fields.contains(&key) {
+                let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                continue;
+            }
+
+            let value = if let Some(nested_fields) = self.field_selections.get(&key) {
+                map.next_value_seed(ProjectedNestedSeed {
+                    fields: nested_fields,
+                })?
+            } else {
+                map.next_value::<Value>()?
+            };
+            object.insert(key, value);
+        }
+
+        Ok((!rejected && matched_filter_count == self.filters.len())
+            .then_some(Value::Object(object)))
+    }
+}
 pub(crate) struct ProjectedRowsWhereInVisitor<'a> {
     pub(crate) filter_field: &'a str,
     pub(crate) filter_values: &'a HashSet<String>,

@@ -118,6 +118,25 @@ impl FileStorage {
         )
     }
 
+    pub fn list_projected_where(
+        &self,
+        collection: &str,
+        filters: &Map<String, Value>,
+        fields: &[String],
+        field_selections: &Map<String, Value>,
+    ) -> AppResult<Vec<Value>> {
+        self.read_locked_or_recover(
+            || {
+                self.read_collection_projected_where_no_recovery(
+                    collection,
+                    filters,
+                    fields,
+                    field_selections,
+                )
+            },
+            || self.read_collection_projected_where(collection, filters, fields, field_selections),
+        )
+    }
     pub fn list_projected_where_in(
         &self,
         collection: &str,
@@ -1179,6 +1198,87 @@ impl FileStorage {
         }
     }
 
+    fn read_collection_projected_where(
+        &self,
+        collection: &str,
+        filters: &Map<String, Value>,
+        fields: &[String],
+        field_selections: &Map<String, Value>,
+    ) -> AppResult<Vec<Value>> {
+        self.read_collection_projected_where_inner(
+            collection,
+            filters,
+            fields,
+            field_selections,
+            true,
+        )
+    }
+
+    fn read_collection_projected_where_no_recovery(
+        &self,
+        collection: &str,
+        filters: &Map<String, Value>,
+        fields: &[String],
+        field_selections: &Map<String, Value>,
+    ) -> AppResult<Vec<Value>> {
+        self.read_collection_projected_where_inner(
+            collection,
+            filters,
+            fields,
+            field_selections,
+            false,
+        )
+    }
+
+    fn read_collection_projected_where_inner(
+        &self,
+        collection: &str,
+        filters: &Map<String, Value>,
+        fields: &[String],
+        field_selections: &Map<String, Value>,
+        recover_on_fallback: bool,
+    ) -> AppResult<Vec<Value>> {
+        if fields.is_empty() {
+            return Ok(Vec::new());
+        }
+        let field_set: HashSet<String> = fields.iter().cloned().collect();
+        let nested_field_sets = selected_nested_fields(field_selections);
+        if let Some(rows) = self.cached_dirty_rows(collection)? {
+            return Ok(rows
+                .into_iter()
+                .filter(|row| row_matches_filters(row, filters))
+                .map(|row| project_row(row, &field_set, &nested_field_sets))
+                .collect());
+        }
+
+        let path = self.collection_path(collection)?;
+        if !path.exists() || fs::metadata(&path)?.len() == 0 {
+            return Ok(Vec::new());
+        }
+
+        let file = fs::File::open(path)?;
+        let reader = BufReader::new(file);
+        let mut deserializer = serde_json::Deserializer::from_reader(reader);
+        match deserializer.deserialize_seq(ProjectedRowsWhereVisitor {
+            filters,
+            fields: &field_set,
+            field_selections: &nested_field_sets,
+        }) {
+            Ok(rows) => Ok(rows),
+            Err(_) => {
+                let rows = if recover_on_fallback {
+                    self.read_collection(collection)?
+                } else {
+                    self.read_collection_no_recovery(collection)?
+                };
+                Ok(rows
+                    .into_iter()
+                    .filter(|row| row_matches_filters(row, filters))
+                    .map(|row| project_row(row, &field_set, &nested_field_sets))
+                    .collect())
+            }
+        }
+    }
     fn read_collection_projected_where_in(
         &self,
         collection: &str,
@@ -4032,6 +4132,85 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn list_projected_where_matches_full_filtered_projection() {
+        let root = temp_storage_root("list-projected-where");
+        let storage = FileStorage::new(&root).unwrap();
+
+        let large_payload = "x".repeat(64 * 1024);
+        storage
+            .replace_all(
+                "characters",
+                vec![
+                    json!({
+                        "id": "target-b",
+                        "folderId": "folder-a",
+                        "sortOrder": 2,
+                        "data": {
+                            "name": "Target B",
+                            "description": large_payload,
+                            "metadata": { "tone": "warm" }
+                        },
+                        "avatar": "unrequested large avatar payload"
+                    }),
+                    json!({
+                        "id": "skip",
+                        "folderId": "folder-b",
+                        "sortOrder": 1,
+                        "data": {
+                            "name": "Skip",
+                            "description": large_payload,
+                            "metadata": { "tone": "cool" }
+                        },
+                        "avatar": "unrequested large avatar payload"
+                    }),
+                    json!({
+                        "id": "target-a",
+                        "folderId": "folder-a",
+                        "sortOrder": 0,
+                        "data": {
+                            "name": "Target A",
+                            "description": large_payload,
+                            "metadata": { "tone": "bright" }
+                        },
+                        "avatar": "unrequested large avatar payload"
+                    }),
+                ],
+            )
+            .unwrap();
+        storage.flush().expect("rows should flush to disk");
+
+        let filters = Map::from_iter([("folderId".to_string(), json!("folder-a"))]);
+        let fields = vec!["id".to_string(), "data".to_string()];
+        let selections = Map::from_iter([("data".to_string(), json!(["name"]))]);
+        let expected = storage
+            .list_where("characters", &filters)
+            .expect("full filtered rows should read")
+            .into_iter()
+            .map(|row| {
+                project_row(
+                    row,
+                    &fields.iter().cloned().collect::<HashSet<_>>(),
+                    &selected_nested_fields(&selections),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let projected = storage
+            .list_projected_where("characters", &filters, &fields, &selections)
+            .expect("projected filtered rows should read");
+
+        assert_eq!(projected, expected);
+        assert_eq!(
+            projected,
+            vec![
+                json!({ "id": "target-b", "data": { "name": "Target B" } }),
+                json!({ "id": "target-a", "data": { "name": "Target A" } })
+            ]
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn list_projected_where_in_streams_legacy_sidecar_rows() {
         let root = temp_storage_root("list-projected-where-in");
