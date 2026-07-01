@@ -104,12 +104,16 @@ function stripWrappingQuotes(value: string): string {
   return trimmed;
 }
 
-function parseJsonRecord(raw: string): Record<string, unknown> {
+function parseJsonValue(raw: string): unknown {
   try {
-    return readRecord(JSON.parse(stripMarkdownFence(raw)));
+    return JSON.parse(stripMarkdownFence(raw));
   } catch {
-    return {};
+    return undefined;
   }
+}
+
+function parseJsonRecord(raw: string): Record<string, unknown> {
+  return readRecord(parseJsonValue(raw));
 }
 
 function jsonFieldValue(field: CharacterFieldGenerationField, raw: string): unknown {
@@ -134,11 +138,18 @@ function cleanTextField(field: CharacterFieldGenerationField, raw: string): stri
   return stripFieldLabel(field, stripWrappingQuotes(stripMarkdownFence(source))).trim();
 }
 
+function cleanGeneratedTagText(value: string): string {
+  return stripWrappingQuotes(value.trim().replace(/^\[/, "").replace(/\]$/, "").trim())
+    .replace(/^#+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeTagsFromStrings(values: string[]): string[] {
   const seen = new Set<string>();
   const tags: string[] = [];
   for (const value of values) {
-    const tag = value.trim().replace(/^#+/, "").replace(/\s+/g, " ");
+    const tag = cleanGeneratedTagText(value);
     if (!tag) continue;
     const key = tag.toLowerCase();
     if (seen.has(key)) continue;
@@ -149,8 +160,11 @@ function normalizeTagsFromStrings(values: string[]): string[] {
 }
 
 function cleanTags(raw: string): string[] {
-  const parsed = parseJsonRecord(raw);
-  const jsonTags = readTextArray(parsed.tags ?? parsed.Tags ?? parsed.value);
+  const parsedValue = parseJsonValue(raw);
+  const parsedRecord = readRecord(parsedValue);
+  const jsonTags = readTextArray(
+    Array.isArray(parsedValue) ? parsedValue : (parsedRecord.tags ?? parsedRecord.Tags ?? parsedRecord.value),
+  );
   if (jsonTags.length > 0) return normalizeTagsFromStrings(jsonTags);
   return normalizeTagsFromStrings(
     stripMarkdownFence(raw)

@@ -102,6 +102,13 @@ describe("cleanGeneratedCharacterField", () => {
       "Mystery",
       "Archivist",
     ]);
+    expect(cleanGeneratedCharacterField("tags", '["horror", "monster", "yandere", "medical"]')).toEqual([
+      "horror",
+      "monster",
+      "yandere",
+      "medical",
+    ]);
+    expect(cleanGeneratedCharacterField("tags", "['circus', 'dominant']")).toEqual(["circus", "dominant"]);
     expect(cleanGeneratedCharacterField("tags", "mystery, night shift\narchive-keeper")).toEqual([
       "mystery",
       "night shift",
