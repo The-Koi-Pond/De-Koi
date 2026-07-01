@@ -554,9 +554,9 @@ function boolishFalse(value: unknown): boolean {
 
 function canonicalAgentActiveId(value: unknown): string {
   const id = typeof value === "string" ? value.trim() : "";
-  if (id === "spotify") return "music-dj";
-  if (!id.startsWith(BUILT_IN_AGENT_ID_PREFIX)) return id;
-  const type = id.slice(BUILT_IN_AGENT_ID_PREFIX.length).trim();
+  if (!id.startsWith(BUILT_IN_AGENT_ID_PREFIX)) return id === "spotify" ? "music-dj" : id;
+  const rawType = id.slice(BUILT_IN_AGENT_ID_PREFIX.length).trim();
+  const type = rawType === "spotify" ? "music-dj" : rawType;
   return BUILT_IN_AGENT_ID_SET.has(type) ? type : id;
 }
 
