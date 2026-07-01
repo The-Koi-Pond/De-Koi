@@ -16,6 +16,7 @@ import {
 
 const logger = {
   debug: (..._args: unknown[]) => undefined,
+  warn: (...args: unknown[]) => console.warn(...args),
 };
 
 const VALID_DIRECTION_EFFECTS = new Set<DirectionCommand["effect"]>([
@@ -100,7 +101,7 @@ function sanitizeMusicTrack(
 
   const candidate = candidates.find((track) => track.id === id && (!provider || track.provider === provider));
   if (!candidate) {
-    logger.debug(`[postprocess] musicTrack: "${id}" -> null (not in candidate list)`);
+    logger.warn(`[postprocess] musicTrack: "${id}" -> null (not in candidate list)`);
     return null;
   }
 
@@ -368,6 +369,9 @@ export function postProcessSceneResult(raw: SceneAnalysis, ctx: PostProcessConte
   }
   result.music = null;
   result.ambient = null;
+  if (ctx.useMusicDj && ctx.useSpotifyMusic) {
+    throw new Error("Music DJ and legacy Spotify scene music cannot both be enabled.");
+  }
   if (ctx.useMusicDj || ctx.useSpotifyMusic) {
     result.musicGenre = null;
     result.musicIntensity = null;

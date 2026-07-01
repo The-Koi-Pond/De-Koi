@@ -1,13 +1,25 @@
 use super::*;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::process::Command;
 
 fn read_string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str).filter(|text| !text.trim().is_empty())
 }
 
-fn clamp_volume(value: Option<i64>) -> u8 {
-    value.unwrap_or(60).clamp(0, 100) as u8
+fn validate_volume(value: Option<i64>) -> AppResult<u8> {
+    let volume = value.unwrap_or(60);
+    if !(0..=100).contains(&volume) {
+        return Err(AppError::invalid_input("music volume must be between 0 and 100"));
+    }
+    Ok(volume as u8)
+}
+
+fn provider_error(code: &str, message: impl Into<String>) -> Value {
+    json!({
+        "code": code,
+        "message": message.into(),
+    })
 }
 
 fn youtube_video_id(raw: &str) -> Option<String> {
@@ -45,6 +57,13 @@ fn candidate_from_youtube_url(raw: &str, reason: &str) -> Option<Value> {
     }))
 }
 
+fn push_candidate(candidates: &mut Vec<Value>, seen_ids: &mut HashSet<String>, candidate: Value) {
+    let Some(id) = read_string(&candidate, "id") else { return };
+    if seen_ids.insert(id.to_owned()) {
+        candidates.push(candidate);
+    }
+}
+
 fn yt_dlp_candidate(entry: &Value, index: usize) -> Option<Value> {
     let video_id = read_string(entry, "id")
         .or_else(|| read_string(entry, "url"))
@@ -70,7 +89,7 @@ fn yt_dlp_candidate(entry: &Value, index: usize) -> Option<Value> {
     }))
 }
 
-fn yt_dlp_search(query: &str, limit: usize) -> AppResult<Vec<Value>> {
+fn yt_dlp_search(query: &str, limit: usize) -> AppResult<(Vec<Value>, Option<Value>)> {
     let search = format!("ytsearch{}:{}", limit.clamp(1, 10), query.trim());
     let output = Command::new("yt-dlp")
         .arg("--dump-single-json")
@@ -82,23 +101,48 @@ fn yt_dlp_search(query: &str, limit: usize) -> AppResult<Vec<Value>> {
 
     let output = match output {
         Ok(output) => output,
-        Err(_) => return Ok(Vec::new()),
+        Err(error) => {
+            return Ok((
+                Vec::new(),
+                Some(provider_error(
+                    "music_ytdlp_unavailable",
+                    format!("yt-dlp search is unavailable: {error}"),
+                )),
+            ));
+        }
     };
     if !output.status.success() {
-        return Ok(Vec::new());
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Ok((
+            Vec::new(),
+            Some(provider_error(
+                "music_ytdlp_failed",
+                if stderr.is_empty() { "yt-dlp search failed".to_owned() } else { stderr },
+            )),
+        ));
     }
-    let parsed: Value = serde_json::from_slice(&output.stdout)
-        .map_err(|error| AppError::new("music_ytdlp_parse_failed", error.to_string()))?;
+    let parsed: Value = match serde_json::from_slice(&output.stdout) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            return Ok((
+                Vec::new(),
+                Some(provider_error("music_ytdlp_parse_failed", error.to_string())),
+            ));
+        }
+    };
     let entries = parsed
         .get("entries")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    Ok(entries
-        .iter()
-        .enumerate()
-        .filter_map(|(index, entry)| yt_dlp_candidate(entry, index))
-        .collect())
+    Ok((
+        entries
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| yt_dlp_candidate(entry, index))
+            .collect(),
+        None,
+    ))
 }
 
 fn status() -> Value {
@@ -121,17 +165,27 @@ fn search_candidates(body: Value) -> AppResult<Value> {
         .map(|value| value.clamp(1, 10) as usize)
         .unwrap_or(5);
     let mut candidates = Vec::new();
+    let mut seen_ids = HashSet::new();
+    let mut provider_error = Value::Null;
 
     if let Some(url) = read_string(&body, "url") {
         if let Some(candidate) = candidate_from_youtube_url(url, "direct-url") {
-            candidates.push(candidate);
+            push_candidate(&mut candidates, &mut seen_ids, candidate);
         }
     }
     if let Some(candidate) = candidate_from_youtube_url(&query, "query-url") {
-        candidates.push(candidate);
+        push_candidate(&mut candidates, &mut seen_ids, candidate);
     }
-    if candidates.len() < limit && !query.is_empty() && youtube_video_id(&query).is_none() {
-        candidates.extend(yt_dlp_search(&query, limit - candidates.len())?);
+
+    let query_is_direct_url = youtube_video_id(&query).is_some();
+    if candidates.len() < limit && !query.is_empty() && !query_is_direct_url {
+        let (found, error) = yt_dlp_search(&query, limit - candidates.len())?;
+        if let Some(error) = error {
+            provider_error = error;
+        }
+        for candidate in found {
+            push_candidate(&mut candidates, &mut seen_ids, candidate);
+        }
     }
 
     candidates.truncate(limit);
@@ -141,28 +195,31 @@ fn search_candidates(body: Value) -> AppResult<Value> {
         "requiresSetup": false,
         "powerModeAvailable": false,
         "iframeFallbackAvailable": true,
-        "source": if query.is_empty() { "local" } else { "youtube" }
+        "source": if query.is_empty() { "local" } else { "youtube" },
+        "providerError": provider_error,
     }))
 }
 
-fn play(body: Value) -> Value {
-    json!({
+fn play(body: Value) -> AppResult<Value> {
+    let volume = validate_volume(body.get("volume").and_then(Value::as_i64))?;
+    Ok(json!({
         "provider": read_string(&body, "provider").unwrap_or("youtube"),
         "state": "playing",
         "mode": "iframe",
         "powerModeAvailable": false,
         "iframeFallbackAvailable": true,
         "track": body.get("track").cloned().unwrap_or(Value::Null),
-        "volume": clamp_volume(body.get("volume").and_then(Value::as_i64)),
-    })
+        "volume": volume,
+    }))
 }
 
-fn volume(body: Value) -> Value {
-    json!({
+fn volume(body: Value) -> AppResult<Value> {
+    let volume = validate_volume(body.get("volume").and_then(Value::as_i64))?;
+    Ok(json!({
         "provider": "youtube",
         "state": "volume",
-        "volume": clamp_volume(body.get("volume").and_then(Value::as_i64)),
-    })
+        "volume": volume,
+    }))
 }
 
 pub(crate) async fn music_call(_state: &AppState, method: &str, rest: &[&str], body: Value) -> AppResult<Value> {
@@ -170,11 +227,11 @@ pub(crate) async fn music_call(_state: &AppState, method: &str, rest: &[&str], b
     match (method, action) {
         ("GET", "status") | ("POST", "status") => Ok(status()),
         ("POST", "search-candidates") => search_candidates(body),
-        ("POST", "play") => Ok(play(body)),
+        ("POST", "play") => play(body),
         ("POST", "fresh-pick") => search_candidates(body),
         ("POST", "pause") => Ok(json!({ "provider": "youtube", "state": "paused" })),
         ("POST", "stop") => Ok(json!({ "provider": "youtube", "state": "stopped" })),
-        ("POST", "volume") => Ok(volume(body)),
+        ("POST", "volume") => volume(body),
         _ => Err(AppError::not_found("Unknown music command")),
     }
 }

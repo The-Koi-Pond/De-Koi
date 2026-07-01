@@ -552,17 +552,18 @@ function boolishFalse(value: unknown): boolean {
   return ["false", "0", "no", "off"].includes(value.trim().toLowerCase());
 }
 
-function canonicalAgentActiveId(value: unknown): string {
+function canonicalAgentActiveId(value: unknown, options: { remapLegacySpotify?: boolean } = {}): string {
   const id = typeof value === "string" ? value.trim() : "";
-  if (!id.startsWith(BUILT_IN_AGENT_ID_PREFIX)) return id === "spotify" ? "music-dj" : id;
+  const remap = options.remapLegacySpotify === true;
+  if (!id.startsWith(BUILT_IN_AGENT_ID_PREFIX)) return remap && id === "spotify" ? "music-dj" : id;
   const rawType = id.slice(BUILT_IN_AGENT_ID_PREFIX.length).trim();
-  const type = rawType === "spotify" ? "music-dj" : rawType;
+  const type = remap && rawType === "spotify" ? "music-dj" : rawType;
   return BUILT_IN_AGENT_ID_SET.has(type) ? type : id;
 }
 
-function canonicalAgentActiveIds(value: unknown): string[] {
+function canonicalAgentActiveIds(value: unknown, options: { remapLegacySpotify?: boolean } = {}): string[] {
   if (!Array.isArray(value)) return [];
-  return Array.from(new Set(value.map(canonicalAgentActiveId).filter(Boolean)));
+  return Array.from(new Set(value.map((id) => canonicalAgentActiveId(id, options)).filter(Boolean)));
 }
 
 function chatAgentsEnabled(metadata: unknown): boolean {
@@ -596,7 +597,10 @@ export function isBuiltInAgentHiddenFromChatSettingsPicker(mode: unknown, agentI
 export function enabledChatAgentIds(metadata: unknown, mode: unknown): string[] {
   const record = metadataRecord(metadata);
   if (!chatAgentsEnabled(record)) return [];
-  return canonicalAgentActiveIds(record.activeAgentIds).filter((id) => isBuiltInAgentAvailableInChatMode(mode, id));
+  const chatMode = normalizeAgentChatMode(mode);
+  return canonicalAgentActiveIds(record.activeAgentIds, { remapLegacySpotify: chatMode === "roleplay" }).filter((id) =>
+    isBuiltInAgentAvailableInChatMode(chatMode, id),
+  );
 }
 
 export function enabledChatAgentIdSet(metadata: unknown, mode: unknown): Set<string> {

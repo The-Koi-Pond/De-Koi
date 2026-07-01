@@ -24,6 +24,11 @@ export interface MusicStatus {
   legacyProviders?: string[];
 }
 
+export interface MusicProviderError {
+  code: string;
+  message: string;
+}
+
 export interface MusicCandidateResponse {
   provider: MusicProvider;
   candidates: MusicCandidate[];
@@ -31,6 +36,7 @@ export interface MusicCandidateResponse {
   powerModeAvailable: boolean;
   iframeFallbackAvailable: boolean;
   source?: string | null;
+  providerError?: MusicProviderError | null;
 }
 
 export interface MusicPlaybackState {
