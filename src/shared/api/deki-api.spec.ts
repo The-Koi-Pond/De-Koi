@@ -59,6 +59,29 @@ describe("normalizeDekiEntryAction lorebook redrafts", () => {
   });
 });
 describe("normalizeDekiEntryAction character and persona cards", () => {
+  it("keeps character edit actions that patch scenario as a direct card field", () => {
+    const action = normalizeDekiEntryAction({
+      type: "edit_record",
+      entity: "characters",
+      id: "character-rook",
+      patch: {
+        scenario: "Rook now guards the chapel after the midnight bargain.",
+      },
+      label: "Update Rook scenario",
+    });
+
+    expect(action).toEqual({
+      type: "edit_record",
+      entity: "characters",
+      id: "character-rook",
+      patch: {
+        data: {
+          scenario: "Rook now guards the chapel after the midnight bargain.",
+        },
+      },
+      label: "Update Rook scenario",
+    });
+  });
   it("drops incomplete persona create actions", () => {
     const action = normalizeDekiEntryAction({
       type: "create_record",

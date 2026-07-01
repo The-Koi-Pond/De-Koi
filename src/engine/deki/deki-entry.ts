@@ -507,6 +507,14 @@ function validateDekiCharacterData(data: Record<string, unknown>, requireComplet
   return validateDekiCharacterExtensions(data.extensions, requireCompleteCard);
 }
 
+function normalizeDekiCharacterPayload(
+  payload: Record<string, unknown>,
+  requireCompleteCard: boolean,
+): Record<string, unknown> {
+  if (requireCompleteCard || "data" in payload) return payload;
+  return Object.keys(payload).some((key) => DEKI_CHARACTER_DATA_ALLOWED_FIELDS.has(key)) ? { data: payload } : payload;
+}
+
 function validateDekiCharacterPayload(payload: Record<string, unknown>, requireCompleteCard: boolean): string | null {
   const knownError = validateKnownFields(payload, DEKI_CHARACTER_DRAFT_ALLOWED_FIELDS, "character draft");
   if (knownError) return knownError;
@@ -515,13 +523,23 @@ function validateDekiCharacterPayload(payload: Record<string, unknown>, requireC
   return validateDekiCharacterData(payload.data, requireCompleteCard);
 }
 
+function normalizeDekiRecordActionPayload(
+  entity: DekiActionEntity,
+  payload: Record<string, unknown>,
+  options: { requireCompleteCard: boolean },
+): Record<string, unknown> {
+  if (entity === "characters") return normalizeDekiCharacterPayload(payload, options.requireCompleteCard);
+  return payload;
+}
+
 export function validateDekiRecordActionPayload(
   entity: DekiActionEntity,
   payload: Record<string, unknown>,
   options: { requireCompleteCard: boolean },
 ): string | null {
-  if (entity === "personas") return validateDekiPersonaPayload(payload, options.requireCompleteCard);
-  if (entity === "characters") return validateDekiCharacterPayload(payload, options.requireCompleteCard);
+  const normalizedPayload = normalizeDekiRecordActionPayload(entity, payload, options);
+  if (entity === "personas") return validateDekiPersonaPayload(normalizedPayload, options.requireCompleteCard);
+  if (entity === "characters") return validateDekiCharacterPayload(normalizedPayload, options.requireCompleteCard);
   return null;
 }
 export function normalizeDekiEntryAction(value: unknown): DekiEntryAction {
@@ -584,13 +602,14 @@ export function normalizeDekiEntryAction(value: unknown): DekiEntryAction {
     value.id.trim() &&
     isRecord(value.patch)
   ) {
-    const payloadError = validateDekiRecordActionPayload(value.entity, value.patch, { requireCompleteCard: false });
+    const patch = normalizeDekiRecordActionPayload(value.entity, value.patch, { requireCompleteCard: false });
+    const payloadError = validateDekiRecordActionPayload(value.entity, patch, { requireCompleteCard: false });
     if (!payloadError) {
       return {
         type: "edit_record",
         entity: value.entity,
         id: value.id,
-        patch: value.patch,
+        patch,
         ...(typeof value.label === "string" ? { label: value.label } : {}),
         ...(typeof value.rationale === "string" ? { rationale: value.rationale } : {}),
       };

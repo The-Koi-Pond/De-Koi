@@ -1224,7 +1224,7 @@ fn deki_json_next_string_role(stack: &[DekiJsonContainer]) -> DekiJsonStringRole
     match stack.last() {
         Some(DekiJsonContainer::Object(DekiJsonObjectState::KeyOrEnd)) => {
             DekiJsonStringRole::Key
-        }
+        },
         _ => DekiJsonStringRole::Value,
     }
 }
@@ -1432,40 +1432,50 @@ fn validate_deki_character_extensions(
     Ok(())
 }
 
+const DEKI_CHARACTER_DATA_ALLOWED_FIELDS: &[&str] = &[
+    "name",
+    "description",
+    "personality",
+    "scenario",
+    "first_mes",
+    "mes_example",
+    "creator_notes",
+    "system_prompt",
+    "post_history_instructions",
+    "tags",
+    "creator",
+    "character_version",
+    "alternate_greetings",
+    "extensions",
+    "character_book",
+];
+
+const DEKI_CHARACTER_DATA_REQUIRED_FIELDS: &[&str] = &[
+    "name",
+    "description",
+    "personality",
+    "scenario",
+    "first_mes",
+    "mes_example",
+    "creator_notes",
+    "system_prompt",
+];
+
 fn validate_deki_character_data(data: &Value, require_complete: bool) -> AppResult<()> {
     let object = data.as_object().ok_or_else(|| {
         deki_action_invalid("Deki-senpai character action data must be an object.")
     })?;
-    const ALLOWED: &[&str] = &[
-        "name",
-        "description",
-        "personality",
-        "scenario",
-        "first_mes",
-        "mes_example",
-        "creator_notes",
-        "system_prompt",
-        "post_history_instructions",
-        "tags",
-        "creator",
-        "character_version",
-        "alternate_greetings",
-        "extensions",
-        "character_book",
-    ];
-    const REQUIRED: &[&str] = &[
-        "name",
-        "description",
-        "personality",
-        "scenario",
-        "first_mes",
-        "mes_example",
-        "creator_notes",
-        "system_prompt",
-    ];
-    validate_deki_action_known_fields(object, ALLOWED, "character card")?;
+    validate_deki_action_known_fields(
+        object,
+        DEKI_CHARACTER_DATA_ALLOWED_FIELDS,
+        "character card",
+    )?;
     if require_complete {
-        validate_deki_action_required_text_fields(object, REQUIRED, "character card")?;
+        validate_deki_action_required_text_fields(
+            object,
+            DEKI_CHARACTER_DATA_REQUIRED_FIELDS,
+            "character card",
+        )?;
     }
     if let Some(tags) = object.get("tags") {
         if !tags.is_array() {
@@ -1511,6 +1521,25 @@ fn validate_deki_character_action_payload(
     validate_deki_character_data(data, require_complete)
 }
 
+fn normalize_deki_character_action_payload(payload: &Value, require_complete: bool) -> Value {
+    if require_complete {
+        return payload.clone();
+    }
+    let Some(object) = payload.as_object() else {
+        return payload.clone();
+    };
+    if object.contains_key("data") {
+        return payload.clone();
+    }
+    if object
+        .keys()
+        .any(|key| DEKI_CHARACTER_DATA_ALLOWED_FIELDS.contains(&key.as_str()))
+    {
+        return json!({ "data": payload });
+    }
+    payload.clone()
+}
+
 fn validate_deki_record_action_payload(
     entity: &str,
     payload: &Value,
@@ -1521,6 +1550,19 @@ fn validate_deki_record_action_payload(
         "personas" => validate_deki_persona_action_payload(payload, require_complete),
         _ => Ok(()),
     }
+}
+
+fn normalize_deki_record_action_payload(
+    entity: &str,
+    payload: &Value,
+    require_complete: bool,
+) -> AppResult<Value> {
+    let normalized = match entity {
+        "characters" => normalize_deki_character_action_payload(payload, require_complete),
+        _ => payload.clone(),
+    };
+    validate_deki_record_action_payload(entity, &normalized, require_complete)?;
+    Ok(normalized)
 }
 fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
     let object = action.as_object().ok_or_else(|| {
@@ -1694,7 +1736,7 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
                         "Deki-senpai create action requires a draft object.",
                     )
                 })?;
-            validate_deki_record_action_payload(entity, draft, true)?;
+            let draft = normalize_deki_record_action_payload(entity, draft, true)?;
             let mut normalized = json!({
                 "type": "create_record",
                 "entity": entity,
@@ -1730,7 +1772,7 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
                         "Deki-senpai edit action requires a patch object.",
                     )
                 })?;
-            validate_deki_record_action_payload(entity, patch, false)?;
+            let patch = normalize_deki_record_action_payload(entity, patch, false)?;
             let mut normalized = json!({
                 "type": "edit_record",
                 "entity": entity,
@@ -1964,14 +2006,14 @@ fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
         "For character cards and personas, proactively estimate whole-card length and flag anything over the recommended ~3,200 estimated tokens. Warn when an otherwise helpful addition would make a card too long, and prefer tighter, more specific wording over expansion unless the user explicitly chooses the length tradeoff.".to_string(),
         "During creative-library quality audits, check for shallow characterization, overly tropey or generic archetype behavior, repetition, vague traits without behavior, duplicate facts across fields, and lorebook entries that are too broad to activate cleanly. If a character feels shallow or generic, deepen it with concrete motives, contradictions, habits, memories, relationships, sensory details, and situation-specific behaviors. When correcting character-card or persona characterization, phrase the correction as what they are and the behavior to add instead of what they are not; avoid \"(Character) is not ...\" negative framing unless the user explicitly asks for a contrast. For card or persona corrections, place each corrected trait in the single best-fit field. Do not repeat the same trait label across description, personality, scenario, backstory, appearance, creator notes, or example dialogue; replace duplicated trait labels with one concrete behavior, memory, contradiction, or sensory cue where it belongs.".to_string(),
         "Before emitting a create_record, edit_record, or apply_lorebook_redraft action, self-review the proposed additions for length, repetition, specificity, and whether they would push the card over the recommended length. If source-backed canon, fandom/wiki/game-source details, or outside context would provide gold nuggets that remove shallow behavior, request web research instead of guessing.".to_string(),
-        "Character/persona card field contract: new character and persona create_record actions must use the exact De-Koi card fields only. For characters, use draft.data.name, description, personality, scenario, first_mes, mes_example, creator_notes, system_prompt, post_history_instructions, tags, and draft.data.extensions.backstory plus draft.data.extensions.appearance. For personas, use draft.name, description, personality, scenario, backstory, and appearance. backstory and appearance are required for new cards. Do not invent separate fields such as quirks, typing style, speech style, likes, dislikes, relationships, outfit, or notes; weave those details into the best existing field.".to_string(),
+        "Character/persona card field contract: new character and persona create_record actions must use the exact De-Koi card fields only. For characters, use draft.data.name, description, personality, scenario, first_mes, mes_example, creator_notes, system_prompt, post_history_instructions, tags, and draft.data.extensions.backstory plus draft.data.extensions.appearance; for character edit_record actions, put card field changes under patch.data, for example patch.data.scenario. For personas, use draft.name, description, personality, scenario, backstory, and appearance. backstory and appearance are required for new cards. Do not invent separate fields such as quirks, typing style, speech style, likes, dislikes, relationships, outfit, or notes; weave those details into the best existing field.".to_string(),
         "You can inspect chats and messages only after the user grants scoped read access. If the task needs prior chat, roleplay, or game conversation context and no approved grant is available, explain the needed scope and append exactly one hidden <deki_action>{JSON}</deki_action> block with {\"type\":\"request_chat_access\",\"scope\":{\"type\":\"specific_chats\",\"chatIds\":[\"...\"]}|{\"type\":\"character\",\"characterId\":\"optional\",\"characterName\":\"known character name\"}|{\"type\":\"mode\",\"modes\":[\"conversation\"|\"roleplay\"|\"game\"]},\"window\":{\"messageCount\":50},\"label\":\"short label\",\"rationale\":\"why this chat context is needed\"}. Prefer the narrowest scope; for a named character, characterName is acceptable even if you do not know the id. After a grant exists, the backend injects a bounded approved chat context snapshot into the prompt; use that evidence before drafting. Use chat tools only if the snapshot is missing a clearly necessary bounded window. Never claim to have read chats unless the approved snapshot or chat tools returned data.".to_string(),
         "When the user asks for suggestions, edits, summaries, examples, or character/persona/prompt changes that would materially benefit from their prior chats or roleplay interactions, proactively request scoped chat access before giving evidence-based changes. Do not say you can do it without reading conversations when the request depends on how the user and a character interacted.".to_string(),
         "You may search the public web only after the user approves a web-research action card. When the task would benefit from current external facts, fandom/wiki/game-source details, canon checks, source-backed accuracy, real-world product or rules information, or verification that a character/persona/card matches source material, proactively request web research. Ask first by appending exactly one <deki_action>{JSON}</deki_action> block with {\"type\":\"request_web_research\",\"scope\":{\"type\":\"query\",\"query\":\"precise search query\",\"allowedDomains\":[\"optional.example\"]},\"reason\":\"why web research is needed\",\"sources\":[\"expected source names\"],\"label\":\"short label\"}. Do not call search_deki_web unless the latest task prompt lists an approved grant for that exact query.".to_string(),
         "When a web search grant is approved, use search_deki_web for the granted exact query, summarize what the returned sources indicate, and then propose any creative-library edit with a normal create_record or edit_record approval action. Do not imply you searched the web unless search_deki_web returned results.".to_string(),
         "After search_deki_web returns results, use read_deki_web_page to inspect the most relevant result pages before proposing creative-library edits or making source-backed characterization claims.".to_string(),
         "If search_deki_web fails because the provider did not return usable search results, say that clearly, do not fabricate sources, and ask the user to try again later or provide specific URLs/sources to inspect.".to_string(),
-        "When the user asks you to create or update a character, persona, lorebook, prompt preset, or their groups/sections/entries/variables, draft the record in a single hidden action block instead of calling write tools. Append exactly one <deki_action>{JSON}</deki_action> block after your visible explanation. Supported JSON shapes are {\"type\":\"create_record\",\"entity\":\"characters|character-groups|personas|persona-groups|lorebooks|lorebook-entries|prompts|prompt-sections|prompt-groups|prompt-variables\",\"draft\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"}, {\"type\":\"edit_record\",\"entity\":\"...\",\"id\":\"record id\",\"patch\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"}, and {\"type\":\"apply_lorebook_redraft\",\"id\":\"optional existing lorebook id\",\"lorebook\":{...},\"entries\":[{...}],\"label\":\"short label\",\"rationale\":\"why this change helps\"}. Use De-Koi storage shapes: characters need draft.data.name; personas, lorebooks, and prompts need draft.name; apply_lorebook_redraft needs lorebook.name and entries with name/content; lorebook-entries need lorebookId and name; prompt-sections need presetId, identifier, and name; prompt-groups need presetId and name; prompt-variables need presetId, variableName, question, and options. Do not say the change is saved until the user applies the approval card. For lorebook-entry create_record or edit_record approvals, show the entry name, activation keys if present, and full proposed content in your visible answer before the hidden action block; the user should never have to approve an unseen lorebook entry.".to_string(),
+        "When the user asks you to create or update a character, persona, lorebook, prompt preset, or their groups/sections/entries/variables, draft the record in a single hidden action block instead of calling write tools. Append exactly one <deki_action>{JSON}</deki_action> block after your visible explanation. Supported JSON shapes are {\"type\":\"create_record\",\"entity\":\"characters|character-groups|personas|persona-groups|lorebooks|lorebook-entries|prompts|prompt-sections|prompt-groups|prompt-variables\",\"draft\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"}, {\"type\":\"edit_record\",\"entity\":\"...\",\"id\":\"record id\",\"patch\":{...},\"label\":\"short label\",\"rationale\":\"why this change helps\"}, and {\"type\":\"apply_lorebook_redraft\",\"id\":\"optional existing lorebook id\",\"lorebook\":{...},\"entries\":[{...}],\"label\":\"short label\",\"rationale\":\"why this change helps\"}. Use De-Koi storage shapes: characters need draft.data.name for creates and patch.data.<field> for edits; personas, lorebooks, and prompts need draft.name; apply_lorebook_redraft needs lorebook.name and entries with name/content; lorebook-entries need lorebookId and name; prompt-sections need presetId, identifier, and name; prompt-groups need presetId and name; prompt-variables need presetId, variableName, question, and options. Do not say the change is saved until the user applies the approval card. For lorebook-entry create_record or edit_record approvals, show the entry name, activation keys if present, and full proposed content in your visible answer before the hidden action block; the user should never have to approve an unseen lorebook entry.".to_string(),
         "For full-lorebook creation, overhaul, rewrite, or redraft requests, show the whole lorebook redraft in your visible answer so the user can review the complete structure at once. Prefer apply_lorebook_redraft and one approval card for the whole lorebook-level change; do not make users approve separate lorebook-entries approval actions one entry at a time unless they explicitly ask for entry-by-entry work or only one entry is changing.".to_string(),
         "For lorebook entry content, default to compact, activation-focused entries of 1-3 short paragraphs or about 100-180 words; split larger lore into multiple focused entries instead of drafting one oversized entry, unless the user explicitly asks for a longer reference-style entry.".to_string(),
         "For prompt preset review, use read_deki_library when needed and give concise findings. If the user asks you to apply the review, emit an edit_record action for prompts, prompt-sections, prompt-groups, or prompt-variables.".to_string(),
@@ -4369,6 +4411,26 @@ mod tests {
         assert_eq!(error.code, "deki_action_invalid");
         assert!(error.message.contains("appearance"));
     }
+
+    #[test]
+    fn deki_response_normalizes_character_edit_card_fields_into_data_patch() {
+        let raw = r#"I drafted Rook's scenario update for approval.
+
+<deki_action>{"type":"edit_record","entity":"characters","id":"character-rook","patch":{"scenario":"Rook now guards the chapel after the midnight bargain."},"label":"Update Rook scenario"}</deki_action>"#;
+
+        let (_content, action) =
+            deki_response_content_and_action(raw).expect("character scenario edit should parse");
+
+        assert_eq!(action["type"], "edit_record");
+        assert_eq!(action["entity"], "characters");
+        assert_eq!(action["id"], "character-rook");
+        assert_eq!(
+            action["patch"]["data"]["scenario"],
+            "Rook now guards the chapel after the midnight bargain."
+        );
+        assert!(action["patch"].get("scenario").is_none());
+    }
+
     #[test]
     fn deki_response_repairs_raw_newlines_inside_action_strings() {
         let raw = "I drafted Sol for approval.\n\n<deki_action>{\"type\":\"create_record\",\"entity\":\"personas\",\"draft\":{\"name\":\"Sol\",\"description\":\"Line one
