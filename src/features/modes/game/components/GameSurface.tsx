@@ -127,6 +127,7 @@ import {
 } from "../hooks/use-game-inventory-journal-controller";
 import { useGameSurfacePersistenceController } from "../hooks/use-game-surface-persistence-controller";
 import { useGameSceneController } from "../hooks/use-game-scene-controller";
+import { useGameMusicSceneMusic } from "../hooks/use-game-music-scene-music";
 import { useGameSpotifySceneMusic } from "../hooks/use-game-spotify-scene-music";
 import { parsePartyDialogue } from "../lib/party-dialogue-parser";
 import {
@@ -194,6 +195,7 @@ import type {
 import type { GameState } from "../../../../engine/contracts/types/game-state";
 import type {
   SceneAnalysis,
+  SceneMusicTrackCandidate,
   SceneSpotifyTrackCandidate,
 } from "../../../../engine/contracts/types/scene";
 import { resolveSceneClockUpdate } from "../../../../engine/modes/game/scene/scene-clock.service";
@@ -1346,7 +1348,9 @@ export function GameSurface({
       currentLocation: gameSnapshot?.location,
     });
   const chatCharacterIds = useMemo(() => getChatCharacterIds(chat.characterIds), [chat.characterIds]);
-  const useSpotifyGameMusic = chatMeta.gameUseSpotifyMusic === true || chatMeta.gameEnableSpotifyDj === true;
+  const useLegacySpotifyGameMusic = chatMeta.gameUseSpotifyMusic === true || chatMeta.gameEnableSpotifyDj === true;
+  const useMusicGameMusic = chatMeta.gameUseMusicDj === true && !useLegacySpotifyGameMusic;
+  const useExternalGameMusic = useMusicGameMusic || useLegacySpotifyGameMusic;
   const { data: connectionsList } = useConnections();
   const updateChat = useUpdateChat();
   const languageConnections = useMemo(
@@ -1479,10 +1483,10 @@ export function GameSurface({
   const fetchManifest = useGameAssetStore((s) => s.fetchManifest);
 
   useEffect(() => {
-    if (!useSpotifyGameMusic) return;
+    if (!useExternalGameMusic) return;
     audioManager.stopMusic();
     useGameAssetStore.getState().setCurrentMusic(null);
-  }, [useSpotifyGameMusic]);
+  }, [useExternalGameMusic]);
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
@@ -2190,7 +2194,7 @@ export function GameSurface({
     pendingInventorySegmentUpdates,
     appliedInventorySegmentsRef,
     scopedAssetMap,
-    useSpotifyGameMusic,
+    useSpotifyGameMusic: useExternalGameMusic,
     applyInventoryUpdates,
     playDirections,
   });
@@ -2293,7 +2297,7 @@ export function GameSurface({
         currentBackground: currentBackground,
         currentMusic: useGameAssetStore.getState().currentMusic,
         recentMusic: recentMusicHistoryRef.current,
-        useSpotifyMusic: useSpotifyGameMusic,
+        useSpotifyMusic: useLegacySpotifyGameMusic,
         availableSpotifyTracks: [] as SceneSpotifyTrackCandidate[],
         currentSpotifyTrack: recentSpotifyTracks[0] ?? null,
         recentSpotifyTracks,
@@ -2334,8 +2338,50 @@ export function GameSurface({
     npcs,
     sceneTurnNumber,
     sceneWrapCharacterNames,
-    useSpotifyGameMusic,
+    useLegacySpotifyGameMusic,
   ]);
+
+  const buildMusicRetryRequest = useCallback(
+    (recentMusicTracks: string[]) => {
+      const request = buildSpotifyRetryRequest([]);
+      if (!request) return null;
+      return {
+        ...request,
+        context: {
+          ...request.context,
+          useMusicDj: useMusicGameMusic,
+          availableMusicTracks: [] as SceneMusicTrackCandidate[],
+          currentMusicTrack: recentMusicTracks[0] ?? null,
+          recentMusicTracks,
+          useSpotifyMusic: false,
+          availableSpotifyTracks: [] as SceneSpotifyTrackCandidate[],
+          currentSpotifyTrack: null,
+          recentSpotifyTracks: [],
+        },
+      };
+    },
+    [buildSpotifyRetryRequest, useMusicGameMusic],
+  );
+
+  const {
+    canRetryMusic,
+    fetchMusicSceneCandidates,
+    handleRetryMusic,
+    musicRetryPending,
+    playMusicSceneTrack,
+    recentMusicTrackHistoryRef,
+    resetRecentMusicTrackHistory,
+  } = useGameMusicSceneMusic({
+    activeChatId,
+    buildRetryRequest: buildMusicRetryRequest,
+    enabled: useMusicGameMusic,
+    isStreaming,
+    persistMetadata,
+    recentMusicTracks: chatMeta.gameRecentMusicTracks,
+    sceneAnalysisMutateAsync: sceneAnalysis.mutateAsync,
+    sceneAnalysisPending: sceneAnalysis.isPending,
+    setRetryMenuOpen,
+  });
 
   const {
     canRetrySpotifyMusic,
@@ -2348,7 +2394,7 @@ export function GameSurface({
   } = useGameSpotifySceneMusic({
     activeChatId,
     buildRetryRequest: buildSpotifyRetryRequest,
-    enabled: useSpotifyGameMusic,
+    enabled: useLegacySpotifyGameMusic,
     isStreaming,
     persistMetadata,
     queryClient,
@@ -2357,6 +2403,10 @@ export function GameSurface({
     sceneAnalysisPending: sceneAnalysis.isPending,
     setRetryMenuOpen,
   });
+
+  const canRetryExternalMusic = useMusicGameMusic ? canRetryMusic : canRetrySpotifyMusic;
+  const handleRetryExternalMusic = useMusicGameMusic ? handleRetryMusic : handleRetrySpotifyMusic;
+  const externalMusicRetryPending = musicRetryPending || spotifyRetryPending;
 
   const partyDialogueRestoredRef = useRef(false);
   const prevSceneRuntimeScopeRef = useRef(sceneRuntimeScopeKey);
@@ -2367,6 +2417,7 @@ export function GameSurface({
     if (prevSceneRuntimeScopeRef.current === sceneRuntimeScopeKey) return; // skip initial mount
     prevSceneRuntimeScopeRef.current = sceneRuntimeScopeKey;
     recentMusicHistoryRef.current = normalizeRecentMusicHistory(chatMeta.gameRecentMusic);
+    resetRecentMusicTrackHistory(chatMeta.gameRecentMusicTracks);
     partyDialogueRestoredRef.current = false;
     partyTurnRequestIdRef.current += 1;
     partyTurnInFlightRef.current = false;
@@ -2429,13 +2480,13 @@ export function GameSurface({
         useGameAssetStore.getState().setCurrentBackground(savedBg);
       }
     }
-    if (!useSpotifyGameMusic && currentMusic && assetMap?.[currentMusic] && !audioManager.getState().musicTag) {
+    if (!useExternalGameMusic && currentMusic && assetMap?.[currentMusic] && !audioManager.getState().musicTag) {
       audioManager.playMusic(currentMusic, assetMap);
     }
     if (currentAmbient && assetMap?.[currentAmbient] && !audioManager.getState().ambientTag) {
       audioManager.playAmbient(currentAmbient, assetMap);
     }
-  }, [assetManifest, chatMeta.gameSceneBackground, isRestoredRef, scopedAssetMap, useSpotifyGameMusic]);
+  }, [assetManifest, chatMeta.gameSceneBackground, isRestoredRef, scopedAssetMap, useExternalGameMusic]);
 
   const handleCheckpointLoaded = useCallback(
     (result: { gameState?: unknown; metadata?: Record<string, unknown> }) => {
@@ -2506,7 +2557,7 @@ export function GameSurface({
     // same-chat remount (store may already match) and different-chat mount.
     useGameAssetStore.getState().setCurrentBackground(savedBg ?? null);
 
-    if (savedMusic && !useSpotifyGameMusic && assetMap?.[savedMusic]) {
+    if (savedMusic && !useExternalGameMusic && assetMap?.[savedMusic]) {
       useGameAssetStore.getState().setCurrentMusic(savedMusic);
       // Play music — may be blocked by autoplay, audioManager queues retry on gesture
       if (audioManager.getState().musicTag !== savedMusic) {
@@ -2567,7 +2618,7 @@ export function GameSurface({
     isRestoredRef,
     resetRecentSpotifyTrackHistory,
     sceneRestoredRef,
-    useSpotifyGameMusic,
+    useExternalGameMusic,
   ]);
 
   // ── Restore party dialogue from the last separate party-turn message on page load ──
@@ -3134,7 +3185,11 @@ export function GameSurface({
       currentBackground: currentBackground,
       currentMusic: useGameAssetStore.getState().currentMusic,
       recentMusic: recentMusicHistoryRef.current,
-      useSpotifyMusic: useSpotifyGameMusic,
+      useMusicDj: useMusicGameMusic,
+      availableMusicTracks: [] as SceneMusicTrackCandidate[],
+      currentMusicTrack: recentMusicTrackHistoryRef.current[0] ?? null,
+      recentMusicTracks: recentMusicTrackHistoryRef.current,
+      useSpotifyMusic: useLegacySpotifyGameMusic,
       availableSpotifyTracks: [] as SceneSpotifyTrackCandidate[],
       currentSpotifyTrack: recentSpotifyTrackHistoryRef.current[0] ?? null,
       recentSpotifyTracks: recentSpotifyTrackHistoryRef.current,
@@ -3195,8 +3250,24 @@ export function GameSurface({
           },
         );
       } else {
-        // No scene model at all: parse inline tags from the main model
-        if (useSpotifyGameMusic) {
+        // No scene model at all: parse inline tags from the main model.
+        if (useMusicGameMusic) {
+          void fetchMusicSceneCandidates(tags.cleanContent, analysisContext, latestPlayerAction).then(
+            (availableMusicTracks) => {
+              const fallback = availableMusicTracks[0];
+              if (!fallback) return;
+              void playMusicSceneTrack({
+                provider: fallback.provider,
+                id: fallback.id,
+                title: fallback.title,
+                channelOrArtist: fallback.channelOrArtist ?? null,
+                url: fallback.url ?? null,
+                thumbnail: fallback.thumbnail ?? null,
+                durationSeconds: fallback.durationSeconds ?? null,
+              });
+            },
+          );
+        } else if (useLegacySpotifyGameMusic) {
           void fetchSpotifySceneCandidates(tags.cleanContent, analysisContext, latestPlayerAction).then(
             (availableSpotifyTracks) => {
               const fallback = availableSpotifyTracks[0];
@@ -3229,7 +3300,17 @@ export function GameSurface({
       }, 120_000);
     };
 
-    if (useSpotifyGameMusic && sceneConnId) {
+    if (useMusicGameMusic && sceneConnId) {
+      void fetchMusicSceneCandidates(tags.cleanContent, sceneContext).then((availableMusicTracks) => {
+        runSceneAnalysis({
+          ...sceneContext,
+          availableMusicTracks,
+        });
+      });
+      return;
+    }
+
+    if (useLegacySpotifyGameMusic && sceneConnId) {
       void fetchSpotifySceneCandidates(tags.cleanContent, sceneContext).then((availableSpotifyTracks) => {
         runSceneAnalysis({
           ...sceneContext,
@@ -3267,7 +3348,7 @@ export function GameSurface({
       recentMusic: recentMusicHistoryRef.current,
       availableMusic: musicTags,
     });
-    if (scoredMusic && !useSpotifyGameMusic) {
+    if (scoredMusic && !useExternalGameMusic) {
       audioManager.playMusic(scoredMusic, assetMap);
       useGameAssetStore.getState().setCurrentMusic(scoredMusic);
     }
@@ -3372,7 +3453,7 @@ export function GameSurface({
         useGameAssetStore.getState().setCurrentBackground(pick);
       }
     }
-    if (!useSpotifyGameMusic) {
+    if (!useExternalGameMusic) {
       const resolvedMusic = result.music
         ? resolveAssetTag(result.music, "music", assetMap)
         : scoreMusic({
@@ -3390,7 +3471,10 @@ export function GameSurface({
         useGameAssetStore.getState().setCurrentMusic(resolvedMusic);
       }
     }
-    if (useSpotifyGameMusic && result.spotifyTrack) {
+    if (useMusicGameMusic && result.musicTrack) {
+      void playMusicSceneTrack(result.musicTrack);
+    }
+    if (useLegacySpotifyGameMusic && result.spotifyTrack) {
       void playSpotifySceneTrack(result.spotifyTrack);
     }
     const resolvedAmbient = result.ambient
@@ -3423,7 +3507,7 @@ export function GameSurface({
             const resolved = resolveAssetTag(fx.background, "backgrounds", assetMap);
             useGameAssetStore.getState().setCurrentBackground(resolved);
           }
-          if (fx.music && !useSpotifyGameMusic) {
+          if (fx.music && !useExternalGameMusic) {
             const resolved = resolveAssetTag(fx.music, "music", assetMap);
             audioManager.playMusic(resolved, assetMap);
             useGameAssetStore.getState().setCurrentMusic(resolved);
@@ -7606,7 +7690,7 @@ export function GameSurface({
                     >
                       <RotateCcw
                         size={14}
-                        className={sceneAnalysis.isPending || spotifyRetryPending ? "animate-spin" : ""}
+                        className={sceneAnalysis.isPending || externalMusicRetryPending ? "animate-spin" : ""}
                       />
                     </button>
                     {retryMenuOpen && (
@@ -7629,18 +7713,18 @@ export function GameSurface({
                           <RefreshCw size={13} className={sceneAnalysis.isPending ? "animate-spin" : ""} />
                           <span>Retry Scene Analysis</span>
                         </button>
-                        {useSpotifyGameMusic && (
+                        {useExternalGameMusic && (
                           <button
-                            onClick={handleRetrySpotifyMusic}
-                            disabled={!canRetrySpotifyMusic}
+                            onClick={handleRetryExternalMusic}
+                            disabled={!canRetryExternalMusic}
                             className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-white/85 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
                           >
-                            {spotifyRetryPending ? (
+                            {externalMusicRetryPending ? (
                               <RefreshCw size={13} className="animate-spin" />
                             ) : (
                               <Volume2 size={13} />
                             )}
-                            <span>Retry Spotify DJ Music Generation</span>
+                            <span>Retry Music DJ Generation</span>
                           </button>
                         )}
                         <button
@@ -7911,7 +7995,7 @@ export function GameSurface({
                           className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
                         >
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-zinc-500 to-gray-500 text-white shadow-sm">
-                            <RotateCcw size="0.9rem" className={sceneAnalysis.isPending || spotifyRetryPending ? "animate-spin" : ""} />
+                            <RotateCcw size="0.9rem" className={sceneAnalysis.isPending || externalMusicRetryPending ? "animate-spin" : ""} />
                           </div>
                           <span className="text-sm font-medium text-[var(--foreground)]">Retry</span>
                         </button>
@@ -8013,21 +8097,21 @@ export function GameSurface({
                       <RefreshCw size={13} className={sceneAnalysis.isPending ? "animate-spin" : ""} />
                       <span>Retry Scene Analysis</span>
                     </button>
-                    {useSpotifyGameMusic && (
+                    {useExternalGameMusic && (
                       <button
                         onClick={() => {
-                          handleRetrySpotifyMusic();
+                          handleRetryExternalMusic();
                           setRetryMenuOpen(false);
                         }}
-                        disabled={!canRetrySpotifyMusic}
+                        disabled={!canRetryExternalMusic}
                         className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-white/85 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
                       >
-                        {spotifyRetryPending ? (
+                        {externalMusicRetryPending ? (
                           <RefreshCw size={13} className="animate-spin" />
                         ) : (
                           <Volume2 size={13} />
                         )}
-                        <span>Retry Spotify DJ Music Generation</span>
+                        <span>Retry Music DJ Generation</span>
                       </button>
                     )}
                     <button

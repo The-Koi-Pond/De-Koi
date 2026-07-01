@@ -11,7 +11,6 @@ export type ChatMode = "conversation" | "roleplay" | "game";
 /** Legacy persisted/imported mode name. New inputs should migrate this to "roleplay". */
 export type LegacyChatMode = "visual_novel";
 export type SpotifySourceType = "liked" | "playlist" | "artist" | "any";
-export type MusicDjProvider = "youtube" | "spotify-legacy";
 
 /** How a multi-character (group) chat is handled. */
 export type GroupChatMode = "merged" | "individual";
@@ -240,17 +239,6 @@ export interface ChatMetadata {
   dmTargetCharacterId?: string | null;
   /** Per-chat roleplay narration voice/style guidance. */
   narratorStyleInstructions?: string | null;
-  /** Whether Music DJ is enabled for this chat. */
-  musicDjEnabled?: boolean;
-  /** Music DJ provider. Defaults to YouTube. */
-  musicDjProvider?: MusicDjProvider;
-  /** Current Music DJ YouTube track shown by the shell player. */
-  musicDjNowPlaying?: import("./music-dj.js").MusicDjTrack | null;
-  /** Music DJ volume, 0-100. */
-  musicDjVolume?: number;
-  /** Recently selected YouTube video IDs for de-duplication. */
-  musicRecentYoutubeVideoIds?: string[];
-
   /** Music source constraint for Spotify DJ in roleplay and visual novel chats. */
   spotifySourceType?: SpotifySourceType;
   /** Spotify playlist ID used when spotifySourceType is "playlist". */
@@ -273,9 +261,7 @@ export interface ChatMetadata {
   conversationSchedulesEnabled?: boolean;
   /** Allow conversation characters to use hidden command tags. Default: true. */
   characterCommands?: boolean;
-  /** Chat-scoped fuzzy routines for conversation characters. */
-  characterRoutines?: Record<string, unknown>;
-  /** Legacy chat-scoped generated schedules for conversation characters. */
+  /** Chat-scoped generated schedules for conversation characters. */
   characterSchedules?: Record<string, unknown>;
   /** Week start timestamp for the current generated conversation schedules. */
   scheduleWeekStart?: string;
@@ -345,7 +331,11 @@ export interface ChatMetadata {
   gameAssetSelection?: { excludedFolders?: string[] } | null;
   /** When true, Game Mode uses Music DJ for music instead of local music assets. */
   gameUseMusicDj?: boolean;
-  /** @deprecated Legacy input only. Use gameUseMusicDj for new writes. */
+  /** Default Music DJ provider for Game Mode. */
+  gameMusicProvider?: "youtube" | "spotify" | "local" | string;
+  /** Recently selected provider-neutral music track IDs for Game Mode scene music de-duplication. */
+  gameRecentMusicTracks?: string[];
+  /** When true, Game Mode uses legacy Spotify DJ for music instead of local music assets. */
   gameUseSpotifyMusic?: boolean;
   /** Music source constraint for Spotify DJ in Game Mode. */
   gameSpotifySourceType?: SpotifySourceType;

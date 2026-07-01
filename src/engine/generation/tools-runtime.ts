@@ -68,7 +68,6 @@ const MAX_LOREBOOK_ENTRY_DESCRIPTION_BYTES = 4 * 1024;
 const MAX_LOREBOOK_ENTRY_NAME_LENGTH = 160;
 const MAX_LOREBOOK_ENTRY_KEYS = 24;
 const SPOTIFY_RECENT_TRACK_HISTORY_LIMIT = 24;
-const MUSIC_DJ_RECENT_VIDEO_HISTORY_LIMIT = 24;
 
 export function normalizeToolCall(value: unknown): LLMToolCall | null {
   if (!isRecord(value)) return null;
@@ -239,79 +238,6 @@ function getSpotifyRecentTrackUris(metadata?: JsonRecord): string[] {
     }
   }
   return recent;
-}
-
-function normalizeMusicDjRecentVideoIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  return value
-    .map((item) => readString(item).trim())
-    .filter((id) => /^[A-Za-z0-9_-]{6,}$/.test(id))
-    .filter((id) => {
-      if (seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    })
-    .slice(0, MUSIC_DJ_RECENT_VIDEO_HISTORY_LIMIT);
-}
-
-function appendMusicDjRecentVideoId(history: unknown, videoId: string): string[] {
-  return [videoId, ...normalizeMusicDjRecentVideoIds(history).filter((id) => id !== videoId)].slice(0, MUSIC_DJ_RECENT_VIDEO_HISTORY_LIMIT);
-}
-
-function normalizeMusicDjTrackRecord(value: unknown): JsonRecord | null {
-  if (!isRecord(value)) return null;
-  const videoId = readString(value.videoId).trim();
-  if (!/^[A-Za-z0-9_-]{6,}$/.test(videoId)) return null;
-  return {
-    provider: readString(value.provider, "youtube") || "youtube",
-    videoId,
-    title: readString(value.title) || "YouTube music",
-    channel: readString(value.channel) || "YouTube",
-    durationSeconds: Math.max(0, Math.trunc(readNumber(value.durationSeconds, 0))),
-    thumbnailUrl: readString(value.thumbnailUrl),
-    score: Math.max(0, Math.trunc(readNumber(value.score, 0))),
-    reason: readString(value.reason),
-  };
-}
-
-async function rememberMusicDjCharacterPlaylists(storage: StorageGateway, input: ToolRuntimeInput, track: unknown): Promise<void> {
-  const normalizedTrack = normalizeMusicDjTrackRecord(track);
-  if (!normalizedTrack || input.characters.length === 0) return;
-  const now = nowIso();
-  await Promise.allSettled(
-    input.characters.map(async (character) => {
-      const ownerId = readString(character.id).trim();
-      if (!ownerId) return;
-      const existing = (
-        await storage.list<JsonRecord>("music-dj-playlists", {
-          filters: { ownerType: "character", ownerId, provider: "youtube" },
-          limit: 1,
-        })
-      )[0];
-      const existingTracks = Array.isArray(existing?.tracks) ? existing.tracks : [];
-      const tracks = [
-        normalizedTrack,
-        ...existingTracks
-          .map(normalizeMusicDjTrackRecord)
-          .filter((entry): entry is JsonRecord => entry !== null && entry.videoId !== normalizedTrack.videoId),
-      ].slice(0, 100);
-      if (existing?.id) {
-        await storage.update("music-dj-playlists", readString(existing.id), { tracks, updatedAt: now });
-        return;
-      }
-      await storage.create("music-dj-playlists", {
-        id: newId("music_dj_playlist"),
-        ownerType: "character",
-        ownerId,
-        name: `${character.name || "Character"} Music`,
-        provider: "youtube",
-        tracks,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }),
-  );
 }
 
 function getSpotifyRecentTrackMetadataKey(metadata: JsonRecord): "spotifyRecentTracks" | "gameRecentSpotifyTracks" {
@@ -840,86 +766,6 @@ export async function executeBuiltInTool(
       });
       return { success: true, key, value };
     }
-    case "music_get_current_playback": {
-      const metadata = parseRecord(input.chat.metadata);
-      return {
-        provider: metadata.musicDjProvider ?? "youtube",
-        nowPlaying: metadata.musicDjNowPlaying ?? null,
-        volume: typeof metadata.musicDjVolume === "number" ? metadata.musicDjVolume : 50,
-        recentVideoIds: normalizeMusicDjRecentVideoIds(metadata.musicRecentYoutubeVideoIds),
-      };
-    }
-    case "music_resolve_candidates": {
-      const metadata = parseRecord(input.chat.metadata);
-      const query = stringArg(args, "query");
-      const mood = stringArg(args, "mood");
-      const sceneText = [input.chatSummary, input.storedMessages?.slice(-6).map((message) => readString(message.content)).join(" ")]
-        .filter(Boolean)
-        .join(" ") || query || mood || "cinematic roleplay music";
-      if (!integrations.musicDj) return { available: false, provider: "youtube", tracks: [], error: "Music DJ resolver is unavailable." };
-      return integrations.musicDj.resolve({
-        provider: "youtube",
-        mode: readString(input.chat.mode || input.chat.chatMode, "roleplay"),
-        sceneText,
-        activeCharacterIds: input.characters.map((character) => character.id),
-        characters: input.characters.map((character) => ({
-          id: character.id,
-          name: character.name,
-          description: character.description,
-          personality: character.personality,
-          scenario: character.scenario,
-        })),
-        persona: input.persona
-          ? { name: input.persona.name, description: input.persona.description, personality: input.persona.personality }
-          : null,
-        hints: {
-          mood: mood || query || null,
-          energy: stringArg(args, "energy") || null,
-          vocals: stringArg(args, "vocals") || "instrumental",
-        },
-        avoidVideoIds: normalizeMusicDjRecentVideoIds(metadata.musicRecentYoutubeVideoIds),
-      });
-    }
-    case "music_play": {
-      const videoId = stringArg(args, "videoId");
-      if (!/^[A-Za-z0-9_-]{6,}$/.test(videoId)) toolError("videoId is required.");
-      const metadata = await updateChatMetadata(storage, input, (current) => {
-        const track = {
-          provider: "youtube",
-          videoId,
-          title: stringArg(args, "title") || stringArg(args, "trackName") || "YouTube music",
-          channel: stringArg(args, "channel") || "YouTube",
-          durationSeconds: Math.max(0, Math.trunc(numberArg(args, "durationSeconds", 0))),
-          thumbnailUrl: stringArg(args, "thumbnailUrl"),
-          score: Math.max(0, Math.trunc(numberArg(args, "score", 0))),
-          reason: stringArg(args, "reason"),
-        };
-        return {
-          ...current,
-          musicDjEnabled: true,
-          musicDjProvider: "youtube",
-          musicDjNowPlaying: track,
-          musicRecentYoutubeVideoIds: appendMusicDjRecentVideoId(current.musicRecentYoutubeVideoIds, videoId),
-        };
-      });
-      await rememberMusicDjCharacterPlaylists(storage, input, metadata.musicDjNowPlaying);
-      return { success: true, applied: true, provider: "youtube", track: metadata.musicDjNowPlaying };
-    }
-    case "music_set_volume": {
-      const volume = Math.max(0, Math.min(100, Math.trunc(numberArg(args, "volume", 50))));
-      await updateChatMetadata(storage, input, (current) => ({ ...current, musicDjVolume: volume }));
-      return { success: true, applied: true, volume };
-    }
-    case "music_feedback": {
-      const action = stringArg(args, "action");
-      if (action !== "play" && action !== "skip" && action !== "like" && action !== "dislike") {
-        toolError("action must be play, skip, like, or dislike.");
-      }
-      const videoId = stringArg(args, "videoId");
-      if (videoId && !/^[A-Za-z0-9_-]{6,}$/.test(videoId)) toolError("videoId must be a valid YouTube video id.");
-      if (!integrations.musicDj) return { success: false, error: "Music DJ resolver is unavailable." };
-      return integrations.musicDj.feedback({ provider: "youtube", action, videoId: videoId || null, chatId });
-    }
     case "spotify_get_current_playback":
       return integrations.spotify.player({ agentId: spotifyAgentId(agent) });
     case "spotify_get_playlists": {
@@ -1034,7 +880,6 @@ export const AGENT_ONLY_TOOL_NAMES = new Set([
   "write_chat_variable",
 ]);
 const SPOTIFY_TOOL_NAMES = new Set(DEFAULT_AGENT_TOOLS.spotify);
-const MUSIC_DJ_TOOL_NAMES = new Set(DEFAULT_AGENT_TOOLS["music-dj"] ?? []);
 
 export interface BuildMainToolDefinitionsArgs {
   chat: JsonRecord;
@@ -1079,7 +924,6 @@ export async function buildMainToolDefinitions(
   const filter = (name: string): boolean => {
     if (AGENT_ONLY_TOOL_NAMES.has(name)) return false;
     if (!args.includeSpotify && SPOTIFY_TOOL_NAMES.has(name)) return false;
-    if (MUSIC_DJ_TOOL_NAMES.has(name)) return false;
     if (activeIds.size === 0) return true;
     return activeIds.has(name);
   };

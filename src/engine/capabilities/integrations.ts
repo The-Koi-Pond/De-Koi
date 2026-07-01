@@ -8,10 +8,14 @@ export interface SpotifyGateway {
   volume<T = unknown>(input: Record<string, unknown>): Promise<T>;
 }
 
-export interface MusicDjGateway {
-  status<T = unknown>(): Promise<T>;
-  resolve<T = unknown>(input: Record<string, unknown>): Promise<T>;
-  feedback<T = unknown>(input: Record<string, unknown>): Promise<T>;
+export interface MusicGateway {
+  status<T = unknown>(input?: Record<string, unknown>): Promise<T>;
+  searchCandidates<T = unknown>(input: Record<string, unknown>): Promise<T>;
+  play<T = unknown>(input: Record<string, unknown>): Promise<T>;
+  pause<T = unknown>(input?: Record<string, unknown>): Promise<T>;
+  stop<T = unknown>(input?: Record<string, unknown>): Promise<T>;
+  setVolume<T = unknown>(input: { volume: number }): Promise<T>;
+  freshPick<T = unknown>(input: Record<string, unknown>): Promise<T>;
 }
 
 export interface CustomToolsGateway {
@@ -32,8 +36,8 @@ export interface DiscordGateway {
 }
 
 export interface IntegrationGateway {
+  music?: MusicGateway;
   spotify: SpotifyGateway;
-  musicDj?: MusicDjGateway;
   customTools: CustomToolsGateway;
   image: ImageGenerationGateway;
   discord?: DiscordGateway;

@@ -85,22 +85,29 @@ function libraryCharacterIds(value: unknown): string[] {
     : [];
 }
 
+export function musicDjSetupConfig(config: g.GameSetupConfig): g.GameSetupConfig {
+  if (!config.enableMusicDj) return config;
+  const { enableSpotifyDj, spotifySourceType, spotifyPlaylistId, spotifyPlaylistName, spotifyArtist, ...rest } = config;
+  return { ...rest, enableMusicDj: true };
+}
 export function gameSetupMetadataPatch(config: g.GameSetupConfig): Record<string, unknown> {
+  const setupConfig = musicDjSetupConfig(config);
+  const useMusicDj = setupConfig.enableMusicDj === true;
   return {
-    gameSetupConfig: config,
+    gameSetupConfig: setupConfig,
     gamePartyCharacterIds: config.partyCharacterIds ?? [],
     activeLorebookIds: config.activeLorebookIds ?? [],
     gameSceneConnectionId: config.sceneConnectionId ?? null,
     gameImageConnectionId: config.imageConnectionId ?? null,
     imageStyleProfileId: config.imageStyleProfileId ?? null,
     enableSpriteGeneration: Boolean(config.enableSpriteGeneration),
-    gameUseMusicDj: Boolean(config.enableSpotifyDj),
-    musicDjEnabled: Boolean(config.enableSpotifyDj),
-    musicDjProvider: "youtube",
-    gameSpotifySourceType: config.spotifySourceType ?? null,
-    gameSpotifyPlaylistId: config.spotifyPlaylistId ?? null,
-    gameSpotifyPlaylistName: config.spotifyPlaylistName ?? null,
-    gameSpotifyArtist: config.spotifyArtist ?? null,
+    gameUseMusicDj: useMusicDj,
+    gameMusicProvider: useMusicDj ? "youtube" : null,
+    gameUseSpotifyMusic: useMusicDj ? false : Boolean(setupConfig.enableSpotifyDj),
+    gameSpotifySourceType: useMusicDj ? null : setupConfig.spotifySourceType ?? null,
+    gameSpotifyPlaylistId: useMusicDj ? null : setupConfig.spotifyPlaylistId ?? null,
+    gameSpotifyPlaylistName: useMusicDj ? null : setupConfig.spotifyPlaylistName ?? null,
+    gameSpotifyArtist: useMusicDj ? null : setupConfig.spotifyArtist ?? null,
     gameLorebookKeeperEnabled: Boolean(config.enableLorebookKeeper),
     gameGenerationParameters: config.generationParameters ?? null,
     gameLanguage: config.language ?? null,
@@ -208,8 +215,7 @@ export function gameCarryoverPatch(meta: Record<string, unknown>) {
     "gameImageConnectionId",
     "activeLorebookIds",
     "gameUseMusicDj",
-    "musicDjEnabled",
-    "musicDjProvider",
+    "gameMusicProvider",
     "gameUseSpotifyMusic",
     "gameSpotifySourceType",
     "gameSpotifyPlaylistId",
@@ -231,7 +237,16 @@ export function gameCarryoverPatch(meta: Record<string, unknown>) {
     "gameLorebookKeeperLorebookId",
     "discordWebhookUrl",
   ];
-  return Object.fromEntries(keys.filter((key) => key in meta).map((key) => [key, meta[key]]));
+  const patch = Object.fromEntries(keys.filter((key) => key in meta).map((key) => [key, meta[key]]));
+  if (patch.gameUseMusicDj === true && isGameSetupConfig(patch.gameSetupConfig)) {
+    patch.gameSetupConfig = musicDjSetupConfig(patch.gameSetupConfig);
+    patch.gameUseSpotifyMusic = false;
+    patch.gameSpotifySourceType = null;
+    patch.gameSpotifyPlaylistId = null;
+    patch.gameSpotifyPlaylistName = null;
+    patch.gameSpotifyArtist = null;
+  }
+  return patch;
 }
 
 function nonEmptyRecord(value: unknown): Record<string, unknown> | null {

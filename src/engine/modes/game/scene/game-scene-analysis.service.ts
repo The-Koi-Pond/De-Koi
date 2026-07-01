@@ -50,6 +50,7 @@ function defaultGameSceneAnalysis(): SceneAnalysis {
     musicGenre: null,
     musicIntensity: null,
     locationKind: null,
+    musicTrack: null,
     spotifyTrack: null,
     reputationChanges: [],
     segmentEffects: [],
@@ -122,6 +123,10 @@ function sanitizeGameSceneAnalysis(parsed: JsonRecord): SceneAnalysis {
     musicGenre: readNullableString(parsed.musicGenre) as SceneAnalysis["musicGenre"],
     musicIntensity: readNullableString(parsed.musicIntensity) as SceneAnalysis["musicIntensity"],
     locationKind: readNullableString(parsed.locationKind) as SceneAnalysis["locationKind"],
+    musicTrack:
+      typeof parsed.musicTrack === "string" || isRecord(parsed.musicTrack)
+        ? (parsed.musicTrack as unknown as SceneAnalysis["musicTrack"])
+        : null,
     spotifyTrack:
       typeof parsed.spotifyTrack === "string" || isRecord(parsed.spotifyTrack)
         ? (parsed.spotifyTrack as unknown as SceneAnalysis["spotifyTrack"])
@@ -142,6 +147,37 @@ function readNullableString(value: unknown): string | null {
 
 function readRecordArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value.filter(isRecord) as T[]) : [];
+}
+
+function normalizeMusicTrackCandidates(value: unknown): NonNullable<SceneAnalyzerContext["availableMusicTracks"]> {
+  return readRecordArray<NonNullable<SceneAnalyzerContext["availableMusicTracks"]>[number]>(value)
+    .map((track): NonNullable<SceneAnalyzerContext["availableMusicTracks"]>[number] | null => {
+      const provider = readString(track.provider).trim() || "youtube";
+      const id = readString(track.id).trim();
+      const title = readString(track.title).trim();
+      if (!id || !title) return null;
+      const candidate: NonNullable<SceneAnalyzerContext["availableMusicTracks"]>[number] = {
+        provider,
+        id,
+        title,
+      };
+      const channelOrArtist = readNullableString(track.channelOrArtist);
+      if (channelOrArtist) candidate.channelOrArtist = channelOrArtist;
+      const url = readNullableString(track.url);
+      if (url) candidate.url = url;
+      const thumbnail = readNullableString(track.thumbnail);
+      if (thumbnail) candidate.thumbnail = thumbnail;
+      if (typeof track.durationSeconds === "number" && Number.isFinite(track.durationSeconds)) {
+        candidate.durationSeconds = Math.max(0, Math.trunc(track.durationSeconds));
+      }
+      if (typeof track.confidence === "number" && Number.isFinite(track.confidence)) {
+        candidate.confidence = Math.max(0, Math.min(1, track.confidence));
+      }
+      const reasonTags = stringArray(track.reasonTags).slice(0, 12);
+      if (reasonTags.length > 0) candidate.reasonTags = reasonTags;
+      return candidate;
+    })
+    .filter((track): track is NonNullable<SceneAnalyzerContext["availableMusicTracks"]>[number] => track !== null);
 }
 
 function normalizeSpotifyTrackCandidates(value: unknown): NonNullable<SceneAnalyzerContext["availableSpotifyTracks"]> {
@@ -182,6 +218,10 @@ function normalizeSceneAnalyzerContext(value: unknown): SceneAnalyzerContext {
     currentBackground: readNullableString(context.currentBackground),
     currentMusic: readNullableString(context.currentMusic),
     recentMusic: stringArray(context.recentMusic),
+    useMusicDj: boolish(context.useMusicDj, false),
+    availableMusicTracks: normalizeMusicTrackCandidates(context.availableMusicTracks),
+    currentMusicTrack: readNullableString(context.currentMusicTrack),
+    recentMusicTracks: stringArray(context.recentMusicTracks),
     useSpotifyMusic: boolish(context.useSpotifyMusic, false),
     availableSpotifyTracks: normalizeSpotifyTrackCandidates(context.availableSpotifyTracks),
     currentSpotifyTrack: readNullableString(context.currentSpotifyTrack),
@@ -204,6 +244,8 @@ function scenePostProcessContext(context: SceneAnalyzerContext): PostProcessCont
   return {
     availableBackgrounds: context.availableBackgrounds,
     availableSfx: context.availableSfx,
+    useMusicDj: context.useMusicDj,
+    availableMusicTracks: context.availableMusicTracks,
     useSpotifyMusic: context.useSpotifyMusic,
     availableSpotifyTracks: context.availableSpotifyTracks,
     validWidgetIds: new Set(context.activeWidgets.map((widget) => readString(widget.id)).filter(Boolean)),
@@ -269,5 +311,17 @@ export async function analyzeGameScene(
   }
 
   const analysis = sanitizeGameSceneAnalysis(result.data);
-  return postProcessSceneResult(analysis, scenePostProcessContext(sceneContext));
+  try {
+    return postProcessSceneResult(analysis, scenePostProcessContext(sceneContext));
+  } catch (error) {
+    console.warn("[game/scene] Scene postprocess failed:", error);
+    const fallback = defaultGameSceneAnalysis();
+    fallback.structuredFailure = {
+      taskName: "game.sceneAnalysis.postprocess",
+      message: error instanceof Error ? error.message : "Scene postprocess failed.",
+      validationErrors: ["scene_postprocess_failed"],
+      raw: JSON.stringify(analysis),
+    };
+    return fallback;
+  }
 }

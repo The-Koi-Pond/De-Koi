@@ -1,5 +1,5 @@
 import type { HudWidget, GameNpc, GameActiveState } from "../../../contracts/types/game";
-import type { SceneSpotifyTrackCandidate } from "../../../contracts/types/scene";
+import type { SceneMusicTrackCandidate, SceneSpotifyTrackCandidate } from "../../../contracts/types/scene";
 import { LOCATION_KINDS, MUSIC_GENRES, MUSIC_INTENSITIES } from "../../../shared/scoring/music-score";
 
 export interface SceneAnalyzerContext {
@@ -23,7 +23,15 @@ export interface SceneAnalyzerContext {
   currentMusic: string | null;
   /** Recently played music tags, most recent first. */
   recentMusic?: string[];
-  /** Whether Game Mode is using Spotify instead of local music assets. */
+  /** Whether Game Mode is using Music DJ instead of local music assets. */
+  useMusicDj?: boolean;
+  /** Music DJ tracks preselected mechanically for the scene analyzer to choose from. */
+  availableMusicTracks?: SceneMusicTrackCandidate[];
+  /** Currently or most recently played Music DJ track ID. */
+  currentMusicTrack?: string | null;
+  /** Recently played Music DJ track IDs, most recent first. */
+  recentMusicTracks?: string[];
+  /** Whether Game Mode is using legacy Spotify instead of local music assets. */
   useSpotifyMusic?: boolean;
   /** Spotify tracks preselected mechanically for the scene analyzer to choose from. */
   availableSpotifyTracks?: SceneSpotifyTrackCandidate[];
@@ -120,8 +128,13 @@ export function buildSceneAnalyzerUserPrompt(
   const musicGenreOptions = [...MUSIC_GENRES, "null"].join(" | ");
   const musicIntensityOptions = [...MUSIC_INTENSITIES, "null"].join(" | ");
   const locationKindOptions = [...LOCATION_KINDS, "null"].join(" | ");
-  const useSpotifyMusic = !!ctx?.useSpotifyMusic;
+  const useMusicDj = !!ctx?.useMusicDj;
+  const useSpotifyMusic = !useMusicDj && !!ctx?.useSpotifyMusic;
+  const musicOptions = (ctx?.availableMusicTracks ?? []).slice(0, 50);
   const spotifyOptions = (ctx?.availableSpotifyTracks ?? []).slice(0, 50);
+  const recentMusicTracks = Array.from(
+    new Set([ctx?.currentMusicTrack ?? null, ...(ctx?.recentMusicTracks ?? [])]),
+  ).filter((id): id is string => typeof id === "string" && id.trim().length > 0);
   const recentSpotifyTracks = Array.from(
     new Set([ctx?.currentSpotifyTrack ?? null, ...(ctx?.recentSpotifyTracks ?? [])]),
   ).filter((uri): uri is string => typeof uri === "string" && uri.startsWith("spotify:track:"));
@@ -157,6 +170,20 @@ export function buildSceneAnalyzerUserPrompt(
     }
   }
 
+  if (musicOptions.length > 0) {
+    parts.push(
+      ``,
+      `MUSIC TRACK OPTIONS:`,
+      ...musicOptions.map((track, index) => {
+        const channel = track.channelOrArtist ? `, channel="${compactPromptLabel(track.channelOrArtist)}"` : "";
+        const tags = track.reasonTags?.length
+          ? `, tags="${track.reasonTags.slice(0, 6).map(compactPromptLabel).join(", ")}"`
+          : "";
+        return `${index + 1}. provider="${track.provider}", id="${track.id}", title="${compactPromptLabel(track.title)}"${channel}${tags}`;
+      }),
+    );
+  }
+
   if (spotifyOptions.length > 0) {
     parts.push(
       ``,
@@ -165,6 +192,14 @@ export function buildSceneAnalyzerUserPrompt(
         const album = track.album ? `, album="${compactPromptLabel(track.album)}"` : "";
         return `${index + 1}. uri="${track.uri}", title="${compactPromptLabel(track.name)}", artist="${compactPromptLabel(track.artist)}"${album}`;
       }),
+    );
+  }
+
+  if (useMusicDj && recentMusicTracks.length > 0) {
+    parts.push(
+      ``,
+      `RECENT MUSIC TRACKS (avoid repeating unless no other option fits):`,
+      ...recentMusicTracks.slice(0, 8).map((id, index) => `${index + 1}. ${id}`),
     );
   }
 
@@ -182,13 +217,17 @@ export function buildSceneAnalyzerUserPrompt(
     ``,
     `TASK: You are the scene director for a visual novel game. Read the narration above and decide:`,
     `1. SCENE SETTING — Pick the BEST overall background, weather, and time of day that fit the narration. The top-level "background" is the DEFAULT background for this turn. Change it from the current state only if the scene warrants it (new location, mood shift). Use null to keep unchanged. For timeOfDay, use null unless the narration explicitly says time changed or a meaningful amount of time passed.`,
-    ...(useSpotifyMusic
+    ...(useMusicDj
       ? [
-          `2. AUDIO DIRECTION — Choose locationKind for ambient scoring, and set spotifyTrack to ONE Spotify URI from SPOTIFY TRACK OPTIONS that best fits the just-finished turn. Use null only if there are no suitable options. Do NOT output musicGenre or musicIntensity.`,
+          `2. AUDIO DIRECTION - Choose locationKind for ambient scoring, and set musicTrack to ONE id from MUSIC TRACK OPTIONS that best fits the just-finished turn. Use null only if there are no suitable options. Do NOT output musicGenre or musicIntensity.`,
         ]
-      : [
-          `2. AUDIO DIRECTION — Choose compact musicGenre/musicIntensity/locationKind hints. Do NOT choose music or ambient file tags; De-Koi maps these hints to assets deterministically. Do NOT output spotifyTrack.`,
-        ]),
+      : useSpotifyMusic
+        ? [
+            `2. AUDIO DIRECTION - Choose locationKind for ambient scoring, and set spotifyTrack to ONE Spotify URI from SPOTIFY TRACK OPTIONS that best fits the just-finished turn. Use null only if there are no suitable options. Do NOT output musicGenre or musicIntensity.`,
+          ]
+        : [
+            `2. AUDIO DIRECTION - Choose compact musicGenre/musicIntensity/locationKind hints. Do NOT choose music or ambient file tags; De-Koi maps these hints to assets deterministically. Do NOT output spotifyTrack or musicTrack.`,
+          ]),
     `3. REPUTATION — If an NPC relationship shifted, note it. Otherwise empty array.`,
     `4. PER-BEAT EFFECTS — Scan each narration beat [0]-[${lines.length - 1}]. For each beat you can optionally add:`,
     `   - "sfx": sound effects (door slam, explosion, footsteps, impact)`,
@@ -215,16 +254,22 @@ export function buildSceneAnalyzerUserPrompt(
     `RULES:`,
     `- Use ONLY the exact tags listed in the template below. If backgrounds:generated:<short-location-slug> is listed, replace <short-location-slug> with a short concrete location slug.`,
     `- Expressions and widget updates are handled by the GM model. Do NOT include them in your output.`,
-    ...(useSpotifyMusic
+    ...(useMusicDj
       ? [
-          `- spotifyTrack must be null or one URI string copied exactly from SPOTIFY TRACK OPTIONS. Never invent a Spotify URI. Do not wrap it in an object. Do not include a reason.`,
-          `- Prefer a spotifyTrack that is not in RECENT SPOTIFY TRACKS when another suitable option exists.`,
-          `- Do not include musicGenre or musicIntensity when Spotify music is enabled.`,
+          `- musicTrack must be null or one id string copied exactly from MUSIC TRACK OPTIONS. Never invent a music id. Do not wrap it in an object. Do not include a reason.`,
+          `- Prefer a musicTrack that is not in RECENT MUSIC TRACKS when another suitable option exists.`,
+          `- Do not include musicGenre, musicIntensity, or spotifyTrack when Music DJ is enabled.`,
         ]
-      : [
-          `- musicGenre describes scene genre/vibe (fantasy, horror, romance, etc.), not weather. musicIntensity is calm for safe/rest/romance, tense for uncertainty/suspense, intense for combat/chase/climax.`,
-          `- Do not include spotifyTrack when Spotify music is disabled.`,
-        ]),
+      : useSpotifyMusic
+        ? [
+            `- spotifyTrack must be null or one URI string copied exactly from SPOTIFY TRACK OPTIONS. Never invent a Spotify URI. Do not wrap it in an object. Do not include a reason.`,
+            `- Prefer a spotifyTrack that is not in RECENT SPOTIFY TRACKS when another suitable option exists.`,
+            `- Do not include musicGenre or musicIntensity when Spotify music is enabled.`,
+          ]
+        : [
+            `- musicGenre describes scene genre/vibe (fantasy, horror, romance, etc.), not weather. musicIntensity is calm for safe/rest/romance, tense for uncertainty/suspense, intense for combat/chase/climax.`,
+            `- Do not include spotifyTrack or musicTrack when external music is disabled.`,
+          ]),
     `- locationKind describes the physical space for ambience: interior, exterior, underground, urban, or nature. Use null if unclear.`,
     `- timeOfDay is calendar time, not lighting mood. Do NOT change it for indoor shadows, lamps, dark rooms, or atmosphere; keep null unless the story clearly moved to a new time of day.`,
     `- elapsedMinutes estimates how much in-world time the player action and resulting narration consumed. Use 0-2 for instant actions like drawing a weapon or grabbing an apple, 3-10 for brief exchanges or a few combat beats, 10-60 for searches/shopping/crafting, and larger values only for explicit travel/rest/time skips; never exceed 1440.`,
@@ -292,11 +337,15 @@ export function buildSceneAnalyzerUserPrompt(
     `  "timeOfDay": "<dawn | morning | noon | afternoon | evening | night | midnight | null>",`,
     `  "elapsedMinutes": <number | null>,`,
     `  "locationKind": "<${locationKindOptions}>",`,
-    ...(useSpotifyMusic
+    ...(useMusicDj
       ? [
-          `  "spotifyTrack": ${spotifyOptions.length > 0 ? `null OR "<one Spotify URI from SPOTIFY TRACK OPTIONS>"` : "null"},`,
+          `  "musicTrack": ${musicOptions.length > 0 ? `null OR "<one id from MUSIC TRACK OPTIONS>"` : "null"},`,
         ]
-      : [`  "musicGenre": "<${musicGenreOptions}>",`, `  "musicIntensity": "<${musicIntensityOptions}>",`]),
+      : useSpotifyMusic
+        ? [
+            `  "spotifyTrack": ${spotifyOptions.length > 0 ? `null OR "<one Spotify URI from SPOTIFY TRACK OPTIONS>"` : "null"},`,
+          ]
+        : [`  "musicGenre": "<${musicGenreOptions}>",`, `  "musicIntensity": "<${musicIntensityOptions}>",`]),
     `  "reputationChanges": ${reputationHint},`,
     `  "segmentEffects": [`,
     `    {`,

@@ -35,6 +35,7 @@ import { requestImagePromptReview } from "../../../../shared/components/ui/Image
 import { recordClientDiagnostic } from "../../../../shared/lib/client-diagnostics";
 import { showConversationLocalNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
+import { dispatchMusicPlaybackEvent } from "../../../../shared/lib/music-playback-events";
 import { useAgentStore, type PendingCardUpdate } from "../../../../shared/stores/agent.store";
 import { formatAgentFailuresToast, toAgentFailure, type AgentFailure } from "../../../../shared/lib/agent-failures";
 import { useChatStore } from "../../../../shared/stores/chat.store";
@@ -1342,6 +1343,20 @@ async function applyAgentResultEffects(
   agentStore.addThoughtBubble(result.agentType, agentName, bubble ?? formatAgentActivityFallback(result));
 
   const data = parseMaybeRecord(result.data);
+  if (result.type === "music_control" || result.agentType === "music-dj") {
+    const action = readString(data.action).trim().toLowerCase();
+    const volume = typeof data.volume === "number" && Number.isFinite(data.volume) ? Math.max(0, Math.min(100, Math.trunc(data.volume))) : null;
+    if (action === "play") {
+      dispatchMusicPlaybackEvent({ type: "cue", query: readString(data.searchQuery).trim() || null, volume });
+    } else if (action === "volume" && volume !== null) {
+      dispatchMusicPlaybackEvent({ type: "volume", volume });
+    } else if (action === "pause") {
+      dispatchMusicPlaybackEvent({ type: "pause" });
+    } else if (action === "stop") {
+      dispatchMusicPlaybackEvent({ type: "stop" });
+    }
+  }
+
   if (result.agentType === "echo-chamber") {
     const reactions = Array.isArray(data.reactions) ? data.reactions : [];
     for (const reaction of reactions) {
