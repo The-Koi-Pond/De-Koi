@@ -10,7 +10,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { LorebookAssignmentSection } from "../../lorebooks/assignment";
 import { lorebookKeys, useLorebook } from "../../lorebooks/index";
 import { characterKeys } from "../hooks/use-characters";
-import { CharacterEditorSectionHeader as SectionHeader } from "./CharacterEditorSectionHeader";
+import { CharacterLorebookGenerationButton } from "./CharacterLorebookGenerationButton";
 
 export function CharacterLorebookTab({
   characterId,
@@ -63,10 +63,15 @@ export function CharacterLorebookTab({
 
   return (
     <div className="space-y-4">
-      <SectionHeader
-        title="Character Lorebook"
-        subtitle="World-building entries embedded in this character. Triggered by keywords in conversation."
-      />
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold">Character Lorebook</h2>
+          <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
+            World-building entries embedded in this character. Triggered by keywords in conversation.
+          </p>
+        </div>
+        <CharacterLorebookGenerationButton characterId={characterId} data={formData} />
+      </div>
 
       <LorebookAssignmentSection
         ownerType="character"
