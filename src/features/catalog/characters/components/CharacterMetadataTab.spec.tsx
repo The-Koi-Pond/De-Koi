@@ -7,7 +7,7 @@ import { CharacterMetadataTab } from "./CharacterMetadataTab";
 
 const apiMocks = vi.hoisted(() => ({
   listConnections: vi.fn(async () => [{ id: "conn-1", provider: "openai", isDefault: true }]),
-  streamCompletion: vi.fn(async function* () {
+  streamCompletion: vi.fn(async function* (_request?: unknown) {
     yield { type: "token", text: "I turn fear into a headline. Smile for the camera." };
   }),
   generateImage: vi.fn(async () => ({ image: "data:image/png;base64,banner" })),
@@ -159,6 +159,70 @@ describe("CharacterMetadataTab public profile generation", () => {
     );
     expect(updateExtension).toHaveBeenCalledWith("publicProfile", {
       bannerImage: "data:image/png;base64,banner",
+    });
+  });
+  it("starts another public profile wand request while a previous wand is still pending", async () => {
+    const releases: Array<() => void> = [];
+    const requestedFields: string[] = [];
+    apiMocks.streamCompletion.mockImplementation(async function* (request: unknown) {
+      const messages = (request as { messages?: Array<{ content?: string }> }).messages ?? [];
+      const userMessage = messages[1]?.content ?? "";
+      const match = /Requested field: ([^\n]+)/.exec(userMessage);
+      requestedFields.push(match?.[1] ?? "unknown");
+      await new Promise<void>((resolve) => releases.push(resolve));
+      yield { type: "token", text: match?.[1] === "handle" ? "@mira_keys" : "Mira Vale" };
+    });
+
+    const updateExtension = vi.fn();
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <CharacterMetadataTab
+          characterId={null}
+          formData={formData}
+          characterComment="Night-shift archive keeper"
+          updateField={vi.fn()}
+          updateExtension={updateExtension}
+          newTag=""
+          setNewTag={vi.fn()}
+          addTag={vi.fn()}
+          removeTag={vi.fn()}
+          removeAllTags={vi.fn()}
+          avatarPreview={null}
+          imageConnections={[]}
+        />,
+      );
+    });
+
+    const displayNameButton = container!.querySelector<HTMLButtonElement>("[aria-label='Generate display name']");
+    const handleButton = container!.querySelector<HTMLButtonElement>("[aria-label='Generate handle']");
+
+    expect(displayNameButton).not.toBeNull();
+    expect(handleButton).not.toBeNull();
+
+    await act(async () => {
+      displayNameButton!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      handleButton!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(requestedFields).toEqual(["display name", "handle"]);
+
+    await act(async () => {
+      releases.forEach((release) => release());
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(updateExtension).toHaveBeenLastCalledWith("publicProfile", {
+      displayName: "Mira Vale",
+      handle: "@mira_keys",
     });
   });
 });
