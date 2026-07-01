@@ -1,0 +1,201 @@
+{
+    "schemaVersion":  1,
+    "task":  {
+                 "type":  "bugfix",
+                 "title":  "Deki character card scenario edits normalize to the character data patch contract",
+                 "source":  "GitHub issue #751: Deki character card edit rejects scenario field draft.",
+                 "classification":  "Deki action contract compatibility",
+                 "status":  "waiting_on_ci"
+             },
+    "coreClaim":  "Deki character edit actions that propose direct supported card fields, including scenario, are accepted and canonicalized to patch.data before storage application.",
+    "rootCause":  "Deki\u0027s prompt guidance and action validator both required the character storage wrapper shape for edits, but Deki could draft a direct card-field patch such as patch.scenario. The Rust response normalizer rejected that supported card-field intent as an unsupported character draft field before the user could apply it.",
+    "scope":  {
+                  "inScope":  [
+                                  "Deki Rust response action parsing and normalization",
+                                  "TypeScript Deki action normalization mirror",
+                                  "Prompt guidance for character edit_record card fields",
+                                  "Focused regression coverage for direct scenario edit patches"
+                              ],
+                  "outOfScope":  [
+                                     "Character storage deep-merge implementation",
+                                     "New Tauri commands or HTTP dispatch routes",
+                                     "Character editor UI layout",
+                                     "Live provider generation quality"
+                                 ],
+                  "intendedFiles":  [
+                                        "src-tauri/src/commands/storage/deki.rs",
+                                        "src/engine/deki/deki-entry.ts",
+                                        "src/shared/api/deki-api.spec.ts",
+                                        ".github/pr-evidence/deki-character-scenario-edits/proof-ledger.json"
+                                    ],
+                  "riskFlags":  [
+                                    "prompt-agent-lorebook",
+                                    "storage-compatible action contract"
+                                ]
+              },
+    "claimBoundary":  {
+                          "coreClaim":  "Deki character edit actions that propose direct supported card fields are normalized to the existing patch.data storage shape before validation/application.",
+                          "riskType":  "prompt and storage-compatible action contract",
+                          "entrypoints":  [
+                                              "deki_response_content_and_action parsing hidden \u003cdeki_action\u003e blocks",
+                                              "normalizeDekiEntryAction loading or receiving Deki action state",
+                                              "dekiApi.actions.apply character edit path"
+                                          ],
+                          "currentPathsOrFormats":  [
+                                                        "Character edit_record action JSON with patch.scenario from issue #751",
+                                                        "Canonical character storage update action shape: patch.data.scenario",
+                                                        "Existing character storage update deep-merge path owned by src-tauri/src/commands/storage/characters.rs"
+                                                    ],
+                          "legacyPathsOrFormats":  [
+                                                       "Existing canonical patch.data character edit actions remain accepted unchanged",
+                                                       "Character create_record actions still require draft.data and are not normalized from top-level card fields",
+                                                       "Invented fields remain rejected by the character card data validator"
+                                                   ],
+                          "outOfScopeClaims":  [
+                                                   "This PR does not prove live LLMs will always emit the canonical shape; prompt guidance reduces that risk and the normalizer catches the reported direct field shape.",
+                                                   "This PR does not change storage merge semantics; it relies on the existing character data deep-merge behavior."
+                                               ]
+                      },
+    "contractLaneGate":  {
+                             "brokenContract":  "The Deki action producer could emit a direct supported card field for character edits, while the Rust and TypeScript consumers only accepted the nested storage wrapper shape.",
+                             "producer":  "src-tauri/src/commands/storage/deki.rs build_system_prompt and LLM-produced hidden action JSON",
+                             "consumer":  "src-tauri/src/commands/storage/deki.rs normalize_deki_response_action and src/engine/deki/deki-entry.ts normalizeDekiEntryAction",
+                             "impliedContract":  "Supported character card edit fields should be reviewable/applyable when represented either as the canonical patch.data shape or as a direct card-field edit intent that can be losslessly canonicalized.",
+                             "actualEnforcement":  "The Rust response normalizer and TypeScript action normalizer wrap direct supported character edit fields into data before validation; Deki prompt guidance now asks for patch.data.\u003cfield\u003e for character edits.",
+                             "primaryOwnerLane":  "cross-boundary",
+                             "primaryOwnerDetail":  "src-tauri owns native Deki response action parsing; src/engine mirrors the action contract for frontend state normalization.",
+                             "consumerOnlyLanes":  [
+                                                       "src-tauri",
+                                                       "src/engine",
+                                                       "src/shared/api"
+                                                   ],
+                             "wrongLaneFixToAvoid":  "Do not hide this in the React UI or storage update caller; the action contract must be normalized before invalid action state reaches apply.",
+                             "regressionProof":  [
+                                                     "src-tauri/src/commands/storage/deki.rs Rust test normalizes patch.scenario into patch.data.scenario",
+                                                     "src/shared/api/deki-api.spec.ts TypeScript test normalizes patch.scenario into patch.data.scenario",
+                                                     "pnpm check validates the full local PR gate after rebase"
+                                                 ]
+                         },
+    "proofRows":  {
+                      "positiveRows":  [
+                                           {
+                                               "claim":  "Rust Deki response parsing accepts the issue #751 direct scenario edit shape and canonicalizes it to patch.data.scenario.",
+                                               "evidence":  "cargo test --manifest-path src-tauri/Cargo.toml deki_response_normalizes_character_edit_card_fields_into_data_patch passed after rebase."
+                                           },
+                                           {
+                                               "claim":  "TypeScript Deki action normalization preserves the same direct scenario edit as an applyable edit_record action.",
+                                               "evidence":  "D:\\dev\\Marinara-Engine\\node_modules\\.bin\\vitest.cmd run src/shared/api/deki-api.spec.ts passed with 22 tests after rebase."
+                                           },
+                                           {
+                                               "claim":  "The branch preserves architecture, storage contracts, frontend compile, Rust compile, docs checks, and workflow checks.",
+                                               "evidence":  "pnpm check exited 0 after rebasing onto origin/main."
+                                           }
+                                       ],
+                      "contradictionRows":  [
+                                                {
+                                                    "claim":  "Character create actions should not silently accept top-level card fields because new character cards require the full draft.data shape.",
+                                                    "evidence":  "normalizeDekiCharacterPayload returns the original payload when requireCompleteCard is true; existing incomplete character create validation remains in the Rust tests."
+                                                },
+                                                {
+                                                    "claim":  "Invented character fields should not be accepted as card edits.",
+                                                    "evidence":  "Only payloads containing supported character data keys are wrapped; wrapped payloads still run through validate_deki_character_data and its allowed-field list."
+                                                },
+                                                {
+                                                    "claim":  "The fix should not add a UI-only guard or fake success path.",
+                                                    "evidence":  "The diff changes action normalization and prompt guidance only; no React apply handling or storage fake-success branch changed."
+                                                }
+                                            ],
+                      "legacyDefaultRows":  [
+                                                {
+                                                    "claim":  "Existing patch.data character edit actions remain accepted.",
+                                                    "evidence":  "normalize_deki_character_action_payload and normalizeDekiCharacterPayload return payload unchanged when data is already present."
+                                                },
+                                                {
+                                                    "claim":  "Existing character storage deep-merge behavior remains the owner of partial data updates.",
+                                                    "evidence":  "No changes were made to src-tauri/src/commands/storage/characters.rs; existing update_character_deep_merges_nested_data_objects test remains in that module."
+                                                }
+                                            ],
+                      "untestedRows":  [
+                                           "No live Deki LLM provider call was run; the reported failure shape is covered at the parser/normalizer boundary."
+                                       ]
+                  },
+    "ownedFacts":  [
+                       {
+                           "description":  "Character storage updates use a deep merge for nested data objects before patching the record.",
+                           "sourceType":  "derived",
+                           "evidence":  "src-tauri/src/commands/storage/characters.rs update_character_inner calls merge_partial_character_data and has update_character_deep_merges_nested_data_objects coverage."
+                       },
+                       {
+                           "description":  "Deki character actions are normalized in both Rust command output and the TypeScript action mirror.",
+                           "sourceType":  "derived",
+                           "evidence":  "src-tauri/src/commands/storage/deki.rs normalize_deki_response_action and src/engine/deki/deki-entry.ts normalizeDekiEntryAction are both changed and tested."
+                       }
+                   ],
+    "manualBlockers":  [
+                           {
+                               "item":  "Live desktop Deki scenario-edit flow",
+                               "blockingCoreClaim":  false,
+                               "reason":  "The core failure was the action parser/normalizer contract. Focused Rust and TS tests cover the rejected JSON shape, and full pnpm check passed."
+                           }
+                       ],
+    "verification":  {
+                         "originalReproPassed":  true,
+                         "focusedReproPassed":  true,
+                         "baselinePassed":  true,
+                         "baselineCommand":  "pnpm check",
+                         "baselineEvidence":  "pnpm check exited 0 after rebase onto origin/main; warning-only unused/dead-code reports remain non-blocking.",
+                         "githubValidationPassed":  false,
+                         "reviewIterationFastPath":  false
+                     },
+    "checks":  {
+                   "baselineCommand":  "pnpm check",
+                   "baselineStatus":  "passed",
+                   "ciStatus":  "pending",
+                   "bunnyReviewStatus":  "pending",
+                   "prHealthStatus":  "pending"
+               },
+    "pr":  {
+               "number":  758,
+               "url":  "https://github.com/The-Koi-Pond/De-Koi/pull/758",
+               "headRefName":  "fix/issue-751-scenario-draft",
+               "baseRefName":  "main",
+               "healthStatus":  "pending",
+               "bunnyReviewStatus":  "pending",
+               "checksStatus":  "pending",
+               "merged":  false,
+               "mergeCommit":  ""
+           },
+    "finalGate":  {
+                      "coreClaimProven":  true,
+                      "visualProofPresent":  false,
+                      "visualProofRequired":  false,
+                      "diffFocused":  true,
+                      "noUnapprovedExternalText":  true,
+                      "readyToReportDone":  false
+                  },
+    "finalDoneGate":  {
+                          "bugfixComplete":  true,
+                          "prClean":  false,
+                          "bunnyReviewClean":  false,
+                          "requiredChecksPassed":  false,
+                          "readyOrMerged":  false,
+                          "noBlockingManualVerification":  true,
+                          "reportOnlyWhenComplete":  true
+                      },
+    "notes":  [
+                  "PR remains draft until proof health, CI, and Bunny gates are clean."
+              ],
+    "userActionCopy":  [
+                           {
+                               "source":  "Existing De-Koi character record in the app data characters collection",
+                               "destination":  "Same character record through the existing storage_update character patch path; no manual filesystem copy is needed",
+                               "files":  [
+                                             "app data characters collection"
+                                         ],
+                               "action":  "No user copy or backup action is required for this code change; character data deep-merge storage behavior is unchanged",
+                               "detectedLayouts":  [
+                                                       "current character card storage shape: patch.data.\u003cfield\u003e"
+                                                   ]
+                           }
+                       ]
+}
