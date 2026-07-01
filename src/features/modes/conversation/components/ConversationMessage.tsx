@@ -210,13 +210,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   }, [characterMap, chatCharacterIds]);
 
   const charInfo = message.characterId && scopedCharacterMap ? scopedCharacterMap.get(message.characterId) : null;
-  const primaryCharInfo =
-    charInfo ??
-    (scopedCharacterMap
-      ? (Array.from(scopedCharacterMap.values()).find(
-          (candidate): candidate is NonNullable<typeof candidate> => !!candidate,
-        ) ?? null)
-      : null);
+  const primaryCharInfo = charInfo ?? null;
 
   const msgPersona = isUser && !isPlainUserMessage && extra.personaSnapshot ? extra.personaSnapshot : null;
   const avatarUrl = isUser

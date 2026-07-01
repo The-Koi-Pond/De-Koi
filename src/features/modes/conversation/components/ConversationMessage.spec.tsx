@@ -464,6 +464,37 @@ describe("ConversationMessage memo subscriptions", () => {
     });
   });
 
+  it("labels assistant messages without a character as Assistant", () => {
+    const neutralMessage: Message = {
+      ...message,
+      id: "message-neutral-assistant",
+      characterId: null,
+      content: "The scene concluded and returns to the conversation.",
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={neutralMessage}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container!.textContent).toContain("Assistant");
+    expect(container!.textContent).not.toContain("Aster");
+  });
+
   it("keeps character CSS hooks on grouped speaker messages", () => {
     const groupedMessage: Message = {
       ...message,
