@@ -64,7 +64,7 @@ const FIELD_INSTRUCTIONS: Record<CharacterFieldGenerationField, string> = {
   post_history_instructions:
     "Write a short reminder inserted after chat history and before generation. Focus on in-character behavior, response style, or continuity. Return only the instruction text.",
   creator_notes:
-    "Write private creator notes for using this card: intent, strengths, recommended use, and quirks. Do not write as the character. Return only the creator notes.",
+    "Write private creator notes in a few simple sentences. Keep them practical: intended use, strengths, and notable quirks. Do not write as the character. Return only the creator notes.",
   tags: "Write 4-8 short organization tags. Return either a JSON array of strings or comma-separated tag names.",
   depth_prompt:
     'Write a depth prompt plus settings. Return JSON only: { "prompt": "persistent reminder text", "depth": 4, "role": "system" }. Depth should be 0-100. Role must be "system", "user", or "assistant".',
@@ -261,7 +261,8 @@ export async function generateCharacterField(
     messages: buildCharacterFieldGenerationMessages(input.field, input),
     parameters: {
       temperature: 0.9,
-      maxTokens: input.field === "tags" ? 512 : input.field === "depth_prompt" ? 1024 : 3072,
+      maxTokens:
+        input.field === "tags" || input.field === "creator_notes" ? 512 : input.field === "depth_prompt" ? 1024 : 3072,
     },
   };
 
