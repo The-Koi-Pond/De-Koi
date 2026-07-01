@@ -76,6 +76,8 @@ type RoleplayProfileCharacter = {
   data: Record<string, unknown>;
   comment?: string | null;
   avatarPath?: string | null;
+  avatarFilePath?: string | null;
+  avatarFilename?: string | null;
 };
 
 const RoleplayHUD = lazy(async () => {
@@ -1651,6 +1653,9 @@ export function ChatRoleplaySurface({
             comment: profilePopoverCharacter.comment,
           })}
           avatarUrl={profilePopoverCharacter.avatarPath}
+          avatarFilePath={profilePopoverCharacter.avatarFilePath}
+          avatarFilename={profilePopoverCharacter.avatarFilename}
+          avatarCrop={(profilePopoverCharacter.data.extensions as { avatarCrop?: unknown } | undefined)?.avatarCrop}
           anchorRect={profilePopover?.anchorRect ?? null}
           onClose={() => setProfilePopover(null)}
           onOpenFullProfile={openFullProfileFromPopover}

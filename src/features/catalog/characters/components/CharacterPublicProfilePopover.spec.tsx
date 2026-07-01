@@ -4,6 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CharacterPublicProfilePopover } from "./CharacterPublicProfilePopover";
 
+const avatarImageMock = vi.fn();
+
+vi.mock("../../../../shared/components/ui/AvatarImage", () => ({
+  AvatarImage: (props: unknown) => {
+    avatarImageMock(props);
+    return <img data-avatar-image alt="" />;
+  },
+}));
+
 const profile = {
   displayName: "The Clown",
   handle: "@clown",
@@ -19,6 +28,7 @@ describe("CharacterPublicProfilePopover", () => {
   let container: HTMLDivElement | null = null;
 
   beforeEach(() => {
+    avatarImageMock.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
   });
@@ -63,5 +73,34 @@ describe("CharacterPublicProfilePopover", () => {
     });
 
     expect(onOpenFullProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards crop metadata to the shared avatar renderer", () => {
+    const crop = { srcX: 0.25, srcY: 0.1, srcWidth: 0.5, srcHeight: 0.7 };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <CharacterPublicProfilePopover
+          profile={profile}
+          avatarUrl="avatar://clown"
+          avatarFilePath="C:/avatars/clown.png"
+          avatarFilename="clown.png"
+          avatarCrop={crop}
+          anchorRect={{ top: 40, right: 144, bottom: 64, left: 80, width: 64, height: 24, x: 80, y: 40 }}
+          onClose={vi.fn()}
+        />,
+      );
+    });
+
+    expect(avatarImageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        src: "avatar://clown",
+        avatarFilePath: "C:/avatars/clown.png",
+        avatarFilename: "clown.png",
+        crop,
+        thumbnailSize: 64,
+      }),
+    );
   });
 });

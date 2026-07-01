@@ -12,6 +12,9 @@ export type CharacterPublicProfilePopoverAnchor = Pick<
 type CharacterPublicProfilePopoverProps = {
   profile: ResolvedCharacterPublicProfile;
   avatarUrl?: string | null;
+  avatarFilePath?: string | null;
+  avatarFilename?: string | null;
+  avatarCrop?: unknown;
   anchorRect?: CharacterPublicProfilePopoverAnchor | null;
   onClose: () => void;
   onOpenFullProfile?: () => void;
@@ -45,6 +48,9 @@ function getPopoverPosition(anchorRect?: CharacterPublicProfilePopoverAnchor | n
 export function CharacterPublicProfilePopover({
   profile,
   avatarUrl,
+  avatarFilePath,
+  avatarFilename,
+  avatarCrop,
   anchorRect,
   onClose,
   onOpenFullProfile,
@@ -64,6 +70,9 @@ export function CharacterPublicProfilePopover({
         <CharacterPublicProfileCard
           profile={profile}
           avatarUrl={avatarUrl}
+          avatarFilePath={avatarFilePath}
+          avatarFilename={avatarFilename}
+          avatarCrop={avatarCrop}
           compact
           onOpenFullProfile={onOpenFullProfile}
         />
