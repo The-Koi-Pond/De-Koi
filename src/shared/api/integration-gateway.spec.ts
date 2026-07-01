@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const coreModulesGet = vi.fn();
-const invokeTauri = vi.fn();
+import { DISCORD_MIRROR_MODULE_ID } from "../../engine/contracts/constants/core-modules";
+import { integrationGateway } from "./integration-gateway";
+
+const { coreModulesGet, invokeTauri } = vi.hoisted(() => ({
+  coreModulesGet: vi.fn(),
+  invokeTauri: vi.fn(),
+}));
 
 vi.mock("./core-modules-api", () => ({
   coreModulesApi: {
@@ -22,8 +27,6 @@ describe("integrationGateway Discord mirror", () => {
   });
 
   it("does not send Discord webhooks while the Discord Mirror module is disabled", async () => {
-    const { integrationGateway } = await import("./integration-gateway");
-
     coreModulesGet.mockResolvedValue({ enabled: {} });
 
     await integrationGateway.discord?.mirrorMessage({
@@ -35,9 +38,6 @@ describe("integrationGateway Discord mirror", () => {
     expect(invokeTauri).not.toHaveBeenCalled();
   });
   it("sends Discord webhooks while the Discord Mirror module is enabled", async () => {
-    const { DISCORD_MIRROR_MODULE_ID } = await import("../../engine/contracts/constants/core-modules");
-    const { integrationGateway } = await import("./integration-gateway");
-
     coreModulesGet.mockResolvedValue({ enabled: { [DISCORD_MIRROR_MODULE_ID]: true } });
 
     await integrationGateway.discord?.mirrorMessage({

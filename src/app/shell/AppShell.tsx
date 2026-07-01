@@ -26,7 +26,7 @@ import { chatKeys } from "../../features/catalog/chats/index";
 import { dekiApi } from "../../shared/api/deki-api";
 import type { DekiSession, DekiSessionsState } from "../../engine/deki/deki-history";
 import { useIsCoreModuleEnabled } from "../../features/shell/plugins/shell";
-import { SPOTIFY_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants/core-modules";
+import { MUSIC_DJ_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants/core-modules";
 import { useIdleDetection } from "../../shared/hooks/use-idle-detection";
 import { ImagePromptReviewHost } from "../../shared/components/ui/ImagePromptReviewHost";
 import { cn } from "../../shared/lib/utils";
@@ -83,8 +83,8 @@ const AgentDebugPanel = lazy(() =>
     default: module.AgentDebugPanel,
   })),
 );
-const MusicDjMobileWidget = lazy(() =>
-  import("../../features/shell/music-dj/shell").then((module) => ({ default: module.MusicDjMobileWidget })),
+const MusicMobileWidget = lazy(() =>
+  import("../../features/shell/music/shell").then((module) => ({ default: module.MusicMobileWidget })),
 );
 
 function clampWidth(width: number, min: number, max: number) {
@@ -268,7 +268,7 @@ export function AppShell() {
   const [notificationBubblesMounted, setNotificationBubblesMounted] = useState(false);
   const debugMode = useUIStore((s) => s.debugMode);
   const hasAgentDebugActivity = useAgentStore((s) => debugMode && (s.debugLog.length > 0 || s.lastResults.size > 0));
-  const { data: spotifyMiniPlayerEnabled } = useIsCoreModuleEnabled(SPOTIFY_MINI_PLAYER_MODULE_ID);
+  const { data: musicDjMiniPlayerEnabled } = useIsCoreModuleEnabled(MUSIC_DJ_MINI_PLAYER_MODULE_ID);
   const sidebarDragWidthRef = useRef<number | null>(null);
   const rightPanelDragWidthRef = useRef<number | null>(null);
   const headerRef = useRef<HTMLElement>(null);
@@ -1521,9 +1521,9 @@ export function AppShell() {
               <AgentDebugPanel />
             </Suspense>
           )}
-          {spotifyMiniPlayerEnabled && (
+          {musicDjMiniPlayerEnabled && (
             <Suspense fallback={null}>
-              <MusicDjMobileWidget />
+              <MusicMobileWidget />
             </Suspense>
           )}
         </div>

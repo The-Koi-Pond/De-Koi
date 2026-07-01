@@ -1,7 +1,8 @@
 import {
   DISCORD_MIRROR_MODULE_ID,
+  LEGACY_SPOTIFY_MINI_PLAYER_MODULE_ID,
   ME_NOTES_MODULE_ID,
-  SPOTIFY_MINI_PLAYER_MODULE_ID,
+  MUSIC_DJ_MINI_PLAYER_MODULE_ID,
 } from "../../../../engine/contracts/constants/core-modules";
 import type {
   CoreModuleManifest,
@@ -26,13 +27,14 @@ const CORE_MODULES: readonly CoreModuleManifest[] = [
     runtime: "Floating chat notepad",
   },
   {
-    id: SPOTIFY_MINI_PLAYER_MODULE_ID,
-    name: "Spotify Mini Player",
-    slug: "spotify-mini-player",
-    description: "Adds the optional Spotify playback controls to the desktop title bar and mobile floating widget.",
+    id: MUSIC_DJ_MINI_PLAYER_MODULE_ID,
+    name: "Music DJ Mini Player",
+    slug: "music-dj-mini-player",
+    description:
+      "Adds optional YouTube-first Music DJ playback controls to the desktop title bar and mobile floating widget.",
     version: "1.0.0",
     source: "core",
-    main: "core-modules/spotify-mini-player",
+    main: "core-modules/music-dj-mini-player",
     permissions: ["ui:settings", "ui:overlay"],
     defaultEnabled: false,
     runtime: "Desktop title-bar player and mobile floating widget",
@@ -55,15 +57,27 @@ const CORE_MODULES: readonly CoreModuleManifest[] = [
 const CORE_MODULE_STYLES: Record<string, string> = {};
 const CORE_MODULE_SURFACES: Record<string, number> = {
   [ME_NOTES_MODULE_ID]: 1,
-  [SPOTIFY_MINI_PLAYER_MODULE_ID]: 2,
+  [MUSIC_DJ_MINI_PLAYER_MODULE_ID]: 2,
 };
 
+function moduleEnabledSetting(module: CoreModuleManifest, settings: CoreModuleSettings): boolean | undefined {
+  if (module.id === MUSIC_DJ_MINI_PLAYER_MODULE_ID) {
+    return settings.enabled[MUSIC_DJ_MINI_PLAYER_MODULE_ID] ?? settings.enabled[LEGACY_SPOTIFY_MINI_PLAYER_MODULE_ID];
+  }
+  return settings.enabled[module.id];
+}
+
 function isModuleEnabled(module: CoreModuleManifest, settings: CoreModuleSettings): boolean {
-  return settings.enabled[module.id] ?? module.defaultEnabled;
+  return moduleEnabledSetting(module, settings) ?? module.defaultEnabled;
+}
+
+function canonicalModuleId(moduleId: string): string {
+  return moduleId === LEGACY_SPOTIFY_MINI_PLAYER_MODULE_ID ? MUSIC_DJ_MINI_PLAYER_MODULE_ID : moduleId;
 }
 
 export function isCoreModuleEnabled(moduleId: string, settings: CoreModuleSettings): boolean {
-  const module = CORE_MODULES.find((item) => item.id === moduleId);
+  const canonicalId = canonicalModuleId(moduleId);
+  const module = CORE_MODULES.find((item) => item.id === canonicalId);
   return module ? isModuleEnabled(module, settings) : false;
 }
 

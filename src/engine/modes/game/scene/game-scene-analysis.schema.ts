@@ -66,6 +66,21 @@ const illustrationSchema = z
   })
   .passthrough();
 
+const musicTrackSchema = z.union([
+  z.string().trim().min(1),
+  z
+    .object({
+      provider: z.string().trim().min(1).optional(),
+      id: z.string().trim().min(1),
+      title: z.string().optional().nullable(),
+      channelOrArtist: z.string().optional().nullable(),
+      url: z.string().optional().nullable(),
+      thumbnail: z.string().optional().nullable(),
+      durationSeconds: z.number().finite().optional().nullable(),
+    })
+    .passthrough(),
+]);
+
 const spotifyTrackSchema = z.union([
   z.string().trim().min(1),
   z
@@ -87,6 +102,7 @@ export const gameSceneAnalysisStructuredSchema = z
     locationKind: z.enum(LOCATION_KINDS).nullable(),
     musicGenre: z.enum(MUSIC_GENRES).nullable().optional(),
     musicIntensity: z.enum(MUSIC_INTENSITIES).nullable().optional(),
+    musicTrack: musicTrackSchema.nullable().optional(),
     spotifyTrack: spotifyTrackSchema.nullable().optional(),
     reputationChanges: z.array(reputationChangeSchema),
     segmentEffects: z.array(segmentEffectSchema),
@@ -105,6 +121,7 @@ export const GAME_SCENE_ANALYSIS_SCHEMA_DESCRIPTION = JSON.stringify({
   musicGenre:
     "fantasy | horror | romance | mystery | scifi | modern | slice_of_life | adventure | drama | custom | null",
   musicIntensity: "calm | tense | intense | null",
+  musicTrack: "one offered Music DJ id string/object or null",
   spotifyTrack: "one offered Spotify URI string/object or null",
   reputationChanges: [{ npcName: "non-empty string", action: "non-empty string" }],
   segmentEffects: [

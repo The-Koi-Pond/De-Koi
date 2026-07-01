@@ -1,4 +1,4 @@
-import { SPOTIFY_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants/core-modules";
+import { MUSIC_DJ_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants/core-modules";
 import { appSettingsResponseSchema, appSettingsUpdateSchema } from "../../engine/contracts/schemas/app-settings.schema";
 import { coreModuleSettingsSchema } from "../../engine/contracts/schemas/core-module.schema";
 import type { CoreModuleSettings } from "../../engine/contracts/types/core-module";
@@ -26,7 +26,7 @@ export function settingsFromLegacyUiStorageValue(value: string | null): CoreModu
     const parsed: unknown = JSON.parse(value);
     const state = isRecord(parsed) ? parsed.state : null;
     return normalizeSettings({
-      enabled: isRecord(state) && state.spotifyPlayerEnabled === true ? { [SPOTIFY_MINI_PLAYER_MODULE_ID]: true } : {},
+      enabled: isRecord(state) && state.spotifyPlayerEnabled === true ? { [MUSIC_DJ_MINI_PLAYER_MODULE_ID]: true } : {},
     });
   } catch {
     return normalizeSettings(null);

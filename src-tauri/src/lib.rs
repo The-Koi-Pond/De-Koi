@@ -13,7 +13,10 @@ pub(crate) mod storage_commands;
 #[cfg(feature = "desktop")]
 use tauri::Manager;
 
-#[cfg(all(feature = "desktop", not(any(target_os = "android", target_os = "ios"))))]
+#[cfg(all(
+    feature = "desktop",
+    not(any(target_os = "android", target_os = "ios"))
+))]
 fn center_main_window_on_primary_monitor(app: &tauri::App) {
     use tauri::{PhysicalPosition, Position};
 
@@ -41,7 +44,11 @@ fn center_main_window_on_primary_monitor(app: &tauri::App) {
     }
 }
 
-#[cfg(all(feature = "desktop", debug_assertions, not(any(target_os = "android", target_os = "ios"))))]
+#[cfg(all(
+    feature = "desktop",
+    debug_assertions,
+    not(any(target_os = "android", target_os = "ios"))
+))]
 fn open_main_window_devtools_if_requested(app: &tauri::App) {
     let auto_devtools = std::env::var("DE_KOI_TAURI_AUTO_DEVTOOLS")
         .or_else(|_| std::env::var("MARINARA_TAURI_AUTO_DEVTOOLS"));
@@ -149,8 +156,6 @@ pub fn run() {
             storage_commands::asset_commands::background_file_path,
             storage_commands::asset_commands::lorebook_image_file_path,
             storage_commands::asset_commands::managed_asset_thumbnail_file_path,
-            storage_commands::asset_commands::gif_config,
-            storage_commands::asset_commands::gif_update_config,
             storage_commands::asset_commands::gif_search,
             storage_commands::integration_commands::tts_config,
             storage_commands::integration_commands::tts_update_config,
@@ -158,9 +163,13 @@ pub fn run() {
             storage_commands::integration_commands::tts_speak,
             storage_commands::integration_commands::translate_text_command,
             storage_commands::integration_commands::discord_webhook_send,
-            storage_commands::integration_commands::music_dj_status,
-            storage_commands::integration_commands::music_dj_resolve,
-            storage_commands::integration_commands::music_dj_feedback,
+            storage_commands::integration_commands::music_status,
+            storage_commands::integration_commands::music_search_candidates,
+            storage_commands::integration_commands::music_play,
+            storage_commands::integration_commands::music_pause,
+            storage_commands::integration_commands::music_stop,
+            storage_commands::integration_commands::music_set_volume,
+            storage_commands::integration_commands::music_fresh_pick,
             storage_commands::integration_commands::spotify_status,
             storage_commands::integration_commands::spotify_authorize,
             storage_commands::integration_commands::spotify_exchange,
@@ -207,6 +216,7 @@ pub fn run() {
             storage_commands::entity_commands::storage_list,
             storage_commands::entity_commands::lorebook_entries_list_by_lorebook_ids,
             storage_commands::entity_commands::storage_get,
+            storage_commands::entity_commands::prompt_preset_bundle,
             storage_commands::entity_commands::storage_create,
             storage_commands::entity_commands::storage_update,
             storage_commands::entity_commands::storage_delete,
@@ -246,6 +256,7 @@ pub fn run() {
             storage_commands::agent_commands::agent_memory_patch,
             storage_commands::agent_commands::agent_memory_clear,
             storage_commands::agent_commands::agent_runs_clear_for_chat,
+            storage_commands::agent_commands::agent_runs_list_for_chat,
             storage_commands::agent_commands::agent_echo_messages_clear,
             storage_commands::media_commands::sprite_capabilities_command,
             storage_commands::media_commands::sprite_cleanup_status_command,
@@ -303,10 +314,6 @@ pub fn run() {
             storage_commands::media_commands::local_sidecar_test_message,
             storage_commands::deki_commands::deki_prompt,
             storage_commands::deki_commands::professor_mari_prompt,
-            storage_commands::deki_commands::deki_workspace_status,
-            storage_commands::deki_commands::deki_workspace_abort,
-            storage_commands::deki_commands::deki_workspace_approve,
-            storage_commands::deki_commands::deki_workspace_reject,
             storage_commands::update_commands::update_check,
             storage_commands::update_commands::update_apply,
         ])

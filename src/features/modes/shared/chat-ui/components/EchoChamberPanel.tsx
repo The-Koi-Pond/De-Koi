@@ -13,7 +13,6 @@ import type { EchoChamberSide } from "../../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { useChat } from "../../../../catalog/chats/index";
 import { agentApi } from "../../../../../shared/api/agent-api";
-import { storageApi } from "../../../../../shared/api/storage-api";
 import { cn } from "../../../../../shared/lib/utils";
 import { useIsMobile } from "../../../../../shared/hooks/use-is-mobile";
 import { normalizeEchoMessages, readEchoRecord, readEchoText } from "../lib/echo-chamber-messages";
@@ -121,35 +120,31 @@ export function EchoChamberPanel({ hiddenOnMobile = false }: EchoChamberPanelPro
       clearEchoMessages();
     }
 
-    Promise.all([
-      storageApi.list<Record<string, unknown>>("agent-runs", { filters: { chatId: activeChatId } }),
-      storageApi.list<Record<string, unknown>>("agent-runs", { filters: { chat_id: activeChatId } }),
-    ])
-      .then(([currentRuns, legacyRuns]) => {
+    agentApi
+      .listRunsForChat<Record<string, unknown>>(activeChatId)
+      .then((runs) => {
         if (useAgentStore.getState().echoLoadedChatId !== activeChatId) return; // stale
-        const runsById = new Map<string, Record<string, unknown>>();
         let missingIdCount = 0;
-        for (const run of [...currentRuns, ...legacyRuns]) {
-          const id = readEchoText(run.id);
-          runsById.set(id || `__missing_echo_run_id__:${missingIdCount++}`, run);
+        for (const run of runs) {
+          if (!readEchoText(run.id)) missingIdCount += 1;
         }
         if (missingIdCount > 0) {
           console.warn("[echo-chamber] Loaded echo run row(s) without ids.", { count: missingIdCount });
         }
-        const rows = [...runsById.values()].filter((run) => {
+        const rows = runs.filter((run) => {
           const resultType = readEchoText(run.resultType) || readEchoText(run.result_type);
           return resultType === "echo_message";
         });
         const msgs = normalizeEchoMessages(rows);
         if (msgs.length > 0) {
           // If real-time messages already arrived (via addEchoMessage from SSE),
-          // don't overwrite visibleCount — the stagger timer owns it.
+          // don't overwrite visibleCount - the stagger timer owns it.
           const alreadyHasMessages = useAgentStore.getState().echoMessages.length > 0;
           setEchoMessages(msgs);
           if (!alreadyHasMessages) {
-            // Fresh load (page refresh) — show all persisted immediately.
+            // Fresh load (page refresh) - show all persisted immediately.
             // Read the actual store length (may be capped) rather than the API
-            // response length — a mismatch causes the stagger guard to skip,
+            // response length - a mismatch causes the stagger guard to skip,
             // making new messages dump all at once instead of one-by-one.
             const loaded = useAgentStore.getState().echoMessages.length;
             setEchoVisibleCount(loaded);

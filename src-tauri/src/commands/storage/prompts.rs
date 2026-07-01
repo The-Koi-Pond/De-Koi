@@ -67,6 +67,19 @@ pub(crate) fn delete_prompt_preset_children(state: &AppState, preset_id: &str) -
     Ok(())
 }
 
+pub(crate) fn prompt_preset_bundle(state: &AppState, preset_id: &str) -> AppResult<Value> {
+    let Some(preset) = state.storage.get("prompts", preset_id)? else {
+        return Ok(Value::Null);
+    };
+
+    Ok(json!({
+        "preset": preset,
+        "sections": list_collection(state, "prompt-sections", Some(("presetId", preset_id)))?,
+        "groups": list_collection(state, "prompt-groups", Some(("presetId", preset_id)))?,
+        "choiceBlocks": list_collection(state, "prompt-variables", Some(("presetId", preset_id)))?
+    }))
+}
+
 fn duplicate_prompt_child_collection(
     state: &AppState,
     collection: &str,

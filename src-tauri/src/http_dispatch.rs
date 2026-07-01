@@ -342,8 +342,6 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
                 optional_u32_strict(&args, "size")?,
             )
         }
-        "gif_config" => http::giphy_config(state),
-        "gif_update_config" => http::giphy_update_config(state, optional_value(&args, "body")),
         "gif_search" => gif_search(state, &args).await,
         "tts_config" => integrations::tts_call(state, "GET", &["config"], Value::Null).await,
         "tts_update_config" => {
@@ -359,9 +357,17 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "discord_webhook_send" => {
             integrations::discord_webhook_send(optional_value(&args, "body")).await
         }
-        "music_dj_status" => integrations::music_dj_status(state).await,
-        "music_dj_resolve" => integrations::music_dj_resolve(state, optional_value(&args, "input")).await,
-        "music_dj_feedback" => integrations::music_dj_feedback(state, optional_value(&args, "input")).await,
+        "music_status" => music_direct(state, "POST", &["status"], optional_value(&args, "body")).await,
+        "music_search_candidates" => {
+            music_direct(state, "POST", &["search-candidates"], optional_value(&args, "input")).await
+        }
+        "music_play" => music_direct(state, "POST", &["play"], optional_value(&args, "body")).await,
+        "music_pause" => music_direct(state, "POST", &["pause"], optional_value(&args, "body")).await,
+        "music_stop" => music_direct(state, "POST", &["stop"], optional_value(&args, "body")).await,
+        "music_set_volume" => music_direct(state, "POST", &["volume"], optional_value(&args, "body")).await,
+        "music_fresh_pick" => {
+            music_direct(state, "POST", &["fresh-pick"], optional_value(&args, "input")).await
+        }
         "spotify_status" => {
             spotify_direct(state, "POST", &["status"], optional_value(&args, "body")).await
         }
@@ -596,6 +602,10 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         }
         "storage_get" => {
             dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_get).await
+        }
+        "prompt_preset_bundle" => {
+            dispatch_blocking_http_storage(state, &args, http_storage_dispatch::prompt_preset_bundle)
+                .await
         }
         "storage_create" => {
             dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_create)
@@ -900,6 +910,13 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             })
             .await
         }
+        "agent_runs_list_for_chat" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                agents::list_agent_runs_for_chat(state, required_string(args, "chatId")?)
+                    .map(Value::Array)
+            })
+            .await
+        }
         "agent_echo_messages_clear" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 agents::echo_messages(state, "DELETE", required_string(args, "chatId")?)
@@ -1059,16 +1076,6 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
         "deki_prompt" | "professor_mari_prompt" => {
             deki::deki_prompt(state, optional_value(&args, "request")).await
         }
-        "deki_workspace_status" => {
-            deki::deki_workspace_status(state, optional_string(&args, "connectionId")).await
-        }
-        "deki_workspace_abort" => deki::deki_workspace_abort(state).await,
-        "deki_workspace_approve" => {
-            deki::deki_workspace_approve(state, required_string(&args, "id")?.to_string()).await
-        }
-        "deki_workspace_reject" => {
-            deki::deki_workspace_reject(state, required_string(&args, "id")?.to_string()).await
-        }
         "update_check" => updates::check_updates().await,
         "update_apply" => updates::apply_update(optional_value(&args, "input")),
         _ => Err(AppError::new(
@@ -1218,6 +1225,15 @@ async fn gif_search(state: &AppState, args: &Map<String, Value>) -> AppResult<Va
         },
     )
     .await
+}
+
+async fn music_direct(
+    state: &AppState,
+    method: &str,
+    rest: &[&str],
+    body: Value,
+) -> AppResult<Value> {
+    integrations::music_call(state, method, rest, body).await
 }
 
 async fn spotify_direct(
@@ -1418,6 +1434,7 @@ mod tests {
         "agent_memory_patch",
         "agent_patch_by_type",
         "agent_runs_clear_for_chat",
+        "agent_runs_list_for_chat",
         "agent_toggle_by_type",
         "chat_autonomous_unread_clear",
         "chat_autonomous_unread_mark",
@@ -1450,6 +1467,7 @@ mod tests {
         "storage_duplicate",
         "storage_get",
         "storage_list",
+        "prompt_preset_bundle",
         "storage_update",
         "tracker_snapshot_get",
         "tracker_snapshot_latest",
@@ -1505,6 +1523,71 @@ mod tests {
             .get("characters", id)
             .expect("characters should be readable")
             .is_some()
+    }
+
+    #[tokio::test]
+    async fn dispatch_lists_agent_runs_for_chat_with_legacy_dedupe() {
+        let state = test_state("agent-runs-list-chat");
+        for (id, row) in [
+            (
+                "current-run",
+                json!({
+                    "id": "current-run",
+                    "chatId": "chat-1",
+                    "agentConfigId": "agent-director"
+                }),
+            ),
+            (
+                "legacy-run",
+                json!({
+                    "id": "legacy-run",
+                    "chat_id": "chat-1",
+                    "agent_config_id": "agent-legacy"
+                }),
+            ),
+            (
+                "duplicate-run",
+                json!({
+                    "id": "duplicate-run",
+                    "chatId": "chat-1",
+                    "chat_id": "chat-1",
+                    "agentConfigId": "agent-duplicate"
+                }),
+            ),
+            (
+                "other-chat-run",
+                json!({
+                    "id": "other-chat-run",
+                    "chatId": "other-chat",
+                    "agentConfigId": "agent-other"
+                }),
+            ),
+        ] {
+            state
+                .storage
+                .upsert_with_id("agent-runs", id, row)
+                .expect("agent run should write");
+        }
+
+        let response = dispatch(
+            &state,
+            InvokeRequest {
+                command: "agent_runs_list_for_chat".to_string(),
+                args: Some(json!({ "chatId": "chat-1" })),
+            },
+        )
+        .await
+        .expect("chat-scoped agent runs should dispatch");
+
+        let mut ids = Vec::new();
+        for row in response.as_array().expect("response should be an array") {
+            if let Some(id) = row.get("id").and_then(Value::as_str) {
+                ids.push(id);
+            }
+        }
+        ids.sort_unstable();
+
+        assert_eq!(ids, vec!["current-run", "duplicate-run", "legacy-run"]);
     }
 
     #[tokio::test]

@@ -66,8 +66,8 @@ const agentResultTypeValues = [
   "persona_stats_update",
   "custom_tracker_update",
   "chat_summary",
-  "spotify_control",
   "music_control",
+  "spotify_control",
   "cyoa_choices",
   "secret_plot",
   "game_master_narration",
@@ -177,25 +177,18 @@ export function useAgentConfigs(enabled = true) {
 }
 
 export function useCustomAgentRuns(chatId: string | null, enabled = true) {
+  const queryClient = useQueryClient();
+
   return useQuery({
     queryKey: agentKeys.customRuns(chatId ?? ""),
     queryFn: async () => {
-      const [currentRuns, legacyRuns, configs] = await Promise.all([
-        storageApi.list<Record<string, unknown>>("agent-runs", { filters: { chatId } }),
-        storageApi.list<Record<string, unknown>>("agent-runs", { filters: { chat_id: chatId } }),
-        storageApi.list<AgentConfigRow>("agents"),
+      const cachedConfigs = queryClient.getQueryData<AgentConfigRow[]>(agentKeys.all);
+      const [runs, configs] = await Promise.all([
+        agentApi.listRunsForChat<Record<string, unknown>>(chatId as string),
+        cachedConfigs ? Promise.resolve(cachedConfigs) : storageApi.list<AgentConfigRow>("agents"),
       ]);
-      const runsById = new Map<string, Record<string, unknown>>();
-      let missingIdCount = 0;
-      for (const run of [...currentRuns, ...legacyRuns]) {
-        const id = readString(run.id);
-        runsById.set(id || `__missing_agent_run_id__:${missingIdCount++}`, run);
-      }
-      if (missingIdCount > 0) {
-        console.warn("[agents] Loaded agent run row(s) without ids.", { count: missingIdCount });
-      }
       const configsById = new Map(configs.map((config) => [config.id, config]));
-      return [...runsById.values()]
+      return runs
         .map((run) => normalizeAgentRunRow(run, configsById))
         .filter((run): run is AgentRunRow => !!run && !builtInAgentTypes.has(run.agentType));
     },

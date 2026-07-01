@@ -1,5 +1,5 @@
 use crate::state::AppState;
-use crate::storage_commands::{chats, entity_commands, game_state_snapshots, shared};
+use crate::storage_commands::{chats, entity_commands, game_state_snapshots, prompts, shared};
 use marinara_core::{AppError, AppResult};
 use serde_json::{json, Map, Value};
 
@@ -100,6 +100,10 @@ pub fn storage_get(state: &AppState, args: &Map<String, Value>) -> AppResult<Val
             .filter(|value| !value.is_null())
             .cloned(),
     )
+}
+
+pub fn prompt_preset_bundle(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+    prompts::prompt_preset_bundle(state, required_string(args, "presetId")?)
 }
 
 pub fn storage_create(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
@@ -462,6 +466,95 @@ mod tests {
             .filter_map(|row| row.get("id").and_then(Value::as_str))
             .collect();
         assert_eq!(ids, vec!["entry-a", "entry-c"]);
+    }
+
+    #[tokio::test]
+    async fn dispatch_prompt_preset_bundle_reads_preset_children_together() {
+        let state = test_state("remote-prompt-preset-bundle");
+        state
+            .storage
+            .create(
+                "prompts",
+                json!({
+                    "id": "preset-1",
+                    "name": "Preset",
+                    "sectionOrder": ["section-2", "section-1"],
+                    "groupOrder": ["group-1"],
+                    "variableOrder": ["choice-1"]
+                }),
+            )
+            .expect("prompt preset should seed");
+        state
+            .storage
+            .replace_all(
+                "prompt-sections",
+                vec![
+                    json!({ "id": "other-section", "presetId": "other-preset", "name": "Other" }),
+                    json!({ "id": "section-1", "presetId": "preset-1", "sortOrder": 20 }),
+                    json!({ "id": "section-2", "presetId": "preset-1", "sortOrder": 10 }),
+                ],
+            )
+            .expect("prompt sections should seed");
+        state
+            .storage
+            .replace_all(
+                "prompt-groups",
+                vec![
+                    json!({ "id": "group-1", "presetId": "preset-1" }),
+                    json!({ "id": "other-group", "presetId": "other-preset" }),
+                ],
+            )
+            .expect("prompt groups should seed");
+        state
+            .storage
+            .replace_all(
+                "prompt-variables",
+                vec![
+                    json!({ "id": "choice-1", "presetId": "preset-1" }),
+                    json!({ "id": "other-choice", "presetId": "other-preset" }),
+                ],
+            )
+            .expect("prompt variables should seed");
+
+        let result = dispatch(
+            &state,
+            InvokeRequest {
+                command: "prompt_preset_bundle".to_string(),
+                args: Some(json!({ "presetId": "preset-1" })),
+            },
+        )
+        .await
+        .expect("remote prompt preset bundle should dispatch");
+
+        assert_eq!(result["preset"]["id"], json!("preset-1"));
+        assert_eq!(
+            result["sections"]
+                .as_array()
+                .expect("sections should be an array")
+                .iter()
+                .filter_map(|row| row.get("id").and_then(Value::as_str))
+                .collect::<Vec<_>>(),
+            vec!["section-2", "section-1"]
+        );
+        assert_eq!(result["groups"][0]["id"], json!("group-1"));
+        assert_eq!(result["choiceBlocks"][0]["id"], json!("choice-1"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_prompt_preset_bundle_returns_null_for_missing_preset() {
+        let state = test_state("remote-prompt-preset-bundle-missing");
+
+        let result = dispatch(
+            &state,
+            InvokeRequest {
+                command: "prompt_preset_bundle".to_string(),
+                args: Some(json!({ "presetId": "missing-preset" })),
+            },
+        )
+        .await
+        .expect("missing prompt preset bundle should dispatch");
+
+        assert!(result.is_null());
     }
 
     #[tokio::test]

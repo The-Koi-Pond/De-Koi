@@ -145,6 +145,18 @@ function normalizeStorageReadResult(entity: StorageEntity, value: unknown): unkn
   return normalizeStorageRecord(entity, value);
 }
 
+function normalizePromptPresetBundleResult(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const bundle = value as Record<string, unknown>;
+  return {
+    ...bundle,
+    preset: normalizeStorageReadResult("prompts", bundle.preset),
+    sections: normalizeStorageReadResult("prompt-sections", bundle.sections),
+    groups: normalizeStorageReadResult("prompt-groups", bundle.groups),
+    choiceBlocks: normalizeStorageReadResult("prompt-variables", bundle.choiceBlocks),
+  };
+}
+
 function messageExtraRecord(value: unknown): Record<string, unknown> {
   if (value === undefined || value === null) return {};
   if (typeof value === "string") {
@@ -523,16 +535,12 @@ export const storageApi: StorageGateway = {
       never[]
     >,
   knowledgeSourceText: <T = unknown>(id: string) => invokeTauri<T>("knowledge_source_text", { id }),
-  promptFull: async (presetId) => {
-    const preset = await storageApi.get<Record<string, unknown>>("prompts", presetId);
-    if (!preset) return null;
-    const [sections, groups, choiceBlocks] = await Promise.all([
-      storageApi.list("prompt-sections", { filters: { presetId } }),
-      storageApi.list("prompt-groups", { filters: { presetId } }),
-      storageApi.list("prompt-variables", { filters: { presetId } }),
-    ]);
-    return { preset, sections, groups, choiceBlocks } as never;
-  },
+  promptFull: async (presetId) =>
+    normalizePromptPresetBundleResult(
+      await invokeTauri("prompt_preset_bundle", {
+        presetId,
+      }),
+    ) as never,
 };
 
 export const chatTranscriptStorageApi: ChatTranscriptPort = {
